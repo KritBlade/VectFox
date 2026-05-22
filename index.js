@@ -12,7 +12,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import sanitize from 'sanitize-filename';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
@@ -559,11 +559,17 @@ export async function init(router) {
             if (backend === 'qdrant') {
                 return res.status(400).json({ error: 'Qdrant collections are stored remotely' });
             } else {
-                const effectiveSource = source || 'transformers';
-                folderPath = path.join(vectorsPath, effectiveSource, collectionId);
+                const effectiveSource = sanitize(source || 'transformers');
+                folderPath = path.join(vectorsPath, effectiveSource, sanitize(collectionId));
             }
 
             folderPath = path.resolve(folderPath);
+
+            // Prevent path traversal outside the vectors directory.
+            const resolvedVectorsPath = path.resolve(vectorsPath);
+            if (!folderPath.startsWith(resolvedVectorsPath + path.sep) && folderPath !== resolvedVectorsPath) {
+                return res.status(400).json({ error: 'Invalid collection path' });
+            }
 
             try {
                 await fs.access(folderPath);
@@ -571,12 +577,13 @@ export async function init(router) {
                 return res.status(404).json({ error: `Folder not found: ${folderPath}` });
             }
 
+            // Use spawn (no shell) to avoid shell injection via folderPath.
             const platform = process.platform;
-            const cmd = platform === 'win32' ? `start "" "${folderPath}"`
-                : platform === 'darwin' ? `open "${folderPath}"`
-                : `xdg-open "${folderPath}"`;
+            const [bin, ...args] = platform === 'win32' ? ['explorer.exe', folderPath]
+                : platform === 'darwin' ? ['open', folderPath]
+                : ['xdg-open', folderPath];
 
-            exec(cmd, { shell: true });
+            spawn(bin, args, { shell: false, detached: true, stdio: 'ignore' }).unref();
             res.json({ success: true, path: folderPath });
 
         } catch (error) {
