@@ -12,7 +12,6 @@
 
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { exec } from 'node:child_process';
 import sanitize from 'sanitize-filename';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
@@ -539,50 +538,6 @@ export async function init(router) {
      */
     router.get('/version', (req, res) => {
         res.json({ pluginVersion });
-    });
-
-    /**
-     * POST /api/plugins/similharity/open-folder
-     * Opens collection folder in file explorer
-     */
-    router.post('/open-folder', async (req, res) => {
-        try {
-            const { collectionId, backend, source } = req.body;
-
-            if (!collectionId || !backend) {
-                return res.status(400).json({ error: 'collectionId and backend are required' });
-            }
-
-            const vectorsPath = req.user.directories.vectors;
-            let folderPath;
-
-            if (backend === 'qdrant') {
-                return res.status(400).json({ error: 'Qdrant collections are stored remotely' });
-            } else {
-                const effectiveSource = source || 'transformers';
-                folderPath = path.join(vectorsPath, effectiveSource, collectionId);
-            }
-
-            folderPath = path.resolve(folderPath);
-
-            try {
-                await fs.access(folderPath);
-            } catch {
-                return res.status(404).json({ error: `Folder not found: ${folderPath}` });
-            }
-
-            const platform = process.platform;
-            const cmd = platform === 'win32' ? `start "" "${folderPath}"`
-                : platform === 'darwin' ? `open "${folderPath}"`
-                : `xdg-open "${folderPath}"`;
-
-            exec(cmd, { shell: true });
-            res.json({ success: true, path: folderPath });
-
-        } catch (error) {
-            console.error(`[${pluginName}] open-folder error:`, error);
-            res.status(500).json({ error: error.message });
-        }
     });
 
     /**
