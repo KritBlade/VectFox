@@ -702,17 +702,15 @@ class QdrantBackend {
                 });
             }
 
-            // Build search payload
+            // Build search payload — _buildFilterExcludingSentinel keeps the
+            // sentinel-exclusion rule consistent with every other read path
+            // (listItems, getSavedHashes, _buildHybridFilter).
             const searchPayload = {
                 vector: queryVector,
                 limit: topK,
                 with_payload: true,
+                filter: this._buildFilterExcludingSentinel(must),
             };
-
-            // Add filters if any
-            if (must.length > 0) {
-                searchPayload.filter = { must };
-            }
 
             // Search
             const response = await this._request('POST', `/collections/${mainCollection}/points/search`, searchPayload);
@@ -732,8 +730,40 @@ class QdrantBackend {
 
 
     /**
+     * Canonical sentinel-exclusion filter builder.
+     *
+     * Every read path that touches points-search or points-scroll MUST exclude
+     * the per-collection sentinel point (which carries the CJK tokenizer mode
+     * and other VectFox metadata, see {@link setCollectionMetadata}). Without
+     * this exclusion the sentinel surfaces as a phantom result with
+     * vectorScore=0 in every query — wasting a topK slot and polluting
+     * downstream pipelines.
+     *
+     * Use this helper anywhere you build a Qdrant filter for a read path:
+     *   - {@link queryCollection}
+     *   - {@link listItems}
+     *   - {@link getSavedHashes}
+     *   - {@link _buildHybridFilter} (extends this base with should/min_should)
+     *
+     * If the sentinel marker convention ever changes (extra payload key,
+     * different `type` value, etc.), update this method and every read path
+     * stays consistent automatically. This consolidation was added 2026-05-23
+     * after queryCollection and getSavedHashes were both found to be missing
+     * the exclusion — the bug surfaced one phantom row per query for an
+     * extended period until TEST 013 caught it.
+     *
+     * @private
+     * @param {Array} must - Additional `must` clauses (tenant filters, etc.)
+     * @returns {object} Qdrant filter object with sentinel exclusion always in `must_not`
+     */
+    _buildFilterExcludingSentinel(must = []) {
+        const must_not = [{ key: 'type', match: { value: SENTINEL_POINT_TYPE } }];
+        return must.length > 0 ? { must, must_not } : { must_not };
+    }
+
+    /**
      * Build a Qdrant filter object from VectFox's filter shape. Shared by all hybrid paths.
-     * Always excludes the VectFox sentinel point.
+     * Always excludes the VectFox sentinel point via {@link _buildFilterExcludingSentinel}.
      * Returns `null` when there are no must clauses (only sentinel exclusion stays).
      * @private
      * @returns {object|null}
@@ -773,12 +803,8 @@ class QdrantBackend {
             must.push({ key: 'importance', range: { gte: filters.importance_gte } });
         }
 
-        // Always exclude the sentinel metadata point.
-        const must_not = [{ key: 'type', match: { value: SENTINEL_POINT_TYPE } }];
-
-        const out = {};
-        if (must.length > 0) out.must = must;
-        out.must_not = must_not;
+        // Base filter with sentinel exclusion + any must clauses we've collected.
+        const out = this._buildFilterExcludingSentinel(must);
         if (should.length > 0) {
             // Tenant fields (type, sourceId, content_type) don't count as hard constraints.
             const hasHardConstraint = must.some(c =>
@@ -1099,10 +1125,11 @@ class QdrantBackend {
                 });
             }
 
-            // Always exclude the VectFox sentinel metadata point — it has no `hash` field,
-            // and surfacing it in chunk listings breaks delete-by-hash flows (chunk.hash is
-            // undefined → Qdrant rejects the delete with 400 PointsSelector format error).
-            const must_not = [{ key: 'type', match: { value: SENTINEL_POINT_TYPE } }];
+            // Sentinel exclusion is centralized in _buildFilterExcludingSentinel —
+            // surfacing the sentinel in chunk listings breaks delete-by-hash flows
+            // (chunk.hash is undefined → Qdrant rejects the delete with 400
+            // PointsSelector format error).
+            const filter = this._buildFilterExcludingSentinel(must);
 
             // Scroll through all points
             const items = [];
@@ -1118,13 +1145,12 @@ class QdrantBackend {
                     limit: scrollLimit,
                     with_payload: true,
                     with_vector: options.includeVectors || false,
+                    filter,
                 };
 
                 if (offset !== null) {
                     scrollPayload.offset = offset;
                 }
-
-                scrollPayload.filter = must.length > 0 ? { must, must_not } : { must_not };
 
                 const response = await this._request('POST', `/collections/${mainCollection}/points/scroll`, scrollPayload);
 
@@ -1180,7 +1206,11 @@ class QdrantBackend {
                 });
             }
 
-            // Scroll through all points to get hashes
+            // Scroll through all points to get hashes. Sentinel exclusion is
+            // centralized in _buildFilterExcludingSentinel — sentinel has no
+            // `hash` field, so without the exclusion this list would contain
+            // `undefined` entries that confuse exists/delete-by-hash callers.
+            const filter = this._buildFilterExcludingSentinel(must);
             const hashes = [];
             let offset = null;
 
@@ -1189,15 +1219,11 @@ class QdrantBackend {
                     limit: 100,
                     with_payload: { include: ['hash'] },
                     with_vector: false,
+                    filter,
                 };
 
                 if (offset !== null) {
                     scrollPayload.offset = offset;
-                }
-
-                // Add filters if any
-                if (must.length > 0) {
-                    scrollPayload.filter = { must };
                 }
 
                 const response = await this._request('POST', `/collections/${mainCollection}/points/scroll`, scrollPayload);
