@@ -7,7 +7,43 @@
  * All chunk operations go through unified /chunks/* endpoints.
  * Backend is specified via `backend` parameter in request body.
  *
- * @version 3.3.0
+ * ─────────────────────────────────────────────────────────────────────────
+ * DEPLOYMENT SCOPE — INTENDED FOR LOCAL / LAN USE ONLY
+ * ─────────────────────────────────────────────────────────────────────────
+ * This plugin is designed for a single-user SillyTavern installation on
+ * the user's own machine (or a private LAN). It is NOT designed for:
+ *   - Public-internet exposure
+ *   - Multi-tenant deployments (shared by untrusted users)
+ *   - Hostile-input environments where the user does not control the
+ *     embedding-server URLs configured in VectFox settings
+ *
+ * Several routes accept user-configured URLs (`apiUrl`, `qdrant_host`,
+ * `bananabread_url`, `ollama_url`, `vllm_url`) and `fetch()` them
+ * server-side without host allowlisting or private-IP rejection. This is
+ * INTENTIONAL — those URLs are user-configured for a reason (Ollama on
+ * `127.0.0.1`, vLLM on `10.0.1.50`, etc.).
+ *
+ * Plugin-level SSRF defense would be security theater here. The real
+ * trust boundary is the network: anyone on the same LAN who can reach
+ * the qdrant port directly can send arbitrary commands whether or not
+ * the plugin allowlists URLs. The bigger picture is that this whole
+ * project — VectFox + Similharity — is designed for PERSONAL USE, not
+ * multi-user. Even Qdrant's open-source build ships without per-user
+ * auth by default; the multi-user story requires Role-Based Access
+ * Control (RBAC), which is way overkill for someone just trying to
+ * run a SillyTavern RAG on their own PC or closed LAN. Requiring it
+ * would defeat the "runs out of the box" point of this project. Both
+ * decisions (plugin URL openness + no required Qdrant RBAC) are
+ * intentional and aligned with the personal/LAN scope. If you deploy
+ * in an environment where the network boundary doesn't hold, you need
+ * BOTH layers (RBAC + plugin allowlisting) — and you'll need to bolt
+ * them on yourself.
+ *
+ * Documented 2026-05-24 in response to external code review (H-4) —
+ * see VectFox/plans/review-fix.md §H-4 for the threat-model reasoning.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * @version 3.3.1
  */
 
 import path from 'node:path';

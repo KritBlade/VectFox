@@ -4,6 +4,8 @@
 
 Server-side plugin for [the VectFox](https://github.com/KritBlade/VectFox) extension that provides enhanced vector database backends and full metadata storage capabilities.
 
+> **Deployment scope — local / LAN use only.** This plugin is designed for a single-user SillyTavern install on the user's own machine (or a private LAN). The plugin's `/chunks/*` and embedding routes relay user-configured URLs (Ollama, vLLM, BananaBread, Qdrant) without host allowlisting — this is intentional, because those URLs are legitimately set to `127.0.0.1` / RFC1918 addresses for self-hosted servers. Do **not** expose this plugin to the public internet or use it in a multi-tenant deployment where users don't trust each other. SillyTavern itself isn't designed for multi-tenant isolation; this plugin matches that scope. See header in `index.js` for the full threat-model rationale.
+
 ---
 
 ## Features
