@@ -805,11 +805,45 @@ async function getVectorsForSource(source, texts, model, directories, req) {
         }
     }
 
-    // API-based sources: run in parallel — each call is a network request and parallelism
-    // reduces total wall-clock time from N×T to ~T (limited by remote server, not local GPU).
-    // Local GPU sources (transformers, ollama, llamacpp, koboldcpp) serialize internally, so
-    // parallel JS calls would queue on the model anyway — keep them sequential to avoid OOM.
-    const parallelSources = new Set(['openai', 'togetherai', 'mistral', 'electronhub', 'openrouter', 'nomicai', 'cohere']);
+    // API-based sources fall into two groups:
+    //
+    // 1. OpenAI-compatible (openai/openrouter/togetherai/mistral/electronhub):
+    //    the /embeddings endpoint accepts `input` as an array of strings and
+    //    returns N vectors in ONE request. ST's getOpenAIBatchVector already
+    //    wraps this. Use it — one batched request is dramatically faster than
+    //    N parallel single-input requests because providers rate-limit per
+    //    request (not per input), and the embedding model runs once on a
+    //    padded batch internally (~free for moderate sizes). Empirical: 8
+    //    embeddings via parallel single-input ≈ 22s wall; same 8 via one
+    //    batched call ≈ 3-5s. Benefits both vectra and qdrant backends.
+    //
+    // 2. Other API providers (nomicai, cohere): no shared batch-endpoint
+    //    wrapper available, so fall through to parallel single-input via
+    //    Promise.all. Wall-time savings vs. fully serial, but no rate-limit
+    //    consolidation.
+    //
+    // Local GPU sources (transformers, ollama, llamacpp, koboldcpp) serialize
+    // on the model, so parallel JS calls just queue. Default branch below
+    // keeps them sequential to avoid OOM.
+    const openaiCompatible = new Set(['openai', 'openrouter', 'togetherai', 'mistral', 'electronhub']);
+    if (openaiCompatible.has(source)) {
+        const { getOpenAIBatchVector } = await import('../../src/vectors/openai-vectors.js');
+        // ElectronHub requires a model name; mirror the _getLegacySingleEmbedding default
+        const effectiveModel = (source === 'electronhub' && !model) ? 'text-embedding-ada-002' : model;
+        // Conservative cap — OpenAI's /embeddings allows arrays up to 2048
+        // entries, but staying at 100 keeps any single request small enough
+        // that timeouts/retries don't waste much work.
+        const BATCH_SIZE = 100;
+        const results = [];
+        for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+            const slice = texts.slice(i, i + BATCH_SIZE);
+            const vectors = await getOpenAIBatchVector(slice, source, directories, effectiveModel);
+            results.push(...vectors);
+        }
+        return results;
+    }
+
+    const parallelSources = new Set(['nomicai', 'cohere']);
     if (parallelSources.has(source)) {
         return await Promise.all(texts.map(text => _getLegacySingleEmbedding(source, text, model, directories, req)));
     }
