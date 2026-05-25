@@ -56,6 +56,57 @@ import { DEFAULT_STOP_WORD_SET } from './stop-words.js';
 const pluginName = 'similharity';
 const pluginVersion = '3.3.1';
 
+// ─── ST secret_state bridge (server-side API key resolution) ─────────────────
+// The qdrant_api_key migration (2026-05-26) moved the key out of VectFox's
+// plaintext settings.json and into ST's secret_state under slot name
+// 'api_key_qdrant' (a custom slot — not in ST's SECRET_KEYS enum, but
+// writeSecret/readSecret accept any string key and getSecretState's enum
+// filter is only on the read-to-client path, not the file-based readSecret).
+//
+// Client-side `secret_state.api_key_qdrant` is undefined because
+// ST's getSecretState only surfaces enum-known slots. So:
+//   - VectFox UI presence indicator → GET /qdrant/key-status (defined below)
+//   - VectFox qdrant.js sends `apiKey: null` in /backend/init/qdrant → plugin
+//     resolves the real key here via readSecret(req.user.directories, ...)
+//
+// Import is wrapped in try/catch because the relative path to ST's secrets
+// module is fragile across ST versions / install layouts. If the import
+// fails, the plugin gracefully falls back to whatever apiKey the client
+// passes — meaning pre-migration clients still work, post-migration clients
+// would fail with an auth error pointing them to update VectFox.
+let _stReadSecret = null;
+try {
+    const secretsMod = await import('../../src/endpoints/secrets.js');
+    _stReadSecret = secretsMod.readSecret;
+    console.log(`[${pluginName}] ST secrets bridge: readSecret imported, api_key_qdrant lookup enabled`);
+} catch (err) {
+    console.warn(`[${pluginName}] ST secrets bridge: import failed — server-side api_key_qdrant lookup disabled. Clients still pass apiKey directly. Reason:`, err?.message || err);
+}
+
+/**
+ * Read the migrated Qdrant API key from ST's secret_state.
+ * Returns '' if not set or if the ST secrets bridge couldn't be imported.
+ */
+function _readQdrantApiKey(req) {
+    if (!_stReadSecret) return '';
+    try {
+        return _stReadSecret(req.user.directories, 'api_key_qdrant', null) || '';
+    } catch (err) {
+        console.warn(`[${pluginName}] readSecret(api_key_qdrant) failed:`, err?.message || err);
+        return '';
+    }
+}
+
+/**
+ * Mask an API key for safe client-side display. Mirrors the masking pattern
+ * ST uses for non-EXPORTABLE secrets — last 4 chars visible, rest stars.
+ */
+function _maskApiKey(key) {
+    if (!key || typeof key !== 'string') return '';
+    if (key.length <= 4) return '*'.repeat(key.length);
+    return '*'.repeat(Math.min(key.length - 4, 8)) + key.slice(-4);
+}
+
 // ─── CJK-aware query keyword extractor ───────────────────────────────────────
 
 const _STOP_WORDS = DEFAULT_STOP_WORD_SET;
@@ -695,13 +746,38 @@ export async function init(router) {
     });
 
     /**
+     * GET /api/plugins/similharity/qdrant/key-status
+     *
+     * Presence indicator for the Qdrant API key in ST's secret_state slot
+     * `api_key_qdrant`. The slot name is custom (not in ST's SECRET_KEYS
+     * enum), so client-side `secret_state.api_key_qdrant` is always
+     * undefined — VectFox's UI calls this endpoint to render the
+     * "Key saved: *****xyz" placeholder. Real key value never leaves the
+     * server; only the masked last-4 suffix is returned.
+     *
+     * Response: { set: boolean, masked: string }
+     */
+    router.get('/qdrant/key-status', async (req, res) => {
+        try {
+            const apiKey = _readQdrantApiKey(req);
+            if (!apiKey) {
+                return res.json({ set: false, masked: '' });
+            }
+            return res.json({ set: true, masked: _maskApiKey(apiKey) });
+        } catch (error) {
+            console.error(`[${pluginName}] /qdrant/key-status error:`, error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
      * POST /api/plugins/similharity/backend/init/:backend
      * Initialize specific backend
      */
     router.post('/backend/init/:backend', async (req, res) => {
         try {
             const { backend } = req.params;
-            const config = req.body;
+            let config = req.body;
 
             switch (backend) {
                 case 'vectra':
@@ -710,6 +786,17 @@ export async function init(router) {
                     break;
 
                 case 'qdrant':
+                    // Post-2026-05-26 migration: VectFox client sends apiKey:null
+                    // for cloud mode and relies on the plugin to resolve the
+                    // real key from ST's secret_state slot api_key_qdrant.
+                    // Pre-migration clients still pass apiKey directly — that
+                    // takes precedence, no behavior change for them.
+                    if (config && config.apiKey == null && config.url) {
+                        const serverKey = _readQdrantApiKey(req);
+                        if (serverKey) {
+                            config = { ...config, apiKey: serverKey };
+                        }
+                    }
                     await qdrantBackend.initialize(config);
                     res.json({ success: true, message: 'Qdrant initialized' });
                     break;
