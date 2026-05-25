@@ -19,5 +19,7 @@
     "similarity"
   ],
   "dependencies": {
+    "sanitize-filename": "^1.6.3",
+    "vectra": "^0.2.2"
   }
 }
