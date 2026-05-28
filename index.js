@@ -1420,17 +1420,21 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 return res.status(400).json({ error: 'queryVector or searchText is required' });
             }
 
+            const debug = !!(req.body?.eventbaseDebug || req.body?.options?.eventbaseDebug || req.body?.hybridOptions?.eventbaseDebug);
+
             // Get query vector if not provided
             let vector = queryVector;
             if (!vector && searchText) {
-                vector = await getEmbeddingForSource(source, searchText, model, req.user.directories, req);
+                vector = await getEmbeddingForSourceTimed(source, searchText, model, req.user.directories, req, { debug, label: 'chunks/query' });
             }
 
             const handler = getBackendHandler(backend);
+            const tQuery = Date.now();
             const results = await handler.query(collectionId, vector, topK, threshold, source, model, req.user.directories, {
                 includeVectors,
                 filters
             });
+            if (debug) console.log(`[similharity query] chunks/query: ${backend} query took ${Date.now() - tQuery}ms, results=${results.length}`);
 
             res.json({
                 success: true,
@@ -1480,14 +1484,16 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 return res.status(400).json({ error: 'sparseQueryVector is required (collection must be sparse-enabled; run the migration tool first)' });
             }
 
+            const mergedOptions = { ...hybridOptions, ...options };
+            const debug = !!mergedOptions.eventbaseDebug;
+
             // Generate embedding if searchText provided.
             let vector = queryVector;
             if (!vector && searchText) {
-                vector = await getEmbeddingForSource(source, searchText, model, req.user.directories, req);
+                vector = await getEmbeddingForSourceTimed(source, searchText, model, req.user.directories, req, { debug, label: 'chunks/hybrid-query' });
             }
 
-            const mergedOptions = { ...hybridOptions, ...options };
-            const debug = !!mergedOptions.eventbaseDebug;
+            const tQuery = Date.now();
             const results = await qdrantBackend.hybridQueryNative(
                 collectionId,
                 vector,
@@ -1501,6 +1507,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 },
                 filters,
             );
+            if (debug) console.log(`[similharity query] chunks/hybrid-query: qdrant query took ${Date.now() - tQuery}ms, results=${results.length}`);
 
             return res.json({
                 success: true,
@@ -1575,14 +1582,16 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 });
             }
 
+            const mergedOptions = { ...hybridOptions, ...options };
+            const debug = !!mergedOptions.eventbaseDebug;
+
             // Generate dense embedding if searchText provided.
             let vector = queryVector;
             if (!vector && searchText) {
-                vector = await getEmbeddingForSource(source, searchText, model, req.user.directories, req);
+                vector = await getEmbeddingForSourceTimed(source, searchText, model, req.user.directories, req, { debug, label: 'chunks/hybrid-query-rerank' });
             }
 
-            const mergedOptions = { ...hybridOptions, ...options };
-            const debug = !!mergedOptions.eventbaseDebug;
+            const tQuery = Date.now();
             const results = await qdrantBackend.hybridQueryNativeWithRerank(
                 collectionId,
                 vector,
@@ -1596,6 +1605,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 },
                 filters,
             );
+            if (debug) console.log(`[similharity query] chunks/hybrid-query-rerank: qdrant query took ${Date.now() - tQuery}ms, results=${results.length}`);
 
             return res.json({
                 success: true,
@@ -1809,6 +1819,38 @@ async function getIndex(directories, collectionId, source, model) {
     }
 
     return store;
+}
+
+/**
+ * Times getEmbeddingForSource so the embedding step is attributable separately
+ * from the Qdrant query. A query request does embed-then-query in sequence; when
+ * the whole request stalls (e.g. a gateway 504), this lets the server log reveal
+ * whether the embedding provider — not Qdrant — was the bottleneck.
+ *
+ * On a gateway timeout the Node process keeps running this call, so the
+ * success/failure line still lands in the server log once the provider resolves
+ * or rejects. Success timing is gated by `debug` (the "Debug Qdrant backend"
+ * checkbox → eventbaseDebug); failures are always logged since they are the
+ * smoking gun and are not noisy.
+ *
+ * @param {boolean} debug - gate for the success-timing line
+ * @param {string} label - endpoint label included in the log line
+ */
+async function getEmbeddingForSourceTimed(source, text, model, directories, req, { debug = false, label = 'query' } = {}) {
+    const t0 = Date.now();
+    try {
+        const vector = await getEmbeddingForSource(source, text, model, directories, req);
+        if (debug) {
+            const ms = Date.now() - t0;
+            const dim = Array.isArray(vector) ? vector.length : '?';
+            console.log(`[similharity embed] ${label}: source=${source}, model=${model || '(default)'}, chars=${(text || '').length} → dim=${dim} in ${ms}ms`);
+        }
+        return vector;
+    } catch (err) {
+        const ms = Date.now() - t0;
+        console.error(`[similharity embed] ${label}: source=${source}, model=${model || '(default)'} FAILED after ${ms}ms — embedding provider error (NOT Qdrant): ${err.message}`);
+        throw err;
+    }
 }
 
 /**
