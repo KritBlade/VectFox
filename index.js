@@ -111,8 +111,22 @@ function _maskApiKey(key) {
 
 const _STOP_WORDS = DEFAULT_STOP_WORD_SET;
 
-// Matches CJK ideographs + Kana + Hangul spans.
-const _CJK_SPAN_RE = /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]+/g;
+// Matches script spans requiring segmentation (no inter-word spaces).
+const _CJK_SPAN_RE = /[㐀-鿿豈-﫿぀-ヿ가-힯฀-๿຀-໿က-႟ក-៿]+/g;
+
+// Maps Unicode range to BCP-47 locale for Intl.Segmenter. Add new scripts here.
+const _SCRIPT_LOCALE_MAP = [
+    [/[぀-ゟ゠-ヿ]/, 'ja'],  // Japanese Kana
+    [/[가-힯]/, 'ko'],                  // Korean Hangul
+    [/[฀-๿]/, 'th'],                  // Thai
+    [/[຀-໿]/, 'lo'],                  // Lao
+    [/[က-႟]/, 'my'],                  // Myanmar
+    [/[ក-៿]/, 'km'],                  // Khmer
+    [/[㐀-鿿豈-﫿]/, 'zh'],  // CJK Han
+];
+function _localeForSpan(span) {
+    return _SCRIPT_LOCALE_MAP.find(([re]) => re.test(span))?.[1] ?? 'und';
+}
 
 /**
  * Extract search keywords from a mixed Latin/CJK query string.
@@ -148,7 +162,7 @@ function extractQueryKeywords(searchText, maxKeywords = 50) {
 
             if (typeof Intl !== 'undefined' && Intl.Segmenter) {
                 try {
-                    const seg = new Intl.Segmenter('zh', { granularity: 'word' });
+                    const seg = new Intl.Segmenter(_localeForSpan(span), { granularity: 'word' });
                     const segs = Array.from(seg.segment(span));
                     const multiChar = segs.filter(s => s.isWordLike && s.segment.length >= 2);
                     if (multiChar.length > 0) {
@@ -172,7 +186,7 @@ function extractQueryKeywords(searchText, maxKeywords = 50) {
             }
         }
 
-        const latinMatches = sourceText.match(/[a-z][a-z0-9'_-]{2,}/g) || [];
+        const latinMatches = sourceText.match(/\p{L}[\p{L}\d'_-]{2,}/gu) || [];
         for (const tok of latinMatches) {
             if (!_STOP_WORDS.has(tok)) {
                 latinFreq.set(tok, (latinFreq.get(tok) || 0) + 1);
