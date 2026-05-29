@@ -805,18 +805,11 @@ class QdrantBackend {
 
         // Base filter with sentinel exclusion + any must clauses we've collected.
         const out = this._buildFilterExcludingSentinel(must);
+        // *_any fields (concepts, characters, locations, etc.) are always soft boosts — never
+        // hard filters. Using min_should would silently exclude events whose metadata wasn't
+        // tagged with the exact term, causing false negatives. Soft should only lifts scores.
         if (should.length > 0) {
-            // Tenant fields (type, sourceId, content_type) don't count as hard constraints.
-            const hasHardConstraint = must.some(c =>
-                c.key !== 'type' && c.key !== 'sourceId' && c.key !== 'content_type');
-            if (hasHardConstraint) {
-                // Hard constraint already qualifies candidates; treat *_any as soft boosts.
-                out.should = should;
-            } else {
-                // No hard constraint — require at least one *_any condition to match.
-                // min_should.conditions holds the clause list; min_count is the threshold.
-                out.min_should = { conditions: should, min_count: 1 };
-            }
+            out.should = should;
         }
         return out;
     }
