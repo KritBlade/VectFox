@@ -41,6 +41,45 @@ const MULTITENANCY_COLLECTION = 'vectfox_main';
  */
 class QdrantBackend {
     constructor() {
+        // LIFECYCLE INSTRUMENTATION (2026-05-30 — added to diagnose "Qdrant not
+        // initialized" errors that appeared mid-run when the plugin had
+        // previously been initialized successfully. The most plausible cause
+        // is that something is replacing or clearing the instance state after
+        // initialize() succeeds. To find that "something", we need:
+        //   1. A unique per-instance ID so we know if the singleton got
+        //      reconstructed (which would explain "baseUrl is null")
+        //   2. A property trap on baseUrl that logs every write — particularly
+        //      any write-to-null after it was set — with a stack trace so we
+        //      can see which code path is responsible
+        //   3. Failure-site context (instanceId, config snapshot) at the
+        //      throw site so we can correlate it with the lifecycle log
+        // Grep keywords in sillytavern.log:
+        //   "Qdrant LIFECYCLE"   — all lifecycle events
+        //   "baseUrl CLEARED"    — the specific moment state was lost
+        //   "Qdrant not initialized — instanceId" — failure context
+        // This is pure observability. Behavior is unchanged.
+        this._instanceId = `qb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        this._initCount = 0;   // bumps each time initialize() succeeds
+
+        // Property trap on baseUrl. Logs:
+        //   - Any write that clears a previously-set value (root-cause smoking gun)
+        //   - The initial set during initialize() (proves init happened)
+        let _baseUrl = null;
+        Object.defineProperty(this, 'baseUrl', {
+            enumerable: true,
+            configurable: true,
+            get() { return _baseUrl; },
+            set(v) {
+                if (_baseUrl != null && (v == null || v === '')) {
+                    // The bug we're hunting: state went from set to unset.
+                    console.error(`[Qdrant LIFECYCLE] baseUrl CLEARED — was "${_baseUrl}", set to "${v}". instanceId=${this._instanceId}. Stack:\n${new Error('baseUrl cleared').stack}`);
+                } else if (_baseUrl == null && v != null) {
+                    console.log(`[Qdrant LIFECYCLE] baseUrl set to "${v}". instanceId=${this._instanceId}`);
+                }
+                _baseUrl = v;
+            },
+        });
+
         this.baseUrl = null;
         this.apiKey = null;
         this.config = {
@@ -52,6 +91,8 @@ class QdrantBackend {
         // Cached Qdrant server version (e.g. "1.15.0"). Probed once at initialize().
         // null = unknown (probe failed or not yet attempted).
         this.serverVersion = null;
+
+        console.log(`[Qdrant LIFECYCLE] QdrantBackend constructed. instanceId=${this._instanceId}`);
     }
 
     /**
@@ -176,7 +217,49 @@ class QdrantBackend {
 
                 // Some endpoints return empty response
                 const text = await response.text();
-                return text ? JSON.parse(text) : null;
+                if (!text) return null;
+                try {
+                    return JSON.parse(text);
+                } catch (parseErr) {
+                    // OBSERVABILITY: capture enough state to diagnose WHY the
+                    // response failed to parse. The three plausible causes are:
+                    //   (a) network blip cut the response mid-stream — receivedBytes
+                    //       will be less than declaredContentLength
+                    //   (b) chunked transfer with a missing chunk — Content-Length
+                    //       will be absent, transfer-encoding will be "chunked",
+                    //       and the body will end mid-token
+                    //   (c) something else entirely — both bytes will match but
+                    //       the JSON itself will be malformed (rare Qdrant bug)
+                    // Grep `sillytavern.log` for "QDRANT_PARSE_TRUNCATION" to find
+                    // each occurrence. The control flow below is identical to the
+                    // pre-instrumentation version (rethrow parseErr); the only
+                    // change is one console.error block. Production safe.
+                    const headers = {};
+                    if (response.headers && typeof response.headers.forEach === 'function') {
+                        response.headers.forEach((v, k) => { headers[k] = v; });
+                    }
+                    const receivedBytes = text.length;
+                    const declaredContentLength = headers['content-length'] != null
+                        ? Number(headers['content-length'])
+                        : null;
+                    const truncationDelta = declaredContentLength != null
+                        ? declaredContentLength - receivedBytes
+                        : null;
+                    console.error('[Qdrant] QDRANT_PARSE_TRUNCATION', JSON.stringify({
+                        endpoint: `${method} ${endpoint}`,
+                        httpStatus: response.status,
+                        parseError: parseErr.message,
+                        receivedBytes,
+                        declaredContentLength,
+                        truncationDelta,
+                        transferEncoding: headers['transfer-encoding'] || null,
+                        connection: headers['connection'] || null,
+                        contentType: headers['content-type'] || null,
+                        bodyPrefix: text.slice(0, 200),
+                        bodySuffix: text.slice(-200),
+                    }));
+                    throw parseErr;
+                }
 
             } catch (error) {
                 lastError = error;
@@ -229,7 +312,8 @@ class QdrantBackend {
         // Test connection
         try {
             await this._request('GET', '/collections');
-            console.log('[Qdrant] Connection successful');
+            this._initCount++;
+            console.log(`[Qdrant] Connection successful. [LIFECYCLE] instanceId=${this._instanceId}, initCount=${this._initCount}`);
         } catch (error) {
             console.error('[Qdrant] Connection failed:', error.message);
             throw error;
@@ -481,7 +565,7 @@ class QdrantBackend {
      */
     async insertVectors(collectionName, items, tenantMetadata = {}, opts = {}) {
         const { nativeSparse = false, cjkTokenizerMode = null } = opts;
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         if (items.length === 0) return;
 
         // MULTITENANCY: Always use vectfox_main collection
@@ -637,7 +721,7 @@ class QdrantBackend {
      * @returns {Promise<Array>} Results with {hash, text, score, metadata}
      */
     async queryCollection(collectionName, queryVector, topK = 10, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
@@ -832,7 +916,7 @@ class QdrantBackend {
      * @returns {Promise<Array<{hash, text, score, metadata}>>}
      */
     async hybridQueryNative(collectionName, denseVector, sparseVector, topK = 10, options = {}, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         collectionName = this._parseCollectionName(collectionName);
 
         const fusion = options.fusion || 'rrf';
@@ -927,7 +1011,7 @@ class QdrantBackend {
      * @returns {Promise<Array<{hash,text,score,metadata,formulaScore,fusionMethod,nativeSparse,rerankApplied}>>}
      */
     async hybridQueryNativeWithRerank(collectionName, denseVector, sparseVector, topK = 16, rerankParams = {}, options = {}, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         collectionName = this._parseCollectionName(collectionName);
 
         const {
@@ -1089,7 +1173,7 @@ class QdrantBackend {
      * @returns {Promise<Array>} Array of items with {hash, text, metadata, vector?}
      */
     async listItems(collectionName, filters = {}, options = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         // MULTITENANCY: Always use vectfox_main collection
         collectionName = this._parseCollectionName(collectionName);
@@ -1171,7 +1255,7 @@ class QdrantBackend {
      * @returns {Promise<number[]>} Array of hashes
      */
     async getSavedHashes(collectionName, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
@@ -1239,7 +1323,7 @@ class QdrantBackend {
      * @returns {Promise<void>}
      */
     async deleteVectors(collectionName, hashes) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         if (hashes.length === 0) return;
 
         collectionName = this._parseCollectionName(collectionName);
@@ -1281,7 +1365,7 @@ class QdrantBackend {
      * @returns {Promise<void>}
      */
     async purgeCollection(collectionName, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
@@ -1335,7 +1419,7 @@ class QdrantBackend {
      * @returns {Promise<void>}
      */
     async purgeAll(collectionName = MULTITENANCY_COLLECTION) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
@@ -1359,7 +1443,7 @@ class QdrantBackend {
 
 
     async getCollections() {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         try {
             const collections = await this._request('GET', '/collections');
             return collections.result?.collections?.map(c => c.name) || [];
@@ -1377,7 +1461,7 @@ class QdrantBackend {
      * @returns {Promise<object|null>} Item or null if not found
      */
     async getItem(collectionName, hash, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
@@ -1432,7 +1516,7 @@ class QdrantBackend {
      * @returns {Promise<void>}
      */
     async updateItem(collectionName, hash, updates, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         // Get existing item
         const existing = await this.getItem(collectionName, hash, filters);
@@ -1467,7 +1551,7 @@ class QdrantBackend {
      * @returns {Promise<void>}
      */
     async updateItemMetadata(collectionName, hash, metadata, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         collectionName = this._parseCollectionName(collectionName);
         const numericHash = typeof hash === 'string' ? parseInt(hash, 10) : hash;
@@ -1504,7 +1588,7 @@ class QdrantBackend {
      * @returns {Promise<object>} Statistics object
      */
     async getCollectionStats(collectionName, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
@@ -1591,7 +1675,7 @@ class QdrantBackend {
      * @returns {Promise<boolean>} True if any chunk contains these message IDs
      */
     async chunkExists(collectionName, messageIds, filters = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         if (!messageIds || messageIds.length === 0) return false;
 
         collectionName = this._parseCollectionName(collectionName);
@@ -1635,4 +1719,8 @@ class QdrantBackend {
 
 // Export singleton instance
 const qdrantBackend = new QdrantBackend();
+// LIFECYCLE: prove how many times this module was evaluated. If the bug is
+// caused by Node.js re-importing the module (cache invalidation, plugin
+// reload), we'll see this line fire more than once per process lifetime.
+console.log(`[Qdrant LIFECYCLE] qdrant-backend.js module evaluated, exporting instanceId=${qdrantBackend._instanceId}`);
 export default qdrantBackend;
