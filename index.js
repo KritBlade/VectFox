@@ -18,7 +18,7 @@
  *     embedding-server URLs configured in VectFox settings
  *
  * Several routes accept user-configured URLs (`apiUrl`, `qdrant_host`,
- * `bananabread_url`, `ollama_url`, `vllm_url`) and `fetch()` them
+ * `ollama_url`, `vllm_url`) and `fetch()` them
  * server-side without host allowlisting or private-IP rejection. This is
  * INTENTIONAL — those URLs are user-configured for a reason (Ollama on
  * `127.0.0.1`, vLLM on `10.0.1.50`, etc.).
@@ -692,83 +692,6 @@ export async function init(router) {
  * Get multiple embeddings for texts from specified source
  */
 async function getVectorsForSource(source, texts, model, directories, req) {
-    // Specialized batch handling
-    if (source === 'bananabread') {
-        // BananaBread llama.cpp-compatible endpoint
-        let apiUrl = req.body.apiUrl || 'http://localhost:8008';
-        let apiKey = req.body.apiKey || '';
-
-        if (!apiUrl || typeof apiUrl !== 'string' || apiUrl.trim() === '') {
-            throw new Error('BananaBread: apiUrl is missing or invalid. Configure the embedding URL in VectFox settings.');
-        }
-        apiUrl = apiUrl.trim();
-
-        let url;
-        try {
-            url = new URL(apiUrl);
-            url.pathname = '/embedding';
-        } catch (e) {
-            throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
-        }
-
-        const headers = { 'Content-Type': 'application/json' };
-        if (apiKey) {
-            headers['Authorization'] = `Bearer ${apiKey}`;
-        }
-
-        const BATCH_SIZE = 20;
-        const allEmbeddings = [];
-
-        try {
-            for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-                const batchTexts = texts.slice(i, i + BATCH_SIZE);
-                // console.log(`[BananaBread] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(texts.length / BATCH_SIZE)} (${batchTexts.length} items)`);
-
-                const response = await fetch(url.toString(), {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify({ content: batchTexts }),
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
-                }
-
-                const data = await response.json();
-                const embeddings = data.embedding;
-
-                if (!embeddings) {
-                    throw new Error('BananaBread: Invalid response format (missing embedding)');
-                }
-
-                if (Array.isArray(embeddings)) {
-                    // Check for single item flattened response
-                    if (batchTexts.length === 1 && typeof embeddings[0] === 'number') {
-                        allEmbeddings.push(embeddings);
-                    } else if (Array.isArray(embeddings[0])) {
-                        allEmbeddings.push(...embeddings);
-                    } else {
-                         // Some providers might return a single vector for batch of 1 as a flat array even if asked in batch mode
-                         if (batchTexts.length === 1 && Array.isArray(embeddings)) {
-                             allEmbeddings.push(embeddings);
-                         } else {
-                            throw new Error('BananaBread: Unexpected embedding format');
-                         }
-                    }
-                } else {
-                    throw new Error('BananaBread: Unexpected embedding format (not array)');
-                }
-            }
-
-            return allEmbeddings;
-
-        } catch (e) {
-            console.error(`[BananaBread] Batch embedding error:`, e);
-            throw e;
-        }
-    }
-
     // API-based sources fall into two groups:
     //
     // 1. OpenAI-compatible (openai/openrouter/togetherai/mistral/electronhub):
@@ -956,10 +879,6 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
             const apiUrl = req.body?.apiUrl || 'http://localhost:8080';
             return await getLlamaCppVector(text, apiUrl, directories);
-        }
-        case 'bananabread': {
-            // Legacy single-item fallback (should normally be handled by batch handler)
-            return (await getVectorsForSource(source, [text], model, directories, req))[0];
         }
         case 'vllm': {
             const apiUrl = req.body?.apiUrl || 'http://localhost:8000';
@@ -1584,62 +1503,6 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
     });
 
     /**
-     * POST /api/plugins/similharity/rerank
-     * Rerank documents using BananaBread's reranking endpoint
-     * Body: { apiUrl, query, documents, top_k? }
-     */
-    router.post('/rerank', async (req, res) => {
-        try {
-            const {
-                apiUrl = 'http://localhost:8008',
-                apiKey = '',
-                query,
-                documents,
-                top_k = 10,
-                task_description
-            } = req.body;
-
-            if (!query || !documents || !Array.isArray(documents)) {
-                return res.status(400).json({ error: 'query and documents array required' });
-            }
-
-            const url = new URL(apiUrl);
-            url.pathname = '/v1/rerank';
-
-            // Default task description if not provided
-            const finalTaskDescription = task_description || "Given the following document from a role play, which of the following documents are most relevant to it?";
-
-            const headers = { 'Content-Type': 'application/json' };
-            if (apiKey) {
-                headers['Authorization'] = `Bearer ${apiKey}`;
-            }
-
-            const response = await fetch(url.toString(), {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({
-                    query,
-                    documents,
-                    top_k,
-                    return_documents: false,
-                    task_description: finalTaskDescription
-                }),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`BananaBread rerank failed: ${response.statusText} ${errorText}`);
-            }
-
-            const data = await response.json();
-            res.json(data);
-        } catch (error) {
-            console.error(`[${pluginName}] rerank error:`, error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    /**
      * POST /api/plugins/similharity/chunks/stats
      * Get collection statistics
      * Body: { backend, collectionId, source?, model? }
@@ -1786,47 +1649,6 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
             const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
             const apiUrl = req.body?.apiUrl || 'http://localhost:8080';
             return await getLlamaCppVector(text, apiUrl, directories);
-        }
-        case 'bananabread': {
-            // BananaBread llama.cpp-compatible endpoint (no model param needed - uses server config)
-            let apiUrl = req.body.apiUrl || 'http://localhost:8008';
-            let apiKey = req.body.apiKey || '';
-
-            // Validate URL before attempting to use it
-            if (!apiUrl || typeof apiUrl !== 'string' || apiUrl.trim() === '') {
-                throw new Error('BananaBread: apiUrl is missing or invalid. Configure the embedding URL in VectFox settings.');
-            }
-            apiUrl = apiUrl.trim();
-
-            let url;
-            try {
-                url = new URL(apiUrl);
-                url.pathname = '/embedding';
-            } catch (e) {
-                throw new Error(`BananaBread: Invalid URL format "${apiUrl}" - ${e.message}`);
-            }
-
-            const headers = { 'Content-Type': 'application/json' };
-            if (apiKey) {
-                headers['Authorization'] = `Bearer ${apiKey}`;
-            }
-
-            const response = await fetch(url.toString(), {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({ content: text }),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`BananaBread: ${response.statusText} ${errorText}`);
-            }
-
-            const data = await response.json();
-            if (!Array.isArray(data?.embedding)) {
-                throw new Error('BananaBread: Invalid response format');
-            }
-            return data.embedding;
         }
         case 'vllm': {
             const apiUrl = req.body?.apiUrl || 'http://localhost:8000';

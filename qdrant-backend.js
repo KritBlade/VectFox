@@ -136,8 +136,8 @@ class QdrantBackend {
     _parseCollectionName(collectionName) {
         if (!collectionName) return collectionName;
 
-        // New format: backend:source:id (e.g., "qdrant:bananabread:chat_123")
-        // Old format: source:id (e.g., "bananabread:chat_123")
+        // New format: backend:source:id (e.g., "qdrant:ollama:chat_123")
+        // Old format: source:id (e.g., "ollama:chat_123")
         if (collectionName.startsWith('qdrant:')) {
             // Strip "qdrant:" prefix to get "source:id"
             return collectionName.substring(7); // 'qdrant:'.length === 7
