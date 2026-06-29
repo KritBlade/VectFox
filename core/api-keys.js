@@ -230,6 +230,13 @@ export function getQdrantApiKey(settings) {
  */
 export async function fetchQdrantApiKeyPresence() {
     try {
+        // No plugin → no /qdrant/key-status endpoint. Skip the request so the
+        // browser doesn't log a red 404 on plugin-less (fully supported) setups.
+        // Dynamic import to avoid a static cycle, matching the migration block.
+        const { checkPluginAvailable } = await import('./collection-loader.js');
+        if (!(await checkPluginAvailable())) {
+            return { set: false, masked: '' };
+        }
         const response = await fetch('/api/plugins/similharity/qdrant/key-status', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },

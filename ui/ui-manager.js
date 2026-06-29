@@ -157,6 +157,12 @@ export function renderSettings(containerId, settings, callbacks) {
                                     • Standard: ST's built-in Vectra (best for &lt;100k vectors)<br>
                                     • Qdrant: Production-grade with HNSW, filtering, cloud support
                                 </small>
+                                <!-- Persistent notice shown whenever the Similharity plugin is absent,
+                                     explaining why the Qdrant option is disabled. Distinct from the
+                                     transient red revert alert below. -->
+                                <small id="VectFox_qdrant_plugin_notice" class="VectFox_hint" style="display:none; color:#e0a44a; font-weight:600; margin-top:-8px; margin-bottom:16px; line-height:1.5;">
+                                    ⚠ Similharity plugin not detected. <a href="https://github.com/KritBlade/VectFox/tree/Similharity-Plugin#step-2-install-plugin-via-git-recommended" target="_blank" rel="noopener noreferrer">Install</a> the plugin for Qdrant backend.
+                                </small>
                                 <small id="VectFox_qdrant_plugin_error" class="VectFox_hint" style="display:none; color:#e04a4a; font-weight:600; margin-top:-8px; margin-bottom:16px; line-height:1.5;">
                                     ⚠ Qdrant requires the Similharity server plugin, which is not installed. Install the plugin to use this backend, or switch to Standard.
                                 </small>
@@ -3018,6 +3024,10 @@ function bindSettingsEvents(settings, callbacks) {
 
         // 1. Bar selecting Qdrant up front when the plugin is absent.
         $('#VectFox_vector_backend option[value="qdrant"]').prop('disabled', !pluginUp);
+
+        // Persistent "why is Qdrant disabled?" notice (with install link) —
+        // visible whenever the plugin is missing, regardless of current backend.
+        $('#VectFox_qdrant_plugin_notice').toggle(!pluginUp);
 
         const backend = settings.vector_backend || 'standard';
         const mustRevert = backend === 'qdrant' && !pluginUp;

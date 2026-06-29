@@ -149,19 +149,18 @@ export class StandardBackend extends VectorBackend {
     }
 
     async initialize(settings) {
-        // Check if plugin is available.
-        // !! SYNC WARNING !!
-        // This is an INDEPENDENT copy of checkPluginAvailable() from
-        // core/collection-loader.js. We cannot import from there because
-        // collection-loader → core-vector-api → (dynamic import) → standard.js
-        // would create a circular dependency.
-        // If you change the health endpoint or response parsing here,
-        // make the same change in collection-loader.js::checkPluginAvailable().
+        // Check if plugin is available via the canonical, session-cached probe
+        // in core/collection-loader.js. Dynamic import breaks the otherwise
+        // circular static dependency (collection-loader → core-vector-api →
+        // (dynamic import) → standard.js), the same pattern corpus-stats.js
+        // uses. Routing through the shared cache means a no-plugin install
+        // issues exactly ONE /health request total (and thus at most one 404 in
+        // the browser console) instead of one per backend/UI consumer.
         log.lifecycle('VectFox DEBUG: Checking plugin availability...');
         try {
-            const response = await fetch('/api/plugins/similharity/health');
-            log.lifecycle('VectFox DEBUG: Plugin health check response:', response.status, response.ok);
-            this.pluginAvailable = response.ok;
+            const { checkPluginAvailable } = await import('../core/collection-loader.js');
+            this.pluginAvailable = await checkPluginAvailable();
+            log.lifecycle('VectFox DEBUG: Plugin available:', this.pluginAvailable);
 
             if (this.pluginAvailable) {
                 await fetch('/api/plugins/similharity/backend/init/vectra', {

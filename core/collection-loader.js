@@ -566,6 +566,16 @@ export async function checkPluginAvailable() {
     return pluginAvailable;
 }
 
+/**
+ * Clears the session-cached plugin-availability result so the next
+ * checkPluginAvailable() call re-probes /health. Used by test isolation and
+ * any flow that needs to force a fresh detection (e.g. after the user is told
+ * to restart ST to pick up a newly-installed plugin).
+ */
+export function resetPluginAvailableCache() {
+    pluginAvailable = null;
+}
+
 // Cache for plugin collection data
 let pluginCollectionData = null;
 

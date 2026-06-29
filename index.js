@@ -26,7 +26,7 @@ import { debounce_timeout } from '../../../constants.js';
 import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
 import { purgeAllVectorIndexes, purgeVectorIndex } from './core/core-vector-api.js';
 import { migrateOldEnabledKeys } from './core/collection-metadata.js';
-import { clearCollectionRegistry, discoverExistingCollections, cleanupCorruptedCollections, pruneOrphanedEventBaseChatMaps } from './core/collection-loader.js';
+import { clearCollectionRegistry, discoverExistingCollections, cleanupCorruptedCollections, pruneOrphanedEventBaseChatMaps, checkPluginAvailable } from './core/collection-loader.js';
 import { migrateLegacyApiKeys } from './core/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
@@ -725,6 +725,10 @@ jQuery(async () => {
     const SIMILHARITY_EXPECTED_VERSION = '3.3.1';
     (async () => {
         try {
+            // Skip entirely when no plugin is installed (a supported, no-error
+            // setup). Avoids a needless /version request that the browser would
+            // log as a red 404. Uses the session-cached /health probe.
+            if (!(await checkPluginAvailable())) return;
             const resp = await fetch('/api/plugins/similharity/version');
             if (resp.ok) {
                 const { pluginVersion } = await resp.json();

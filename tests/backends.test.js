@@ -51,6 +51,25 @@ vi.mock('../../../../secrets.js', () => ({
     secret_state: {},
 }));
 
+// Mock collection-loader.js: StandardBackend.initialize() now detects the
+// plugin via the canonical checkPluginAvailable() (dynamically imported) instead
+// of its own /health probe. Stub it at the unit boundary so these tests drive
+// availability through the same fetchMock /health response they always have,
+// without loading the real collection-loader dependency graph. The stub keeps
+// the historical `response.ok` semantics and the single-arg /health call the
+// existing assertions expect.
+vi.mock('../core/collection-loader.js', () => ({
+    checkPluginAvailable: vi.fn(async () => {
+        try {
+            const r = await fetch('/api/plugins/similharity/health');
+            return !!r?.ok;
+        } catch {
+            return false;
+        }
+    }),
+    resetPluginAvailableCache: vi.fn(),
+}));
+
 // Mock providers.js
 vi.mock('../core/providers.js', () => ({
     getModelField: vi.fn((source) => {
