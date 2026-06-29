@@ -442,17 +442,47 @@ export async function migrateLegacyApiKeys() {
     // probes successfully and the drain runs cleanly.
     const QDRANT_SLOT = 'api_key_qdrant';
     let pluginSupportsQdrantSecretSlot = false;
-    try {
-        const probe = await fetch('/api/plugins/similharity/qdrant/key-status', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-        });
-        pluginSupportsQdrantSecretSlot = probe.ok;
-        if (!probe.ok) {
-            log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe returned ${probe.status} — Similharity plugin is pre-2026-05-26. Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Update the Similharity plugin (cd plugins/similharity && git pull && restart ST) to enable secret_state storage.`);
+    // Only probe the plugin if there's actually a legacy plaintext field to
+    // drain. On a fresh / no-plugin install there's nothing to migrate, so
+    // pinging /qdrant/key-status just produces a misleading 404 warning.
+    if (Object.prototype.hasOwnProperty.call(vf, 'qdrant_api_key')) {
+        // First, the canonical plugin-presence check (session-cached /health
+        // probe). This cleanly separates "no plugin installed at all" from
+        // "plugin installed but pre-2026-05-26 (no /qdrant/key-status yet)" —
+        // the two cases that the /qdrant/key-status 404 alone can't tell apart.
+        // Dynamic import to avoid a static cycle (collection-loader →
+        // core-vector-api → … back here), matching corpus-stats.js.
+        let pluginUp = false;
+        try {
+            const { checkPluginAvailable } = await import('./collection-loader.js');
+            pluginUp = await checkPluginAvailable();
+        } catch (err) {
+            log.warn(`[VectFox migrate] Plugin availability check failed; skipping Qdrant key migration this run. Plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);
         }
-    } catch (err) {
-        log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe failed (plugin unreachable or pre-2026-05-26). Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);
+
+        if (!pluginUp) {
+            // No plugin → nothing can read secret_state.api_key_qdrant back, so
+            // migrating would strand the key. Skip and keep the plaintext value.
+            // NOT a warning: running without the plugin is a supported choice,
+            // not an error. Gated/verbose so it stays out of the normal console
+            // and only surfaces when someone is actually debugging migration.
+            log.verbose(`[VectFox migrate] Similharity server plugin not installed — Qdrant key migration skipped (expected when running plugin-less). Plaintext qdrant_api_key in settings.json is PRESERVED.`);
+        } else {
+            // Plugin is up; now capability-probe the specific endpoint to confirm
+            // it's new enough to support the secret_state Qdrant slot.
+            try {
+                const probe = await fetch('/api/plugins/similharity/qdrant/key-status', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                pluginSupportsQdrantSecretSlot = probe.ok;
+                if (!probe.ok) {
+                    log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe returned ${probe.status} — Similharity plugin is pre-2026-05-26. Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Update the Similharity plugin (cd plugins/similharity && git pull && restart ST) to enable secret_state storage.`);
+                }
+            } catch (err) {
+                log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe failed (plugin unreachable or pre-2026-05-26). Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);
+            }
+        }
     }
 
     if (pluginSupportsQdrantSecretSlot) {

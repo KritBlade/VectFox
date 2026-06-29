@@ -186,7 +186,11 @@ async function clientSideHybridSearch(backend, collectionId, searchText, topK, s
         try {
             const mod = await import('./corpus-stats.js');
             corpusStats = await mod.getCorpusStats(collectionId, settings);
-            if (!corpusStats) {
+            // Null is the normal no-plugin path (corpus-stats returns null
+            // silently when the plugin is absent — a supported, non-error
+            // configuration). Gate behind lifecycle so it only surfaces while
+            // debugging, instead of warning on every search for plugin-less users.
+            if (!corpusStats && log.enabled('lifecycle')) {
                 log.warn(`[HybridSearch] Corpus-IDF disabled for ${collectionId}: getCorpusStats returned null (plugin unavailable or /chunks/list failed). Falling back to local-IDF BM25.`);
             }
         } catch (err) {

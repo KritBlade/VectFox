@@ -2998,22 +2998,53 @@ function bindSettingsEvents(settings, callbacks) {
         saveSettingsDebounced();
     }
 
-    // Helper: show a red error when Qdrant is selected but the Similharity
-    // server plugin (which exposes all /api/plugins/similharity/... endpoints
-    // Qdrant depends on) is not installed. Standard backend can fall back to
-    // ST's native Vectors extension, but Qdrant cannot run without the plugin.
+    // Helper: gate the Qdrant backend on the Similharity server plugin being
+    // installed. Qdrant depends entirely on the plugin's /api/plugins/similharity/...
+    // endpoints (and selecting it is what lets a qdrant_api_key get written into
+    // extension settings), so when the plugin is absent we must prevent the user
+    // from landing on Qdrant at all. Standard backend can fall back to ST's
+    // native Vectors extension, but Qdrant cannot run without the plugin.
+    //
+    // Enforcement (called on init and after every dropdown change):
+    //   1. Disable the <option value="qdrant"> so it can't be picked while the
+    //      plugin is missing.
+    //   2. If the current selection IS qdrant but the plugin is missing, revert
+    //      to standard, persist it, and re-sync the dependent UI.
+    //   3. Show/hide the red plugin-missing hint accordingly.
+    // Returns true if it forced a revert (caller may need to re-run side effects).
     async function _refreshQdrantPluginAvailability() {
         const $err = $('#VectFox_qdrant_plugin_error');
-        if ($err.length === 0) return;
-        const backend  = settings.vector_backend || 'standard';
         const pluginUp = await checkPluginAvailable();
-        $err.toggle(backend === 'qdrant' && !pluginUp);
+
+        // 1. Bar selecting Qdrant up front when the plugin is absent.
+        $('#VectFox_vector_backend option[value="qdrant"]').prop('disabled', !pluginUp);
+
+        const backend = settings.vector_backend || 'standard';
+        const mustRevert = backend === 'qdrant' && !pluginUp;
+
+        // 3. Red hint visible only while we're (briefly) on qdrant without a plugin.
+        if ($err.length) $err.toggle(mustRevert);
+
+        // 2. Force the selection back to Standard.
+        if (mustRevert) {
+            settings.vector_backend = 'standard';
+            $('#VectFox_vector_backend').val('standard');
+            $('#VectFox_qdrant_settings').hide();
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+            toastr.error(
+                'Qdrant requires the Similharity server plugin, which is not installed. Switched back to Standard (ST Vectra). Install the plugin to use Qdrant.',
+                'VectFox — Qdrant unavailable',
+                { timeOut: 8000 }
+            );
+        }
+        return mustRevert;
     }
 
     // Vector backend selection
     $('#VectFox_vector_backend')
         .val(settings.vector_backend || 'qdrant')
-        .on('change', function() {
+        .on('change', async function() {
             settings.vector_backend = String($(this).val());
 
             // Show/hide Qdrant settings
@@ -3023,8 +3054,11 @@ function bindSettingsEvents(settings, callbacks) {
                 $('#VectFox_qdrant_settings').hide();
             }
 
-            // Warn (in red) if Qdrant chosen without the plugin installed.
-            _refreshQdrantPluginAvailability();
+            // Bar Qdrant when the plugin is missing: this shows a red alert and
+            // reverts settings.vector_backend to 'standard' in place. Await it so
+            // the dependent UI below syncs to the *effective* backend, not the
+            // one the user briefly clicked.
+            await _refreshQdrantPluginAvailability();
 
             // NOTE: standard backend is now safe to use with hedge, parallel-split,
             // and pipelined mode all enabled. The per-collection write queue in
@@ -3176,9 +3210,18 @@ function bindSettingsEvents(settings, callbacks) {
         $('#VectFox_qdrant_settings').show();
     }
 
-    // Surface the red "plugin not installed" error on initial load too, in
-    // case Qdrant is the saved backend but the plugin isn't present.
-    _refreshQdrantPluginAvailability();
+    // On initial load: disable the Qdrant option when the plugin is absent and,
+    // if the saved backend was Qdrant, revert to Standard (with a red alert).
+    // When it reverts, re-sync the backend-dependent UI to Standard.
+    _refreshQdrantPluginAvailability().then((reverted) => {
+        if (reverted) {
+            applyBackendHybridDefaults('standard');
+            updateNativeHybridUI();
+            resetBackendHealth();
+            _refreshCosineWeightAvailability?.();
+            _refreshSummarizerInjectionAvailability?.();
+        }
+    });
 
     // Embedding provider
     $('#VectFox_source')
