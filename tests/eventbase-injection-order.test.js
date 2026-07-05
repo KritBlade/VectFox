@@ -90,6 +90,25 @@ describe('formatEventsForInjectionDetailed — presentation ordering', () => {
         expect(empty.text).toBe('');
     });
 
+    it('stamps context_relevance_rank in score order, surviving the chronological re-sort', () => {
+        // Incoming order = score-descending (strongest match first). The strongest
+        // match here is chronologically LATER (window 400), so after the sort it
+        // renders second — but its rank must still read 1 of 2.
+        const { text } = formatEventsForInjectionDetailed([
+            ev({ summary: 'strongMatch', source_window_end: 400 }),  // relevance rank 1
+            ev({ summary: 'weakMatch', source_window_end: 200 }),    // relevance rank 2
+        ], settings);
+
+        // Display order is chronological: weakMatch(200) before strongMatch(400).
+        const [weak, strong] = order(text, 'weakMatch', 'strongMatch');
+        expect(weak).toBeLessThan(strong);
+
+        // But the rank reflects relevance, not display position.
+        const blockFor = (s) => text.split('# Event').find(b => b.includes(`summary: ${s}`)) || '';
+        expect(blockFor('strongMatch')).toContain('context_relevance_rank: 1 of 2');
+        expect(blockFor('weakMatch')).toContain('context_relevance_rank: 2 of 2');
+    });
+
     it('does not add or drop events (includedCount preserved)', () => {
         const events = [
             ev({ summary: 'a', source_window_end: 3 }),

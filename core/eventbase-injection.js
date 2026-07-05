@@ -35,6 +35,13 @@ function _summaryFromText(text) {
 function _cleanEventForInjection(event) {
     return {
         event_type: event.event_type,
+        // Relative retrieval-relevance rank within this injected batch (1 = closest
+        // match to the current moment). Stamped from score order before the
+        // chronological re-sort. A rank, NOT the raw score — the raw _finalScore is
+        // uncalibrated and its scale shifts across backends, so it would mislead.
+        context_relevance_rank: event._contextRelevanceRank != null
+            ? `${event._contextRelevanceRank} of ${event._contextRelevanceTotal}`
+            : null,
         importance: event.importance,
         message_order: event.source_window_end ?? null,
         summary: _summaryFromText(event.text),
@@ -85,6 +92,7 @@ function _formatAsDenseText(events) {
         const event = _cleanEventForInjection(rawEvent);
         return [
             `# Event ${idx + 1}`,
+            `context_relevance_rank: ${event.context_relevance_rank || '-'}`,
             `event_type: ${event.event_type || '-'}`,
             `importance: ${event.importance ?? '-'}`,
             `message_order: ${event.message_order ?? '-'}`,
@@ -115,6 +123,7 @@ function _formatAsSummaryOnly(events) {
         const event = _cleanEventForInjection(rawEvent);
         return [
             `# Event ${idx + 1}`,
+            `context_relevance_rank: ${event.context_relevance_rank || '-'}`,
             `message_order: ${event.message_order ?? '-'}`,
             `summary: ${event.summary || '-'}`,
             `DateTime: ${event.DateTime || '-'}`,
@@ -134,7 +143,10 @@ function _formatAsSummaryOnly(events) {
  */
 const INJECTION_HEADER =
     'Past events, ordered oldest → newest by message_order (position in the conversation). '
-    + "Use each event's DateTime/scene_time to place it on the story timeline.";
+    + "Use each event's DateTime/scene_time to place it on the story timeline. "
+    + 'context_relevance_rank shows how closely each event matches the current moment '
+    + '(1 = closest match) — this is retrieval relevance, NOT story importance '
+    + '(see the separate importance field for how significant the event is).';
 
 /**
  * Re-order retrieved events for presentation: chronological, oldest → newest.
@@ -216,7 +228,13 @@ export function formatEventsForInjectionDetailed(events, _settings) {
         return { text: '', includedCount: 0, requestedCount: 0 };
     }
 
-    const ordered = _orderEventsForPresentation(events);
+    // Events arrive in score-descending (relevance) order. Capture that as an
+    // explicit rank BEFORE the chronological re-sort scrambles position, so the
+    // model can still tell which recalled memory best matches the current moment.
+    const total = events.length;
+    const ranked = events.map((e, i) => ({ ...e, _contextRelevanceRank: i + 1, _contextRelevanceTotal: total }));
+
+    const ordered = _orderEventsForPresentation(ranked);
 
     const format = String(_settings?.eventbase_injection_format || 'densetext').toLowerCase();
     const body = format === 'densetext'
