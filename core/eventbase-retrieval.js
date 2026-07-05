@@ -347,6 +347,21 @@ function _logRerankComparison(colId, queryText, native, js, nativeMs, jsMs, sett
  *        and cannot be compared to the current chat length.
  * @returns {Promise<{ events: object[], debug: object }>}
  */
+/**
+ * Stamp each event with its source conversation frame (collection id) so the
+ * injector can group by conversation before sorting chronologically —
+ * `source_window_end` is a message index within ONE conversation and must not
+ * be compared across collections. Internal field; `_cleanEventForInjection`
+ * whitelists output fields, so it never reaches the prompt.
+ * @param {unknown} events
+ * @param {string} frame
+ * @returns {unknown}
+ */
+function _tagFrame(events, frame) {
+    if (!Array.isArray(events)) return events;
+    return events.map(e => (e && typeof e === 'object') ? { ...e, _sortFrame: frame } : e);
+}
+
 export async function retrieveEvents({ searchText, keywordQuery, chatLength, settings, liveCollectionIds, additionalCandidates, skipLiveQuery, skipContextDedup = false }) {
     const topK = (settings.eventbase_retrieval_top_k || 8) * 2; // overfetch for re-rank
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
@@ -454,10 +469,12 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
                         anchorText: (keywordQuery || '').toLowerCase(),
                         anchorBoostAmount: _resolveAnchorBoostAmount(settings),
                         rerankWeights,
-                    }).catch(err => {
-                        log.error(`[EventBase] Live query failed (${colId}):`, err);
-                        return [];
                     })
+                        .then(evts => _tagFrame(evts, colId))
+                        .catch(err => {
+                            log.error(`[EventBase] Live query failed (${colId}):`, err);
+                            return [];
+                        })
                 );
             }
         }

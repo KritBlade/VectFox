@@ -220,7 +220,10 @@ export async function retrieveEventsWithAgent(params) {
                 _raceWithTimeout(queryCollection(colId, queryText, topK, ebSettings, plannerFilters), queryTimeoutMs)
                     .then(({ hashes, metadata }) => {
                         if (!hashes?.length) return { queryText, hits: [] };
-                        const hits = metadata.map((meta, i) => ({ ...meta, _hash: hashes[i] }));
+                        // _sortFrame tags these live-collection hits with their source
+                        // collection so the injector groups them into the same frame as
+                        // the pre-search live events before the chronological sort.
+                        const hits = metadata.map((meta, i) => ({ ...meta, _hash: hashes[i], _sortFrame: colId }));
                         return { queryText, hits };
                     })
                     .catch(err => {

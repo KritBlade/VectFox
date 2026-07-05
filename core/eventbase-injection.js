@@ -124,12 +124,88 @@ function _formatAsSummaryOnly(events) {
 }
 
 // ---------------------------------------------------------------------------
+// Presentation order
+// ---------------------------------------------------------------------------
+
+/**
+ * One-line instruction prepended to every injected block so the model knows the
+ * events are in chronological order and which field encodes it. A silent
+ * re-order only half-helps; naming the ordering makes it usable.
+ */
+const INJECTION_HEADER =
+    'Past events, ordered oldest → newest by message_order (position in the conversation). '
+    + "Use each event's DateTime/scene_time to place it on the story timeline.";
+
+/**
+ * Re-order retrieved events for presentation: chronological, oldest → newest.
+ * Relevance (retrieval score) decides WHICH events are included upstream; this
+ * only decides DISPLAY order — no events are added or dropped.
+ *
+ * Sort key is `source_window_end` (message_order): ingestion-stamped,
+ * deterministic, monotonic within a conversation. NOT the LLM-extracted
+ * `DateTime`, which is nullable and can mis-parse — a bad parse would teleport
+ * an event across the timeline. DateTime/scene_time still print per event as
+ * labels the model can read.
+ *
+ * Cross-frame safety: `source_window_end` is a message index within ONE
+ * conversation, so it is meaningless across collections (archive chats,
+ * cross-chat locks). Events are grouped by their source frame (`_sortFrame`,
+ * stamped at query time) and only sorted within a frame. Frames are then ordered
+ * by their most-recent `real_world_date` (wall-clock send time, comparable
+ * across conversations) so the actively-played chat lands last and older
+ * archives first. Frames with no real-world anchor sort first.
+ *
+ * Array#sort is stable, so ties (same window, or a frame with no anchor) retain
+ * the incoming relevance order as a sensible tie-break.
+ *
+ * @param {object[]} events
+ * @returns {object[]} new array, same members, presentation order
+ */
+function _orderEventsForPresentation(events) {
+    const byWindow = (a, b) => {
+        const av = typeof a.source_window_end === 'number' ? a.source_window_end : Infinity;
+        const bv = typeof b.source_window_end === 'number' ? b.source_window_end : Infinity;
+        return av - bv;
+    };
+
+    // Fast path: a single (or absent) frame — no cross-conversation risk.
+    const frames = new Set(events.map(e => e._sortFrame ?? '__default__'));
+    if (frames.size <= 1) {
+        return [...events].sort(byWindow);
+    }
+
+    const groups = new Map();
+    for (const e of events) {
+        const key = e._sortFrame ?? '__default__';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(e);
+    }
+
+    // A frame's timeline position = the newest real-world send time it contains.
+    // No anchor anywhere in the frame → -Infinity → sorts first (unknown/oldest).
+    const frameAnchor = (list) => {
+        let max = -Infinity;
+        for (const e of list) {
+            const t = e.real_world_date ? Date.parse(e.real_world_date) : NaN;
+            if (!Number.isNaN(t) && t > max) max = t;
+        }
+        return max;
+    };
+
+    return [...groups.values()]
+        .map(list => ({ list: [...list].sort(byWindow), anchor: frameAnchor(list) }))
+        .sort((a, b) => a.anchor - b.anchor)
+        .flatMap(g => g.list);
+}
+
+// ---------------------------------------------------------------------------
 // Main formatter
 // ---------------------------------------------------------------------------
 
 /**
  * Format retrieved events into a prompt injection string.
  * No hard cap is applied here; Top-K and retrieval filters control payload size.
+ * Events are re-ordered chronologically for presentation before formatting.
  *
  * @param {object[]} events   - Re-ranked EventRecord objects (highest score first)
  * @param {object}   settings - VectFox settings
@@ -140,16 +216,18 @@ export function formatEventsForInjectionDetailed(events, _settings) {
         return { text: '', includedCount: 0, requestedCount: 0 };
     }
 
+    const ordered = _orderEventsForPresentation(events);
+
     const format = String(_settings?.eventbase_injection_format || 'densetext').toLowerCase();
-    const text = format === 'densetext'
-        ? _formatAsDenseText(events)
+    const body = format === 'densetext'
+        ? _formatAsDenseText(ordered)
         : format === 'summaryonly'
-            ? _formatAsSummaryOnly(events)
-            : _formatAsJson(events);
+            ? _formatAsSummaryOnly(ordered)
+            : _formatAsJson(ordered);
 
     return {
-        text,
-        includedCount: events.length,
+        text: `${INJECTION_HEADER}\n${body}`,
+        includedCount: ordered.length,
         requestedCount: events.length,
     };
 }

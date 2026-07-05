@@ -1096,7 +1096,10 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
             // query through settings.vector_backend.
             const { hashes, metadata } = await queryCollection(archKey, effectiveSearchText, topK, ebSettings);
             if (!hashes?.length) return [];
-            return metadata.map((meta, i) => ({ ...meta, _hash: hashes[i] }));
+            // _sortFrame tags each archive event with its source collection so the
+            // injector groups by conversation before the chronological sort
+            // (source_window_end is only comparable within one conversation).
+            return metadata.map((meta, i) => ({ ...meta, _hash: hashes[i], _sortFrame: archColId }));
         } catch (err) {
             log.error(`[EventBase] Archive event collection query failed (${archColId}):`, err);
             return [];
