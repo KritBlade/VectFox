@@ -4192,3 +4192,169 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
     });
     assertPassed(logs);
 });
+
+
+// ═══════════════════════════════════════════════════════════════════
+// TESTS 024–026 — LLM-call path coverage (postChatCompletion)
+// ═══════════════════════════════════════════════════════════════════
+// TESTS 001–023 use SYNTHETIC inserts — they never touch the chat-completions
+// wire path. These three exercise the real path introduced when the four LLM
+// features (summarizer / EventBase / agentic / Auto-Reformat) were unified onto
+// core/llm-provider-call.js (postChatCompletion + parseJsonArrayFromLlm):
+//
+//   024  EventBase LLM extraction — real provider round-trip + parse/validate
+//   025  Auto-Reformat            — real provider, multi-entity split
+//   026  Acronym glossary         — pure, deployed-module smoke (no LLM)
+//
+// 024/025 make REAL LLM calls (cost tokens + a few seconds each). They soft-
+// SKIP when no summarization model is configured (Core → LLM Summarization),
+// so a box without a chat model keeps the serial suite moving. 026 is
+// deterministic and always runs.
+// ═══════════════════════════════════════════════════════════════════
+
+test('TEST 024 — EventBase LLM extraction: real provider round-trip (postChatCompletion)', async () => {
+    const logs = await runTestInPage(async () => {
+        const TEST = 'TEST 024 [LLMExtract]';
+        const base = '/scripts/extensions/third-party/VectFox/';
+        const { extractEvents } = await import(base + 'core/eventbase-extractor.js');
+        const { extension_settings } = await import('/scripts/extensions.js');
+
+        const vf = extension_settings?.vectfox;
+        if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
+
+        // Real extraction needs a summarization model. Soft-skip (not fail) when
+        // absent so the serial suite continues on boxes with no chat model set.
+        const provider = (vf.chat_provider || 'openrouter').toLowerCase();
+        const model = (vf.chat_model || '').trim();
+        if (!model) { console.warn(`${TEST} [SKIP] no chat_model configured (Core → LLM Summarization) — cannot exercise real extraction`); return; }
+        if (provider === 'vllm' && !(vf.chat_vllm_url || '').trim()) { console.warn(`${TEST} [SKIP] provider=vllm but no chat_vllm_url configured`); return; }
+
+        // Synthetic 2-message window with two unmistakable events (a kill + an
+        // item pickup) so any competent model yields ≥1 event regardless of tuning.
+        const messages = [
+            { name: 'Klein', is_user: true, mes: 'Klein drew his iron sword and charged the frost wolf blocking the Hollow Bridge, cutting it down after a brief, fierce struggle.' },
+            { name: 'Narrator', is_user: false, mes: 'With the wolf dead, Klein pried a glowing Moonstone Shard loose from the ice where it had fallen and pocketed it.' },
+        ];
+
+        console.log(`${TEST} Extracting via real ${provider}/${model} (2-message window)...`);
+        let events;
+        try {
+            events = await extractEvents({ messages, windowStart: 0, windowEnd: 1, settings: vf, windowIndex: 0 });
+        } catch (err) {
+            console.error(`${TEST} [FAIL] extractEvents threw (${provider}/${model}): ${err.message}`);
+            return;
+        }
+
+        if (!Array.isArray(events)) { console.error(`${TEST} [FAIL] extractEvents did not return an array`); return; }
+        if (events.length === 0) {
+            console.error(`${TEST} [FAIL] 0 events for a window with two clear events — the postChatCompletion or parseJsonArrayFromLlm path may be broken`);
+            return;
+        }
+
+        // Confirm the shared parse + schema-validate path produced well-formed records.
+        const bad = events.find(e => !e.event_type || !e.summary || typeof e.importance !== 'number');
+        if (bad) { console.error(`${TEST} [FAIL] event missing event_type/summary/importance: ${JSON.stringify(bad).slice(0, 200)}`); return; }
+
+        events.slice(0, 5).forEach((e, i) => console.log(`  event[${i}] type="${e.event_type}" imp=${e.importance} summary="${(e.summary || '').slice(0, 60)}"`));
+        console.log(`${TEST} [PASS] real ${provider} extraction via postChatCompletion → ${events.length} valid event(s)`);
+    });
+    assertPassed(logs);
+});
+
+
+test('TEST 025 — Auto-Reformat: real provider splits multi-entity section', async () => {
+    const logs = await runTestInPage(async () => {
+        const TEST = 'TEST 025 [Reformat]';
+        const base = '/scripts/extensions/third-party/VectFox/';
+        const { reformatDocument } = await import(base + 'core/reformat-extractor.js');
+        const { extension_settings } = await import('/scripts/extensions.js');
+
+        const vf = extension_settings?.vectfox;
+        if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
+
+        // Same inherit chain as extraction: reformat_* → chat_* (Core → LLM Summarization).
+        const provider = (vf.reformat_provider || vf.chat_provider || 'openrouter').toLowerCase();
+        const model = (vf.reformat_model || vf.chat_model || '').trim();
+        if (!model) { console.warn(`${TEST} [SKIP] no reformat_model/chat_model configured — cannot exercise Auto-Reformat`); return; }
+        if (provider === 'vllm' && !(vf.reformat_vllm_url || vf.chat_vllm_url || '').trim()) { console.warn(`${TEST} [SKIP] provider=vllm but no vLLM URL configured`); return; }
+
+        // The exact bug Auto-Reformat targets: two distinct named entities under ONE
+        // heading — mechanical chunking would collapse them into one diluted chunk.
+        const doc = [
+            '## Northern Watch Roster',
+            '',
+            '**Kaelen Frost** — A veteran ranger of the Northern Watch. He wields a yew longbow and tracks quarry by scent-memory, a rare gift among the Watch.',
+            '',
+            '**Mira Solveig** — Quartermaster of the Northern Watch. She keeps the ledgers and the armory, distrusts outsiders, but never forgets a debt.',
+        ].join('\n');
+
+        console.log(`${TEST} Reformatting a 2-entity section via real ${provider}/${model}...`);
+        let result;
+        try {
+            result = await reformatDocument({ text: doc, contentType: 'document', settings: vf });
+        } catch (err) {
+            console.error(`${TEST} [FAIL] reformatDocument threw (${provider}/${model}): ${err.message}`);
+            return;
+        }
+
+        const chunks = result?.chunks || [];
+        if (result?.warnings?.length) console.warn(`${TEST} warnings: ${result.warnings.join(' | ')}`);
+        if (chunks.length === 0) { console.error(`${TEST} [FAIL] Auto-Reformat produced 0 chunks — postChatCompletion/parse path may be broken`); return; }
+
+        // Core value: the two entities got their OWN records, not one merged blob.
+        if (chunks.length < 2) { console.error(`${TEST} [FAIL] expected ≥2 records (one per named entity), got ${chunks.length} — split did not happen`); return; }
+
+        const badShape = chunks.find(c => !c.entry_type || !c.name || !c.body);
+        if (badShape) { console.error(`${TEST} [FAIL] record missing entry_type/name/body: ${JSON.stringify(badShape).slice(0, 200)}`); return; }
+
+        chunks.slice(0, 6).forEach((c, i) => console.log(`  record[${i}] type="${c.entry_type}" name="${c.name}" grounded=${c._nameGrounded !== false} body="${(c.body || '').slice(0, 50)}..."`));
+
+        // Soft signal: both source names should surface somewhere (verbatim-fact rule).
+        const blob = chunks.map(c => `${c.name} ${c.body}`).join(' ').toLowerCase();
+        const foundKaelen = blob.includes('kaelen');
+        const foundMira = blob.includes('mira');
+        if (!foundKaelen || !foundMira) {
+            console.warn(`${TEST} [WARN] one source name missing from output (kaelen=${foundKaelen}, mira=${foundMira}) — model paraphrased; split still succeeded`);
+        }
+
+        console.log(`${TEST} [PASS] real ${provider} Auto-Reformat via postChatCompletion → ${chunks.length} well-formed record(s), multi-entity split confirmed`);
+    });
+    assertPassed(logs);
+});
+
+
+test('TEST 026 — Acronym glossary: deployed-module grounding smoke (no LLM)', async () => {
+    const logs = await runTestInPage(async () => {
+        const TEST = 'TEST 026 [Glossary]';
+        const base = '/scripts/extensions/third-party/VectFox/';
+        const { extractGlossary, injectGlossary } = await import(base + 'core/glossary-extractor.js');
+
+        // A document that defines an acronym once, then uses it bare elsewhere.
+        const source = [
+            'The Federal Hero Oversight Bureau (FHOB) licenses every sanctioned cape in the republic.',
+            '',
+            'Threat assessments are filed to the FHOB within an hour of any incident.',
+        ].join('\n');
+
+        const glossary = extractGlossary(source);
+        const fhob = glossary.find(g => g.acronym === 'FHOB');
+        if (!fhob) { console.error(`${TEST} [FAIL] extractGlossary did not detect "Federal Hero Oversight Bureau (FHOB)" — found: ${JSON.stringify(glossary)}`); return; }
+        if (!/Federal Hero Oversight Bureau/i.test(fhob.fullName || '')) { console.error(`${TEST} [FAIL] FHOB fullName wrong: "${fhob.fullName}"`); return; }
+        console.log(`  detected ${glossary.length} acronym(s): ${glossary.map(g => g.acronym).join(', ')}`);
+
+        // A chunk that uses the bare acronym without its definition must get grounded.
+        const chunks = [{ text: 'Threat assessments are filed to the FHOB within an hour of any incident.', metadata: {} }];
+        const out = injectGlossary(chunks, glossary);
+        if (!Array.isArray(out) || out.length !== 1) { console.error(`${TEST} [FAIL] injectGlossary returned malformed output`); return; }
+        if (!/Federal Hero Oversight Bureau/i.test(out[0].text)) {
+            console.error(`${TEST} [FAIL] definition NOT prepended to the bare-acronym chunk: "${out[0].text.slice(0, 120)}"`);
+            return;
+        }
+        // Non-mutating contract: original input chunk untouched.
+        if (/Federal Hero Oversight Bureau/i.test(chunks[0].text)) { console.error(`${TEST} [FAIL] injectGlossary mutated the input chunk`); return; }
+
+        console.log(`  grounded chunk preview: "${out[0].text.slice(0, 90)}..."`);
+        console.log(`${TEST} [PASS] deployed glossary module grounds a bare acronym (definition prepended, input untouched)`);
+    });
+    assertPassed(logs);
+});
