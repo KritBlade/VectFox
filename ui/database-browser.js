@@ -216,6 +216,9 @@ function createBrowserModal() {
                         <button class="vectfox-btn vectfox-btn-sm" id="vectfox_browser_refresh_scan" title="Probe standard and qdrant backends, update the registry, and remove stale entries">
                             ${icons.refreshCw(14)} Refresh Scan
                         </button>
+                        <button class="vectfox-btn vectfox-btn-sm" id="vectfox_browser_clear_reformat_originals" title="Auto-Reformat retains each source's original text for audit. Clear it to reclaim settings.json space — the accepted chunks themselves are untouched.">
+                            🧹 Clear Auto-Reformat Originals
+                        </button>
                         <button class="vectfox-btn-icon" id="vectfox_browser_close">✕</button>
                     </div>
                 </div>
@@ -467,6 +470,43 @@ function bindBrowserEvents() {
       toastr.error(`Scan failed: ${err.message}`, "VectFox");
     } finally {
       $btn.prop("disabled", false).html(`${icons.refreshCw(14)} Refresh Scan`);
+    }
+  });
+
+  // Clear Auto-Reformat Originals — maintenance action for reformat-store.js's
+  // retained pre-reformat source text (kept for audit/revert; see reformat-store.js
+  // docstring). Only clears the audit copy, never the accepted chunks/runId, so this
+  // can never affect anything already vectorized.
+  $("#vectfox_browser_clear_reformat_originals").on("click", async function (e) {
+    e.stopPropagation();
+    e.preventDefault();
+    try {
+      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../core/reformat-store.js");
+      const entries = listReformatCacheEntries();
+      const totalBytes = entries.reduce((sum, entry) => sum + entry.originalTextBytes, 0);
+
+      if (totalBytes === 0) {
+        toastr.info("No retained Auto-Reformat originals to clear.", "VectFox");
+        return;
+      }
+
+      const { callGenericPopup, POPUP_TYPE } = await import("../../../../popup.js");
+      const confirmed = await callGenericPopup(
+        `<div style="text-align:left;">
+                    <p><strong>Clear retained Auto-Reformat originals?</strong></p>
+                    <p>${entries.length} source(s), ~${Math.round(totalBytes / 1024)} KB of pre-reformat text.</p>
+                    <p style="margin-top:10px;">This only removes the audit copy of the original source text — the accepted, already-reformatted chunks are untouched and remain usable. You won't be able to review the original wording later.</p>
+                </div>`,
+        POPUP_TYPE.CONFIRM,
+        "",
+        { okButton: "Clear Originals", cancelButton: "Cancel" },
+      );
+      if (!confirmed) return;
+
+      const cleared = clearAllReformatOriginals();
+      toastr.success(`Cleared retained original text for ${cleared} Auto-Reformat entr${cleared === 1 ? "y" : "ies"}.`, "VectFox");
+    } catch (err) {
+      toastr.error(`Failed to clear Auto-Reformat originals: ${err.message}`, "VectFox");
     }
   });
 

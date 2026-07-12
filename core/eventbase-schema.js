@@ -82,15 +82,10 @@ export class EventBaseFatalError extends Error {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Deduplicate + trim an array of strings; drop empties.
- * @param {unknown} val
- * @returns {string[]}
- */
-function ensureArray(val) {
-    if (!Array.isArray(val)) return [];
-    return [...new Set(val.map(s => (typeof s === 'string' ? s.trim() : String(s ?? '').trim())).filter(Boolean))];
-}
+// Dedupe + trim an array of strings; drop empties. Single implementation lives
+// in StringUtils (shared with reformat-schema.js) — aliased here so the call
+// sites below stay terse.
+const ensureArray = StringUtils.ensureArray;
 
 /**
  * Normalize optional DateTime field (ISO 8601 string) from LLM output.

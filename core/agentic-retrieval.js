@@ -25,9 +25,8 @@ import { queryCollection } from './core-vector-api.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { stripReasoningBlocks, stripGameSystemBlocks } from './text-cleaning.js';
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
-import { getModelConfigErrorMessage } from './model-http-errors.js';
+import { postChatCompletion, LlmCallError } from './llm-provider-call.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { getRequestHeaders } from '../../../../../script.js';
 import { log } from './log.js';
 
 // ============================================================================
@@ -351,100 +350,35 @@ export function _resolveAgenticLLMConfig(settings = {}) {
  * Throws on network/auth failure, empty response, or unparseable JSON.
  */
 async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs }) {
-    const body = {
-        model: llmCfg.model,
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
-        ],
-        max_tokens: 2000,
-        temperature: 0.2,
-        response_format: { type: 'json_object' },
-    };
-
-    let endpoint, headers, requestBody;
-    if (llmCfg.provider === 'openrouter') {
-        // Route through ST's chat-completions proxy. llmCfg.apiKey here is the
-        // MASKED placeholder (presence indicator only); the real key is read
-        // server-side via readSecret(SECRET_KEYS.OPENROUTER). See
-        // summarizer._callOpenRouter for the full rationale.
-        endpoint = '/api/backends/chat-completions/generate';
-        headers = getRequestHeaders();
-        requestBody = { chat_completion_source: 'openrouter', ...body };
-    } else if (llmCfg.provider === 'vllm') {
-        // Route through ST's chat-completions proxy with `chat_completion_source:
-        // 'custom'`. ST reads the real key server-side from SECRET_KEYS.CUSTOM
-        // and forwards to llmCfg.vllmUrl. llmCfg.apiKey here is the MASKED
-        // presence value — never sent over the wire. Same pattern as the
-        // openrouter branch above.
-        endpoint = '/api/backends/chat-completions/generate';
-        headers = getRequestHeaders();
-        requestBody = { chat_completion_source: 'custom', custom_url: llmCfg.vllmUrl, ...body };
-    } else {
-        throw new Error(`Unknown provider: ${llmCfg.provider}`);
-    }
-
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(timeoutMs),
-    });
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        const modelConfigError = getModelConfigErrorMessage({
-            contextLabel: 'Agent Mode',
-            provider: llmCfg.provider,
+    // Shared HTTP + response classification (llm-provider-call.js). The planner
+    // is a two-message, json_object call. authBranch:false preserves the prior
+    // behavior of folding 401/403 into the model-config / generic paths (Agent
+    // Mode had no dedicated auth branch — it degrades to pre-search upstream).
+    let content, usage;
+    try {
+        ({ content, usage } = await postChatCompletion({
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userMessage },
+            ],
             model: llmCfg.model,
-            status: response.status,
-            responseText: errText,
-        });
-        if (modelConfigError) {
-            const err = new Error(modelConfigError);
-            err.code = 'invalid_model_config';
+            provider: llmCfg.provider,
+            vllmUrl: llmCfg.vllmUrl || '',
+            maxTokens: 2000,
+            temperature: 0.2,
+            timeoutMs,
+            responseFormat: { type: 'json_object' },
+            contextLabel: 'Agent Mode',
+            authBranch: false,
+        }));
+    } catch (e) {
+        if (e instanceof LlmCallError) {
+            const err = new Error(e.message);
+            if (e.kind === 'model_config') err.code = 'invalid_model_config';
             throw err;
         }
-        const { isConnectionError, notifyConnectionError } = await import('./model-config-notifier.js');
-        if (isConnectionError(errText)) {
-            // Agent Mode degrades to pre-search on failure (caught upstream), but
-            // the user still needs to know their planner URL is unreachable.
-            notifyConnectionError('Agent Mode', llmCfg.vllmUrl || null, errText);
-        }
-        throw new Error(`HTTP ${response.status}: ${String(errText).slice(0, 200)}`);
+        throw e;
     }
-
-    const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) {
-        // OpenRouter via ST's proxy can return HTTP 200 with an error body (e.g.
-        // {"message":"Not Found"} for a retired model) instead of a 4xx. Surface that
-        // as a model-config error; a genuinely empty 200 stays the generic error below.
-        const bodyText = data?.error ? JSON.stringify(data.error) : JSON.stringify(data || {});
-        const modelConfigError = getModelConfigErrorMessage({
-            contextLabel: 'Agent Mode',
-            provider: llmCfg.provider,
-            model: llmCfg.model,
-            status: response.status,
-            responseText: bodyText,
-            enforceStatusGate: false,
-        });
-        if (modelConfigError) {
-            const err = new Error(modelConfigError);
-            err.code = 'invalid_model_config';
-            throw err;
-        }
-        throw new Error('LLM returned empty content');
-    }
-
-    // Capture real token usage from the API response (OpenAI/OpenRouter-compatible
-    // schema). Lets the debug log distinguish "long prompt, fast model" from
-    // "short prompt, slow model" — important when diagnosing latency.
-    const usage = data?.usage ? {
-        prompt_tokens: data.usage.prompt_tokens ?? null,
-        completion_tokens: data.usage.completion_tokens ?? null,
-        total_tokens: data.usage.total_tokens ?? null,
-    } : null;
 
     // Some providers wrap in markdown fences despite response_format=json_object.
     const cleaned = String(content).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();

@@ -674,6 +674,76 @@ export function renderSettings(containerId, settings, callbacks) {
                             <input type="range" id="VectFox_insert_batch_size" class="vectfox-slider" min="10" max="100" step="10" />
                             <small class="VectFox_hint">Chunks per insert batch (50-100 recommended for faster bulk operations)</small>
 
+                            <label class="checkbox_label" for="VectFox_document_glossary_injection" style="margin-top:12px;">
+                                <input type="checkbox" id="VectFox_document_glossary_injection" />
+                                <span>Acronym Glossary Injection (Documents)</span>
+                            </label>
+                            <small class="VectFox_hint">When vectorizing a <b>Document</b>, scan it once for "Full Name (ACRONYM)" definitions and prepend the matching definition to any chunk that references the bare acronym without it. Fixes retrieval handing the model an ungrounded acronym it then has to guess at.</small>
+
+                            <!-- Auto-Reformat (LLM) -->
+                            <p class="vectfox-section-label" style="font-weight:600; margin-top:16px; margin-bottom:8px;">Auto-Reformat (LLM)</p>
+                            <small class="VectFox_hint" style="display:block; margin-bottom:8px;">
+                                Optional, per-item LLM pass offered in <b>Vectorize Content</b> for Document/URL/Wiki sources. Reads the source, splits it into clean per-entity/per-topic entries, and uses those as the final chunks — you review and accept every entry before anything is stored. Leave Provider/Model blank to inherit from <b>Summarize Before Store</b> settings.
+                            </small>
+
+                            <div class="vectfox-form-group">
+                                <label for="VectFox_reformat_provider"><small>Provider</small></label>
+                                <select id="VectFox_reformat_provider" class="vectfox-select">
+                                    <option value="">(Inherit from summarizer)</option>
+                                    <option value="openrouter">OpenRouter</option>
+                                    <option value="vllm">vLLM</option>
+                                </select>
+                            </div>
+
+                            <div class="vectfox-form-group">
+                                <label for="VectFox_reformat_model"><small>Model</small></label>
+                                <input type="text" id="VectFox_reformat_model" class="vectfox-input"
+                                    placeholder="(empty → inherit summarizer model)" />
+                            </div>
+
+                            <div class="vectfox-form-group" id="VectFox_reformat_vllm_row" style="display:none;">
+                                <label for="VectFox_reformat_vllm_url"><small>vLLM Base URL</small></label>
+                                <input type="text" id="VectFox_reformat_vllm_url" class="vectfox-input"
+                                    placeholder="(empty → inherit summarize URL)" />
+                                <small class="VectFox_hint">API key is shared with Embedding/Summarize/AgentMode — set it in Core → LLM Summarization.</small>
+                            </div>
+
+                            <label for="VectFox_reformat_batch_chars">
+                                <small>Batch Size: <span id="VectFox_reformat_batch_chars_val">6000</span> chars</small>
+                            </label>
+                            <input type="range" id="VectFox_reformat_batch_chars" class="vectfox-slider" min="2000" max="12000" step="500" />
+                            <small class="VectFox_hint">Target input size per LLM call. Long documents are split into multiple batches at header boundaries; lower this if a section is so dense the model truncates its output.</small>
+
+                            <label for="VectFox_reformat_max_body_chars" style="margin-top:10px; display:block;">
+                                <small>Max Entry Size: <span id="VectFox_reformat_max_body_chars_val">2000</span> chars</small>
+                            </label>
+                            <input type="range" id="VectFox_reformat_max_body_chars" class="vectfox-slider" min="500" max="5000" step="250" />
+                            <small class="VectFox_hint">Entries longer than this are sub-chunked with the same adaptive splitter used elsewhere, so one oversized entity doesn't become one giant chunk.</small>
+
+                            <label for="VectFox_reformat_name_fuzzy_threshold" style="margin-top:10px; display:block;">
+                                <small>Hallucination Guard Sensitivity: <span id="VectFox_reformat_name_fuzzy_threshold_val">0.8</span></small>
+                            </label>
+                            <input type="range" id="VectFox_reformat_name_fuzzy_threshold" class="vectfox-slider" min="0.5" max="1" step="0.05" />
+                            <small class="VectFox_hint">Minimum name-match confidence before the review screen flags an entry as possibly invented by the model. Higher = stricter (more flags, some false positives on close paraphrases).</small>
+
+                            <label for="VectFox_reformat_concurrency" style="margin-top:10px; display:block;">
+                                <small>Parallel Batches: <span id="VectFox_reformat_concurrency_val">2</span></small>
+                            </label>
+                            <input type="range" id="VectFox_reformat_concurrency" class="vectfox-slider" min="1" max="6" step="1" />
+                            <small class="VectFox_hint">How many LLM calls run at once when a document needs multiple batches.</small>
+
+                            <label for="VectFox_reformat_timeout_ms" style="margin-top:10px; display:block;">
+                                <small>Timeout (ms)</small>
+                            </label>
+                            <input id="VectFox_reformat_timeout_ms" type="number" class="vectfox-input" min="10000" step="1000" style="width:140px;" />
+
+                            <label for="VectFox_reformat_custom_prompt" style="margin-top:10px; display:block;">
+                                <small>Custom Extraction Prompt (advanced)</small>
+                            </label>
+                            <textarea id="VectFox_reformat_custom_prompt" class="vectfox-input" rows="3"
+                                placeholder="Leave blank to use the built-in prompt. Must instruct the model to output a JSON array with entry_type/name/aliases/affiliation/traits/relationships/keywords/body fields."
+                                style="margin-top:4px;"></textarea>
+
                             <!-- Query (ChunkBase-only) -->
                             <p class="vectfox-section-label" style="font-weight:600; margin-top:16px; margin-bottom:8px;">Query</p>
                             <div style="margin-top:4px; display:flex; gap:8px; align-items:center;">
@@ -2943,6 +3013,74 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
+    // ─── Auto-Reformat (Document/URL/Wiki LLM restructuring) ───────────────
+    // Mirrors the AgentMode inherit-from-summarizer pattern above. No dedicated
+    // API-key fields — reuses the same shared OpenRouter/vLLM key slots.
+    const updateReformatProviderUI = (provider) => {
+        const resolved = String(provider || '').trim();
+        $('#VectFox_reformat_vllm_row').toggle(resolved === 'vllm');
+    };
+
+    $('#VectFox_reformat_provider')
+        .val(settings.reformat_provider || '')
+        .on('change', function() {
+            settings.reformat_provider = String($(this).val());
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+            updateReformatProviderUI(settings.reformat_provider);
+        });
+    updateReformatProviderUI(settings.reformat_provider || '');
+
+    $('#VectFox_reformat_model')
+        .val(settings.reformat_model || '')
+        .on('input change', function() {
+            settings.reformat_model = String($(this).val()).trim();
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_reformat_vllm_url')
+        .val(settings.reformat_vllm_url || '')
+        .on('change', function() {
+            settings.reformat_vllm_url = String($(this).val()).trim();
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    const bindReformatSlider = (inputId, valSpanId, settingKey, defaultVal) => {
+        const startVal = Number(settings[settingKey] ?? defaultVal);
+        $(inputId).val(startVal);
+        $(valSpanId).text(startVal);
+        $(inputId).on('input', function() {
+            const v = Number($(this).val());
+            settings[settingKey] = v;
+            $(valSpanId).text(v);
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+    };
+    bindReformatSlider('#VectFox_reformat_batch_chars', '#VectFox_reformat_batch_chars_val', 'reformat_batch_chars', 6000);
+    bindReformatSlider('#VectFox_reformat_max_body_chars', '#VectFox_reformat_max_body_chars_val', 'reformat_max_body_chars', 2000);
+    bindReformatSlider('#VectFox_reformat_name_fuzzy_threshold', '#VectFox_reformat_name_fuzzy_threshold_val', 'reformat_name_fuzzy_threshold', 0.8);
+    bindReformatSlider('#VectFox_reformat_concurrency', '#VectFox_reformat_concurrency_val', 'reformat_concurrency', 2);
+
+    $('#VectFox_reformat_timeout_ms')
+        .val(Number(settings.reformat_timeout_ms ?? 90000))
+        .on('change input', function() {
+            const v = Number($(this).val());
+            settings.reformat_timeout_ms = Math.max(10000, v || 90000);
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_reformat_custom_prompt')
+        .val(settings.reformat_custom_prompt || '')
+        .on('change', function() {
+            settings.reformat_custom_prompt = String($(this).val());
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
     // Chunk size (for adaptive strategy)
     $('#VectFox_chunk_size')
         .val(settings.chunk_size || 500)
@@ -4757,6 +4895,15 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
     $('#VectFox_insert_batch_size_value').text(settings.insert_batch_size || 50);
+
+    // Acronym glossary injection (Documents) — see core/glossary-extractor.js
+    $('#VectFox_document_glossary_injection')
+        .prop('checked', settings.document_glossary_injection !== false)
+        .on('change', function() {
+            settings.document_glossary_injection = $(this).prop('checked');
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
 
     // Minimum chat length before injection starts
     $('#VectFox_min_chat_length')

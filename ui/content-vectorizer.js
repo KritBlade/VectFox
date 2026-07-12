@@ -221,6 +221,17 @@ function createModal() {
                         </div>
                     </div>
 
+                    <!-- Step 2.5: Auto-Reformat (Optional, Document/URL/Wiki only) -->
+                    <div class="vectfox-cv-section vectfox-cv-reformat-section vectfox-cv-subsequent" id="vectfox_cv_reformat_section" style="display:none;">
+                        <div class="vectfox-cv-section-header">
+                            <span class="vectfox-cv-step-number"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                            <span class="vectfox-cv-section-title">Auto-Reformat (Optional)</span>
+                        </div>
+                        <div id="vectfox_cv_reformat_content" class="vectfox-cv-section-body">
+                            <!-- Dynamically populated -->
+                        </div>
+                    </div>
+
                     <!-- Step 3: Chunking Settings -->
                     <div class="vectfox-cv-section vectfox-cv-chunking-section vectfox-cv-subsequent">
                         <div class="vectfox-cv-section-header">
@@ -386,6 +397,12 @@ function updateUIForContentType() {
 
     // Update source section
     updateSourceSection(type);
+
+    // Auto-Reformat section (Document/URL/Wiki only) — must run before
+    // updateChunkingSection() so the latter can see currentSettings.reformat
+    // state for the current content type when deciding whether to show the
+    // strategy dropdown or the "handled by Auto-Reformat" message.
+    renderReformatSection();
 
     // Update chunking strategies
     updateChunkingSection(type);
@@ -847,6 +864,249 @@ function _usesEventBaseWindowControls(typeId) {
     return typeId === 'chat';
 }
 
+// ============================================================================
+// AUTO-REFORMAT (Document/URL/Wiki only)
+// ============================================================================
+
+const REFORMAT_SUPPORTED_TYPES = ['document', 'url', 'wiki'];
+
+function isReformatSupportedType() {
+    return REFORMAT_SUPPORTED_TYPES.includes(currentContentType);
+}
+
+/**
+ * Renders the Auto-Reformat section based on content type + current
+ * currentSettings.reformat state. Safe to call any time content type or
+ * reformat state changes (source-load, accept, discard, re-run).
+ */
+function renderReformatSection() {
+    const section = $('#vectfox_cv_reformat_section');
+    if (!isReformatSupportedType()) {
+        section.hide();
+        return;
+    }
+    section.show();
+
+    const container = $('#vectfox_cv_reformat_content');
+    const reformat = currentSettings.reformat;
+
+    if (reformat?.accepted) {
+        container.html(`
+            <div class="vectfox-cv-reformat-accepted">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>Auto-Reformat accepted. Chunking Strategy below is bypassed — the reviewed entries will be stored as-is.</span>
+            </div>
+            <div class="vectfox-cv-reformat-actions">
+                <button class="vectfox-btn-secondary" id="vectfox_cv_reformat_discard">
+                    <i class="fa-solid fa-rotate-left"></i> Discard &amp; Chunk Manually
+                </button>
+                <button class="vectfox-btn-secondary" id="vectfox_cv_reformat_rerun">
+                    <i class="fa-solid fa-arrows-rotate"></i> Re-run Auto-Reformat
+                </button>
+            </div>
+        `);
+        $('#vectfox_cv_reformat_discard').on('click', () => {
+            currentSettings.reformat = null;
+            const type = getContentType(currentContentType);
+            renderReformatSection();
+            updateChunkingSection(type);
+        });
+        $('#vectfox_cv_reformat_rerun').on('click', runAutoReformat);
+        return;
+    }
+
+    container.html(`
+        <div class="vectfox-cv-reformat-intro">
+            <span>Optional: have an LLM read this content, split it into clean per-entity/per-topic entries, and use those as the final chunks — instead of the mechanical strategy below. You'll review every entry before anything is stored.</span>
+        </div>
+        <button class="vectfox-btn-secondary" id="vectfox_cv_reformat_run">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Run Auto-Reformat
+        </button>
+    `);
+    $('#vectfox_cv_reformat_run').on('click', runAutoReformat);
+}
+
+/**
+ * Resolves the current source into plain text suitable for the reformatter.
+ * Forces wiki away from `per_page` (which would return an array of per-page
+ * objects, not a single string the batching packer can consume).
+ */
+async function _resolveReformatSourceText(source) {
+    const { resolveAndPrepareContent } = await import('../core/content-vectorization.js');
+    const prepSettings = currentContentType === 'wiki'
+        ? { ...currentSettings, strategy: 'adaptive' }
+        : currentSettings;
+    const prepared = await resolveAndPrepareContent(currentContentType, source, prepSettings);
+    if (typeof prepared.text === 'string') return prepared.text;
+    if (Array.isArray(prepared.text)) {
+        return prepared.text.map(t => (typeof t === 'string' ? t : t.text || '')).join('\n\n---\n\n');
+    }
+    return String(prepared.text || '');
+}
+
+/**
+ * Runs the Auto-Reformat LLM pass and opens the review modal. Reused for
+ * both the initial "Run Auto-Reformat" click and "Re-run Auto-Reformat".
+ */
+async function runAutoReformat() {
+    const source = getSourceData();
+    if (!source) {
+        toastr.warning('Please select or enter content first');
+        return;
+    }
+
+    const container = $('#vectfox_cv_reformat_content');
+    container.html('<div class="vectfox-cv-loading"><i class="fa-solid fa-spinner fa-spin"></i> Preparing content...</div>');
+
+    try {
+        const text = await _resolveReformatSourceText(source);
+        if (!text.trim()) {
+            container.html('<div class="vectfox-cv-error">Could not load content. Please check your selection.</div>');
+            return;
+        }
+
+        const { getStringHash } = await import('../../../../utils.js');
+        const sourceHash = getStringHash(text);
+        const mergedSettings = resolveEffectiveSettings(currentSettings);
+
+        const { getReformatCache } = await import('../core/reformat-store.js');
+        const existing = getReformatCache(sourceHash);
+        if (existing?.chunks?.length) {
+            currentSettings.reformat = { accepted: true, sourceHash };
+            renderReformatSection();
+            updateChunkingSection(getContentType(currentContentType));
+            toastr.info(`This exact content was already reformatted (${existing.chunks.length} chunks) — reusing the saved result.`, 'VectFox');
+            return;
+        }
+
+        container.html('<div class="vectfox-cv-loading"><i class="fa-solid fa-spinner fa-spin"></i> Running Auto-Reformat...</div>');
+
+        const { reformatDocument } = await import('../core/reformat-extractor.js');
+        const result = await reformatDocument({
+            text,
+            contentType: currentContentType,
+            settings: mergedSettings,
+            onProgress: (done, total) => {
+                container.find('.vectfox-cv-loading').html(
+                    `<i class="fa-solid fa-spinner fa-spin"></i> Running Auto-Reformat (${done}/${total} batches)...`
+                );
+            },
+        });
+
+        if (result.chunks.length === 0) {
+            const extra = result.warnings.length ? ` ${result.warnings.join(' ')}` : '';
+            container.html(`<div class="vectfox-cv-error">Auto-Reformat produced no entries.${extra}</div>`);
+            return;
+        }
+
+        renderReformatSection();
+
+        const { openReformatReview } = await import('./reformat-review.js');
+        const sourceName = source.name || source.filename || source.title || currentContentType;
+        openReformatReview({
+            chunks: result.chunks,
+            warnings: result.warnings,
+            sourceText: text,
+            sourceName,
+            contentType: currentContentType,
+            onAccept: (acceptedRecords) => _finalizeReformatAccept({ acceptedRecords, sourceHash, text, sourceName, mergedSettings }),
+            onDiscard: () => {
+                currentSettings.reformat = null;
+                renderReformatSection();
+            },
+            onRerun: () => runAutoReformat(),
+        });
+    } catch (e) {
+        console.error('VectFox: Auto-Reformat failed:', e);
+        container.html(`<div class="vectfox-cv-error">Auto-Reformat failed: ${e.message}</div>`);
+    }
+}
+
+/**
+ * Persists an accepted Auto-Reformat draft: expands any oversized entity body
+ * via the existing adaptive splitter, shapes every physical chunk into the
+ * same {text, metadata} form chunkText() itself produces (so nothing
+ * downstream needs special-casing), freezes it in reformat-store.js keyed by
+ * sourceHash, and flips currentSettings.reformat to accepted.
+ */
+async function _finalizeReformatAccept({ acceptedRecords, sourceHash, text, sourceName, mergedSettings }) {
+    try {
+        const { expandOversizedChunk } = await import('../core/reformat-extractor.js');
+        const { saveReformatCache, getReformatCache } = await import('../core/reformat-store.js');
+
+        const maxBodyChars = mergedSettings.reformat_max_body_chars || 2000;
+        const previous = getReformatCache(sourceHash);
+
+        const shapedChunks = [];
+        for (const record of acceptedRecords) {
+            const expanded = await expandOversizedChunk(record, maxBodyChars);
+            for (const piece of expanded) {
+                shapedChunks.push({
+                    text: piece.body,
+                    metadata: {
+                        chunkIndex: shapedChunks.length,
+                        totalChunks: 0, // patched below once the final count is known
+                        strategy: 'llm_reformat',
+                        entry_type: piece.entry_type,
+                        name: piece.name,
+                        aliases: piece.aliases,
+                        affiliation: piece.affiliation,
+                        traits: piece.traits,
+                        relationships: piece.relationships,
+                        keywords: piece.keywords,
+                        subChunkIndex: piece.subChunkIndex,
+                        subChunkTotal: piece.subChunkTotal,
+                    },
+                });
+            }
+        }
+        shapedChunks.forEach(c => { c.metadata.totalChunks = shapedChunks.length; });
+
+        const providerModel = `${mergedSettings.reformat_provider || mergedSettings.chat_provider || 'openrouter'}:${mergedSettings.reformat_model || mergedSettings.chat_model || ''}`;
+
+        if (previous?.chunks?.length) {
+            // Re-running Auto-Reformat produces a new, non-deterministic generation.
+            // Document/URL/Wiki vectorization always mints a brand-new collection per
+            // run (there's no "same source → same collection" concept for these types,
+            // unlike chat), so re-running can't silently duplicate data inside one
+            // collection — but if the PREVIOUS generation was already vectorized into
+            // its own collection, that old collection still exists independently.
+            // Surface that plainly rather than guessing at which collection to touch.
+            toastr.info(
+                'This replaces the saved Auto-Reformat draft. If you already vectorized the previous version into a collection, that collection is untouched — delete it via Database Browser if you don\'t want both.',
+                'VectFox',
+                { timeOut: 10000 },
+            );
+        }
+
+        if (text.length > 200000) {
+            toastr.warning(
+                `Auto-Reformat retains the original source text for audit (~${Math.round(text.length / 1024)} KB), adding to your settings storage size. Use "Clear Auto-Reformat originals" in Database Browser if this grows large.`,
+                'VectFox',
+                { timeOut: 10000 },
+            );
+        }
+
+        saveReformatCache(sourceHash, {
+            chunks: shapedChunks,
+            originalText: text,
+            contentType: currentContentType,
+            sourceName,
+            providerModel,
+            schemaVersion: 1,
+        });
+
+        currentSettings.reformat = { accepted: true, sourceHash };
+        toastr.success(`Auto-Reformat accepted: ${shapedChunks.length} chunk(s) ready. Click Vectorize to store them.`, 'VectFox');
+
+        renderReformatSection();
+        updateChunkingSection(getContentType(currentContentType));
+    } catch (e) {
+        console.error('VectFox: Failed to finalize Auto-Reformat accept:', e);
+        toastr.error('Failed to save Auto-Reformat result: ' + e.message, 'VectFox');
+    }
+}
+
 function updateChunkingSection(type) {
     const strategies = getChunkingStrategies(type.id);
     const defaults = getContentTypeDefaults(type.id);
@@ -894,7 +1154,21 @@ function updateChunkingSection(type) {
     // Chat history now follows EventBase extraction settings from the dedicated GUI,
     // so keep the legacy strategy selector populated for internal compatibility but
     // hide the visible controls only for chat. Other content types still use them.
-    $('#vectfox_cv_strategy_select_wrapper').toggle(!isChatType);
+    // Auto-Reformat, once accepted, IS the final chunk set — the strategy
+    // dropdown/size sliders below would be inert, so hide them and say so.
+    // Checked before isChatType since the two are mutually exclusive (chat
+    // never supports Auto-Reformat) but this ordering keeps the precedence
+    // explicit if that ever changes.
+    const isReformatActive = isReformatSupportedType() && currentSettings.reformat?.accepted === true;
+
+    $('#vectfox_cv_strategy_select_wrapper').toggle(!isChatType && !isReformatActive);
+    if (isReformatActive) {
+        $('#vectfox_cv_strategy_desc').text('Chunking handled by Auto-Reformat — see the section above.');
+        $('#vectfox_cv_size_controls').hide();
+        $('.vectfox-cv-chunking-section').show();
+        $('#vectfox_cv_parallel_row').hide();
+        return;
+    }
     if (isChatType) {
         $('#vectfox_cv_strategy_desc').text('');
         $('#vectfox_cv_size_controls').hide();
@@ -2398,6 +2672,48 @@ async function previewChunks() {
             'there is no synchronous chunk preview for chat.' +
             '</div>'
         );
+        return;
+    }
+
+    // Auto-Reformat, once accepted, already IS the final chunk set — nothing
+    // to mechanically re-chunk. Show the frozen result instead of running
+    // chunkText(), mirroring the chat/EventBase special case above.
+    if (isReformatSupportedType() && currentSettings.reformat?.accepted) {
+        $('.vectfox-cv-preview-section').show();
+        const reformatContainer = $('#vectfox_cv_preview_content');
+        reformatContainer.html('<div class="vectfox-cv-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading Auto-Reformat result...</div>');
+        try {
+            const { getReformatCache } = await import('../core/reformat-store.js');
+            const frozen = getReformatCache(currentSettings.reformat.sourceHash);
+            const chunks = frozen?.chunks || [];
+            if (chunks.length === 0) {
+                reformatContainer.html('<div class="vectfox-cv-error">No frozen Auto-Reformat chunks found — try Re-running Auto-Reformat above.</div>');
+                return;
+            }
+            const totalChars = chunks.reduce((sum, c) => sum + (c.text?.length || 0), 0);
+            const avgChars = Math.round(totalChars / chunks.length);
+            reformatContainer.html(`
+                <div class="vectfox-cv-preview-stats">
+                    <span><strong>${chunks.length}</strong> chunks (Auto-Reformat)</span>
+                    <span>~<strong>${avgChars}</strong> chars avg</span>
+                </div>
+                <div class="vectfox-cv-preview-list">
+                    ${chunks.slice(0, 10).map((chunk, i) => {
+                        const label = `[${chunk.metadata?.entry_type || 'entry'}] ${chunk.metadata?.name || ''}: `;
+                        return `
+                        <div class="vectfox-cv-preview-chunk">
+                            <span class="vectfox-cv-preview-num">#${i + 1}</span>
+                            <span class="vectfox-cv-preview-text">${StringUtils.escapeHtml(label)}${StringUtils.escapeHtml(chunk.text.substring(0, 120))}${chunk.text.length > 120 ? '...' : ''}</span>
+                            <span class="vectfox-cv-preview-size">${chunk.text.length} chars</span>
+                        </div>
+                    `}).join('')}
+                    ${chunks.length > 10 ? `<div class="vectfox-cv-preview-more">...and ${chunks.length - 10} more</div>` : ''}
+                </div>
+            `);
+        } catch (e) {
+            console.error('VectFox: Auto-Reformat preview failed:', e);
+            reformatContainer.html(`<div class="vectfox-cv-error">Preview failed: ${e.message}</div>`);
+        }
         return;
     }
 

@@ -1,0 +1,203 @@
+/* ============================================================================
+ * VECTFOX AUTO-REFORMAT REVIEW MODAL
+ * ============================================================================
+ * Wide two-column layout: read-only source text alongside editable record
+ * cards. Builds on the shared .vectfox-modal/.vectfox-btn base styles from
+ * styles/modals.css and styles/buttons.css — only the review-specific layout
+ * lives here.
+ * ============================================================================ */
+
+.vectfox-rr-modal {
+    width: 95%;
+    max-width: 1200px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.vectfox-rr-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+}
+
+.vectfox-rr-run-warnings {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--vectfox-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--vectfox-warning) 40%, transparent);
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.85em;
+}
+
+.vectfox-rr-run-warnings i {
+    color: var(--vectfox-warning);
+    margin-top: 2px;
+}
+
+.vectfox-rr-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.9em;
+}
+
+.vectfox-rr-hint {
+    opacity: 0.7;
+    font-size: 0.85em;
+}
+
+.vectfox-rr-columns {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr);
+    gap: 16px;
+    min-height: 0;
+}
+
+.vectfox-rr-source-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.vectfox-rr-panel-title {
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 0.85em;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+    background: color-mix(in srgb, var(--vectfox-primary) 8%, transparent);
+}
+
+.vectfox-rr-source-text {
+    flex: 1;
+    margin: 0;
+    padding: 12px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.82em;
+    line-height: 1.5;
+    font-family: inherit;
+}
+
+.vectfox-rr-records-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 4px;
+}
+
+.vectfox-rr-card {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 10px;
+    padding: 12px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 90%, transparent);
+}
+
+.vectfox-rr-card-dirty {
+    border-color: color-mix(in srgb, var(--vectfox-primary) 60%, var(--SmartThemeBorderColor));
+}
+
+.vectfox-rr-card-flagged {
+    border-color: color-mix(in srgb, var(--vectfox-warning) 55%, var(--SmartThemeBorderColor));
+}
+
+.vectfox-rr-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.vectfox-rr-entry-type {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.8em;
+    text-transform: capitalize;
+}
+
+.vectfox-rr-hallucination-warning {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--vectfox-warning) 15%, transparent);
+    font-size: 0.8em;
+    line-height: 1.4;
+}
+
+.vectfox-rr-hallucination-warning i {
+    color: var(--vectfox-warning);
+    margin-top: 1px;
+}
+
+.vectfox-rr-field-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 8px;
+    align-items: start;
+    margin-bottom: 6px;
+}
+
+.vectfox-rr-field-row label {
+    font-size: 0.78em;
+    opacity: 0.75;
+    padding-top: 6px;
+}
+
+.vectfox-rr-field-row-body {
+    grid-template-columns: 100px 1fr;
+}
+
+input.vectfox-rr-field,
+textarea.vectfox-rr-field {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.85em;
+    resize: vertical;
+}
+
+.vectfox-rr-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+    flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+    .vectfox-rr-columns {
+        grid-template-columns: 1fr;
+    }
+
+    .vectfox-rr-source-panel {
+        max-height: 200px;
+    }
+}

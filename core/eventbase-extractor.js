@@ -12,9 +12,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
-import { getRequestHeaders } from '../../../../../script.js';
-import { getModelConfigErrorMessage } from './model-http-errors.js';
-import { isConnectionError, notifyConnectionError } from './model-config-notifier.js';
+import { postChatCompletion, parseJsonArrayFromLlm, LlmCallError } from './llm-provider-call.js';
 import {
     EVENT_TYPES,
     EventBaseExtractionError,
@@ -61,245 +59,34 @@ const DEFAULT_TIMEOUT_MS = 60000;
 const _getOpenRouterApiKey = getOpenRouterApiKey;
 
 // ---------------------------------------------------------------------------
-// Response body builder
+// Error mapping
 // ---------------------------------------------------------------------------
 
 /**
- * Build an OpenAI-compatible chat completions request body.
- *
- * Note: EventBase prompt requires a top-level JSON array. Do not force
- * response_format=json_object here, or providers will coerce output to an
- * object and suppress valid array responses.
- * @param {string} prompt
- * @param {string} model
- * @param {number} maxTokens
- * @param {number} temperature
- * @returns {object}
+ * Map a neutral LlmCallError from the shared provider-call module onto
+ * EventBase's own error taxonomy, preserving the prior fatal-vs-per-window
+ * policy exactly (auth / model-config / connection are fatal; http / empty are
+ * per-window skips). Non-LlmCallError values pass through unchanged.
+ * @param {unknown} e
+ * @param {number} windowIndex
+ * @returns {Error}
  */
-function _buildBody(prompt, model, maxTokens, temperature) {
-    return {
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: maxTokens,
-        temperature,
-    };
+function _mapEventBaseError(e, windowIndex) {
+    if (!(e instanceof LlmCallError)) return /** @type {Error} */ (e);
+    switch (e.kind) {
+        case 'auth': return new EventBaseFatalError(e.message, 'invalid_api_key');
+        case 'model_config': return new EventBaseFatalError(e.message, 'invalid_model_config');
+        case 'connection': return new EventBaseFatalError(e.message, 'connection_failed');
+        default: return new EventBaseExtractionError(e.message, windowIndex); // 'http' | 'empty'
+    }
 }
 
-// ---------------------------------------------------------------------------
-// Reply extraction
-// ---------------------------------------------------------------------------
+// EventBase prompts require a top-level JSON array, so the shared call must NOT
+// force response_format=json_object (providers would coerce output to an object
+// and suppress valid array responses) — we simply omit responseFormat below.
 
-/**
- * @param {object} data
- * @returns {string|null}
- */
-function _extractReply(data) {
-    return data?.choices?.[0]?.message?.content?.trim() || null;
-}
-
-/**
- * OpenRouter (and ST's proxy) sometimes returns HTTP 200 with an error in the
- * BODY instead of a 4xx — e.g. a retired/unknown model comes back as
- * `{ "error": { "message": "…deprecated…" } }` with no `choices`. _extractReply
- * then yields null and we'd throw a per-window "empty response" skip, silently
- * dropping the real cause. This re-runs the model-config classifier on the body
- * so that case surfaces as a fatal error. Throws EventBaseFatalError if matched;
- * otherwise returns (logs the raw body under debug for diagnosis).
- *
- * @param {{ provider: string, model: string, status: number, data: any, settings: object }} ctx
- */
-function _classifyEmptyReplyBody({ provider, model, status, data, settings }) {
-    const bodyText = data?.error ? JSON.stringify(data.error) : JSON.stringify(data || {});
-    const modelConfigError = getModelConfigErrorMessage({
-        contextLabel: 'EventBase',
-        provider,
-        model,
-        status,
-        responseText: bodyText,
-        enforceStatusGate: false,
-    });
-    if (modelConfigError) {
-        throw new EventBaseFatalError(modelConfigError, 'invalid_model_config');
-    }
-    // Empty reply that isn't a fatal model-config error — unexpected but the
-    // window is skipped, not failed. Always-on warning.
-    log.warn(`[EventBase] ${provider} returned empty reply (HTTP ${status}) — raw body: ${bodyText.slice(0, 500)}`);
-}
-
-// ---------------------------------------------------------------------------
-// JSON parse + repair
-// ---------------------------------------------------------------------------
-
-/**
- * Attempt to parse a JSON array from raw LLM output.
- * Strips code fences and locates the outermost [ ... ] block.
- * @param {string} raw
- * @returns {unknown[]}
- */
-function _parseJsonArray(raw, windowIndex = -1, msgRange = '') {
-    let text = (raw || '').trim();
-    const rangeStr = msgRange ? ` ${msgRange}` : '';
-
-    log.domain('raw_llm', 'trace', `[EventBase] Parser window=${windowIndex}${rangeStr}: raw length=${text.length}, preview:`, text.slice(0, 150));
-
-    // Strip code fences
-    if (text.startsWith('```')) {
-        text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    }
-
-    if (!text) {
-        throw new EventBaseExtractionError('Empty LLM response');
-    }
-
-    /** @type {unknown[][]} */
-    const candidates = [];
-
-    // 1) Direct parse first (covers valid array JSON immediately).
-    try {
-        const direct = JSON.parse(text);
-        if (Array.isArray(direct)) candidates.push(direct);
-        if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
-            // Some providers under json_object mode emit {} when the correct
-            // semantic answer is "no events". Treat that as an empty result
-            // instead of failing the whole window.
-            if (Object.keys(direct).length === 0) {
-                candidates.push([]);
-            }
-            const wrappedArr = Object.values(direct).find(v => Array.isArray(v));
-            if (Array.isArray(wrappedArr)) candidates.push(wrappedArr);
-        }
-    } catch {
-        // Continue with extraction-based parsing.
-    }
-
-    // 2) NDJSON / object-stream: one JSON object per line.
-    if (text.includes('\n')) {
-        const lines = text
-            .split('\n')
-            .map(l => l.trim())
-            .filter(l => l.length > 0 && l.startsWith('{') && l.endsWith('}'));
-        if (lines.length > 0) {
-            try {
-                const arr = lines.map(line => JSON.parse(line));
-                candidates.push(arr);
-            } catch {
-                // Ignore and continue.
-            }
-        }
-    }
-
-    // 3) Try every balanced array slice and keep parseable ones.
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] !== '[') continue;
-        let depth = 0;
-        let end = -1;
-        for (let j = i; j < text.length; j++) {
-            if (text[j] === '[') depth++;
-            else if (text[j] === ']') {
-                depth--;
-                if (depth === 0) {
-                    end = j;
-                    break;
-                }
-            }
-        }
-        if (end === -1) continue;
-
-        const slice = text.slice(i, end + 1);
-        try {
-            const parsed = JSON.parse(slice);
-            if (Array.isArray(parsed)) candidates.push(parsed);
-        } catch {
-            // Keep scanning for other candidates.
-        }
-    }
-
-    // 4) Extract top-level object stream from first '{' to last '}' as a fallback.
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace > firstBrace) {
-        const objectRegion = text.slice(firstBrace, lastBrace + 1);
-        const stream = [];
-        let depth = 0;
-        let start = -1;
-        for (let i = 0; i < objectRegion.length; i++) {
-            if (objectRegion[i] === '{') {
-                if (depth === 0) start = i;
-                depth++;
-            } else if (objectRegion[i] === '}') {
-                depth--;
-                if (depth === 0 && start !== -1) {
-                    const part = objectRegion.slice(start, i + 1);
-                    try {
-                        const obj = JSON.parse(part);
-                        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-                            stream.push(obj);
-                        }
-                    } catch {
-                        // Skip malformed object parts.
-                    }
-                    start = -1;
-                }
-            }
-        }
-        if (stream.length > 0) {
-            candidates.push(stream);
-        }
-    }
-
-    // Pick the first candidate that looks like event objects.
-    if (log.domainEnabled('raw_llm')) {
-        log.domain('raw_llm', 'trace', `[EventBase] Parser window=${windowIndex}${rangeStr}: ${candidates.length} candidate array(s) found:`,
-            candidates.map((c, i) => {
-                const first = c[0];
-                const type = Array.isArray(first) ? 'array' : typeof first;
-                const keys = (first && typeof first === 'object' && !Array.isArray(first))
-                    ? Object.keys(first).slice(0, 5).join(',')
-                    : JSON.stringify(first)?.slice(0, 40);
-                return `[${i}] len=${c.length} firstType=${type} keys/val=${keys}`;
-            })
-        );
-    }
-
-    // Prefer a non-empty array whose first item looks like an event object.
-    // Only fall back to an empty array [] if no event-object array is found
-    // (handles a legit "no events" response without mistaking property arrays
-    // like "items":[], "factions":[] for the top-level event array).
-    const isEventArray = arr => {
-        if (!Array.isArray(arr) || arr.length === 0) return false;
-        const first = arr[0];
-        if (!first || typeof first !== 'object' || Array.isArray(first)) return false;
-        return Object.prototype.hasOwnProperty.call(first, 'event_type')
-            || Object.prototype.hasOwnProperty.call(first, 'summary')
-            || Object.prototype.hasOwnProperty.call(first, 'importance');
-    };
-    const chosen = candidates.find(isEventArray)
-        ?? candidates.find(arr => Array.isArray(arr) && arr.length === 0);
-
-    if (!chosen) {
-        const sample = candidates[0];
-        const sampleType = Array.isArray(sample) && sample.length > 0 ? typeof sample[0] : 'none';
-        throw new EventBaseExtractionError(
-            `Unable to find event-object array in LLM response. ` +
-            `candidateCount=${candidates.length}, firstCandidateItemType=${sampleType}, ` +
-            `rawPreview=${text.slice(0, 200)}`
-        );
-    }
-
-    if (log.domainEnabled('raw_llm')) {
-        const chosenIdx = candidates.indexOf(chosen);
-        log.domain('raw_llm', 'trace', `[EventBase] Parser window=${windowIndex}${rangeStr}: chose candidate[${chosenIdx}] len=${chosen.length}`);
-    }
-
-    if (chosen.length > 0 && (typeof chosen[0] !== 'object' || Array.isArray(chosen[0]))) {
-        throw new EventBaseExtractionError(
-            `Parsed array contains non-object items (first type: ${typeof chosen[0]}). ` +
-            `Raw: ${JSON.stringify(chosen).slice(0, 120)}`
-        );
-    }
-
-    return chosen;
-}
+// (Reply extraction, empty-reply classification, and JSON-array parsing now
+// live in core/llm-provider-call.js — postChatCompletion + parseJsonArrayFromLlm.)
 
 // ---------------------------------------------------------------------------
 // Script detection (lightweight)
@@ -345,10 +132,8 @@ function _inferLanguageHint(text) {
 // ---------------------------------------------------------------------------
 
 async function _callOpenRouter(prompt, settings, windowIndex) {
-    // Presence-only check: see summarizer._callOpenRouter for the full rationale.
-    // Short version: getOpenRouterApiKey() returns ST's MASKED value, so we route
-    // through /api/backends/chat-completions/generate which reads the real key
-    // server-side via readSecret(SECRET_KEYS.OPENROUTER).
+    // Presence-only check: getOpenRouterApiKey() returns ST's MASKED value; the
+    // real key is read server-side by the proxy (see llm-provider-call.js).
     const apiKey = _getOpenRouterApiKey(settings);
     if (!apiKey) {
         throw new EventBaseFatalError(
@@ -365,63 +150,23 @@ async function _callOpenRouter(prompt, settings, windowIndex) {
         );
     }
 
-    const maxTokens = settings.eventbase_max_tokens || DEFAULT_MAX_TOKENS;
-    const temperature = settings.eventbase_temperature ?? DEFAULT_TEMPERATURE;
-    const timeoutMs = settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS;
-
-    const response = await fetch('/api/backends/chat-completions/generate', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({
-            chat_completion_source: 'openrouter',
-            ..._buildBody(prompt, model, maxTokens, temperature),
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
-    });
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        if (response.status === 401 || response.status === 403) {
-            throw new EventBaseFatalError(
-                `EventBase: OpenRouter authentication failed (${response.status}). Check your API key.`,
-                'invalid_api_key',
-            );
-        }
-        const modelConfigError = getModelConfigErrorMessage({
-            contextLabel: 'EventBase',
-            provider: 'OpenRouter',
+    try {
+        const { content } = await postChatCompletion({
+            messages: [{ role: 'user', content: prompt }],
             model,
-            status: response.status,
-            responseText: errText,
+            provider: 'openrouter',
+            maxTokens: settings.eventbase_max_tokens || DEFAULT_MAX_TOKENS,
+            temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
+            timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
+            contextLabel: 'EventBase',
         });
-        if (modelConfigError) {
-            throw new EventBaseFatalError(modelConfigError, 'invalid_model_config');
-        }
-        if (isConnectionError(errText)) {
-            notifyConnectionError('EventBase', null, errText);
-            // Fatal (not per-window): a connection failure hits every window, so
-            // stop the run immediately instead of retrying N times.
-            throw new EventBaseFatalError(`EventBase: couldn't reach OpenRouter — ${errText}`, 'connection_failed');
-        }
-        throw new EventBaseExtractionError(
-            `EventBase: OpenRouter HTTP ${response.status}: ${errText}`,
-            windowIndex,
-        );
+        return content;
+    } catch (e) {
+        throw _mapEventBaseError(e, windowIndex);
     }
-
-    const data = await response.json();
-    const reply = _extractReply(data);
-    if (!reply) {
-        _classifyEmptyReplyBody({ provider: 'OpenRouter', model, status: response.status, data, settings });
-        throw new EventBaseExtractionError('EventBase: OpenRouter returned empty response', windowIndex);
-    }
-    return reply;
 }
 
 async function _callVLLM(prompt, settings, windowIndex) {
-    // Routes through ST's chat-completions proxy with `chat_completion_source:
-    // 'custom'` — server reads key from SECRET_KEYS.CUSTOM, forwards to
-    // settings.chat_vllm_url. Same pattern as summarizer.js::_callVLLM.
     const baseUrl = (settings.chat_vllm_url || '').trim();
     if (!baseUrl) {
         throw new EventBaseFatalError(
@@ -446,58 +191,21 @@ async function _callVLLM(prompt, settings, windowIndex) {
         );
     }
 
-    const maxTokens = settings.eventbase_max_tokens || DEFAULT_MAX_TOKENS;
-    const temperature = settings.eventbase_temperature ?? DEFAULT_TEMPERATURE;
-    const timeoutMs = settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS;
-
-    const body = {
-        ..._buildBody(prompt, model, maxTokens, temperature),
-        chat_completion_source: 'custom',
-        custom_url: baseUrl,
-    };
-
-    const response = await fetch('/api/backends/chat-completions/generate', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
-    });
-
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        if (response.status === 401 || response.status === 403) {
-            throw new EventBaseFatalError(
-                `EventBase: vLLM authentication failed (${response.status}). Check your API key in Core → LLM Summarization settings.`,
-                'invalid_api_key',
-            );
-        }
-        const modelConfigError = getModelConfigErrorMessage({
-            contextLabel: 'EventBase',
-            provider: 'vLLM',
+    try {
+        const { content } = await postChatCompletion({
+            messages: [{ role: 'user', content: prompt }],
             model,
-            status: response.status,
-            responseText: errText,
+            provider: 'vllm',
+            vllmUrl: baseUrl,
+            maxTokens: settings.eventbase_max_tokens || DEFAULT_MAX_TOKENS,
+            temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
+            timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
+            contextLabel: 'EventBase',
         });
-        if (modelConfigError) {
-            throw new EventBaseFatalError(modelConfigError, 'invalid_model_config');
-        }
-        if (isConnectionError(errText)) {
-            notifyConnectionError('EventBase', baseUrl, errText);
-            throw new EventBaseFatalError(`EventBase: couldn't reach ${baseUrl} — ${errText}`, 'connection_failed');
-        }
-        throw new EventBaseExtractionError(
-            `EventBase: vLLM HTTP ${response.status}: ${errText}`,
-            windowIndex,
-        );
+        return content;
+    } catch (e) {
+        throw _mapEventBaseError(e, windowIndex);
     }
-
-    const data = await response.json();
-    const reply = _extractReply(data);
-    if (!reply) {
-        _classifyEmptyReplyBody({ provider: 'vLLM', model, status: response.status, data, settings });
-        throw new EventBaseExtractionError('EventBase: vLLM returned empty response', windowIndex);
-    }
-    return reply;
 }
 
 /**
@@ -626,7 +334,12 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
     // Parse JSON
     let rawArray;
     try {
-        rawArray = _parseJsonArray(rawReply, windowIndex, msgRange);
+        rawArray = parseJsonArrayFromLlm(rawReply, {
+            label: 'EventBase',
+            index: windowIndex,
+            range: msgRange,
+            identKeys: ['event_type', 'summary', 'importance'],
+        });
     } catch (parseErr) {
         // Always log full raw reply on parse failure — this is a real failure.
         log.warn(`[EventBase] Window ${windowIndex} ${msgRange}: parse failed. Full raw reply:\n${rawReply}`);

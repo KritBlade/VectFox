@@ -26,6 +26,7 @@
 @import url('./ui/database-browser.css');
 @import url('./ui/chunk-visualizer.css');
 @import url('./ui/content-vectorizer.css');
+@import url('./ui/reformat-review.css');
 @import url('./ui/search-debug.css');
 @import url('./ui/text-cleaning-manager.css');
 @import url('./ui/health-dashboard.css');

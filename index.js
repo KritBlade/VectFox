@@ -85,6 +85,7 @@ const defaultSettings = {
 
     // VEC-6: Batch insert optimization
     insert_batch_size: 50, // Chunks per insert batch (50-100 recommended)
+    document_glossary_injection: true, // Document content type only: prepend "Full Name (ACRONYM)" definitions to chunks that reference a bare acronym without it. See core/glossary-extractor.js.
     togetherai_model: 'togethercomputer/m2-bert-80M-32k-retrieval',
     openai_model: 'text-embedding-ada-002',
     electronhub_model: 'text-embedding-3-small',
@@ -366,6 +367,27 @@ const defaultSettings = {
     agentic_retrieval_timeout_ms: 30000,               // Planner LLM call timeout (matches summarize default; some models need >5s)
     agentic_retrieval_query_timeout_ms: 10000,         // Per-query fanout timeout — drop a straggling Qdrant call so one slow embed/search doesn't stall retrieval
     agentic_filters_enabled: true,                     // Apply planner-emitted *_any / importance_gte filters (Phase 1.5)
+
+    // ─── Auto-Reformat (Document/URL/Wiki) ──────────────────────────────
+    // Optional, per-session LLM pass offered in Vectorize Content for
+    // Document/URL/Wiki sources. Reads the source, classifies content into
+    // named-entity vs. topic/lore records via a self-tagged schema, and
+    // emits the final chunks directly (bypassing the mechanical strategy
+    // picker for that run) once the user reviews and accepts a full
+    // before/after diff. See core/reformat-schema.js / reformat-extractor.js
+    // / reformat-store.js. Independent from EventBase (chat's LLM pipeline)
+    // by design — no shared pipeline code, only generic utilities.
+    reformat_provider: '',              // '' → inherit chat_provider (Core → LLM Summarization)
+    reformat_model: '',                 // '' → inherit chat_model
+    reformat_vllm_url: '',              // '' → inherit chat_vllm_url
+    reformat_batch_chars: 6000,         // Target input chars per LLM call (packer)
+    reformat_max_output_tokens: 8000,
+    reformat_temperature: 0.2,
+    reformat_timeout_ms: 90000,
+    reformat_concurrency: 2,            // Parallel batch chains
+    reformat_max_body_chars: 2000,      // Oversize-entity ceiling — falls back to the adaptive splitter above this
+    reformat_name_fuzzy_threshold: 0.8, // Hallucination guardrail — min similarity to count a name as source-grounded
+    reformat_custom_prompt: '',
 
     // ─── Hidden / Power-User ────────────────────────────────────────────
     // SUPERADMIN MODE — no GUI toggle. Set to true by hand-editing settings.json

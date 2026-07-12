@@ -12,6 +12,18 @@
  */
 const StringUtils = {
   /**
+   * Deduplicate + trim an array of strings; drop empties. Non-arrays → [].
+   * Shared by the EventBase and Auto-Reformat schemas (each previously kept a
+   * byte-identical private copy).
+   * @param {unknown} val
+   * @returns {string[]}
+   */
+  ensureArray(val) {
+    if (!Array.isArray(val)) return [];
+    return [...new Set(val.map(s => (typeof s === 'string' ? s.trim() : String(s ?? '').trim())).filter(Boolean))];
+  },
+
+  /**
    * Truncate string to specified length with word boundary detection
    *
    * @param {string} str - String to truncate
