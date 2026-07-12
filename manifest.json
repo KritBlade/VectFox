@@ -1,6 +1,6 @@
 {
     "display_name": "VectFox",
-    "loading_order": 100,
+    "loading_order": 101,
     "requires": [],
     "optional": ["embeddings"],
     "generate_interceptor": "vectfox_rearrangeChat",
