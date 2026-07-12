@@ -199,6 +199,7 @@ const defaultSettings = {
     world_info_top_k: 3,                // Max entries to activate per lorebook
     world_info_query_depth: 3,          // Recent messages to use for query
     world_info_retrieval_popup: false,  // Show popup toast when WI lorebook entries are retrieved
+    world_info_respect_entry_disable: true, // Semantic WI: drop hits whose live lorebook entry is disabled (see resolveLiveEntries)
 
     // Keyword Extraction
     custom_stopwords: '',               // Custom stopwords (comma-separated)
