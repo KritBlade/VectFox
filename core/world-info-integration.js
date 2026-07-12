@@ -15,7 +15,8 @@ import { queryCollection } from './core-vector-api.js';
 import { resolveBackendForCollection, sanitizeNameSegment } from './collection-ids.js';
 import { getCollectionListing, getCollectionRegistry } from './collection-loader.js';
 import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from './collection-metadata.js';
-import { LOREBOOK_PROMPT_TAG } from './constants.js';
+import { LOREBOOK_PROMPT_TAG, RETRIEVAL_TIMEOUT_MS } from './constants.js';
+import AsyncUtils from '../utils/async-utils.js';
 import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
 // the builder is intentionally not imported here because lookups can't reconstruct the
@@ -430,7 +431,22 @@ async function handleGenerationStarted(type, options, dryRun) {
             // 'continue' — user acknowledged stale content, proceed
         }
 
-        const semanticEntries = await getSemanticWorldInfoEntries(recentMessages, [], settings, keywordQuery, lorebookCollections);
+        // Bound the vector query the same way as the sibling ChunkBase/EventBase
+        // pipelines (core/chat-vectorization.js) — a hung embedding provider must
+        // not freeze generation. Soft timeout: on expiry we proceed with no
+        // semantic WI injection this turn; the orphaned fetch is reaped
+        // server-side. See core/constants.js::RETRIEVAL_TIMEOUT_MS.
+        let semanticEntries;
+        try {
+            semanticEntries = await AsyncUtils.timeout(
+                getSemanticWorldInfoEntries(recentMessages, [], settings, keywordQuery, lorebookCollections),
+                RETRIEVAL_TIMEOUT_MS,
+                'Lorebook WI retrieval timed out',
+            );
+        } catch (error) {
+            log.error('VectFox: Lorebook WI retrieval error (non-fatal, message sends without lorebook memory):', error.message || error);
+            return;
+        }
         if (!semanticEntries.length) return;
 
         // Format entries into direct prompt injection under <VectFoxLorebook>
@@ -477,7 +493,17 @@ export async function runLorebookWIDryRun({ chat, testMessage, settings }) {
     const lorebookCollections = await getEnabledLorebookCollections(settings);
     if (!lorebookCollections.length) return { injectionText: null, entryCount: 0, noCollections: true };
 
-    const semanticEntries = await getSemanticWorldInfoEntries(recentMessages, [], settings, testMessage || null, lorebookCollections);
+    let semanticEntries;
+    try {
+        semanticEntries = await AsyncUtils.timeout(
+            getSemanticWorldInfoEntries(recentMessages, [], settings, testMessage || null, lorebookCollections),
+            RETRIEVAL_TIMEOUT_MS,
+            'Lorebook WI retrieval timed out',
+        );
+    } catch (error) {
+        log.error('VectFox: Lorebook WI dry-run retrieval error:', error.message || error);
+        return { injectionText: null, entryCount: 0 };
+    }
     if (!semanticEntries.length) return { injectionText: null, entryCount: 0 };
 
     const entryTexts = semanticEntries.filter(e => e.content?.trim()).map(e => {
