@@ -264,14 +264,22 @@ export async function resolveLiveEntries(semanticEntries, settings) {
         if (!bookCache.has(sourceName)) {
             try {
                 const book = await loadWorldInfo(sourceName);
-                bookCache.set(sourceName, book?.entries || null);
+                // ST's loadWorldInfo returns a dummy { entries: {} } for a book that
+                // isn't on disk (readWorldInfoFile allowDummy=true) — NOT null. An empty
+                // entries object therefore means "book absent", indistinguishable from a
+                // load failure, so normalize it to null: otherwise every hit falls through
+                // to `liveEntries[entryUid] === undefined` and gets dropped as "deleted",
+                // silently zeroing semantic WI for any book whose name isn't a live .json
+                // (character-embedded, imported/renamed/deleted, or name != filename).
+                const entries = book?.entries;
+                bookCache.set(sourceName, entries && Object.keys(entries).length ? entries : null);
             } catch (_) {
                 bookCache.set(sourceName, null);
             }
         }
         const liveEntries = bookCache.get(sourceName);
         if (!liveEntries) {
-            resolved.push(e); // book failed to load — keep vector text (offline-safe)
+            resolved.push(e); // book failed to load / absent — keep vector text (offline-safe)
             continue;
         }
 
