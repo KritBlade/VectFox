@@ -19,6 +19,40 @@ Server-side plugin for [the VectFox](https://github.com/KritBlade/VectFox) exten
 
 ## Installation
 
+### Prerequisites (Windows): Install Git and Node.js
+
+The install steps below use two commands: `git` and `npm`. On Windows you need to install these once first. (If you already run SillyTavern from source, you have Node.js/npm already — you may only need Git.)
+
+**1. Open the Command Prompt:**
+
+1. Press the **Windows key** on your keyboard (or click the Start button).
+2. Type **`cmd`**
+3. Press **Enter**. A black window with white text opens — that's the Command Prompt.
+
+**2. Type these two commands, one at a time.** After typing each one, press **Enter** and wait for it to finish before typing the next:
+
+```bat
+winget install Git.Git
+winget install OpenJS.NodeJS.LTS
+```
+
+- `Git.Git` installs **Git** (gives you the `git` command).
+- `OpenJS.NodeJS.LTS` installs **Node.js**, which includes **npm** (gives you the `npm` command).
+- `winget` is built into Windows 10 and 11, so you don't need to install anything to run these.
+
+**3. Close the Command Prompt window and open a new one** (repeat step 1). This is important — the new commands only work in a freshly opened window.
+
+**4. Check it worked.** Type each of these and press Enter; you should see a version number, not an error:
+
+```bat
+git --version
+npm --version
+```
+
+If both print a version, you're ready. Continue to Step 1 below.
+
+> On **Linux/Mac**, install Git and Node.js with your system package manager (e.g. `sudo apt install git nodejs npm`, or `brew install git node`) instead of `winget`.
+
 ### Step 1: Enable Server Plugins
 
 Add to your `config.yaml` (in SillyTavern root folder):
