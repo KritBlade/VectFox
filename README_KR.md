@@ -479,10 +479,29 @@ CJK를 위한 더 나은 단일 문자 필터링, 고신호 1자 RPG/일상생�
 
 Standard 백엔드를 사용하면서 플러그인을 설치하지 않아도 이벤트 검색과 주입은 정상적으로 작동합니다. 다만 청크 검사나 키워드 메타데이터는 사용할 수 없습니다. 최상의 검색 품질을 원한다면 **Qdrant를 강력히 권장합니다** —— https://qdrant.tech/ 의 무료 클라우드 티어는 로컬 설치가 전혀 필요 없습니다.
 
+#### Windows에서 처음 사용하나요? 먼저 Git과 Node.js 설치
+
+아래 설치 명령은 `git`과 `npm`을 사용합니다. Windows에서는 사용하기 전에 한 번만 설치하면 됩니다. (SillyTavern을 소스에서 실행 중이라면 Node.js/npm은 이미 있습니다 —— Git만 설치하면 될 수 있습니다.)
+
+1. **Windows 키**를 누르고 **`cmd`**를 입력한 뒤 **Enter**를 누릅니다. 검은색 명령 프롬프트 창이 열립니다.
+2. 다음 두 명령을 하나씩 입력하고, 각각 **Enter**를 누른 뒤 완료될 때까지 기다립니다:
+
+   ```bat
+   winget install Git.Git
+   winget install OpenJS.NodeJS.LTS
+   ```
+
+   `Git.Git`은 `git` 명령을 제공하고, `OpenJS.NodeJS.LTS`는 `npm`이 포함된 Node.js를 설치합니다. `winget`은 Windows 10/11에 기본 내장되어 있어 추가 설치가 필요 없습니다.
+3. **명령 프롬프트를 닫고 새로 엽니다**(1단계 반복). 새 명령을 인식시키기 위해 필요합니다.
+4. 확인: `git --version`과 `npm --version`을 입력합니다. 각각 버전 번호가 표시되어야 합니다.
+
+> **Linux/Mac**에서는 패키지 관리자로 Git과 Node.js를 설치하세요 (예: `sudo apt install git nodejs npm` 또는 `brew install git node`).
+
 #### 플러그인 설치 방법:
 
+명령 프롬프트(Windows) / 터미널(Linux/Mac) / 콘솔(Docker)을 열고 다음을 실행하세요:
+
 ```bash
-Windows에서는 명령 프롬프트, Linux/Mac에서는 터미널, docker에 있다면 콘솔에 들어가세요
 cd SillyTavern/plugins
 git clone -b Similharity-Plugin https://github.com/KritBlade/VectFox.git similharity
 cd similharity

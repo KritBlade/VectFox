@@ -475,10 +475,29 @@ CJK の 1 文字フィルタリングを改善し、信号の強い 1 文字の 
 
 Standard バックエンドでプラグインをインストールしなくても、イベント検索と注入は正常に動作します。チャンクの閲覧やキーワードメタデータが使えなくなるだけです。最良の検索品質を求めるなら **Qdrant を強く推奨します** —— https://qdrant.tech/ の無料クラウド枠はローカルセットアップが一切不要です。
 
+#### 初めて Windows で使う場合：まず Git と Node.js をインストール
+
+下記のインストールコマンドは `git` と `npm` を使います。Windows では、これらを使う前に一度だけインストールが必要です。（SillyTavern をソースから実行している場合は Node.js/npm は既にあります —— Git だけで済むこともあります。）
+
+1. **Windows キー**を押し、**`cmd`** と入力して **Enter** を押します。黒いコマンドプロンプトのウィンドウが開きます。
+2. 次の 2 つのコマンドを 1 つずつ入力し、それぞれ **Enter** を押して完了を待ちます：
+
+   ```bat
+   winget install Git.Git
+   winget install OpenJS.NodeJS.LTS
+   ```
+
+   `Git.Git` で `git` コマンドが使えるようになります。`OpenJS.NodeJS.LTS` は Node.js をインストールし、これに `npm` が含まれます。`winget` は Windows 10/11 に標準搭載されているため、追加のインストールは不要です。
+3. **コマンドプロンプトを閉じて、新しく開き直します**（手順 1 を再実行）。新しいコマンドを認識させるために必要です。
+4. 確認：`git --version` と `npm --version` を入力します。それぞれバージョン番号が表示されるはずです。
+
+> **Linux/Mac** では、代わりにパッケージマネージャーで Git と Node.js をインストールしてください（例：`sudo apt install git nodejs npm`、または `brew install git node`）。
+
 #### プラグインのインストール手順：
 
+コマンドプロンプト（Windows）/ ターミナル（Linux/Mac）/ Console（Docker）を開き、次を実行します：
+
 ```bash
-Windows ではコマンドプロンプト、Linux/Mac ではターミナルを開いてください。docker 上で使っている場合は Console に入ってください
 cd SillyTavern/plugins
 git clone -b Similharity-Plugin https://github.com/KritBlade/VectFox.git similharity
 cd similharity

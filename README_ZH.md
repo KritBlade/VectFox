@@ -480,10 +480,29 @@ CJK 的單字元過濾更完善，並針對高訊號的單字 RPG/日常生活/�
 
 如果你使用 Standard 後端且未安裝插件，事件搜尋與注入仍可正常運作，只是無法進行區塊檢視或使用關鍵字元資料。若追求最佳的檢索品質，**強烈建議使用 Qdrant** —— https://qdrant.tech/ 的免費雲端方案完全不需要本機設定。
 
+#### 第一次在 Windows 上使用？請先安裝 Git 與 Node.js
+
+下面的安裝指令會用到 `git` 和 `npm`。在 Windows 上，你需要先安裝這兩者才能使用。（如果你已經以原始碼方式執行 SillyTavern，就已經有 Node.js/npm —— 可能只需要安裝 Git。）
+
+1. 按下 **Windows 鍵**，輸入 **`cmd`**，再按 **Enter**。會開啟一個黑色的命令提示字元視窗。
+2. 逐一輸入下列兩道指令，每輸入一道就按 **Enter** 並等它跑完：
+
+   ```bat
+   winget install Git.Git
+   winget install OpenJS.NodeJS.LTS
+   ```
+
+   `Git.Git` 提供 `git` 指令；`OpenJS.NodeJS.LTS` 會安裝 Node.js，其中已包含 `npm`。`winget` 內建於 Windows 10/11，不需額外安裝。
+3. **關閉命令提示字元，再重新開啟一個新的**（重複步驟 1），讓新指令生效。
+4. 驗證：輸入 `git --version` 再輸入 `npm --version`，兩者都應該顯示版本號。
+
+> 在 **Linux/Mac** 上，請改用套件管理員安裝 Git 與 Node.js（例如 `sudo apt install git nodejs npm`，或 `brew install git node`）。
+
 #### 插件安裝說明：
 
+開啟命令提示字元（Windows）/ 終端機（Linux/Mac）/ Console（Docker），然後執行：
+
 ```bash
-在 Windows 上開啟命令提示字元，或在 Linux/Mac 上開啟終端機；如果你是在 docker 上，請進入 Console
 cd SillyTavern/plugins
 git clone -b Similharity-Plugin https://github.com/KritBlade/VectFox.git similharity
 cd similharity

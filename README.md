@@ -500,10 +500,29 @@ That's it! VectFox will be downloaded and enabled automatically.
 
 If you are on the Standard backend and do not install the plugin, event search and injection still work correctly — you just won't have chunk inspection or keyword metadata. For the best retrieval quality, **Qdrant is strongly recommended** — the free cloud tier at https://qdrant.tech/ requires no local setup at all.
 
+#### First-time on Windows? Install Git and Node.js first
+
+The install commands below use `git` and `npm`. On Windows you need to install these once before they will work. (If you already run SillyTavern from source you have Node.js/npm already — you may only need Git.)
+
+1. Press the **Windows key**, type **`cmd`**, and press **Enter**. A black Command Prompt window opens.
+2. Type these two commands one at a time, pressing **Enter** after each and letting it finish:
+
+   ```bat
+   winget install Git.Git
+   winget install OpenJS.NodeJS.LTS
+   ```
+
+   `Git.Git` gives you the `git` command; `OpenJS.NodeJS.LTS` installs Node.js, which includes `npm`. `winget` is built into Windows 10/11 — nothing extra to install.
+3. **Close the Command Prompt and open a new one** (repeat step 1) so the new commands are picked up.
+4. Verify: type `git --version` then `npm --version`. Each should print a version number.
+
+> On **Linux/Mac**, install Git and Node.js with your package manager instead (e.g. `sudo apt install git nodejs npm`, or `brew install git node`).
+
 #### Instruction on installing the plugin:
 
+Open the Command Prompt (Windows) / Terminal (Linux/Mac) / Console (Docker), then run:
+
 ```bash
-Open Command prompt on Windows or Terminal on Linux/Mac or Get into Console if you are on docker
 cd SillyTavern/plugins
 git clone -b Similharity-Plugin https://github.com/KritBlade/VectFox.git similharity
 cd similharity
