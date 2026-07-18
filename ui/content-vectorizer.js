@@ -371,7 +371,7 @@ function createModal() {
                         <i class="fa-solid fa-eye"></i> Preview Chunks
                     </button>
                     <button class="vectfox-btn-secondary" id="vectfox_cv_continue" style="display: none;">
-                        <i class="fa-solid fa-forward"></i> Continue
+                        <i class="fa-solid fa-forward"></i> Resume
                     </button>
                     <button class="vectfox-btn-primary" id="vectfox_cv_vectorize">
                         <i class="fa-solid fa-bolt"></i> Vectorize
@@ -3114,7 +3114,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 const proceed = await callGenericPopup(
                     `<div style="text-align: left;">
                         <p><strong>Window size changed</strong> since the last extraction on this chat (was <strong>${sizeCheck.oldSize}</strong>, now <strong>${sizeCheck.newSize}</strong>).</p>
-                        <p>The dedup cache is window-size-dependent, so Continue will re-extract from message ${startFromMessage || 1} at the new window size.</p>
+                        <p>The dedup cache is window-size-dependent, so Resume will re-extract from message ${startFromMessage || 1} at the new window size.</p>
                         <p style="margin-top: 10px;">Estimated cost: <strong>~${estimatedWindows} LLM calls</strong>. Existing events will not be deleted, so the collection will contain overlapping-coverage events at both sizes.</p>
                         <p style="margin-top: 10px;">Proceed anyway?</p>
                     </div>`,
@@ -3127,7 +3127,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 );
                 if (!proceed) {
                     progressTracker.complete(false, 'Cancelled — window size mismatch');
-                    toastr.info('Continue cancelled', 'VectFox');
+                    toastr.info('Resume cancelled', 'VectFox');
                     return;
                 }
                 // Stamp the new window size NOW, not at run-end. The workflow's
@@ -3323,7 +3323,7 @@ async function startVectorization() {
                 `<div style="text-align: left;">
                     <p><strong>Re-vectorize from scratch?</strong></p>
                     <p>This resets the extraction progress for this chat and re-extracts from message ${startFromMessage || 1} onward. Existing events are not deleted, so you may get overlapping-coverage events.</p>
-                    <p style="margin-top: 10px;">To add only new messages without re-extracting, use <strong>Continue</strong> instead.</p>
+                    <p style="margin-top: 10px;">To add only new messages without re-extracting, use <strong>Resume</strong> instead.</p>
                 </div>`,
                 POPUP_TYPE.CONFIRM,
                 '',

@@ -342,7 +342,7 @@ export async function checkQdrantBackend(settings) {
             return {
                 name: backendName,
                 status: 'fail',
-                message: 'Qdrant local host/port not configured (default: localhost:6333)',
+                message: 'Qdrant local host/port not configured (default: 127.0.0.1:6333)',
                 fixable: true,
                 fixAction: 'configure_qdrant',
                 category: 'infrastructure'
@@ -353,7 +353,7 @@ export async function checkQdrantBackend(settings) {
     // First, try to initialize Qdrant with current settings
     try {
         const initConfig = {
-            host: settings.qdrant_host || 'localhost',
+            host: settings.qdrant_host || '127.0.0.1',
             port: settings.qdrant_port || 6333,
             url: isCloud ? settings.qdrant_url : null,
             // Plugin resolves the key server-side from secret_state slot

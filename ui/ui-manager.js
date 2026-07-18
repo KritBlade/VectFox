@@ -179,7 +179,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                         <label for="VectFox_qdrant_host">
                                             <small>Qdrant Host:</small>
                                         </label>
-                                        <input type="text" id="VectFox_qdrant_host" class="vectfox-input" placeholder="localhost" />
+                                        <input type="text" id="VectFox_qdrant_host" class="vectfox-input" placeholder="127.0.0.1" />
 
                                         <label for="VectFox_qdrant_port">
                                             <small>Qdrant Port:</small>
@@ -255,7 +255,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                             <input type="checkbox" id="VectFox_ollama_use_alt_endpoint" />
                                             <span>Use Alternative Endpoint</span>
                                         </label>
-                                        <input type="text" id="VectFox_ollama_alt_endpoint_url" class="vectfox-input" placeholder="http://localhost:11434" />
+                                        <input type="text" id="VectFox_ollama_alt_endpoint_url" class="vectfox-input" placeholder="http://127.0.0.1:11434" />
                                         <small class="VectFox_hint">Override default Ollama API URL</small>
                                         <label for="VectFox_ollama_model" style="margin-top: 8px;">
                                             <small>Ollama Model:</small>
@@ -274,7 +274,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                             <input type="checkbox" id="VectFox_vllm_use_alt_endpoint" />
                                             <span>Use Alternative Endpoint</span>
                                         </label>
-                                        <input type="text" id="VectFox_vllm_alt_endpoint_url" class="vectfox-input" placeholder="http://localhost:8000" />
+                                        <input type="text" id="VectFox_vllm_alt_endpoint_url" class="vectfox-input" placeholder="http://127.0.0.1:8000" />
                                         <small class="VectFox_hint">Override default vLLM API URL</small>
                                         <label for="VectFox_vllm_model" style="margin-top: 8px;">
                                             <small>vLLM Model:</small>
@@ -411,7 +411,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                             <small>vLLM Base URL</small>
                                         </label>
                                         <input type="text" id="VectFox_summarize_vllm_url" class="vectfox-input"
-                                            placeholder="http://localhost:8000" />
+                                            placeholder="http://127.0.0.1:8000" />
                                         <small class="VectFox_hint">Base URL of your vLLM server (OpenAI-compatible)</small>
                                         <label for="VectFox_summarize_vllm_apikey" style="margin-top:8px;">
                                             <small>vLLM API Key <span style="opacity:0.6;">(optional — leave blank if not required)</span></small>
@@ -3273,7 +3273,7 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Qdrant settings
     $('#VectFox_qdrant_host')
-        .val(settings.qdrant_host || 'localhost')
+        .val(settings.qdrant_host || '127.0.0.1')
         .on('input', function() {
             settings.qdrant_host = String($(this).val());
             Object.assign(extension_settings.vectfox, settings);
@@ -5294,11 +5294,11 @@ function copyDiagnosticsReport(results) {
     if (source === 'ollama') {
         providerUrl = settings.embedding_ollama_url_override && settings.embedding_ollama_url
             ? settings.embedding_ollama_url
-            : (textgenerationwebui_settings?.server_urls?.[textgen_types?.OLLAMA] || 'http://localhost:11434');
+            : (textgenerationwebui_settings?.server_urls?.[textgen_types?.OLLAMA] || 'http://127.0.0.1:11434');
     } else if (source === 'vllm') {
         providerUrl = settings.embedding_vllm_url_override && settings.embedding_vllm_url
             ? settings.embedding_vllm_url
-            : (textgenerationwebui_settings?.server_urls?.[textgen_types?.VLLM] || 'http://localhost:8000');
+            : (textgenerationwebui_settings?.server_urls?.[textgen_types?.VLLM] || 'http://127.0.0.1:8000');
     }
 
     let report = `╔══════════════════════════════════════════════════════════════╗

@@ -136,7 +136,7 @@ export class QdrantBackend extends VectorBackend {
         } else {
             // Local mode: use host and port
             config = {
-                host: settings.qdrant_host || 'localhost',
+                host: settings.qdrant_host || '127.0.0.1',
                 port: settings.qdrant_port || 6333,
                 // Explicitly clear cloud settings to prevent conflicts
                 url: null,

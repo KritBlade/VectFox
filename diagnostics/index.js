@@ -280,7 +280,7 @@ export function getFixSuggestion(check) {
             return 'Review your VectFox settings and adjust the values within recommended ranges.';
 
         case 'Qdrant Backend':
-            return 'Configure Qdrant settings in VectFox panel. For local: set host/port (default localhost:6333). Start Qdrant: docker run -p 6333:6333 qdrant/qdrant. Note: Qdrant Cloud may have connectivity issues - local instance recommended.';
+            return 'Configure Qdrant settings in VectFox panel. For local: set host/port (default 127.0.0.1:6333). Start Qdrant: docker run -p 6333:6333 qdrant/qdrant. Note: Qdrant Cloud may have connectivity issues - local instance recommended.';
 
         case '[PROD] Chunk-Server Sync':
             return 'Click "Fix Now" to clean orphaned local metadata entries that no longer have corresponding vectors on the server.';

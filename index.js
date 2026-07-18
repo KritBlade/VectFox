@@ -54,7 +54,7 @@ const defaultSettings = {
     // Core vector settings
     embedding_provider: 'transformers', // embedding provider selection (was `source` pre-Phase-B)
     vector_backend: 'qdrant', // Backend: 'standard' (ST Vectra) | 'qdrant'
-    qdrant_host: 'localhost',
+    qdrant_host: '127.0.0.1',
     qdrant_port: 6333,
     qdrant_url: '',
     // Qdrant API key: stored in ST's secret_state custom slot 'api_key_qdrant'
@@ -169,7 +169,7 @@ const defaultSettings = {
     // re-introduction loop documented above on the embedding-side keys.
     // Readers: core/api-keys.js helpers.
     chat_model: '',              // Model ID for summarization (e.g. 'google/gemini-flash-1.5-8b')
-    chat_vllm_url: '',           // vLLM base URL for summarization (e.g. 'http://localhost:8000')
+    chat_vllm_url: '',           // vLLM base URL for summarization (e.g. 'http://127.0.0.1:8000')
     summarize_prompt: '',             // Custom prompt template (empty = use built-in default)
     summarize_timeout_ms: 30000,      // Per-call timeout for one "Summarize Before Store" request (ms). Separate from eventbase_timeout_ms (extraction); both share the same model. UI: EventBase tab.
 
@@ -434,7 +434,7 @@ window['vectfox_rearrangeChat'] = vectfox_rearrangeChat;
  * Action: Sync Chat — shortcut to the Vectorize Content screen.
  *
  * Rather than running a parallel `vectorizeAll` here, this just opens the
- * Vectorize Content modal (chat tab), whose "Continue" button is the single,
+ * Vectorize Content modal (chat tab), whose "Resume" button is the single,
  * mobile-tested vectorization path. Keeping Sync Chat as a shortcut to that
  * screen — instead of its own code — removes the risk of the two drifting.
  */
@@ -744,8 +744,22 @@ jQuery(async () => {
         }).catch(() => {});
     }
 
-    // D5: Cross-repo version check — warn loud if similharity is behind.
-    const SIMILHARITY_EXPECTED_VERSION = '3.3.1';
+    // D5: Cross-repo version check — warn ONLY when the installed similharity is
+    // OLDER than the minimum VectFox needs. This is a floor (>=) check, not an
+    // exact match: VectFox stays forward-compatible with newer plugin builds, so a
+    // plugin-only bugfix bump (e.g. 3.3.1 -> 3.3.2) must not nag users who are, in
+    // fact, up to date. Only bump SIMILHARITY_MIN_VERSION when VectFox genuinely
+    // requires a newer plugin feature.
+    const SIMILHARITY_MIN_VERSION = '3.3.1';
+    const isVersionBehind = (version, minimum) => {
+        const parse = v => String(v).split('.').map(n => parseInt(n, 10) || 0);
+        const a = parse(version), b = parse(minimum);
+        for (let i = 0; i < Math.max(a.length, b.length); i++) {
+            const diff = (a[i] || 0) - (b[i] || 0);
+            if (diff !== 0) return diff < 0;
+        }
+        return false; // equal → up to date
+    };
     (async () => {
         try {
             // Skip entirely when no plugin is installed (a supported, no-error
@@ -755,10 +769,10 @@ jQuery(async () => {
             const resp = await fetch('/api/plugins/similharity/version');
             if (resp.ok) {
                 const { pluginVersion } = await resp.json();
-                if (pluginVersion !== SIMILHARITY_EXPECTED_VERSION) {
-                    log.warn(`[VectFox] VERSION MISMATCH: expected similharity v${SIMILHARITY_EXPECTED_VERSION}, got v${pluginVersion}. Restart SillyTavern to let it auto-update the server plugin.`);
+                if (isVersionBehind(pluginVersion, SIMILHARITY_MIN_VERSION)) {
+                    log.warn(`[VectFox] similharity plugin outdated: need v${SIMILHARITY_MIN_VERSION}+, got v${pluginVersion}. Restart SillyTavern to let it auto-update the server plugin.`);
                     toastr.warning(
-                        `similharity version mismatch (expected ${SIMILHARITY_EXPECTED_VERSION}, got ${pluginVersion}). Please restart SillyTavern so it can auto-update the server plugin.`,
+                        `similharity plugin is outdated (need v${SIMILHARITY_MIN_VERSION}+, got v${pluginVersion}). Please restart SillyTavern so it can auto-update the server plugin.`,
                         'VectFox',
                         { timeOut: 10000 }
                     );
