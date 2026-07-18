@@ -43,7 +43,7 @@
  * see VectFox/plans/review-fix.md §H-4 for the threat-model reasoning.
  * ─────────────────────────────────────────────────────────────────────────
  *
- * @version 3.3.1
+ * @version 3.3.2
  */
 
 import path from 'node:path';
@@ -53,7 +53,7 @@ import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
 
 const pluginName = 'similharity';
-const pluginVersion = '3.3.1';
+const pluginVersion = '3.3.2';
 
 // ─── ST secret_state bridge (server-side API key resolution) ─────────────────
 // The qdrant_api_key migration (2026-05-26) moved the key out of VectFox's
@@ -104,6 +104,27 @@ function _maskApiKey(key) {
     if (!key || typeof key !== 'string') return '';
     if (key.length <= 4) return '*'.repeat(key.length);
     return '*'.repeat(Math.min(key.length - 4, 8)) + key.slice(-4);
+}
+
+/**
+ * Flatten an error to a client-safe message that preserves the underlying cause.
+ *
+ * Node's fetch (undici) throws a terse `TypeError: fetch failed` and hides the real
+ * reason on `error.cause` — ECONNREFUSED, ENOTFOUND, a `localhost`→`::1` IPv6 miss
+ * against an IPv4-only server, TLS, etc. Bubbling only `error.message` up to the
+ * client left users staring at "fetch failed" with nothing to act on. Append the
+ * cause message + syscall code so the toast is self-diagnosing.
+ */
+function formatError(error) {
+    if (!error) return 'Unknown error';
+    let msg = error.message || String(error);
+    const cause = error.cause;
+    if (cause) {
+        const causeMsg = cause.message || String(cause);
+        if (causeMsg && !msg.includes(causeMsg)) msg += ` (cause: ${causeMsg})`;
+        if (cause.code && !msg.includes(cause.code)) msg += ` [${cause.code}]`;
+    }
+    return msg;
 }
 
 /**
@@ -521,7 +542,7 @@ export async function init(router) {
             });
         } catch (error) {
             console.error(`[${pluginName}] collections error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -538,7 +559,7 @@ export async function init(router) {
             res.json({ success: true, sources });
         } catch (error) {
             console.error(`[${pluginName}] sources error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -559,7 +580,7 @@ export async function init(router) {
 
         } catch (error) {
             console.error(`[${pluginName}] get-embedding error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -580,7 +601,7 @@ export async function init(router) {
 
         } catch (error) {
             console.error(`[${pluginName}] batch-embeddings error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -618,7 +639,7 @@ export async function init(router) {
 
         } catch (error) {
             console.error(`[${pluginName}] backend/health error:`, error);
-            res.status(500).json({ backend: req.params.backend, healthy: false, error: error.message });
+            res.status(500).json({ backend: req.params.backend, healthy: false, error: formatError(error) });
         }
     });
 
@@ -643,7 +664,7 @@ export async function init(router) {
             return res.json({ set: true, masked: _maskApiKey(apiKey) });
         } catch (error) {
             console.error(`[${pluginName}] /qdrant/key-status error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -684,7 +705,7 @@ export async function init(router) {
 
         } catch (error) {
             console.error(`[${pluginName}] backend/init error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -751,7 +772,7 @@ async function getVectorsForSource(source, texts, model, directories, req) {
  * @returns {Promise<number[]>} Embedding vector
  */
 async function _getKoboldCppEmbedding(text, model, req) {
-    const apiUrl = req.body?.apiUrl || 'http://localhost:5001';
+    const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:5001';
 
     let url;
     try {
@@ -854,7 +875,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             return await _getKoboldCppEmbedding(text, model, req);
         }
         case 'ollama': {
-            const apiUrl = req.body?.apiUrl || 'http://localhost:11434';
+            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:11434';
             const apiKey = req.body?.apiKey || '';
             const keep = req.body?.keep || false;
             if (!apiKey) {
@@ -877,11 +898,11 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
         }
         case 'llamacpp': {
             const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
-            const apiUrl = req.body?.apiUrl || 'http://localhost:8080';
+            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8080';
             return await getLlamaCppVector(text, apiUrl, directories);
         }
         case 'vllm': {
-            const apiUrl = req.body?.apiUrl || 'http://localhost:8000';
+            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8000';
             const apiKey = req.body?.apiKey || '';
             if (req.body?.hybridOptions?.eventbaseDebug || req.body?.options?.eventbaseDebug) console.log(`[similharity] DEBUG vllm embed: apiUrl="${apiUrl}", model="${model}", hasKey=${!!apiKey}`);
             if (!apiKey) {
@@ -917,7 +938,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
         }
         case 'extras': {
             const { getExtrasVector } = await import('../../src/vectors/extras-vectors.js');
-            const extrasUrl = req.body?.extrasUrl || 'http://localhost:5100';
+            const extrasUrl = req.body?.extrasUrl || 'http://127.0.0.1:5100';
             const extrasKey = req.body?.extrasKey || '';
             return await getExtrasVector(text, extrasUrl, extrasKey);
         }
@@ -971,7 +992,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/list error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1009,7 +1030,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/:hash error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1038,7 +1059,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             res.json({ payload, supported: true });
         } catch (error) {
             console.error(`[${pluginName}] chunks/collection-metadata error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1074,7 +1095,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/insert error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1110,7 +1131,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/:hash/text error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1146,7 +1167,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/:hash/metadata error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1185,7 +1206,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/delete error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1242,7 +1263,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/query error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1321,7 +1342,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             });
         } catch (error) {
             console.error(`[${pluginName}] chunks/hybrid-query error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1422,7 +1443,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             });
         } catch (error) {
             console.error(`[${pluginName}] chunks/hybrid-query-rerank error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1447,7 +1468,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             return res.json({ ensured: true, collectionId });
         } catch (error) {
             console.error(`[${pluginName}] chunks/ensure-eventbase-indexes error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1482,7 +1503,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/purge error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1498,7 +1519,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             res.json({ success: true, message: 'All vectors purged' });
         } catch (error) {
             console.error(`[${pluginName}] purge-all error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1533,7 +1554,7 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
         } catch (error) {
             console.error(`[${pluginName}] chunks/stats error:`, error);
-            res.status(500).json({ error: error.message });
+            res.status(500).json({ error: formatError(error) });
         }
     });
 
@@ -1624,7 +1645,7 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
             return await getCohereVector(text, true, directories, model);
         }
         case 'ollama': {
-            const apiUrl = req.body?.apiUrl || 'http://localhost:11434';
+            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:11434';
             const apiKey = req.body?.apiKey || '';
             const keep = req.body?.keep || false;
             if (!apiKey) {
@@ -1647,11 +1668,11 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
         }
         case 'llamacpp': {
             const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
-            const apiUrl = req.body?.apiUrl || 'http://localhost:8080';
+            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8080';
             return await getLlamaCppVector(text, apiUrl, directories);
         }
         case 'vllm': {
-            const apiUrl = req.body?.apiUrl || 'http://localhost:8000';
+            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8000';
             const apiKey = req.body?.apiKey || '';
             if (req.body?.hybridOptions?.eventbaseDebug || req.body?.options?.eventbaseDebug) console.log(`[similharity] DEBUG vllm embed: apiUrl="${apiUrl}", model="${model}", hasKey=${!!apiKey}`);
             if (!apiKey) {
@@ -1687,7 +1708,7 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
         }
         case 'extras': {
             const { getExtrasVector } = await import('../../src/vectors/extras-vectors.js');
-            const extrasUrl = req.body?.extrasUrl || 'http://localhost:5100';
+            const extrasUrl = req.body?.extrasUrl || 'http://127.0.0.1:5100';
             const extrasKey = req.body?.extrasKey || '';
             return await getExtrasVector(text, extrasUrl, extrasKey);
         }
