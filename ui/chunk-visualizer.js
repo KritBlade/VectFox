@@ -26,6 +26,7 @@ import { getStringHash } from '../../../../utils.js';
 import { getContext } from '../../../../extensions.js';
 import { eventSource, getRequestHeaders } from '../../../../../script.js';
 import StringUtils from '../utils/string-utils.js';
+import { packTimelineSortKey } from '../core/eventbase-schema.js';
 
 // ============================================================================
 // STATE
@@ -386,6 +387,28 @@ export function closeVisualizer() {
 // FILTERING & SORTING
 // ============================================================================
 
+/**
+ * Whole-timeline sort value for a chunk, in true chat-history order.
+ *
+ * Newer EventBase chunks carry `timeline_sort_key` (window_start * STRIDE +
+ * event_order) — several events from one big window keep their real order, and
+ * windows processed out of order by the parallel pool still land correctly.
+ *
+ * Older chunks (pre-timeline_sort_key EventBase, legacy chunk/document/lorebook
+ * data) lack that field. They fall back to their message number packed onto the
+ * SAME scale (msg * STRIDE), so a database holding a mix of old and new chunks
+ * sorts as one coherent sequence instead of splitting into two blocks. Chunks
+ * with no order signal at all coalesce to 0.
+ * @param {object} chunk
+ * @returns {number}
+ */
+function chunkTimelineSortValue(chunk) {
+    const meta = chunk.metadata || {};
+    if (typeof meta.timeline_sort_key === 'number') return meta.timeline_sort_key;
+    const messageNumber = meta.source_window_start ?? meta.source_window_end ?? chunk.index ?? 0;
+    return packTimelineSortKey(messageNumber, 0);
+}
+
 function applyFilters() {
     let chunks = [...allChunks];
 
@@ -435,10 +458,10 @@ function applyFilters() {
             });
             break;
         case 'index-r':
-            chunks.sort((a, b) => b.index - a.index);
+            chunks.sort((a, b) => chunkTimelineSortValue(b) - chunkTimelineSortValue(a));
             break;
         default: // 'index'
-            chunks.sort((a, b) => a.index - b.index);
+            chunks.sort((a, b) => chunkTimelineSortValue(a) - chunkTimelineSortValue(b));
     }
 
     filteredChunks = chunks;
@@ -579,14 +602,28 @@ function renderChunkItem(chunk, listIndex) {
     const textLength = data.text?.length || 0;
     const textLengthDisplay = textLength > 1000 ? `${(textLength / 1000).toFixed(1)}k` : textLength;
 
-    // Message info from metadata
+    // Message info from metadata. For windowed EventBase chunks, show the source
+    // window's message range plus the event's order within that window (decoded
+    // from the same fields that drive the timeline sort) — e.g. "Msg 2527–2531 ·
+    // #3" — so multiple events extracted from one big window are told apart.
+    // Legacy chunks (no window fields) keep the plain "Msg <n>" form.
     const msgId = chunk.metadata?.messageId ?? chunk.index ?? '?';
+    const windowStart = chunk.metadata?.source_window_start;
+    const windowEnd = chunk.metadata?.source_window_end;
+    const eventOrder = chunk.metadata?.window_event_order;
+    let msgLabel = `Msg ${msgId}`;
+    if (windowStart != null && windowEnd != null && windowEnd !== windowStart) {
+        msgLabel = `Msg ${windowStart}–${windowEnd}`;
+    }
+    if (typeof eventOrder === 'number') {
+        msgLabel += ` · #${eventOrder + 1}`;
+    }
     const chunkIdx = chunk.metadata?.chunkIndex ?? 0;
     const totalChunks = chunk.metadata?.totalChunks ?? 1;
 
     // Build info badges
     const infoBadges = [];
-    infoBadges.push(`<span class="vectfox-chunk-item-badge msg">Msg ${msgId}</span>`);
+    infoBadges.push(`<span class="vectfox-chunk-item-badge msg">${msgLabel}</span>`);
     if (totalChunks > 1) {
         infoBadges.push(`<span class="vectfox-chunk-item-badge chunk-part">${chunkIdx + 1}/${totalChunks}</span>`);
     }

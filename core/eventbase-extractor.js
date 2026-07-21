@@ -21,6 +21,7 @@ import {
     buildEmbedText,
     buildExtractionPrompt,
     EVENTBASE_SCHEMA_VERSION,
+    packTimelineSortKey,
 } from './eventbase-schema.js';
 import { cleanText } from './text-cleaning.js';
 import StringUtils from '../utils/string-utils.js';
@@ -420,6 +421,13 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
             source_message_hashes: sourceHashes,
             source_window_start: windowStart,
             source_window_end: windowEnd,
+            // Intra-window event order (0-based, resets each window) plus the
+            // packed whole-timeline sort key. `i` is the event's position in the
+            // window's raw extraction array, so events keep chat-history order
+            // even when a big window holds several events and windows are
+            // processed out of order by the parallel concurrency pool.
+            window_event_order: i,
+            timeline_sort_key: packTimelineSortKey(windowStart, i),
             created_at: now,
             real_world_date: realWorldDate, // ISO send_date anchor; null if none
             schema_version: EVENTBASE_SCHEMA_VERSION,

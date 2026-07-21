@@ -49,6 +49,35 @@ export const EVENT_TYPES = Object.freeze([
 export const EVENTBASE_SCHEMA_VERSION = 1.3;
 
 /**
+ * Stride used to pack (window_start, event_order) into a single sortable
+ * integer `timeline_sort_key` = window_start * STRIDE + event_order.
+ *
+ * MUST be strictly greater than the max number of events any single window can
+ * produce, so one window's event range never bleeds into the next window's
+ * start. It is a per-window cap, NOT a total-events cap — 10000 events in one
+ * window is far beyond any real extraction (a window is a handful of messages),
+ * while total chat length is unbounded and irrelevant here.
+ *
+ * Shared by the extractor (packs the key) and the database-browser sort
+ * (fallback key for older chunks that predate this field) — keep it here as the
+ * one source of truth so the two sides can never drift.
+ */
+export const TIMELINE_SORT_KEY_WINDOW_STRIDE = 10000;
+
+/**
+ * Pack a window-start message id and an intra-window event order into the
+ * single monotonic `timeline_sort_key` used to order events across the whole
+ * chat timeline (browser sort today, Qdrant order_by in future). Non-numeric
+ * inputs coalesce to 0 so the result is always a finite integer.
+ * @param {number} windowStart - chat message id of the window's first message
+ * @param {number} eventOrder - 0-based position of the event within its window
+ * @returns {number}
+ */
+export function packTimelineSortKey(windowStart, eventOrder) {
+    return (Number(windowStart) || 0) * TIMELINE_SORT_KEY_WINDOW_STRIDE + (Number(eventOrder) || 0);
+}
+
+/**
  * Non-fatal extraction parse error (per-window; caller should log + skip).
  */
 export class EventBaseExtractionError extends Error {
