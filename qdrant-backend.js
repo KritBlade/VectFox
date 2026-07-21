@@ -438,6 +438,11 @@ class QdrantBackend {
             // EventBase event-source window end — used by formula recency decay and
             // dedup-depth range filter when the EventBase native rerank path is on.
             { field: 'source_window_end', schema: 'integer' },
+            // Packed whole-timeline sort key (window_start * stride + event_order).
+            // Indexed so a future Qdrant order_by can page the DB in true chat
+            // order without pulling every point client-side. Older points simply
+            // lack the field; order_by treats them as absent, which is expected.
+            { field: 'timeline_sort_key', schema: 'integer' },
             // BOOL FIELDS
             // Required for formula expressions — Qdrant demands an index for bool fields used in formula match.
             { field: 'should_persist', schema: 'bool' },
