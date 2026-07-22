@@ -41,8 +41,12 @@ import {
     sanitizeNameSegment,
 } from './collection-ids.js';
 
-// Plugin detection state
+// Plugin detection state. `pluginAvailable` is the settled result; `pluginProbeInFlight`
+// holds the promise for a probe that has started but not finished, so concurrent callers
+// share one /health request instead of each firing their own (which produced N duplicate
+// "Plugin detected" log lines and N redundant fetches at startup).
 let pluginAvailable = null;
+let pluginProbeInFlight = null;
 
 /**
  * Detect collection IDs that VECTFOX should NOT register or query.
@@ -545,25 +549,35 @@ export async function checkPluginAvailable() {
     if (pluginAvailable !== null) {
         return pluginAvailable;
     }
-
-    try {
-        const response = await fetch('/api/plugins/similharity/health', {
-            method: 'GET',
-            headers: getRequestHeaders()
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            pluginAvailable = data.status === 'ok';
-            log.lifecycle(`VectFox: Plugin ${pluginAvailable ? 'detected' : 'not found'} (v${data.version || 'unknown'})`);
-        } else {
-            pluginAvailable = false;
-        }
-    } catch (error) {
-        pluginAvailable = false;
+    // A probe is already running — join it rather than starting a second one.
+    if (pluginProbeInFlight) {
+        return pluginProbeInFlight;
     }
 
-    return pluginAvailable;
+    pluginProbeInFlight = (async () => {
+        try {
+            const response = await fetch('/api/plugins/similharity/health', {
+                method: 'GET',
+                headers: getRequestHeaders()
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                pluginAvailable = data.status === 'ok';
+                log.lifecycle(`VectFox: Plugin ${pluginAvailable ? 'detected' : 'not found'} (v${data.version || 'unknown'})`);
+            } else {
+                pluginAvailable = false;
+            }
+        } catch (error) {
+            pluginAvailable = false;
+        } finally {
+            pluginProbeInFlight = null;
+        }
+
+        return pluginAvailable;
+    })();
+
+    return pluginProbeInFlight;
 }
 
 /**
@@ -574,6 +588,9 @@ export async function checkPluginAvailable() {
  */
 export function resetPluginAvailableCache() {
     pluginAvailable = null;
+    // Drop the in-flight join point too, so a probe started before the reset can't
+    // hand its now-stale result to a caller that asked for a fresh detection.
+    pluginProbeInFlight = null;
 }
 
 // Cache for plugin collection data

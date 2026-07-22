@@ -26,12 +26,13 @@ import { debounce_timeout } from '../../../constants.js';
 import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
 import { purgeAllVectorIndexes, purgeVectorIndex } from './core/core-vector-api.js';
 import { migrateOldEnabledKeys } from './core/collection-metadata.js';
-import { clearCollectionRegistry, discoverExistingCollections, cleanupCorruptedCollections, pruneOrphanedEventBaseChatMaps, checkPluginAvailable } from './core/collection-loader.js';
+import { clearCollectionRegistry, cleanupCorruptedCollections } from './core/collection-loader.js';
 import { migrateLegacyApiKeys } from './core/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
-import AsyncUtils from './utils/async-utils.js';
 import { log } from './core/log.js';
+import { isVectFoxEnabled } from './core/feature-gate.js';
+import { runNetworkStartup } from './core/network-startup.js';
 
 // VectFox modules - UI
 import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './ui/ui-manager.js';
@@ -698,90 +699,14 @@ jQuery(async () => {
     // Initialize world info integration hooks
     initializeWorldInfoIntegration();
 
-    // VEC-34: Discover existing collections with retry mechanism
-    // Uses exponential backoff to handle temporary backend unavailability
-    (async () => {
-        try {
-            const collections = await AsyncUtils.retry(
-                () => discoverExistingCollections(settings),
-                {
-                    maxAttempts: 3,
-                    delay: 2000,
-                    maxDelay: 10000,
-                    backoffFactor: 2,
-                    onRetry: (attempt, error) => {
-                        log.warn(`VectFox: Collection discovery attempt ${attempt} failed: ${error.message}. Retrying...`);
-                    }
-                }
-            );
-            if (collections.length > 0) {
-                log.lifecycle(`VectFox: Discovered ${collections.length} existing collections`);
-            }
-            // Discovery succeeded → registry reflects reality. Sweep stale per-chat
-            // EventBase settings (marker / last-window-size / tip) for chats whose
-            // collection no longer exists. Skipped automatically on an empty registry.
-            try {
-                await pruneOrphanedEventBaseChatMaps();
-            } catch (pruneErr) {
-                log.warn('VectFox: Orphan-sweep of per-chat EventBase settings failed (non-fatal):', pruneErr?.message || pruneErr);
-            }
-        } catch (err) {
-            log.error('VectFox: Collection discovery failed after retries:', err.message);
-            toastr.warning(
-                'Could not discover existing collections. Open Database Browser to refresh manually.',
-                'VectFox: Collection Discovery Failed',
-                { timeOut: 10000 }
-            );
-        }
-    })();
-
-    // Phase 1.5: backfill EventBase payload indexes on pre-existing Qdrant collections.
-    if (settings.vector_backend === 'qdrant') {
-        import('./core/eventbase-store.js').then(({ ensureEventBaseIndexes }) => {
-            ensureEventBaseIndexes(settings).catch(err => {
-                log.warn('[VectFox] EventBase index backfill failed:', err);
-            });
-        }).catch(() => {});
+    // Off-box startup work (discovery, EventBase index backfill, plugin version check).
+    // Master switch OFF → skip it entirely; the switch re-runs this when turned back ON,
+    // so no page reload is needed. Fire-and-forget, as it was when inlined here.
+    if (isVectFoxEnabled(settings)) {
+        runNetworkStartup(settings);
+    } else {
+        log.lifecycle('VectFox: master switch OFF — skipping backend/network startup');
     }
-
-    // D5: Cross-repo version check — warn ONLY when the installed similharity is
-    // OLDER than the minimum VectFox needs. This is a floor (>=) check, not an
-    // exact match: VectFox stays forward-compatible with newer plugin builds, so a
-    // plugin-only bugfix bump (e.g. 3.3.1 -> 3.3.2) must not nag users who are, in
-    // fact, up to date. Only bump SIMILHARITY_MIN_VERSION when VectFox genuinely
-    // requires a newer plugin feature.
-    const SIMILHARITY_MIN_VERSION = '3.3.1';
-    const isVersionBehind = (version, minimum) => {
-        const parse = v => String(v).split('.').map(n => parseInt(n, 10) || 0);
-        const a = parse(version), b = parse(minimum);
-        for (let i = 0; i < Math.max(a.length, b.length); i++) {
-            const diff = (a[i] || 0) - (b[i] || 0);
-            if (diff !== 0) return diff < 0;
-        }
-        return false; // equal → up to date
-    };
-    (async () => {
-        try {
-            // Skip entirely when no plugin is installed (a supported, no-error
-            // setup). Avoids a needless /version request that the browser would
-            // log as a red 404. Uses the session-cached /health probe.
-            if (!(await checkPluginAvailable())) return;
-            const resp = await fetch('/api/plugins/similharity/version');
-            if (resp.ok) {
-                const { pluginVersion } = await resp.json();
-                if (isVersionBehind(pluginVersion, SIMILHARITY_MIN_VERSION)) {
-                    log.warn(`[VectFox] similharity plugin outdated: need v${SIMILHARITY_MIN_VERSION}+, got v${pluginVersion}. Restart SillyTavern to let it auto-update the server plugin.`);
-                    toastr.warning(
-                        `similharity plugin is outdated (need v${SIMILHARITY_MIN_VERSION}+, got v${pluginVersion}). Please restart SillyTavern so it can auto-update the server plugin.`,
-                        'VectFox',
-                        { timeOut: 10000 }
-                    );
-                }
-            }
-        } catch (_err) {
-            // similharity not installed — separate problem, not our warning to raise
-        }
-    })();
 
     // Register event handlers. Each wrapper stamps _lastChatTriggerEvent so that
     // when the debounce fires, synchronizeChat knows which event coalesced last —

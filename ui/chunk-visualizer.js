@@ -27,6 +27,7 @@ import { getContext } from '../../../../extensions.js';
 import { eventSource, getRequestHeaders } from '../../../../../script.js';
 import StringUtils from '../utils/string-utils.js';
 import { packTimelineSortKey } from '../core/eventbase-schema.js';
+import { log } from '../core/log.js';
 
 // ============================================================================
 // STATE
@@ -1743,7 +1744,7 @@ function debounce(func, wait) {
  * Called from index.js on extension load
  */
 export function initializeVisualizer() {
-    console.log('VectFox: Chunk visualizer initialized');
+    log.lifecycle('VectFox: Chunk visualizer initialized');
     // No DOM setup needed - modal is created dynamically when opened
 }
 

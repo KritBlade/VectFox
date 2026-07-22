@@ -28,6 +28,7 @@ import { openSearchDebugModal, openQueryTestModal, getLastSearchDebug } from './
 import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { progressTracker } from './progress-tracker.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
+import { runNetworkStartup } from '../core/network-startup.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
 import { doesChatHaveVectors, getCollectionRegistry, getCollectionListing, checkPluginAvailable } from '../core/collection-loader.js';
 import { getCollectionMeta } from '../core/collection-metadata.js';
@@ -2376,7 +2377,7 @@ function bindSettingsEvents(settings, callbacks) {
     };
     $masterSwitch
         .prop('checked', settings.enabled !== false)
-        .on('change', function() {
+        .on('change', async function() {
             const on = $(this).prop('checked');
             settings.enabled = on;
             Object.assign(extension_settings.vectfox, settings);
@@ -2384,6 +2385,20 @@ function bindSettingsEvents(settings, callbacks) {
             _applyMasterSwitchUI(on);
             toastr.info(on ? 'VectFox enabled' : 'VectFox disabled', 'VectFox');
             log.lifecycle(`VectFox: master switch ${on ? 'ON' : 'OFF'}`);
+
+            // A disabled VectFox skips its off-box startup work at page load. Two of
+            // those steps don't self-heal on demand — the EventBase payload-index
+            // backfill is one-shot-per-install, and collection discovery refreshes the
+            // registry that the Database Browser and cross-chat retrieval read. Run
+            // them now so switching back ON gives a working VectFox without a page
+            // reload. See core/network-startup.js for the full rationale.
+            if (on) {
+                try {
+                    await runNetworkStartup(settings);
+                } catch (error) {
+                    log.warn('VectFox: backend/network startup after re-enable failed:', error?.message || error);
+                }
+            }
         });
     _applyMasterSwitchUI(settings.enabled !== false);
 
@@ -3233,7 +3248,20 @@ function bindSettingsEvents(settings, callbacks) {
             _refreshSummarizerInjectionAvailability?.();
         });
 
-    // Qdrant cloud toggle
+    // Qdrant cloud toggle.
+    //
+    // Visibility and re-initialization are deliberately SEPARATE. This used to be one
+    // handler ending in `.trigger('change')`, which meant simply rendering the settings
+    // panel reset backend health, eagerly initialized the Qdrant backend, pushed config
+    // to the Similharity plugin, and popped a success toast — on every page load, even
+    // with the VectFox master switch off. Backend init is already lazy (getBackend →
+    // initializeBackend), so nothing needs that eager call. Only a real user-driven
+    // mode change should re-initialize.
+    const applyQdrantModeVisibility = (useCloud) => {
+        $('#VectFox_qdrant_local_settings').toggle(!useCloud);
+        $('#VectFox_qdrant_cloud_settings').toggle(!!useCloud);
+    };
+
     $('#VectFox_qdrant_use_cloud')
         .prop('checked', settings.qdrant_use_cloud || false)
         .on('change', async function() {
@@ -3241,14 +3269,7 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
 
-            // Toggle between local and cloud settings
-            if (settings.qdrant_use_cloud) {
-                $('#VectFox_qdrant_local_settings').hide();
-                $('#VectFox_qdrant_cloud_settings').show();
-            } else {
-                $('#VectFox_qdrant_local_settings').show();
-                $('#VectFox_qdrant_cloud_settings').hide();
-            }
+            applyQdrantModeVisibility(settings.qdrant_use_cloud);
 
             // Reset backend health to force re-initialization with new config
             log.lifecycle('VectFox: Qdrant mode changed, forcing re-initialization...');
@@ -3268,8 +3289,10 @@ function bindSettingsEvents(settings, callbacks) {
                     toastr.warning('Failed to reinitialize Qdrant: ' + e.message, 'VectFox');
                 }
             }
-        })
-        .trigger('change');
+        });
+
+    // Initial state only — no health reset, no backend init, no toast.
+    applyQdrantModeVisibility(settings.qdrant_use_cloud || false);
 
     // Qdrant settings
     $('#VectFox_qdrant_host')

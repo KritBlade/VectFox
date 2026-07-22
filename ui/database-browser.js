@@ -61,6 +61,7 @@ import {
 import { world_names, loadWorldInfo } from "../../../../world-info.js";
 import { icons } from "./icons.js";
 import StringUtils from "../utils/string-utils.js";
+import { log } from "../core/log.js";
 import { openVisualizer } from "./chunk-visualizer.js";
 import { queryCollection } from "../core/core-vector-api.js";
 import {
@@ -120,7 +121,7 @@ let bulkEventsBound = false;
  */
 export function initializeDatabaseBrowser(settings) {
   browserState.settings = settings;
-  console.log("VECTFOX Database Browser: Initialized");
+  log.lifecycle("VectFox Database Browser: Initialized");
 }
 
 /**
