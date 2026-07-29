@@ -16,6 +16,7 @@ import { resolveBackendForCollection, sanitizeNameSegment } from './collection-i
 import { getCollectionListing, getCollectionRegistry } from './collection-loader.js';
 import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from './collection-metadata.js';
 import { LOREBOOK_PROMPT_TAG, RETRIEVAL_TIMEOUT_MS } from './constants.js';
+import { notifyRetrievalFailure } from './model-config-notifier.js';
 import AsyncUtils from '../utils/async-utils.js';
 import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
@@ -109,12 +110,44 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
             // In dual-query mode the user's last message runs alongside the full context —
             // a chunk that ranks outside topK for the context query can still be surfaced
             // if it ranks within topK for the focused user-message query.
-            const queryResults = await Promise.all(
-                queryTexts.map(qt => queryCollection(lookupKey, qt, topK, settings).catch(() => null))
+            //
+            // A failed query still must not break the generation, so each one is caught
+            // individually — but the outcome is recorded rather than discarded. The old
+            // `.catch(() => null)` here made a dead backend and a book with no relevant
+            // content produce byte-identical behavior: zero entries, no log, no toast.
+            // That is the reporting gap behind GitHub issue #11.
+            const queryOutcomes = await Promise.all(
+                queryTexts.map(qt => queryCollection(lookupKey, qt, topK, settings)
+                    .then(result => ({ ok: true, result }))
+                    .catch(error => ({ ok: false, error }))),
             );
 
+            const failures = queryOutcomes.filter(o => !o.ok);
+            if (failures.length === queryOutcomes.length) {
+                // Every query for this book failed — it contributes nothing this turn.
+                // Loud, because the user is about to send a message believing this
+                // lorebook is active.
+                const error = failures[0].error;
+                log.error(
+                    `VectFox WI: retrieval FAILED for lorebook "${collection.name}" (${lookupKey}) — `
+                    + `no entries from this book will be injected this turn:`,
+                    error?.message || error,
+                );
+                notifyRetrievalFailure('Lorebook', collection.name, error);
+                continue;
+            }
+            if (failures.length) {
+                // Partial: one query text of the dual-query pair failed. Recall is
+                // reduced but the book still contributes, so warn rather than toast.
+                log.warn(
+                    `VectFox WI: ${failures.length}/${queryOutcomes.length} queries failed for lorebook `
+                    + `"${collection.name}" — reduced recall this turn:`,
+                    failures[0].error?.message || failures[0].error,
+                );
+            }
+
             const bestByUid = new Map();
-            for (const result of queryResults) {
+            for (const { result } of queryOutcomes.filter(o => o.ok)) {
                 if (!result?.metadata) continue;
                 for (const meta of result.metadata) {
                     const uid = meta.uid || meta.hash;
@@ -527,7 +560,11 @@ async function handleGenerationStarted(type, options, dryRun) {
                 'Lorebook WI retrieval timed out',
             );
         } catch (error) {
+            // Timeout or an unexpected throw above the per-collection catches: the
+            // whole turn loses lorebook memory, so surface it rather than only
+            // logging. Same reasoning as the per-collection failure path.
             log.error('VectFox: Lorebook WI retrieval error (non-fatal, message sends without lorebook memory):', error.message || error);
+            notifyRetrievalFailure('Lorebook', 'all vectorized lorebooks', error);
             return;
         }
         if (!semanticEntries.length) return;

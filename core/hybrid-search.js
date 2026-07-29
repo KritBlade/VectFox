@@ -97,6 +97,11 @@ export async function hybridSearch(collectionId, searchText, topK, settings, opt
                 rrfK,
             }, filters);
         } catch (error) {
+            // THE single fallback for the hybrid path. Backends must not degrade
+            // internally — QdrantBackend.hybridQuery used to retry vector-only on
+            // its own before this catch ran, so one failure cost three HTTP calls
+            // and the final result was an empty set indistinguishable from "no
+            // match". Keep degradation here, once, and let it stay observable.
             log.warn(`[HybridSearch] Native hybrid failed, falling back to client-side:`, error.message);
             // Fall through to client-side fusion
         }
@@ -152,8 +157,14 @@ async function clientSideHybridSearch(backend, collectionId, searchText, topK, s
         );
         log.verbose(`[HybridSearch] Raw vector results:`, vectorResults ? `hashes=${vectorResults.hashes?.length}, metadata=${vectorResults.metadata?.length}` : 'null');
     } catch (error) {
-        log.error(`[HybridSearch] Vector query failed:`, error);
-        return { hashes: [], metadata: [] };
+        // Propagate. Returning an empty set here made a dead backend look exactly
+        // like a collection with no matching chunks, which is how a Qdrant-side
+        // failure could silently zero semantic lorebook activation with no log, no
+        // toast, and no error (GitHub issue #11). Every caller of queryCollection
+        // already catches — see core/eventbase-retrieval.js, core/chat-vectorization.js,
+        // core/agentic-retrieval.js, core/world-info-integration.js.
+        log.error(`[HybridSearch] Vector query failed for ${collectionId}:`, error);
+        throw error;
     }
 
     if (!vectorResults || !vectorResults.metadata || vectorResults.metadata.length === 0) {

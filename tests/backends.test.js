@@ -650,17 +650,35 @@ describe('QdrantBackend', () => {
             expect(result.metadata[0].hybridSearch).toBe(true);
         });
 
-        it('should fallback to regular query on hybrid failure', async () => {
+        it('should throw on hybrid failure instead of retrying vector-only itself', async () => {
+            // Degradation for the hybrid path belongs to core/hybrid-search.js and
+            // lives there ONCE. This method used to retry vector-only on its own
+            // before that catch ran, so a single failure cost three HTTP calls
+            // (hybrid-query → this retry → hybrid-search's client-side query) and
+            // still handed the caller an empty set it could not tell apart from
+            // "no match". See GitHub issue #11.
             fetchMock
                 .mockResolvedValueOnce(mockFetchResponse({ payload: null, supported: true })) // sentinel
-                .mockResolvedValueOnce(mockFetchError(404, 'Hybrid not available'))            // hybrid fails
-                .mockResolvedValueOnce(mockFetchResponse({                                     // queryCollection fallback
-                    results: [{ hash: 12345, text: 'Result', score: 0.9 }],
-                }));
+                .mockResolvedValueOnce(mockFetchError(404, 'Hybrid not available'));          // hybrid fails
+
+            await expect(backend.hybridQuery('test-collection', 'search', 5, defaultSettings))
+                .rejects.toThrow('Hybrid query failed');
+
+            // Exactly two calls: the sentinel read and the failed hybrid query.
+            // A third would mean the removed internal fallback came back.
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('should still return empty (not throw) on a dimension mismatch', async () => {
+            // Deliberate dead end rather than a fallback: the same mismatch fails on
+            // every path, and _warnDimensionMismatch has already told the user.
+            fetchMock
+                .mockResolvedValueOnce(mockFetchResponse({ payload: null, supported: true }))
+                .mockResolvedValueOnce(mockFetchError(400, 'Vector dimension error: expected dim: 1024, got 768'));
 
             const result = await backend.hybridQuery('test-collection', 'search', 5, defaultSettings);
 
-            expect(result.hashes).toEqual([12345]);
+            expect(result).toEqual({ hashes: [], metadata: [] });
         });
     });
 });

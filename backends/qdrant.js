@@ -806,7 +806,11 @@ export class QdrantBackend extends VectorBackend {
 
     /**
      * Perform hybrid search using Qdrant's sparse + dense vector capabilities.
-     * Falls back to regular vector search if hybrid endpoint is unavailable.
+     *
+     * Throws on failure — it does NOT degrade to vector-only itself. Fallback for
+     * the hybrid path is owned solely by core/hybrid-search.js::hybridSearch.
+     * The one exception is a vector-dimension mismatch, which returns an empty
+     * result because no other path could succeed either.
      *
      * @param {string} collectionId - Collection to query
      * @param {string} searchText - Query text
@@ -862,8 +866,11 @@ export class QdrantBackend extends VectorBackend {
             const { encodeSparseQuery } = await import('../core/sparse-vector-encoder.js');
             sparseQueryVector = encodeSparseQuery(searchText);
         } catch (error) {
+            // Throw rather than falling back here. Fallback for the whole hybrid
+            // path is owned by core/hybrid-search.js — see the "single fallback
+            // owner" note on the catch at the end of this method.
             log.warn('[Qdrant] sparse query setup failed:', error?.message);
-            return this.queryCollection(collectionId, searchText, topK, settings);
+            throw new Error(`[Qdrant] Sparse query setup failed for ${collectionId}: ${error?.message || error}`, { cause: error });
         }
 
         const body = {
@@ -909,47 +916,59 @@ export class QdrantBackend extends VectorBackend {
 
         const tNetStart = performance.now();
 
+        // Single fallback owner: this method no longer degrades to vector-only on
+        // its own. core/hybrid-search.js::hybridSearch catches whatever we throw and
+        // runs the client-side fusion path, which issues ONE vector query and adds
+        // BM25 re-ranking on top — strictly better than the raw vector-only retry
+        // this used to do, and one HTTP round-trip cheaper. Two independent fallback
+        // layers previously fired in sequence, so a single failing query cost three
+        // requests (hybrid-query, our retry, then hybrid-search's) and the caller
+        // still received an empty result it could not distinguish from "no match".
+        let response;
         try {
-            const response = await fetch('/api/plugins/similharity/chunks/hybrid-query', {
+            response = await fetch('/api/plugins/similharity/chunks/hybrid-query', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify(body),
             });
-
-            if (response.ok) {
-                const data = await response.json();
-                const totalMs = (performance.now() - tNetStart).toFixed(1);
-                log.verbose(`[Qdrant timing] total=${totalMs}ms, results=${data.results?.length || 0}`);
-
-                return {
-                    hashes: data.results.map(r => r.hash),
-                    metadata: data.results.map(r => ({
-                        hash: r.hash,
-                        text: r.text,
-                        score: r.score,
-                        vectorScore: r.vectorScore,
-                        textScore: r.textScore,
-                        fusionMethod: r.fusionMethod || 'rrf',
-                        hybridSearch: true,
-                        nativeSparse: true,
-                        ...r.metadata,
-                    }))
-                };
-            }
-
-            const errorBody = await response.text().catch(() => '(no body)');
-            const failMs = (performance.now() - tNetStart).toFixed(1);
-            if (_isDimensionMismatch(errorBody)) {
-                _warnDimensionMismatch(errorBody);
-                return { hashes: [], metadata: [] };
-            }
-            log.warn(`[Qdrant timing] hybridQuery FAILED after ${failMs}ms (HTTP ${response.status}), falling back to vector-only. ${_embedTimeoutHint(settings)} Server said: ${errorBody.slice(0, 500)}`);
         } catch (error) {
             const failMs = (performance.now() - tNetStart).toFixed(1);
             log.warn(`[Qdrant timing] hybridQuery FAILED after ${failMs}ms (exception): ${error.message}. ${_embedTimeoutHint(settings)}`);
+            throw error;
         }
 
-        return this.queryCollection(collectionId, searchText, topK, settings);
+        if (response.ok) {
+            const data = await response.json();
+            const totalMs = (performance.now() - tNetStart).toFixed(1);
+            log.verbose(`[Qdrant timing] total=${totalMs}ms, results=${data.results?.length || 0}`);
+
+            return {
+                hashes: data.results.map(r => r.hash),
+                metadata: data.results.map(r => ({
+                    hash: r.hash,
+                    text: r.text,
+                    score: r.score,
+                    vectorScore: r.vectorScore,
+                    textScore: r.textScore,
+                    fusionMethod: r.fusionMethod || 'rrf',
+                    hybridSearch: true,
+                    nativeSparse: true,
+                    ...r.metadata,
+                }))
+            };
+        }
+
+        const errorBody = await response.text().catch(() => '(no body)');
+        const failMs = (performance.now() - tNetStart).toFixed(1);
+        if (_isDimensionMismatch(errorBody)) {
+            // Deliberate dead end, NOT a fallback: a dimension mismatch fails
+            // identically on every path, so retrying vector-only would just burn
+            // another round-trip. _warnDimensionMismatch already told the user.
+            _warnDimensionMismatch(errorBody);
+            return { hashes: [], metadata: [] };
+        }
+        log.warn(`[Qdrant timing] hybridQuery FAILED after ${failMs}ms (HTTP ${response.status}). ${_embedTimeoutHint(settings)} Server said: ${errorBody.slice(0, 500)}`);
+        throw new Error(`[Qdrant] Hybrid query failed for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody.slice(0, 500)}`);
     }
 
     /**

@@ -98,6 +98,54 @@ export function resetConnectionNotifications() {
     _connNotified.clear();
 }
 
+// ---------------------------------------------------------------------------
+// Retrieval failure surfacing — sibling concern to model-config and connection.
+// ---------------------------------------------------------------------------
+// A retrieval path that catches its own errors and returns an empty result set is
+// indistinguishable, from the user's seat, from a corpus with nothing relevant in
+// it: no toast, no error, the message just sends without the memory it should have
+// had. That is what GitHub issue #11 reported — semantic lorebook activation went
+// silent on one backend and there was nothing in the console at default log level
+// to say why. Retrieval callers still degrade gracefully (a failed lookup must
+// never break a generation), but the degradation is now announced.
+const _retrievalNotified = new Set();
+
+/**
+ * De-duped error toast for "we could not retrieve from this source this turn".
+ *
+ * De-dup key is context + source + message, so a persistently-broken collection
+ * warns once per session rather than on every single generation, while a
+ * different collection or a different failure still gets through. Auto-dismissing
+ * (unlike the model/connection toasts) because retrieval failures are often
+ * transient — a restarted Qdrant or a slow embedder recovers on its own, and a
+ * sticky toast per turn would be worse than the silence it replaces.
+ *
+ * @param {string} contextLabel - 'Lorebook' | 'EventBase' | 'Chat memory' | …
+ * @param {string} sourceName - human-readable collection / book name
+ * @param {unknown} detail - the caught error (or a message string)
+ */
+export function notifyRetrievalFailure(contextLabel, sourceName, detail) {
+    const message = (typeof detail === 'string' ? detail : detail?.message || String(detail || 'unknown error'))
+        .replace(/\s+/g, ' ')
+        .trim();
+    const key = `${contextLabel}|${sourceName}|${message}`;
+    if (_retrievalNotified.has(key)) return;
+    _retrievalNotified.add(key);
+    try {
+        toastr.error(
+            `Couldn't search "${sourceName}" this turn, so none of its content was injected. `
+            + `The message still sent. Details: ${message.slice(0, 200)}`,
+            `VectFox — ${contextLabel} retrieval failed`,
+            { timeOut: 12000, extendedTimeOut: 4000 },
+        );
+    } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
+}
+
+/** Forget prior retrieval notifications (parity with the notifiers above). */
+export function resetRetrievalFailureNotifications() {
+    _retrievalNotified.clear();
+}
+
 /**
  * Turn OFF auto-sync for the current chat's EventBase collection(s) so a bad model
  * stops silently re-failing on every message. The user re-enables it after fixing

@@ -622,13 +622,18 @@ describe('hybridSearch', () => {
         expect(mockBackend.queryCollection).toHaveBeenCalled();
     });
 
-    it('should return empty results when vector query fails', async () => {
+    it('should propagate the error when the vector query fails', async () => {
+        // Deliberately NOT an empty result: a failed backend must stay
+        // distinguishable from a collection with no matching chunks. Swallowing it
+        // here is what let a Qdrant-side failure silently zero semantic lorebook
+        // activation with no log and no toast (GitHub issue #11). Callers of
+        // queryCollection all catch and degrade on their own terms.
         mockBackend.queryCollection.mockRejectedValue(new Error('Query failed'));
 
         const settings = {};
-        const results = await hybridSearch('test-collection', 'query', 10, settings);
 
-        expect(results).toEqual({ hashes: [], metadata: [] });
+        await expect(hybridSearch('test-collection', 'query', 10, settings))
+            .rejects.toThrow('Query failed');
     });
 
     it('should return empty results when no vector results found', async () => {
