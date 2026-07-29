@@ -88,6 +88,8 @@ vi.mock('../core/collection-metadata.js', () => ({
     getCollectionMeta: vi.fn(() => ({})),
     isCollectionEnabled: vi.fn(() => true),
     shouldCollectionActivate: vi.fn(async () => true),
+    getCollectionLockCount: vi.fn(() => 0),
+    getCollectionCharacterLockCount: vi.fn(() => 0),
 }));
 
 vi.mock('../core/lorebook-rename-detector.js', () => ({
@@ -99,7 +101,10 @@ vi.mock('../core/lorebook-rename-detector.js', () => ({
 import { getSemanticWorldInfoEntries } from '../core/world-info-integration.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
 import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
-import { resetRetrievalFailureNotifications } from '../core/model-config-notifier.js';
+import {
+    resetRetrievalFailureNotifications,
+    resetNoActiveCollectionsNotifications,
+} from '../core/model-config-notifier.js';
 
 // ============================================================================
 // FIXTURES
@@ -250,7 +255,10 @@ beforeEach(async () => {
     plainQueryResponder = () => jsonResponse({ success: true, results: [] });
     installFetchRouter();
 
-    global.toastr = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), success: vi.fn() };
+    global.toastr = { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() };
+    // initializeWorldInfoIntegration() publishes window.VectFox_WorldInfo; the
+    // vitest environment is 'node', so give it somewhere to land.
+    global.window = global.window || {};
 
     // Backend instances and the tokenizer sentinel are cached across calls in
     // production; clear both so each test starts from a cold, deterministic state.
@@ -260,6 +268,7 @@ beforeEach(async () => {
     // The failure toast de-dups per session; without this only the first test that
     // triggers it would see a call.
     resetRetrievalFailureNotifications();
+    resetNoActiveCollectionsNotifications();
 
     const { extension_settings } = await import('../../../../extensions.js');
     extension_settings.vectfox = baseSettings();
@@ -466,6 +475,153 @@ describe('Collection discovery gate', () => {
 
         expect(entries).toHaveLength(1);
         expect(queryCalls()).toContain('/api/plugins/similharity/chunks/hybrid-query');
+    });
+});
+
+describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
+    // These drive the real GENERATION_STARTED handler, because the "no collection
+    // qualified" outcome is invisible from getSemanticWorldInfoEntries alone: the
+    // handler simply returns before any query. Grab the handler the way ST does.
+    async function fireGenerationStarted() {
+        const { eventSource } = await import('../../../../../script.js');
+        const { initializeWorldInfoIntegration } = await import('../core/world-info-integration.js');
+        eventSource.on.mockClear();
+        initializeWorldInfoIntegration();
+        const call = eventSource.on.mock.calls.find(c => c[0] === 'GENERATION_STARTED');
+        await call[1]('normal', {}, false);   // type, options, dryRun=false
+    }
+
+    /** Put one lorebook in the registry listing with the given meta/ownership. */
+    async function listOneLorebook({ meta = {}, isOwn = true } = {}) {
+        const { getCollectionListing } = await import('../core/collection-loader.js');
+        getCollectionListing.mockReturnValue([{
+            registryKey: QDRANT_LOREBOOK_KEY,
+            collectionId: QDRANT_LOREBOOK_ID,
+            backend: 'qdrant',
+            meta: { enabled: true, sourceName: 'WorldLore', ...meta },
+            isOwn,
+            isActive: false,
+        }]);
+    }
+
+    beforeEach(async () => {
+        const { getContext, extension_settings } = await import('../../../../extensions.js');
+        extension_settings.vectfox = baseSettings({ enabled: true });
+        getContext.mockReturnValue({
+            chat: [{ mes: 'Tell me about the dragon.', is_user: true, is_system: false }],
+            characterId: 'char123',
+            name1: 'TestPersona',
+        });
+    });
+
+    it('toasts and warns when a vectorized lorebook exists but nothing activated', async () => {
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        await listOneLorebook();
+        shouldCollectionActivate.mockResolvedValue(false);
+
+        await fireGenerationStarted();
+
+        expect(global.toastr.warning).toHaveBeenCalledWith(
+            expect.stringContaining('WorldLore'),
+            expect.stringContaining('Semantic Lorebook inactive'),
+            expect.any(Object),
+        );
+        expect(consoleWarn).toHaveBeenCalledWith(
+            expect.stringContaining('NONE are active this turn'),
+        );
+        expect(queryCalls()).toEqual([]);   // nothing was searched, as expected
+        consoleWarn.mockRestore();
+    });
+
+    it('names the reason when the book has triggers but no lock', async () => {
+        // The treacherous config: triggers and locks are alternatives, so a
+        // trigger-only semantic lorebook participates ONLY on turns containing the
+        // keyword. The toast has to say that, or the user cannot act on it.
+        const { shouldCollectionActivate, getCollectionMeta,
+            getCollectionLockCount, getCollectionCharacterLockCount } = await import('../core/collection-metadata.js');
+        await listOneLorebook();
+        shouldCollectionActivate.mockResolvedValue(false);
+        getCollectionMeta.mockReturnValue({ triggers: ['dragon'], sourceName: 'WorldLore' });
+        getCollectionLockCount.mockReturnValue(0);
+        getCollectionCharacterLockCount.mockReturnValue(0);
+
+        await fireGenerationStarted();
+
+        expect(global.toastr.warning).toHaveBeenCalledWith(
+            expect.stringContaining('has trigger keywords but none matched this turn'),
+            expect.any(String),
+            expect.any(Object),
+        );
+    });
+
+    it('names the reason when the book is locked to a different chat or character', async () => {
+        const { shouldCollectionActivate, getCollectionMeta,
+            getCollectionLockCount, getCollectionCharacterLockCount } = await import('../core/collection-metadata.js');
+        await listOneLorebook();
+        shouldCollectionActivate.mockResolvedValue(false);
+        getCollectionMeta.mockReturnValue({ triggers: [], sourceName: 'WorldLore' });
+        getCollectionLockCount.mockReturnValue(1);          // locked, just not here
+        getCollectionCharacterLockCount.mockReturnValue(0);
+
+        await fireGenerationStarted();
+
+        expect(global.toastr.warning).toHaveBeenCalledWith(
+            expect.stringContaining('locked to a different chat/character'),
+            expect.any(String),
+            expect.any(Object),
+        );
+    });
+
+    it('stays quiet when the only lorebook was deliberately paused by the user', async () => {
+        // "I turned it off and it is off" is not a surprise. Paused collections are
+        // counted for the log but must never trigger the toast.
+        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        await listOneLorebook({ meta: { enabled: false } });
+        shouldCollectionActivate.mockResolvedValue(false);
+
+        await fireGenerationStarted();
+
+        expect(global.toastr.warning).not.toHaveBeenCalled();
+    });
+
+    it('stays quiet when there are no vectorized lorebooks at all', async () => {
+        // Nothing to act on — the user simply has not vectorized anything yet.
+        const { getCollectionListing } = await import('../core/collection-loader.js');
+        getCollectionListing.mockReturnValue([]);
+
+        await fireGenerationStarted();
+
+        expect(global.toastr.warning).not.toHaveBeenCalled();
+    });
+
+    it('de-dups per chat so it does not fire on every generation', async () => {
+        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        await listOneLorebook();
+        shouldCollectionActivate.mockResolvedValue(false);
+
+        await fireGenerationStarted();
+        await fireGenerationStarted();
+        await fireGenerationStarted();
+
+        expect(global.toastr.warning).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs the skip breakdown at verbosity 2, not just a bare count', async () => {
+        // "0 available" tells the user nothing about which knob to turn.
+        const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const { extension_settings } = await import('../../../../extensions.js');
+        extension_settings.vectfox = baseSettings({ enabled: true, debug_verbosity: 'verbose' });
+        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        await listOneLorebook();
+        shouldCollectionActivate.mockResolvedValue(false);
+
+        await fireGenerationStarted();
+
+        expect(consoleLog).toHaveBeenCalledWith(
+            expect.stringMatching(/0\/1 lorebook collection\(s\) eligible.*skipped: 1 /),
+        );
+        consoleLog.mockRestore();
     });
 });
 

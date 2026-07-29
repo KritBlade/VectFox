@@ -146,6 +146,51 @@ export function resetRetrievalFailureNotifications() {
     _retrievalNotified.clear();
 }
 
+// ---------------------------------------------------------------------------
+// "Feature is on but nothing it needs is active" surfacing.
+// ---------------------------------------------------------------------------
+// Distinct from notifyRetrievalFailure: there, a query ran and broke. Here, no
+// query was ever issued because every candidate collection was filtered out
+// before the search — disabled, owned by another persona, or not activated by
+// any trigger/condition/lock. The user has the feature switched ON and vectorized
+// content sitting in the registry, so from their seat it simply does nothing, and
+// the per-collection reason is a log.trace nobody has enabled. Same silent class
+// as GitHub issue #11, different cause.
+const _noActiveSourceNotified = new Set();
+
+/**
+ * De-duped warning toast for "this feature is enabled, you have vectorized
+ * content, and none of it is eligible this turn — here is why".
+ *
+ * De-dup key is context + scope + reason, where scope is normally the current
+ * chat id. Per-chat rather than per-session on purpose: the most common cause is
+ * a lock that points at a different chat/character, which is exactly what the
+ * user changes when they switch chats. A session-wide de-dup would show it once
+ * in the chat where it did not matter and stay quiet in the one where it did.
+ *
+ * @param {string} contextLabel - 'Semantic Lorebook' | 'ChunkBase' | …
+ * @param {string} scopeKey - current chat id (or any per-context de-dup key)
+ * @param {string} reason - human-readable breakdown of why nothing qualified
+ */
+export function notifyNoActiveCollections(contextLabel, scopeKey, reason) {
+    const key = `${contextLabel}|${scopeKey || ''}|${reason}`;
+    if (_noActiveSourceNotified.has(key)) return;
+    _noActiveSourceNotified.add(key);
+    try {
+        toastr.warning(
+            `${contextLabel} is ON but nothing was searched this turn. ${reason} `
+            + `Open the Database Browser to lock the collection to this chat or character.`,
+            `VectFox — ${contextLabel} inactive`,
+            { timeOut: 15000, extendedTimeOut: 5000 },
+        );
+    } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
+}
+
+/** Forget prior no-active-source notifications (parity with the notifiers above). */
+export function resetNoActiveCollectionsNotifications() {
+    _noActiveSourceNotified.clear();
+}
+
 /**
  * Turn OFF auto-sync for the current chat's EventBase collection(s) so a bad model
  * stops silently re-failing on every message. The user re-enables it after fixing

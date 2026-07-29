@@ -14,9 +14,15 @@ import { extension_settings, getContext } from '../../../../extensions.js';
 import { queryCollection } from './core-vector-api.js';
 import { resolveBackendForCollection, sanitizeNameSegment } from './collection-ids.js';
 import { getCollectionListing, getCollectionRegistry } from './collection-loader.js';
-import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from './collection-metadata.js';
+import {
+    getCollectionMeta,
+    isCollectionEnabled,
+    shouldCollectionActivate,
+    getCollectionLockCount,
+    getCollectionCharacterLockCount,
+} from './collection-metadata.js';
 import { LOREBOOK_PROMPT_TAG, RETRIEVAL_TIMEOUT_MS } from './constants.js';
-import { notifyRetrievalFailure } from './model-config-notifier.js';
+import { notifyRetrievalFailure, notifyNoActiveCollections } from './model-config-notifier.js';
 import AsyncUtils from '../utils/async-utils.js';
 import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
@@ -87,7 +93,7 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
     const topK = settings.world_info_top_k || 3;
 
     // Use pre-fetched collections if provided (avoids double call from handleGenerationStarted)
-    const lorebookCollections = preloadedCollections ?? await getEnabledLorebookCollections(settings);
+    const lorebookCollections = preloadedCollections ?? (await selectActiveLorebookCollections(settings)).active;
 
     for (const collection of lorebookCollections) {
         try {
@@ -211,16 +217,63 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
 }
 
 /**
- * Get all enabled lorebook collections for semantic WI search.
- * No keyword-trigger or lock gate — vector similarity is the activation mechanism.
- * shouldCollectionActivate() returns false for collections with no triggers/conditions/locks,
- * which is the default state for a semantic-WI lorebook. Gating on it silently blocks all results.
- * @param {object} settings - VectFox settings
- * @returns {Promise<Array<{id: string, name: string, sourceName: string|null}>>}
+ * Classify WHY a lorebook collection failed shouldCollectionActivate, so the
+ * summary can say something more useful than "0 available".
+ *
+ * Read-only re-derivation from the same metadata the activation chain reads —
+ * shouldCollectionActivate returns a bare boolean and this deliberately does not
+ * change that contract. Kept in sync with core/collection-metadata.js's priority
+ * order (triggers → conditions → chat lock → character lock).
+ *
+ * @returns {'trigger_set_but_unmatched'|'locked_elsewhere'|'never_configured'}
  */
-async function getEnabledLorebookCollections(settings) {
+function _classifyInactiveLorebook(registryKey) {
+    const meta = getCollectionMeta(registryKey) || {};
+    const hasTriggers = Array.isArray(meta.triggers) && meta.triggers.length > 0;
+    const lockCount = getCollectionLockCount(registryKey) + getCollectionCharacterLockCount(registryKey);
+
+    // Triggers present but we still got here means no keyword matched this turn.
+    // For a SEMANTIC lorebook this is usually a misconfiguration: the book only
+    // participates on turns containing the trigger word, which defeats the point
+    // of vector activation. Triggers and locks are alternatives, not partners.
+    if (hasTriggers && lockCount === 0) return 'trigger_set_but_unmatched';
+    // Locks exist, just not for the chat/character in front of us. Classic
+    // stale-lock symptom — ST character ids are ARRAY INDICES, so they re-point
+    // at a different character whenever the character list is reordered/resized.
+    if (lockCount > 0) return 'locked_elsewhere';
+    return 'never_configured';
+}
+
+/**
+ * Select the lorebook collections eligible for semantic WI search this turn, and
+ * report what was filtered out and why.
+ *
+ * Returns the tally as well as the survivors because an empty result is the most
+ * dangerous outcome in this whole path: the caller's loop simply never runs, the
+ * retrieval popup is skipped, and the generation proceeds with no lorebook memory
+ * and no indication anything was meant to happen. The per-collection reason is a
+ * log.trace inside shouldCollectionActivate that nobody has switched on.
+ *
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{active: Array<{id: string, name: string, sourceName: string|null}>,
+ *                    candidateCount: number,
+ *                    skipped: {disabled: number, foreignPersona: number,
+ *                              trigger_set_but_unmatched: number, locked_elsewhere: number,
+ *                              never_configured: number},
+ *                    inactiveNames: string[]}>}
+ */
+async function selectActiveLorebookCollections(settings) {
     const listing = getCollectionListing(settings);
     const collections = [];
+    const skipped = {
+        disabled: 0,
+        foreignPersona: 0,
+        trigger_set_but_unmatched: 0,
+        locked_elsewhere: 0,
+        never_configured: 0,
+    };
+    const inactiveNames = [];
+    let candidateCount = 0;
 
     const currentChatId = getCurrentChatId() ? String(getCurrentChatId()) : null;
     const currentCharacterId = getContext().characterId != null ? String(getContext().characterId) : null;
@@ -228,7 +281,13 @@ async function getEnabledLorebookCollections(settings) {
 
     for (const entry of listing) {
         if (!entry.collectionId.startsWith('vf_lorebook_')) continue;
-        if (entry.meta.enabled === false) continue;
+        candidateCount++;
+        const displayName = entry.meta?.sourceName || entry.collectionId;
+        if (entry.meta.enabled === false) {
+            // Deliberate user pause — counted for the summary, never toasted.
+            skipped.disabled++;
+            continue;
+        }
         // Respect persona ownership before checking activation. The activation
         // chain (Doc/collection_helper.md) lets trigger keywords activate a
         // collection regardless of who owns it — which leaks another persona's
@@ -239,16 +298,44 @@ async function getEnabledLorebookCollections(settings) {
         // stop seeing cross-persona content. Surfaced by prod symptom on
         // 2026-05-23 (rabbit's Your Wives lorebook leaking into critblade's
         // ArtificRealm chat) — TEST 011 covers this gate.
-        if (!entry.isOwn) continue;
-        if (!(await shouldCollectionActivate(entry.registryKey, context))) continue;
+        if (!entry.isOwn) {
+            skipped.foreignPersona++;
+            continue;
+        }
+        if (!(await shouldCollectionActivate(entry.registryKey, context))) {
+            skipped[_classifyInactiveLorebook(entry.registryKey)]++;
+            inactiveNames.push(displayName);
+            continue;
+        }
 
         const sourceName = entry.meta?.sourceName || null;
         const name = sourceName || entry.collectionId;
         collections.push({ id: entry.registryKey, name, sourceName });
     }
 
-    log.verbose(`VectFox WI: ${collections.length} lorebook collection(s) available for semantic search`);
-    return collections;
+    // Verbosity 2 gets the full accounting, not just a count — "0 available" on
+    // its own tells the user nothing about which knob to turn.
+    log.verbose(
+        `VectFox WI: ${collections.length}/${candidateCount} lorebook collection(s) eligible for semantic search`
+        + (candidateCount ? ` — skipped: ${_describeSkipped(skipped) || 'none'}` : ''),
+    );
+
+    return { active: collections, candidateCount, skipped, inactiveNames };
+}
+
+/** Human-readable skip tally, empty string when nothing was skipped. */
+function _describeSkipped(skipped) {
+    const labels = {
+        disabled: 'paused by user',
+        foreignPersona: 'owned by another persona',
+        trigger_set_but_unmatched: 'has trigger keywords but none matched this turn, and is not locked to this chat/character',
+        locked_elsewhere: 'locked to a different chat/character',
+        never_configured: 'no trigger, no condition, and not locked to this chat/character',
+    };
+    return Object.entries(skipped)
+        .filter(([, count]) => count > 0)
+        .map(([reason, count]) => `${count} ${labels[reason]}`)
+        .join('; ');
 }
 
 /**
@@ -526,7 +613,39 @@ async function handleGenerationStarted(type, options, dryRun) {
         const keywordQuery = lastUserMessage?.mes?.trim() || null;
 
         // Fetch collections once — used for rename detection and passed to the query.
-        const lorebookCollections = await getEnabledLorebookCollections(settings);
+        const {
+            active: lorebookCollections,
+            candidateCount,
+            skipped,
+            inactiveNames,
+        } = await selectActiveLorebookCollections(settings);
+
+        // Semantic WI is ON and vectorized lorebooks exist, yet none qualified this
+        // turn. Nothing downstream runs: the query loop never iterates, the retrieval
+        // popup is skipped, and the message sends with no lorebook memory and no sign
+        // it was ever meant to have any. Announce it — the per-collection reason is a
+        // log.trace nobody has switched on, and the fix (lock it to this chat or
+        // character) is not discoverable from the symptom.
+        //
+        // Collections the user deliberately paused are excluded from the trigger:
+        // "I turned it off and it's off" is not a surprise worth a toast.
+        if (candidateCount > 0 && lorebookCollections.length === 0) {
+            const actionable = candidateCount - skipped.disabled;
+            if (actionable > 0) {
+                const reason = _describeSkipped(skipped);
+                const named = inactiveNames.slice(0, 3).map(n => `"${n}"`).join(', ');
+                log.warn(
+                    `VectFox WI: Semantic WI is enabled and ${candidateCount} vectorized lorebook(s) exist, `
+                    + `but NONE are active this turn — ${reason || 'no reason recorded'}`,
+                );
+                notifyNoActiveCollections(
+                    'Semantic Lorebook',
+                    getCurrentChatId() || '',
+                    `${actionable} vectorized lorebook(s)${named ? ` (${named})` : ''} were skipped: ${reason}.`,
+                );
+            }
+            return;
+        }
 
         // Rename detection: if a lorebook was renamed after vectorization, its
         // sourceName won't match any entry in world_names. Show a blocking popup.
@@ -597,7 +716,7 @@ async function handleGenerationStarted(type, options, dryRun) {
 
 /**
  * Dry-run the Lorebook WI pipeline for the query tester.
- * Reuses getEnabledLorebookCollections + getSemanticWorldInfoEntries — same path as
+ * Reuses selectActiveLorebookCollections + getSemanticWorldInfoEntries — same path as
  * handleGenerationStarted, but skips rename detection and setExtensionPrompt.
  *
  * @param {{ chat: object[], testMessage: string|null, settings: object }} opts
@@ -614,7 +733,7 @@ export async function runLorebookWIDryRun({ chat, testMessage, settings }) {
 
     if (!recentMessages.length) return { injectionText: null, entryCount: 0 };
 
-    const lorebookCollections = await getEnabledLorebookCollections(settings);
+    const { active: lorebookCollections } = await selectActiveLorebookCollections(settings);
     if (!lorebookCollections.length) return { injectionText: null, entryCount: 0, noCollections: true };
 
     let semanticEntries;
