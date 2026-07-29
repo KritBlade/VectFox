@@ -1022,6 +1022,20 @@
     letter-spacing: 0.6px;
 }
 
+/* The lock is the master switch: nothing activates without it, so it reads
+   hotter than the Filter badge on triggers/conditions that only narrow it. */
+.vectfox-badge-required {
+    font-size: 0.68em;
+    padding: 2px 8px;
+    color: #f87171;  /* Red */
+    border: 1.5px solid #f87171;
+    background: color-mix(in srgb, #f87171 12%, transparent);
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+}
+
 .vectfox-badge-secondary {
     font-size: 0.68em;
     padding: 2px 8px;
@@ -1690,6 +1704,7 @@
     }
 
     .vectfox-badge-primary,
+    .vectfox-badge-required,
     .vectfox-badge-secondary {
         font-size: 0.6em;
         padding: 2px 5px;

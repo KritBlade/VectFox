@@ -90,6 +90,8 @@ vi.mock('../core/collection-metadata.js', () => ({
     shouldCollectionActivate: vi.fn(async () => true),
     getCollectionLockCount: vi.fn(() => 0),
     getCollectionCharacterLockCount: vi.fn(() => 0),
+    isCollectionLockedToChat: vi.fn(() => false),
+    isCollectionLockedToCharacter: vi.fn(() => false),
 }));
 
 vi.mock('../core/lorebook-rename-detector.js', () => ({
@@ -553,10 +555,10 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
         consoleWarn.mockRestore();
     });
 
-    it('names the reason when the book has triggers but no lock', async () => {
-        // The treacherous config: triggers and locks are alternatives, so a
-        // trigger-only semantic lorebook participates ONLY on turns containing the
-        // keyword. The toast has to say that, or the user cannot act on it.
+    it('tells an unlocked book to tick the box — the lock is the master switch', async () => {
+        // Trigger keywords on an UNLOCKED book cannot activate it: the lock gates
+        // everything (core/collection-metadata.js shouldCollectionActivate). So the
+        // actionable advice is "switch it on", not "your keyword missed".
         const { shouldCollectionActivate, getCollectionMeta,
             getCollectionLockCount, getCollectionCharacterLockCount } = await import('../core/collection-metadata.js');
         await listOneLorebook();
@@ -568,7 +570,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
         await fireGenerationStarted();
 
         expect(global.toastr.warning).toHaveBeenCalledWith(
-            expect.stringContaining('has trigger keywords but none matched this turn'),
+            expect.stringContaining('not locked to any chat or character'),
             expect.any(String),
             expect.any(Object),
         );
@@ -587,6 +589,25 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
 
         expect(global.toastr.warning).toHaveBeenCalledWith(
             expect.stringContaining('locked to a different chat/character'),
+            expect.any(String),
+            expect.any(Object),
+        );
+    });
+
+    it('names the reason when the book IS locked here but its trigger did not match', async () => {
+        // Only reachable now that the lock gate passed first — this is the state
+        // the user actually designed triggers for: on, but filtered out this turn.
+        const { shouldCollectionActivate, getCollectionMeta, isCollectionLockedToChat } =
+            await import('../core/collection-metadata.js');
+        await listOneLorebook();
+        shouldCollectionActivate.mockResolvedValue(false);
+        getCollectionMeta.mockReturnValue({ triggers: ['unicorn'], sourceName: 'WorldLore' });
+        isCollectionLockedToChat.mockReturnValue(true);     // master switch ON here
+
+        await fireGenerationStarted();
+
+        expect(global.toastr.warning).toHaveBeenCalledWith(
+            expect.stringContaining('its trigger keywords did not match this turn'),
             expect.any(String),
             expect.any(Object),
         );

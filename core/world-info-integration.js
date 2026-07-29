@@ -20,6 +20,8 @@ import {
     shouldCollectionActivate,
     getCollectionLockCount,
     getCollectionCharacterLockCount,
+    isCollectionLockedToChat,
+    isCollectionLockedToCharacter,
 } from './collection-metadata.js';
 import { LOREBOOK_PROMPT_TAG, RETRIEVAL_TIMEOUT_MS } from './constants.js';
 import { notifyRetrievalFailure, notifyNoActiveCollections } from './model-config-notifier.js';
@@ -223,26 +225,32 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
  *
  * Read-only re-derivation from the same metadata the activation chain reads —
  * shouldCollectionActivate returns a bare boolean and this deliberately does not
- * change that contract. Kept in sync with core/collection-metadata.js's priority
- * order (triggers → conditions → chat lock → character lock).
+ * change that contract. Kept in sync with core/collection-metadata.js's GATE
+ * order: lock (master switch) → triggers → conditions.
  *
- * @returns {'trigger_set_but_unmatched'|'locked_elsewhere'|'never_configured'}
+ * @param {string} registryKey
+ * @param {{currentChatId: string|null, currentCharacterId: string|null}} context
+ * @returns {'not_locked'|'locked_elsewhere'|'trigger_unmatched'|'conditions_failed'}
  */
-function _classifyInactiveLorebook(registryKey) {
+function _classifyInactiveLorebook(registryKey, context) {
     const meta = getCollectionMeta(registryKey) || {};
-    const hasTriggers = Array.isArray(meta.triggers) && meta.triggers.length > 0;
-    const lockCount = getCollectionLockCount(registryKey) + getCollectionCharacterLockCount(registryKey);
+    const anyLocks = getCollectionLockCount(registryKey) + getCollectionCharacterLockCount(registryKey);
 
-    // Triggers present but we still got here means no keyword matched this turn.
-    // For a SEMANTIC lorebook this is usually a misconfiguration: the book only
-    // participates on turns containing the trigger word, which defeats the point
-    // of vector activation. Triggers and locks are alternatives, not partners.
-    if (hasTriggers && lockCount === 0) return 'trigger_set_but_unmatched';
-    // Locks exist, just not for the chat/character in front of us. Classic
-    // stale-lock symptom — ST character ids are ARRAY INDICES, so they re-point
-    // at a different character whenever the character list is reordered/resized.
-    if (lockCount > 0) return 'locked_elsewhere';
-    return 'never_configured';
+    // Gate 2 is where most inactive books die: the master switch is simply off.
+    // Distinguish "never switched on anywhere" from "switched on, but somewhere
+    // else" — the fixes are different (tick the box here vs. a stale lock).
+    const lockedHere = (!!context.currentChatId && isCollectionLockedToChat(registryKey, context.currentChatId))
+        || (!!context.currentCharacterId && isCollectionLockedToCharacter(registryKey, context.currentCharacterId));
+    if (!lockedHere) {
+        // Locks exist elsewhere. Classic stale-lock symptom — ST character ids are
+        // ARRAY INDICES, so they re-point at a different character whenever the
+        // character list is reordered or resized.
+        return anyLocks > 0 ? 'locked_elsewhere' : 'not_locked';
+    }
+
+    // Locked here, so a configured filter rejected it this turn.
+    if (Array.isArray(meta.triggers) && meta.triggers.length > 0) return 'trigger_unmatched';
+    return 'conditions_failed';
 }
 
 /**
@@ -269,9 +277,10 @@ async function selectActiveLorebookCollections(settings, recentMessages = []) {
     const skipped = {
         disabled: 0,
         foreignPersona: 0,
-        trigger_set_but_unmatched: 0,
+        not_locked: 0,
         locked_elsewhere: 0,
-        never_configured: 0,
+        trigger_unmatched: 0,
+        conditions_failed: 0,
     };
     const inactiveNames = [];
     let candidateCount = 0;
@@ -317,7 +326,7 @@ async function selectActiveLorebookCollections(settings, recentMessages = []) {
             continue;
         }
         if (!(await shouldCollectionActivate(entry.registryKey, context))) {
-            skipped[_classifyInactiveLorebook(entry.registryKey)]++;
+            skipped[_classifyInactiveLorebook(entry.registryKey, context)]++;
             inactiveNames.push(displayName);
             continue;
         }
@@ -342,9 +351,10 @@ function _describeSkipped(skipped) {
     const labels = {
         disabled: 'paused by user',
         foreignPersona: 'owned by another persona',
-        trigger_set_but_unmatched: 'has trigger keywords but none matched this turn, and is not locked to this chat/character',
+        not_locked: 'not locked to any chat or character — tick "Active for current chat" to switch it on',
         locked_elsewhere: 'locked to a different chat/character',
-        never_configured: 'no trigger, no condition, and not locked to this chat/character',
+        trigger_unmatched: 'locked, but its trigger keywords did not match this turn',
+        conditions_failed: 'locked, but its advanced conditions did not pass this turn',
     };
     return Object.entries(skipped)
         .filter(([, count]) => count > 0)

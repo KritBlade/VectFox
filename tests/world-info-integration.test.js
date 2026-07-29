@@ -38,6 +38,8 @@ vi.mock('../core/collection-metadata.js', () => ({
     // Read by _classifyInactiveLorebook to explain WHY a collection was skipped.
     getCollectionLockCount: vi.fn(() => 0),
     getCollectionCharacterLockCount: vi.fn(() => 0),
+    isCollectionLockedToChat: vi.fn(() => false),
+    isCollectionLockedToCharacter: vi.fn(() => false),
 }));
 
 vi.mock('../core/collection-ids.js', () => ({

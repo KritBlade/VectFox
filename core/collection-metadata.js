@@ -1088,70 +1088,87 @@ async function evaluateAdvancedConditions(meta, context, collectionId) {
 }
 
 /**
- * Checks if a collection should activate based on triggers and conditions
+ * Checks whether a collection should be queried this turn.
  *
- * ACTIVATION PRIORITY:
- * 1. Pause button (enabled=false) → Never activate (global disable)
- * 2. Activation Triggers match → Activate (PRIMARY, content-driven)
- * 3. Advanced Conditions pass → Activate (SECONDARY, content-driven)
- * 4. "Active for current chat" checkbox / character lock → Activate (manual always-on)
- * 5. Nothing matched → Do not activate
+ * ACTIVATION IS A CHAIN OF GATES, NOT A LIST OF ALTERNATIVES. Every gate that
+ * applies must pass:
+ *
+ * 1. Pause button (enabled=false)              → never activate
+ * 2. Lock (chat or character) — THE MASTER SWITCH → required; unlocked never activates
+ * 3. Activation Triggers, when configured      → keyword must match this turn
+ * 4. Advanced Conditions, when configured      → rules must pass this turn
+ * 5. Locked with no trigger and no condition   → always active
+ *
+ * The lock is what turns a collection on at all; triggers and conditions only
+ * NARROW an already-on collection. A collection with trigger keywords but no
+ * lock is inert by design — the user has described what should activate it but
+ * has not switched it on.
+ *
+ * This replaced an OR chain in which a trigger match returned true "regardless
+ * of lock state". That inverted the intended model twice over: an unlocked
+ * collection could activate on a keyword (the leak the isOwn guard in
+ * core/world-info-integration.js was added to contain), and — because a
+ * non-matching trigger fell THROUGH to the lock check — a trigger on a locked
+ * collection was a no-op that could never gate anything. Both are fixed here.
  *
  * @param {string} collectionId Collection identifier
- * @param {object} context Search context (from buildSearchContext)
+ * @param {object} context Search context (from buildSearchContext) — must carry
+ *   recentMessages for trigger matching, plus currentChatId / currentCharacterId
  * @returns {Promise<boolean>} Whether the collection should be queried
  */
 export async function shouldCollectionActivate(collectionId, context) {
     const meta = getCollectionMeta(collectionId);
     const currentChatId = context?.currentChatId;
-    // Priority 1: Pause button — global disable, blocks everything
+    const currentCharacterId = context?.currentCharacterId;
+
+    // Gate 1: Pause button — global disable, blocks everything.
     if (meta.enabled === false) {
         log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ DISABLED`);
+        return false;
+    }
+
+    // Gate 2: Lock — the master switch. Nothing downstream can activate a
+    // collection the user has not switched on for this chat or character.
+    const lockedToChat = !!(currentChatId && isCollectionLockedToChat(collectionId, currentChatId));
+    const lockedToCharacter = !!(currentCharacterId && isCollectionLockedToCharacter(collectionId, currentCharacterId));
+    if (!lockedToChat && !lockedToCharacter) {
+        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ NOT_LOCKED (master switch off for chat=${currentChatId}, character=${currentCharacterId})`);
         return false;
     }
 
     const hasTriggers = meta.triggers && meta.triggers.length > 0;
     const hasConditions = meta.conditions?.enabled && meta.conditions?.rules?.length > 0;
 
-    log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: hasTriggers=${hasTriggers}, hasConditions=${hasConditions}`);
+    log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: locked (chat=${lockedToChat}, character=${lockedToCharacter}), hasTriggers=${hasTriggers}, hasConditions=${hasConditions}`);
 
-    // Priority 2: Activation Triggers (PRIMARY) — keyword match activates regardless of lock state
+    // Gate 3: Activation Triggers narrow the locked collection to matching turns.
     if (hasTriggers) {
         const triggersMatch = checkTriggers(meta.triggers, context, {
             matchMode: meta.triggerMatchMode || 'any',
             caseSensitive: meta.triggerCaseSensitive || false,
             scanDepth: meta.triggerScanDepth || 5,
         });
-        if (triggersMatch) {
-            log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ TRIGGERS_MATCHED (${meta.triggers.join(', ')})`);
-            return true;
+        if (!triggersMatch) {
+            log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ TRIGGERS_UNMATCHED (${meta.triggers.join(', ')})`);
+            return false;
         }
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: triggers set but not matched`);
+        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ TRIGGERS_MATCHED`);
     }
 
-    // Priority 3: Advanced Conditions (SECONDARY) — condition pass activates regardless of lock state
+    // Gate 4: Advanced Conditions narrow further. Both must hold when both are
+    // configured — they are successive filters, not alternatives.
     if (hasConditions) {
         const conditionsPass = await evaluateAdvancedConditions(meta, context, collectionId);
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ${conditionsPass ? '✓' : '✗'} CONDITIONS_${conditionsPass ? 'PASS' : 'FAIL'}`);
-        if (conditionsPass) return true;
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: conditions failed`);
+        if (!conditionsPass) {
+            log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ CONDITIONS_FAIL`);
+            return false;
+        }
+        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ CONDITIONS_PASS`);
     }
 
-    // Priority 4: "Active for current chat" checkbox / character lock — manual always-on fallback
-    if (currentChatId && isCollectionLockedToChat(collectionId, currentChatId)) {
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ LOCKED_TO_CURRENT_CHAT (${currentChatId})`);
-        return true;
-    }
-
-    const currentCharacterId = context?.currentCharacterId;
-    if (currentCharacterId && isCollectionLockedToCharacter(collectionId, currentCharacterId)) {
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ LOCKED_TO_CURRENT_CHARACTER (${currentCharacterId})`);
-        return true;
-    }
-
-    // Priority 5: Nothing activated it
-    log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ NOT_ACTIVATED (no trigger match, no condition pass, not locked)`);
-    return false;
+    // Gate 5: Locked and every configured filter passed.
+    log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ ACTIVE`);
+    return true;
 }
 
 /**

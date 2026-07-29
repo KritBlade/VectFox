@@ -2032,8 +2032,16 @@ function createActivationEditorModal() {
                         Collection: <strong id="vectfox_activation_collection_name"></strong>
                     </div>
 
-                    <!-- Always Active Toggle -->
+                    <!-- ========================================== -->
+                    <!-- REQUIRED: THE LOCK IS THE MASTER SWITCH      -->
+                    <!-- Nothing below activates a collection that is -->
+                    <!-- not locked; triggers/conditions only narrow. -->
+                    <!-- ========================================== -->
                     <div class="vectfox-activation-section vectfox-always-active">
+                        <div class="vectfox-section-header">
+                            <h4>🔒 Lock <span class="vectfox-badge-required">Required</span></h4>
+                            <small>The master switch. A collection that is not locked never activates, whatever else is set below.</small>
+                        </div>
                         <label class="vectfox-checkbox-label">
                             <input type="checkbox" id="vectfox_always_active">
                         <strong id="vectfox_always_active_label">Active for current chat</strong>
@@ -2042,12 +2050,14 @@ function createActivationEditorModal() {
                     </div>
 
                     <!-- ========================================== -->
-                    <!-- PRIMARY: ACTIVATION TRIGGERS (Like Lorebook) -->
+                    <!-- FILTER: ACTIVATION TRIGGERS (Like Lorebook)  -->
+                    <!-- Narrows an already-locked collection. Has no -->
+                    <!-- effect on its own - see the Lock block above. -->
                     <!-- ========================================== -->
                     <div class="vectfox-activation-section vectfox-triggers-section">
                         <div class="vectfox-section-header">
-                            <h4>🎯 Activation Triggers <span class="vectfox-badge-primary">Primary</span></h4>
-                            <small>Simple keyword-based activation, like lorebook entries</small>
+                            <h4>🎯 Activation Triggers <span class="vectfox-badge-primary">Filter</span></h4>
+                            <small>Narrows a locked collection to turns whose recent messages contain a keyword. Leave empty to keep it active on every turn.</small>
                         </div>
 
                         <div class="vectfox-triggers-input">
@@ -2160,14 +2170,15 @@ function createActivationEditorModal() {
 
                     <!-- Activation Priority Info -->
                     <div class="vectfox-activation-info">
-                        <strong>Activation Priority:</strong>
+                        <strong>Activation Chain — every step that applies must pass:</strong>
                         <ol>
-                            <li><strong>Disabled</strong> → Collection never queries (pause kills all activation)</li>
-                            <li><strong>Triggers</strong> → Match keywords in recent messages → activates</li>
-                            <li><strong>Advanced Conditions</strong> → Evaluated if triggers empty/don't match → activates</li>
-                            <li><strong>Active for current chat / Character lock</strong> → Manual always-on</li>
-                            <li><strong>Nothing configured</strong> → Collection does not activate</li>
+                            <li><strong>Disabled</strong> → never queries (pause kills all activation)</li>
+                            <li><strong>Lock</strong> → <em>required</em>. Not locked to this chat or character → does not activate, full stop</li>
+                            <li><strong>Triggers</strong>, if set → a keyword must match recent messages this turn</li>
+                            <li><strong>Advanced Conditions</strong>, if set → the rules must also pass this turn</li>
+                            <li><strong>Locked, nothing else set</strong> → active on every turn</li>
                         </ol>
+                        <small>Triggers and conditions <strong>narrow</strong> a locked collection. They cannot switch one on by themselves.</small>
                     </div>
                 </div>
 
