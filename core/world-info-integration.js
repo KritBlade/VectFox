@@ -93,7 +93,8 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
     const topK = settings.world_info_top_k || 3;
 
     // Use pre-fetched collections if provided (avoids double call from handleGenerationStarted)
-    const lorebookCollections = preloadedCollections ?? (await selectActiveLorebookCollections(settings)).active;
+    const lorebookCollections = preloadedCollections
+        ?? (await selectActiveLorebookCollections(settings, recentMessages)).active;
 
     for (const collection of lorebookCollections) {
         try {
@@ -262,7 +263,7 @@ function _classifyInactiveLorebook(registryKey) {
  *                              never_configured: number},
  *                    inactiveNames: string[]}>}
  */
-async function selectActiveLorebookCollections(settings) {
+async function selectActiveLorebookCollections(settings, recentMessages = []) {
     const listing = getCollectionListing(settings);
     const collections = [];
     const skipped = {
@@ -277,7 +278,20 @@ async function selectActiveLorebookCollections(settings) {
 
     const currentChatId = getCurrentChatId() ? String(getCurrentChatId()) : null;
     const currentCharacterId = getContext().characterId != null ? String(getContext().characterId) : null;
-    const context = { currentChatId, currentCharacterId };
+    // recentMessages is REQUIRED for trigger matching: checkTriggers() reads
+    // context.recentMessages and returns false immediately when the joined text is
+    // empty (core/collection-metadata.js:1003-1010). Omitting it — as this function
+    // did — made Priority 2 (Activation Triggers) unreachable for every lorebook
+    // collection, so a trigger-keyword lorebook with no chat/character lock could
+    // never activate no matter what the user typed. Only the lock priorities worked,
+    // because currentChatId/currentCharacterId were the only fields supplied.
+    // The document/ChunkBase path never hit this: it passes a full
+    // buildSearchContext() (core/conditional-activation.js:637).
+    //
+    // Newest-first ordering matches checkTriggers' `slice(0, scanDepth)`. Depth is
+    // bounded by world_info_query_depth, so a collection's triggerScanDepth is
+    // effectively capped by it.
+    const context = { currentChatId, currentCharacterId, recentMessages };
 
     for (const entry of listing) {
         if (!entry.collectionId.startsWith('vf_lorebook_')) continue;
@@ -618,7 +632,7 @@ async function handleGenerationStarted(type, options, dryRun) {
             candidateCount,
             skipped,
             inactiveNames,
-        } = await selectActiveLorebookCollections(settings);
+        } = await selectActiveLorebookCollections(settings, recentMessages);
 
         // Semantic WI is ON and vectorized lorebooks exist, yet none qualified this
         // turn. Nothing downstream runs: the query loop never iterates, the retrieval
@@ -733,7 +747,7 @@ export async function runLorebookWIDryRun({ chat, testMessage, settings }) {
 
     if (!recentMessages.length) return { injectionText: null, entryCount: 0 };
 
-    const { active: lorebookCollections } = await selectActiveLorebookCollections(settings);
+    const { active: lorebookCollections } = await selectActiveLorebookCollections(settings, recentMessages);
     if (!lorebookCollections.length) return { injectionText: null, entryCount: 0, noCollections: true };
 
     let semanticEntries;
