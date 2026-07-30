@@ -769,6 +769,9 @@ export async function runLorebookWIDryRun({ chat, testMessage, settings }) {
         );
     } catch (error) {
         log.error('VectFox: Lorebook WI dry-run retrieval error:', error.message || error);
+        // Same surfacing as the generation path — the tester exists to answer
+        // "why did I get nothing?", so a silent timeout here defeats its purpose.
+        notifyRetrievalFailure('Lorebook', 'query tester dry-run', error);
         return { injectionText: null, entryCount: 0 };
     }
     if (!semanticEntries.length) return { injectionText: null, entryCount: 0 };
