@@ -35,6 +35,7 @@ import { throwIfModelConfigError } from '../core/model-http-errors.js';
 import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 import { getQdrantApiKey } from '../core/api-keys.js';
 import { log } from '../core/log.js';
+import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
 
 const BACKEND_TYPE = 'qdrant';
 
@@ -512,8 +513,9 @@ export class QdrantBackend extends VectorBackend {
         const data = await response.json();
         if (log.enabled('verbose')) {
             const totalMs = (performance.now() - tNetStart).toFixed(1);
-            log.verbose(`[Qdrant timing] queryCollection total=${totalMs}ms (incl. server-side embed via '${settings.embedding_provider || 'transformers'}'), results=${data.results?.length || 0}`);
+            log.verbose(`[Qdrant timing] queryCollection total=${totalMs}ms (incl. server-side embed via '${settings.embedding_provider || 'transformers'}'), embed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
         }
+        warnIfEmbeddingSlow(data.timings?.embedMs, settings, 'query');
 
         // Format results to match expected output
         const hashes = data.results.map(r => r.hash);
@@ -940,7 +942,8 @@ export class QdrantBackend extends VectorBackend {
         if (response.ok) {
             const data = await response.json();
             const totalMs = (performance.now() - tNetStart).toFixed(1);
-            log.verbose(`[Qdrant timing] total=${totalMs}ms, results=${data.results?.length || 0}`);
+            log.verbose(`[Qdrant timing] total=${totalMs}ms, embed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
+            warnIfEmbeddingSlow(data.timings?.embedMs, settings, 'hybrid-query');
 
             return {
                 hashes: data.results.map(r => r.hash),
@@ -1077,7 +1080,8 @@ export class QdrantBackend extends VectorBackend {
             if (response.ok) {
                 const data = await response.json();
                 const totalMs = (performance.now() - tNetStart).toFixed(1);
-                log.verbose(`[Qdrant timing] hybrid+rerank total=${totalMs}ms, results=${data.results?.length || 0}`);
+                log.verbose(`[Qdrant timing] hybrid+rerank total=${totalMs}ms, embed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
+                warnIfEmbeddingSlow(data.timings?.embedMs, settings, 'hybrid-query-rerank');
 
                 return {
                     hashes: data.results.map(r => r.hash),

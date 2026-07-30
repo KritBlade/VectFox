@@ -34,6 +34,7 @@ import { INTERNAL_COLLECTION_IDS } from '../core/collection-ids.js';
 import { extension_settings } from '../../../../extensions.js';
 import { oai_settings } from '../../../../openai.js';
 import { log } from '../core/log.js';
+import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
 
 
 /**
@@ -639,7 +640,8 @@ export class StandardBackend extends VectorBackend {
             }
 
             const data = await response.json();
-            log.verbose(`[VectFox] plugin query result: count=${data.count}, results.length=${data.results?.length}, error=${data.error || 'none'}`);
+            log.verbose(`[VectFox] plugin query result: count=${data.count}, results.length=${data.results?.length}, embed=${data.timings?.embedMs ?? 'n/a'}ms, query=${data.timings?.queryMs ?? 'n/a'}ms, error=${data.error || 'none'}`);
+            warnIfEmbeddingSlow(data.timings?.embedMs, settings, 'query');
 
             // Plugin returns { success, results: [{ hash, score, text, metadata }] }
             const results = data.results || [];
