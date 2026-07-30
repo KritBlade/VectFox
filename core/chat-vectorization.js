@@ -33,8 +33,8 @@ import { getChunkMetadata, getCollectionMeta } from './collection-metadata.js';
 import { createDebugData, setLastSearchDebug, addTrace, recordChunkFate } from '../ui/search-debug.js';
 import { Queue, LRUCache } from '../utils/data-structures.js';
 import { getRequestHeaders } from '../../../../../script.js';
-import { EXTENSION_PROMPT_TAG, HASH_CACHE_SIZE, RETRIEVAL_TIMEOUT_MS } from './constants.js';
-import AsyncUtils from '../utils/async-utils.js';
+import { EXTENSION_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
+import { runBoundedRetrieval } from './bounded-retrieval.js';
 import { log } from './log.js';
 import { isVectFoxEnabled } from './feature-gate.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
@@ -1319,25 +1319,22 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             const queryText = buildSearchQuery(chat, settings);
             if (queryText) {
                 const { runEventBaseRetrieval } = await import('./eventbase-workflow.js');
-                // Bound retrieval so a hung embedding/query can't freeze the turn.
-                // Soft timeout: on expiry the message proceeds WITHOUT EventBase
-                // injection; the orphaned request is reaped by ST's server-side
-                // timeout. Non-fatal — a thrown timeout/error must not break
-                // generation. See core/constants.js::RETRIEVAL_TIMEOUT_MS.
-                try {
-                    await AsyncUtils.timeout(
-                        runEventBaseRetrieval({
-                            chat,
-                            searchText: queryText,
-                            settings,
-                            chatUUID: getChatUUID(),
-                        }),
-                        RETRIEVAL_TIMEOUT_MS,
-                        'EventBase retrieval timed out',
-                    );
-                } catch (error) {
-                    log.error('VectFox EventBase: retrieval error (non-fatal, message sends without event memory):', error);
-                }
+                // On timeout the message proceeds WITHOUT EventBase injection and
+                // the user is told why — see core/bounded-retrieval.js for the
+                // timeout/degrade/surface contract shared by every retrieval path.
+                await runBoundedRetrieval(
+                    runEventBaseRetrieval({
+                        chat,
+                        searchText: queryText,
+                        settings,
+                        chatUUID: getChatUUID(),
+                    }),
+                    {
+                        contextLabel: 'EventBase',
+                        sourceName: 'event memory',
+                        timeoutMessage: 'EventBase retrieval timed out',
+                    },
+                );
             } else {
                 // Empty query — clear any stale injection from a previous generation.
                 const { setExtensionPrompt } = await import('../../../../../script.js');
@@ -1349,15 +1346,13 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             // events every turn, independent of semantic retrieval above. Self-clears
             // when disabled (so a toggle-off mid-session doesn't leave a stale block).
             // Non-fatal + time-bounded so a slow listChunks can't freeze the turn.
-            try {
+            {
                 const { runSummarizerInjection } = await import('./summarizer-injection.js');
-                await AsyncUtils.timeout(
-                    runSummarizerInjection(settings),
-                    RETRIEVAL_TIMEOUT_MS,
-                    'Summarizer injection timed out',
-                );
-            } catch (error) {
-                log.error('VectFox Summarizer: injection error (non-fatal, message sends without summarizer memory):', error);
+                await runBoundedRetrieval(runSummarizerInjection(settings), {
+                    contextLabel: 'Summarizer',
+                    sourceName: 'recent event summaries',
+                    timeoutMessage: 'Summarizer injection timed out',
+                });
             }
 
             // Ghosting: blank the OLDEST already-vectorized messages from THIS prompt
@@ -1475,21 +1470,17 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             toastr.info(`Retrieving context from ${activeCollections.length} collection(s)...`, 'VectFox Retrieval');
         }
 
-        // Bound chunk retrieval the same way as EventBase above — a hung query
-        // must not freeze generation. On timeout/error we proceed with no chunks
-        // this turn (downstream handles an empty list = no injection).
-        // See core/constants.js::RETRIEVAL_TIMEOUT_MS.
-        let chunks;
-        try {
-            chunks = await AsyncUtils.timeout(
-                queryAndMergeCollections(activeCollections, queryText, settings, chat, debugData),
-                RETRIEVAL_TIMEOUT_MS,
-                'Chunk retrieval timed out',
-            );
-        } catch (error) {
-            log.error('VectFox: chunk retrieval error (non-fatal, message sends without chunk memory):', error);
-            chunks = [];
-        }
+        // Same contract as EventBase above (core/bounded-retrieval.js): on failure
+        // we proceed with no chunks this turn and say so.
+        let chunks = await runBoundedRetrieval(
+            queryAndMergeCollections(activeCollections, queryText, settings, chat, debugData),
+            {
+                contextLabel: 'Chat memory',
+                sourceName: 'vectorized chunks',
+                timeoutMessage: 'Chunk retrieval timed out',
+                fallback: [],   // downstream treats an empty list as "no injection"
+            },
+        );
 
         if (activeCollections.length > 0 && settings.retrieval_popup_on_result) {
             toastr.success(`Retrieved ${chunks.length} result(s) from backend`, 'VectFox Retrieval');

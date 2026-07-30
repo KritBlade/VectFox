@@ -1,0 +1,100 @@
+/**
+ * runBoundedRetrieval — the shared retrieval contract.
+ *
+ * Every retrieval path in VectFox (Lorebook WI, EventBase, chunk retrieval,
+ * summarizer injection) runs through this one function so all four obey the same
+ * three rules:
+ *   1. bounded    — a hung embedding provider can never freeze a generation
+ *   2. non-fatal  — a failed lookup degrades to a fallback, never breaks the turn
+ *   3. surfaced   — the user is TOLD, rather than silently losing memory
+ *
+ * Rule 3 is why this exists. It used to live in five hand-copied try/catch blocks
+ * and was missed in four of them (every EventBase/chunk path) plus re-dropped in
+ * the Lorebook dry-run during a rebase. The failure is invisible in review: the
+ * message still sends and the character just quietly forgets. These tests pin the
+ * contract so a new retrieval path can't reintroduce the silence.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../core/constants.js', () => ({ RETRIEVAL_TIMEOUT_MS: 50 }));
+vi.mock('../core/log.js', () => ({
+    log: { error: vi.fn(), warn: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
+}));
+vi.mock('../core/model-config-notifier.js', () => ({ notifyRetrievalFailure: vi.fn() }));
+
+import { runBoundedRetrieval } from '../core/bounded-retrieval.js';
+import { notifyRetrievalFailure } from '../core/model-config-notifier.js';
+import { log } from '../core/log.js';
+
+const OPTIONS = {
+    contextLabel: 'EventBase',
+    sourceName: 'event memory',
+    timeoutMessage: 'EventBase retrieval timed out',
+};
+
+const never = () => new Promise(() => {});           // hangs forever
+const slow = (ms, value) => new Promise(r => setTimeout(() => r(value), ms));
+
+beforeEach(() => vi.clearAllMocks());
+
+describe('runBoundedRetrieval', () => {
+    it('passes the resolved value straight through on success', async () => {
+        const result = await runBoundedRetrieval(Promise.resolve(['hit']), { ...OPTIONS, fallback: [] });
+
+        expect(result).toEqual(['hit']);
+        expect(notifyRetrievalFailure).not.toHaveBeenCalled();
+        expect(log.error).not.toHaveBeenCalled();
+    });
+
+    it('returns the fallback and surfaces a toast when the retrieval times out', async () => {
+        const result = await runBoundedRetrieval(never(), { ...OPTIONS, fallback: [] });
+
+        expect(result).toEqual([]);                                    // degraded, did not throw
+        expect(notifyRetrievalFailure).toHaveBeenCalledTimes(1);       // and the user was told
+        const [label, source, error] = notifyRetrievalFailure.mock.calls[0];
+        expect(label).toBe('EventBase');
+        expect(source).toBe('event memory');
+        expect(error.message).toBe('EventBase retrieval timed out');
+        expect(log.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces a rejection the same way as a timeout', async () => {
+        const result = await runBoundedRetrieval(Promise.reject(new Error('ECONNREFUSED')), { ...OPTIONS, fallback: [] });
+
+        expect(result).toEqual([]);
+        expect(notifyRetrievalFailure).toHaveBeenCalledWith('EventBase', 'event memory', expect.objectContaining({ message: 'ECONNREFUSED' }));
+    });
+
+    it('never rethrows — a lookup failure must not break the generation', async () => {
+        await expect(runBoundedRetrieval(Promise.reject(new Error('boom')), OPTIONS)).resolves.toBeUndefined();
+    });
+
+    it('returns undefined when no fallback is given (fire-and-forget callers)', async () => {
+        const result = await runBoundedRetrieval(never(), OPTIONS);
+
+        expect(result).toBeUndefined();
+        expect(notifyRetrievalFailure).toHaveBeenCalledTimes(1);
+    });
+
+    it('honors an arbitrary fallback shape (the dry-run tester returns an object)', async () => {
+        const shape = { injectionText: null, entryCount: 0 };
+        const result = await runBoundedRetrieval(never(), { ...OPTIONS, contextLabel: 'Lorebook', fallback: shape });
+
+        expect(result).toEqual(shape);
+    });
+
+    it('does not fire on work that finishes inside the budget', async () => {
+        const result = await runBoundedRetrieval(slow(5, 'done'), { ...OPTIONS, fallback: null });
+
+        expect(result).toBe('done');
+        expect(notifyRetrievalFailure).not.toHaveBeenCalled();
+    });
+
+    it('reports each subsystem under its own label so the notifier de-dup stays per-source', async () => {
+        await runBoundedRetrieval(never(), { contextLabel: 'Chat memory', sourceName: 'vectorized chunks', timeoutMessage: 'Chunk retrieval timed out', fallback: [] });
+        await runBoundedRetrieval(never(), { contextLabel: 'Summarizer', sourceName: 'recent event summaries', timeoutMessage: 'Summarizer injection timed out' });
+
+        expect(notifyRetrievalFailure.mock.calls.map(c => c[0])).toEqual(['Chat memory', 'Summarizer']);
+    });
+});

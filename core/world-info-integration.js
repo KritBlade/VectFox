@@ -23,9 +23,9 @@ import {
     isCollectionLockedToChat,
     isCollectionLockedToCharacter,
 } from './collection-metadata.js';
-import { LOREBOOK_PROMPT_TAG, RETRIEVAL_TIMEOUT_MS } from './constants.js';
+import { LOREBOOK_PROMPT_TAG } from './constants.js';
 import { notifyRetrievalFailure, notifyNoActiveCollections } from './model-config-notifier.js';
-import AsyncUtils from '../utils/async-utils.js';
+import { runBoundedRetrieval } from './bounded-retrieval.js';
 import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
 // the builder is intentionally not imported here because lookups can't reconstruct the
@@ -690,26 +690,21 @@ async function handleGenerationStarted(type, options, dryRun) {
             // 'continue' — user acknowledged stale content, proceed
         }
 
-        // Bound the vector query the same way as the sibling ChunkBase/EventBase
-        // pipelines (core/chat-vectorization.js) — a hung embedding provider must
-        // not freeze generation. Soft timeout: on expiry we proceed with no
-        // semantic WI injection this turn; the orphaned fetch is reaped
-        // server-side. See core/constants.js::RETRIEVAL_TIMEOUT_MS.
-        let semanticEntries;
-        try {
-            semanticEntries = await AsyncUtils.timeout(
-                getSemanticWorldInfoEntries(recentMessages, [], settings, keywordQuery, lorebookCollections),
-                RETRIEVAL_TIMEOUT_MS,
-                'Lorebook WI retrieval timed out',
-            );
-        } catch (error) {
-            // Timeout or an unexpected throw above the per-collection catches: the
-            // whole turn loses lorebook memory, so surface it rather than only
-            // logging. Same reasoning as the per-collection failure path.
-            log.error('VectFox: Lorebook WI retrieval error (non-fatal, message sends without lorebook memory):', error.message || error);
-            notifyRetrievalFailure('Lorebook', 'all vectorized lorebooks', error);
-            return;
-        }
+        // Same contract as the sibling ChunkBase/EventBase pipelines — see
+        // core/bounded-retrieval.js. Timeout or an unexpected throw above the
+        // per-collection catches means the
+        // whole turn loses lorebook memory — runBoundedRetrieval logs and toasts it
+        // and hands back the fallback, so a failure and a genuinely empty corpus
+        // stay distinguishable to the user.
+        const semanticEntries = await runBoundedRetrieval(
+            getSemanticWorldInfoEntries(recentMessages, [], settings, keywordQuery, lorebookCollections),
+            {
+                contextLabel: 'Lorebook',
+                sourceName: 'all vectorized lorebooks',
+                timeoutMessage: 'Lorebook WI retrieval timed out',
+                fallback: [],
+            },
+        );
         if (!semanticEntries.length) return;
 
         // Swap vector-snapshot text for live lorebook content; drop deleted/disabled entries.
@@ -760,20 +755,17 @@ export async function runLorebookWIDryRun({ chat, testMessage, settings }) {
     const { active: lorebookCollections } = await selectActiveLorebookCollections(settings, recentMessages);
     if (!lorebookCollections.length) return { injectionText: null, entryCount: 0, noCollections: true };
 
-    let semanticEntries;
-    try {
-        semanticEntries = await AsyncUtils.timeout(
-            getSemanticWorldInfoEntries(recentMessages, [], settings, testMessage || null, lorebookCollections),
-            RETRIEVAL_TIMEOUT_MS,
-            'Lorebook WI retrieval timed out',
-        );
-    } catch (error) {
-        log.error('VectFox: Lorebook WI dry-run retrieval error:', error.message || error);
-        // Same surfacing as the generation path — the tester exists to answer
-        // "why did I get nothing?", so a silent timeout here defeats its purpose.
-        notifyRetrievalFailure('Lorebook', 'query tester dry-run', error);
-        return { injectionText: null, entryCount: 0 };
-    }
+    // Same surfacing as the generation path — the tester exists to answer "why did
+    // I get nothing?", so a silent timeout here would defeat its whole purpose.
+    const semanticEntries = await runBoundedRetrieval(
+        getSemanticWorldInfoEntries(recentMessages, [], settings, testMessage || null, lorebookCollections),
+        {
+            contextLabel: 'Lorebook',
+            sourceName: 'query tester dry-run',
+            timeoutMessage: 'Lorebook WI retrieval timed out',
+            fallback: [],
+        },
+    );
     if (!semanticEntries.length) return { injectionText: null, entryCount: 0 };
 
     // Same live-resolution as the real injection path, so the tester shows real behavior.
