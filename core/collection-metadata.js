@@ -472,6 +472,17 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
         }
     }
 
+    // Mass-wipe refusal. An empty survivor list with metadata still stored means
+    // discovery found NOTHING — which in practice is an outage (plugin down,
+    // Qdrant unreachable), not the user having deleted every collection at once.
+    // Metadata holds the chat/character locks and triggers; deleting it here is
+    // irreversible, while a stale entry costs nothing and self-corrects on the
+    // next successful discovery. Refuse and say so.
+    if (actualCollectionIds.length === 0 && orphaned.length > 0) {
+        log.warn(`VectFox: cleanupOrphanedMeta refused — discovery returned ZERO collections while ${orphaned.length} metadata entr${orphaned.length === 1 ? 'y is' : 'ies are'} stored. This looks like a backend outage, not a real mass deletion; keeping all metadata (locks, triggers) intact.`);
+        return { removed: 0, orphanedIds: [], refused: true };
+    }
+
     for (const collectionId of orphaned) {
         delete extension_settings.vectfox.collections[collectionId];
         log.trace(`VectFox: Removed orphaned metadata for ${collectionId}`);
@@ -479,10 +490,13 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
 
     if (orphaned.length > 0) {
         saveSettingsDebounced();
-        log.lifecycle(`VectFox: Cleaned up ${orphaned.length} orphaned metadata entries`);
+        // warn, not lifecycle: this deletes locks/triggers with the collection.
+        // When a wipe is ever wrong (see the refusal above), this line is the
+        // only trace of WHAT was lost — name the entries.
+        log.warn(`VectFox: Cleaned up ${orphaned.length} orphaned metadata entries: ${orphaned.join(', ')}`);
     }
 
-    return { removed: orphaned.length, orphanedIds: orphaned };
+    return { removed: orphaned.length, orphanedIds: orphaned, refused: false };
 }
 
 // ============================================================================

@@ -727,9 +727,28 @@ async function discoverViaPlugin(settings) {
 
             // The plugin probes every standard (vectra) and qdrant collection that
             // actually exists. Anything in the registry that was NOT found = stale.
-            // Remove it unconditionally — no backend exemptions.
+            //
+            // EXCEPT: absence from the scan only means "deleted" for backends the
+            // plugin actually reached. `qdrantScanned` is false when the Qdrant
+            // health check failed — the scan then contains zero qdrant collections
+            // not because they were deleted but because the server was unreachable.
+            // Pruning them here cascaded into cleanupOrphanedMeta() deleting their
+            // metadata (chat/character locks, triggers, scope, names) on the next
+            // DB-browser refresh — a transient Qdrant hiccup permanently unlocked
+            // lorebooks (issue #11 "it stopped working out of the blue").
+            // Older plugins don't report the flag at all (undefined); treat that as
+            // not-scanned too — a lingering ghost registry entry is recoverable from
+            // the DB browser, silently wiped locks are not.
+            const qdrantVerified = data.qdrantScanned === true;
             const updatedRegistry = getCollectionRegistry();
-            const staleEntries = updatedRegistry.filter(key => !pluginKeySet.has(key));
+            const staleCandidates = updatedRegistry.filter(key => !pluginKeySet.has(key));
+            const staleEntries = qdrantVerified
+                ? staleCandidates
+                : staleCandidates.filter(key => parseRegistryKey(key).backend !== 'qdrant');
+            const preservedUnverified = staleCandidates.length - staleEntries.length;
+            if (preservedUnverified > 0) {
+                log.warn(`VectFox: Qdrant was not reachable during discovery — keeping ${preservedUnverified} qdrant registry entr${preservedUnverified === 1 ? 'y' : 'ies'} (and their locks/metadata) instead of pruning. They will re-verify on the next discovery once Qdrant is back.`);
+            }
             if (staleEntries.length > 0) {
                 log.trace(`   🗑️  Removing ${staleEntries.length} stale registry entries:`);
                 for (const staleKey of staleEntries) {
@@ -876,12 +895,17 @@ async function probeCollection(collectionId, settings) {
     try {
         const hashes = await getSavedHashes(collectionId, settings);
         if (hashes && hashes.length > 0) {
-            return { exists: true, count: hashes.length };
+            return { exists: true, count: hashes.length, unreachable: false };
         }
     } catch (error) {
-        // Collection doesn't exist or error - that's fine
+        // A probe error is NOT "collection doesn't exist" — it usually means the
+        // backend/transport was unavailable for this one request. Callers that
+        // prune on exists:false must check `unreachable` first, or a transient
+        // outage gets recorded as a permanent deletion (and cleanupOrphanedMeta
+        // then wipes the collection's locks/metadata).
+        return { exists: false, count: 0, unreachable: true };
     }
-    return { exists: false, count: 0 };
+    return { exists: false, count: 0, unreachable: false };
 }
 
 /**
@@ -913,6 +937,17 @@ async function discoverViaFallback(settings) {
         const parsed = parseRegistryKey(registryKey);
         const collectionId = parsed.collectionId;
 
+        // Fallback discovery runs precisely because the plugin is unavailable —
+        // and qdrant collections are only reachable THROUGH the plugin. Probing
+        // one here goes down the standard path, finds nothing, and would prune a
+        // perfectly healthy qdrant collection (whose locks/metadata then get
+        // wiped by cleanupOrphanedMeta). Unverifiable ≠ deleted: keep it.
+        if (parsed.backend === 'qdrant') {
+            validRegistryEntries.push(registryKey);
+            log.verbose(`VectFox: Keeping qdrant registry entry (not verifiable without the plugin): ${registryKey}`);
+            continue;
+        }
+
         const result = await probeCollection(collectionId, settings);
         if (result.exists) {
             validRegistryEntries.push(registryKey);
@@ -920,6 +955,10 @@ async function discoverViaFallback(settings) {
                 discovered.push(registryKey);
             }
             log.verbose(`VectFox: Verified registry entry: ${collectionId} (${result.count} chunks)`);
+        } else if (result.unreachable) {
+            // Transport/backend error — unknown state, NOT proof of deletion.
+            validRegistryEntries.push(registryKey);
+            log.warn(`VectFox: Could not verify registry entry ${registryKey} (probe failed) — keeping it and its metadata; will re-verify on next discovery.`);
         } else {
             // Remove stale entry
             unregisterCollection(registryKey);
