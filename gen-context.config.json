@@ -1,0 +1,55 @@
+{
+  "_comment": "SigMap config for VectFox. Tuned 2026-07-30 to fix coverage grade D (38%).",
+
+  "output": ".github/copilot-instructions.md",
+
+  "_outputs_comment": "ONLY copilot. The 'claude' adapter targets CLAUDE.md, which is hand-maintained project instructions loaded every session — SigMap must never write signatures into it. codex/gemini are unused here.",
+  "outputs": ["copilot"],
+
+  "_exclude_comment": "srcDirs stays auto-detected. 'tests' is excluded from SIGNATURE EXTRACTION only: 35 test files yielded 41 signatures total (most yield 0) while consuming 35 of 123 file slots, which is what starved real source files out of the budget. Test-coverage detection uses testDirs below and is unaffected.",
+  "exclude": [
+    "node_modules", ".git", "dist", "build", "out",
+    "__pycache__", ".next", "coverage", "target", "vendor",
+    ".context", "tests",
+    "playwright-report", "test-results", "Doc", "plans", "assets", "styles"
+  ],
+
+  "_srcDirs_comment": "Pinned because auto-detection is unstable here: excluding 'tests' caused it to pull in Migration/ (2 one-off scripts) instead, while never finding providers/. These six are the actual shipped source roots.",
+  "srcDirs": ["core", "ui", "backends", "utils", "diagnostics", "providers"],
+
+  "maxDepth": 6,
+
+  "_maxSigsPerFile_comment": "Raised from 25: collection-metadata.js, core-vector-api.js, eventbase-store.js and collection-loader.js all sat at exactly 25, i.e. capped. Net gain was modest (+8 symbols repo-wide) but it removes an arbitrary ceiling on this repo's largest modules at negligible token cost.",
+  "maxSigsPerFile": 60,
+
+  "_budget_comment": "effective = clamp(totalSigTokens x coverageTarget, 4000, modelContextLimit x maxTokensHeadroom). Was 0.80 target against a 128k assumption -> 18,333 budget vs 22,707 of content -> 48 files dropped.",
+  "autoMaxTokens": true,
+  "coverageTarget": 0.95,
+  "modelContextLimit": 200000,
+  "maxTokensHeadroom": 0.20,
+  "maxTokens": 6000,
+
+  "secretScan": true,
+  "monorepo": false,
+  "diffPriority": true,
+
+  "mcp": {
+    "autoRegister": true
+  },
+
+  "_strategy_comment": "'full' keeps one always-loaded file. Revisit 'per-module' only if the single file stops fitting the budget — it splits output per srcDir, which costs an extra lookup step per question.",
+  "strategy": "full",
+  "hotCommits": 10,
+
+  "depMap": true,
+  "todos": true,
+  "changes": true,
+  "changesCommits": 5,
+
+  "_testCoverage_comment": "Function-level tested/untested hints. Cheap and directly useful when deciding whether a change needs new tests.",
+  "testCoverage": true,
+  "testDirs": ["tests", "test", "__tests__", "spec"],
+
+  "_impactRadius_comment": "Reverse-dependency hints in file headers ('used by: ...'). Worth the tokens in a codebase where placement/import direction is a hard rule.",
+  "impactRadius": true
+}
