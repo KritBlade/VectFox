@@ -43,7 +43,7 @@
  * see VectFox/plans/review-fix.md §H-4 for the threat-model reasoning.
  * ─────────────────────────────────────────────────────────────────────────
  *
- * @version 3.3.3
+ * @version 3.3.4
  */
 
 import path from 'node:path';
@@ -53,7 +53,7 @@ import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
 
 const pluginName = 'similharity';
-const pluginVersion = '3.3.3';
+const pluginVersion = '3.3.4';
 
 // ─── ST secret_state bridge (server-side API key resolution) ─────────────────
 // The qdrant_api_key migration (2026-05-26) moved the key out of VectFox's
@@ -1241,8 +1241,11 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
             // Get query vector if not provided
             let vector = queryVector;
+            let embedMs = null;
             if (!vector && searchText) {
+                const tEmbed = Date.now();
                 vector = await getEmbeddingForSourceTimed(source, searchText, model, req.user.directories, req, { debug, label: 'chunks/query' });
+                embedMs = Date.now() - tEmbed;
             }
 
             const handler = getBackendHandler(backend);
@@ -1251,14 +1254,19 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 includeVectors,
                 filters
             });
-            if (debug) console.log(`[similharity query] chunks/query: ${backend} query took ${Date.now() - tQuery}ms, results=${results.length}`);
+            const queryMs = Date.now() - tQuery;
+            if (debug) console.log(`[similharity query] chunks/query: ${backend} query took ${queryMs}ms, results=${results.length}`);
 
             res.json({
                 success: true,
                 backend: handler.type,
                 collectionId,
                 count: results.length,
-                results
+                results,
+                // Server-side stage timings so the extension can attribute slowness to the
+                // embedding provider instead of the vector DB. embedMs is null when the
+                // caller supplied its own queryVector (no embedding happened here).
+                timings: { embedMs, queryMs },
             });
 
         } catch (error) {
@@ -1306,8 +1314,11 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
             // Generate embedding if searchText provided.
             let vector = queryVector;
+            let embedMs = null;
             if (!vector && searchText) {
+                const tEmbed = Date.now();
                 vector = await getEmbeddingForSourceTimed(source, searchText, model, req.user.directories, req, { debug, label: 'chunks/hybrid-query' });
+                embedMs = Date.now() - tEmbed;
             }
 
             const tQuery = Date.now();
@@ -1324,7 +1335,8 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 },
                 filters,
             );
-            if (debug) console.log(`[similharity query] chunks/hybrid-query: qdrant query took ${Date.now() - tQuery}ms, results=${results.length}`);
+            const queryMs = Date.now() - tQuery;
+            if (debug) console.log(`[similharity query] chunks/hybrid-query: qdrant query took ${queryMs}ms, results=${results.length}`);
 
             return res.json({
                 success: true,
@@ -1339,6 +1351,8 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                     nativeSparse: true,
                     fusionMethod: r.fusionMethod,
                 })),
+                // See chunks/query — lets the extension blame the embedding provider, not Qdrant.
+                timings: { embedMs, queryMs },
             });
         } catch (error) {
             console.error(`[${pluginName}] chunks/hybrid-query error:`, error);
@@ -1404,8 +1418,11 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
 
             // Generate dense embedding if searchText provided.
             let vector = queryVector;
+            let embedMs = null;
             if (!vector && searchText) {
+                const tEmbed = Date.now();
                 vector = await getEmbeddingForSourceTimed(source, searchText, model, req.user.directories, req, { debug, label: 'chunks/hybrid-query-rerank' });
+                embedMs = Date.now() - tEmbed;
             }
 
             const tQuery = Date.now();
@@ -1422,7 +1439,8 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                 },
                 filters,
             );
-            if (debug) console.log(`[similharity query] chunks/hybrid-query-rerank: qdrant query took ${Date.now() - tQuery}ms, results=${results.length}`);
+            const queryMs = Date.now() - tQuery;
+            if (debug) console.log(`[similharity query] chunks/hybrid-query-rerank: qdrant query took ${queryMs}ms, results=${results.length}`);
 
             return res.json({
                 success: true,
@@ -1440,6 +1458,8 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
                     rerankApplied: true,
                     fusionMethod: r.fusionMethod,
                 })),
+                // See chunks/query — lets the extension blame the embedding provider, not Qdrant.
+                timings: { embedMs, queryMs },
             });
         } catch (error) {
             console.error(`[${pluginName}] chunks/hybrid-query-rerank error:`, error);
