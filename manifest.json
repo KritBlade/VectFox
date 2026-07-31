@@ -7,7 +7,7 @@
     "js": "index.js",
     "css": "vectfox.css",
     "author": "Kritbalde",
-    "version": "3.6.2",
+    "version": "3.6.3",
     "homePage": "https://github.com/KritBlade/VectFox",
     "description": "Advanced RAG system with temporal decay, importance weighting, and intelligent chunking",
     "auto_update": true,
