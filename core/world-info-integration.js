@@ -86,7 +86,12 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
     log.verbose(`VectFox: Querying vectorized lorebooks for semantic WI activation${dualQuery ? ' (dual query)' : ''}...`);
 
     const semanticEntries = [];
-    // Lower threshold for hybrid retrieval since RRF/weighted fusion produces lower absolute scores
+    // Scores are 0-1 similarities on EVERY path: Vectra returns cosine, the
+    // Qdrant native hybrid attaches cosine via its dense-lookup gate (see
+    // backends/qdrant.js::hybridQuery — raw RRF fused scores are ≈0.016 and
+    // made this threshold drop everything), and client-side hybrid returns the
+    // 0-1 blend from hybrid-search.js. The 0.8 discount below compensates for
+    // the mild depression hybrid blending applies relative to pure cosine.
     const baseThreshold = settings.world_info_threshold || 0.3;
     const supportsNativeHybrid = settings.vector_backend === 'qdrant';
     const preferNative = settings.hybrid_native_prefer !== false;

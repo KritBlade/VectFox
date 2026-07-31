@@ -63,6 +63,45 @@ function _embedTimeoutHint(settings) {
     return `NOTE: this request embeds server-side via '${source}' before querying Qdrant. Qdrant on LAN answers in <50ms, so a timeout/504 here points to the embedding provider ('${source}'), NOT Qdrant.`;
 }
 
+/**
+ * Embed the query text ONCE via the plugin's /get-embedding route, so the vector
+ * can be reused across every Qdrant request this turn instead of letting each
+ * query route re-embed the same string server-side. The route has existed since
+ * the plugin's initial commit, so no plugin-version gate is needed.
+ *
+ * Throws on any failure — the hybrid path's single fallback owner
+ * (core/hybrid-search.js) catches and degrades to client-side fusion, exactly as
+ * it does for a failed hybrid query.
+ *
+ * @param {string} searchText - query text to embed
+ * @param {object} settings - VectFox settings (provider, model, provider params)
+ * @returns {Promise<{vector: number[], embedMs: number}>}
+ */
+async function _fetchQueryEmbedding(searchText, settings) {
+    const tStart = performance.now();
+    const response = await fetch('/api/plugins/similharity/get-embedding', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({
+            text: searchText,
+            source: settings.embedding_provider || 'transformers',
+            model: getModelFromSettings(settings),
+            ...getPluginProviderParams(settings),
+        }),
+    });
+    if (!response.ok) {
+        const errorBody = await response.text().catch(() => '(no body)');
+        const failMs = (performance.now() - tStart).toFixed(1);
+        log.warn(`[Qdrant timing] get-embedding FAILED after ${failMs}ms (HTTP ${response.status}). ${_embedTimeoutHint(settings)} Server said: ${errorBody.slice(0, 300)}`);
+        throw new Error(`[Qdrant] Query embedding failed: ${response.status} ${response.statusText} - ${errorBody.slice(0, 300)}`);
+    }
+    const data = await response.json();
+    if (!Array.isArray(data.embedding) || data.embedding.length === 0) {
+        throw new Error('[Qdrant] Query embedding failed: plugin returned no embedding vector');
+    }
+    return { vector: data.embedding, embedMs: performance.now() - tStart };
+}
+
 // NOTE: `vectfox_main` is kept verbatim for on-disk compatibility
 // with existing user Qdrant data. Do not rebrand. See plans/vectfox-rename-plan.md §1.5.
 const MULTITENANCY_COLLECTION = 'vectfox_main';
@@ -809,6 +848,13 @@ export class QdrantBackend extends VectorBackend {
     /**
      * Perform hybrid search using Qdrant's sparse + dense vector capabilities.
      *
+     * Score contract: each result's `score` is the COSINE similarity (0-1) from a
+     * parallel dense-only lookup, NOT the RRF fused score — RRF is rank-derived
+     * (top hit ≈ 1/(rrfK+1) ≈ 0.016) and carries no similarity magnitude, which
+     * silently defeated every downstream threshold (world_info_threshold,
+     * score_threshold) tuned for 0-1 similarities. Result ORDER is still the RRF
+     * fusion order; the raw fused score is kept as `fusionScore`.
+     *
      * Throws on failure — it does NOT degrade to vector-only itself. Fallback for
      * the hybrid path is owned solely by core/hybrid-search.js::hybridSearch.
      * The one exception is a vector-dimension mismatch, which returns an empty
@@ -875,9 +921,37 @@ export class QdrantBackend extends VectorBackend {
             throw new Error(`[Qdrant] Sparse query setup failed for ${collectionId}: ${error?.message || error}`, { cause: error });
         }
 
+        // Embed the query ONCE and reuse the vector for both requests below.
+        // Previously each request sent searchText and the plugin re-embedded it
+        // server-side — the dominant cost of the whole retrieval (measured
+        // 2.9s-16s via OpenRouter vs 18-23ms for the Qdrant query itself).
+        const { vector: queryVector, embedMs } = await _fetchQueryEmbedding(searchText, settings);
+        warnIfEmbeddingSlow(embedMs, settings, 'get-embedding');
+
+        const prefetchLimit = topK * 4;
+
+        // Cosine gate: RRF fused scores are rank-derived (top hit ≈ 1/(rrfK+1) =
+        // 0.0164 at k=60) — they carry NO similarity magnitude, so thresholding
+        // them is meaningless. Every consumer of this method (lorebook WI's
+        // world_info_threshold, the chunk pipeline's score_threshold) gates on a
+        // 0-1 similarity, which is what Vectra returns and what these collections
+        // measure natively (created with distance: 'Cosine'). So: a parallel
+        // dense-only lookup fetches the real cosine per hash, and the returned
+        // `score` is COSINE — RRF keeps deciding ordering and candidate
+        // membership via the hybrid query itself. A sparse-leg hit that ranks
+        // outside the dense lookup window has no cosine → scores 0 → gated: a
+        // keyword match with no semantic similarity does not clear a similarity
+        // threshold (deliberate, decided 2026-07-31).
+        const cosineLookupPromise = this.queryCollection(collectionId, searchText, prefetchLimit, settings, queryVector)
+            .catch(error => ({ __cosineLookupError: error }));
+
         const body = {
             backend: BACKEND_TYPE,
             collectionId: actualCollectionId,
+            // queryVector makes the plugin skip its server-side embed; searchText
+            // is still sent so a plugin old enough to ignore queryVector simply
+            // embeds it itself and keeps working.
+            queryVector,
             searchText: searchText,
             topK: topK,
             threshold: 0.0,
@@ -890,7 +964,7 @@ export class QdrantBackend extends VectorBackend {
                 fusionMethod,
                 rrfK,
                 eventbaseDebug: !!settings.eventbase_debug_qdrant_backend,
-                prefetchLimit: topK * 4,
+                prefetchLimit,
             },
             sparseQueryVector,
             ...getPluginProviderParams(settings),
@@ -942,15 +1016,29 @@ export class QdrantBackend extends VectorBackend {
         if (response.ok) {
             const data = await response.json();
             const totalMs = (performance.now() - tNetStart).toFixed(1);
-            log.verbose(`[Qdrant timing] total=${totalMs}ms, embed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
+            log.verbose(`[Qdrant timing] total=${totalMs}ms, clientEmbed=${embedMs.toFixed(0)}ms, serverEmbed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
+            // serverEmbed is normally null (we sent queryVector); non-null means an
+            // old plugin ignored it and embedded anyway — still worth surfacing.
             warnIfEmbeddingSlow(data.timings?.embedMs, settings, 'hybrid-query');
+
+            // Cosine gate join (see the comment at cosineLookupPromise). A lookup
+            // failure throws — the single fallback owner in hybrid-search.js
+            // degrades to client-side fusion, whose scores are already 0-1.
+            const cosineLookup = await cosineLookupPromise;
+            if (cosineLookup.__cosineLookupError) throw cosineLookup.__cosineLookupError;
+            const cosineScoreByHash = new Map(cosineLookup.metadata.map(m => [m.hash, m.score]));
 
             return {
                 hashes: data.results.map(r => r.hash),
                 metadata: data.results.map(r => ({
                     hash: r.hash,
                     text: r.text,
-                    score: r.score,
+                    // score is COSINE similarity (0-1) so every downstream
+                    // threshold means "how similar", same as Vectra. Array order
+                    // stays the RRF fusion order; the raw fused score is kept as
+                    // fusionScore for debugging.
+                    score: cosineScoreByHash.get(r.hash) ?? 0,
+                    fusionScore: r.score,
                     vectorScore: r.vectorScore,
                     textScore: r.textScore,
                     fusionMethod: r.fusionMethod || 'rrf',

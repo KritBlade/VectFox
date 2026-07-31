@@ -204,6 +204,28 @@ let fetchLog = [];
 let hybridQueryResponder;
 /** Per-test override for the vector-only paths (Vectra, and Qdrant's fallback). */
 let plainQueryResponder;
+/**
+ * Per-test override for the dense cosine-gate lookup QdrantBackend.hybridQuery
+ * fires alongside every native hybrid query (distinguished from the plain paths
+ * by the precomputed queryVector in its body). Result `score`s here are the
+ * cosine similarities the WI threshold actually gates on.
+ */
+let denseCosineResponder;
+
+/** What the /get-embedding fixture returns — both queries must reuse this vector. */
+const QUERY_EMBEDDING_FIXTURE = [0.1, 0.2, 0.3];
+
+/**
+ * Default cosine per fixture hash. Chosen so every pre-existing assertion holds:
+ * entries[0].score for perEntryChunk stays 0.83, and the dedup test's expected
+ * order [222222, 333333] survives the sort-by-score (cosine) in
+ * getSemanticWorldInfoEntries.
+ */
+const DENSE_COSINE_FIXTURES = [
+    { hash: 111111, score: 0.83 },
+    { hash: 222222, score: 0.61 },
+    { hash: 333333, score: 0.44 },
+];
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {
     return {
@@ -233,8 +255,16 @@ function installFetchRouter() {
         }
 
         // --- retrieval ---------------------------------------------------------
+        if (url === '/api/plugins/similharity/get-embedding') {
+            return jsonResponse({ success: true, embedding: QUERY_EMBEDDING_FIXTURE });
+        }
         if (url === '/api/plugins/similharity/chunks/hybrid-query') {
             return hybridQueryResponder(body);
+        }
+        // The cosine-gate lookup always carries the precomputed queryVector; the
+        // plain/fallback paths never do (they send searchText for a server embed).
+        if (url === '/api/plugins/similharity/chunks/query' && body?.queryVector) {
+            return denseCosineResponder(body);
         }
         if (url === '/api/plugins/similharity/chunks/query' || url === '/api/vector/query') {
             return plainQueryResponder(body);
@@ -255,6 +285,7 @@ beforeEach(async () => {
     fetchLog = [];
     hybridQueryResponder = () => jsonResponse({ success: true, results: [] });
     plainQueryResponder = () => jsonResponse({ success: true, results: [] });
+    denseCosineResponder = () => jsonResponse({ success: true, results: DENSE_COSINE_FIXTURES });
     installFetchRouter();
 
     global.toastr = { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() };
@@ -372,17 +403,30 @@ describe('Chunked lorebooks (issue #11 configuration)', () => {
 });
 
 describe('world_info_threshold across backend score scales', () => {
-    // Qdrant returns rank-based RRF fusion scores, not similarities: the top hit
-    // lands near 0.5-1.0 regardless of how relevant it is, and rank 4+ in a single
-    // leg falls under 0.2. Vectra returns similarity-derived scores. The same
-    // threshold (0.3 x 0.8 = 0.24 when hybrid is active) is applied to both.
-    it('keeps hits at or above the discounted threshold and drops the ones below', async () => {
+    // Qdrant's native hybrid returns RRF FUSED scores, which are rank-derived:
+    // the top hit is ≈ 1/(rrfK+1) = 0.0164 at k=60, dual-leg tops out at ≈0.033.
+    // They carry no similarity magnitude, so world_info_threshold (default 0.3,
+    // designed for 0-1 cosine) gated out EVERYTHING — issue #11's "needs a
+    // really low trigger score (0.0x)". The fix: QdrantBackend.hybridQuery runs
+    // a parallel dense-only lookup and reports COSINE as each result's score,
+    // keeping RRF only for ordering. These tests pin that the threshold gates
+    // on the cosine, using real RRF magnitudes — the previous version of this
+    // block fed invented 0.5-scale "RRF" scores and pinned the bug as correct.
+    it('gates on the dense-lookup cosine, not the raw RRF fused score', async () => {
         hybridQueryResponder = () => jsonResponse({
             success: true,
             results: [
-                chunkedChunk({ hash: 1, score: 0.50 }),  // rank 0, one leg  -> keep
-                chunkedChunk({ hash: 2, score: 0.25 }),  // rank 2, one leg  -> keep
-                chunkedChunk({ hash: 3, score: 0.20 }),  // rank 3, one leg  -> drop
+                chunkedChunk({ hash: 1, score: 0.0164 }),  // RRF rank 1
+                chunkedChunk({ hash: 2, score: 0.0161 }),  // RRF rank 2
+                chunkedChunk({ hash: 3, score: 0.0159 }),  // RRF rank 3
+            ],
+        });
+        denseCosineResponder = () => jsonResponse({
+            success: true,
+            results: [
+                { hash: 1, score: 0.72 },  // strong semantic match  -> keep
+                { hash: 2, score: 0.26 },  // clears 0.3 x 0.8 = 0.24 -> keep
+                { hash: 3, score: 0.18 },  // weak                    -> drop
             ],
         });
 
@@ -391,13 +435,21 @@ describe('world_info_threshold across backend score scales', () => {
         );
 
         expect(entries.map(e => e.uid)).toEqual([1, 2]);
+        // Every raw RRF score is far below the 0.24 gate — if the threshold saw
+        // them, this list would be empty (the shipped bug).
+        expect(entries[0].score).toBeCloseTo(0.72, 5);
+        expect(entries[0].metadata.fusionScore).toBeCloseTo(0.0164, 5);
     });
 
-    it('applies the 0.8 hybrid discount on Qdrant', async () => {
+    it('applies the 0.8 hybrid discount to the cosine', async () => {
         // 0.26 clears 0.3 x 0.8 = 0.24 but would fail an undiscounted 0.3.
         hybridQueryResponder = () => jsonResponse({
             success: true,
-            results: [chunkedChunk({ hash: 9, score: 0.26 })],
+            results: [chunkedChunk({ hash: 9, score: 0.0164 })],
+        });
+        denseCosineResponder = () => jsonResponse({
+            success: true,
+            results: [{ hash: 9, score: 0.26 }],
         });
 
         const entries = await getSemanticWorldInfoEntries(
@@ -405,6 +457,41 @@ describe('world_info_threshold across backend score scales', () => {
         );
 
         expect(entries).toHaveLength(1);
+    });
+
+    it('drops a sparse-only hit absent from the dense lookup — keyword match with no semantic similarity', async () => {
+        // Deliberate semantics (decided 2026-07-31): a hit surfaced only by the
+        // sparse (keyword) leg has no cosine in the dense window, scores 0, and
+        // does not clear a similarity threshold.
+        hybridQueryResponder = () => jsonResponse({
+            success: true,
+            results: [chunkedChunk({ hash: 777, score: 0.0164 })],
+        });
+        denseCosineResponder = () => jsonResponse({ success: true, results: [] });
+
+        const entries = await getSemanticWorldInfoEntries(
+            RECENT_MESSAGES, [], baseSettings(), null, [LOREBOOK_COLLECTION],
+        );
+
+        expect(entries).toEqual([]);
+    });
+
+    it('embeds ONCE and reuses the vector for both the hybrid query and the cosine lookup', async () => {
+        hybridQueryResponder = () => jsonResponse({ success: true, results: [perEntryChunk()] });
+
+        await getSemanticWorldInfoEntries(RECENT_MESSAGES, [], baseSettings(), null, [LOREBOOK_COLLECTION]);
+
+        const embeds = fetchLog.filter(e => e.url === '/api/plugins/similharity/get-embedding');
+        expect(embeds).toHaveLength(1);
+
+        const hybrid = fetchLog.find(e => e.url === '/api/plugins/similharity/chunks/hybrid-query');
+        expect(hybrid.body.queryVector).toEqual(QUERY_EMBEDDING_FIXTURE);
+        // searchText still rides along so an old plugin that ignores queryVector
+        // embeds it itself and keeps working.
+        expect(hybrid.body.searchText).toBeTruthy();
+
+        const dense = fetchLog.find(e => e.url === '/api/plugins/similharity/chunks/query' && e.body?.queryVector);
+        expect(dense.body.queryVector).toEqual(QUERY_EMBEDDING_FIXTURE);
     });
 });
 
@@ -736,11 +823,14 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
         expect(global.toastr.info).not.toHaveBeenCalled();
     });
 
-    it('issues exactly two HTTP calls per query text on failure, not three', async () => {
+    it('issues one fallback retrieval on failure — the redundant vector-only retry stays dead', async () => {
         // Regression guard for the collapsed fallback: QdrantBackend.hybridQuery no
         // longer retries vector-only on its own, so the only degradation is
-        // hybrid-search.js's client-side path. Single query text (no keywordQuery)
-        // keeps the arithmetic unambiguous.
+        // hybrid-search.js's client-side path. The cosine-gate lookup (the
+        // queryVector-carrying /chunks/query fired in parallel with every native
+        // hybrid) is a deliberate part of the happy path, NOT a retry — so the
+        // failure sequence is: cosine lookup + hybrid + ONE fallback. Single query
+        // text (no keywordQuery) keeps the arithmetic unambiguous.
         hybridQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
         plainQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
 
@@ -748,10 +838,17 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
             ['a single line of context'], [], baseSettings(), null, [LOREBOOK_COLLECTION],
         );
 
-        expect(queryCalls()).toEqual([
-            '/api/plugins/similharity/chunks/hybrid-query',
-            '/api/plugins/similharity/chunks/query',
+        const retrievals = fetchLog.filter(e => /chunks\/hybrid-query$|chunks\/query$|api\/vector\/query$/.test(e.url));
+        expect(retrievals.map(e => e.url)).toEqual([
+            '/api/plugins/similharity/chunks/query',        // cosine-gate lookup (parallel with hybrid)
+            '/api/plugins/similharity/chunks/hybrid-query', // native hybrid — fails
+            '/api/plugins/similharity/chunks/query',        // hybrid-search.js client-side fallback
         ]);
+        // The cosine lookup carries the precomputed vector; the fallback re-sends
+        // text for a server-side embed. One vector-less retrieval total = the old
+        // internal retry has not crept back.
+        expect(retrievals[0].body.queryVector).toBeTruthy();
+        expect(retrievals[2].body.queryVector).toBeFalsy();
     });
 
     it('shows the retrieval popup when hits do come back', async () => {
