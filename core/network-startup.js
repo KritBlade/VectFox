@@ -43,6 +43,7 @@ import {
     discoverExistingCollections,
     pruneOrphanedEventBaseChatMaps,
     checkPluginAvailable,
+    getDetectedPluginVersion,
 } from './collection-loader.js';
 import AsyncUtils from '../utils/async-utils.js';
 import { log } from './log.js';
@@ -71,27 +72,51 @@ function isSimilharityVersionBehind(version, minimum) {
     return false; // equal → up to date
 }
 
+/** Shared tail for both outdated-plugin messages — how the user actually fixes it. */
+const PLUGIN_UPDATE_INSTRUCTIONS = 'Restart SillyTavern so it can auto-update the server plugin. '
+    + 'If that does not help, the plugin was installed from a ZIP and cannot auto-update: delete '
+    + 'SillyTavern/plugins/similharity and reinstall it with git clone (see the VectFox README).';
+
 /**
  * Warn (toast + console) when the installed Similharity plugin is below the floor.
  * Silent no-op when no plugin is installed — that is a supported setup, not an error.
+ *
+ * The version comes from the /health probe checkPluginAvailable() already made,
+ * NOT from /api/plugins/similharity/version. That route only exists as of plugin
+ * 2026-05-14, so older plugins 404'd it and this function returned silently on
+ * `!response.ok` — going quiet in precisely the case it was written to catch.
+ * GitHub issue #11 burned hours diagnosing a pre-2026-05-09 plugin whose server
+ * console was emitting log lines from long-deleted code, with nothing anywhere
+ * reporting the version. /health has carried `version` since the plugin's first
+ * commit, so reading it there covers every build ever shipped — and costs no
+ * extra request.
  */
-async function checkSimilharityVersion() {
+export async function checkSimilharityVersion() {
     try {
-        // Skip entirely when no plugin is installed. Avoids a needless /version
-        // request that the browser would log as a red 404. Uses the session-cached
-        // /health probe.
+        // No plugin installed is a supported setup, not something to warn about.
         if (!(await checkPluginAvailable())) return;
 
-        const response = await fetch('/api/plugins/similharity/version');
-        if (!response.ok) return;
+        const installedVersion = getDetectedPluginVersion();
 
-        const { pluginVersion } = await response.json();
-        if (isSimilharityVersionBehind(pluginVersion, SIMILHARITY_MIN_VERSION)) {
-            log.warn(`[VectFox] similharity plugin outdated: need v${SIMILHARITY_MIN_VERSION}+, got v${pluginVersion}. Restart SillyTavern to let it auto-update the server plugin.`);
+        // Plugin answered /health but reported no version. Not expected from any
+        // released build, so say something rather than assume it is fine — silence
+        // here is the exact failure this function was rewritten to remove.
+        if (!installedVersion) {
+            log.warn(`[VectFox] similharity plugin responded without a version field — cannot verify it meets the v${SIMILHARITY_MIN_VERSION}+ floor. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
             toastr.warning(
-                `similharity plugin is outdated (need v${SIMILHARITY_MIN_VERSION}+, got v${pluginVersion}). Please restart SillyTavern so it can auto-update the server plugin.`,
+                `Could not determine your similharity plugin version, so VectFox cannot confirm it is current. ${PLUGIN_UPDATE_INSTRUCTIONS}`,
+                'VectFox — plugin version unknown',
+                { timeOut: 15000 },
+            );
+            return;
+        }
+
+        if (isSimilharityVersionBehind(installedVersion, SIMILHARITY_MIN_VERSION)) {
+            log.warn(`[VectFox] similharity plugin outdated: need v${SIMILHARITY_MIN_VERSION}+, got v${installedVersion}. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+            toastr.warning(
+                `similharity plugin is outdated (need v${SIMILHARITY_MIN_VERSION}+, got v${installedVersion}). ${PLUGIN_UPDATE_INSTRUCTIONS}`,
                 'VectFox',
-                { timeOut: 10000 }
+                { timeOut: 15000 },
             );
         }
     } catch (_error) {

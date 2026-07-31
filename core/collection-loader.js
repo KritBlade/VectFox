@@ -47,6 +47,12 @@ import {
 // "Plugin detected" log lines and N redundant fetches at startup).
 let pluginAvailable = null;
 let pluginProbeInFlight = null;
+// Version string reported by the SAME /health probe. Kept because /health has
+// returned `version` since the plugin's initial commit (2025-11-21), while the
+// dedicated /version route only arrived 2026-05-14 — so this is the only source
+// that can identify a plugin old enough to be worth warning about. Null means
+// "no plugin, or it answered /health without a version field".
+let pluginVersion = null;
 
 /**
  * Detect collection IDs that VECTFOX should NOT register or query.
@@ -537,11 +543,10 @@ function getCollectionDisplayName(collectionId, metadata) {
  * Checks if the Similharity plugin is available.
  * This is the canonical implementation — shared with ui/database-browser.js via export.
  *
- * !! SYNC WARNING !!
- * backends/standard.js has an INDEPENDENT copy of this check (this.pluginAvailable
- * set in initialize()) because it cannot import from here without a circular
- * dependency. If you change the health endpoint, response parsing, or caching
- * logic here, you MUST make the same change in StandardBackend.initialize().
+ * Single source of truth. backends/standard.js used to keep an independent copy
+ * (it cannot import this module statically without a circular dependency) but now
+ * reaches it via dynamic import in initialize(), so there is no second copy to
+ * keep in sync — one /health request serves every consumer.
  *
  * @returns {Promise<boolean>} True if plugin is available
  */
@@ -564,7 +569,11 @@ export async function checkPluginAvailable() {
             if (response.ok) {
                 const data = await response.json();
                 pluginAvailable = data.status === 'ok';
-                log.lifecycle(`VectFox: Plugin ${pluginAvailable ? 'detected' : 'not found'} (v${data.version || 'unknown'})`);
+                // Keep the version: it is the ONLY reliable way to spot a plugin
+                // too old to have the /version route (added 2026-05-14). See
+                // getDetectedPluginVersion().
+                pluginVersion = typeof data.version === 'string' && data.version ? data.version : null;
+                log.lifecycle(`VectFox: Plugin ${pluginAvailable ? 'detected' : 'not found'} (v${pluginVersion || 'unknown'})`);
             } else {
                 pluginAvailable = false;
             }
@@ -588,9 +597,29 @@ export async function checkPluginAvailable() {
  */
 export function resetPluginAvailableCache() {
     pluginAvailable = null;
+    pluginVersion = null;
     // Drop the in-flight join point too, so a probe started before the reset can't
     // hand its now-stale result to a caller that asked for a fresh detection.
     pluginProbeInFlight = null;
+}
+
+/**
+ * Version string the plugin reported on its LAST /health probe, or null when no
+ * plugin is installed / it answered without a version field.
+ *
+ * Read this instead of requesting /api/plugins/similharity/version: /health has
+ * carried `version` since the plugin's initial commit (2025-11-21), whereas the
+ * /version route only landed 2026-05-14. A plugin predating that route 404s on
+ * it — and a plugin that old is exactly the one worth warning about, so sourcing
+ * the check from /version made it blind in the single case it existed for.
+ *
+ * Only meaningful after checkPluginAvailable() has settled; callers gate on that
+ * first anyway, since a version is uninteresting when there is no plugin.
+ *
+ * @returns {string|null}
+ */
+export function getDetectedPluginVersion() {
+    return pluginVersion;
 }
 
 // Cache for plugin collection data
