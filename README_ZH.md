@@ -535,11 +535,46 @@ enableServerPlugins: true
 
 ## 🔄 自動更新
 
-VectFox 的 manifest 中設定了 `auto_update: true`。如果你是透過 `git clone` 安裝，SillyTavern 會自動檢查並套用更新！
+VectFox 由**兩個各自獨立更新的部分**組成：擴充功能（本儲存庫）與 Similharity 伺服器插件（上方步驟 2）。更新其中一邊並不會連帶更新另一邊；舊版插件搭配新版擴充功能是我們沒有測試過的組合，會造成難以追查的異常。請務必讓兩邊都保持最新。
+
+### 擴充功能
+
+VectFox 的 manifest 中設定了 `auto_update: true`。如果你是透過 `git clone` 安裝，SillyTavern 會自動檢查並套用更新。
 
 請留意 Extensions 面板中的更新通知，或使用「Check for Updates」按鈕手動檢查。
 
-Qdrant 後端需要將 enableServerPlugin 設為 true。
+### Similharity 插件
+
+**如果你是透過 `git clone` 安裝插件（上方步驟 2）**，每次重啟 SillyTavern 時它都會自動更新——SillyTavern 啟動時會對每個屬於 git 儲存庫的插件資料夾執行 `git pull`。此功能預設為開啟。
+
+確認是否正常運作：
+
+1. 確認 `SillyTavern/plugins/similharity/` 裡面存在 `.git` 資料夾。
+2. 啟動時，在 SillyTavern 的**伺服器主控台**（終端機，不是瀏覽器 F12）中找到這一行：
+
+   ```
+   Auto-updating server plugins...
+   ```
+
+3. 確認實際執行的版本——在瀏覽器開啟 `/api/plugins/similharity/version`，或在啟動訊息中尋找這一行：
+
+   ```
+   [similharity] Initializing v3.3.4...
+   ```
+
+**如果你是下載 ZIP 安裝插件**，因為沒有 `.git` 資料夾可供 SillyTavern 拉取，自動更新將**無法運作**。這是插件在你不知情的情況下停留在舊版本最常見的原因。修正方式：
+
+1. 刪除 `SillyTavern/plugins/similharity` 資料夾。
+2. 依照上方步驟 2 以 `git clone` 重新安裝。
+3. 你的設定與已向量化的資料存放在別處，不會受到影響。
+
+若要關閉插件的自動更新，請在 `config.yaml` 中加入：
+
+```yaml
+enableServerPluginsAutoUpdate: false
+```
+
+另外請注意，使用 Qdrant 後端時仍需要設定 `enableServerPlugins: true`。
 
 ---
 

@@ -559,11 +559,46 @@ Restart SillyTavern.
 
 ## 🔄 Auto-Updates
 
-VectFox has `auto_update: true` in its manifest. If you installed via `git clone`, SillyTavern will automatically check for and apply updates!
+VectFox has **two halves that update separately**: the extension (this repo) and the Similharity server plugin (Step 2 above). Updating one does not update the other, and a stale plugin against a current extension is a combination we do not test — it produces confusing, hard-to-diagnose failures. Keep both current.
+
+### The extension
+
+VectFox has `auto_update: true` in its manifest. If you installed via `git clone`, SillyTavern will automatically check for and apply updates.
 
 Look for the update notification in the Extensions panel, or manually check with the "Check for Updates" button.
 
-Setting enableServerPlugin to true is required for Qdrant backend.
+### The Similharity plugin
+
+**If you installed the plugin via `git clone` (Step 2 above)**, it updates automatically every time you restart SillyTavern — SillyTavern runs `git pull` on every plugin folder that is a git repository at startup. This is enabled by default.
+
+To verify it is working:
+
+1. Check that a `.git` folder exists inside `SillyTavern/plugins/similharity/`.
+2. On startup, look for this in the SillyTavern **server console** (the terminal, not browser F12):
+
+   ```
+   Auto-updating server plugins...
+   ```
+
+3. Confirm the running version — visit `/api/plugins/similharity/version` in your browser, or look for this line on startup:
+
+   ```
+   [similharity] Initializing v3.3.4...
+   ```
+
+**If you downloaded the plugin as a ZIP**, auto-updates will **not** work — there is no `.git` folder for SillyTavern to pull. This is the most common cause of a silently outdated plugin. To fix:
+
+1. Delete the `SillyTavern/plugins/similharity` folder.
+2. Reinstall via `git clone` — see Step 2 above.
+3. Your settings and vectorized data live elsewhere and are not affected.
+
+To disable plugin auto-updates, add to `config.yaml`:
+
+```yaml
+enableServerPluginsAutoUpdate: false
+```
+
+Note that `enableServerPlugins: true` is required for the Qdrant backend regardless.
 
 ---
 

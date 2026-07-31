@@ -534,11 +534,46 @@ SillyTavern 재시작.
 
 ## 🔄 자동 업데이트
 
-VectFox는 manifest에 `auto_update: true`가 있습니다. `git clone`을 통해 설치했다면 SillyTavern이 자동으로 업데이트를 확인하고 적용합니다!
+VectFox는 **각각 따로 업데이트되는 두 부분**으로 이루어져 있습니다: 확장 프로그램(이 저장소)과 Similharity 서버 플러그인(위 단계 2)입니다. 한쪽을 업데이트해도 다른 쪽은 업데이트되지 않습니다. 오래된 플러그인과 최신 확장 프로그램의 조합은 테스트하지 않은 구성이며, 원인을 찾기 어려운 오류를 일으킵니다. 반드시 둘 다 최신 상태로 유지하세요.
+
+### 확장 프로그램
+
+VectFox는 manifest에 `auto_update: true`가 있습니다. `git clone`을 통해 설치했다면 SillyTavern이 자동으로 업데이트를 확인하고 적용합니다.
 
 Extensions 패널의 업데이트 알림을 찾거나 "Check for Updates" 버튼으로 수동 확인하세요.
 
-Qdrant 백엔드에는 enableServerPlugin을 true로 설정해야 합니다.
+### Similharity 플러그인
+
+**`git clone`으로 플러그인을 설치했다면(위 단계 2)**, SillyTavern을 재시작할 때마다 자동으로 업데이트됩니다. SillyTavern은 시작 시 git 저장소인 모든 플러그인 폴더에 대해 `git pull`을 실행합니다. 기본적으로 켜져 있습니다.
+
+정상 작동 확인 방법:
+
+1. `SillyTavern/plugins/similharity/` 안에 `.git` 폴더가 있는지 확인합니다.
+2. 시작 시 SillyTavern **서버 콘솔**(브라우저 F12가 아니라 터미널)에 다음 줄이 나오는지 확인합니다:
+
+   ```
+   Auto-updating server plugins...
+   ```
+
+3. 실행 중인 버전을 확인합니다 — 브라우저에서 `/api/plugins/similharity/version`을 열거나, 시작 시 다음 줄을 찾습니다:
+
+   ```
+   [similharity] Initializing v3.3.4...
+   ```
+
+**플러그인을 ZIP으로 내려받았다면** `.git` 폴더가 없어 SillyTavern이 pull할 수 없으므로 자동 업데이트가 **작동하지 않습니다**. 플러그인이 모르는 사이에 오래된 상태로 남는 가장 흔한 원인입니다. 해결 방법:
+
+1. `SillyTavern/plugins/similharity` 폴더를 삭제합니다.
+2. `git clone`으로 다시 설치합니다 — 위 단계 2를 참고하세요.
+3. 설정과 벡터화된 데이터는 다른 곳에 저장되므로 영향을 받지 않습니다.
+
+플러그인 자동 업데이트를 끄려면 `config.yaml`에 다음을 추가합니다:
+
+```yaml
+enableServerPluginsAutoUpdate: false
+```
+
+참고로 Qdrant 백엔드를 사용하려면 이와 별개로 `enableServerPlugins: true`가 필요합니다.
 
 ---
 

@@ -530,11 +530,46 @@ SillyTavern を再起動します。
 
 ## 🔄 自動更新
 
-VectFox の manifest には `auto_update: true` が設定されています。`git clone` でインストールした場合、SillyTavern が自動で更新を確認し、適用します！
+VectFox は**別々に更新される 2 つの半分**で構成されています：拡張機能（このリポジトリ）と Similharity サーバープラグイン（上記のステップ 2）です。片方を更新しても、もう片方は更新されません。古いプラグインと最新の拡張機能の組み合わせは動作確認をしていないため、原因の分かりにくい不具合を引き起こします。必ず両方を最新に保ってください。
+
+### 拡張機能
+
+VectFox の manifest には `auto_update: true` が設定されています。`git clone` でインストールした場合、SillyTavern が自動で更新を確認し、適用します。
 
 Extensions パネルの更新通知を確認するか、「Check for Updates」ボタンで手動チェックしてください。
 
-Qdrant バックエンドでは、enableServerPlugin を true に設定する必要があります。
+### Similharity プラグイン
+
+**`git clone` でプラグインをインストールした場合（上記のステップ 2）**、SillyTavern を再起動するたびに自動更新されます。SillyTavern は起動時に、git リポジトリであるすべてのプラグインフォルダーに対して `git pull` を実行します。これはデフォルトで有効です。
+
+動作確認の方法：
+
+1. `SillyTavern/plugins/similharity/` の中に `.git` フォルダーが存在することを確認します。
+2. 起動時に、SillyTavern の**サーバーコンソール**（ブラウザの F12 ではなく、ターミナル）に次の行が出ることを確認します：
+
+   ```
+   Auto-updating server plugins...
+   ```
+
+3. 実行中のバージョンを確認します — ブラウザで `/api/plugins/similharity/version` を開くか、起動時の次の行を探します：
+
+   ```
+   [similharity] Initializing v3.3.4...
+   ```
+
+**プラグインを ZIP でダウンロードした場合**、`.git` フォルダーが無いため SillyTavern が pull できず、自動更新は**動作しません**。プラグインが知らないうちに古いままになる最も多い原因です。対処方法：
+
+1. `SillyTavern/plugins/similharity` フォルダーを削除します。
+2. `git clone` で再インストールします — 上記のステップ 2 を参照してください。
+3. 設定とベクトル化済みデータは別の場所に保存されているため、影響を受けません。
+
+プラグインの自動更新を無効にするには、`config.yaml` に次を追加します：
+
+```yaml
+enableServerPluginsAutoUpdate: false
+```
+
+なお、Qdrant バックエンドを使う場合は、これとは別に `enableServerPlugins: true` が必要です。
 
 ---
 
