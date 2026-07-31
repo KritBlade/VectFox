@@ -512,6 +512,9 @@ npm install
 ```yaml
 enableServerPlugins: true
 ```
+
+> 📌 **위의 `git clone`으로 설치하는 것이 플러그인이 계속 자동 업데이트되는 조건입니다.** ZIP으로 내려받으면 자동 업데이트가 불가능하며, 모르는 사이에 오래된 플러그인을 쓰는 것이 원인 파악이 어려운 버그의 가장 흔한 원인입니다. 정상 작동 확인 방법은 [🔄 자동 업데이트](#-자동-업데이트)를 참고하세요.
+
 SillyTavern 재시작.
 
 ### 단계 3: VectFox 설정
@@ -546,34 +549,13 @@ Extensions 패널의 업데이트 알림을 찾거나 "Check for Updates" 버튼
 
 **`git clone`으로 플러그인을 설치했다면(위 단계 2)**, SillyTavern을 재시작할 때마다 자동으로 업데이트됩니다. SillyTavern은 시작 시 git 저장소인 모든 플러그인 폴더에 대해 `git pull`을 실행합니다. 기본적으로 켜져 있습니다.
 
-정상 작동 확인 방법:
-
-1. `SillyTavern/plugins/similharity/` 안에 `.git` 폴더가 있는지 확인합니다.
-2. 시작 시 SillyTavern **서버 콘솔**(브라우저 F12가 아니라 터미널)에 다음 줄이 나오는지 확인합니다:
-
-   ```
-   Auto-updating server plugins...
-   ```
-
-3. 실행 중인 버전을 확인합니다 — 브라우저에서 `/api/plugins/similharity/version`을 열거나, 시작 시 다음 줄을 찾습니다:
-
-   ```
-   [similharity] Initializing v3.3.4...
-   ```
-
 **플러그인을 ZIP으로 내려받았다면** `.git` 폴더가 없어 SillyTavern이 pull할 수 없으므로 자동 업데이트가 **작동하지 않습니다**. 플러그인이 모르는 사이에 오래된 상태로 남는 가장 흔한 원인입니다. 해결 방법:
 
 1. `SillyTavern/plugins/similharity` 폴더를 삭제합니다.
 2. `git clone`으로 다시 설치합니다 — 위 단계 2를 참고하세요.
 3. 설정과 벡터화된 데이터는 다른 곳에 저장되므로 영향을 받지 않습니다.
 
-플러그인 자동 업데이트를 끄려면 `config.yaml`에 다음을 추가합니다:
-
-```yaml
-enableServerPluginsAutoUpdate: false
-```
-
-참고로 Qdrant 백엔드를 사용하려면 이와 별개로 `enableServerPlugins: true`가 필요합니다.
+> ⚠️ **서버 플러그인 관련 두 설정은 모두 켜 두세요.** `enableServerPlugins: true`는 Qdrant 백엔드에 필수이며, Standard 백엔드에서 플러그인을 사용하는 기능에도 필요합니다. `enableServerPluginsAutoUpdate`는 이와 별개의 설정으로 기본값이 `true`입니다 — 그대로 두세요. 이 값을 끄면 익스텐션만 계속 업데이트되는 동안 플러그인은 설치 당시 버전에 고정되며, 오래됐다는 사실을 아무것도 알려주지 않습니다. 나중에 받지 못한 플러그인 업데이트 때문에 문제가 생기고 나서야 알게 되는데, 그 시점에는 진짜 원인을 추적하기가 매우 어렵습니다.
 
 ---
 

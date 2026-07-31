@@ -535,6 +535,8 @@ Search the following key in `config.yaml` and change to true:  (Windows will be 
 enableServerPlugins: true
 ```
 
+> 📌 **Installing with `git clone` above is what keeps the plugin updating itself.** A ZIP download cannot auto-update, and a silently outdated plugin is the single most common cause of hard-to-diagnose bugs. See [🔄 Auto-Updates](#-auto-updates) to verify it is working.
+
 Restart SillyTavern.
 
 ### Step 3: Configure VectFox
@@ -571,34 +573,13 @@ Look for the update notification in the Extensions panel, or manually check with
 
 **If you installed the plugin via `git clone` (Step 2 above)**, it updates automatically every time you restart SillyTavern — SillyTavern runs `git pull` on every plugin folder that is a git repository at startup. This is enabled by default.
 
-To verify it is working:
-
-1. Check that a `.git` folder exists inside `SillyTavern/plugins/similharity/`.
-2. On startup, look for this in the SillyTavern **server console** (the terminal, not browser F12):
-
-   ```
-   Auto-updating server plugins...
-   ```
-
-3. Confirm the running version — visit `/api/plugins/similharity/version` in your browser, or look for this line on startup:
-
-   ```
-   [similharity] Initializing v3.3.4...
-   ```
-
 **If you downloaded the plugin as a ZIP**, auto-updates will **not** work — there is no `.git` folder for SillyTavern to pull. This is the most common cause of a silently outdated plugin. To fix:
 
 1. Delete the `SillyTavern/plugins/similharity` folder.
 2. Reinstall via `git clone` — see Step 2 above.
 3. Your settings and vectorized data live elsewhere and are not affected.
 
-To disable plugin auto-updates, add to `config.yaml`:
-
-```yaml
-enableServerPluginsAutoUpdate: false
-```
-
-Note that `enableServerPlugins: true` is required for the Qdrant backend regardless.
+> ⚠️ **Leave both server-plugin settings on.** `enableServerPlugins: true` is required for the Qdrant backend, and for any plugin-backed feature on the Standard backend. `enableServerPluginsAutoUpdate` is a separate setting that defaults to `true` — leave it that way. If you turn it off, the plugin stays frozen at whatever version you installed while the extension keeps updating, and nothing tells you it has gone stale. You will only find out later, when a plugin update you never received causes a failure that is very hard to trace back to its real cause.
 
 ---
 

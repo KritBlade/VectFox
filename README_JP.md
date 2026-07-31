@@ -508,6 +508,9 @@ npm install
 ```yaml
 enableServerPlugins: true
 ```
+
+> 📌 **上記の `git clone` でインストールすることが、プラグインが自動更新され続ける条件です。** ZIP でダウンロードした場合は自動更新できず、気づかないまま古いプラグインを使い続けることが、原因を特定しにくい不具合の最も多い発生源です。正しく動作しているかの確認方法は [🔄 自動更新](#-自動更新) を参照してください。
+
 SillyTavern を再起動します。
 
 ### ステップ 3：VectFox を設定する
@@ -542,34 +545,13 @@ Extensions パネルの更新通知を確認するか、「Check for Updates」�
 
 **`git clone` でプラグインをインストールした場合（上記のステップ 2）**、SillyTavern を再起動するたびに自動更新されます。SillyTavern は起動時に、git リポジトリであるすべてのプラグインフォルダーに対して `git pull` を実行します。これはデフォルトで有効です。
 
-動作確認の方法：
-
-1. `SillyTavern/plugins/similharity/` の中に `.git` フォルダーが存在することを確認します。
-2. 起動時に、SillyTavern の**サーバーコンソール**（ブラウザの F12 ではなく、ターミナル）に次の行が出ることを確認します：
-
-   ```
-   Auto-updating server plugins...
-   ```
-
-3. 実行中のバージョンを確認します — ブラウザで `/api/plugins/similharity/version` を開くか、起動時の次の行を探します：
-
-   ```
-   [similharity] Initializing v3.3.4...
-   ```
-
 **プラグインを ZIP でダウンロードした場合**、`.git` フォルダーが無いため SillyTavern が pull できず、自動更新は**動作しません**。プラグインが知らないうちに古いままになる最も多い原因です。対処方法：
 
 1. `SillyTavern/plugins/similharity` フォルダーを削除します。
 2. `git clone` で再インストールします — 上記のステップ 2 を参照してください。
 3. 設定とベクトル化済みデータは別の場所に保存されているため、影響を受けません。
 
-プラグインの自動更新を無効にするには、`config.yaml` に次を追加します：
-
-```yaml
-enableServerPluginsAutoUpdate: false
-```
-
-なお、Qdrant バックエンドを使う場合は、これとは別に `enableServerPlugins: true` が必要です。
+> ⚠️ **サーバープラグイン関連の 2 つの設定は、どちらもオンのままにしてください。** `enableServerPlugins: true` は Qdrant バックエンドに必須で、Standard バックエンドでプラグインを使う機能にも必要です。`enableServerPluginsAutoUpdate` はこれとは別の設定で、デフォルトは `true` です — そのままにしてください。オフにすると、拡張機能だけが更新され続ける一方でプラグインはインストール時のバージョンのまま固定され、古くなったことは何も知らせてくれません。気づくのは後になってから、受け取れなかったプラグイン更新が原因で不具合が起き、しかもその原因にたどり着くのが非常に難しい、という形になります。
 
 ---
 

@@ -513,6 +513,9 @@ npm install
 ```yaml
 enableServerPlugins: true
 ```
+
+> 📌 **用上面的 `git clone` 安裝，是插件能持續自動更新的前提。** 下載 ZIP 則無法自動更新，而在不知情的狀況下一直使用舊版插件，是最常見、也最難追查的問題來源。確認是否正常運作請見 [🔄 自動更新](#-自動更新)。
+
 重啟 SillyTavern。
 
 ### 步驟 3：設定 VectFox
@@ -547,20 +550,6 @@ VectFox 的 manifest 中設定了 `auto_update: true`。如果你是透過 `git 
 
 **如果你是透過 `git clone` 安裝插件（上方步驟 2）**，每次重啟 SillyTavern 時它都會自動更新——SillyTavern 啟動時會對每個屬於 git 儲存庫的插件資料夾執行 `git pull`。此功能預設為開啟。
 
-確認是否正常運作：
-
-1. 確認 `SillyTavern/plugins/similharity/` 裡面存在 `.git` 資料夾。
-2. 啟動時，在 SillyTavern 的**伺服器主控台**（終端機，不是瀏覽器 F12）中找到這一行：
-
-   ```
-   Auto-updating server plugins...
-   ```
-
-3. 確認實際執行的版本——在瀏覽器開啟 `/api/plugins/similharity/version`，或在啟動訊息中尋找這一行：
-
-   ```
-   [similharity] Initializing v3.3.4...
-   ```
 
 **如果你是下載 ZIP 安裝插件**，因為沒有 `.git` 資料夾可供 SillyTavern 拉取，自動更新將**無法運作**。這是插件在你不知情的情況下停留在舊版本最常見的原因。修正方式：
 
@@ -568,13 +557,7 @@ VectFox 的 manifest 中設定了 `auto_update: true`。如果你是透過 `git 
 2. 依照上方步驟 2 以 `git clone` 重新安裝。
 3. 你的設定與已向量化的資料存放在別處，不會受到影響。
 
-若要關閉插件的自動更新，請在 `config.yaml` 中加入：
-
-```yaml
-enableServerPluginsAutoUpdate: false
-```
-
-另外請注意，使用 Qdrant 後端時仍需要設定 `enableServerPlugins: true`。
+> ⚠️ **這兩個伺服器插件相關設定都請保持開啟。** `enableServerPlugins: true` 是 Qdrant 後端的必要設定，Standard 後端上任何需要插件的功能同樣需要它。`enableServerPluginsAutoUpdate` 是另一個設定，預設為 `true` — 請維持原樣。一旦關閉，擴充功能會繼續更新，插件卻會停留在你當初安裝的版本，而且不會有任何提示告訴你它已經過舊。你只會在日後才發現：某個你從未收到的插件更新導致了問題，而那時要追查真正的原因會非常困難。
 
 ---
 
