@@ -1333,6 +1333,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
                         contextLabel: 'EventBase',
                         sourceName: 'event memory',
                         timeoutMessage: 'EventBase retrieval timed out',
+                        settings,
                     },
                 );
             } else {
@@ -1352,6 +1353,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
                     contextLabel: 'Summarizer',
                     sourceName: 'recent event summaries',
                     timeoutMessage: 'Summarizer injection timed out',
+                    settings,
                 });
             }
 
@@ -1479,6 +1481,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
                 sourceName: 'vectorized chunks',
                 timeoutMessage: 'Chunk retrieval timed out',
                 fallback: [],   // downstream treats an empty list as "no injection"
+                settings,
             },
         );
 

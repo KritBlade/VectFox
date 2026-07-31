@@ -23,7 +23,11 @@
 import AsyncUtils from '../utils/async-utils.js';
 import { RETRIEVAL_TIMEOUT_MS } from './constants.js';
 import { notifyRetrievalFailure } from './model-config-notifier.js';
+import { describeEmbeddingTimeoutCause } from './embedding-latency-warning.js';
 import { log } from './log.js';
+
+/** A retrieval that never returned, vs. one that returned an error. */
+const TIMEOUT_PATTERN = /timed out|timeout|aborted/i;
 
 /**
  * Run a retrieval promise under the shared timeout, logging AND toasting on
@@ -40,20 +44,33 @@ import { log } from './log.js';
  * @param {string} options.sourceName - what was being searched, in the user's words
  * @param {string} options.timeoutMessage - message for the timeout Error
  * @param {T} [options.fallback] - value returned when the retrieval fails (default undefined)
+ * @param {object} [options.settings] - VectFox settings; used only to name the
+ *   embedding provider in the timeout explanation. Omitting it costs the "why",
+ *   not the surfacing.
  * @returns {Promise<T|undefined>} the result, or `fallback` on timeout/error
  */
-export async function runBoundedRetrieval(promise, { contextLabel, sourceName, timeoutMessage, fallback } = {}) {
+export async function runBoundedRetrieval(promise, { contextLabel, sourceName, timeoutMessage, fallback, settings } = {}) {
     try {
         return await AsyncUtils.timeout(promise, RETRIEVAL_TIMEOUT_MS, timeoutMessage);
     } catch (error) {
+        // A bare "retrieval timed out" names nothing the user can change, so they
+        // read it as "the extension is broken" (which is how it was reported). The
+        // timeout carries no timings — the request is still in flight — so the
+        // attribution has to come from configuration. See
+        // core/embedding-latency-warning.js for the measurements behind it.
+        const rawMessage = error?.message || String(error || 'unknown error');
+        const detail = TIMEOUT_PATTERN.test(rawMessage)
+            ? `${rawMessage}. ${describeEmbeddingTimeoutCause(settings)}`
+            : rawMessage;
+
         log.error(
             `VectFox ${contextLabel}: retrieval failed (non-fatal — the message still sends, without this memory):`,
-            error?.message || error,
+            detail,
         );
         // De-duped per (context, source, message) inside the notifier, so a
         // persistently slow embedding provider warns once per session instead of
         // on every single generation.
-        notifyRetrievalFailure(contextLabel, sourceName, error);
+        notifyRetrievalFailure(contextLabel, sourceName, detail);
         return fallback;
     }
 }

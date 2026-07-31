@@ -31,6 +31,13 @@ vi.mock('../core/core-vector-api.js', () => ({
     queryCollection: vi.fn(),
 }));
 
+// Reached via bounded-retrieval -> embedding-latency-warning, which names the
+// configured embedding provider when a retrieval times out. The real module
+// imports SillyTavern's secrets.js/textgen-settings.js, absent under vitest.
+vi.mock('../core/providers.js', () => ({
+    getModelFromSettings: (s) => s?.embedding_openrouter_model || '',
+}));
+
 vi.mock('../core/collection-metadata.js', () => ({
     getCollectionMeta: vi.fn(),
     isCollectionEnabled: vi.fn(),

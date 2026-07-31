@@ -22,6 +22,10 @@ vi.mock('../core/log.js', () => ({
     log: { error: vi.fn(), warn: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
 vi.mock('../core/model-config-notifier.js', () => ({ notifyRetrievalFailure: vi.fn() }));
+// Real module reaches core/providers.js, which imports SillyTavern host modules.
+vi.mock('../core/embedding-latency-warning.js', () => ({
+    describeEmbeddingTimeoutCause: (s) => `Almost always the embedding provider — ${s?.embedding_provider || 'transformers'}.`,
+}));
 
 import { runBoundedRetrieval } from '../core/bounded-retrieval.js';
 import { notifyRetrievalFailure } from '../core/model-config-notifier.js';
@@ -31,6 +35,7 @@ const OPTIONS = {
     contextLabel: 'EventBase',
     sourceName: 'event memory',
     timeoutMessage: 'EventBase retrieval timed out',
+    settings: { embedding_provider: 'openrouter' },
 };
 
 const never = () => new Promise(() => {});           // hangs forever
@@ -52,18 +57,43 @@ describe('runBoundedRetrieval', () => {
 
         expect(result).toEqual([]);                                    // degraded, did not throw
         expect(notifyRetrievalFailure).toHaveBeenCalledTimes(1);       // and the user was told
-        const [label, source, error] = notifyRetrievalFailure.mock.calls[0];
+        const [label, source, detail] = notifyRetrievalFailure.mock.calls[0];
         expect(label).toBe('EventBase');
         expect(source).toBe('event memory');
-        expect(error.message).toBe('EventBase retrieval timed out');
+        expect(detail).toContain('EventBase retrieval timed out');
         expect(log.error).toHaveBeenCalledTimes(1);
+    });
+
+    // The whole point of the timeout branch: "timed out" alone names nothing the
+    // user can change, so they read it as "the extension is broken".
+    it('blames the embedding provider by name on a timeout', async () => {
+        await runBoundedRetrieval(never(), { ...OPTIONS, fallback: [] });
+
+        const [, , detail] = notifyRetrievalFailure.mock.calls[0];
+        expect(detail).toContain('embedding provider');
+        expect(detail).toContain('openrouter');
+    });
+
+    it('still names a provider when the caller passed no settings', async () => {
+        const { settings, ...withoutSettings } = OPTIONS;
+        await runBoundedRetrieval(never(), { ...withoutSettings, fallback: [] });
+
+        expect(notifyRetrievalFailure.mock.calls[0][2]).toContain('transformers');
     });
 
     it('surfaces a rejection the same way as a timeout', async () => {
         const result = await runBoundedRetrieval(Promise.reject(new Error('ECONNREFUSED')), { ...OPTIONS, fallback: [] });
 
         expect(result).toEqual([]);
-        expect(notifyRetrievalFailure).toHaveBeenCalledWith('EventBase', 'event memory', expect.objectContaining({ message: 'ECONNREFUSED' }));
+        expect(notifyRetrievalFailure).toHaveBeenCalledWith('EventBase', 'event memory', 'ECONNREFUSED');
+    });
+
+    // A connection refusal is not a latency problem — appending the embedding
+    // explanation there would actively mislead.
+    it('does not blame embedding for a non-timeout failure', async () => {
+        await runBoundedRetrieval(Promise.reject(new Error('ECONNREFUSED')), { ...OPTIONS, fallback: [] });
+
+        expect(notifyRetrievalFailure.mock.calls[0][2]).not.toContain('embedding provider');
     });
 
     it('never rethrows — a lookup failure must not break the generation', async () => {

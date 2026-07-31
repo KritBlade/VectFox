@@ -51,6 +51,41 @@ export function _resetEmbeddingLatencyWarningThrottle() {
 }
 
 /**
+ * Name the configured embedding provider the way the user configured it, e.g.
+ * `openrouter (qwen/qwen3-embedding-8b)`. Falls back to the provider alone when
+ * the provider has no model field (transformers) or the lookup throws.
+ *
+ * @param {object} settings - VectFox settings
+ * @returns {string}
+ */
+export function embeddingProviderLabel(settings) {
+    const provider = settings?.embedding_provider || 'transformers';
+    let model = '';
+    try {
+        model = getModelFromSettings(settings) || '';
+    } catch (_) { /* provider without a model field — name it by provider alone */ }
+    return model ? `${provider} (${model})` : provider;
+}
+
+/**
+ * The "why did this time out?" sentence, for a retrieval that never came back.
+ *
+ * A timeout has no timings to report — the request is still in flight when we
+ * give up — so warnIfEmbeddingSlow() below can never fire for it, and the user
+ * is left with a bare "retrieval timed out" that names nothing they can act on.
+ * This supplies the attribution from configuration instead of measurement, on
+ * the same evidence as the module header: the vector DB answers in ~20ms, so
+ * everything else in the budget is the embedding call.
+ *
+ * @param {object} settings - VectFox settings
+ * @returns {string} sentence naming the likely culprit and the fix
+ */
+export function describeEmbeddingTimeoutCause(settings) {
+    return `Almost always the embedding provider — ${embeddingProviderLabel(settings)} — `
+        + `not the vector database, which answers in ~20ms. Try a faster embedding model.`;
+}
+
+/**
  * Warn when a server-side embedding call was slow.
  *
  * Always logs above the threshold; toasts at most once per TOAST_THROTTLE_MS.
@@ -68,14 +103,8 @@ export function warnIfEmbeddingSlow(embedMs, settings, label = 'query') {
     if (typeof embedMs !== 'number' || !Number.isFinite(embedMs)) return false;
     if (embedMs < SLOW_EMBEDDING_WARN_MS) return false;
 
-    const provider = settings?.embedding_provider || 'transformers';
-    let model = '';
-    try {
-        model = getModelFromSettings(settings) || '';
-    } catch (_) { /* provider without a model field — name it by provider alone */ }
-
     const seconds = (embedMs / 1000).toFixed(1);
-    const modelLabel = model ? `${provider} (${model})` : provider;
+    const modelLabel = embeddingProviderLabel(settings);
 
     log.warn(
         `[VectFox] Slow embedding: ${modelLabel} took ${seconds}s to embed the ${label} text. ` +

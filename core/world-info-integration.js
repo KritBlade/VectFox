@@ -703,6 +703,7 @@ async function handleGenerationStarted(type, options, dryRun) {
                 sourceName: 'all vectorized lorebooks',
                 timeoutMessage: 'Lorebook WI retrieval timed out',
                 fallback: [],
+                settings,
             },
         );
         if (!semanticEntries.length) return;
@@ -764,6 +765,7 @@ export async function runLorebookWIDryRun({ chat, testMessage, settings }) {
             sourceName: 'query tester dry-run',
             timeoutMessage: 'Lorebook WI retrieval timed out',
             fallback: [],
+            settings,
         },
     );
     if (!semanticEntries.length) return { injectionText: null, entryCount: 0 };
