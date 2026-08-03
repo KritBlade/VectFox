@@ -22,7 +22,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
-import { postChatCompletion, parseJsonArrayFromLlm, LlmCallError } from './llm-provider-call.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { chunkText } from './chunking.js';
 import AsyncUtils from '../utils/async-utils.js';
 import {
@@ -120,6 +120,7 @@ async function _callOpenRouter(prompt, settings, batchIndex) {
             timeoutMs: settings.reformat_timeout_ms || DEFAULT_TIMEOUT_MS,
             contextLabel: 'Auto-Reformat',
             connectionNotify: false,
+            ...resolveModelParameterStyle(settings),
         });
         return { reply: content, finishReason };
     } catch (e) {
@@ -169,6 +170,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
             timeoutMs: settings.reformat_timeout_ms || DEFAULT_TIMEOUT_MS,
             contextLabel: 'Auto-Reformat',
             connectionNotify: false,
+            ...resolveModelParameterStyle(settings),
         });
         return { reply: content, finishReason };
     } catch (e) {

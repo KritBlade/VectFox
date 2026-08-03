@@ -32,7 +32,7 @@ vi.mock('../core/log.js', () => ({
 }));
 
 import StringUtils from '../utils/string-utils.js';
-import { postChatCompletion, parseJsonArrayFromLlm, LlmCallError } from '../core/llm-provider-call.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../core/llm-provider-call.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -124,6 +124,79 @@ describe('postChatCompletion — request body', () => {
         await postChatCompletion(baseArgs());
         body = JSON.parse(fetchMock.mock.calls[0][1].body);
         expect(body.response_format).toBeUndefined();
+    });
+
+    // Reasoning models (gpt-5.x, o1/o3/o4) reject `temperature` and `max_tokens`
+    // outright — see resolveModelParameterStyle. GitHub issue #13.
+    it('omits temperature entirely when sendTemperature is false', async () => {
+        const fetchMock = vi.fn(async () => okResponse({ content: 'hi' }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await postChatCompletion(baseArgs({ sendTemperature: false }));
+
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect('temperature' in body).toBe(false);
+        expect(body.max_tokens).toBe(100);
+    });
+
+    it('renames the token cap when tokenLimitParameter is max_completion_tokens', async () => {
+        const fetchMock = vi.fn(async () => okResponse({ content: 'hi' }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await postChatCompletion(baseArgs({ tokenLimitParameter: 'max_completion_tokens' }));
+
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(body.max_completion_tokens).toBe(100);
+        expect('max_tokens' in body).toBe(false);
+    });
+
+    it('never sends sampling params VectFox does not support', async () => {
+        const fetchMock = vi.fn(async () => okResponse({ content: 'hi' }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await postChatCompletion(baseArgs());
+
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        for (const key of ['top_p', 'top_k', 'frequency_penalty', 'presence_penalty', 'repetition_penalty']) {
+            expect(key in body).toBe(false);
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// resolveModelParameterStyle — settings → request shape
+// ---------------------------------------------------------------------------
+
+describe('resolveModelParameterStyle', () => {
+    it('defaults to the classic OpenAI shape', () => {
+        expect(resolveModelParameterStyle({})).toEqual({
+            sendTemperature: true,
+            tokenLimitParameter: 'max_tokens',
+        });
+    });
+
+    it('treats a missing settings object as the default shape', () => {
+        expect(resolveModelParameterStyle()).toEqual({
+            sendTemperature: true,
+            tokenLimitParameter: 'max_tokens',
+        });
+    });
+
+    it('switches to the reasoning-model shape when both switches are set', () => {
+        expect(resolveModelParameterStyle({
+            should_send_temperature: false,
+            should_use_max_completion_tokens: true,
+        })).toEqual({
+            sendTemperature: false,
+            tokenLimitParameter: 'max_completion_tokens',
+        });
+    });
+
+    it('resolves the two switches independently', () => {
+        expect(resolveModelParameterStyle({ should_send_temperature: false }))
+            .toEqual({ sendTemperature: false, tokenLimitParameter: 'max_tokens' });
+        expect(resolveModelParameterStyle({ should_use_max_completion_tokens: true }))
+            .toEqual({ sendTemperature: true, tokenLimitParameter: 'max_completion_tokens' });
     });
 });
 

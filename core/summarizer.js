@@ -18,7 +18,7 @@
 
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
 import { getDefaultSummarizePrompt } from './prompts-i18n.js';
-import { postChatCompletion, LlmCallError } from './llm-provider-call.js';
+import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { log } from './log.js';
 
 /**
@@ -243,6 +243,7 @@ async function _callOpenRouter(prompt, model, settings, originalLength, maxToken
             temperature: SUMMARIZE_TEMPERATURE,
             timeoutMs,
             contextLabel: 'Summarizer',
+            ...resolveModelParameterStyle(settings),
         });
         // don't remove
         //log.verbose(`[VectFox Summarizer] OpenRouter: ${originalLength} chars → ${content.length} chars`);
@@ -306,6 +307,7 @@ async function _callVLLM(prompt, model, settings, maxTokens = DEFAULT_MAX_TOKENS
             temperature: SUMMARIZE_TEMPERATURE,
             timeoutMs,
             contextLabel: 'Summarizer',
+            ...resolveModelParameterStyle(settings),
         });
         return content;
     } catch (e) {

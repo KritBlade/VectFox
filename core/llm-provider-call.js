@@ -64,6 +64,54 @@ function _providerLabel(provider) {
 }
 
 /**
+ * Resolve the two request-shape switches every chat-completion call needs, from
+ * the VectFox settings object the caller already holds.
+ *
+ * WHY THIS EXISTS — reasoning models (OpenAI's gpt-5 family, o1/o3/o4, and the
+ * hosted variants built on them) reject the classic sampling parameters:
+ *   - `temperature` other than the default 1 → HTTP 400 "Unsupported value:
+ *     'temperature' does not support 0.2 with this model."
+ *   - `max_tokens` at all → HTTP 400 "Unsupported parameter: 'max_tokens' is not
+ *     supported with this model. Use 'max_completion_tokens' instead."
+ * NOTHING ELSE IN THE STACK WILL FIX THIS FOR US — verified against SillyTavern
+ * 1.18.0:
+ *   - The server's /api/backends/chat-completions/generate handler is a raw
+ *     passthrough for both sources VectFox uses: it copies `temperature`,
+ *     `max_tokens` and `max_completion_tokens` verbatim out of the request body
+ *     (src/endpoints/backends/chat-completions.js, the generic requestBody block).
+ *   - ST's OWN client does perform exactly this rewrite —
+ *     `generate_data.max_completion_tokens = generate_data.max_tokens; delete
+ *     generate_data.max_tokens; … delete generate_data.temperature;` for /gpt-5/
+ *     and /^(o1|o3|o4)/ (public/scripts/openai.js) — but only for its `gptSources`
+ *     list: OPENAI, AZURE_OPENAI, OPENROUTER. `custom` is NOT in that list, and
+ *     VectFox never goes through that client path anyway.
+ * So VectFox reaching a reasoning model has to shape the body itself. This helper
+ * mirrors what ST's client does for its own requests.
+ *
+ * These are deliberately USER-SET switches, not model-name sniffing: the model-id
+ * list rots every time a vendor ships a name (ST's own regexes already carry
+ * special cases for gpt-5-chat-latest and gpt-5.1–5.4), and VectFox sees arbitrary
+ * ids from proxies and custom gateways where a name tells you nothing about the
+ * API shape.
+ *
+ * Install-global on purpose. A single ST install talks to one chat endpoint family
+ * across all four LLM features, so per-feature copies would be four ways to get the
+ * same answer wrong.
+ *
+ * @param {object} [settings] - VectFox settings object
+ * @returns {{sendTemperature: boolean, tokenLimitParameter: string}} spread straight
+ *          into the postChatCompletion argument object
+ */
+export function resolveModelParameterStyle(settings = {}) {
+    return {
+        sendTemperature: settings?.should_send_temperature !== false,
+        tokenLimitParameter: settings?.should_use_max_completion_tokens
+            ? 'max_completion_tokens'
+            : 'max_tokens',
+    };
+}
+
+/**
  * POST a chat-completion through SillyTavern's proxy and return the assistant
  * content. Handles both providers (OpenRouter and vLLM/custom route through the
  * same `/api/backends/chat-completions/generate` proxy — the real key is read
@@ -78,12 +126,16 @@ function _providerLabel(provider) {
  * @param {string}   opts.provider           'openrouter' | 'vllm'
  * @param {string}   [opts.vllmUrl]          raw base URL for custom/vLLM (sent as custom_url)
  * @param {number}   opts.maxTokens
- * @param {number}   opts.temperature
+ * @param {number}   opts.temperature        omitted from the request when sendTemperature is false
  * @param {number}   opts.timeoutMs
  * @param {object}   [opts.responseFormat]   e.g. { type: 'json_object' }
  * @param {string}   opts.contextLabel       feature label for error text ('EventBase', …)
  * @param {boolean}  [opts.authBranch=true]  give 401/403 a dedicated 'auth' error
  * @param {boolean}  [opts.connectionNotify=true] show the connection toast on unreachable
+ * @param {boolean}  [opts.sendTemperature=true] false = don't send `temperature` at all
+ *        (reasoning models accept only their own default). From resolveModelParameterStyle.
+ * @param {string}   [opts.tokenLimitParameter='max_tokens'] body key for the output-token
+ *        cap — 'max_completion_tokens' for reasoning models. From resolveModelParameterStyle.
  * @returns {Promise<{content: string, finishReason: string|null, usage: object|null, data: any}>}
  * @throws {LlmCallError}
  */
@@ -99,10 +151,13 @@ export async function postChatCompletion({
     contextLabel,
     authBranch = true,
     connectionNotify = true,
+    sendTemperature = true,
+    tokenLimitParameter = 'max_tokens',
 }) {
     const label = _providerLabel(provider);
 
-    const body = { model, messages, max_tokens: maxTokens, temperature };
+    const body = { model, messages, [tokenLimitParameter]: maxTokens };
+    if (sendTemperature) body.temperature = temperature;
     if (responseFormat) body.response_format = responseFormat;
 
     const requestBody = (provider === 'vllm' || provider === 'custom')

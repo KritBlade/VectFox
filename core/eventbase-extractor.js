@@ -12,7 +12,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
-import { postChatCompletion, parseJsonArrayFromLlm, LlmCallError } from './llm-provider-call.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import {
     EVENT_TYPES,
     EventBaseExtractionError,
@@ -160,6 +160,7 @@ async function _callOpenRouter(prompt, settings, windowIndex) {
             temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
             timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
             contextLabel: 'EventBase',
+            ...resolveModelParameterStyle(settings),
         });
         return content;
     } catch (e) {
@@ -202,6 +203,7 @@ async function _callVLLM(prompt, settings, windowIndex) {
             temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
             timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
             contextLabel: 'EventBase',
+            ...resolveModelParameterStyle(settings),
         });
         return content;
     } catch (e) {

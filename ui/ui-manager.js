@@ -436,6 +436,22 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <small class="VectFox_hint">Model ID used for EventBase extraction (separate from embedding model). Required. Click <b>Choose</b> to browse the provider's model list.</small>
 
                                 </div>
+
+                                <div class="vectfox-form-group" style="margin-top: 12px;">
+                                    <label class="checkbox_label" for="VectFox_should_send_temperature">
+                                        <input type="checkbox" id="VectFox_should_send_temperature" />
+                                        <span>Send temperature</span>
+                                    </label>
+                                    <small class="VectFox_hint">Default (checked). Uncheck for reasoning models (gpt-5.x, o1/o3/o4 and hosted builds on them), which accept only their own default temperature and reject anything else with <i>"Unsupported value: 'temperature' does not support 0.2 with this model"</i>. Unchecked = the parameter is left out of the request; the model's default applies. Affects every LLM call: summarization, EventBase, Auto-Reformat, Agent Mode.</small>
+                                </div>
+
+                                <div class="vectfox-form-group" style="margin-top: 12px;">
+                                    <label class="checkbox_label" for="VectFox_should_use_max_completion_tokens">
+                                        <input type="checkbox" id="VectFox_should_use_max_completion_tokens" />
+                                        <span>Use max_completion_tokens</span>
+                                    </label>
+                                    <small class="VectFox_hint">Default (unchecked) sends the classic <code>max_tokens</code>. Check it for the same reasoning models, which reject that key with <i>"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead"</i>. The token limit itself is unchanged — only the parameter name. Affects every LLM call.</small>
+                                </div>
                             </div>
 
                             <!-- ═══════════════════════════════════════════════════════ -->
@@ -2595,6 +2611,25 @@ function bindSettingsEvents(settings, callbacks) {
             // Bind 'input' too — 'change' alone only fires on blur, so clicking Vectorize
             // immediately after typing would skip the save.
             settings.chat_model = String($(this).val()).trim();
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    // Request-shape switches for reasoning models. Global on purpose — they
+    // describe the chat endpoint, not one feature, and every LLM path reads them
+    // through resolveModelParameterStyle(). See core/llm-provider-call.js.
+    $('#VectFox_should_send_temperature')
+        .prop('checked', settings.should_send_temperature !== false)
+        .on('change', function() {
+            settings.should_send_temperature = $(this).prop('checked');
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_should_use_max_completion_tokens')
+        .prop('checked', settings.should_use_max_completion_tokens === true)
+        .on('change', function() {
+            settings.should_use_max_completion_tokens = $(this).prop('checked');
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });

@@ -25,7 +25,7 @@ import { queryCollection } from './core-vector-api.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { stripReasoningBlocks, stripGameSystemBlocks } from './text-cleaning.js';
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
-import { postChatCompletion, LlmCallError } from './llm-provider-call.js';
+import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { log } from './log.js';
 
@@ -324,7 +324,7 @@ export function _resolveAgenticLLMConfig(settings = {}) {
         if (!apiKey) {
             return { ok: false, reason: 'missing_openrouter_api_key' };
         }
-        return { ok: true, provider, model, apiKey };
+        return { ok: true, provider, model, apiKey, parameterStyle: resolveModelParameterStyle(settings) };
     }
 
     if (provider === 'vllm') {
@@ -339,7 +339,7 @@ export function _resolveAgenticLLMConfig(settings = {}) {
         if (!apiKey) {
             return { ok: false, reason: 'missing_vllm_api_key' };
         }
-        return { ok: true, provider, model, vllmUrl, apiKey };
+        return { ok: true, provider, model, vllmUrl, apiKey, parameterStyle: resolveModelParameterStyle(settings) };
     }
 
     return { ok: false, reason: `unknown_provider_${provider}` };
@@ -370,6 +370,7 @@ async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs }) {
             responseFormat: { type: 'json_object' },
             contextLabel: 'Agent Mode',
             authBranch: false,
+            ...(llmCfg.parameterStyle || {}),
         }));
     } catch (e) {
         if (e instanceof LlmCallError) {

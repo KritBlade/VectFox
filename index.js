@@ -175,6 +175,15 @@ const defaultSettings = {
     summarize_prompt: '',             // Custom prompt template (empty = use built-in default)
     summarize_timeout_ms: 30000,      // Per-call timeout for one "Summarize Before Store" request (ms). Separate from eventbase_timeout_ms (extraction); both share the same model. UI: EventBase tab.
 
+    // Chat-completion request shape — applies to EVERY LLM feature (summarizer,
+    // EventBase extraction, Auto-Reformat, Agent Mode), because one install talks
+    // to one chat endpoint family. Reasoning models (gpt-5.x, o1/o3/o4 and hosted
+    // builds on them) reject `temperature` and `max_tokens` outright; these two
+    // switches reshape the body for them. Reader: resolveModelParameterStyle()
+    // in core/llm-provider-call.js. Defaults keep the classic OpenAI shape.
+    should_send_temperature: true,            // false = omit `temperature` from the request entirely
+    should_use_max_completion_tokens: false,  // true = send `max_completion_tokens` instead of `max_tokens`
+
     // Hybrid Search fusion settings.
     // A1 (BM25 re-rank, Vectra) reads hybrid_fusion_method/weights when invoked via A2 client-side hybrid.
     // A3 (Qdrant native sparse + RRF) ignores them — fusion is server-side via Qdrant /points/query.
