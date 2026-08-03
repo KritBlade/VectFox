@@ -78,7 +78,11 @@ function _mapEventBaseError(e, windowIndex) {
         case 'auth': return new EventBaseFatalError(e.message, 'invalid_api_key');
         case 'model_config': return new EventBaseFatalError(e.message, 'invalid_model_config');
         case 'connection': return new EventBaseFatalError(e.message, 'connection_failed');
-        default: return new EventBaseExtractionError(e.message, windowIndex); // 'http' | 'empty'
+        // 'http' | 'upstream_error' | 'empty' — per-window skip, not run-fatal. An
+        // upstream rejection is only distinguishable from a per-window refusal
+        // (context length, content policy) by text ST does not forward, so we skip
+        // the window and let notifyUpstreamRejection tell the user what happened.
+        default: return new EventBaseExtractionError(e.message, windowIndex);
     }
 }
 

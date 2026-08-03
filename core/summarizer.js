@@ -212,7 +212,7 @@ function _mapSummarizerError(e) {
         case 'auth': return new SummarizationFatalError(e.message, provider, 'invalid_api_key');
         case 'model_config': return new SummarizationFatalError(e.message, provider, 'invalid_model_config');
         case 'connection': return new SummarizationFatalError(e.message, provider, 'connection_failed');
-        default: return new Error(e.message); // 'http' | 'empty'
+        default: return new Error(e.message); // 'http' | 'upstream_error' | 'empty'
     }
 }
 

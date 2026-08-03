@@ -29,7 +29,7 @@
 
 import { getRequestHeaders } from '../../../../../script.js';
 import { getModelConfigErrorMessage } from './model-http-errors.js';
-import { isConnectionError, notifyConnectionError } from './model-config-notifier.js';
+import { isConnectionError, notifyConnectionError, notifyUpstreamRejection } from './model-config-notifier.js';
 import { log } from './log.js';
 
 /**
@@ -41,7 +41,9 @@ import { log } from './log.js';
  *  - 'model_config'  getModelConfigErrorMessage matched (bad/retired model, etc.)
  *  - 'connection'    isConnectionError matched (endpoint unreachable)
  *  - 'http'          any other non-2xx
- *  - 'empty'         2xx but no assistant content
+ *  - 'upstream_error' 2xx whose body is really an upstream rejection ST downgraded
+ *                    (see notifyUpstreamRejection) — NOT an empty completion
+ *  - 'empty'         2xx but genuinely no assistant content and no error in the body
  *  - 'parse'         parseJsonArrayFromLlm could not find a usable array
  */
 export class LlmCallError extends Error {
@@ -61,6 +63,25 @@ export class LlmCallError extends Error {
 /** Human label for error messages. */
 function _providerLabel(provider) {
     return (provider === 'vllm' || provider === 'custom') ? 'vLLM' : 'OpenRouter';
+}
+
+/**
+ * Pull the upstream rejection text out of a 2xx response body, or null when the
+ * body carries no error at all (a genuinely empty completion).
+ *
+ * Shapes seen in the wild, all HTTP 200:
+ *   ST proxy → { error: { message: 'Bad Request' }, quota_error: false }
+ *   OpenRouter → { error: { message: '…', code: … } }
+ *   some gateways → { message: 'Bad Request' }
+ *
+ * @param {any} data - parsed response body
+ * @returns {string|null}
+ */
+function _upstreamRejectionDetail(data) {
+    const raw = data?.error?.message ?? data?.error ?? (data?.choices ? null : data?.message);
+    if (!raw) return null;
+    const text = (typeof raw === 'string' ? raw : JSON.stringify(raw)).replace(/\s+/g, ' ').trim();
+    return text ? text.slice(0, 300) : null;
 }
 
 /**
@@ -131,7 +152,9 @@ export function resolveModelParameterStyle(settings = {}) {
  * @param {object}   [opts.responseFormat]   e.g. { type: 'json_object' }
  * @param {string}   opts.contextLabel       feature label for error text ('EventBase', …)
  * @param {boolean}  [opts.authBranch=true]  give 401/403 a dedicated 'auth' error
- * @param {boolean}  [opts.connectionNotify=true] show the connection toast on unreachable
+ * @param {boolean}  [opts.shouldNotifyProviderFailure=true] let this shared call raise the
+ *        de-duped toast for provider failures (unreachable endpoint, upstream rejection).
+ *        Pass false when the CALLER owns its own error surfacing, as Auto-Reformat does.
  * @param {boolean}  [opts.sendTemperature=true] false = don't send `temperature` at all
  *        (reasoning models accept only their own default). From resolveModelParameterStyle.
  * @param {string}   [opts.tokenLimitParameter='max_tokens'] body key for the output-token
@@ -150,7 +173,7 @@ export async function postChatCompletion({
     responseFormat = null,
     contextLabel,
     authBranch = true,
-    connectionNotify = true,
+    shouldNotifyProviderFailure = true,
     sendTemperature = true,
     tokenLimitParameter = 'max_tokens',
 }) {
@@ -189,7 +212,7 @@ export async function postChatCompletion({
         }
 
         if (isConnectionError(errText)) {
-            if (connectionNotify) notifyConnectionError(contextLabel, vllmUrl || null, errText);
+            if (shouldNotifyProviderFailure) notifyConnectionError(contextLabel, vllmUrl || null, errText);
             throw new LlmCallError(
                 `${contextLabel}: couldn't reach ${vllmUrl || label} — ${errText}`,
                 { kind: 'connection', status: response.status, provider },
@@ -217,6 +240,28 @@ export async function postChatCompletion({
         if (modelConfigError) {
             throw new LlmCallError(modelConfigError, { kind: 'model_config', status: response.status, provider });
         }
+
+        // A 200 carrying `error.message` is NOT an empty reply — it is an upstream
+        // rejection that ST's proxy downgraded to 200 while keeping only the status
+        // text (see notifyUpstreamRejection for the exact upstream code path). The
+        // classifier above can't catch it because "Bad Request" names no cause.
+        // Treating it as 'empty' is what made a wrong key, an unsupported parameter,
+        // and a refused prompt all look like "the model said nothing".
+        const upstreamDetail = _upstreamRejectionDetail(data);
+        if (upstreamDetail) {
+            if (shouldNotifyProviderFailure) {
+                notifyUpstreamRejection(contextLabel, model, upstreamDetail, Boolean(data?.quota_error));
+            }
+            log.warn(
+                `[${contextLabel}] ${label} rejected the request (HTTP ${response.status} from ST, upstream status text `
+                + `"${upstreamDetail}"). The provider's full error is in the SillyTavern server console. Raw body: ${bodyText.slice(0, 500)}`,
+            );
+            throw new LlmCallError(
+                `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,
+                { kind: 'upstream_error', status: response.status, provider },
+            );
+        }
+
         log.warn(`[${contextLabel}] ${label} returned empty reply (HTTP ${response.status}) — raw body: ${bodyText.slice(0, 500)}`);
         throw new LlmCallError(
             `${contextLabel}: ${label} returned empty response`,

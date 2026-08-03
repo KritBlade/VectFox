@@ -22,9 +22,11 @@ vi.mock('../core/model-http-errors.js', () => ({
 
 const mockIsConnectionError = vi.fn(() => false);
 const mockNotifyConnectionError = vi.fn();
+const mockNotifyUpstreamRejection = vi.fn();
 vi.mock('../core/model-config-notifier.js', () => ({
     isConnectionError: (...args) => mockIsConnectionError(...args),
     notifyConnectionError: (...args) => mockNotifyConnectionError(...args),
+    notifyUpstreamRejection: (...args) => mockNotifyUpstreamRejection(...args),
 }));
 
 vi.mock('../core/log.js', () => ({
@@ -77,6 +79,7 @@ beforeEach(() => {
     mockGetModelConfigError.mockReturnValue(null);
     mockIsConnectionError.mockReturnValue(false);
     mockNotifyConnectionError.mockReset();
+    mockNotifyUpstreamRejection.mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -233,10 +236,10 @@ describe('postChatCompletion — error classification', () => {
         expect(mockNotifyConnectionError).toHaveBeenCalledWith('TestFeature', 'http://x', 'ECONNREFUSED');
     });
 
-    it('suppresses the connection toast when connectionNotify=false', async () => {
+    it('suppresses the connection toast when shouldNotifyProviderFailure=false', async () => {
         mockIsConnectionError.mockReturnValue(true);
         vi.stubGlobal('fetch', vi.fn(async () => errorResponse(502, 'ECONNREFUSED')));
-        await expect(postChatCompletion(baseArgs({ connectionNotify: false })))
+        await expect(postChatCompletion(baseArgs({ shouldNotifyProviderFailure: false })))
             .rejects.toMatchObject({ kind: 'connection' });
         expect(mockNotifyConnectionError).not.toHaveBeenCalled();
     });
@@ -259,6 +262,59 @@ describe('postChatCompletion — error classification', () => {
         })));
         await expect(postChatCompletion(baseArgs()))
             .rejects.toMatchObject({ kind: 'model_config', message: 'retired model in body' });
+    });
+
+    // ST's proxy downgrades an upstream non-2xx to HTTP 200 carrying only the
+    // status text. Reproduced live against OpenAI + gpt-5.6-luna: the exact body
+    // below is what the browser received while the real 400 stayed server-side.
+    it('200 carrying {error:{message}} → kind:upstream_error, not empty', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ error: { message: 'Bad Request' }, quota_error: false }),
+        })));
+
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({
+            kind: 'upstream_error',
+            status: 200,
+        });
+    });
+
+    it('names the model and the upstream detail in the upstream_error message', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true, status: 200, json: async () => ({ error: { message: 'Bad Request' } }),
+        })));
+
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(/test\/model/);
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(/Bad Request/);
+    });
+
+    it('raises the de-duped upstream toast, and honors shouldNotifyProviderFailure=false', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true, status: 200, json: async () => ({ error: { message: 'Bad Request' }, quota_error: true }),
+        })));
+
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'upstream_error' });
+        expect(mockNotifyUpstreamRejection).toHaveBeenCalledWith('TestFeature', 'test/model', 'Bad Request', true);
+
+        mockNotifyUpstreamRejection.mockReset();
+        await expect(postChatCompletion(baseArgs({ shouldNotifyProviderFailure: false })))
+            .rejects.toMatchObject({ kind: 'upstream_error' });
+        expect(mockNotifyUpstreamRejection).not.toHaveBeenCalled();
+    });
+
+    it('still reports a genuinely empty completion as kind:empty', async () => {
+        // choices present, no error anywhere → the model really did answer nothing.
+        vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: '   ' })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'empty' });
+        expect(mockNotifyUpstreamRejection).not.toHaveBeenCalled();
+    });
+
+    it('treats a bare top-level {message} body as an upstream rejection too', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true, status: 200, json: async () => ({ message: 'Bad Request' }),
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'upstream_error' });
     });
 });
 

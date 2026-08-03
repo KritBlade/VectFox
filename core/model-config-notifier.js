@@ -99,6 +99,69 @@ export function resetConnectionNotifications() {
 }
 
 // ---------------------------------------------------------------------------
+// Upstream rejection surfacing — the failures SillyTavern's proxy hides from us.
+// ---------------------------------------------------------------------------
+// ST's /api/backends/chat-completions/generate handler, on an upstream non-2xx,
+// reads the provider's real error body, logs it to the SERVER console, and then
+// replies with only `{ error: { message: <statusText> }, quota_error }` — and
+// without calling response.status(), so Express sends it as HTTP **200**
+// (src/endpoints/backends/chat-completions.js, the `else` branch after fetch).
+//
+// From the browser that is indistinguishable from a model that answered with
+// nothing: a 200 whose choices[0].message.content is absent. VectFox used to
+// classify it as kind:'empty' and log "returned empty response", so a wrong key,
+// an unsupported parameter, or a rejected prompt all produced the same content-
+// free per-window skip. That is the silent-model-failure class again (issue #11),
+// arriving through a different door.
+//
+// We cannot recover the provider's actual sentence — ST forwards `statusText`
+// only, which for a 400 is the literal string "Bad Request". So the toast says
+// what we do know, and points at the one place the real reason exists.
+const _upstreamNotified = new Set();
+
+/**
+ * Sticky, de-duped toast for "the provider rejected this request and ST only told
+ * us the status text". Sticky because this class never self-heals: the same bad
+ * key / unsupported parameter / invalid model fails identically on every window,
+ * and an auto-dismissing toast during a long background extraction is exactly the
+ * silence we are trying to remove.
+ *
+ * De-dup key is context + model + detail, so a different model or a different
+ * upstream status warns afresh while a run of 200 failing windows warns once.
+ *
+ * @param {string} contextLabel - 'EventBase' | 'Summarizer' | 'Agent Mode' | 'Auto-Reformat'
+ * @param {string} model - the model id that was requested
+ * @param {string} detail - upstream status text ST forwarded (e.g. 'Bad Request')
+ * @param {boolean} [isQuotaError] - ST's quota_error flag (429 + insufficient_quota)
+ */
+export function notifyUpstreamRejection(contextLabel, model, detail, isQuotaError = false) {
+    const key = `${contextLabel}|${model || ''}|${detail || ''}|${isQuotaError}`;
+    if (_upstreamNotified.has(key)) return;
+    _upstreamNotified.add(key);
+
+    const why = isQuotaError
+        ? 'Your provider reports the account is out of quota — check billing/credits.'
+        : 'Common causes: a parameter this model does not accept (reasoning models reject '
+          + '`temperature` and `max_tokens` — see the two switches in LLM Summarization settings), '
+          + 'a wrong API key, or a prompt the provider refused.';
+
+    try {
+        toastr.error(
+            `The provider rejected the ${contextLabel} request for model "${model}" (${detail}). ${why} `
+            + `SillyTavern only forwards the status text to the browser — the provider's full error is in the `
+            + `SillyTavern SERVER console ("Chat completion request error").`,
+            `VectFox — ${contextLabel} request rejected`,
+            { timeOut: 0, extendedTimeOut: 0 },
+        );
+    } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
+}
+
+/** Forget prior upstream-rejection notifications (parity with the notifiers above). */
+export function resetUpstreamRejectionNotifications() {
+    _upstreamNotified.clear();
+}
+
+// ---------------------------------------------------------------------------
 // Retrieval failure surfacing — sibling concern to model-config and connection.
 // ---------------------------------------------------------------------------
 // A retrieval path that catches its own errors and returns an empty result set is

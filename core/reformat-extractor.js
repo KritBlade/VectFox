@@ -89,7 +89,7 @@ function _mapReformatError(e, batchIndex) {
     switch (e.kind) {
         case 'auth': return new ReformatFatalError(e.message, 'invalid_api_key');
         case 'model_config': return new ReformatFatalError(e.message, 'invalid_model_config');
-        default: return new ReformatExtractionError(e.message, batchIndex); // connection | http | empty
+        default: return new ReformatExtractionError(e.message, batchIndex); // connection | http | upstream_error | empty
     }
 }
 
@@ -119,7 +119,7 @@ async function _callOpenRouter(prompt, settings, batchIndex) {
             temperature: settings.reformat_temperature ?? DEFAULT_TEMPERATURE,
             timeoutMs: settings.reformat_timeout_ms || DEFAULT_TIMEOUT_MS,
             contextLabel: 'Auto-Reformat',
-            connectionNotify: false,
+            shouldNotifyProviderFailure: false,
             ...resolveModelParameterStyle(settings),
         });
         return { reply: content, finishReason };
@@ -169,7 +169,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
             temperature: settings.reformat_temperature ?? DEFAULT_TEMPERATURE,
             timeoutMs: settings.reformat_timeout_ms || DEFAULT_TIMEOUT_MS,
             contextLabel: 'Auto-Reformat',
-            connectionNotify: false,
+            shouldNotifyProviderFailure: false,
             ...resolveModelParameterStyle(settings),
         });
         return { reply: content, finishReason };
