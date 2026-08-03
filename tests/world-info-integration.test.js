@@ -96,6 +96,9 @@ vi.mock('../core/collection-loader.js', () => ({
 vi.mock('../core/constants.js', () => ({
     EXTENSION_PROMPT_TAG: 'vectfox_world_info',
     LOREBOOK_PROMPT_TAG: 'vectfox_lorebook',
+    // Reached via backends -> embedding-latency-warning, which derives its
+    // slow-embed log threshold from the retrieval budget.
+    RETRIEVAL_TIMEOUT_MS: 15000,
 }));
 
 vi.mock('../core/lorebook-rename-detector.js', () => ({

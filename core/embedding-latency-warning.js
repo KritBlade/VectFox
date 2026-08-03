@@ -21,34 +21,34 @@
  *   - Same request letting the server embed via OpenRouter
  *     `qwen/qwen3-embedding-8b`: 2,895ms - 16,003ms
  * The 15s retrieval timeout sits inside that spread, so retrieval became a coin
- * flip with no feedback. Hence: warn loudly, and name the provider + model.
+ * flip with no feedback. Hence: log it, and name the provider + model.
+ *
+ * LOG ONLY — no toast. A slow-but-SUCCESSFUL embed costs the user nothing: the
+ * results arrive. The case that actually costs them memory is the retrieval
+ * timing out, and core/bounded-retrieval.js already raises a red error toast for
+ * exactly that, naming this same provider via describeEmbeddingTimeoutCause().
+ * A second, earlier, orange toast on the success path only taught users to
+ * dismiss popups (GitHub issue #12).
  * ============================================================================
  */
 
 import { log } from './log.js';
 import { getModelFromSettings } from './providers.js';
+import { RETRIEVAL_TIMEOUT_MS } from './constants.js';
 
 /**
- * Embed durations at or above this are considered slow enough to tell the user
- * about. Well under RETRIEVAL_TIMEOUT_MS (15s) so the warning arrives BEFORE the
- * provider starts costing retrievals, not only once it already has.
+ * Embed durations at or above this get a log line.
+ *
+ * Derived from RETRIEVAL_TIMEOUT_MS rather than hard-coded so "warn while
+ * approaching the cliff" stays true if the budget ever moves. Two thirds of the
+ * budget = 10s today.
+ *
+ * Was 5000. That is a third of the budget, and a perfectly healthy local
+ * provider reaches it: Ollama on a 10Gb LAN crosses 5s from time to time while
+ * returning full results well inside the timeout. Warning there described
+ * normal operation as a problem.
  */
-export const SLOW_EMBEDDING_WARN_MS = 5000;
-
-/**
- * Minimum gap between toasts. Retrieval runs on every generation, so an
- * unthrottled toast would fire continuously on a persistently slow provider and
- * bury the rest of the UI. The log line is NOT throttled — the console keeps the
- * full record.
- */
-const TOAST_THROTTLE_MS = 120000;
-
-let lastToastAt = 0;
-
-/** Test seam: forget the throttle window so each test starts clean. */
-export function _resetEmbeddingLatencyWarningThrottle() {
-    lastToastAt = 0;
-}
+export const SLOW_EMBEDDING_WARN_MS = Math.round(RETRIEVAL_TIMEOUT_MS * (2 / 3));
 
 /**
  * Name the configured embedding provider the way the user configured it, e.g.
@@ -86,9 +86,10 @@ export function describeEmbeddingTimeoutCause(settings) {
 }
 
 /**
- * Warn when a server-side embedding call was slow.
+ * Log when a server-side embedding call was slow.
  *
- * Always logs above the threshold; toasts at most once per TOAST_THROTTLE_MS.
+ * Console only, never a toast — see the LOG ONLY note in the module header.
+ * Unthrottled: the console keeps the full record, and it costs the user nothing.
  * Safe to call on every query — a null/absent/fast `embedMs` is a no-op, so
  * callers don't need to branch (an older Similharity plugin that doesn't report
  * `timings` simply never triggers this).
@@ -96,8 +97,8 @@ export function describeEmbeddingTimeoutCause(settings) {
  * @param {number|null|undefined} embedMs - server-reported embed duration, or null
  *   when the caller supplied its own queryVector (nothing was embedded)
  * @param {object} settings - VectFox settings (for provider + model names)
- * @param {string} [label] - call site, e.g. 'hybrid-query' (log only)
- * @returns {boolean} true when the call was slow enough to warn about
+ * @param {string} [label] - call site, e.g. 'hybrid-query'
+ * @returns {boolean} true when the call was slow enough to log
  */
 export function warnIfEmbeddingSlow(embedMs, settings, label = 'query') {
     if (typeof embedMs !== 'number' || !Number.isFinite(embedMs)) return false;
@@ -109,22 +110,9 @@ export function warnIfEmbeddingSlow(embedMs, settings, label = 'query') {
     log.warn(
         `[VectFox] Slow embedding: ${modelLabel} took ${seconds}s to embed the ${label} text. ` +
         `The vector database is NOT the bottleneck — it answers in ~20ms. Semantic retrieval is ` +
-        `dropped when embedding exceeds 15s, so a provider this slow makes retrieval intermittent. ` +
+        `dropped when embedding exceeds ${RETRIEVAL_TIMEOUT_MS / 1000}s, so a provider this slow makes retrieval intermittent. ` +
         `Consider a faster embedding model or a locally hosted one.`,
     );
-
-    const now = Date.now();
-    if (now - lastToastAt < TOAST_THROTTLE_MS) return true;
-    lastToastAt = now;
-
-    try {
-        toastr.warning(
-            `Embedding took ${seconds}s via ${modelLabel}. Semantic retrieval times out at 15s, ` +
-            `so results may be missing. Try a faster embedding model.`,
-            'VectFox — slow embedding provider',
-            { timeOut: 12000 },
-        );
-    } catch (_) { /* toastr unavailable (unit tests / headless) — the log line stands alone */ }
 
     return true;
 }

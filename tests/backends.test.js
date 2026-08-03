@@ -87,6 +87,9 @@ vi.mock('../core/providers.js', () => ({
 // Mock constants.js
 vi.mock('../core/constants.js', () => ({
     VECTOR_LIST_LIMIT: 10000,
+    // Reached via backends -> embedding-latency-warning, which derives its
+    // slow-embed log threshold from the retrieval budget.
+    RETRIEVAL_TIMEOUT_MS: 15000,
 }));
 
 // Import backends after mocks are set up
