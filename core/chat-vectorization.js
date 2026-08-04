@@ -35,6 +35,7 @@ import { Queue, LRUCache } from '../utils/data-structures.js';
 import { getRequestHeaders } from '../../../../../script.js';
 import { EXTENSION_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
 import { runBoundedRetrieval } from './bounded-retrieval.js';
+import { resolveEventBaseRetrievalTimeoutMs } from './retrieval-budget.js';
 import { log } from './log.js';
 import { isVectFoxEnabled } from './feature-gate.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
@@ -1322,6 +1323,11 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
                 // On timeout the message proceeds WITHOUT EventBase injection and
                 // the user is told why — see core/bounded-retrieval.js for the
                 // timeout/degrade/surface contract shared by every retrieval path.
+                //
+                // This is the ONE path that can route through Agent Mode, whose
+                // planner call and query fanout run INSIDE this bound with their
+                // own user-set timeouts. Passing the Agent Mode-inclusive budget
+                // is what keeps the outer bound from silently overruling them.
                 await runBoundedRetrieval(
                     runEventBaseRetrieval({
                         chat,
@@ -1334,6 +1340,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
                         sourceName: 'event memory',
                         timeoutMessage: 'EventBase retrieval timed out',
                         settings,
+                        timeoutMs: resolveEventBaseRetrievalTimeoutMs(settings),
                     },
                 );
             } else {

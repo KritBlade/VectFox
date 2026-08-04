@@ -32,6 +32,11 @@ import { migration_setting_name_for_connection } from './Migration/mg_setting_na
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
 import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEFAULT } from './Migration/mg_world_info_threshold_rrf_workaround.js';
 import { log } from './core/log.js';
+import {
+    RETRIEVAL_TIMEOUT_DEFAULT_MS,
+    AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
+    AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
+} from './core/constants.js';
 import { isVectFoxEnabled } from './core/feature-gate.js';
 import { runNetworkStartup } from './core/network-startup.js';
 
@@ -125,6 +130,11 @@ const defaultSettings = {
     top_k: 10,
     retrieval_popup_on_start: true,    // Show popup when retrieval starts
     retrieval_popup_on_result: true,   // Show popup with number of retrieved results
+    // How long one turn may spend on any single retrieval (EventBase, chunk,
+    // lorebook, summarizer injection) before it proceeds without that memory.
+    // Agent Mode ADDS its own planner + fanout timeouts on top of this for the
+    // EventBase path — see core/retrieval-budget.js. UI: Core tab → Retrieval.
+    retrieval_timeout_ms: RETRIEVAL_TIMEOUT_DEFAULT_MS,
     query: 2,
     chunk_size: 500, // For adaptive strategy only
     score_threshold: 0.25,
@@ -377,8 +387,11 @@ const defaultSettings = {
     agentic_retrieval_chat_depth: 3,                   // # of past chat turns sent to planner (slider 1-10)
     agentic_retrieval_candidates_to_show: 12,          // Pre-search slice shown to planner (slider 5-20)
     agentic_retrieval_max_queries: 6,                  // Hard ceiling on planner output (slider 1-6)
-    agentic_retrieval_timeout_ms: 30000,               // Planner LLM call timeout (matches summarize default; some models need >5s)
-    agentic_retrieval_query_timeout_ms: 10000,         // Per-query fanout timeout — drop a straggling Qdrant call so one slow embed/search doesn't stall retrieval
+    // Both timeouts run INSIDE the EventBase retrieval bound and are ADDED to it
+    // (core/retrieval-budget.js), so raising either really does buy the planner
+    // more time instead of being silently capped by the outer budget.
+    agentic_retrieval_timeout_ms: AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,       // Planner LLM call timeout (matches summarize default; some models need >5s)
+    agentic_retrieval_query_timeout_ms: AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,   // Per-query fanout timeout — drop a straggling Qdrant call so one slow embed/search doesn't stall retrieval
     agentic_filters_enabled: true,                     // Apply planner-emitted *_any / importance_gte filters (Phase 1.5)
 
     // ─── Auto-Reformat (Document/URL/Wiki) ──────────────────────────────

@@ -17,7 +17,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../core/constants.js', () => ({ RETRIEVAL_TIMEOUT_MS: 50 }));
+// 50ms stands in for the resolved budget so the timeout cases finish instantly.
+// The real resolver (settings -> clamped ms, plus the Agent Mode addition) is
+// covered on its own in tests/retrieval-budget.test.js.
+vi.mock('../core/retrieval-budget.js', () => ({ resolveRetrievalTimeoutMs: () => 50 }));
 vi.mock('../core/log.js', () => ({
     log: { error: vi.fn(), warn: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
@@ -119,6 +122,37 @@ describe('runBoundedRetrieval', () => {
 
         expect(result).toBe('done');
         expect(notifyRetrievalFailure).not.toHaveBeenCalled();
+    });
+
+    // Issue #16: the toast said only "retrieval timed out", which names nothing
+    // the user can change — and until the budget became a setting, nothing they
+    // COULD change. Both halves of the answer have to be in the message.
+    it('names the budget it blew and the setting that changes it', async () => {
+        await runBoundedRetrieval(never(), { ...OPTIONS, fallback: [] });
+
+        const [, , detail] = notifyRetrievalFailure.mock.calls[0];
+        expect(detail).toContain('0.1s');                 // the 50ms mocked budget
+        expect(detail).toContain('Retrieval Timeout');    // the setting's UI label
+    });
+
+    // Agent Mode runs a planner LLM call INSIDE this bound, so the EventBase call
+    // site passes a bigger budget. Ignoring the override is what made agent mode
+    // time out on its own defaults (planner 30s inside a 15s bound) — issue #16.
+    it('honors an explicit timeoutMs over the settings-resolved budget', async () => {
+        const result = await runBoundedRetrieval(slow(120, 'planner done'), { ...OPTIONS, fallback: [], timeoutMs: 400 });
+
+        expect(result).toBe('planner done');              // would have died at the mocked 50ms
+        expect(notifyRetrievalFailure).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the settings budget when timeoutMs is absent or nonsense', async () => {
+        for (const timeoutMs of [undefined, 0, -1, NaN, 'soon']) {
+            vi.clearAllMocks();
+            const result = await runBoundedRetrieval(slow(120, 'late'), { ...OPTIONS, fallback: [], timeoutMs });
+
+            expect(result, `timeoutMs=${String(timeoutMs)}`).toEqual([]);   // 50ms budget won
+            expect(notifyRetrievalFailure).toHaveBeenCalledTimes(1);
+        }
     });
 
     it('reports each subsystem under its own label so the notifier de-dup stays per-source', async () => {
