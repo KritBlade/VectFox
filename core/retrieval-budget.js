@@ -2,9 +2,17 @@
  * ============================================================================
  * RETRIEVAL BUDGET
  * ============================================================================
- * How many milliseconds a single turn is allowed to spend looking things up,
- * resolved from settings. Pure arithmetic over settings + constants — no I/O,
- * no host imports, no dependency on the modules that consume it.
+ * What a single turn is allowed to SPEND on looking things up — milliseconds
+ * for every retrieval path, plus the output-token cap for the one path that
+ * calls an LLM (Agent Mode's planner). Resolved from settings. Pure arithmetic
+ * over settings + constants — no I/O, no host imports, no dependency on the
+ * modules that consume it.
+ *
+ * Time and tokens live together because they are the same kind of knob with the
+ * same failure mode: set too low, retrieval quietly returns nothing and the user
+ * is told the extension is broken (issues #16 and #18 respectively). Keeping
+ * every `agentic_retrieval_*` limit resolvable from one import is also what
+ * stops the UI's clamp and the request's clamp from drifting apart.
  *
  * It lives in its own module for two reasons:
  *
@@ -35,22 +43,28 @@ import {
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
     AGENTIC_TIMEOUT_MIN_MS,
     AGENTIC_TIMEOUT_MAX_MS,
+    AGENTIC_MAX_TOKENS_DEFAULT,
+    AGENTIC_MAX_TOKENS_MIN,
+    AGENTIC_MAX_TOKENS_MAX,
 } from './constants.js';
 
 /**
- * Read one millisecond setting, falling back to `fallbackMs` when it is absent,
- * non-numeric, or zero/negative, then clamp it into [minMs, maxMs].
+ * Read one numeric setting, falling back to `fallback` when it is absent,
+ * non-numeric, or zero/negative, then clamp it into [min, max].
+ *
+ * Unit-agnostic on purpose — the same read/fallback/clamp shape serves both the
+ * millisecond budgets and the token cap below.
  *
  * @param {*} raw - the settings value as stored (may be a string from an input)
- * @param {number} fallbackMs
- * @param {number} minMs
- * @param {number} maxMs
+ * @param {number} fallback
+ * @param {number} min
+ * @param {number} max
  * @returns {number}
  */
-function _resolveTimeoutMs(raw, fallbackMs, minMs, maxMs) {
+function _resolveBoundedSetting(raw, fallback, min, max) {
     const value = Number(raw);
-    const chosen = Number.isFinite(value) && value > 0 ? value : fallbackMs;
-    return Math.max(minMs, Math.min(maxMs, chosen));
+    const chosen = Number.isFinite(value) && value > 0 ? value : fallback;
+    return Math.max(min, Math.min(max, chosen));
 }
 
 /**
@@ -62,7 +76,7 @@ function _resolveTimeoutMs(raw, fallbackMs, minMs, maxMs) {
  * @returns {number} milliseconds
  */
 export function resolveRetrievalTimeoutMs(settings) {
-    return _resolveTimeoutMs(
+    return _resolveBoundedSetting(
         settings?.retrieval_timeout_ms,
         RETRIEVAL_TIMEOUT_DEFAULT_MS,
         RETRIEVAL_TIMEOUT_MIN_MS,
@@ -77,7 +91,7 @@ export function resolveRetrievalTimeoutMs(settings) {
  * @returns {number} milliseconds
  */
 export function resolveAgenticPlannerTimeoutMs(settings) {
-    return _resolveTimeoutMs(
+    return _resolveBoundedSetting(
         settings?.agentic_retrieval_timeout_ms,
         AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
         AGENTIC_TIMEOUT_MIN_MS,
@@ -92,11 +106,34 @@ export function resolveAgenticPlannerTimeoutMs(settings) {
  * @returns {number} milliseconds
  */
 export function resolveAgenticQueryTimeoutMs(settings) {
-    return _resolveTimeoutMs(
+    return _resolveBoundedSetting(
         settings?.agentic_retrieval_query_timeout_ms,
         AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
         AGENTIC_TIMEOUT_MIN_MS,
         AGENTIC_TIMEOUT_MAX_MS,
+    );
+}
+
+/**
+ * Agent Mode: output-token cap for the planner LLM call.
+ *
+ * The planner returns a small JSON object, so the default is ample for a model
+ * that answers directly. A model that REASONS spends this same budget on its
+ * thinking first, and a cap that runs out mid-thought yields truncated or empty
+ * content — which fails JSON.parse and drops Agent Mode to pre-search with only
+ * a log line to show for it (GitHub issue #18). Raising this is the fix for a
+ * thinking planner; `should_disable_thinking` is only a request, and plenty of
+ * models ignore it.
+ *
+ * @param {object} [settings] - VectFox settings
+ * @returns {number} tokens
+ */
+export function resolveAgenticMaxTokens(settings) {
+    return _resolveBoundedSetting(
+        settings?.agentic_retrieval_max_tokens,
+        AGENTIC_MAX_TOKENS_DEFAULT,
+        AGENTIC_MAX_TOKENS_MIN,
+        AGENTIC_MAX_TOKENS_MAX,
     );
 }
 

@@ -36,6 +36,7 @@ import {
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
+    AGENTIC_MAX_TOKENS_DEFAULT,
 } from './core/constants.js';
 import { isVectFoxEnabled } from './core/feature-gate.js';
 import { runNetworkStartup } from './core/network-startup.js';
@@ -392,6 +393,10 @@ const defaultSettings = {
     // more time instead of being silently capped by the outer budget.
     agentic_retrieval_timeout_ms: AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,       // Planner LLM call timeout (matches summarize default; some models need >5s)
     agentic_retrieval_query_timeout_ms: AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,   // Per-query fanout timeout — drop a straggling Qdrant call so one slow embed/search doesn't stall retrieval
+    // Planner output-token cap. A thinking model spends this on reasoning before
+    // it writes any JSON, so too low = truncated output = agent mode silently
+    // falls back to pre-search. Was a hardcoded 2000. UI: AgentMode tab.
+    agentic_retrieval_max_tokens: AGENTIC_MAX_TOKENS_DEFAULT,
     agentic_filters_enabled: true,                     // Apply planner-emitted *_any / importance_gte filters (Phase 1.5)
 
     // ─── Auto-Reformat (Document/URL/Wiki) ──────────────────────────────
