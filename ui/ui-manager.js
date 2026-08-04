@@ -37,6 +37,20 @@ import { getModelField } from '../core/providers.js';
 import { getChunkingStrategies } from '../core/content-types.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../core/bm25-scorer.js';
 import { LANGUAGE_MODES } from '../core/language-modes.js';
+import {
+    RETRIEVAL_TIMEOUT_DEFAULT_MS,
+    RETRIEVAL_TIMEOUT_MIN_MS,
+    RETRIEVAL_TIMEOUT_MAX_MS,
+    AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
+    AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
+    AGENTIC_TIMEOUT_MIN_MS,
+    AGENTIC_TIMEOUT_MAX_MS,
+} from '../core/constants.js';
+import {
+    resolveRetrievalTimeoutMs,
+    resolveAgenticPlannerTimeoutMs,
+    resolveAgenticQueryTimeoutMs,
+} from '../core/retrieval-budget.js';
 import { log } from '../core/log.js';
 
 /**
@@ -511,6 +525,12 @@ export function renderSettings(containerId, settings, callbacks) {
                                     </label>
                                     <small class="VectFox_hint">A3 (Qdrant) only. Computes importance/persist/recency weighted scoring inside Qdrant via a formula query, in the same /query call as the dense+sparse hybrid. Anchor boost and pairwise dedup still run locally. Requires Qdrant 1.13+; falls back gracefully when unavailable. Re-tune the cosine weight if recall changes — see plans/qdrant-native-eventbase-rerank-formula.md.</small>
                                 </div>
+
+                                <label for="VectFox_retrieval_timeout_ms" style="margin-top: 12px;">
+                                    <small>Retrieval Timeout (ms)</small>
+                                </label>
+                                <input type="number" id="VectFox_retrieval_timeout_ms" class="vectfox-input" min="${RETRIEVAL_TIMEOUT_MIN_MS}" max="${RETRIEVAL_TIMEOUT_MAX_MS}" step="1000" />
+                                <small class="VectFox_hint">How long one turn may wait for a lookup — EventBase, chunks, lorebook and summarizer injection alike — before the message sends <b>without</b> that memory. Default <b>${RETRIEVAL_TIMEOUT_DEFAULT_MS} ms (${RETRIEVAL_TIMEOUT_DEFAULT_MS / 1000}s)</b>, range ${RETRIEVAL_TIMEOUT_MIN_MS / 1000}–${RETRIEVAL_TIMEOUT_MAX_MS / 1000}s. Raise it if you see "retrieval timed out" on a provider you know is just slow rather than broken. Cost of raising it: a genuinely hung provider stalls your turn for that much longer. <b>Agent Mode is already accounted for</b> — its planner and per-query timeouts are added on top of this, so you do not need to inflate this value for it.</small>
 
                                 <div style="margin-top: 12px;">
                                     <label class="checkbox_label" for="VectFox_retrieval_popup_on_start">
@@ -1329,14 +1349,14 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label for="VectFox_agentic_timeout"><small>Planner LLM Timeout (ms)</small></label>
-                                <input type="number" id="VectFox_agentic_timeout" class="vectfox-input" min="1000" max="60000" step="1000" />
-                                <small class="VectFox_hint">Hard timeout for the planner call. Default <b>30000 ms (30s)</b>. On timeout, agent mode falls back to pre-search only. Increase if your planner model is slow (large models / free-tier providers often take 10-20s on a 1500-token prompt).</small>
+                                <input type="number" id="VectFox_agentic_timeout" class="vectfox-input" min="${AGENTIC_TIMEOUT_MIN_MS}" max="${AGENTIC_TIMEOUT_MAX_MS}" step="1000" />
+                                <small class="VectFox_hint">Hard timeout for the planner call. Default <b>${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS / 1000}s)</b>. On timeout, agent mode falls back to pre-search only. Increase if your planner model is slow (large models / free-tier providers often take 10-20s on a 1500-token prompt). This time is <b>added to</b> "Retrieval Timeout" on the Core tab for the EventBase lookup, so raising it here is not capped by that setting.</small>
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label for="VectFox_agentic_query_timeout"><small>Per-query Timeout (ms)</small></label>
-                                <input type="number" id="VectFox_agentic_query_timeout" class="vectfox-input" min="1000" max="60000" step="1000" />
-                                <small class="VectFox_hint">Hard timeout for each parallel fanout query. Default <b>10000 ms (10s)</b>. Queries run in parallel, so the turn waits on the slowest one — this drops a straggling query (e.g. an embedding-provider latency spike) so a single slow call can't stall retrieval. The remaining queries still count.</small>
+                                <input type="number" id="VectFox_agentic_query_timeout" class="vectfox-input" min="${AGENTIC_TIMEOUT_MIN_MS}" max="${AGENTIC_TIMEOUT_MAX_MS}" step="1000" />
+                                <small class="VectFox_hint">Hard timeout for each parallel fanout query. Default <b>${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS / 1000}s)</b>. Queries run in parallel, so the turn waits on the slowest one — this drops a straggling query (e.g. an embedding-provider latency spike) so a single slow call can't stall retrieval. The remaining queries still count. Like the planner timeout above, this is <b>added to</b> "Retrieval Timeout" on the Core tab rather than capped by it.</small>
                             </div>
 
                             <!-- Apply planner filters (Phase 1.5) -->
@@ -3083,20 +3103,20 @@ function bindSettingsEvents(settings, callbacks) {
     bindAgenticSlider('#VectFox_agentic_candidates', '#VectFox_agentic_candidates_val', 'agentic_retrieval_candidates_to_show', 12);
     bindAgenticSlider('#VectFox_agentic_max_queries', '#VectFox_agentic_max_queries_val', 'agentic_retrieval_max_queries', 6);
 
+    // Both clamp through the same resolvers the retrieval path uses, so what the
+    // field accepts and what the budget honors can never drift apart.
     $('#VectFox_agentic_timeout')
-        .val(Number(settings.agentic_retrieval_timeout_ms ?? 30000))
+        .val(resolveAgenticPlannerTimeoutMs(settings))
         .on('change input', function() {
-            const v = Number($(this).val());
-            settings.agentic_retrieval_timeout_ms = Math.max(1000, Math.min(60000, v || 30000));
+            settings.agentic_retrieval_timeout_ms = resolveAgenticPlannerTimeoutMs({ agentic_retrieval_timeout_ms: $(this).val() });
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
 
     $('#VectFox_agentic_query_timeout')
-        .val(Number(settings.agentic_retrieval_query_timeout_ms ?? 10000))
+        .val(resolveAgenticQueryTimeoutMs(settings))
         .on('change input', function() {
-            const v = Number($(this).val());
-            settings.agentic_retrieval_query_timeout_ms = Math.max(1000, Math.min(60000, v || 10000));
+            settings.agentic_retrieval_query_timeout_ms = resolveAgenticQueryTimeoutMs({ agentic_retrieval_query_timeout_ms: $(this).val() });
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
@@ -3919,6 +3939,16 @@ function bindSettingsEvents(settings, callbacks) {
         .prop('checked', settings.autosync_show_progress_modal === true)
         .on('change', function() {
             settings.autosync_show_progress_modal = $(this).prop('checked');
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    // Per-turn retrieval budget. Clamped through the same resolver the retrieval
+    // path uses, so the field can never accept a value the budget won't honor.
+    $('#VectFox_retrieval_timeout_ms')
+        .val(resolveRetrievalTimeoutMs(settings))
+        .on('change input', function() {
+            settings.retrieval_timeout_ms = resolveRetrievalTimeoutMs({ retrieval_timeout_ms: $(this).val() });
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });

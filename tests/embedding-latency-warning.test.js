@@ -23,8 +23,8 @@ vi.mock('../core/providers.js', () => ({
     getModelFromSettings: (s) => s?.embedding_openrouter_model || '',
 }));
 
-import { warnIfEmbeddingSlow, SLOW_EMBEDDING_WARN_MS } from '../core/embedding-latency-warning.js';
-import { RETRIEVAL_TIMEOUT_MS } from '../core/constants.js';
+import { warnIfEmbeddingSlow, slowEmbeddingWarnMs } from '../core/embedding-latency-warning.js';
+import { RETRIEVAL_TIMEOUT_DEFAULT_MS } from '../core/constants.js';
 import { log } from '../core/log.js';
 
 const settings = { embedding_provider: 'openrouter', embedding_openrouter_model: 'qwen/qwen3-embedding-8b' };
@@ -51,8 +51,16 @@ describe('threshold', () => {
     it('sits at two thirds of the retrieval budget, not a free-standing number', () => {
         // The whole point is "approaching the cliff". Hard-coding it let the two
         // constants drift apart until the warning fired at a third of the budget.
-        expect(SLOW_EMBEDDING_WARN_MS).toBe(Math.round(RETRIEVAL_TIMEOUT_MS * (2 / 3)));
-        expect(SLOW_EMBEDDING_WARN_MS).toBe(10000);
+        expect(slowEmbeddingWarnMs(settings)).toBe(Math.round(RETRIEVAL_TIMEOUT_DEFAULT_MS * (2 / 3)));
+        expect(slowEmbeddingWarnMs(settings)).toBe(10000);
+    });
+
+    // The budget became a user setting in issue #16. A module-level constant
+    // would have kept warning at 10s for someone who raised the budget to 60s,
+    // reintroducing exactly the drift the test above exists to prevent.
+    it('tracks the budget the user actually configured', () => {
+        expect(slowEmbeddingWarnMs({ ...settings, retrieval_timeout_ms: 60000 })).toBe(40000);
+        expect(slowEmbeddingWarnMs({ ...settings, retrieval_timeout_ms: 6000 })).toBe(4000);
     });
 
     it('stays quiet at 5s — a healthy local provider reaches that', () => {
@@ -75,7 +83,7 @@ describe('warnIfEmbeddingSlow', () => {
     });
 
     it('stays quiet just under the threshold', () => {
-        expect(warnIfEmbeddingSlow(SLOW_EMBEDDING_WARN_MS - 1, settings)).toBe(false);
+        expect(warnIfEmbeddingSlow(slowEmbeddingWarnMs(settings) - 1, settings)).toBe(false);
         expect(log.warn).not.toHaveBeenCalled();
         expectNoToast(toastr);
     });
@@ -90,7 +98,7 @@ describe('warnIfEmbeddingSlow', () => {
         // Must exonerate the vector DB — misattributing this to Qdrant is what cost hours.
         expect(logged).toMatch(/vector database is NOT the bottleneck/i);
         // And it must quote the real budget, not a stale hard-coded "15s".
-        expect(logged).toContain(`${RETRIEVAL_TIMEOUT_MS / 1000}s`);
+        expect(logged).toContain(`${(RETRIEVAL_TIMEOUT_DEFAULT_MS / 1000).toFixed(1)}s`);
     });
 
     it('NEVER toasts, at any severity, however slow the embed', () => {

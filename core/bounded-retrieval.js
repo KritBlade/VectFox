@@ -21,7 +21,7 @@
  */
 
 import AsyncUtils from '../utils/async-utils.js';
-import { RETRIEVAL_TIMEOUT_MS } from './constants.js';
+import { resolveRetrievalTimeoutMs } from './retrieval-budget.js';
 import { notifyRetrievalFailure } from './model-config-notifier.js';
 import { describeEmbeddingTimeoutCause } from './embedding-latency-warning.js';
 import { log } from './log.js';
@@ -44,23 +44,35 @@ const TIMEOUT_PATTERN = /timed out|timeout|aborted/i;
  * @param {string} options.sourceName - what was being searched, in the user's words
  * @param {string} options.timeoutMessage - message for the timeout Error
  * @param {T} [options.fallback] - value returned when the retrieval fails (default undefined)
- * @param {object} [options.settings] - VectFox settings; used only to name the
- *   embedding provider in the timeout explanation. Omitting it costs the "why",
- *   not the surfacing.
+ * @param {object} [options.settings] - VectFox settings; supplies the budget
+ *   (`retrieval_timeout_ms`) and names the embedding provider in the timeout
+ *   explanation. Omitting it costs the "why" and falls back to the default
+ *   budget, not the surfacing.
+ * @param {number} [options.timeoutMs] - explicit budget, overriding the one
+ *   resolved from settings. Only for paths whose real cost is larger than a
+ *   plain lookup — the EventBase path passes the Agent Mode-inclusive budget
+ *   from resolveEventBaseRetrievalTimeoutMs().
  * @returns {Promise<T|undefined>} the result, or `fallback` on timeout/error
  */
-export async function runBoundedRetrieval(promise, { contextLabel, sourceName, timeoutMessage, fallback, settings } = {}) {
+export async function runBoundedRetrieval(promise, { contextLabel, sourceName, timeoutMessage, fallback, settings, timeoutMs } = {}) {
+    const budgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? timeoutMs
+        : resolveRetrievalTimeoutMs(settings);
     try {
-        return await AsyncUtils.timeout(promise, RETRIEVAL_TIMEOUT_MS, timeoutMessage);
+        return await AsyncUtils.timeout(promise, budgetMs, timeoutMessage);
     } catch (error) {
         // A bare "retrieval timed out" names nothing the user can change, so they
         // read it as "the extension is broken" (which is how it was reported). The
         // timeout carries no timings — the request is still in flight — so the
         // attribution has to come from configuration. See
         // core/embedding-latency-warning.js for the measurements behind it.
+        //
+        // Name the budget too: until it became a setting, users hitting this had
+        // nothing to change even once they believed the diagnosis (issue #16).
         const rawMessage = error?.message || String(error || 'unknown error');
         const detail = TIMEOUT_PATTERN.test(rawMessage)
-            ? `${rawMessage}. ${describeEmbeddingTimeoutCause(settings)}`
+            ? `${rawMessage} after ${(budgetMs / 1000).toFixed(1)}s. ${describeEmbeddingTimeoutCause(settings)} `
+              + `If it is simply slow rather than broken, raise "Retrieval Timeout" in the Core tab.`
             : rawMessage;
 
         log.error(

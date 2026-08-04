@@ -27,6 +27,7 @@ import { stripReasoningBlocks, stripGameSystemBlocks } from './text-cleaning.js'
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
+import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs } from './retrieval-budget.js';
 import { log } from './log.js';
 
 // ============================================================================
@@ -111,7 +112,7 @@ export async function retrieveEventsWithAgent(params) {
         log.domain('agent', 'lifecycle', `[VectFox-Agentic] LLM prompt size: system+user approx ${approxTokens} tokens (${systemPromptText.length}+${userMessage.length} chars)`);
     }
 
-    const timeoutMs = settings.agentic_retrieval_timeout_ms || 30000;
+    const timeoutMs = resolveAgenticPlannerTimeoutMs(settings);
     let plan;
     const tLlmStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     try {
@@ -210,7 +211,7 @@ export async function retrieveEventsWithAgent(params) {
     // tens of seconds. Cap each query; a straggler is dropped and the other
     // queries' results still flow through. queryCollection has no abort hook, so
     // the underlying request keeps running — we just stop awaiting it.
-    const queryTimeoutMs = Math.max(1000, settings.agentic_retrieval_query_timeout_ms || 10000);
+    const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
     const tFanoutStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const fanoutPromises = [];
     for (const colId of liveCollectionIds) {
