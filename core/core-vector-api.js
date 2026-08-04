@@ -187,10 +187,20 @@ function chunkArray(array, size) {
  * point ID. Whichever attempt wins, the data is correct. Late-arriving losers harmlessly
  * upsert the same point with identical data.
  *
- * Hedge-fatal: if all (maxHedges + 1) attempts fail (or are still in flight) by the hard
- * cutoff at (maxHedges + 1) × thresholdMs, throw an error with `name === 'HedgeFatalError'`
- * and `isHedgeFatal === true`. The shouldRetry filter in RETRY_CONFIG checks this flag and
- * skips retrying — the user can resume manually via Continue button. See
+ * Two triggers, one ordered sequence of hedges:
+ *   - the fixed schedule (t = i × thresholdMs) covers the case this was built for, an
+ *     attempt that hangs rather than returning;
+ *   - an attempt that FAILS brings the next hedge forward immediately, because the
+ *     schedule measures slowness and a failure is not slowness. Without this a fast
+ *     failure just idles until its slot (measured 2026-08-04: a 0.7s insert failure
+ *     waited 14.3s for t=15s).
+ * Attempts still cap at maxHedges + 1 either way.
+ *
+ * Hedge-fatal: if all (maxHedges + 1) attempts fail, throw an error with
+ * `name === 'HedgeFatalError'` and `isHedgeFatal === true` — immediately once the last
+ * one fails, or at the hard cutoff at (maxHedges + 1) × thresholdMs if attempts are
+ * still in flight. The shouldRetry filter in RETRY_CONFIG checks this flag and skips
+ * retrying — the user can resume manually via Continue button. See
  * plans/embedding-resilience-hedge-and-diagnostics.md §6.
  *
  * @param {Function} fn - Async function to call (each invocation must be safe to repeat)
@@ -199,7 +209,7 @@ function chunkArray(array, size) {
  * @param {object} ctx - { debugOn, batchIdx, totalBatches, provider } for logging
  * @returns {Promise<*>} - Result of the first attempt to succeed
  */
-async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
+export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
     return new Promise((resolve, reject) => {
         let settled = false;
         const timers = [];
@@ -215,10 +225,49 @@ async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
 
         const label = (i) => (i === 0 ? 'primary' : `hedge ${i}/${maxHedges}`);
 
+        // Hedges fire in order, from either the fixed schedule below or early when an
+        // attempt fails. Both routes go through startHedge, and each slot checks
+        // `hedgesFired`, so a slot can never fire twice and the total attempt count
+        // stays at maxHedges + 1.
+        let hedgesFired = 0;
+        let attemptsInFlight = 0;
+        const hedgeTimers = new Map();
+
+        const buildHedgeFatal = () => {
+            const lastError = errors.length ? errors[errors.length - 1].error : null;
+            const tail = lastError
+                ? `last error: ${lastError?.name || 'Error'}: ${lastError?.message || lastError}`
+                : `${maxHedges + 1} attempts still in-flight at cutoff, none returned`;
+            const fatalErr = new Error(
+                `Hedge fatal: ${maxHedges + 1} attempts to ${provider} over ${((maxHedges + 1) * thresholdMs) / 1000}s — ${tail}`,
+            );
+            fatalErr.name = 'HedgeFatalError';
+            fatalErr.isHedgeFatal = true;
+            return fatalErr;
+        };
+
+        const startHedge = (i, isEarly) => {
+            if (settled || i > maxHedges) return;
+            hedgesFired = i;
+            const scheduled = hedgeTimers.get(i);
+            if (scheduled) {
+                clearTimeout(scheduled);
+                hedgeTimers.delete(i);
+            }
+            if (debugOn) {
+                log.warn(isEarly
+                    ? `VectFox: hedge ${i}/${maxHedges} firing early — batch ${batchIdx}/${totalBatches} via ${provider} (previous attempt FAILED; not waiting for t=${(i * thresholdMs) / 1000}s)`
+                    : `VectFox: hedge ${i}/${maxHedges} firing at t=${(i * thresholdMs) / 1000}s — batch ${batchIdx}/${totalBatches} via ${provider} (previous attempt still running)`);
+            }
+            fire(i);
+        };
+
         const fire = (attemptIdx) => {
             const start = performance.now();
+            attemptsInFlight++;
             fn().then(
                 (r) => {
+                    attemptsInFlight--;
                     if (settled) return; // someone else already won
                     if (attemptIdx > 0) {
                         // A hedge (not the primary) won — recovered-from anomaly.
@@ -231,6 +280,7 @@ async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                     settle('ok', r);
                 },
                 (e) => {
+                    attemptsInFlight--;
                     errors.push({ attemptIdx, error: e });
                     if (debugOn && !settled) {
                         const elapsed = ((performance.now() - start) / 1000).toFixed(1);
@@ -249,7 +299,21 @@ async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                         settle('err', e);
                         return;
                     }
-                    // Don't settle on other individual failures — later hedges may still succeed
+                    // Don't settle on other individual failures — later hedges may still
+                    // succeed. But don't idle either. The schedule below measures "this
+                    // attempt is slow", and a failure is not slowness: leaving the batch
+                    // dead until the next slot comes round wastes the whole threshold.
+                    // Measured 2026-08-04: an insert that 500'd after 0.7s sat idle for
+                    // 14.3s waiting for t=15s, and the log claimed "primary still slow"
+                    // about an attempt that had already failed.
+                    if (settled) return;
+                    if (hedgesFired < maxHedges) {
+                        startHedge(hedgesFired + 1, true);
+                        return;
+                    }
+                    // Last attempt, and nothing left in flight: every attempt has failed,
+                    // so the hard cutoff below can only add dead time before saying so.
+                    if (attemptsInFlight === 0) settle('err', buildHedgeFatal());
                 },
             );
         };
@@ -259,16 +323,14 @@ async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
 
         // Schedule hedges at t=thresholdMs, 2×thresholdMs, ..., maxHedges×thresholdMs
         for (let i = 1; i <= maxHedges; i++) {
-            timers.push(setTimeout(() => {
-                if (!settled) {
-                    if (debugOn) {
-                        log.warn(
-                            `VectFox: hedge ${i}/${maxHedges} firing at t=${(i * thresholdMs) / 1000}s — batch ${batchIdx}/${totalBatches} via ${provider} (primary still slow)`,
-                        );
-                    }
-                    fire(i);
-                }
-            }, i * thresholdMs));
+            const scheduled = setTimeout(() => {
+                // A failure may already have brought this slot forward; the clock must
+                // not fire it a second time.
+                if (settled || hedgesFired >= i) return;
+                startHedge(i, false);
+            }, i * thresholdMs);
+            hedgeTimers.set(i, scheduled);
+            timers.push(scheduled);
         }
 
         // Hard fatal cutoff at t=(maxHedges + 1) × thresholdMs.
@@ -276,16 +338,7 @@ async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
         // — either way, after 4 attempts to a routing-variant provider, more retries won't help.
         timers.push(setTimeout(() => {
             if (settled) return;
-            const lastError = errors.length ? errors[errors.length - 1].error : null;
-            const tail = lastError
-                ? `last error: ${lastError?.name || 'Error'}: ${lastError?.message || lastError}`
-                : `${maxHedges + 1} attempts still in-flight at cutoff, none returned`;
-            const fatalErr = new Error(
-                `Hedge fatal: ${maxHedges + 1} attempts to ${provider} over ${((maxHedges + 1) * thresholdMs) / 1000}s — ${tail}`,
-            );
-            fatalErr.name = 'HedgeFatalError';
-            fatalErr.isHedgeFatal = true;
-            settle('err', fatalErr);
+            settle('err', buildHedgeFatal());
         }, (maxHedges + 1) * thresholdMs));
     });
 }
