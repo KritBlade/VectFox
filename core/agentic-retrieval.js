@@ -27,7 +27,7 @@ import { stripReasoningBlocks, stripGameSystemBlocks } from './text-cleaning.js'
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs } from './retrieval-budget.js';
+import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from './retrieval-budget.js';
 import { log } from './log.js';
 
 // ============================================================================
@@ -126,6 +126,7 @@ export async function retrieveEventsWithAgent(params) {
                 userMessage,
                 llmCfg,
                 timeoutMs,
+                maxTokens: resolveAgenticMaxTokens(settings),
             }),
             generationRateLimitSettings(settings),
             'agent',
@@ -350,7 +351,7 @@ export function _resolveAgenticLLMConfig(settings = {}) {
  * Call the planner LLM and return parsed JSON output.
  * Throws on network/auth failure, empty response, or unparseable JSON.
  */
-async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs }) {
+async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs, maxTokens }) {
     // Shared HTTP + response classification (llm-provider-call.js). The planner
     // is a two-message, json_object call. authBranch:false preserves the prior
     // behavior of folding 401/403 into the model-config / generic paths (Agent
@@ -365,7 +366,7 @@ async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs }) {
             model: llmCfg.model,
             provider: llmCfg.provider,
             vllmUrl: llmCfg.vllmUrl || '',
-            maxTokens: 2000,
+            maxTokens,
             temperature: 0.2,
             timeoutMs,
             responseFormat: { type: 'json_object' },
@@ -382,8 +383,20 @@ async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs }) {
         throw e;
     }
 
+    // A thinking model emits its reasoning BEFORE the JSON — `<think>…</think>{…}`
+    // — and `response_format: json_object` does not stop it. Left in, that leading
+    // block fails JSON.parse and Agent Mode silently drops to pre-search, which is
+    // the shape GitHub issue #18 was reported in. `should_disable_thinking` sends
+    // `reasoning_effort: 'none'`, but that is a REQUEST: plenty of models ignore
+    // it, and a 200 response never proves the parameter took effect. So strip
+    // unconditionally rather than trusting the switch — same reasoning as the
+    // stripReasoningBlocks() docstring, which is already unconditional for
+    // exactly this class of failure.
+    // Runs BEFORE the fence strip: a fenced reply reads ```json…``` only once the
+    // reasoning ahead of it is gone.
+    const withoutReasoning = stripReasoningBlocks(String(content));
     // Some providers wrap in markdown fences despite response_format=json_object.
-    const cleaned = String(content).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const cleaned = withoutReasoning.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
     let parsed;
     try {
         parsed = JSON.parse(cleaned);

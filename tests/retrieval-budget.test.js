@@ -20,6 +20,7 @@ import {
     resolveRetrievalTimeoutMs,
     resolveAgenticPlannerTimeoutMs,
     resolveAgenticQueryTimeoutMs,
+    resolveAgenticMaxTokens,
     agenticRetrievalExtraBudgetMs,
     resolveEventBaseRetrievalTimeoutMs,
 } from '../core/retrieval-budget.js';
@@ -31,6 +32,9 @@ import {
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
     AGENTIC_TIMEOUT_MIN_MS,
     AGENTIC_TIMEOUT_MAX_MS,
+    AGENTIC_MAX_TOKENS_DEFAULT,
+    AGENTIC_MAX_TOKENS_MIN,
+    AGENTIC_MAX_TOKENS_MAX,
 } from '../core/constants.js';
 
 /** Agent mode active: enabled AND on the only backend that supports it. */
@@ -73,6 +77,29 @@ describe('agent mode timeouts', () => {
 
         expect(resolveAgenticPlannerTimeoutMs({ agentic_retrieval_timeout_ms: 1 })).toBe(AGENTIC_TIMEOUT_MIN_MS);
         expect(resolveAgenticQueryTimeoutMs({ agentic_retrieval_query_timeout_ms: 999_999 })).toBe(AGENTIC_TIMEOUT_MAX_MS);
+    });
+
+    // Issue #18: this was a hardcoded 2000 inside _callPlanner with no setting
+    // and no UI, so a thinking planner — which spends the cap on reasoning before
+    // emitting any JSON — could not be given more room.
+    it('expose the planner token cap, defaulting to the literal it replaced', () => {
+        expect(resolveAgenticMaxTokens({})).toBe(AGENTIC_MAX_TOKENS_DEFAULT);
+        expect(AGENTIC_MAX_TOKENS_DEFAULT).toBe(2000);   // exposing a knob must not move behavior
+    });
+
+    it('honors and clamps a configured token cap, string included', () => {
+        expect(resolveAgenticMaxTokens({ agentic_retrieval_max_tokens: 8000 })).toBe(8000);
+        expect(resolveAgenticMaxTokens({ agentic_retrieval_max_tokens: '8000' })).toBe(8000);
+        expect(resolveAgenticMaxTokens({ agentic_retrieval_max_tokens: 1 })).toBe(AGENTIC_MAX_TOKENS_MIN);
+        expect(resolveAgenticMaxTokens({ agentic_retrieval_max_tokens: 999_999 })).toBe(AGENTIC_MAX_TOKENS_MAX);
+    });
+
+    // A 0 here would cap the planner at nothing, i.e. agent mode never works.
+    it('falls back to the default on values that would starve the planner', () => {
+        for (const bad of [0, -1, null, NaN, '', 'lots', {}]) {
+            expect(resolveAgenticMaxTokens({ agentic_retrieval_max_tokens: bad }), String(bad))
+                .toBe(AGENTIC_MAX_TOKENS_DEFAULT);
+        }
     });
 
     it('adds nothing when agent mode is off', () => {

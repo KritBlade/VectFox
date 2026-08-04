@@ -45,11 +45,15 @@ import {
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
     AGENTIC_TIMEOUT_MIN_MS,
     AGENTIC_TIMEOUT_MAX_MS,
+    AGENTIC_MAX_TOKENS_DEFAULT,
+    AGENTIC_MAX_TOKENS_MIN,
+    AGENTIC_MAX_TOKENS_MAX,
 } from '../core/constants.js';
 import {
     resolveRetrievalTimeoutMs,
     resolveAgenticPlannerTimeoutMs,
     resolveAgenticQueryTimeoutMs,
+    resolveAgenticMaxTokens,
 } from '../core/retrieval-budget.js';
 import { log } from '../core/log.js';
 
@@ -1351,6 +1355,12 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <label for="VectFox_agentic_timeout"><small>Planner LLM Timeout (ms)</small></label>
                                 <input type="number" id="VectFox_agentic_timeout" class="vectfox-input" min="${AGENTIC_TIMEOUT_MIN_MS}" max="${AGENTIC_TIMEOUT_MAX_MS}" step="1000" />
                                 <small class="VectFox_hint">Hard timeout for the planner call. Default <b>${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS / 1000}s)</b>. On timeout, agent mode falls back to pre-search only. Increase if your planner model is slow (large models / free-tier providers often take 10-20s on a 1500-token prompt). This time is <b>added to</b> "Retrieval Timeout" on the Core tab for the EventBase lookup, so raising it here is not capped by that setting.</small>
+                            </div>
+
+                            <div class="vectfox-form-group">
+                                <label for="VectFox_agentic_max_tokens"><small>Planner Max Output Tokens</small></label>
+                                <input type="number" id="VectFox_agentic_max_tokens" class="vectfox-input" min="${AGENTIC_MAX_TOKENS_MIN}" max="${AGENTIC_MAX_TOKENS_MAX}" step="256" />
+                                <small class="VectFox_hint">Output-token cap for the planner call. Default <b>${AGENTIC_MAX_TOKENS_DEFAULT}</b>, range ${AGENTIC_MAX_TOKENS_MIN}–${AGENTIC_MAX_TOKENS_MAX}. The planner only returns a short JSON object, so the default is ample for a model that answers directly. <b>Raise it if your planner model reasons</b> — thinking tokens are charged against this same cap, so a reasoning model can spend the whole budget before writing any JSON, and agent mode then falls back to pre-search. "Disable thinking" on the Core tab only <i>asks</i> the model not to reason; many models ignore it.</small>
                             </div>
 
                             <div class="vectfox-form-group">
@@ -3117,6 +3127,14 @@ function bindSettingsEvents(settings, callbacks) {
         .val(resolveAgenticQueryTimeoutMs(settings))
         .on('change input', function() {
             settings.agentic_retrieval_query_timeout_ms = resolveAgenticQueryTimeoutMs({ agentic_retrieval_query_timeout_ms: $(this).val() });
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_agentic_max_tokens')
+        .val(resolveAgenticMaxTokens(settings))
+        .on('change input', function() {
+            settings.agentic_retrieval_max_tokens = resolveAgenticMaxTokens({ agentic_retrieval_max_tokens: $(this).val() });
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });

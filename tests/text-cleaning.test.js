@@ -72,6 +72,32 @@ describe('stripReasoningBlocks', () => {
         expect(stripReasoningBlocks(null)).toBe(null);
         expect(stripReasoningBlocks(undefined)).toBe(undefined);
     });
+
+    // GitHub issue #18. The Agent Mode planner asks for `response_format:
+    // json_object`, which does NOT stop a thinking model emitting its reasoning
+    // first. _callPlanner runs this strip before JSON.parse; without it the
+    // leading block throws and Agent Mode drops to pre-search with only a log
+    // line, reading to the user as "agent mode does nothing".
+    it('leaves a thinking model’s JSON reply parseable (the Agent Mode planner shape)', () => {
+        const raw = '<think>The user asked about the shell. I should query for it.</think>\n'
+            + '{"queries":["貝殼 莉莉安"],"filters":{"importance_gte":3}}';
+
+        const out = stripReasoningBlocks(raw);
+
+        expect(() => JSON.parse(out.trim())).not.toThrow();
+        expect(JSON.parse(out.trim()).queries).toEqual(['貝殼 莉莉安']);
+    });
+
+    it('same, when the model also fences the JSON', () => {
+        // _callPlanner strips reasoning FIRST, then the ``` fence — the fence is
+        // only findable at the string edges once the reasoning ahead of it is gone.
+        const raw = '<think>planning</think>\n```json\n{"queries":["a"]}\n```';
+
+        const cleaned = stripReasoningBlocks(raw)
+            .trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+        expect(JSON.parse(cleaned).queries).toEqual(['a']);
+    });
 });
 
 describe('stripGameSystemBlocks', () => {
