@@ -2430,6 +2430,30 @@ function bindSettingsEvents(settings, callbacks) {
         });
     _applyMasterSwitchUI(settings.enabled !== false);
 
+    /**
+     * Turn Summarizer Injection off, because auto-sync — its data source — is not
+     * running. Without auto-sync the collection stops tracking the chat, so
+     * "the most recent N events" silently becomes some older N: the injection
+     * keeps firing and feeds the model information that is simply wrong. Off is
+     * the only safe state.
+     *
+     * Called from every path that leaves auto-sync off, including the two that
+     * REFUSE to turn it on (no chat / no collection). Those return early, so
+     * they used to skip the disable branch below — which is how the summarizer
+     * could sit checked next to an unchecked auto-sync.
+     *
+     * @param {string} reason - shown to the user, completing "Summarizer Injection disabled (…)"
+     */
+    const _disableSummarizerInjectionBecauseAutoSyncIsOff = (reason) => {
+        if (!settings.summarizer_injection_enabled) return;
+        settings.summarizer_injection_enabled = false;
+        Object.assign(extension_settings.vectfox, settings);
+        saveSettingsDebounced();
+        $('#VectFox_summarizer_injection_enabled').prop('checked', false);
+        _applySummarizerLock();
+        toastr.info(`Summarizer Injection disabled (${reason})`);
+    };
+
     // Auto-sync enable/disable - now per-collection instead of global
     // Initial state is set by refreshAutoSyncCheckbox() after chat loads
     $('#VectFox_autosync_enabled')
@@ -2446,6 +2470,7 @@ function bindSettingsEvents(settings, callbacks) {
             if (status.state === 'no-chat') {
                 toastr.warning('Open a chat first before enabling auto-sync');
                 $checkbox.prop('checked', false);
+                _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
                 await refreshAutoSyncCheckbox(settings);
                 return;
             }
@@ -2456,6 +2481,7 @@ function bindSettingsEvents(settings, callbacks) {
                     log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveActiveEventBaseCollection found no eligible collection — see [EventBase][resolve] log above)');
                     $checkbox.prop('checked', false);
                     toastr.info('Vectorize your chat history first');
+                    _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync, which needs a vectorized chat');
                     openContentVectorizer('chat');
                     return;
                 }
@@ -2549,19 +2575,9 @@ function bindSettingsEvents(settings, callbacks) {
                 toastr.success(message);
                 log.lifecycle(`VectFox: Chat auto-sync ENABLED for ${lockKey} (state=${status.state})`);
             } else {
-                // Auto-sync is the summarizer's data source — once it's off, "most recent
-                // N events" goes stale, so disabling auto-sync also disables the summarizer
-                // to keep the two consistent (reverse of the forward bind in the summarizer
-                // checkbox handler). Set the flag + checkbox directly and release the window
-                // lock; the injection self-clears on its next (now-disabled) turn.
-                if (settings.summarizer_injection_enabled) {
-                    settings.summarizer_injection_enabled = false;
-                    Object.assign(extension_settings.vectfox, settings);
-                    saveSettingsDebounced();
-                    $('#VectFox_summarizer_injection_enabled').prop('checked', false);
-                    _applySummarizerLock();
-                    toastr.info('Summarizer Injection disabled (needs auto-sync)');
-                }
+                // Reverse of the forward bind in the summarizer checkbox handler; the
+                // injection self-clears on its next (now-disabled) turn.
+                _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
 
                 // Uncheck — clear ONLY the auto-sync flag. Do NOT touch the chat
                 // lock: the lock is a separate concern (it marks the collection
@@ -3831,6 +3847,12 @@ function bindSettingsEvents(settings, callbacks) {
             // checkbox's OWN enable flow (backlog catch-up gate, lock, marker stamp) rather
             // than duplicating it. Symmetric with the window-lock above: while the
             // summarizer runs, both the window (1 turn) and auto-sync (on) are bound to it.
+            //
+            // That flow may REFUSE (no chat, or no collection yet), and being async it
+            // cannot report back to this handler. It therefore revokes the summarizer
+            // itself via _disableSummarizerInjectionBecauseAutoSyncIsOff, so the pair can
+            // never end up disagreeing — which is what left the summarizer checked beside
+            // an unchecked auto-sync, injecting stale events as if they were the latest.
             if (enabling) {
                 const $autosync = $('#VectFox_autosync_enabled');
                 if (!$autosync.prop('checked')) {
