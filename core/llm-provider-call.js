@@ -178,10 +178,14 @@ export function resolveModelParameterStyle(settings = {}) {
         tokenLimitParameter: settings?.should_use_max_completion_tokens
             ? 'max_completion_tokens'
             : 'max_tokens',
-        // Opt-in, and only ever 'none' — never a weaker effort level. Anything
-        // else still thinks, just less, so it would be a switch whose label
-        // over-promises. Off by default: existing setups keep today's behaviour.
-        reasoningEffort: settings?.should_disable_thinking ? 'none' : null,
+        // ON unless the user turns it off — thinking earns nothing on the
+        // schema-filling work every one of these features does, while costing
+        // latency, tokens, and (measured) whole runs that return nothing.
+        //
+        // Only ever 'none', never a weaker effort level: 'minimal' and 'low'
+        // still think, just less, so a switch labelled "turn off thinking"
+        // would over-promise.
+        reasoningEffort: settings?.should_disable_thinking !== false ? 'none' : null,
     };
 }
 

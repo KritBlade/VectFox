@@ -458,7 +458,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                         <input type="checkbox" id="VectFox_should_disable_thinking" />
                                         <span>Turn off model thinking</span>
                                     </label>
-                                    <small class="VectFox_hint">Default (unchecked) leaves the model's own behaviour alone. Check it to send <code>reasoning_effort: "none"</code>, which makes a reasoning model answer without thinking first. Worth it because thinking is invisible, billed, and counted against your token limit — a model can spend the entire limit before writing a single character, then return nothing at all. Measured on one EventBase window: <code>deepseek-v4-flash</code> went from 153.5s and 1632 thinking tokens to <b>6.7s and zero</b>, and <code>gpt-5.6-luna</code> from 29.5s to <b>3.0s</b>, both still extracting correctly. Harmless on models that never think. Affects every LLM call.</small>
+                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first. VectFox asks models to fill a fixed schema, which thinking does not improve — while costing latency, tokens, and sometimes the whole answer, since thinking is invisible, billed, and counted against your token limit. Measured on one EventBase window: <code>deepseek-v4-flash</code> went from 153.5s and 1632 thinking tokens to <b>6.7s and zero</b>, and <code>gpt-5.6-luna</code> from 29.5s to <b>3.0s</b>, both still extracting correctly. Harmless on models that never think — verified across 9 models and 6 vendors. Uncheck it if a self-hosted endpoint rejects the parameter, or if you want thinking back for Agent Mode. Affects every LLM call.</small>
                                 </div>
                             </div>
 
@@ -2650,7 +2650,7 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     $('#VectFox_should_disable_thinking')
-        .prop('checked', settings.should_disable_thinking === true)
+        .prop('checked', settings.should_disable_thinking !== false)
         .on('change', function() {
             settings.should_disable_thinking = $(this).prop('checked');
             Object.assign(extension_settings.vectfox, settings);

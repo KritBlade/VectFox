@@ -167,6 +167,22 @@ describe('postChatCompletion — request body', () => {
         expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning_effort).toBe('none');
     });
 
+    // The path every feature actually uses: spread the resolved style into the
+    // call. Asserting the two defaults separately would miss a break between them.
+    it('carries reasoning_effort:none to the wire on default settings', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+        await postChatCompletion({ ...baseArgs(), ...resolveModelParameterStyle({}) });
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe('none');
+    });
+
+    it('omits it entirely once the user turns thinking back on', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+        await postChatCompletion({ ...baseArgs(), ...resolveModelParameterStyle({ should_disable_thinking: false }) });
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('reasoning_effort');
+    });
+
     it('carries reasoning_effort on the vLLM/custom route too', async () => {
         const fetchMock = vi.fn(async () => okResponse());
         vi.stubGlobal('fetch', fetchMock);
@@ -194,11 +210,11 @@ describe('postChatCompletion — request body', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveModelParameterStyle', () => {
-    it('defaults to the classic OpenAI shape', () => {
+    it('defaults to the classic OpenAI shape, with thinking off', () => {
         expect(resolveModelParameterStyle({})).toEqual({
             sendTemperature: true,
             tokenLimitParameter: 'max_tokens',
-            reasoningEffort: null,
+            reasoningEffort: 'none',
         });
     });
 
@@ -206,7 +222,7 @@ describe('resolveModelParameterStyle', () => {
         expect(resolveModelParameterStyle()).toEqual({
             sendTemperature: true,
             tokenLimitParameter: 'max_tokens',
-            reasoningEffort: null,
+            reasoningEffort: 'none',
         });
     });
 
@@ -217,7 +233,7 @@ describe('resolveModelParameterStyle', () => {
         })).toEqual({
             sendTemperature: false,
             tokenLimitParameter: 'max_completion_tokens',
-            reasoningEffort: null,
+            reasoningEffort: 'none',
         });
     });
 
@@ -228,17 +244,19 @@ describe('resolveModelParameterStyle', () => {
             .toMatchObject({ sendTemperature: true, tokenLimitParameter: 'max_completion_tokens' });
     });
 
-    // Off by default, so existing setups keep the behaviour they have today.
-    it('asks for no thinking only when should_disable_thinking is on', () => {
-        expect(resolveModelParameterStyle({}).reasoningEffort).toBeNull();
-        expect(resolveModelParameterStyle({ should_disable_thinking: false }).reasoningEffort).toBeNull();
+    // On by default — thinking earns nothing on schema-filling work. Only an
+    // explicit false brings it back, which is the same shape as the temperature
+    // switch beside it, so there is no third state to reason about.
+    it('asks for no thinking unless should_disable_thinking is explicitly false', () => {
+        expect(resolveModelParameterStyle({}).reasoningEffort).toBe('none');
         expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).toBe('none');
+        expect(resolveModelParameterStyle({ should_disable_thinking: false }).reasoningEffort).toBeNull();
     });
 
     // Only ever 'none' — a weaker effort still thinks, so the label would lie.
     it('never asks for a partial thinking budget', () => {
-        expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).not.toBe('minimal');
-        expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).not.toBe('low');
+        expect(resolveModelParameterStyle({}).reasoningEffort).not.toBe('minimal');
+        expect(resolveModelParameterStyle({}).reasoningEffort).not.toBe('low');
     });
 });
 
