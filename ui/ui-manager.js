@@ -935,7 +935,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     Auto-sync window: <span id="VectFox_eventbase_autosync_window_turns_val">1</span> turn(s)
                                     <span class="VectFox_hint" id="VectFox_autosync_window_msg_equiv" style="margin-left:4px;">(= 2 messages)</span>
                                 </label>
-                                <input type="range" id="VectFox_eventbase_autosync_window_turns" min="1" max="20" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_autosync_window_turns" min="1" max="20" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Independent of the EventBase "Window Size". 1 turn = 2 messages (1 user + 1 AI reply). Auto-sync extracts a window every this-many turns of new chat.</small>
                             </div>
 
@@ -948,7 +948,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <small class="VectFox_hint">Inject the most recent N EventBase summaries into the prompt every turn (wrapped in &lt;VectFoxSummarizer&gt; tags), in addition to semantic retrieval. Enables word-for-word-ish memory of the last few turns. <strong>Turns on auto-sync and forces its window to 1 turn while on</strong> (so the latest reply is always extracted before the next injection).</small>
                                 <div class="vectfox-form-group" id="VectFox_summarizer_injection_count_group" style="margin-top: 8px;">
                                     <label class="vectfox-label">Inject last <span id="VectFox_summarizer_injection_count_val">20</span> turn(s)</label>
-                                    <input type="range" id="VectFox_summarizer_injection_count" min="1" max="50" step="1" class="vectfox-range" />
+                                    <input type="range" id="VectFox_summarizer_injection_count" min="1" max="50" step="1" class="vectfox-slider" />
                                 </div>
                                 <label class="checkbox_label" for="VectFox_summarizer_injection_full_detail" style="margin-top: 8px;">
                                     <input type="checkbox" id="VectFox_summarizer_injection_full_detail" />
@@ -968,7 +968,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <small class="VectFox_hint">Keep the most recent messages raw and blank ALL older already-vectorized messages from the prompt sent to the AI. The chat UI and saved file are <strong>untouched</strong>, and it resets every turn. The wiped turns rely on EventBase memory (the injection above + semantic retrieval) instead of their raw text — so check your recall quality as you <strong>lower</strong> the slider. Scales to any chat length. Requires Summarizer Injection.</small>
                                     <div class="vectfox-form-group" id="VectFox_eventbase_ghost_keep_recent_group" style="margin-top: 8px;">
                                         <label class="vectfox-label">Keep last <span id="VectFox_eventbase_ghost_keep_recent_val">10</span> message(s) verbatim</label>
-                                        <input type="range" id="VectFox_eventbase_ghost_keep_recent" min="0" max="100" step="1" class="vectfox-range" />
+                                        <input type="range" id="VectFox_eventbase_ghost_keep_recent" min="0" max="100" step="1" class="vectfox-slider" />
                                         <small class="VectFox_hint">Everything older than this that's been vectorized is wiped (never the recent un-synced tail). Lower = more aggressive (more tokens saved). Even at <strong>0</strong>, ghosting always keeps the current turn and your World Info scan window verbatim — so it never breaks keyword triggers and never sends an empty prompt. "<strong>0</strong>" means "wipe as much as is safe," not literally everything.</small>
                                     </div>
                                     <div id="VectFox_eventbase_ghost_readout" class="VectFox_hint" style="margin-top: 8px; display:block; padding: 6px 8px; border-radius: 6px; background: rgba(127,127,127,0.12);">Last turn: no generation yet.</div>
@@ -1127,13 +1127,13 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Min Importance to Store <span id="VectFox_eventbase_min_importance_store_val">3</span></label>
-                                <input type="range" id="VectFox_eventbase_min_importance_store" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_min_importance_store" min="1" max="10" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Events below this importance threshold are discarded before writing to Qdrant.</small>
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max Events per Window <span id="VectFox_eventbase_max_events_per_window_val">3</span></label>
-                                <input type="range" id="VectFox_eventbase_max_events_per_window" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_max_events_per_window" min="1" max="10" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Hard cap per LLM call. AI is instructed to return fewer (or zero) for filler / 日常 nichijou / non-narrative scenes.</small>
                             </div>
 
@@ -1145,12 +1145,9 @@ export function renderSettings(containerId, settings, callbacks) {
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max Output Tokens</label>
                                 <input type="number" id="VectFox_eventbase_max_tokens" class="vectfox-input" min="256" max="32768" step="64" style="width:120px;" />
-                                <small class="VectFox_hint" style="display:block; margin-top:4px;">
-                                    A reasoning model spends this budget on thinking <em>before</em> it writes anything,
-                                    and most providers never show you that thinking — measured against
-                                    deepseek-v4-flash, a 3.7k-token window consumed all 2048 tokens and returned an
-                                    empty reply. If extraction fails with "used its entire token limit without
-                                    answering", raise this well above the default.
+                                <small class="VectFox_hint">
+                                    Raise this if extraction fails with "used its entire token limit without
+                                    answering" — a thinking model spends this budget before it writes anything.
                                 </small>
                             </div>
 
@@ -1182,12 +1179,12 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Retrieve Top-K <span id="VectFox_eventbase_retrieval_top_k_val">10</span></label>
-                                <input type="range" id="VectFox_eventbase_retrieval_top_k" min="1" max="32" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_retrieval_top_k" min="1" max="32" step="1" class="vectfox-slider" />
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Min Importance for Retrieval <span id="VectFox_eventbase_retrieval_min_importance_val">1</span></label>
-                                <input type="range" id="VectFox_eventbase_retrieval_min_importance" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_retrieval_min_importance" min="1" max="10" step="1" class="vectfox-slider" />
                             </div>
 
                             <div class="vectfox-form-group">
@@ -1314,19 +1311,19 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Past chat turns sent to planner: <span id="VectFox_agentic_chat_depth_val">3</span></label>
-                                <input type="range" id="VectFox_agentic_chat_depth" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_agentic_chat_depth" min="1" max="10" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">How many recent non-system chat turns are included as narrative context for the planner. Lower = faster + cheaper LLM call; higher = more story context for the planner to reason about.</small>
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Candidates shown to planner: <span id="VectFox_agentic_candidates_val">12</span></label>
-                                <input type="range" id="VectFox_agentic_candidates" min="5" max="20" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_agentic_candidates" min="5" max="20" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">How many top pre-search events the planner sees when deciding what extra queries to run.</small>
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max planner queries: <span id="VectFox_agentic_max_queries_val">6</span></label>
-                                <input type="range" id="VectFox_agentic_max_queries" min="1" max="6" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_agentic_max_queries" min="1" max="6" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Hard ceiling on how many follow-up queries the planner can emit. Each query is one Qdrant call per live collection.</small>
                             </div>
 
