@@ -112,6 +112,18 @@
     font-size: 1.1em;
 }
 
+/* Optional group of header buttons sitting between the title and the close
+   button. The close button stays a direct child of the header so it can never
+   be pushed off-screen by these — see the wrap rules in styles/mobile.css. */
+.vectfox-modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    margin-right: 6px;
+    min-width: 0;
+}
+
 .vectfox-modal-close {
     width: 36px;
     height: 36px;

@@ -210,17 +210,34 @@
         padding: 12px 16px !important;
         border-radius: 0 !important;
         flex-shrink: 0 !important;
+        /* Title + close on the first row, any extra action buttons on a second
+           row. Without the wrap, wide action buttons shove the close button
+           past the right edge of a modal that clips its overflow (issue #15). */
+        flex-wrap: wrap !important;
+        row-gap: 8px !important;
     }
 
     .vectfox-modal-header h3,
     .vectfox-visualizer-title {
         font-size: 0.66em !important;
         max-width: 60%;
+        order: 1 !important;
+        min-width: 0 !important;
     }
 
-    /* Close buttons - LARGE touch targets */
+    /* The close button is now the only other item on the title row, so the
+       title may use everything left of it instead of a fixed 60%. */
+    .vectfox-modal-header h3 {
+        max-width: none !important;
+        flex: 1 1 auto !important;
+    }
+
+    /* Close buttons - LARGE touch targets.
+       .vectfox-btn-icon is only a close button when it sits directly in a modal
+       header; elsewhere it is a small inline row action that must stay small. */
     .vectfox-modal-close,
     .vectfox-visualizer-close,
+    .vectfox-modal-header > .vectfox-btn-icon,
     #vectfox_visualizer_close {
         width: 48px !important;
         height: 48px !important;
@@ -231,6 +248,32 @@
         align-items: center !important;
         justify-content: center !important;
         touch-action: manipulation !important;
+    }
+
+    /* Close button keeps the top-right corner of the first row… */
+    .vectfox-modal-header > .vectfox-modal-close,
+    .vectfox-modal-header > .vectfox-btn-icon {
+        order: 2 !important;
+        margin-left: auto !important;
+        flex-shrink: 0 !important;
+    }
+
+    /* …and the action buttons drop to a full-width second row that scrolls
+       sideways rather than stretching each button to 100%. */
+    .vectfox-modal-header-actions {
+        order: 3 !important;
+        width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .vectfox-modal-header-actions .vectfox-btn-sm {
+        width: auto !important;
+        flex: 0 0 auto !important;
+        white-space: nowrap !important;
     }
 
     /* ========================================================================
