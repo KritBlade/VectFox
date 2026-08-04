@@ -178,6 +178,10 @@ export function resolveModelParameterStyle(settings = {}) {
         tokenLimitParameter: settings?.should_use_max_completion_tokens
             ? 'max_completion_tokens'
             : 'max_tokens',
+        // Opt-in, and only ever 'none' — never a weaker effort level. Anything
+        // else still thinks, just less, so it would be a switch whose label
+        // over-promises. Off by default: existing setups keep today's behaviour.
+        reasoningEffort: settings?.should_disable_thinking ? 'none' : null,
     };
 }
 
@@ -208,6 +212,9 @@ export function resolveModelParameterStyle(settings = {}) {
  *        (reasoning models accept only their own default). From resolveModelParameterStyle.
  * @param {string}   [opts.tokenLimitParameter='max_tokens'] body key for the output-token
  *        cap — 'max_completion_tokens' for reasoning models. From resolveModelParameterStyle.
+ * @param {string|null} [opts.reasoningEffort=null] sent as `reasoning_effort` when set;
+ *        'none' turns a reasoning model's thinking off entirely. From
+ *        resolveModelParameterStyle.
  * @returns {Promise<{content: string, finishReason: string|null, usage: object|null, data: any}>}
  * @throws {LlmCallError}
  */
@@ -225,12 +232,20 @@ export async function postChatCompletion({
     shouldNotifyProviderFailure = true,
     sendTemperature = true,
     tokenLimitParameter = 'max_tokens',
+    reasoningEffort = null,
 }) {
     const label = _providerLabel(provider);
 
     const body = { model, messages, [tokenLimitParameter]: maxTokens };
     if (sendTemperature) body.temperature = temperature;
     if (responseFormat) body.response_format = responseFormat;
+    // Top-level OpenAI-standard field, NOT OpenRouter's `reasoning` object —
+    // SillyTavern's proxy forwards this one and strips that one. Measured on the
+    // real EventBase prompt: deepseek-v4-flash went 153.5s / 1632 reasoning
+    // tokens → 6.7s / 0, and gpt-5.6-luna 29.5s / 1034 → 3.0s / 0, both still
+    // extracting correctly. Harmless on models that never think (gpt-4o-mini
+    // accepted it without error), so it needs no per-model gate.
+    if (reasoningEffort) body.reasoning_effort = reasoningEffort;
 
     const requestBody = (provider === 'vllm' || provider === 'custom')
         ? { chat_completion_source: 'custom', custom_url: vllmUrl, ...body }

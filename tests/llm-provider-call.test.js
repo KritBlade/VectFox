@@ -153,6 +153,29 @@ describe('postChatCompletion — request body', () => {
         expect('max_tokens' in body).toBe(false);
     });
 
+    // The top-level OpenAI-standard field. ST's proxy forwards this one and
+    // strips OpenRouter's `reasoning` object, so this is the only key that can
+    // actually turn thinking off (issue #14 follow-up).
+    it('sends reasoning_effort only when one is resolved', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+
+        await postChatCompletion(baseArgs());
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('reasoning_effort');
+
+        await postChatCompletion(baseArgs({ reasoningEffort: 'none' }));
+        expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning_effort).toBe('none');
+    });
+
+    it('carries reasoning_effort on the vLLM/custom route too', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+        await postChatCompletion(baseArgs({ provider: 'vllm', vllmUrl: 'http://localhost:8000/v1', reasoningEffort: 'none' }));
+        const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(sent.chat_completion_source).toBe('custom');
+        expect(sent.reasoning_effort).toBe('none');
+    });
+
     it('never sends sampling params VectFox does not support', async () => {
         const fetchMock = vi.fn(async () => okResponse({ content: 'hi' }));
         vi.stubGlobal('fetch', fetchMock);
@@ -175,6 +198,7 @@ describe('resolveModelParameterStyle', () => {
         expect(resolveModelParameterStyle({})).toEqual({
             sendTemperature: true,
             tokenLimitParameter: 'max_tokens',
+            reasoningEffort: null,
         });
     });
 
@@ -182,6 +206,7 @@ describe('resolveModelParameterStyle', () => {
         expect(resolveModelParameterStyle()).toEqual({
             sendTemperature: true,
             tokenLimitParameter: 'max_tokens',
+            reasoningEffort: null,
         });
     });
 
@@ -192,14 +217,28 @@ describe('resolveModelParameterStyle', () => {
         })).toEqual({
             sendTemperature: false,
             tokenLimitParameter: 'max_completion_tokens',
+            reasoningEffort: null,
         });
     });
 
-    it('resolves the two switches independently', () => {
+    it('resolves the switches independently', () => {
         expect(resolveModelParameterStyle({ should_send_temperature: false }))
-            .toEqual({ sendTemperature: false, tokenLimitParameter: 'max_tokens' });
+            .toMatchObject({ sendTemperature: false, tokenLimitParameter: 'max_tokens' });
         expect(resolveModelParameterStyle({ should_use_max_completion_tokens: true }))
-            .toEqual({ sendTemperature: true, tokenLimitParameter: 'max_completion_tokens' });
+            .toMatchObject({ sendTemperature: true, tokenLimitParameter: 'max_completion_tokens' });
+    });
+
+    // Off by default, so existing setups keep the behaviour they have today.
+    it('asks for no thinking only when should_disable_thinking is on', () => {
+        expect(resolveModelParameterStyle({}).reasoningEffort).toBeNull();
+        expect(resolveModelParameterStyle({ should_disable_thinking: false }).reasoningEffort).toBeNull();
+        expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).toBe('none');
+    });
+
+    // Only ever 'none' — a weaker effort still thinks, so the label would lie.
+    it('never asks for a partial thinking budget', () => {
+        expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).not.toBe('minimal');
+        expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).not.toBe('low');
     });
 });
 
