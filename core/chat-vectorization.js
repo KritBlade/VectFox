@@ -1698,7 +1698,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
             ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
             : allMessages;
 
-        const { runEventBaseIngestion } = await import('./eventbase-workflow.js');
+        const { runEventBaseIngestion, countUnfinishedWindows } = await import('./eventbase-workflow.js');
         const result = await runEventBaseIngestion({
             messages,
             chatUUID: getChatUUID(),
@@ -1717,6 +1717,21 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
 
         if (abortSignal?.aborted) {
             progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
+            return;
+        }
+
+        // runEventBaseIngestion has already set the progress verdict, and when a
+        // window timed out or failed that verdict is complete(false, …) naming the
+        // reason. Leave it standing — the unconditional green tick that used to be
+        // here overwrote it, so a run that extracted nothing still looked clean.
+        const unfinishedWindows = countUnfinishedWindows(result);
+        if (unfinishedWindows > 0) {
+            toastr.warning(
+                `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
+                + `but ${unfinishedWindows} window(s) produced nothing. They were not stored and will be retried next run — see the console.`,
+                'VectFox',
+            );
+            log.warn(`VectFox: Vectorization finished with gaps — ${result.eventsExtracted} events, ${result.windowsProcessed} windows processed, ${unfinishedWindows} unfinished`);
             return;
         }
 

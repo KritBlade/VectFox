@@ -100,6 +100,24 @@ export function getCommitBoundary(messages, settings) {
  * @param {{ strategy?: string, batchSize?: number, totalChunks?: number }|null} [params.progressPlan]
  * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number }>}
  */
+/**
+ * How many windows this run left unfinished — they produced no events, were not
+ * marked extracted, and will be retried next run.
+ *
+ * Lives here because this module owns the counters, and BOTH callers that report
+ * a run to the user need the same answer. Neither used to ask: each ended with an
+ * unconditional progressTracker.complete(true, …) + toastr.success(…), which
+ * overwrote the complete(false, …) verdict this workflow had just set. So a run
+ * where a window timed out or failed still showed the user a green tick — the
+ * same silence issue #14 reported, one layer further out.
+ *
+ * @param {{windowsTimedOut?: number, windowsFailed?: number}|null|undefined} result
+ * @returns {number}
+ */
+export function countUnfinishedWindows(result) {
+    return (result?.windowsTimedOut || 0) + (result?.windowsFailed || 0);
+}
+
 export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined }) {
     const uuid = chatUUID || getChatUUID();
 
