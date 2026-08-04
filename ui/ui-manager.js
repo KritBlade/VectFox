@@ -458,7 +458,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                         <input type="checkbox" id="VectFox_should_disable_thinking" />
                                         <span>Turn off model thinking</span>
                                     </label>
-                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first. VectFox asks models to fill a fixed schema, which thinking does not improve — while costing latency, tokens, and sometimes the whole answer, since thinking is invisible, billed, and counted against your token limit. Measured on one EventBase window: <code>deepseek-v4-flash</code> went from 153.5s and 1632 thinking tokens to <b>6.7s and zero</b>, and <code>gpt-5.6-luna</code> from 29.5s to <b>3.0s</b>, both still extracting correctly. Harmless on models that never think — verified across 9 models and 6 vendors. Uncheck it if a self-hosted endpoint rejects the parameter, or if you want thinking back for Agent Mode. Affects every LLM call.</small>
+                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and it can't spend the whole token limit thinking and return nothing. Uncheck to let models think. Affects every LLM call.</small>
                                 </div>
                             </div>
 
@@ -935,7 +935,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     Auto-sync window: <span id="VectFox_eventbase_autosync_window_turns_val">1</span> turn(s)
                                     <span class="VectFox_hint" id="VectFox_autosync_window_msg_equiv" style="margin-left:4px;">(= 2 messages)</span>
                                 </label>
-                                <input type="range" id="VectFox_eventbase_autosync_window_turns" min="1" max="20" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_autosync_window_turns" min="1" max="20" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Independent of the EventBase "Window Size". 1 turn = 2 messages (1 user + 1 AI reply). Auto-sync extracts a window every this-many turns of new chat.</small>
                             </div>
 
@@ -948,7 +948,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <small class="VectFox_hint">Inject the most recent N EventBase summaries into the prompt every turn (wrapped in &lt;VectFoxSummarizer&gt; tags), in addition to semantic retrieval. Enables word-for-word-ish memory of the last few turns. <strong>Turns on auto-sync and forces its window to 1 turn while on</strong> (so the latest reply is always extracted before the next injection).</small>
                                 <div class="vectfox-form-group" id="VectFox_summarizer_injection_count_group" style="margin-top: 8px;">
                                     <label class="vectfox-label">Inject last <span id="VectFox_summarizer_injection_count_val">20</span> turn(s)</label>
-                                    <input type="range" id="VectFox_summarizer_injection_count" min="1" max="50" step="1" class="vectfox-range" />
+                                    <input type="range" id="VectFox_summarizer_injection_count" min="1" max="50" step="1" class="vectfox-slider" />
                                 </div>
                                 <label class="checkbox_label" for="VectFox_summarizer_injection_full_detail" style="margin-top: 8px;">
                                     <input type="checkbox" id="VectFox_summarizer_injection_full_detail" />
@@ -968,7 +968,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <small class="VectFox_hint">Keep the most recent messages raw and blank ALL older already-vectorized messages from the prompt sent to the AI. The chat UI and saved file are <strong>untouched</strong>, and it resets every turn. The wiped turns rely on EventBase memory (the injection above + semantic retrieval) instead of their raw text — so check your recall quality as you <strong>lower</strong> the slider. Scales to any chat length. Requires Summarizer Injection.</small>
                                     <div class="vectfox-form-group" id="VectFox_eventbase_ghost_keep_recent_group" style="margin-top: 8px;">
                                         <label class="vectfox-label">Keep last <span id="VectFox_eventbase_ghost_keep_recent_val">10</span> message(s) verbatim</label>
-                                        <input type="range" id="VectFox_eventbase_ghost_keep_recent" min="0" max="100" step="1" class="vectfox-range" />
+                                        <input type="range" id="VectFox_eventbase_ghost_keep_recent" min="0" max="100" step="1" class="vectfox-slider" />
                                         <small class="VectFox_hint">Everything older than this that's been vectorized is wiped (never the recent un-synced tail). Lower = more aggressive (more tokens saved). Even at <strong>0</strong>, ghosting always keeps the current turn and your World Info scan window verbatim — so it never breaks keyword triggers and never sends an empty prompt. "<strong>0</strong>" means "wipe as much as is safe," not literally everything.</small>
                                     </div>
                                     <div id="VectFox_eventbase_ghost_readout" class="VectFox_hint" style="margin-top: 8px; display:block; padding: 6px 8px; border-radius: 6px; background: rgba(127,127,127,0.12);">Last turn: no generation yet.</div>
@@ -1127,13 +1127,13 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Min Importance to Store <span id="VectFox_eventbase_min_importance_store_val">3</span></label>
-                                <input type="range" id="VectFox_eventbase_min_importance_store" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_min_importance_store" min="1" max="10" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Events below this importance threshold are discarded before writing to Qdrant.</small>
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max Events per Window <span id="VectFox_eventbase_max_events_per_window_val">3</span></label>
-                                <input type="range" id="VectFox_eventbase_max_events_per_window" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_max_events_per_window" min="1" max="10" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Hard cap per LLM call. AI is instructed to return fewer (or zero) for filler / 日常 nichijou / non-narrative scenes.</small>
                             </div>
 
@@ -1145,12 +1145,9 @@ export function renderSettings(containerId, settings, callbacks) {
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max Output Tokens</label>
                                 <input type="number" id="VectFox_eventbase_max_tokens" class="vectfox-input" min="256" max="32768" step="64" style="width:120px;" />
-                                <small class="VectFox_hint" style="display:block; margin-top:4px;">
-                                    A reasoning model spends this budget on thinking <em>before</em> it writes anything,
-                                    and most providers never show you that thinking — measured against
-                                    deepseek-v4-flash, a 3.7k-token window consumed all 2048 tokens and returned an
-                                    empty reply. If extraction fails with "used its entire token limit without
-                                    answering", raise this well above the default.
+                                <small class="VectFox_hint">
+                                    Raise this if extraction fails with "used its entire token limit without
+                                    answering" — a thinking model spends this budget before it writes anything.
                                 </small>
                             </div>
 
@@ -1182,12 +1179,12 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Retrieve Top-K <span id="VectFox_eventbase_retrieval_top_k_val">10</span></label>
-                                <input type="range" id="VectFox_eventbase_retrieval_top_k" min="1" max="32" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_retrieval_top_k" min="1" max="32" step="1" class="vectfox-slider" />
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Min Importance for Retrieval <span id="VectFox_eventbase_retrieval_min_importance_val">1</span></label>
-                                <input type="range" id="VectFox_eventbase_retrieval_min_importance" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_eventbase_retrieval_min_importance" min="1" max="10" step="1" class="vectfox-slider" />
                             </div>
 
                             <div class="vectfox-form-group">
@@ -1314,19 +1311,19 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Past chat turns sent to planner: <span id="VectFox_agentic_chat_depth_val">3</span></label>
-                                <input type="range" id="VectFox_agentic_chat_depth" min="1" max="10" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_agentic_chat_depth" min="1" max="10" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">How many recent non-system chat turns are included as narrative context for the planner. Lower = faster + cheaper LLM call; higher = more story context for the planner to reason about.</small>
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Candidates shown to planner: <span id="VectFox_agentic_candidates_val">12</span></label>
-                                <input type="range" id="VectFox_agentic_candidates" min="5" max="20" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_agentic_candidates" min="5" max="20" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">How many top pre-search events the planner sees when deciding what extra queries to run.</small>
                             </div>
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max planner queries: <span id="VectFox_agentic_max_queries_val">6</span></label>
-                                <input type="range" id="VectFox_agentic_max_queries" min="1" max="6" step="1" class="vectfox-range" />
+                                <input type="range" id="VectFox_agentic_max_queries" min="1" max="6" step="1" class="vectfox-slider" />
                                 <small class="VectFox_hint">Hard ceiling on how many follow-up queries the planner can emit. Each query is one Qdrant call per live collection.</small>
                             </div>
 
@@ -2433,6 +2430,45 @@ function bindSettingsEvents(settings, callbacks) {
         });
     _applyMasterSwitchUI(settings.enabled !== false);
 
+    /**
+     * Turn Summarizer Injection off, because auto-sync — its data source — is not
+     * running. Without auto-sync the collection stops tracking the chat, so
+     * "the most recent N events" silently becomes some older N: the injection
+     * keeps firing and feeds the model information that is simply wrong. Off is
+     * the only safe state.
+     *
+     * Called from every path that leaves auto-sync off, including the two that
+     * REFUSE to turn it on (no chat / no collection). Those return early, so
+     * they used to skip the disable branch below — which is how the summarizer
+     * could sit checked next to an unchecked auto-sync.
+     *
+     * @param {string} reason - shown to the user, completing "Summarizer Injection disabled (…)"
+     */
+    /**
+     * Chat id whose auto-sync the user asked to turn on, but which had no
+     * collection yet — so they were sent to Vectorize Content first. Consumed
+     * when that vectorization succeeds, cleared if they close the panel instead.
+     *
+     * Needed because the redirect is where the user's intent would otherwise be
+     * lost: they ticked the box, got taken somewhere else, finished the work the
+     * box required, and came back to it still unticked.
+     *
+     * Chat-scoped so an intent from one chat can never enable auto-sync on
+     * another; null when nothing is pending.
+     * @type {string|null}
+     */
+    let _autoSyncEnableAwaitingVectorizeForChat = null;
+
+    const _disableSummarizerInjectionBecauseAutoSyncIsOff = (reason) => {
+        if (!settings.summarizer_injection_enabled) return;
+        settings.summarizer_injection_enabled = false;
+        Object.assign(extension_settings.vectfox, settings);
+        saveSettingsDebounced();
+        $('#VectFox_summarizer_injection_enabled').prop('checked', false);
+        _applySummarizerLock();
+        toastr.info(`Summarizer Injection disabled (${reason})`);
+    };
+
     // Auto-sync enable/disable - now per-collection instead of global
     // Initial state is set by refreshAutoSyncCheckbox() after chat loads
     $('#VectFox_autosync_enabled')
@@ -2449,6 +2485,7 @@ function bindSettingsEvents(settings, callbacks) {
             if (status.state === 'no-chat') {
                 toastr.warning('Open a chat first before enabling auto-sync');
                 $checkbox.prop('checked', false);
+                _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
                 await refreshAutoSyncCheckbox(settings);
                 return;
             }
@@ -2458,7 +2495,11 @@ function bindSettingsEvents(settings, callbacks) {
                     // No collection for this chat yet — send the user to vectorize first.
                     log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveActiveEventBaseCollection found no eligible collection — see [EventBase][resolve] log above)');
                     $checkbox.prop('checked', false);
-                    toastr.info('Vectorize your chat history first');
+                    toastr.info('Vectorize your chat history first — auto-sync will turn on when it finishes');
+                    _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync, which needs a vectorized chat');
+                    // Remember the intent across the redirect so a finished
+                    // vectorization resumes the enable the user actually asked for.
+                    _autoSyncEnableAwaitingVectorizeForChat = chatId;
                     openContentVectorizer('chat');
                     return;
                 }
@@ -2517,6 +2558,7 @@ function bindSettingsEvents(settings, callbacks) {
                         } else {
                             // X / Esc — abort enabling entirely.
                             $checkbox.prop('checked', false);
+                            _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
                             await refreshAutoSyncCheckbox(settings);
                             return;
                         }
@@ -2552,19 +2594,9 @@ function bindSettingsEvents(settings, callbacks) {
                 toastr.success(message);
                 log.lifecycle(`VectFox: Chat auto-sync ENABLED for ${lockKey} (state=${status.state})`);
             } else {
-                // Auto-sync is the summarizer's data source — once it's off, "most recent
-                // N events" goes stale, so disabling auto-sync also disables the summarizer
-                // to keep the two consistent (reverse of the forward bind in the summarizer
-                // checkbox handler). Set the flag + checkbox directly and release the window
-                // lock; the injection self-clears on its next (now-disabled) turn.
-                if (settings.summarizer_injection_enabled) {
-                    settings.summarizer_injection_enabled = false;
-                    Object.assign(extension_settings.vectfox, settings);
-                    saveSettingsDebounced();
-                    $('#VectFox_summarizer_injection_enabled').prop('checked', false);
-                    _applySummarizerLock();
-                    toastr.info('Summarizer Injection disabled (needs auto-sync)');
-                }
+                // Reverse of the forward bind in the summarizer checkbox handler; the
+                // injection self-clears on its next (now-disabled) turn.
+                _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
 
                 // Uncheck — clear ONLY the auto-sync flag. Do NOT touch the chat
                 // lock: the lock is a separate concern (it marks the collection
@@ -3834,6 +3866,12 @@ function bindSettingsEvents(settings, callbacks) {
             // checkbox's OWN enable flow (backlog catch-up gate, lock, marker stamp) rather
             // than duplicating it. Symmetric with the window-lock above: while the
             // summarizer runs, both the window (1 turn) and auto-sync (on) are bound to it.
+            //
+            // That flow may REFUSE (no chat, or no collection yet), and being async it
+            // cannot report back to this handler. It therefore revokes the summarizer
+            // itself via _disableSummarizerInjectionBecauseAutoSyncIsOff, so the pair can
+            // never end up disagreeing — which is what left the summarizer checked beside
+            // an unchecked auto-sync, injecting stale events as if they were the latest.
             if (enabling) {
                 const $autosync = $('#VectFox_autosync_enabled');
                 if (!$autosync.prop('checked')) {
@@ -4045,7 +4083,28 @@ function bindSettingsEvents(settings, callbacks) {
     // (e.g. chat just got vectorized) and chat-changed shift the state.
     const _refreshAutoSync = () => refreshAutoSyncCheckbox(extension_settings.vectfox);
     document.addEventListener('vectfox:collections-updated', _refreshAutoSync);
-    document.addEventListener('vectfox:eventbase-synced', _refreshAutoSync);
+
+    document.addEventListener('vectfox:eventbase-synced', () => {
+        // The chat just gained a collection because the user was sent here by
+        // ticking auto-sync. Finish what they started: re-run the enable flow,
+        // which now finds a collection and takes the normal path (straight on if
+        // fully synced, catch-up prompt if not). Refreshing alone would only
+        // re-read the stored "off" and leave the box unticked — the bug this
+        // fixes.
+        const pendingChat = _autoSyncEnableAwaitingVectorizeForChat;
+        _autoSyncEnableAwaitingVectorizeForChat = null;
+        if (pendingChat && pendingChat === getCurrentChatId()) {
+            $('#VectFox_autosync_enabled').prop('checked', true).trigger('input');
+            return; // that flow sets the checkbox itself
+        }
+        _refreshAutoSync();
+    });
+
+    // Closed without vectorizing — the user changed their mind, so drop the
+    // intent rather than enabling auto-sync off some later unrelated run.
+    document.addEventListener('vectfox:content-vectorizer-closed', () => {
+        _autoSyncEnableAwaitingVectorizeForChat = null;
+    });
 
     // Debug buttons: Test semantic WI and dump registry
     $('#VectFox_wi_test_btn').on('click', async function() {

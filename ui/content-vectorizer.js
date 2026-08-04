@@ -124,11 +124,19 @@ export function openContentVectorizer(initialType = null) {
 
 /**
  * Closes the modal
+ *
+ * Announces the close so callers that SENT the user here can tell "finished" from
+ * "changed their mind". The auto-sync checkbox uses it that way: it redirects here
+ * when a chat has no collection yet, and it must not resume enabling itself if the
+ * user simply closed this panel. A successful run dispatches
+ * `vectfox:eventbase-synced` BEFORE this, so the resume path wins on success and
+ * this only clears an intent nobody acted on.
  */
 export function closeContentVectorizer() {
     $('#vectfox_content_vectorizer_modal').fadeOut(200, function() {
         $(this).remove();
     });
+    document.dispatchEvent(new CustomEvent('vectfox:content-vectorizer-closed'));
 }
 
 /**
