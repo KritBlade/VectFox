@@ -98,7 +98,7 @@ export function getCommitBoundary(messages, settings) {
  * @param {object}   params.settings    - VectFox settings
  * @param {AbortSignal|null} [params.abortSignal]
  * @param {{ strategy?: string, batchSize?: number, totalChunks?: number }|null} [params.progressPlan]
- * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number }>}
+ * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number }>}
  */
 export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined }) {
     const uuid = chatUUID || getChatUUID();
@@ -298,6 +298,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     let windowsProcessed = 0;
     let windowsSkipped = 0;
     let windowsTimedOut = 0;
+    let windowsFailed = 0;
+    let firstFailureDetail = null;
 
     // First-timeout toast — fire once per run, the moment a window times out,
     // instead of leaving the user staring at a silent "0 vectors" at the end
@@ -498,12 +500,17 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                         _notifyFirstTimeout();
                         return { skipped: false, events: [], timedOut: true };
                     }
+                    // `failed: true` keeps an errored window out of the processed
+                    // tally. Counting it as processed is what let a run where EVERY
+                    // window failed still finish green with "extracted 0 event(s)
+                    // from N window(s)" — indistinguishable from a chat that
+                    // genuinely held no events (issue #14).
                     if (err instanceof EventBaseExtractionError) {
                         log.warn(`[EventBase] Window ${wIdx}: extraction error (skipped) — ${err.message}`);
-                        return { skipped: false, events: [] };
+                        return { skipped: false, events: [], failed: true, failureDetail: err.message };
                     }
                     log.warn(`[EventBase] Window ${wIdx}: unexpected error (skipped) — ${err.message}`);
-                    return { skipped: false, events: [] };
+                    return { skipped: false, events: [], failed: true, failureDetail: err.message };
                 }
 
                 // Attach chat_uuid to each event
@@ -653,7 +660,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
         // Tally results, watch for fatal LLM errors (extract-side fatals
         // arrive as rejected promises in batchResults).
-        const tally = { eventsAdded: 0, windowsProcessed: 0, windowsSkipped: 0, windowsTimedOut: 0, fatalError: null };
+        const tally = { eventsAdded: 0, windowsProcessed: 0, windowsSkipped: 0, windowsTimedOut: 0, windowsFailed: 0, failureDetail: null, fatalError: null };
         for (const result of batchResults) {
             if (result.status === 'rejected') {
                 const err = result.reason;
@@ -662,6 +669,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     return tally; // coordinator handles the fatal
                 }
                 log.warn('[EventBase] Batch window error:', err?.message || err);
+                tally.windowsFailed++;
+                tally.failureDetail ??= err?.message || String(err);
             } else {
                 if (result.value?.skipped) {
                     tally.windowsSkipped++;
@@ -669,6 +678,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     // Counted separately — NOT as "processed" (it produced no events
                     // and wasn't marked extracted, so it retries next run).
                     tally.windowsTimedOut++;
+                } else if (result.value?.failed) {
+                    // Same reasoning as timedOut: no events, not marked extracted,
+                    // so it must not inflate the processed count that the final
+                    // success message reports.
+                    tally.windowsFailed++;
+                    tally.failureDetail ??= result.value.failureDetail || null;
                 } else {
                     tally.windowsProcessed++;
                     tally.eventsAdded += (result.value?.events?.length || 0);
@@ -736,7 +751,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 try { await pendingExtract; } catch (_) { /* swallow */ }
             }
             progressTracker.complete(false, 'Stopped by user');
-            return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut };
+            return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed };
         }
 
         // Decide what can start this iteration. Order is load-bearing:
@@ -830,7 +845,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 }
                 if (winner.error?.name === 'AbortError') {
                     progressTracker.complete(false, 'Stopped by user');
-                    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut };
+                    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed };
                 }
                 // Surface the Qdrant error to the user. EventBaseFatalError
                 // is caught at the UI layer and turned into a popup.
@@ -853,6 +868,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             windowsProcessed += tally.windowsProcessed;
             windowsSkipped   += tally.windowsSkipped;
             windowsTimedOut  += tally.windowsTimedOut;
+            windowsFailed    += tally.windowsFailed;
+            firstFailureDetail ??= tally.failureDetail;
             _updateProgressAfterFinalize(winner.extractResult);
         }
     }
@@ -916,11 +933,19 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     if (windowsTimedOut > 0) {
         progressTracker.complete(false,
             `EventBase: ${windowsTimedOut} window(s) timed out — ${eventsExtracted} event(s) extracted. See the timeout notice; raise "Extraction Timeout" or check your endpoint.`);
+    } else if (windowsFailed > 0) {
+        // A window that errored stored nothing and was never marked extracted, so
+        // reporting the run green told the user "this chat has no events" when the
+        // truth was "every request failed" (issue #14). Name the first reason —
+        // these failures are near-always the same cause repeated.
+        progressTracker.complete(false,
+            `EventBase: ${windowsFailed} window(s) failed — ${eventsExtracted} event(s) extracted.`
+            + (firstFailureDetail ? ` First error: ${firstFailureDetail}` : ' See the console for details.'));
     } else {
         progressTracker.complete(true, `EventBase: extracted ${eventsExtracted} event(s) from ${windowsProcessed} window(s)`);
     }
 
-    log.lifecycle(`[EventBase] Ingestion complete: extracted=${eventsExtracted}, processed=${windowsProcessed}, skipped=${windowsSkipped}, timedOut=${windowsTimedOut}`);
+    log.lifecycle(`[EventBase] Ingestion complete: extracted=${eventsExtracted}, processed=${windowsProcessed}, skipped=${windowsSkipped}, timedOut=${windowsTimedOut}, failed=${windowsFailed}`);
 
     // Record the window size used for this successful run. Vectorize Content →
     // Continue compares against this on the next click to detect window-size
@@ -939,7 +964,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }));
     }
 
-    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut };
+    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed };
 }
 
 // ---------------------------------------------------------------------------

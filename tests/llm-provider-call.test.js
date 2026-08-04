@@ -319,6 +319,90 @@ describe('postChatCompletion — error classification', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Reasoning models that burn the token budget without answering (issue #14)
+// ---------------------------------------------------------------------------
+
+/**
+ * 200 whose choice produced no answer. Defaults reproduce the shape MEASURED
+ * from deepseek/deepseek-v4-flash-0731 via OpenRouter: message is exactly
+ * {role, content, refusal} — no reasoning field at all — with the thinking
+ * visible only as usage.completion_tokens_details.reasoning_tokens.
+ */
+function noAnswerResponse({ content = '', finishReason = 'length', reasoningField = null, reasoning = '', reasoningTokens = 113 } = {}) {
+    return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+            choices: [{
+                message: { role: 'assistant', content, refusal: null, ...(reasoningField ? { [reasoningField]: reasoning } : {}) },
+                finish_reason: finishReason,
+            }],
+            ...(reasoningTokens == null ? {} : {
+                usage: { completion_tokens: 100, completion_tokens_details: { reasoning_tokens: reasoningTokens } },
+            }),
+        }),
+    };
+}
+
+describe('postChatCompletion — budget spent without an answer', () => {
+    // The shape that actually reaches VectFox: no reasoning field to detect, so
+    // finish_reason is the only signal. This is the case the first cut missed.
+    it('classifies finish_reason "length" + empty content as model_config, not empty', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse()));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'model_config' });
+    });
+
+    it('reports where the budget went using reasoning_tokens, the only visible evidence', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({ reasoningTokens: 113 })));
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(
+            /test\/model.*100-token limit.*113 of them on reasoning the provider did not return/s,
+        );
+    });
+
+    // Providers that DO expose chain-of-thought: DeepSeek's direct API field…
+    it('also catches empty content + reasoning_content, even on finish_reason "stop"', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({
+            finishReason: 'stop', reasoningField: 'reasoning_content', reasoning: 'x'.repeat(1234), reasoningTokens: null,
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(/1234 characters of it on chain-of-thought/);
+    });
+
+    // …and OpenRouter's normalised one.
+    it('also catches empty content + reasoning', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({
+            finishReason: 'stop', reasoningField: 'reasoning', reasoning: 'thinking…', reasoningTokens: null,
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'model_config' });
+    });
+
+    // Must not fire on the normal case — reasoning models answer fine most of the
+    // time, and a truncated-but-present answer is the parser's problem, not this.
+    it('leaves a reply that has content alone, even at finish_reason "length"', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({ content: '[{"a":1}]' })));
+        const { content } = await postChatCompletion(baseArgs());
+        expect(content).toBe('[{"a":1}]');
+    });
+
+    // Checked ahead of the body-text classifiers, because a visible thinking block
+    // puts the model's own prose in the body where they match substrings.
+    it('wins over an upstream-rejection read of prose inside the thinking', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({
+            finishReason: 'stop', reasoningField: 'reasoning', reasoningTokens: null,
+            reasoning: 'The user asks about an invalid model — model not found, deprecated.',
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(/cannot use chain-of-thought as output/);
+        expect(mockNotifyUpstreamRejection).not.toHaveBeenCalled();
+    });
+
+    // finish_reason "stop" + empty content + no reasoning anywhere is a model that
+    // genuinely said nothing — still kind:empty, still a per-window skip.
+    it('still reports a genuinely silent completion as kind:empty', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({ finishReason: 'stop', reasoningTokens: null })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'empty' });
+    });
+});
+
+// ---------------------------------------------------------------------------
 // parseJsonArrayFromLlm
 // ---------------------------------------------------------------------------
 

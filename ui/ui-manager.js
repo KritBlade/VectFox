@@ -1136,7 +1136,14 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max Output Tokens</label>
-                                <input type="number" id="VectFox_eventbase_max_tokens" class="vectfox-input" min="256" max="8192" step="64" style="width:120px;" />
+                                <input type="number" id="VectFox_eventbase_max_tokens" class="vectfox-input" min="256" max="32768" step="64" style="width:120px;" />
+                                <small class="VectFox_hint" style="display:block; margin-top:4px;">
+                                    A reasoning model spends this budget on thinking <em>before</em> it writes anything,
+                                    and most providers never show you that thinking — measured against
+                                    deepseek-v4-flash, a 3.7k-token window consumed all 2048 tokens and returned an
+                                    empty reply. If extraction fails with "used its entire token limit without
+                                    answering", raise this well above the default.
+                                </small>
                             </div>
 
                             <div class="vectfox-form-group">

@@ -38,7 +38,10 @@ import { log } from './log.js';
  *
  * kinds:
  *  - 'auth'          401/403 (only when authBranch=true)
- *  - 'model_config'  getModelConfigErrorMessage matched (bad/retired model, etc.)
+ *  - 'model_config'  getModelConfigErrorMessage matched (bad/retired model, etc.),
+ *                    or the model returned reasoning with an empty answer
+ *                    (see _reasoningOnlyReplyDetail) — both fail on every call
+ *                    until the user changes a setting, so both must be fatal
  *  - 'connection'    isConnectionError matched (endpoint unreachable)
  *  - 'http'          any other non-2xx
  *  - 'upstream_error' 2xx whose body is really an upstream rejection ST downgraded
@@ -82,6 +85,52 @@ function _upstreamRejectionDetail(data) {
     if (!raw) return null;
     const text = (typeof raw === 'string' ? raw : JSON.stringify(raw)).replace(/\s+/g, ' ').trim();
     return text ? text.slice(0, 300) : null;
+}
+
+/**
+ * Detect a reply where the model spent its whole token budget without producing
+ * an answer — `content` is empty, but the choice is otherwise well-formed and
+ * carries positive evidence that generation happened and ran out of room.
+ *
+ * MEASURED against deepseek/deepseek-v4-flash-0731 via OpenRouter, because the
+ * shape reported in issue #14 ("everything in reasoning_content, content empty")
+ * is NOT what this model actually sends. Its message object is exactly
+ * {role, content, refusal} — no reasoning field at any setting. The thinking is
+ * still generated and still billed; it is simply invisible:
+ *
+ *   max_tokens 2048, trivial 2-line excerpt → finish_reason "stop",
+ *                                             completion 426, reasoning 322
+ *   max_tokens 100,  same excerpt           → finish_reason "length",
+ *                                             content "", reasoning 113
+ *
+ * So the reliable signal is finish_reason "length" with empty content, NOT the
+ * presence of a reasoning field. Both are accepted here: providers that do expose
+ * chain-of-thought (DeepSeek's direct API uses `reasoning_content`, OpenRouter
+ * normalises to `reasoning`) hit the second branch.
+ *
+ * VectFox must NOT substitute thinking for the answer where it is visible.
+ * Chain-of-thought is the model's scratch work, not output it committed to:
+ * parsing it would mint events, chunks, or summaries the model never asserted.
+ * This is a failure to report, never a source to fall back on.
+ *
+ * @param {any} data - parsed response body
+ * @returns {{ finishReason: string|null, reasoningChars: number, reasoningTokens: number|null }|null}
+ */
+function _budgetSpentWithoutAnswerDetail(data) {
+    const choice = data?.choices?.[0];
+    if (!choice) return null;
+
+    const finishReason = choice.finish_reason ?? null;
+    const reasoning = String(choice.message?.reasoning_content ?? choice.message?.reasoning ?? '').trim();
+    // Either the provider told us it hit the cap, or it handed us thinking in
+    // place of a reply. Anything else is a genuinely empty completion.
+    if (finishReason !== 'length' && !reasoning) return null;
+
+    return {
+        finishReason,
+        reasoningChars: Array.from(reasoning).length,
+        reasoningTokens: data?.usage?.completion_tokens_details?.reasoning_tokens ?? null,
+    };
 }
 
 /**
@@ -229,6 +278,40 @@ export async function postChatCompletion({
     const content = data?.choices?.[0]?.message?.content?.trim() || null;
 
     if (!content) {
+        // Checked FIRST, ahead of the text classifiers below: this is a precise
+        // structural test on the choice itself, whereas those match substrings
+        // over a body that — when a model does expose its thinking — carries the
+        // model's own prose and could trip them by coincidence.
+        //
+        // Classified as 'model_config' rather than 'empty' so every caller treats
+        // it the way it already treats a bad model: abort the run and show the
+        // invalid-model popup. A token cap too small for the model's thinking
+        // fails identically on every window, so the per-window skip that 'empty'
+        // buys just burns the whole chat in silence and then reports success
+        // (issue #14).
+        const noAnswer = _budgetSpentWithoutAnswerDetail(data);
+        if (noAnswer) {
+            // Spell out where the budget went, since with a model that hides its
+            // thinking the token counts are the ONLY evidence the user can see.
+            const spent = noAnswer.reasoningTokens != null
+                ? `${noAnswer.reasoningTokens} of them on reasoning the provider did not return`
+                : (noAnswer.reasoningChars
+                    ? `${noAnswer.reasoningChars} characters of it on chain-of-thought`
+                    : 'all of them before the answer began');
+            log.warn(
+                `[${contextLabel}] ${label} model "${model}" produced no answer: finish_reason `
+                + `"${noAnswer.finishReason}", empty content, ${tokenLimitParameter}=${maxTokens}, `
+                + `reasoning_tokens=${noAnswer.reasoningTokens ?? 'n/a'}, reasoning_chars=${noAnswer.reasoningChars}.`,
+            );
+            throw new LlmCallError(
+                `${contextLabel}: model "${model}" used its entire ${maxTokens}-token limit without answering `
+                + `(finish_reason "${noAnswer.finishReason}") — spending ${spent}. Raise the ${contextLabel} token `
+                + `limit, or pick a model that does not think before replying. VectFox cannot use chain-of-thought `
+                + `as output — it is the model's scratch work, not an answer it stands behind.`,
+                { kind: 'model_config', status: response.status, provider },
+            );
+        }
+
         // OpenRouter (and ST's proxy) sometimes return HTTP 200 with the error in
         // the BODY (e.g. a retired model → {"error":{...}} with no choices). Re-run
         // the model-config classifier on the body so that surfaces as model_config
