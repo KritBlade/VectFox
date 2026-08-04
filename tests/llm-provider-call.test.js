@@ -153,6 +153,45 @@ describe('postChatCompletion — request body', () => {
         expect('max_tokens' in body).toBe(false);
     });
 
+    // The top-level OpenAI-standard field. ST's proxy forwards this one and
+    // strips OpenRouter's `reasoning` object, so this is the only key that can
+    // actually turn thinking off (issue #14 follow-up).
+    it('sends reasoning_effort only when one is resolved', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+
+        await postChatCompletion(baseArgs());
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('reasoning_effort');
+
+        await postChatCompletion(baseArgs({ reasoningEffort: 'none' }));
+        expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning_effort).toBe('none');
+    });
+
+    // The path every feature actually uses: spread the resolved style into the
+    // call. Asserting the two defaults separately would miss a break between them.
+    it('carries reasoning_effort:none to the wire on default settings', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+        await postChatCompletion({ ...baseArgs(), ...resolveModelParameterStyle({}) });
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe('none');
+    });
+
+    it('omits it entirely once the user turns thinking back on', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+        await postChatCompletion({ ...baseArgs(), ...resolveModelParameterStyle({ should_disable_thinking: false }) });
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('reasoning_effort');
+    });
+
+    it('carries reasoning_effort on the vLLM/custom route too', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+        await postChatCompletion(baseArgs({ provider: 'vllm', vllmUrl: 'http://localhost:8000/v1', reasoningEffort: 'none' }));
+        const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(sent.chat_completion_source).toBe('custom');
+        expect(sent.reasoning_effort).toBe('none');
+    });
+
     it('never sends sampling params VectFox does not support', async () => {
         const fetchMock = vi.fn(async () => okResponse({ content: 'hi' }));
         vi.stubGlobal('fetch', fetchMock);
@@ -171,10 +210,11 @@ describe('postChatCompletion — request body', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveModelParameterStyle', () => {
-    it('defaults to the classic OpenAI shape', () => {
+    it('defaults to the classic OpenAI shape, with thinking off', () => {
         expect(resolveModelParameterStyle({})).toEqual({
             sendTemperature: true,
             tokenLimitParameter: 'max_tokens',
+            reasoningEffort: 'none',
         });
     });
 
@@ -182,6 +222,7 @@ describe('resolveModelParameterStyle', () => {
         expect(resolveModelParameterStyle()).toEqual({
             sendTemperature: true,
             tokenLimitParameter: 'max_tokens',
+            reasoningEffort: 'none',
         });
     });
 
@@ -192,14 +233,30 @@ describe('resolveModelParameterStyle', () => {
         })).toEqual({
             sendTemperature: false,
             tokenLimitParameter: 'max_completion_tokens',
+            reasoningEffort: 'none',
         });
     });
 
-    it('resolves the two switches independently', () => {
+    it('resolves the switches independently', () => {
         expect(resolveModelParameterStyle({ should_send_temperature: false }))
-            .toEqual({ sendTemperature: false, tokenLimitParameter: 'max_tokens' });
+            .toMatchObject({ sendTemperature: false, tokenLimitParameter: 'max_tokens' });
         expect(resolveModelParameterStyle({ should_use_max_completion_tokens: true }))
-            .toEqual({ sendTemperature: true, tokenLimitParameter: 'max_completion_tokens' });
+            .toMatchObject({ sendTemperature: true, tokenLimitParameter: 'max_completion_tokens' });
+    });
+
+    // On by default — thinking earns nothing on schema-filling work. Only an
+    // explicit false brings it back, which is the same shape as the temperature
+    // switch beside it, so there is no third state to reason about.
+    it('asks for no thinking unless should_disable_thinking is explicitly false', () => {
+        expect(resolveModelParameterStyle({}).reasoningEffort).toBe('none');
+        expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).toBe('none');
+        expect(resolveModelParameterStyle({ should_disable_thinking: false }).reasoningEffort).toBeNull();
+    });
+
+    // Only ever 'none' — a weaker effort still thinks, so the label would lie.
+    it('never asks for a partial thinking budget', () => {
+        expect(resolveModelParameterStyle({}).reasoningEffort).not.toBe('minimal');
+        expect(resolveModelParameterStyle({}).reasoningEffort).not.toBe('low');
     });
 });
 
@@ -315,6 +372,90 @@ describe('postChatCompletion — error classification', () => {
             ok: true, status: 200, json: async () => ({ message: 'Bad Request' }),
         })));
         await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'upstream_error' });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Reasoning models that burn the token budget without answering (issue #14)
+// ---------------------------------------------------------------------------
+
+/**
+ * 200 whose choice produced no answer. Defaults reproduce the shape MEASURED
+ * from deepseek/deepseek-v4-flash-0731 via OpenRouter: message is exactly
+ * {role, content, refusal} — no reasoning field at all — with the thinking
+ * visible only as usage.completion_tokens_details.reasoning_tokens.
+ */
+function noAnswerResponse({ content = '', finishReason = 'length', reasoningField = null, reasoning = '', reasoningTokens = 113 } = {}) {
+    return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+            choices: [{
+                message: { role: 'assistant', content, refusal: null, ...(reasoningField ? { [reasoningField]: reasoning } : {}) },
+                finish_reason: finishReason,
+            }],
+            ...(reasoningTokens == null ? {} : {
+                usage: { completion_tokens: 100, completion_tokens_details: { reasoning_tokens: reasoningTokens } },
+            }),
+        }),
+    };
+}
+
+describe('postChatCompletion — budget spent without an answer', () => {
+    // The shape that actually reaches VectFox: no reasoning field to detect, so
+    // finish_reason is the only signal. This is the case the first cut missed.
+    it('classifies finish_reason "length" + empty content as model_config, not empty', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse()));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'model_config' });
+    });
+
+    it('reports where the budget went using reasoning_tokens, the only visible evidence', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({ reasoningTokens: 113 })));
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(
+            /test\/model.*100-token limit.*113 of them on reasoning the provider did not return/s,
+        );
+    });
+
+    // Providers that DO expose chain-of-thought: DeepSeek's direct API field…
+    it('also catches empty content + reasoning_content, even on finish_reason "stop"', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({
+            finishReason: 'stop', reasoningField: 'reasoning_content', reasoning: 'x'.repeat(1234), reasoningTokens: null,
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(/1234 characters of it on chain-of-thought/);
+    });
+
+    // …and OpenRouter's normalised one.
+    it('also catches empty content + reasoning', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({
+            finishReason: 'stop', reasoningField: 'reasoning', reasoning: 'thinking…', reasoningTokens: null,
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'model_config' });
+    });
+
+    // Must not fire on the normal case — reasoning models answer fine most of the
+    // time, and a truncated-but-present answer is the parser's problem, not this.
+    it('leaves a reply that has content alone, even at finish_reason "length"', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({ content: '[{"a":1}]' })));
+        const { content } = await postChatCompletion(baseArgs());
+        expect(content).toBe('[{"a":1}]');
+    });
+
+    // Checked ahead of the body-text classifiers, because a visible thinking block
+    // puts the model's own prose in the body where they match substrings.
+    it('wins over an upstream-rejection read of prose inside the thinking', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({
+            finishReason: 'stop', reasoningField: 'reasoning', reasoningTokens: null,
+            reasoning: 'The user asks about an invalid model — model not found, deprecated.',
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toThrow(/cannot use chain-of-thought as output/);
+        expect(mockNotifyUpstreamRejection).not.toHaveBeenCalled();
+    });
+
+    // finish_reason "stop" + empty content + no reasoning anywhere is a model that
+    // genuinely said nothing — still kind:empty, still a per-window skip.
+    it('still reports a genuinely silent completion as kind:empty', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({ finishReason: 'stop', reasoningTokens: null })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'empty' });
     });
 });
 

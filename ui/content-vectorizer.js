@@ -3013,7 +3013,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
     hideVectorizerForProgress();
 
     try {
-        const { runEventBaseIngestion } = await import('../core/eventbase-workflow.js');
+        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../core/eventbase-workflow.js');
         const { chunkText } = await import('../core/chunking.js');
         const context = getContext();
         const settings = extension_settings.vectfox || {};
@@ -3078,6 +3078,16 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             if (activeVectorizeAbortController?.signal?.aborted) {
                 progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
                 toastr.info('EventBase ingestion stopped', 'VectFox');
+            } else if (countUnfinishedWindows(result) > 0) {
+                // Keep the workflow's complete(false, …) verdict rather than
+                // painting over it with a green tick (see countUnfinishedWindows).
+                const unfinishedWindows = countUnfinishedWindows(result);
+                toastr.warning(
+                    `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
+                    + `but ${unfinishedWindows} window(s) produced nothing. They were not stored and will be retried next run — see the console.`,
+                    'VectFox',
+                );
+                closeContentVectorizer();
             } else {
                 progressTracker.complete(true, `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows`);
                 toastr.success(`EventBase: extracted ${result.eventsExtracted} events across ${result.windowsProcessed} windows`, 'VectFox');

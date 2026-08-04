@@ -452,6 +452,14 @@ export function renderSettings(containerId, settings, callbacks) {
                                     </label>
                                     <small class="VectFox_hint">Default (unchecked) sends the classic <code>max_tokens</code>. Check it for the same reasoning models, which reject that key with <i>"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead"</i>. The token limit itself is unchanged — only the parameter name. Affects every LLM call.</small>
                                 </div>
+
+                                <div class="vectfox-form-group" style="margin-top: 12px;">
+                                    <label class="checkbox_label" for="VectFox_should_disable_thinking">
+                                        <input type="checkbox" id="VectFox_should_disable_thinking" />
+                                        <span>Turn off model thinking</span>
+                                    </label>
+                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first. VectFox asks models to fill a fixed schema, which thinking does not improve — while costing latency, tokens, and sometimes the whole answer, since thinking is invisible, billed, and counted against your token limit. Measured on one EventBase window: <code>deepseek-v4-flash</code> went from 153.5s and 1632 thinking tokens to <b>6.7s and zero</b>, and <code>gpt-5.6-luna</code> from 29.5s to <b>3.0s</b>, both still extracting correctly. Harmless on models that never think — verified across 9 models and 6 vendors. Uncheck it if a self-hosted endpoint rejects the parameter, or if you want thinking back for Agent Mode. Affects every LLM call.</small>
+                                </div>
                             </div>
 
                             <!-- ═══════════════════════════════════════════════════════ -->
@@ -1136,7 +1144,14 @@ export function renderSettings(containerId, settings, callbacks) {
 
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Max Output Tokens</label>
-                                <input type="number" id="VectFox_eventbase_max_tokens" class="vectfox-input" min="256" max="8192" step="64" style="width:120px;" />
+                                <input type="number" id="VectFox_eventbase_max_tokens" class="vectfox-input" min="256" max="32768" step="64" style="width:120px;" />
+                                <small class="VectFox_hint" style="display:block; margin-top:4px;">
+                                    A reasoning model spends this budget on thinking <em>before</em> it writes anything,
+                                    and most providers never show you that thinking — measured against
+                                    deepseek-v4-flash, a 3.7k-token window consumed all 2048 tokens and returned an
+                                    empty reply. If extraction fails with "used its entire token limit without
+                                    answering", raise this well above the default.
+                                </small>
                             </div>
 
                             <div class="vectfox-form-group">
@@ -2630,6 +2645,14 @@ function bindSettingsEvents(settings, callbacks) {
         .prop('checked', settings.should_use_max_completion_tokens === true)
         .on('change', function() {
             settings.should_use_max_completion_tokens = $(this).prop('checked');
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_should_disable_thinking')
+        .prop('checked', settings.should_disable_thinking !== false)
+        .on('change', function() {
+            settings.should_disable_thinking = $(this).prop('checked');
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });

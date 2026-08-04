@@ -213,15 +213,15 @@ function createBrowserModal() {
                 <!-- Header -->
                 <div class="vectfox-modal-header">
                     <h3>🗃️ VECTFOX Database Browser</h3>
-                    <div style="display:flex;gap:6px;align-items:center;">
+                    <div class="vectfox-modal-header-actions">
                         <button class="vectfox-btn vectfox-btn-sm" id="vectfox_browser_refresh_scan" title="Probe standard and qdrant backends, update the registry, and remove stale entries">
                             ${icons.refreshCw(14)} Refresh Scan
                         </button>
                         <button class="vectfox-btn vectfox-btn-sm" id="vectfox_browser_clear_reformat_originals" title="Auto-Reformat retains each source's original text for audit. Clear it to reclaim settings.json space — the accepted chunks themselves are untouched.">
                             🧹 Clear Auto-Reformat Originals
                         </button>
-                        <button class="vectfox-btn-icon" id="vectfox_browser_close">✕</button>
                     </div>
+                    <button class="vectfox-btn-icon" id="vectfox_browser_close">✕</button>
                 </div>
 
                 <!-- Plugin Warning Banner (hidden by default, shown when plugin unavailable) -->
@@ -2033,12 +2033,12 @@ function createActivationEditorModal() {
         <div id="vectfox_activation_editor_modal" class="vectfox-modal">
             <div class="vectfox-activation-editor">
                 <div class="vectfox-modal-header">
-                                    <h3>⚙️ Collection Settings</h3>
-                                    <div style="display:flex; gap:8px; align-items:center;">
-                                        <button id="vectfox_activation_lock_collection" class="vectfox-btn-sm" title="Manage this collection's chat and character locks">🔒 Manage Locks</button>
-                                        <button class="vectfox-btn-icon" id="vectfox_activation_close">✕</button>
-                                    </div>
-                                </div>
+                    <h3>⚙️ Collection Settings</h3>
+                    <div class="vectfox-modal-header-actions">
+                        <button id="vectfox_activation_lock_collection" class="vectfox-btn-sm" title="Manage this collection's chat and character locks">🔒 Manage Locks</button>
+                    </div>
+                    <button class="vectfox-btn-icon" id="vectfox_activation_close">✕</button>
+                </div>
 
                 <div class="vectfox-activation-body">
                     <div class="vectfox-activation-collection-name">

@@ -183,6 +183,7 @@ const defaultSettings = {
     // in core/llm-provider-call.js. Defaults keep the classic OpenAI shape.
     should_send_temperature: true,            // false = omit `temperature` from the request entirely
     should_use_max_completion_tokens: false,  // true = send `max_completion_tokens` instead of `max_tokens`
+    should_disable_thinking: true,            // false = let the model think; true sends `reasoning_effort: 'none'`
 
     // Hybrid Search fusion settings.
     // A1 (BM25 re-rank, Vectra) reads hybrid_fusion_method/weights when invoked via A2 client-side hybrid.
