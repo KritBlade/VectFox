@@ -2444,6 +2444,21 @@ function bindSettingsEvents(settings, callbacks) {
      *
      * @param {string} reason - shown to the user, completing "Summarizer Injection disabled (…)"
      */
+    /**
+     * Chat id whose auto-sync the user asked to turn on, but which had no
+     * collection yet — so they were sent to Vectorize Content first. Consumed
+     * when that vectorization succeeds, cleared if they close the panel instead.
+     *
+     * Needed because the redirect is where the user's intent would otherwise be
+     * lost: they ticked the box, got taken somewhere else, finished the work the
+     * box required, and came back to it still unticked.
+     *
+     * Chat-scoped so an intent from one chat can never enable auto-sync on
+     * another; null when nothing is pending.
+     * @type {string|null}
+     */
+    let _autoSyncEnableAwaitingVectorizeForChat = null;
+
     const _disableSummarizerInjectionBecauseAutoSyncIsOff = (reason) => {
         if (!settings.summarizer_injection_enabled) return;
         settings.summarizer_injection_enabled = false;
@@ -2480,8 +2495,11 @@ function bindSettingsEvents(settings, callbacks) {
                     // No collection for this chat yet — send the user to vectorize first.
                     log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveActiveEventBaseCollection found no eligible collection — see [EventBase][resolve] log above)');
                     $checkbox.prop('checked', false);
-                    toastr.info('Vectorize your chat history first');
+                    toastr.info('Vectorize your chat history first — auto-sync will turn on when it finishes');
                     _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync, which needs a vectorized chat');
+                    // Remember the intent across the redirect so a finished
+                    // vectorization resumes the enable the user actually asked for.
+                    _autoSyncEnableAwaitingVectorizeForChat = chatId;
                     openContentVectorizer('chat');
                     return;
                 }
@@ -2540,6 +2558,7 @@ function bindSettingsEvents(settings, callbacks) {
                         } else {
                             // X / Esc — abort enabling entirely.
                             $checkbox.prop('checked', false);
+                            _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
                             await refreshAutoSyncCheckbox(settings);
                             return;
                         }
@@ -4064,7 +4083,28 @@ function bindSettingsEvents(settings, callbacks) {
     // (e.g. chat just got vectorized) and chat-changed shift the state.
     const _refreshAutoSync = () => refreshAutoSyncCheckbox(extension_settings.vectfox);
     document.addEventListener('vectfox:collections-updated', _refreshAutoSync);
-    document.addEventListener('vectfox:eventbase-synced', _refreshAutoSync);
+
+    document.addEventListener('vectfox:eventbase-synced', () => {
+        // The chat just gained a collection because the user was sent here by
+        // ticking auto-sync. Finish what they started: re-run the enable flow,
+        // which now finds a collection and takes the normal path (straight on if
+        // fully synced, catch-up prompt if not). Refreshing alone would only
+        // re-read the stored "off" and leave the box unticked — the bug this
+        // fixes.
+        const pendingChat = _autoSyncEnableAwaitingVectorizeForChat;
+        _autoSyncEnableAwaitingVectorizeForChat = null;
+        if (pendingChat && pendingChat === getCurrentChatId()) {
+            $('#VectFox_autosync_enabled').prop('checked', true).trigger('input');
+            return; // that flow sets the checkbox itself
+        }
+        _refreshAutoSync();
+    });
+
+    // Closed without vectorizing — the user changed their mind, so drop the
+    // intent rather than enabling auto-sync off some later unrelated run.
+    document.addEventListener('vectfox:content-vectorizer-closed', () => {
+        _autoSyncEnableAwaitingVectorizeForChat = null;
+    });
 
     // Debug buttons: Test semantic WI and dump registry
     $('#VectFox_wi_test_btn').on('click', async function() {
