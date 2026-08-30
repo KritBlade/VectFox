@@ -297,7 +297,7 @@ export async function synchronizeChat(settings, batchSize = 5, triggerEvent = nu
     }
 
     // Find EventBase collections registered for this chat and check the per-collection auto-sync flag
-    const { findEventBaseCollectionsForChat, resolveActiveEventBaseCollection } = await import('./eventbase-store.js');
+    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget } = await import('./eventbase-store.js');
     const { isCollectionAutoSyncEnabled } = await import('./collection-metadata.js');
     const backend = getRegistryBackend(settings?.vector_backend);
     const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
@@ -309,12 +309,12 @@ export async function synchronizeChat(settings, batchSize = 5, triggerEvent = nu
     }
     // Gate on the ACTIVE (lock-aware, ownership-filtered) collection ONLY — the same
     // one the AutoSync checkbox reflects (refreshAutoSyncCheckbox → getChatAutoSyncStatus
-    // → resolveActiveEventBaseCollection). Using `.some()` across ALL of the chat's
+    // → resolveEventBaseWriteTarget). Using `.some()` across ALL of the chat's
     // collections meant a leftover autoSync=true on a non-active collection (a different
     // persona/backend enabled earlier) fired auto-sync even though the visible toggle was
     // off — and then ingested into the current-backend collection whose own flag was false.
     // Resolving the active collection keeps the toggle and the behavior in lockstep.
-    const activeCollection = resolveActiveEventBaseCollection(settings, uuid);
+    const activeCollection = resolveEventBaseWriteTarget(settings, uuid);
     const autoSyncEnabled = !!activeCollection && isCollectionAutoSyncEnabled(activeCollection.registryKey);
 
     if (!autoSyncEnabled) {
@@ -345,9 +345,9 @@ export async function synchronizeChat(settings, batchSize = 5, triggerEvent = nu
             // speaking on this trigger, so each speaker's turn would manufacture and
             // lock a NEW per-character EventBase collection for the same chat —
             // scattering events across siblings the summarizer (which reads only the
-            // single resolveActiveEventBaseCollection) never sees. The resolved
+            // single resolveEventBaseWriteTarget) never sees. The resolved
             // active collection IS the documented auto-sync write target
-            // (see Doc/collection_helper.md — resolveActiveEventBaseCollection).
+            // (see Doc/collection_helper.md — resolveEventBaseWriteTarget).
             // activeCollection is guaranteed non-null here: the autoSyncEnabled gate
             // above bails when it's null.
             collectionIdOverride: activeCollection.collectionId,

@@ -2523,7 +2523,7 @@ function bindSettingsEvents(settings, callbacks) {
             if (enabling) {
                 if (status.state === 'no-collection') {
                     // No collection for this chat yet — send the user to vectorize first.
-                    log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveActiveEventBaseCollection found no eligible collection — see [EventBase][resolve] log above)');
+                    log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveEventBaseWriteTarget found no eligible collection — see [EventBase][resolve] log above)');
                     $checkbox.prop('checked', false);
                     toastr.info('Vectorize your chat history first — auto-sync will turn on when it finishes');
                     _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync, which needs a vectorized chat');
