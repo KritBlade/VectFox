@@ -176,11 +176,11 @@ describe('postChatCompletion — request body', () => {
         expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe('none');
     });
 
-    it('omits it entirely once the user turns thinking back on', async () => {
+    it('carries reasoning_effort:minimal once the user turns thinking back on', async () => {
         const fetchMock = vi.fn(async () => okResponse());
         vi.stubGlobal('fetch', fetchMock);
         await postChatCompletion({ ...baseArgs(), ...resolveModelParameterStyle({ should_disable_thinking: false }) });
-        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('reasoning_effort');
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe('minimal');
     });
 
     it('carries reasoning_effort on the vLLM/custom route too', async () => {
@@ -245,18 +245,19 @@ describe('resolveModelParameterStyle', () => {
     });
 
     // On by default — thinking earns nothing on schema-filling work. Only an
-    // explicit false brings it back, which is the same shape as the temperature
-    // switch beside it, so there is no third state to reason about.
+    // explicit false steps down to 'minimal', which is the same shape as the
+    // temperature switch beside it, so there is no third state to reason about.
     it('asks for no thinking unless should_disable_thinking is explicitly false', () => {
         expect(resolveModelParameterStyle({}).reasoningEffort).toBe('none');
         expect(resolveModelParameterStyle({ should_disable_thinking: true }).reasoningEffort).toBe('none');
-        expect(resolveModelParameterStyle({ should_disable_thinking: false }).reasoningEffort).toBeNull();
+        expect(resolveModelParameterStyle({ should_disable_thinking: false }).reasoningEffort).toBe('minimal');
     });
 
-    // Only ever 'none' — a weaker effort still thinks, so the label would lie.
-    it('never asks for a partial thinking budget', () => {
-        expect(resolveModelParameterStyle({}).reasoningEffort).not.toBe('minimal');
-        expect(resolveModelParameterStyle({}).reasoningEffort).not.toBe('low');
+    // Unchecking must still BOUND thinking, never leave it unbounded: omitting the
+    // parameter is what lets a Gemini model spend its whole output budget reasoning
+    // and return empty content (measured 96 of 97 completion tokens on 3.8-flash).
+    it('never leaves thinking unbounded by omitting the parameter', () => {
+        expect(resolveModelParameterStyle({ should_disable_thinking: false }).reasoningEffort).toBeTruthy();
     });
 });
 

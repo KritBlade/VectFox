@@ -476,7 +476,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                         <input type="checkbox" id="VectFox_should_disable_thinking" />
                                         <span>Turn off model thinking</span>
                                     </label>
-                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and it can't spend the whole token limit thinking and return nothing. Uncheck to let models think. Affects every LLM call.</small>
+                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and it can't spend the whole token limit thinking and return nothing. <b>Uncheck this if your model returns <i>"Bad Request"</i> on every call</b> — newer Gemini (3.5-flash-lite, 3.5-flash, 3.8-flash) cannot have thinking switched off and rejects <code>"none"</code> outright. Unchecked sends <code>reasoning_effort: "minimal"</code> instead, which those models accept and which still keeps thinking out of the output budget. Affects every LLM call.</small>
                                 </div>
                             </div>
 
