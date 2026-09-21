@@ -2,7 +2,7 @@
   "mcpServers": {
     "chrome-devtools": {
       "command": "cmd",
-      "args": ["/c", "pnpx", "chrome-devtools-mcp@latest", "--browser-url=http://localhost:9222"]
+      "args": ["/c", "npx", "-y", "chrome-devtools-mcp@latest", "--browser-url=http://localhost:9222"]
     }
   }
 }
