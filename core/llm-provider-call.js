@@ -178,14 +178,26 @@ export function resolveModelParameterStyle(settings = {}) {
         tokenLimitParameter: settings?.should_use_max_completion_tokens
             ? 'max_completion_tokens'
             : 'max_tokens',
-        // ON unless the user turns it off — thinking earns nothing on the
-        // schema-filling work every one of these features does, while costing
-        // latency, tokens, and (measured) whole runs that return nothing.
+        // CHECKED sends 'none' — thinking earns nothing on the schema-filling
+        // work every one of these features does, while costing latency, tokens,
+        // and (measured) whole runs that return nothing. 'none' is the only
+        // value that means OFF: 'minimal' and 'low' still think, just less, so
+        // a switch labelled "turn off thinking" may not send them.
         //
-        // Only ever 'none', never a weaker effort level: 'minimal' and 'low'
-        // still think, just less, so a switch labelled "turn off thinking"
-        // would over-promise.
-        reasoningEffort: settings?.should_disable_thinking !== false ? 'none' : null,
+        // UNCHECKED sends 'minimal', NOT nothing. Omitting the parameter leaves
+        // thinking unbounded, and on Google that eats the output budget before
+        // the answer starts: gemini-3.8-flash spent 96 of 97 completion tokens
+        // reasoning its way to the word "ok", and at a 32-token cap returned
+        // empty content with finish_reason "length". 'minimal' bounds it —
+        // measured reasoning_tokens 0 on Gemini, with byte-identical extraction
+        // yield to sending nothing across all 8 windows of a real chat.
+        //
+        // 'none' is NOT universally accepted, which is why unchecking matters:
+        // google/gemini-3.5-flash-lite, 3.5-flash and 3.8-flash reject it with
+        // an upstream "Bad Request" on every single call (newer Gemini cannot
+        // have thinking switched off at all), while gemini-3.1-flash-lite,
+        // gpt-4o-mini, claude-haiku-4.5 and deepseek-chat all accept it.
+        reasoningEffort: settings?.should_disable_thinking !== false ? 'none' : 'minimal',
     };
 }
 
@@ -354,9 +366,23 @@ export async function postChatCompletion({
             if (shouldNotifyProviderFailure) {
                 notifyUpstreamRejection(contextLabel, model, upstreamDetail, Boolean(data?.quota_error));
             }
+            // ST forwards only the upstream STATUS TEXT ("Bad Request"), which names
+            // no cause, so print the request-shape switches alongside it — they are
+            // the parameters a model rejects while accepting the same prompt, and
+            // the user can act on every one of them from the Core tab.
+            // `reasoning_effort: 'none'` is the known repeat offender: newer Gemini
+            // (3.5-flash-lite, 3.5-flash, 3.8-flash) rejects it on every call.
+            const shapeSent = [
+                `reasoning_effort=${reasoningEffort ?? '(not sent)'}`,
+                `${tokenLimitParameter}=${maxTokens}`,
+                `temperature=${sendTemperature ? temperature : '(not sent)'}`,
+            ].join(', ');
             log.warn(
-                `[${contextLabel}] ${label} rejected the request (HTTP ${response.status} from ST, upstream status text `
-                + `"${upstreamDetail}"). The provider's full error is in the SillyTavern server console. Raw body: ${bodyText.slice(0, 500)}`,
+                `[${contextLabel}] ${label} rejected the request for model "${model}" (HTTP ${response.status} from ST, `
+                + `upstream status text "${upstreamDetail}"). Request shape sent: ${shapeSent}. ST forwards only the status `
+                + `text, so the provider's full error is in the SillyTavern server console. If reasoning_effort=none, try `
+                + `unchecking "Turn off model thinking" in the VectFox Core tab — newer Gemini models reject that value on `
+                + `every call. Raw body: ${bodyText.slice(0, 500)}`,
             );
             throw new LlmCallError(
                 `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,

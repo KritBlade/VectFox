@@ -5,6 +5,7 @@ docs/*.md
 
 # Local development notes
 VECTOR_LIST.md
+.mcp.json
 
 node_modules/
 .playwright-auth.json

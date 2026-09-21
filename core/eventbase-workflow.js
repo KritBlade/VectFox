@@ -20,7 +20,7 @@ import { EXTENSION_PROMPT_TAG } from './constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
 import { extractEvents } from './eventbase-extractor.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveActiveEventBaseCollection } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
 import { getSavedHashes } from './core-vector-api.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
 import { retrieveEventsWithAgent } from './agentic-retrieval.js';
@@ -134,11 +134,13 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // a NEW per-character EventBase collection for the same chat every time a
     // different character speaks, scattering events across siblings that the
     // summarizer (which reads only resolveActiveEventBaseCollection) never sees.
+    // The write target additionally requires a UUID match, so a foreign collection
+    // locked in for cross-chat retrieval can never capture this chat's events.
     // Trusting the registry instead of recomputing the ID is the rule in
     // Doc/collection_helper.md — the registry is the source of truth for which
     // collection holds a chat's data.
     const collectionId = collectionIdOverride
-        || resolveActiveEventBaseCollection(settings, uuid)?.collectionId
+        || resolveEventBaseWriteTarget(settings, uuid)?.collectionId
         || buildEventBaseCollectionId(uuid, settings?.vector_backend);
 
     // Lock to current chat at start so the index is populated even if vectorization is interrupted.
@@ -1365,8 +1367,8 @@ export async function getChatAutoSyncStatus(settings) {
 
     // Resolve THE active EventBase collection for this chat — ownership-filtered
     // and lock-aware (matches the DB Browser's "Active here only" and the
-    // auto-sync write target). See resolveActiveEventBaseCollection.
-    const match = resolveActiveEventBaseCollection(settings, uuid);
+    // auto-sync write target). See resolveEventBaseWriteTarget.
+    const match = resolveEventBaseWriteTarget(settings, uuid);
 
     if (!match) return { state: 'no-collection' };
 

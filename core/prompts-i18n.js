@@ -728,30 +728,35 @@ const _EXTRACTION_RULES_BODY =
 `2. EVENT COUNT:
    - Return AT MOST {{maxCount}} events.
    - Return as many real events as actually occurred — do not artificially cap or pad.
-   - Zero events ([]) is correct only when the excerpt is pure filler with no character interaction, relationship movement, world information, or narrative consequence whatsoever.
    - DO NOT invent events. DO NOT duplicate the same event under different names.
 
 3. WHEN TO RETURN ZERO EVENTS ([]):
-   Return [] if BOTH of the following are true:
-   a) The excerpt does not contain any event that maps to the defined event_type list above.
-   OR
-   b) It does map to an event_type, but the event has no lasting consequence worth retrieving later.
+   Default to EXTRACTING. Return [] only when the excerpt holds no character
+   interaction, no dialogue, no revelation, no relationship movement and no world
+   information — a pure scene-setting paragraph, or an out-of-character note.
 
-   THE ONE-WEEK TEST — ask yourself: "If someone reads this story one week from now, would knowing this event change their understanding of the characters, world, or plot?"
-   - If YES → extract it.
-   - If NO → skip it.
+   Ordinary conversation IS extractable. A character sharing something personal,
+   asking a question that gets answered, offering or accepting help, or reacting to
+   how they were treated all change what a reader knows about them.
 
-   Examples that FAIL the test (return []):
-   - The party has dinner at home with no plot discussion.
-   - The main character teases the heroine playfully with no consequence.
-   - Characters chat about the weather or daily routine.
+   When unsure whether an event is worth keeping, EXTRACT IT and score it at the
+   BOTTOM of its event_type's range in the OUTPUT SCHEMA below. Importance RANKS
+   events; it is not a filter you apply here. A low score keeps the event
+   available for later retrieval. Omitting it loses the event permanently.
 
-   Examples that PASS the test (extract):
-   - Main character pays for the heroine's freedom — her status permanently changed. Money involved is a concrete detail worth remembering.
+   Always extract these — they steer the main storyline:
    - A promise or oath is made — it shapes future obligations.
    - A character's inner fear or secret is revealed — it reframes past or future behaviour.
+   - A character's status, allegiance, or circumstances permanently change. Concrete
+     details (a sum paid, a name given, a term agreed) are worth remembering.
 
-   Sexual / intimate scenes: return [] UNLESS the scene contains a confession, promise, relationship change, revelation, or any narrative consequence that would still matter one week later. The intimacy itself is not the event — extract only what changes.
+   SEXUAL / INTIMATE SCENES — THE ONE EXCEPTION TO "DEFAULT TO EXTRACTING":
+   Do NOT extract the encounter itself, at ANY importance. Intimate scenes read alike,
+   so storing them fills the memory with near-identical entries that match later
+   queries while telling the reader nothing about the storyline.
+   Extract ONLY a consequence that would still stand if the scene were removed: a
+   promise or oath, a confession, a revelation, a change in status or allegiance, or a
+   stated shift in the relationship. If the scene carries none of those, return [].
 
 4. REASONING BLOCKS — CONTEXT ONLY (DO NOT BREAK):
    Some messages in the excerpt include a block marked exactly:
@@ -775,7 +780,7 @@ Return ONLY a valid JSON array. No prose. No markdown. No code fences.
 
 Each event object MUST have these fields:
 - event_type: one of [main_quest_update, side_quest_update, combat, travel, discovery, dialogue_significant, relationship_change, character_introduction, character_state_change, item_acquired, item_lost, faction_change, location_change, revelation, promise_or_oath, betrayal, death, other]
-- importance: integer 1-10. Use the one-week test: higher = more likely to matter one week later.
+- importance: integer 1-10. Higher = the event keeps shaping the story after this scene.
   Anchor your score against these per-type guidelines:
 
   PERMANENT / IRREVERSIBLE changes score highest — they reshape the story permanently.
@@ -783,7 +788,9 @@ Each event object MUST have these fields:
 
   main_quest_update:    7-10 (major milestone/turning point), 4-6 (incremental progress)
   side_quest_update:    3-6  (completion or key step), 1-3 (minor update)
-  combat:               2-4  (routine fight, won or lost), 6-8 (boss or pivotal battle),
+  combat:               1-3  (common mobs, random encounter, trash fight — won or lost),
+                        4-6  (a costly or hard-won fight, or one that reveals an enemy's nature),
+                        7-8  (a NAMED boss, elite, or rival is defeated — or defeats the party),
                         9-10 (combat that kills a major character or changes the story permanently)
   travel:               1-2  (moving between locations), 3-5 (arrival at a key destination that opens new story)
   discovery:            3-5  (minor lore or clue), 6-8 (world-changing revelation or hidden truth uncovered)
@@ -800,6 +807,13 @@ Each event object MUST have these fields:
   betrayal:             7-10 (trust broken — scale with how close the relationship was and how severe the consequences)
   death:                6-8  (minor/enemy character), 9-10 (death of a named ally or major character)
   other:                1-4  (flavor worth remembering), 5-7 (genuinely significant but doesn't fit other types)
+
+  IF NONE OF THE ABOVE FITS the situation, use your own judgement and score by how much the
+  event changes the MAIN STORYLINE:
+    7-10 — major impact: the main storyline moves, or a main character is permanently altered.
+    4-6  — real but local impact: it matters to a scene, a subplot, or one relationship.
+    1-3  — it happened, but the main storyline is unchanged by it.
+  Never skip an event because no guideline matches. Score it and return it.
 - summary: 2-8 dense sentences capturing WHO did WHAT, the key detail, the emotional/narrative impact, and any important consequences or reactions. SAME LANGUAGE AS EXCERPT (see Rule 1)
 - cause: short explanation of why it happened, SAME LANGUAGE AS EXCERPT (may be "")
 - result: outcome / state change, SAME LANGUAGE AS EXCERPT (may be "")
@@ -888,11 +902,19 @@ const _EXTRACTION_EXAMPLES_OTHERS =
 `;
 
 // ── Shared FOOTER: the excerpt slot ──────────────────────────────────────────
+// The excerpt runs to thousands of characters, which leaves the "no prose, no code
+// fences" line in OUTPUT SCHEMA far behind by the time the model starts writing —
+// measured as a prose preamble on 4 of 15 gemini-3.5-flash runs. Restating it AFTER
+// the excerpt makes it the last thing read.
 const _EXTRACTION_FOOTER =
 `=========================
 EXCERPT
 =========================
-{{text}}`;
+{{text}}
+
+=========================
+Return ONLY the JSON array now. Begin your reply with [ and end it with ].
+No preamble, no explanation, no markdown, no code fences.`;
 
 const _EXTRACTION_PROMPTS = {
     intl:           _EXTRACTION_TOP + _EXTRACTION_LANG_INTL           + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_INTL           + _EXTRACTION_FOOTER,

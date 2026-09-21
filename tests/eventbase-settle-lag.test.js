@@ -32,7 +32,7 @@ vi.mock('../core/eventbase-store.js', () => ({
     insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(),
     clearExtractionCachesForChat: vi.fn(), buildEventBaseCollectionId: vi.fn(), isLastWindowExtracted: vi.fn(),
     setVectorizationTip: vi.fn(), ensureVectorizationTip: vi.fn(), shouldUseTipFallback: vi.fn(),
-    resolveActiveEventBaseCollection: vi.fn(),
+    resolveEventBaseWriteTarget: vi.fn(),
 }));
 vi.mock('../core/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../core/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));

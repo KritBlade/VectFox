@@ -476,7 +476,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                         <input type="checkbox" id="VectFox_should_disable_thinking" />
                                         <span>Turn off model thinking</span>
                                     </label>
-                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and it can't spend the whole token limit thinking and return nothing. Uncheck to let models think. Affects every LLM call.</small>
+                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and it can't spend the whole token limit thinking and return nothing. <b>Uncheck this if your model returns <i>"Bad Request"</i> on every call</b> — newer Gemini (3.5-flash-lite, 3.5-flash, 3.8-flash) cannot have thinking switched off and rejects <code>"none"</code> outright. Unchecked sends <code>reasoning_effort: "minimal"</code> instead, which those models accept and which still keeps thinking out of the output budget. Affects every LLM call.</small>
                                 </div>
                             </div>
 
@@ -2523,7 +2523,7 @@ function bindSettingsEvents(settings, callbacks) {
             if (enabling) {
                 if (status.state === 'no-collection') {
                     // No collection for this chat yet — send the user to vectorize first.
-                    log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveActiveEventBaseCollection found no eligible collection — see [EventBase][resolve] log above)');
+                    log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveEventBaseWriteTarget found no eligible collection — see [EventBase][resolve] log above)');
                     $checkbox.prop('checked', false);
                     toastr.info('Vectorize your chat history first — auto-sync will turn on when it finishes');
                     _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync, which needs a vectorized chat');

@@ -4,7 +4,7 @@ Single document covering everything related to collections: lock state, listing,
 
 **Why this document is long:** collection routing has historically been the #1 source of silent-wrong-answer bugs in VectFox. Locks land in the wrong storage bucket. Queries hit the wrong backend. Persona ownership stamps don't match. Every bug had the same root cause: someone reimplemented a helper inline instead of importing it. This doc is the *one* place that lists the canonical entry points so future authors (human or AI) stop reinventing them.
 
-Updated 2026-06-21 — documented the `resolveActiveEventBaseCollection` eligibility rules (explicit lock fully overrides ownership AND UUID match; the 2026-06-21 "locked collection still asks to vectorize" fix), corrected the `synchronizeChat` / `getChatAutoSyncStatus` descriptions (both now go through the resolver; write target pinned per group-chat fix `5d8a6dd`), added the `isCollectionActiveForContextAnyKey` tier, and disambiguated the per-collection pause `enabled` from the new global master switch (`isVectFoxEnabled`). Previously updated 2026-05-23 — added `resolveBackendForCollection`. Split out of `dev_helper.md §14` because it had grown too long to live inline.
+Read `Doc/collection_helper.md` before touching collection routing. It states the CURRENT contract only — git holds every earlier revision.
 
 ## ⚠️ Canonical APIs — USE THESE, DO NOT REIMPLEMENT
 
@@ -13,7 +13,8 @@ Updated 2026-06-21 — documented the `resolveActiveEventBaseCollection` eligibi
 | Function | File | Use when |
 |---|---|---|
 | **`getCollectionListing(settings)`** | [collection-loader.js](../core/collection-loader.js) | You need to iterate every collection (rendering a list, finding matches by pattern, computing aggregate state). |
-| **`resolveActiveEventBaseCollection(settings, chatUUID?)`** | [eventbase-store.js](../core/eventbase-store.js) | You need *the one* active EventBase collection for a chat (ownership-filtered + lock-aware). Use this instead of taking `[0]` from `findEventBaseCollectionsForChat`. |
+| **`resolveActiveEventBaseCollection(settings, chatUUID?)`** | [eventbase-store.js](../core/eventbase-store.js) | You need *the one* active EventBase collection to READ for a chat (ownership-filtered + lock-aware). Use this instead of taking `[0]` from `findEventBaseCollectionsForChat`. |
+| **`resolveEventBaseWriteTarget(settings, chatUUID?)`** | [eventbase-store.js](../core/eventbase-store.js) | You are about to INGEST events, stamp the auto-sync marker, or report sync status. Same resolution, but the collection's embedded chat UUID must match — a foreign lock can widen ownership, never redirect writes. |
 | **`getLock(collectionId, options)`** | [collection-metadata.js](../core/collection-metadata.js) | You need lock state for *one* collection (badge, tooltip, checkbox state, "is this active right now?"). |
 | **`setLock(collectionId, action, options)`** | [collection-metadata.js](../core/collection-metadata.js) | You need to *mutate* lock state for *one* collection (user clicks lock / unlock / clear). |
 | **`buildRegistryKey(collectionId, settings)`** | [collection-ids.js](../core/collection-ids.js) | You only have a bare collection ID and need to convert it to the canonical `"backend:id"` storage key (for any metadata read/write). Never hand-roll `` `${backend}:${collectionId}` `` — use this instead. |
@@ -500,24 +501,33 @@ disambiguate which one is active.
 
 | Function | File | Use when |
 |---|---|---|
-| `resolveActiveEventBaseCollection(settings, chatUUID?)` | [eventbase-store.js](../core/eventbase-store.js) | **Default choice.** Returns `{ collectionId, registryKey }` for the single **active** collection — ownership-filtered (via `getCollectionListing`) and lock-aware (matches the DB Browser's "Active here only" and the auto-sync write target). Returns `null` when none. Used by `stampAutoSyncMarker` and `getChatAutoSyncStatus`. |
+| `resolveActiveEventBaseCollection(settings, chatUUID?, { requireUuidMatch? })` | [eventbase-store.js](../core/eventbase-store.js) | **Default choice for READS.** Returns `{ collectionId, registryKey }` for the single **active** collection — ownership-filtered (via `getCollectionListing`) and lock-aware (matches the DB Browser's "Active here only"). Returns `null` when none. Used by `buildSummarizerInjection`. |
+| `resolveEventBaseWriteTarget(settings, chatUUID?)` | [eventbase-store.js](../core/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `runEventBaseIngestion`, `synchronizeChat`, `stampAutoSyncMarker`, and `getChatAutoSyncStatus`. Returns `null` on a chat's first ingestion — callers fall through to `buildEventBaseCollectionId`. |
 | `findEventBaseCollectionsForChat(uuid, preferredBackend)` | [eventbase-store.js](../core/eventbase-store.js) | Only when you genuinely need **every** candidate (e.g. pausing auto-sync on all of a chat's collections, or a has-data fallback probe). Returns `Array<{ collectionId, registryKey }>`, lock-ranked first. Pass `getRegistryBackend(settings.vector_backend)` as `preferredBackend`. **Do not** take `[0]` to mean "the active one" — call `resolveActiveEventBaseCollection` for that. Returns `[]` when no collection exists yet. |
 
-#### Eligibility rules inside `resolveActiveEventBaseCollection` — an explicit lock is a FULL override
+#### Eligibility rules inside `resolveActiveEventBaseCollection` — on READS an explicit lock is a FULL override
 
 A collection qualifies as the chat's active EventBase collection in **one of two** ways. Do not collapse these into a single "lock AND uuid" gate — that was the 2026-06-21 bug.
 
 1. **Explicit per-chat lock → eligible unconditionally.** If the collection is locked to the current chat (`isCollectionActiveForContextAnyKey([registryKey, collectionId], { chatId })`), it is the active collection **regardless of ownership and regardless of whether its embedded UUID still matches this chat.** A lock is a deliberate user override.
 2. **Auto-association (no lock) → must be owned AND UUID-matching.** Only when there is no lock does the resolver require `isOwn` *and* `matchesPatterns(id, uuidPatterns)`.
 
-**Why the lock must bypass the UUID match (not just ownership):** the collection ID bakes in the chat UUID at creation time, but the live chat UUID can **drift** away from it — e.g. after a delete + re-vectorize cycle, or when the user intentionally binds another chat's EventBase here (branch/duplicate sharing). The lock survives that drift; the UUID embedded in the ID does not. Requiring a UUID match would make the collection show **ACTIVE** in the DB Browser (lock-only badge) yet have auto-sync report **"no collection → vectorize first"** — the exact inconsistency that bug produced.
+**Why the lock must bypass the UUID match on reads (not just ownership):** the collection ID bakes in the chat UUID at creation time, but the live chat UUID can **drift** away from it — e.g. after a delete + re-vectorize cycle, or when the user intentionally binds another chat's EventBase here (branch/duplicate sharing). The lock survives that drift; the UUID embedded in the ID does not. Requiring a UUID match on the read path would make the collection show **ACTIVE** in the DB Browser (lock-only badge) while retrieval ignored it.
+
+On the **write** path the mirror-image outcome is correct, not a bug: a chat whose only EventBase collection is a foreign one locked in for retrieval shows that collection as ACTIVE (its events ARE retrieved here) *and* reports **"no collection → vectorize first"**, because this chat genuinely has nowhere of its own to write yet. Vectorizing then creates it.
 
 **Invariant — keep these three lock checks consistent, they must all agree:**
 - the DB Browser "Active here" badge (`isCollectionActiveForContext`, lock-only),
 - the retrieval gather (`_gatherLockedEventBaseCollections`, lock-only, no UUID check),
-- and `resolveActiveEventBaseCollection` (rule 1 above).
+- and `resolveActiveEventBaseCollection` (rule 1 above) — reads only; see the write-target carve-out below.
 
-Since commit `5d8a6dd` (group-chat fix), `resolveActiveEventBaseCollection` is **also the auto-sync write target** (`runEventBaseIngestion` resolves through it when no `collectionIdOverride` is passed). So any change to its eligibility rules silently moves **where auto-sync writes**, not just what it reads. Group chats are unaffected by rule 1 because all speakers share one chat UUID — their collections still resolve via rule 2's UUID match.
+**Rule 1 applies to READS ONLY.** `resolveEventBaseWriteTarget` (`requireUuidMatch: true`) replaces rule 1 with: *eligible when the embedded UUID matches AND (locked OR owned)*. The lock still widens **ownership** — an imported or other-persona collection for this chat is a valid write target — it just cannot redirect ingestion into a **different conversation's** collection.
+
+**Why writes cannot follow a foreign lock:** locking chat A's EventBase into chat B is the supported way to retrieve A's events while playing B. If ingestion honored that lock, B's events land in A's collection, where the two chats' independent `source_window_end` values collide inside one sort frame — `_orderEventsForPresentation` groups by `_sortFrame` (the collection ID), so one collection means one frame and the injected timeline interleaves both conversations. `ensureVectorizationTip` then reads A's tip (a message index in A) and skips every window in B: the "Resume extracted 0 events" report.
+
+Group chats are unaffected: all speakers share one chat UUID, so their collections satisfy the UUID match regardless of which `name2` was live when the ID was built.
+
+**Ranking among eligible collections**, most significant tier first: lock, then own-UUID, then current backend. The own-UUID tier is load-bearing when a chat has both its own collection and a foreign one locked in — without it both tiers score equal and the winner falls to registry insertion order, which flips silently the first time a collection is deleted and re-registered.
 
 ### Low-level fingerprint cache management
 
@@ -532,7 +542,7 @@ Called internally by the ingestion loop. Do not call from application code — r
 
 | Function | File | Role |
 |---|---|---|
-| `synchronizeChat(settings, batchSize, triggerEvent)` | [chat-vectorization.js](../core/chat-vectorization.js) | The auto-sync coordinator. Gates on **the ACTIVE collection only** — `resolveActiveEventBaseCollection(settings, uuid)` then `isCollectionAutoSyncEnabled(active.registryKey)` — NOT a `.some()` across every collection (a leftover `autoSync=true` on a non-active sibling used to fire even with the toggle visibly off). Then calls `runEventBaseIngestion({ isAutoSync: true, collectionIdOverride: active.collectionId })`. **The override is load-bearing** (commit `5d8a6dd`): it pins the write target to the resolved active collection so a group chat doesn't manufacture a new per-speaker collection each turn. Bails immediately when the VectFox master switch is off (`isVectFoxEnabled` — see [feature-gate.js](../core/feature-gate.js)). Called from ST event hooks (MESSAGE_SENT, MESSAGE_RECEIVED, etc.). Pass `triggerEvent` so it can suppress the popup on MESSAGE_SENT mid-generation. |
+| `synchronizeChat(settings, batchSize, triggerEvent)` | [chat-vectorization.js](../core/chat-vectorization.js) | The auto-sync coordinator. Gates on **the write target only** — `resolveEventBaseWriteTarget(settings, uuid)` then `isCollectionAutoSyncEnabled(active.registryKey)` — NOT a `.some()` across every collection (a leftover `autoSync=true` on a non-active sibling used to fire even with the toggle visibly off). Then calls `runEventBaseIngestion({ isAutoSync: true, collectionIdOverride: active.collectionId })`. **The override is load-bearing** (commit `5d8a6dd`): it pins the write target to the resolved active collection so a group chat doesn't manufacture a new per-speaker collection each turn. Bails immediately when the VectFox master switch is off (`isVectFoxEnabled` — see [feature-gate.js](../core/feature-gate.js)). Called from ST event hooks (MESSAGE_SENT, MESSAGE_RECEIVED, etc.). Pass `triggerEvent` so it can suppress the popup on MESSAGE_SENT mid-generation. |
 | `rearrangeChat(chat, settings, type, { dryRun, testMessage })` | [chat-vectorization.js](../core/chat-vectorization.js) | ST generation interceptor (`CHAT_COMPLETION_PROMPT_READY`). Handles semantic retrieval and prompt injection. **Separate concern from `synchronizeChat`** — retrieval does not trigger auto-sync extraction. Clears stale injections then early-returns (injects nothing) when the master switch is off (`isVectFoxEnabled`); the `dryRun` query-tester path is exempt so debugging still works. The `dryRun` / `testMessage` params support the debug query tester. |
 
 ### Key-form parity
@@ -549,7 +559,7 @@ State evaluator: **`async getChatAutoSyncStatus(settings)`** in `core/eventbase-
 { state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, markerValue?, vectorizationTip? }
 ```
 
-Match logic: delegates to **`resolveActiveEventBaseCollection(settings, uuid)`** (returns `no-collection` when it yields `null`). It does NOT do its own UUID walk anymore — that logic now lives inside the resolver, which is **lock-aware**: an explicit per-chat lock makes a collection eligible even when its embedded UUID has drifted from the current chat (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). The plain `buildChatSearchPatterns` + `matchesPatterns` UUID substring match is only the *no-lock* auto-association path inside the resolver.
+Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does NOT do its own UUID walk anymore; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`, and the UI offers Vectorize Content.
 
 "Fully vectorized" is determined by `isChatFullyVectorized(messages, settings, chatUUID)`, which checks whether the last possible window for the current message count is already in `eventbase_extracted_windows[uuid]`. No DB query, just an O(1) Set lookup.
 
