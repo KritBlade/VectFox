@@ -1588,7 +1588,7 @@ function bindEvents() {
             ai_reasoning: 'Removes thinking, tucao tags',
             comprehensive: 'All formatting + metadata + reasoning',
             nuclear: 'Plain text only',
-            mvu_game_maker: 'Strips MVU engine tags (UpdateVariable, combat_calculation, StoryAnalysis, combat_log) + standard formatting',
+            mvu_game_maker: 'Strips MVU engine tags (state updates, combat logs, game-system guides, cast/stats/choices) + standard formatting',
             custom: 'Your own pattern selection',
         };
         $('#vectfox_cv_cleaning_hint').text(hints[presetId] || '');
