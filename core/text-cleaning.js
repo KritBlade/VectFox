@@ -126,6 +126,18 @@ export const BUILTIN_PATTERNS = {
         flags: 'gi',
         builtin: true,
     },
+    // Engine state-variable blocks (<RES_Variable>, <POSTUpdateVariable>, …) and
+    // UI scaffolding (<reply_cast>, <choices>, the Scene Stats <styled> panel).
+    // <background scene="…" /> is self-closing, so the tail accepts either "/>"
+    // or a matched "</tag>" closer.
+    strip_mvu_engine_tags: {
+        id: 'strip_mvu_engine_tags',
+        name: 'Strip Engine State & UI Tags (MVU)',
+        pattern: '<(background|reply_cast|POSTUpdateVariable|RES_Variable|RES_POST_Variable|choices|classmate_trait_check|styled)\\b[^>]*?(?:/>|>[\\s\\S]*?</\\1\\s*>)',
+        replacement: '',
+        flags: 'gi',
+        builtin: true,
+    },
 };
 
 /**
@@ -171,7 +183,7 @@ export const CLEANING_PRESETS = {
     mvu_game_maker: {
         id: 'mvu_game_maker',
         name: 'MVU Game Maker',
-        description: 'Strips MVU game engine tags (UpdateVariable, combat_calculation, StoryAnalysis, combat_log) plus standard HTML formatting and AI reasoning tags',
+        description: 'Strips MVU game engine tags (state updates, combat logs, game-system guides, cast/stats/choices scaffolding) plus standard HTML formatting and AI reasoning tags',
         patterns: [
             'strip_font_tags',
             'strip_color_spans',
@@ -185,6 +197,7 @@ export const CLEANING_PRESETS = {
             'strip_mvu_story_analysis',
             'strip_mvu_combat_log',
             'strip_mvu_game_system_tags',
+            'strip_mvu_engine_tags',
         ],
     },
 };

@@ -1,11 +1,14 @@
 /**
- * Tests for stripReasoningBlocks() in core/text-cleaning.js.
+ * Tests for core/text-cleaning.js.
  *
- * Covers the agentic-planner contract: the model's reasoning / planning blocks
- * must be removed so the planner reads narrative, while the narrative that
- * follows the block (the invariant: "main text always comes after <think>")
- * is preserved. Regression guard for the 2026-06-02 over-strip where an
- * unterminated <think> deleted the entire reply.
+ * stripReasoningBlocks / stripGameSystemBlocks: the agentic-planner contract —
+ * reasoning, planning and engine blocks are removed so the planner reads
+ * narrative, while the narrative that follows a reasoning block (the invariant:
+ * "main text always comes after <think>") is preserved, including an
+ * unterminated <think>.
+ *
+ * strip_mvu_engine_tags: the vectorization builtin removes MVU engine state and
+ * UI-scaffolding blocks (paired and self-closing) without touching narrative.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -22,7 +25,13 @@ vi.mock('../../../../utils.js', () => ({
     uuidv4: () => 'test-uuid',
 }));
 
-import { stripReasoningBlocks, stripGameSystemBlocks } from '../core/text-cleaning.js';
+import {
+    stripReasoningBlocks,
+    stripGameSystemBlocks,
+    BUILTIN_PATTERNS,
+    testPattern,
+    cleanText,
+} from '../core/text-cleaning.js';
 
 describe('stripReasoningBlocks', () => {
     it('removes a paired <think>…</think> block and keeps the narrative after it', () => {
@@ -140,5 +149,60 @@ describe('stripGameSystemBlocks', () => {
         expect(out).not.toMatch(/UpdateVariable|UpdateAnalysis|JSONPatch|combat_log|konatan_planning|回顾当前情况/);
         // The narrative after the reasoning block must survive.
         expect(out).toMatch(/列車停下的動靜很輕/);
+    });
+});
+
+describe('strip_mvu_engine_tags builtin', () => {
+    const { pattern, flags, replacement } = BUILTIN_PATTERNS.strip_mvu_engine_tags;
+    const strip = (text) => {
+        const outcome = testPattern(pattern, flags, replacement, text);
+        expect(outcome.success).toBe(true);
+        return outcome.result;
+    };
+
+    // Shape of a real ArtificKoi reply: narrative inside <maintext>, engine
+    // blocks after it, and a self-closing <background … /> up front.
+    const reply = [
+        '<maintext>',
+        '<background scene="gcd6g3mt-ioxmse_scene_1_1sgldoj" />',
+        '<p>美月整個人趴在課桌上。</p>',
+        '<styled type="terminal" title="Scene Stats">\nMitsuki Tachibana: Affection 19 (+4)\n</styled>',
+        '</maintext>',
+        '<reply_cast>\n<cast name="Mitsuki">\n</reply_cast>',
+        '<choices>\n1. 吃下厚蛋燒\n2. 拒絕\n</choices>',
+        '<classmate_trait_check>\nMitsuki: Tsundere\n</classmate_trait_check>',
+        '<POSTUpdateVariable>\n<JSONPatch>[{"op":"replace","path":"/Intent/initiative/0"}]</JSONPatch>\n</POSTUpdateVariable>',
+        '<RES_Variable>\n[{"op":"replace","path":"/World/Time/0","value":"12:05"}]\n</RES_Variable>',
+        '<RES_POST_Variable>\n[{"op":"replace","path":"/Classmate/Mitsuki/LastInitiative/0"}]\n</RES_POST_Variable>',
+    ].join('\n');
+
+    it('removes every engine state / scaffolding block and keeps the narrative', () => {
+        const out = strip(reply);
+        expect(out).not.toMatch(/background|reply_cast|cast name|choices|厚蛋燒|classmate_trait_check|Tsundere/);
+        expect(out).not.toMatch(/POSTUpdateVariable|RES_Variable|RES_POST_Variable|JSONPatch|"op"/);
+        expect(out).not.toMatch(/styled|Scene Stats|Affection/);
+        expect(out).toContain('<p>美月整個人趴在課桌上。</p>');
+        expect(out).toContain('<maintext>');
+        expect(out).toContain('</maintext>');
+    });
+
+    it('closes <RES_Variable> on its own closer, not on a sibling <RES_POST_Variable>', () => {
+        const out = strip('<RES_Variable>a</RES_Variable>keep<RES_POST_Variable>b</RES_POST_Variable>');
+        expect(out).toBe('keep');
+    });
+
+    it('is non-greedy across sibling blocks of the same tag', () => {
+        expect(strip('<choices>1</choices>middle<choices>2</choices>')).toBe('middle');
+    });
+
+    it('leaves a tag whose name only starts with a listed name untouched', () => {
+        const text = '<backgroundMusic>rain</backgroundMusic><stylesheet>x</stylesheet>';
+        expect(strip(text)).toBe(text);
+    });
+
+    it('is enabled by the default cleaning settings (fresh install)', () => {
+        const out = cleanText(reply);
+        expect(out).not.toMatch(/RES_Variable|reply_cast|Scene Stats|<background/);
+        expect(out).toContain('美月整個人趴在課桌上。');
     });
 });
