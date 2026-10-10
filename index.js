@@ -123,7 +123,9 @@ const defaultSettings = {
     chunking_strategy: 'per_message', // per_message, conversation_turns, message_batch, adaptive
     batch_size: 4, // Messages per batch for message_batch strategy
     depth: 2,
-    position: extension_prompt_types.IN_PROMPT,
+    // Placement of every VectFox block (memory, summarizer, lorebook). Their text changes each
+    // turn, so In-Chat keeps it below the static prompt and leaves that prefix cacheable.
+    position: extension_prompt_types.IN_CHAT,
     protect: 5,
     insert: 5,
     min_chat_length: 0, // Minimum number of messages in chat before injection starts (0 = no minimum)
