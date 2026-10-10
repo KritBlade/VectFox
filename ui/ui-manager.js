@@ -568,7 +568,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <option value="0">After Main Prompt</option>
                                     <option value="1">In-Chat @ Depth</option>
                                 </select>
-                                <small class="VectFox_hint">Where retrieved chunks appear in the prompt</small>
+                                <small class="VectFox_hint">Where every VectFox block goes — memory, summarizer and lorebook. Their text changes every turn: Before/After Main Prompt puts it near the top of the prompt, so the provider's prompt cache can't reuse anything after it. <strong>In-Chat</strong> keeps everything above the chat history cacheable.</small>
 
                                 <div id="VectFox_injection_depth_row" style="margin-top: 12px; display: none;">
                                     <label for="VectFox_injection_depth">
@@ -4340,9 +4340,9 @@ function bindSettingsEvents(settings, callbacks) {
         }
     });
 
-    // Injection position (where chunks appear in prompt)
+    // Injection position (where every VectFox block goes in the prompt)
     $('#VectFox_injection_position')
-        .val(settings.position ?? 0)
+        .val(settings.position)
         .on('change', function() {
             const value = parseInt($(this).val());
             settings.position = value;
@@ -4352,7 +4352,7 @@ function bindSettingsEvents(settings, callbacks) {
             $('#VectFox_injection_depth_row').toggle(value === 1);
         });
     // Initialize depth row visibility
-    $('#VectFox_injection_depth_row').toggle((settings.position ?? 0) === 1);
+    $('#VectFox_injection_depth_row').toggle(settings.position === 1);
 
     // Injection depth (for in-chat position)
     $('#VectFox_injection_depth')

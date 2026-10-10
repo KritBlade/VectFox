@@ -601,17 +601,17 @@ export function enhanceWorldInfoEntriesUI(lorebookName, entries, settings) {
 // ============================================================================
 
 /**
- * GENERATION_STARTED handler — runs the semantic lorebook query before ST's WI scan
- * and force-activates matching entries via WORLDINFO_FORCE_ACTIVATE. This lets ST
- * process them through its normal pipeline (budget, position, recursion, formatters)
- * with no dependency on handler registration order.
+ * GENERATION_STARTED handler — runs the semantic lorebook query and injects the matching
+ * entries as one <VectFoxLorebook> block (tag from `lorebook_xml_tag`) through
+ * setExtensionPrompt, at the shared VectFox injection position/depth. The entries do NOT
+ * pass through ST's WI pipeline, so per-entry position, budget and recursion do not apply.
  *
- * Entries are identified by { world: sourceName, uid: entryUid } stored at vectorization
- * time. ST looks up the actual current lorebook entry content, so this path always
- * reflects the live lorebook rather than potentially stale vector-stored text.
+ * Hits are identified by { world: sourceName, uid: entryUid } stored at vectorization
+ * time; resolveLiveEntries swaps the vector-stored text for the live lorebook entry and
+ * drops deleted entries (disabled ones too, unless world_info_respect_entry_disable is off).
  *
- * Known edge case: if a lorebook is renamed after vectorization, sourceName will not
- * match and the entry silently misses activation. Re-vectorizing fixes it.
+ * A lorebook renamed after vectorization no longer matches its sourceName: rename
+ * detection shows a blocking modal (open the Database Browser, or continue without it).
  */
 async function handleGenerationStarted(type, options, dryRun) {
     if (dryRun) return;

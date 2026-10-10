@@ -1096,7 +1096,7 @@ function resolveChunkInjectionPosition(chunk, settings) {
     const collMeta = getCollectionMeta(chunk.collectionId) || {};
 
     // Cascade: chunk (backend payload → ext_settings fallback) → collection → global
-    const position = dbMeta.position ?? chunkMeta.position ?? collMeta.position ?? settings.position ?? 0;
+    const position = dbMeta.position ?? chunkMeta.position ?? collMeta.position ?? settings.position;
     const depth = dbMeta.depth ?? chunkMeta.depth ?? collMeta.depth ?? settings.depth ?? 2;
 
     return { position, depth };
