@@ -2022,6 +2022,65 @@ export async function refreshWIStatus() {
     _setWIEnabled(true);
 }
 
+/**
+ * Offer to fork a branch or checkpoint chat's EventBase from its parent, for the
+ * auto-sync enable flow when the chat has no collection of its own yet.
+ *
+ * @param {object} settings
+ * @returns {Promise<'forked'|'vectorize'|'cancel'>}
+ *   'forked' — this chat now has its own collection; continue enabling.
+ *   'vectorize' — no parent to fork from, or the user chose to start over.
+ *   'cancel' — the user closed the popup, stopped the fork, or it failed.
+ */
+async function _offerEventBaseFork(settings) {
+    const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../core/eventbase-fork.js');
+
+    let source;
+    try {
+        source = await findEventBaseForkSource(settings);
+    } catch (err) {
+        log.error('[AutoSync][fork] looking for a parent EventBase failed:', err);
+        toastr.error(err?.message || String(err), 'Could not check for a parent chat');
+        return 'cancel';
+    }
+    if (!source) return 'vectorize';
+
+    const remainingCount = Math.max(0, source.chatMessageCount - source.sharedPrefixLength);
+    const remainingText = remainingCount > 0
+        ? ` The ${remainingCount} message${remainingCount === 1 ? '' : 's'} after them still need extraction.`
+        : '';
+    const popup = await import('../../../../popup.js');
+    const { callGenericPopup, POPUP_TYPE } = popup;
+    const POPUP_RESULT = popup.POPUP_RESULT || { AFFIRMATIVE: 1, NEGATIVE: 0 };
+    const choice = await callGenericPopup(
+        `<div style="text-align:left">
+            <p><strong>This chat is a branch or checkpoint.</strong> Its first ${source.sharedPrefixLength} messages match the EventBase <em>${StringUtils.escapeHtml(source.collectionId)}</em>.</p>
+            <p><strong>Fork from parent</strong> copies the events for those messages into this chat's own EventBase — no LLM calls, no re-embedding.${remainingText} If the parent's EventBase is locked to this chat, it is unlocked: its later events belong to the parent's story.</p>
+            <p><strong>Vectorize from scratch</strong> extracts this chat's whole history again.</p>
+        </div>`,
+        POPUP_TYPE.CONFIRM,
+        '',
+        { okButton: 'Fork from parent', cancelButton: 'Vectorize from scratch' },
+    );
+
+    if (choice === POPUP_RESULT.NEGATIVE) return 'vectorize';
+    if (choice !== POPUP_RESULT.AFFIRMATIVE) return 'cancel';
+
+    try {
+        const result = await forkEventBaseFromSource(settings, source);
+        toastr.success(`Copied ${result.eventCount} events from the parent chat`, 'EventBase forked');
+        return 'forked';
+    } catch (err) {
+        if (err?.name === 'AbortError') {
+            toastr.info('EventBase fork stopped');
+            return 'cancel';
+        }
+        log.error('[AutoSync][fork] fork failed:', err);
+        toastr.error(err?.message || String(err), 'EventBase fork failed');
+        return 'cancel';
+    }
+}
+
 export async function refreshAutoSyncCheckbox(settings) {
     const $checkbox = $('#VectFox_autosync_enabled');
     const $status = $('#VectFox_autosync_status');
@@ -2536,7 +2595,7 @@ function bindSettingsEvents(settings, callbacks) {
 
             const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
             const { setCollectionAutoSync, setCollectionLock } = await import('../core/collection-metadata.js');
-            const status = await getChatAutoSyncStatus(settings);
+            let status = await getChatAutoSyncStatus(settings);
             const chatId = getCurrentChatId();
             log.lifecycle(`[AutoSync][checkbox] ${enabling ? 'CHECK' : 'UNCHECK'} → status.state=${status.state}, chatId=${chatId || '(none)'}, collection=${status.registryKey || status.collectionId || '(none)'}`);
 
@@ -2549,6 +2608,29 @@ function bindSettingsEvents(settings, callbacks) {
             }
 
             if (enabling) {
+                if (status.state === 'no-collection') {
+                    // A branch or checkpoint can take its parent's events instead of
+                    // re-extracting the shared history.
+                    const forkChoice = await _offerEventBaseFork(settings);
+                    if (forkChoice === 'cancel') {
+                        $checkbox.prop('checked', false);
+                        _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
+                        await refreshAutoSyncCheckbox(settings);
+                        return;
+                    }
+                    if (forkChoice === 'forked') {
+                        status = await getChatAutoSyncStatus(settings);
+                        log.lifecycle(`[AutoSync][checkbox] forked → status.state=${status.state}, collection=${status.registryKey || status.collectionId || '(none)'}`);
+                        if (status.state === 'no-collection') {
+                            log.error('[AutoSync][checkbox] fork finished but resolveEventBaseWriteTarget still finds no collection — see [EventBase][resolve] log above');
+                            toastr.error('The forked EventBase is not recognized as this chat\'s collection. Check the console log.', 'Auto-sync not enabled');
+                            $checkbox.prop('checked', false);
+                            _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
+                            await refreshAutoSyncCheckbox(settings);
+                            return;
+                        }
+                    }
+                }
                 if (status.state === 'no-collection') {
                     // No collection for this chat yet — send the user to vectorize first.
                     log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveEventBaseWriteTarget found no eligible collection — see [EventBase][resolve] log above)');

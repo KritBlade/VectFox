@@ -559,7 +559,7 @@ State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend =
 { state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, markerValue?, vectorizationTip? }
 ```
 
-Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does NOT do its own UUID walk anymore; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`, and the UI offers Vectorize Content.
+Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does NOT do its own UUID walk anymore; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; ticking the checkbox then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
 
 "Fully vectorized" is determined by `isChatFullyVectorized(messages, settings, chatUUID)`, which checks whether the last possible window for the current message count is already in `eventbase_extracted_windows[uuid]`. No DB query, just an O(1) Set lookup.
 
@@ -596,12 +596,35 @@ The "counts" suffix shows `chat: N msgs · vectorization: M msgs` when both numb
 | Action | Behaviour |
 |---|---|
 | ✓ Check + no-chat | Toast warn, uncheck |
-| ✓ Check + no-collection | Open Content Vectorizer (`'chat'`) |
+| ✓ Check + no-collection, branch/checkpoint with a fork source | Popup: **Fork from parent** → `forkEventBaseFromSource`, re-read status, continue as partial / fully-vectorized · **Vectorize from scratch** → open Content Vectorizer (`'chat'`) · close → uncheck |
+| ✓ Check + no-collection, otherwise | Open Content Vectorizer (`'chat'`) |
 | ✓ Check + partial | `setCollectionLock(registryKey, chatId)` + `setCollectionAutoSync(registryKey, true)` + toast "will catch up" |
 | ✓ Check + fully-vectorized | `setCollectionLock(registryKey, chatId)` + `setCollectionAutoSync(registryKey, true)` + toast "fully synced" |
 | ✗ Uncheck | `setCollectionAutoSync(registryKey, false)` + `clearAutoSyncMarker(uuid)` only. **Does NOT remove the chat lock** — the lock is a separate concern (retrieval activation / explicit user choice via the DB Browser), so disabling auto-sync must not deactivate the collection. Unlocking is the DB Browser's job. |
 
 `registryKey` here is `status.registryKey` from `getChatAutoSyncStatus` — the canonical `"backend:id"` form. All four metadata read paths (this table, `refreshAutoSyncCheckbox`, `synchronizeChat`, `getChatAutoSyncStatus`) use the same form. After mutation, dispatches `vectfox:collections-updated` and re-runs `refreshAutoSyncCheckbox` so the LED updates.
+
+### Branch and checkpoint fork
+
+SillyTavern gives every new branch and checkpoint its own `chat_metadata.integrity` (ST #5943), so it has a new chat UUID and no EventBase collection of its own — the write target resolves to `null` even when the parent's collection is locked here. Writing into the parent's collection is not an option: after the split the two chats' `source_window_end` values describe different stories, and the parent's tip is past the branch's messages. Instead the branch **forks**: the parent's events for the shared messages are copied into the branch's own collection with their stored vectors (no LLM extraction, no re-embedding), and auto-sync extracts only what comes after the split.
+
+**When:** the auto-sync checkbox is ticked, `getChatAutoSyncStatus` reports `no-collection`, and the chat has `chat_metadata.main_chat` (SillyTavern sets it only on branches and checkpoints).
+
+**Finding the parent** — by message content, so it works after the parent chat file is deleted (deleting a chat does not delete its collection):
+1. **Local window record** (`eventbase_extracted_windows`, chat UUID → window fingerprints of source message hashes). No backend reads. The candidate whose hashes match the longest run of this chat's opening messages wins; it needs at least one recorded window made entirely of shared messages, which rules out chats that share only the greeting. Its collection comes from `resolveActiveEventBaseCollection(settings, parentUuid)` and must be on the current backend.
+2. **Locked collection of another chat** — when the record has no match (extracted on another install, imported, or record cleared). Each such EventBase collection locked to this chat is read once and matched by its events' `source_message_hashes`.
+
+**Split point** = length of that matching run. Copied: every event whose `source_window_end` is before it, including events whose message was edited in the parent after extraction (the parent still uses them). If a parent message near the split was edited and never re-extracted, the run stops early and auto-sync re-extracts a few extra windows — never the reverse.
+
+**After the copy** the branch collection is registered, `scope: 'chat'`, locked to this chat; the source is unlocked from this chat; the copied windows go into the branch's window record, the tip is set to the split, and the parent's last window size carries over. The enable flow then continues as for any existing collection (backlog gate, `setCollectionAutoSync`, `stampAutoSyncMarker`). A failure or stop during the copy purges the partial collection. The fork refuses when vectors are missing or the parent was embedded with a different provider/model.
+
+| Function | File | Role |
+|---|---|---|
+| `findEventBaseForkSource(settings)` | [eventbase-fork.js](../core/eventbase-fork.js) | Parent collection + split point, or `null` |
+| `forkEventBaseFromSource(settings, source)` | [eventbase-fork.js](../core/eventbase-fork.js) | Copy + activation, with progress panel |
+| `rankForkSourcesFromWindowRecord`, `measureSharedPrefix`, `selectChunksBeforeSplit`, … | [eventbase-fork-core.js](../core/eventbase-fork-core.js) | Pure matching/selection rules |
+| `hashSourceMessage(message)` | [eventbase-message-hash.js](../core/eventbase-message-hash.js) | The one message hash behind `source_message_hashes`, window fingerprints and fork matching |
+| `fetchPortableChunks`, `insertChunksWithVectors` | [collection-export.js](../core/collection-export.js) | The export/import read and write, shared with the fork |
 
 ## Manual vs auto-sync paths
 

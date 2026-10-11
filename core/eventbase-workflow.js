@@ -19,6 +19,7 @@ import { queryCollection } from './core-vector-api.js';
 import { EVENTBASE_PROMPT_TAG } from './constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
 import { extractEvents } from './eventbase-extractor.js';
+import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
 import { getSavedHashes } from './core-vector-api.js';
@@ -211,8 +212,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 // the backend on a cache MISS, so the tip has to be evicted here too.
                 clearExtractionCachesForChat(uuid);
             }
-        } catch {
-            // Non-fatal — proceed without resetting.
+        } catch (err) {
+            log.warn('[EventBase] Empty-collection check failed — keeping extraction caches:', err);
         }
     }
 
@@ -234,8 +235,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const commitBoundary = isAutoSync ? getCommitBoundary(messages, settings) : messages.length;
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
 
-    const _msgHash = m => { const t = (m.mes || '').trim(); return m.hash ?? _djb2(`${m.name || ''}:${t}`); };
-    if (isLastWindowExtracted(committedMessages, windowSize, step, uuid, _msgHash)) {
+    if (isLastWindowExtracted(committedMessages, windowSize, step, uuid, hashSourceMessage)) {
         log.lifecycle(`[EventBase] Quick-exit: last committed window already extracted, nothing new`);
         return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
     }
@@ -345,10 +345,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     let fastForwardSkipped = 0;
     while (fastForwardSkipped < windows.length) {
         const win = windows[fastForwardSkipped];
-        const hashes = win.msgs.map(m => {
-            const text = (m.mes || '').trim();
-            return m.hash ?? _djb2(`${m.name || ''}:${text}`);
-        });
+        const hashes = win.msgs.map(hashSourceMessage);
         const isDone = await isWindowAlreadyExtracted(hashes, null, settings, uuid);
         if (!isDone) break;
         fastForwardSkipped++;
@@ -378,7 +375,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 let i = 0;
                 while (i < windows.length && windows[i].end < tip) {
                     const win = windows[i];
-                    const hashes = win.msgs.map(_msgHash);
+                    const hashes = win.msgs.map(hashSourceMessage);
                     markWindowExtracted(hashes, uuid);
                     i++;
                 }
@@ -455,10 +452,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 if (abortSignal?.aborted) return { skipped: true };
 
                 // Compute source hashes for dedup check
-                const sourceHashes = win.msgs.map(m => {
-                    const text = (m.mes || '').trim();
-                    return m.hash ?? _djb2(`${m.name || ''}:${text}`);
-                });
+                const sourceHashes = win.msgs.map(hashSourceMessage);
 
                 // Skip if already extracted
                 const alreadyDone = await isWindowAlreadyExtracted(
@@ -1295,20 +1289,6 @@ function _estimateProcessedLegacyChunks({ coveredMessages, totalMessages, totalC
 }
 
 /**
- * Minimal djb2 hash (matches eventbase-extractor.js — kept local to avoid circular dep).
- * @param {string} str
- * @returns {number}
- */
-function _djb2(str) {
-    let h = 5381;
-    for (let i = 0; i < str.length; i++) {
-        h = ((h << 5) + h) ^ str.charCodeAt(i);
-        h >>>= 0;
-    }
-    return h;
-}
-
-/**
  * Returns true if every complete window of the given messages has already been
  * extracted for this chat. Uses the same hash + window parameters as the main
  * ingestion loop so the result is authoritative.
@@ -1328,8 +1308,7 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
         ? Math.max(0, Math.min(windowSize - 1, windowOverlapOverride))
         : Math.max(0, Math.min(windowSize - 1, settings.eventbase_window_overlap ?? 0));
     const step = windowSize - windowOverlap;
-    const msgHash = m => { const t = (m.mes || '').trim(); return m.hash ?? _djb2(`${m.name || ''}:${t}`); };
-    return isLastWindowExtracted(messages, windowSize, step, chatUUID, msgHash);
+    return isLastWindowExtracted(messages, windowSize, step, chatUUID, hashSourceMessage);
 }
 
 /**
