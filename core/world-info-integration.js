@@ -601,6 +601,17 @@ export function enhanceWorldInfoEntriesUI(lorebookName, entries, settings) {
 // ============================================================================
 
 /**
+ * Empty the lorebook prompt block. ST keeps an extension prompt until it is
+ * overwritten, so a block that is not cleared keeps reaching the model on every
+ * later generation.
+ *
+ * @param {object} settings - extension_settings.vectfox
+ */
+export function clearLorebookPrompt(settings) {
+    setExtensionPrompt(LOREBOOK_PROMPT_TAG, '', settings.position, settings.depth, false);
+}
+
+/**
  * GENERATION_STARTED handler — runs the semantic lorebook query and injects the matching
  * entries as one <VectFoxLorebook> block (tag from `lorebook_xml_tag`) through
  * setExtensionPrompt, at the shared VectFox injection position/depth. The entries do NOT
@@ -616,14 +627,13 @@ export function enhanceWorldInfoEntriesUI(lorebookName, entries, settings) {
 async function handleGenerationStarted(type, options, dryRun) {
     if (dryRun) return;
     const settings = extension_settings.vectfox;
-    if (!settings?.enabled_world_info) return;
+    if (!settings) return;
 
-    // Always clear the previous lorebook injection first
-    setExtensionPrompt(LOREBOOK_PROMPT_TAG, '', settings.position, settings.depth, false);
+    // Clear the previous lorebook injection before any other exit, so turning off
+    // Semantic WI or the master switch never leaves last turn's block in the prompt.
+    clearLorebookPrompt(settings);
 
-    // Master switch: skip lorebook WI injection when VectFox is disabled (the
-    // stale injection was just cleared above).
-    if (!isVectFoxEnabled(settings)) return;
+    if (!settings.enabled_world_info || !isVectFoxEnabled(settings)) return;
 
     try {
         const context = getContext();

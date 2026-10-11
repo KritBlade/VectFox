@@ -29,6 +29,10 @@ import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { progressTracker } from './progress-tracker.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
 import { runNetworkStartup } from '../core/network-startup.js';
+import { isVectFoxEnabled } from '../core/feature-gate.js';
+import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
+import { clearLorebookPrompt } from '../core/world-info-integration.js';
+import { refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
 import { doesChatHaveVectors, getCollectionRegistry, getCollectionListing, checkPluginAvailable } from '../core/collection-loader.js';
 import { getCollectionMeta } from '../core/collection-metadata.js';
@@ -2018,6 +2022,65 @@ export async function refreshWIStatus() {
     _setWIEnabled(true);
 }
 
+/**
+ * Offer to fork a branch or checkpoint chat's EventBase from its parent, for the
+ * auto-sync enable flow when the chat has no collection of its own yet.
+ *
+ * @param {object} settings
+ * @returns {Promise<'forked'|'vectorize'|'cancel'>}
+ *   'forked' — this chat now has its own collection; continue enabling.
+ *   'vectorize' — no parent to fork from, or the user chose to start over.
+ *   'cancel' — the user closed the popup, stopped the fork, or it failed.
+ */
+async function _offerEventBaseFork(settings) {
+    const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../core/eventbase-fork.js');
+
+    let source;
+    try {
+        source = await findEventBaseForkSource(settings);
+    } catch (err) {
+        log.error('[AutoSync][fork] looking for a parent EventBase failed:', err);
+        toastr.error(err?.message || String(err), 'Could not check for a parent chat');
+        return 'cancel';
+    }
+    if (!source) return 'vectorize';
+
+    const remainingCount = Math.max(0, source.chatMessageCount - source.sharedPrefixLength);
+    const remainingText = remainingCount > 0
+        ? ` The ${remainingCount} message${remainingCount === 1 ? '' : 's'} after them still need extraction.`
+        : '';
+    const popup = await import('../../../../popup.js');
+    const { callGenericPopup, POPUP_TYPE } = popup;
+    const POPUP_RESULT = popup.POPUP_RESULT || { AFFIRMATIVE: 1, NEGATIVE: 0 };
+    const choice = await callGenericPopup(
+        `<div style="text-align:left">
+            <p><strong>This chat is a branch or checkpoint.</strong> Its first ${source.sharedPrefixLength} messages match the EventBase <em>${StringUtils.escapeHtml(source.collectionId)}</em>.</p>
+            <p><strong>Fork from parent</strong> copies the events for those messages into this chat's own EventBase — no LLM calls, no re-embedding.${remainingText} If the parent's EventBase is locked to this chat, it is unlocked: its later events belong to the parent's story.</p>
+            <p><strong>Vectorize from scratch</strong> extracts this chat's whole history again.</p>
+        </div>`,
+        POPUP_TYPE.CONFIRM,
+        '',
+        { okButton: 'Fork from parent', cancelButton: 'Vectorize from scratch' },
+    );
+
+    if (choice === POPUP_RESULT.NEGATIVE) return 'vectorize';
+    if (choice !== POPUP_RESULT.AFFIRMATIVE) return 'cancel';
+
+    try {
+        const result = await forkEventBaseFromSource(settings, source);
+        toastr.success(`Copied ${result.eventCount} events from the parent chat`, 'EventBase forked');
+        return 'forked';
+    } catch (err) {
+        if (err?.name === 'AbortError') {
+            toastr.info('EventBase fork stopped');
+            return 'cancel';
+        }
+        log.error('[AutoSync][fork] fork failed:', err);
+        toastr.error(err?.message || String(err), 'EventBase fork failed');
+        return 'cancel';
+    }
+}
+
 export async function refreshAutoSyncCheckbox(settings) {
     const $checkbox = $('#VectFox_autosync_enabled');
     const $status = $('#VectFox_autosync_status');
@@ -2026,7 +2089,15 @@ export async function refreshAutoSyncCheckbox(settings) {
     const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
     const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../core/collection-metadata.js');
 
-    const status = await getChatAutoSyncStatus(settings);
+    // While VectFox is disabled this refresh only reads cached state: no backend call,
+    // no diagnostics. It still runs so the checkbox matches the current chat — the
+    // Summarizer Injection toggle reads it. The master switch refreshes again when
+    // VectFox is turned back on.
+    const isVectFoxOn = isVectFoxEnabled(settings);
+    const status = await getChatAutoSyncStatus(settings, {
+        shouldProbeBackend: isVectFoxOn,
+        shouldLogResolution: isVectFoxOn,
+    });
     const chatId = getCurrentChatId();
 
     const LED = {
@@ -2084,7 +2155,9 @@ export async function refreshAutoSyncCheckbox(settings) {
           `</div>`
         : '';
 
-    if (!isEnabled || !isLocked) {
+    if (!isVectFoxOn) {
+        $status.html(`${LED.white} Auto-sync paused — VectFox is disabled${counts}`);
+    } else if (!isEnabled || !isLocked) {
         $status.html(`${LED.white} Auto-sync inactive${counts}`);
     } else if (status.state === 'vectorization-ahead') {
         // Distinct state — vectorization marker is past the current chat tail.
@@ -2425,16 +2498,16 @@ function bindSettingsEvents(settings, callbacks) {
     // Injection group on standard+no-plugin (its listChunks returns no metadata).
     let _refreshSummarizerInjectionAvailability = null;
 
-    // Master switch — global enable/disable. Default ON (only false disables);
-    // mirrors core/feature-gate.js::isVectFoxEnabled so the UI and the runtime
-    // gates agree. Dims the rest of the panel when off as a visual cue.
+    // Master switch — global enable/disable. Reads core/feature-gate.js::isVectFoxEnabled
+    // so the UI and the runtime gates agree. Dims the rest of the panel when off as a
+    // visual cue.
     const $masterSwitch = $('#VectFox_master_enabled');
     const _applyMasterSwitchUI = (on) => {
         $('#VectFox_settings .vectfox-tabs, #VectFox_settings .vectfox-card')
             .css({ opacity: on ? '' : '0.5' });
     };
     $masterSwitch
-        .prop('checked', settings.enabled !== false)
+        .prop('checked', isVectFoxEnabled(settings))
         .on('change', async function() {
             const on = $(this).prop('checked');
             settings.enabled = on;
@@ -2444,21 +2517,35 @@ function bindSettingsEvents(settings, callbacks) {
             toastr.info(on ? 'VectFox enabled' : 'VectFox disabled', 'VectFox');
             log.lifecycle(`VectFox: master switch ${on ? 'ON' : 'OFF'}`);
 
-            // A disabled VectFox skips its off-box startup work at page load. Two of
-            // those steps don't self-heal on demand — the EventBase payload-index
-            // backfill is one-shot-per-install, and collection discovery refreshes the
-            // registry that the Database Browser and cross-chat retrieval read. Run
-            // them now so switching back ON gives a working VectFox without a page
-            // reload. See core/network-startup.js for the full rationale.
-            if (on) {
-                try {
-                    await runNetworkStartup(settings);
-                } catch (error) {
-                    log.warn('VectFox: backend/network startup after re-enable failed:', error?.message || error);
-                }
+            if (!on) {
+                // Take every VectFox block out of the prompt now. ST keeps extension
+                // prompts until they are overwritten, and quiet generations skip the
+                // interceptor that would otherwise clear them.
+                clearInterceptorPrompts(settings);
+                clearLorebookPrompt(settings);
+                await refreshAutoSyncCheckbox(settings); // shows auto-sync as paused
+                return;
             }
+
+            // Switching back ON: redo the work skipped while off, so VectFox works
+            // without a page reload. The ghosting WI-scan floor goes first — the next
+            // generation may read it.
+            await refreshWorldInfoEntryDepthCache(settings);
+
+            // Off-box startup work. Two of its steps don't self-heal on demand — the
+            // EventBase payload-index backfill is one-shot-per-install, and collection
+            // discovery refreshes the registry that the Database Browser, cross-chat
+            // retrieval and the auto-sync status read. See core/network-startup.js for
+            // the full rationale.
+            try {
+                await runNetworkStartup(settings);
+            } catch (error) {
+                log.warn('VectFox: backend/network startup after re-enable failed:', error?.message || error);
+            }
+            await refreshAutoSyncCheckbox(settings);
+            await refreshHealthIndicator(); // its load-time probe is skipped while off
         });
-    _applyMasterSwitchUI(settings.enabled !== false);
+    _applyMasterSwitchUI(isVectFoxEnabled(settings));
 
     /**
      * Turn Summarizer Injection off, because auto-sync — its data source — is not
@@ -2508,7 +2595,7 @@ function bindSettingsEvents(settings, callbacks) {
 
             const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
             const { setCollectionAutoSync, setCollectionLock } = await import('../core/collection-metadata.js');
-            const status = await getChatAutoSyncStatus(settings);
+            let status = await getChatAutoSyncStatus(settings);
             const chatId = getCurrentChatId();
             log.lifecycle(`[AutoSync][checkbox] ${enabling ? 'CHECK' : 'UNCHECK'} → status.state=${status.state}, chatId=${chatId || '(none)'}, collection=${status.registryKey || status.collectionId || '(none)'}`);
 
@@ -2521,6 +2608,29 @@ function bindSettingsEvents(settings, callbacks) {
             }
 
             if (enabling) {
+                if (status.state === 'no-collection') {
+                    // A branch or checkpoint can take its parent's events instead of
+                    // re-extracting the shared history.
+                    const forkChoice = await _offerEventBaseFork(settings);
+                    if (forkChoice === 'cancel') {
+                        $checkbox.prop('checked', false);
+                        _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
+                        await refreshAutoSyncCheckbox(settings);
+                        return;
+                    }
+                    if (forkChoice === 'forked') {
+                        status = await getChatAutoSyncStatus(settings);
+                        log.lifecycle(`[AutoSync][checkbox] forked → status.state=${status.state}, collection=${status.registryKey || status.collectionId || '(none)'}`);
+                        if (status.state === 'no-collection') {
+                            log.error('[AutoSync][checkbox] fork finished but resolveEventBaseWriteTarget still finds no collection — see [EventBase][resolve] log above');
+                            toastr.error('The forked EventBase is not recognized as this chat\'s collection. Check the console log.', 'Auto-sync not enabled');
+                            $checkbox.prop('checked', false);
+                            _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
+                            await refreshAutoSyncCheckbox(settings);
+                            return;
+                        }
+                    }
+                }
                 if (status.state === 'no-collection') {
                     // No collection for this chat yet — send the user to vectorize first.
                     log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveEventBaseWriteTarget found no eligible collection — see [EventBase][resolve] log above)');

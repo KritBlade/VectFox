@@ -108,6 +108,42 @@ async function fetchChunksWithVectors(collectionId, settings) {
 }
 
 /**
+ * Fetches every chunk of a collection in the portable shape that export files
+ * store and the import path inserts: `{ hash, text, index, vector, metadata }`.
+ *
+ * Qdrant returns `vector` as a plain array for unnamed-vector collections, but as
+ * `{ '': [dense], text_sparse: {indices, values} }` for named-vector collections
+ * (nativeSparse). The dense array is unwrapped so the import side
+ * (`Array.isArray`) accepts it and inserts without re-embedding; the sparse
+ * vector is recomputed from the text on insert. `vector` is null when the
+ * backend returned none.
+ *
+ * @param {string} collectionId - Collection to fetch from
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<Array<{ hash: number|string, text: string, index: number, vector: number[]|null, metadata: object }>>}
+ */
+export async function fetchPortableChunks(collectionId, settings) {
+    const rawChunks = await fetchChunksWithVectors(collectionId, settings);
+    return rawChunks.map(item => {
+        const meta = item.metadata || item;
+        let rawVector = item.vector || meta.vector || null;
+        if (rawVector && typeof rawVector === 'object' && !Array.isArray(rawVector)) {
+            rawVector = rawVector[''] ?? null;
+        }
+        return {
+            hash: meta.hash || item.hash,
+            text: meta.text || item.text || '',
+            index: meta.index ?? item.index,
+            vector: rawVector,
+            metadata: {
+                ...meta,
+                keywords: meta.keywords || [],
+            },
+        };
+    });
+}
+
+/**
  * Exports a single collection to a portable JSON format (includes vectors)
  * @param {string} collectionId - The collection to export
  * @param {object} settings - VectFox settings
@@ -131,40 +167,16 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
     try {
         // Step 1: Get collection metadata
         progressTracker.updateProgress(1, 'Loading metadata...');
-        const collectionMeta = getCollectionMeta(collectionId) || {};
+        // Metadata (display name, triggers, conditions, …) lives under the
+        // registry-key form; callers pass the bare ID.
+        const collectionMeta = getCollectionMeta(buildRegistryKey(collectionId, exportSettings));
 
         // Step 2: Get all chunks WITH vectors
         progressTracker.updateProgress(2, 'Loading chunks and vectors...');
-        const rawChunks = await fetchChunksWithVectors(collectionId, exportSettings);
-
-        const chunks = rawChunks.map(item => {
-            const meta = item.metadata || item;
-            // Qdrant returns `vector` as a plain array for unnamed-vector collections,
-            // but as `{ '': [dense], text_sparse: {indices, values} }` for named-vector
-            // collections (nativeSparse). Unwrap to the dense array so import-side
-            // validation (Array.isArray) accepts it and the fast direct-insert path runs.
-            let rawVector = item.vector || meta.vector || null;
-            if (rawVector && typeof rawVector === 'object' && !Array.isArray(rawVector)) {
-                rawVector = rawVector[''] ?? null;
-            }
-            const chunk = {
-                hash: meta.hash || item.hash,
-                text: meta.text || item.text || '',
-                index: meta.index ?? item.index,
-                vector: rawVector,
-                metadata: {
-                    ...meta,
-                    keywords: meta.keywords || [],
-                },
-            };
-
+        const chunks = (await fetchPortableChunks(collectionId, exportSettings)).map(chunk => {
             // Get per-chunk metadata from VectFox settings
             const chunkMeta = getChunkMetadata(chunk.hash);
-            if (chunkMeta) {
-                chunk.chunkMeta = chunkMeta;
-            }
-
-            return chunk;
+            return chunkMeta ? { ...chunk, chunkMeta } : chunk;
         });
 
         progressTracker.updateChunks(chunks.length);
@@ -500,14 +512,15 @@ export function validateImportData(data, currentSettings = {}) {
 }
 
 /**
- * Inserts chunks directly with pre-computed vectors (bypasses embedding)
+ * Inserts chunks directly with pre-computed vectors (bypasses embedding).
+ * Takes the portable chunk shape returned by {@link fetchPortableChunks}.
  * @param {string} collectionId - Collection to insert into
  * @param {Array} chunks - Chunks with vectors
  * @param {object} settings - VectFox settings
  * @param {Function} [onBatchProgress] - Called after each batch: (insertedSoFar, total)
  * @param {AbortSignal} [abortSignal] - Cancel between batches
  */
-async function insertChunksWithVectors(collectionId, chunks, settings, onBatchProgress, abortSignal = null) {
+export async function insertChunksWithVectors(collectionId, chunks, settings, onBatchProgress, abortSignal = null) {
     const backendName = settings.vector_backend || 'standard';
     const model = getModelFromSettings(settings);
 
@@ -525,15 +538,18 @@ async function insertChunksWithVectors(collectionId, chunks, settings, onBatchPr
             metadata: c.metadata || {},
         };
         // Qdrant's A3 hybrid path needs a sparse vector per point (text_sparse named slot).
-        // Mirror backends/qdrant.js:insertVectorItems: tokenize text + appended keyword
-        // suffix so BM25 hits match what live ingestion would produce. The stored `text`
-        // stays plain (no keyword suffix) so View Chunks display is unchanged.
+        // Mirror backends/qdrant.js:insertVectorItems: tokenize text + the keyword suffix
+        // so BM25 hits match what live ingestion would produce. Live Qdrant ingestion
+        // stores `text` WITH that suffix already, so text read back from a Qdrant
+        // collection is tokenized as-is; the suffix is appended only when missing. The
+        // stored `text` is never changed here.
         if (backendName === 'qdrant') {
             const kws = item.metadata.keywords || [];
             let sparseSource = item.text || '';
             if (kws.length > 0) {
                 const kwText = kws.map(kw => (typeof kw === 'string' ? kw : kw?.text || '')).filter(Boolean).join(' ');
-                if (kwText) sparseSource += ` [KEYWORDS: ${kwText}]`;
+                const keywordSuffix = ` [KEYWORDS: ${kwText}]`;
+                if (kwText && !sparseSource.endsWith(keywordSuffix)) sparseSource += keywordSuffix;
             }
             item.sparseVector = encodeSparseVector(sparseSource);
         }
@@ -606,7 +622,9 @@ async function insertChunksWithVectors(collectionId, chunks, settings, onBatchPr
         try {
             const mod = await import('./corpus-stats.js');
             mod.clearCorpusStatsCache(collectionId);
-        } catch (_) { /* silent: stale stats are acceptable, write failure is not */ }
+        } catch (err) {
+            log.warn(`VectFox Import: corpus-stats cache clear failed for ${collectionId} (BM25 stats stay stale until the next rebuild):`, err);
+        }
     }
 }
 

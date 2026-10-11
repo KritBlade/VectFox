@@ -762,7 +762,13 @@ jQuery(async () => {
     // Register event handlers. Each wrapper stamps _lastChatTriggerEvent so that
     // when the debounce fires, synchronizeChat knows which event coalesced last —
     // currently only used to suppress the auto-sync popup on MESSAGE_SENT.
-    const trigger = (name) => () => { _lastChatTriggerEvent = name; onChatEvent(); };
+    // Master switch OFF → nothing is scheduled. synchronizeChat checks the switch
+    // again when the debounce fires, covering a switch-off inside that window.
+    const trigger = (name) => () => {
+        if (!isVectFoxEnabled(settings)) return;
+        _lastChatTriggerEvent = name;
+        onChatEvent();
+    };
     eventSource.on(event_types.MESSAGE_DELETED, trigger('MESSAGE_DELETED'));
     // Note: Semantic WI injection happens in the generate_interceptor (rearrangeChat), not here
     eventSource.on(event_types.MESSAGE_SENT, trigger('MESSAGE_SENT'));
@@ -778,9 +784,13 @@ jQuery(async () => {
         }
     });
 
-    // When chat changes, refresh UI state to match settings
+    // When chat changes, refresh UI state to match settings. Also runs while the master
+    // switch is OFF so the panel shows the current chat; refreshAutoSyncCheckbox then
+    // reads cached state only and never calls the backend.
     eventSource.on(event_types.CHAT_CHANGED, () => {
-        log.lifecycle('VectFox: Chat changed, refreshing UI state');
+        if (isVectFoxEnabled(settings)) {
+            log.lifecycle('VectFox: Chat changed, refreshing UI state');
+        }
         refreshAutoSyncCheckbox(settings);
     });
 
@@ -789,8 +799,10 @@ jQuery(async () => {
     // applyGhosting never blanks a message a deep-scanning WI entry still needs to read).
     // Debounced — WORLDINFO_UPDATED can fire in bursts while editing, and each refresh loads
     // lore. Initial call is direct so the floor is correct before the first generation.
-    refreshWorldInfoEntryDepthCache();
-    const refreshWiDepthDebounced = debounce(refreshWorldInfoEntryDepthCache, debounce_timeout.relaxed);
+    // The refresh does nothing while the master switch is OFF; switching ON re-runs it.
+    const refreshWiDepth = () => refreshWorldInfoEntryDepthCache(settings);
+    refreshWiDepth();
+    const refreshWiDepthDebounced = debounce(refreshWiDepth, debounce_timeout.relaxed);
     eventSource.on(event_types.CHAT_CHANGED, refreshWiDepthDebounced);
     eventSource.on(event_types.WORLDINFO_UPDATED, refreshWiDepthDebounced);
     eventSource.on(event_types.WORLDINFO_SETTINGS_UPDATED, refreshWiDepthDebounced);

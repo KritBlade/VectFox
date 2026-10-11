@@ -1032,22 +1032,22 @@ Fix landed 2026-05-24: default changed to `null`, with a defensive `!== 'unknown
 
 ### 16.1 ChunkBase phase early-gate — broaden vs current  (mainly performance issue, spending 20ms unnecessarily)
 
-**Status**: Deferred — investigated 2026-05-17, no code change yet. Line refs refreshed 2026-06-21.
+**Status**: Deferred — investigated 2026-05-17, no code change yet. Line refs refreshed 2026-10-11.
 
-`rearrangeChat` ([core/chat-vectorization.js:1276](../core/chat-vectorization.js#L1276)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (Since the master switch landed, it also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
+`rearrangeChat` ([core/chat-vectorization.js:1299](../core/chat-vectorization.js#L1299)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (It also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that master-switch gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
 
-1. **Early (cheap)** at [line 1378-1384](../core/chat-vectorization.js#L1378): `hasCollections = gatherCollectionsToQuery(settings).length > 0` — passes if *any* non-EventBase collection has `enabled=true`. No lock/scope/activation check.
-2. **Post-activation (expensive)** at [line 1418](../core/chat-vectorization.js#L1418): `filterActiveCollections` runs the full [`shouldCollectionActivate`](../core/collection-metadata.js#L1104) priority chain (triggers → conditions → chat lock → character lock).
+1. **Early (cheap)** at [line 1394-1401](../core/chat-vectorization.js#L1394): `hasCollections = gatherCollectionsToQuery(settings).length > 0` — passes if *any* non-EventBase collection has `enabled=true`. No lock/scope/activation check.
+2. **Post-activation (expensive)** at [line 1435](../core/chat-vectorization.js#L1435): `filterActiveCollections` runs the full [`shouldCollectionActivate`](../core/collection-metadata.js#L1133) priority chain (triggers → conditions → chat lock → character lock).
 
 EventBase-only users (the typical case) hit gate 1 and short-circuit — debug log `[VECTFOX ChunkBase] No enabled ChunkBase collections ...` fires once per generation to confirm.
 
-**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1398-1405](../core/chat-vectorization.js#L1398-L1405) when a user has enabled lorebooks that aren't locked/triggered for the current chat.
+**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1415-1422](../core/chat-vectorization.js#L1415-L1422) when a user has enabled lorebooks that aren't locked/triggered for the current chat.
 
 **Why deferred**: A naïve `isLocked`-only gate would break users who rely on **Activation Triggers** or **Advanced Conditions** for activation without ever locking a collection (priorities 2-3 of `shouldCollectionActivate`). The safe shape is `enabled AND (chat-locked OR character-locked OR has triggers OR has conditions)` — a cheap pre-check that matches every activation path. Not worth doing in isolation; revisit if/when we touch Phase B for another reason.
 
-**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([index.js:401](../index.js#L401) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
+**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([index.js:458](../index.js#L458) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
 
-**Search tag in code**: none yet. When acted on, target [core/chat-vectorization.js:1381](../core/chat-vectorization.js#L1381) (the `if (!hasCollections && !canQueryWI)` block).
+**Search tag in code**: none yet. When acted on, target [core/chat-vectorization.js:1398](../core/chat-vectorization.js#L1398) (the `if (!hasCollections && !canQueryWI)` block).
 
 ---
 

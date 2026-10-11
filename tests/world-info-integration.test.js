@@ -1,6 +1,8 @@
 /**
  * Unit tests for world-info-integration.js
- * Tests semantic World Info activation and lorebook vectorization helpers
+ * Tests semantic World Info activation, lorebook vectorization helpers, and the
+ * GENERATION_STARTED handler's lorebook prompt clearing (Semantic WI or the master
+ * switch off must never leave last turn's block in the prompt).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -23,7 +25,7 @@ vi.mock('../../../../../script.js', () => ({
     setExtensionPrompt: vi.fn(),
     getCurrentChatId: vi.fn(() => 'chat123'),
     eventSource: { on: vi.fn(), removeListener: vi.fn() },
-    event_types: {},
+    event_types: { GENERATION_STARTED: 'generation_started' },
     substituteParams: vi.fn((s) => s),
 }));
 
@@ -123,8 +125,8 @@ vi.mock('../core/conditional-activation.js', () => ({
     })),
 }));
 
-import { getContext } from '../../../../extensions.js';
-import { setExtensionPrompt, getCurrentChatId } from '../../../../../script.js';
+import { getContext, extension_settings } from '../../../../extensions.js';
+import { setExtensionPrompt, getCurrentChatId, eventSource } from '../../../../../script.js';
 import { queryCollection } from '../core/core-vector-api.js';
 import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from '../core/collection-metadata.js';
 import { parseRegistryKey, buildLorebookCollectionId } from '../core/collection-ids.js';
@@ -708,6 +710,55 @@ describe('initializeWorldInfoIntegration', () => {
         expect(window.VectFox_WorldInfo.getVectorizationStatus).toBe(getLorebooksVectorizationStatus);
         expect(window.VectFox_WorldInfo.getVectorStats).toBe(getLorebookVectorStats);
         expect(window.VectFox_WorldInfo.enhanceEntriesUI).toBe(enhanceWorldInfoEntriesUI);
+    });
+});
+
+// ============================================================================
+// GENERATION_STARTED lorebook handler — prompt clearing
+// ============================================================================
+
+describe('GENERATION_STARTED lorebook handler', () => {
+    let savedVectfoxSettings;
+    let handleGenerationStarted;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        globalThis.window = {};
+        savedVectfoxSettings = extension_settings.vectfox;
+        initializeWorldInfoIntegration();
+        handleGenerationStarted = eventSource.on.mock.calls
+            .find(([eventType]) => eventType === 'generation_started')[1];
+    });
+
+    afterEach(() => {
+        extension_settings.vectfox = savedVectfoxSettings;
+        delete globalThis.window;
+    });
+
+    it('clears last turn\'s lorebook block when Semantic WI is off', async () => {
+        extension_settings.vectfox = { enabled_world_info: false, position: 1, depth: 4 };
+        await handleGenerationStarted('normal', {}, false);
+
+        expect(setExtensionPrompt).toHaveBeenCalledTimes(1);
+        expect(setExtensionPrompt).toHaveBeenCalledWith('vectfox_lorebook', '', 1, 4, false);
+        expect(queryCollection).not.toHaveBeenCalled();
+    });
+
+    it('clears last turn\'s lorebook block and retrieves nothing when the master switch is off', async () => {
+        extension_settings.vectfox = { enabled: false, enabled_world_info: true, position: 1, depth: 4 };
+        await handleGenerationStarted('normal', {}, false);
+
+        expect(setExtensionPrompt).toHaveBeenCalledTimes(1);
+        expect(setExtensionPrompt).toHaveBeenCalledWith('vectfox_lorebook', '', 1, 4, false);
+        expect(getContext).not.toHaveBeenCalled();
+        expect(queryCollection).not.toHaveBeenCalled();
+    });
+
+    it('leaves the prompt alone on a dry run', async () => {
+        extension_settings.vectfox = { enabled_world_info: true, position: 1, depth: 4 };
+        await handleGenerationStarted('normal', {}, true);
+
+        expect(setExtensionPrompt).not.toHaveBeenCalled();
     });
 });
 

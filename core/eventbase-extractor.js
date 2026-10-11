@@ -24,6 +24,7 @@ import {
     packTimelineSortKey,
 } from './eventbase-schema.js';
 import { cleanText } from './text-cleaning.js';
+import { hashSourceMessage } from './eventbase-message-hash.js';
 import StringUtils from '../utils/string-utils.js';
 import { log } from './log.js';
 
@@ -414,11 +415,7 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
 
         // Attach ingestion metadata (event_id, source info, timestamps)
         const eventId = `eb_${Date.now()}_${windowStart}_${i}_${Math.random().toString(36).slice(2, 7)}`;
-        const sourceHashes = messages.map(m => {
-            // Use the message's hash if stored, otherwise hash the text
-            const text = (m.mes || '').trim();
-            return m.hash ?? _simpleHash(`${m.name || ''}:${text}`);
-        });
+        const sourceHashes = messages.map(hashSourceMessage);
 
         validatedEvents.push({
             ...event,
@@ -443,22 +440,4 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
     log.verbose(`[EventBase] Window ${windowIndex} ${msgRange}: extracted ${validatedEvents.length} valid events`);
 
     return validatedEvents;
-}
-
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal djb2-style hash for message dedup (used when m.hash is not present).
- * @param {string} str
- * @returns {number}
- */
-function _simpleHash(str) {
-    let h = 5381;
-    for (let i = 0; i < str.length; i++) {
-        h = ((h << 5) + h) ^ str.charCodeAt(i);
-        h >>>= 0;
-    }
-    return h;
 }
