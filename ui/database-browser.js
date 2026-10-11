@@ -128,9 +128,9 @@ export function initializeDatabaseBrowser(settings) {
  * Opens the database browser modal
  */
 export async function openDatabaseBrowser() {
-  console.log("VECTFOX Database Browser: openDatabaseBrowser called, isOpen=", browserState.isOpen);
+  log.verbose("VECTFOX Database Browser: openDatabaseBrowser called, isOpen=", browserState.isOpen);
   if (browserState.isOpen) {
-    console.log("VECTFOX Database Browser: Already open (early return)");
+    log.verbose("VECTFOX Database Browser: Already open (early return)");
     return;
   }
 
@@ -138,14 +138,14 @@ export async function openDatabaseBrowser() {
   try {
     // Check plugin availability
     browserState.pluginAvailable = await checkPluginAvailable();
-    console.log("VECTFOX Database Browser: pluginAvailable=", browserState.pluginAvailable);
+    log.verbose("VECTFOX Database Browser: pluginAvailable=", browserState.pluginAvailable);
 
     // Create modal if it doesn't exist
     if ($("#vectfox_database_browser_modal").length === 0) {
-      console.log("VECTFOX Database Browser: creating modal");
+      log.trace("VECTFOX Database Browser: creating modal");
       createBrowserModal();
     } else {
-      console.log("VECTFOX Database Browser: modal already in DOM");
+      log.trace("VECTFOX Database Browser: modal already in DOM");
     }
 
     // Show/hide plugin warning banner
@@ -155,17 +155,17 @@ export async function openDatabaseBrowser() {
     // (e.g. just-vectorized EventBase collections) land in pluginCollectionData with
     // their real source/model — otherwise View Chunks sends source: 'unknown' and
     // the plugin queries the wrong on-disk path.
-    console.log("VECTFOX Database Browser: about to refreshCollections(true)");
+    log.trace("VECTFOX Database Browser: about to refreshCollections(true)");
     await refreshCollections(true);
-    console.log("VECTFOX Database Browser: refreshCollections done");
+    log.trace("VECTFOX Database Browser: refreshCollections done");
 
     // Show modal
     $("#vectfox_database_browser_modal").fadeIn(200);
-    console.log("VECTFOX Database Browser: Opened (fadeIn fired)");
+    log.lifecycle("VECTFOX Database Browser: Opened (fadeIn fired)");
   } catch (err) {
     // Never leave isOpen=true on error — that would jam the button forever
     // (the early-return guard above would block every subsequent click).
-    console.error("VECTFOX Database Browser: openDatabaseBrowser threw, resetting isOpen=false", err);
+    log.error("VECTFOX Database Browser: openDatabaseBrowser threw, resetting isOpen=false", err);
     browserState.isOpen = false;
     throw err;
   }
@@ -191,7 +191,7 @@ export function closeDatabaseBrowser() {
   browserState.isOpen = false;
   // Reset event bound flags for clean rebind on next open
   resetEventFlags();
-  if (browserState.settings?.eventbase_debug_logging) console.log("VECTFOX Database Browser: Closed");
+  log.lifecycle("VECTFOX Database Browser: Closed");
 }
 
 /**
@@ -468,6 +468,7 @@ function bindBrowserEvents() {
       await refreshCollections(true);
       toastr.success("Scan complete — registry updated", "VectFox");
     } catch (err) {
+      log.error("VectFox: Refresh scan failed", err);
       toastr.error(`Scan failed: ${err.message}`, "VectFox");
     } finally {
       $btn.prop("disabled", false).html(`${icons.refreshCw(14)} Refresh Scan`);
@@ -507,6 +508,7 @@ function bindBrowserEvents() {
       const cleared = clearAllReformatOriginals();
       toastr.success(`Cleared retained original text for ${cleared} Auto-Reformat entr${cleared === 1 ? "y" : "ies"}.`, "VectFox");
     } catch (err) {
+      log.error("VectFox: Failed to clear Auto-Reformat originals", err);
       toastr.error(`Failed to clear Auto-Reformat originals: ${err.message}`, "VectFox");
     }
   });
@@ -595,7 +597,7 @@ function bindBrowserEvents() {
 
       toastr.success("Registry cleared and resynced from disk", "VectFox");
     } catch (error) {
-      console.error("VectFox: Failed to resync", error);
+      log.error("VectFox: Failed to resync", error);
       toastr.error(`Failed to resync: ${error.message}`, "VectFox");
     }
   });
@@ -733,7 +735,7 @@ function bindBrowserEvents() {
         await refreshCollections();
         return;
       }
-      console.error("VectFox: Import failed", error);
+      log.error("VectFox: Import failed", error);
       toastr.error(`Import failed: ${error.message}`, "VectFox");
     }
   });
@@ -836,7 +838,7 @@ function _filterCollectionsByCurrentPersona(collections) {
   // into settings.json, no UI toggle), skip persona filtering entirely and
   // show every collection on the server. See defaults in index.js.
   if (browserState.settings?.superadmin === true) {
-    console.log(
+    log.lifecycle(
       `VECTFOX DB Browser: ⚡ superadmin=true → bypassing persona/handle filter (showing ALL ${collections.length} collections)`,
     );
     return collections;
@@ -875,7 +877,7 @@ async function refreshCollections(withScan = false) {
 
     if (allCollections.length !== browserState.collections.length) {
       const hidden = allCollections.length - browserState.collections.length;
-      if (browserState.settings?.eventbase_debug_logging) console.log(
+      log.verbose(
         `VECTFOX DB Browser: Hiding ${hidden} chat-scoped collection(s) from other personas (current: ${_sanitizeHandleForFilter(getContext()?.name1)})`,
       );
     }
@@ -889,15 +891,15 @@ async function refreshCollections(withScan = false) {
     // storage layer uses so strict set membership matches the actual keys.
     const actualIds = allCollections.map((c) => c.registryKey || c.id);
     const cleanupResult = cleanupOrphanedMeta(actualIds);
-    if (cleanupResult.removed > 0 && browserState.settings?.eventbase_debug_logging) {
-      console.log(
+    if (cleanupResult.removed > 0) {
+      log.lifecycle(
         `VectFox: Cleaned up ${cleanupResult.removed} orphaned metadata entries`,
       );
     }
 
     renderCollections();
   } catch (error) {
-    console.error("VectFox: Failed to load collections", error);
+    log.error("VectFox: Failed to load collections", error);
     $("#vectfox_collections_list").html(`
             <div class="vectfox-error">
                 Failed to load collections. Check console for details.
@@ -1292,7 +1294,7 @@ async function performPngExport(imageFile) {
       "VECTFOX Export",
     );
   } catch (error) {
-    console.error("VectFox: PNG export failed", error);
+    log.error("VectFox: PNG export failed", error);
     toastr.error(`PNG export failed: ${error.message}`, "VectFox");
   }
 }
@@ -1320,7 +1322,7 @@ async function openChunkVisualizer(collection) {
 
     if (!collection.backend) {
       toastr.error("Collection has no backend defined - this is a bug", "VectFox");
-      console.error("VectFox: Collection missing backend:", collection);
+      log.error("VectFox: Collection missing backend:", collection);
       return;
     }
 
@@ -1347,7 +1349,7 @@ async function openChunkVisualizer(collection) {
         ...(limit ? { limit } : {}),
       };
 
-      console.log("VECTFOX DB Browser: Requesting chunks with:", requestBody);
+      log.verbose("VECTFOX DB Browser: Requesting chunks with:", requestBody);
 
       const response = await fetch("/api/plugins/similharity/chunks/list", {
         method: "POST",
@@ -1392,7 +1394,7 @@ async function openChunkVisualizer(collection) {
 
     await doLoad(null);
   } catch (error) {
-    console.error("VectFox: Failed to load chunks", error);
+    log.error("VectFox: Failed to load chunks", error);
     toastr.error(`Failed to load chunks: ${error.message}`, "VectFox");
   }
 }
@@ -1480,7 +1482,7 @@ function bindCollectionCardEvents() {
           );
         }
       } catch (error) {
-        console.error("VectFox: Failed to delete collection", error);
+        log.error("VectFox: Failed to delete collection", error);
         toastr.error(`Failed to delete collection: ${error.message}`, "VectFox");
       }
     });
@@ -1556,7 +1558,7 @@ function bindCollectionCardEvents() {
           "VECTFOX Export",
         );
       } catch (error) {
-        console.error("VectFox: Export failed", error);
+        log.error("VectFox: Export failed", error);
         toastr.error(`Export failed: ${error.message}`, "VectFox");
       }
     });
@@ -1981,7 +1983,7 @@ function openActivationEditor(collectionId, collectionName) {
     chatId: currentChatId,
     characterId: currentCharacterId,
   });
-  console.log(
+  log.verbose(
     `[VECTFOX DB Browser] Active-for-current-chat resolution for ${collectionId}: ` +
     `resolved=${resolvedAlwaysActive}, scope=${meta.scope}, chatId=${currentChatId || 'none'}, charId=${currentCharacterId ?? 'none'}`
   );
@@ -2263,7 +2265,7 @@ function bindActivationEditorEvents() {
     try {
       openCollectionLockDialog(collId);
     } catch (err) {
-      console.error("VectFox: Failed to open lock dialog", err);
+      log.error("VectFox: Failed to open lock dialog", err);
       toastr.error("Failed to open lock dialog");
     }
   });
@@ -2444,7 +2446,7 @@ function refreshActivationLockButton() {
       $btn.attr("title", tooltip);
     }
   } catch (err) {
-    console.error("VectFox: Failed to refresh activation lock button", err);
+    log.error("VectFox: Failed to refresh activation lock button", err);
   }
 }
 
@@ -2478,7 +2480,7 @@ function saveActivation() {
   const currentChatId = getCurrentChatId();
   const currentCharacterId = getContext()?.characterId;
   const saveMeta = getCollectionMeta(state.collectionId);
-  console.log(`[VectFox] saveActivation: checkbox=${isChecked}, scope=${saveMeta.scope}, chatId=${currentChatId || 'none'}, charId=${currentCharacterId ?? 'none'}, collection=${state.collectionId}`);
+  log.lifecycle(`[VectFox] saveActivation: checkbox=${isChecked}, scope=${saveMeta.scope}, chatId=${currentChatId || 'none'}, charId=${currentCharacterId ?? 'none'}, collection=${state.collectionId}`);
 
   // The master-switch checkbox controls a single lock keyed by the collection's scope.
   // syncLockCheckboxToScope() labels it to match, and disables it when the scope's
@@ -2858,7 +2860,7 @@ function bindConditionRuleEvents() {
           entrySelect.prop("disabled", false);
         }
       } catch (error) {
-        console.error("VectFox: Failed to load world info", error);
+        log.error("VectFox: Failed to load world info", error);
         entrySelect.html(
           '<option value="">-- Error loading entries --</option>',
         );
@@ -3079,7 +3081,7 @@ async function scanKeywords() {
           }
         }
       } catch (err) {
-        console.warn(`VectFox: Failed to scan keywords from ${collection.id}:`, err);
+        log.warn(`VectFox: Failed to scan keywords from ${collection.id}:`, err);
       }
     }
 
@@ -3096,7 +3098,7 @@ async function scanKeywords() {
       toastr.success(`Found ${browserState.availableKeywords.length} unique keywords`, "VectFox");
     }
   } catch (error) {
-    console.error("VectFox: Keyword scan failed", error);
+    log.error("VectFox: Keyword scan failed", error);
     $tags.html('<span class="vectfox-keyword-hint vectfox-error">Scan failed</span>');
     toastr.error("Failed to scan keywords", "VectFox");
   } finally {
@@ -3303,7 +3305,7 @@ async function performSearch() {
     const filteredResults = filterResultsByKeywords(results);
     renderSearchResults(filteredResults, query, results);
   } catch (error) {
-    console.error("VectFox: Search failed", error);
+    log.error("VectFox: Search failed", error);
     $("#vectfox_search_results").html(`
             <div class="vectfox-search-error">
                 ${icons.x(24)} Search failed: ${error.message}
@@ -3639,7 +3641,7 @@ function bindBulkEvents() {
           downloadExport(exportData, collection.name || collection.id);
           successCount++;
         } catch (error) {
-          console.error(`VectFox: Failed to export ${collection.id}`, error);
+          log.error(`VectFox: Failed to export ${collection.id}`, error);
         }
       }
 
@@ -3698,7 +3700,7 @@ function bindBulkEvents() {
             partialCount++;
           }
         } catch (error) {
-          console.error(`VectFox: Failed to delete ${collection.id}`, error);
+          log.error(`VectFox: Failed to delete ${collection.id}`, error);
         }
       }
 
