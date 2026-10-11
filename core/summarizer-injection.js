@@ -23,10 +23,9 @@ import { getWorldInfoSettings, getSortedEntries } from '../../../../world-info.j
 import { getBackend } from '../backends/backend-manager.js';
 import { getChatUUID } from './collection-ids.js';
 import { resolveActiveEventBaseCollection, getVectorizationTip } from './eventbase-store.js';
-import { EXTENSION_PROMPT_TAG } from './constants.js';
+import { SUMMARIZER_PROMPT_TAG } from './constants.js';
+import { isVectFoxEnabled } from './feature-gate.js';
 import { log } from './log.js';
-
-const SUMMARIZER_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_summarizer`; // '3_vectfox_summarizer'
 
 /**
  * Resolve recent events, format them, and inject (or clear) the summarizer slot.
@@ -56,10 +55,15 @@ let _maxEntryScanDepth = 0;
 /**
  * Recompute _maxEntryScanDepth from the active world books. Async (loads lore) — wire it to
  * CHAT_CHANGED / WORLDINFO_UPDATED / WORLDINFO_SETTINGS_UPDATED, NOT to per-generation code.
- * Best-effort: keeps the previous cached value on failure. Disabled entries are ignored
- * (ST skips them during the scan), matching ST's own behavior.
+ * Does nothing while VectFox is disabled (ghosting is off, so nothing reads the value); the
+ * master switch calls it again when VectFox is turned back on.
+ * On failure it logs a warning and keeps the previous cached value. Disabled entries are
+ * ignored (ST skips them during the scan), matching ST's own behavior.
+ *
+ * @param {object} [settings] - extension_settings.vectfox (defaults to the live store)
  */
-export async function refreshWorldInfoEntryDepthCache() {
+export async function refreshWorldInfoEntryDepthCache(settings) {
+    if (!isVectFoxEnabled(settings)) return;
     try {
         const entries = await getSortedEntries();
         let max = 0;
@@ -69,7 +73,9 @@ export async function refreshWorldInfoEntryDepthCache() {
             if (Number.isFinite(d) && d > max) max = d;
         }
         _maxEntryScanDepth = max;
-    } catch (_) { /* keep previous cached value */ }
+    } catch (error) {
+        log.warn('[Ghost] World Info scan-depth refresh failed — keeping the previous value:', error);
+    }
 }
 
 /**
@@ -96,8 +102,10 @@ function worldInfoScanFloor() {
             floor = cap > 0 ? Math.max(floor, cap) : Number.POSITIVE_INFINITY; // 0 cap = whole chat
         }
         return floor;
-    } catch (_) {
-        return _maxEntryScanDepth || 0; // WI settings unavailable — still honor cached entry depth
+    } catch (error) {
+        // WI settings unavailable — still honor the cached per-entry depth.
+        log.warn('[Ghost] World Info settings unavailable — keeping only the cached entry scan depth raw:', error);
+        return _maxEntryScanDepth || 0;
     }
 }
 
@@ -209,8 +217,7 @@ export function applyGhosting(chat, settings) {
 
         // ST's ignore flag: drop the message from the prompt entirely. Optional — falls back
         // to the blanked clone alone when this ST build doesn't expose it.
-        let ignoreSymbol = null;
-        try { ignoreSymbol = getContext()?.symbols?.ignore ?? null; } catch (_) { /* optional */ }
+        const ignoreSymbol = getContext()?.symbols?.ignore ?? null;
 
         for (let i = 0; i < cutoff; i++) {
             const m = chat[i];

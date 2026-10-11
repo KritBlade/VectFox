@@ -20,6 +20,12 @@ export const EXTENSION_PROMPT_TAG = '3_vectfox';
 /** Extension prompt tag for lorebook semantic WI injection */
 export const LOREBOOK_PROMPT_TAG = '3_vectfox_lorebook';
 
+/** Extension prompt tag for EventBase semantic-retrieval injection */
+export const EVENTBASE_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_eventbase`;
+
+/** Extension prompt tag for Summarizer Injection (most recent N EventBase events) */
+export const SUMMARIZER_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_summarizer`;
+
 /** Extension name for logging and UI */
 export const EXTENSION_NAME = 'VectFox';
 

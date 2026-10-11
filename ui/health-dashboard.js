@@ -18,6 +18,7 @@
 
 import { getBackendMetrics, probeBackendHealth } from '../backends/backend-manager.js';
 import { extension_settings } from '../../../../extensions.js';
+import { isVectFoxEnabled } from '../core/feature-gate.js';
 
 let refreshInterval = null;
 let isModalOpen = false;
@@ -354,8 +355,12 @@ export function initializeHealthDashboard() {
         if (isOpening) refreshIndicator();
     });
 
-    // Probe immediately on init (Action tab is the default tab on load)
-    refreshIndicator();
+    // Probe immediately on init (Action tab is the default tab on load). Skipped while
+    // VectFox is disabled: opening the panel probes on demand, and switching VectFox
+    // back on refreshes the indicator.
+    if (isVectFoxEnabled()) {
+        refreshIndicator();
+    }
 }
 
 /**

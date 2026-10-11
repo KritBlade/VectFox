@@ -1,11 +1,16 @@
 /**
- * Summarizer Injection (Feature B) — runSummarizerInjection contract.
+ * Summarizer Injection (Feature B) — runSummarizerInjection contract, plus the
+ * master-switch gate on refreshWorldInfoEntryDepthCache (the ghosting WI scan-depth
+ * cache lives in the same module).
  *
  * Locks in the part most prone to silent breakage: sort by source_window_end
  * desc → slice top N → render chronologically inside <VectFoxSummarizer> tags →
- * strip [EVENT_TYPE] prefixes, plus the self-clearing early-exits.
+ * strip [EVENT_TYPE] prefixes, plus the self-clearing early-exits. The depth
+ * refresh must not load lorebooks while VectFox is disabled, and must warn
+ * instead of failing silently.
  *
- * All host/sibling modules are mocked (same pattern as backend-manager.test.js).
+ * All host/sibling modules are mocked (same pattern as backend-manager.test.js),
+ * except feature-gate.js, which stays real.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -29,10 +34,12 @@ vi.mock('../../../../world-info.js', () => ({ getWorldInfoSettings: vi.fn(() => 
 vi.mock('../backends/backend-manager.js', () => ({ getBackend: vi.fn(async () => ({ listChunks: mocks.listChunks })) }));
 vi.mock('../core/collection-ids.js', () => ({ getChatUUID: mocks.getChatUUID }));
 vi.mock('../core/eventbase-store.js', () => ({ resolveActiveEventBaseCollection: mocks.resolveActive }));
-vi.mock('../core/constants.js', () => ({ EXTENSION_PROMPT_TAG: '3_vectfox' }));
+vi.mock('../core/constants.js', () => ({ SUMMARIZER_PROMPT_TAG: '3_vectfox_summarizer' }));
 vi.mock('../core/log.js', () => ({ log: { warn() {}, error() {}, domain() {}, trace() {}, verbose() {}, lifecycle() {}, enabled: () => false } }));
 
-import { runSummarizerInjection, buildSummarizerInjection } from '../core/summarizer-injection.js';
+import { runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
+import { getSortedEntries } from '../../../../world-info.js';
+import { log } from '../core/log.js';
 
 const SETTINGS = (over = {}) => ({
     summarizer_injection_enabled: true,
@@ -231,5 +238,32 @@ describe('buildSummarizerInjection (Debug Summarizer preview path)', () => {
             '  Message index: 4',
             '</VectFoxSummarizer>',
         ].join('\n'));
+    });
+});
+
+describe('refreshWorldInfoEntryDepthCache', () => {
+    beforeEach(() => {
+        getSortedEntries.mockClear();
+    });
+
+    it('loads no lorebooks while the master switch is off', async () => {
+        await refreshWorldInfoEntryDepthCache({ enabled: false });
+        expect(getSortedEntries).not.toHaveBeenCalled();
+    });
+
+    it('loads the active lorebooks while VectFox is on', async () => {
+        await refreshWorldInfoEntryDepthCache({ enabled: true });
+        expect(getSortedEntries).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns instead of failing silently when loading lorebooks throws', async () => {
+        const warn = vi.spyOn(log, 'warn');
+        const failure = new Error('lore load failed');
+        getSortedEntries.mockRejectedValueOnce(failure);
+
+        await refreshWorldInfoEntryDepthCache({ enabled: true });
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('scan-depth refresh failed'), failure);
+        warn.mockRestore();
     });
 });

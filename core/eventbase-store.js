@@ -829,12 +829,14 @@ export function findEventBaseCollectionsForChat(uuid, preferredBackend) {
  *
  * @param {object} settings - extension_settings.vectfox
  * @param {string} [chatUUID] - defaults to the current chat's UUID
- * @param {{ requireUuidMatch?: boolean }} [options]
+ * @param {{ requireUuidMatch?: boolean, shouldLogResolution?: boolean }} [options]
  *   `requireUuidMatch` — reject collections whose embedded chat UUID differs
  *   from this chat, so a foreign lock can never become a write target.
+ *   `shouldLogResolution` — false skips the `[EventBase][resolve]` lifecycle
+ *   diagnostics, for passive UI refreshes while VectFox is disabled.
  * @returns {{ collectionId: string, registryKey: string } | null}
  */
-export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUuidMatch = false } = {}) {
+export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUuidMatch = false, shouldLogResolution = true } = {}) {
     const uuid = chatUUID || getChatUUID();
     if (!uuid) return null;
 
@@ -881,19 +883,20 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
     // Diagnostic: why each EventBase collection was/ wasn't picked. Surfaces the
     // exact reason auto-sync sees "no collection" (e.g. lock missing, or UUID
     // drifted after a re-vectorize and no lock to override it).
-    if (log.enabled('lifecycle')) {
+    const logResolution = shouldLogResolution ? log.lifecycle : () => {};
+    if (shouldLogResolution && log.enabled('lifecycle')) {
         const ebAll = listing.filter(e => {
             const il = String(e.collectionId || '').toLowerCase();
             return il.startsWith('vf_eventbase_') || il.includes('eventbase_');
         });
         const rows = ebAll.map(e =>
             `${e.collectionId} [own=${e.isOwn} locked=${isLocked(e)} uuidMatch=${hasUuidMatch(e)} eligible=${isEbMatch(e)}]`);
-        log.lifecycle(`[EventBase][resolve] chatUUID=${uuid} chatId=${chatId || '(none)'} requireUuidMatch=${requireUuidMatch}: ${ebAll.length} eb collection(s), ${ebMatches.length} eligible`);
-        for (const r of rows) log.lifecycle(`[EventBase][resolve]   ${r}`);
+        logResolution(`[EventBase][resolve] chatUUID=${uuid} chatId=${chatId || '(none)'} requireUuidMatch=${requireUuidMatch}: ${ebAll.length} eb collection(s), ${ebMatches.length} eligible`);
+        for (const r of rows) logResolution(`[EventBase][resolve]   ${r}`);
     }
 
     if (ebMatches.length === 0) {
-        log.lifecycle('[EventBase][resolve] → no eligible collection (auto-sync will report "no-collection")');
+        logResolution('[EventBase][resolve] → no eligible collection (auto-sync will report "no-collection")');
         return null;
     }
 
@@ -907,7 +910,7 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
         + (hasUuidMatch(m) ? 0 : 4)
         + (m.backend === wantBackend ? 0 : 1);
     const active = ebMatches.slice().sort((a, b) => rank(a) - rank(b))[0];
-    log.lifecycle(`[EventBase][resolve] → picked ${active.collectionId} (locked=${isLocked(active)} uuidMatch=${hasUuidMatch(active)})`);
+    logResolution(`[EventBase][resolve] → picked ${active.collectionId} (locked=${isLocked(active)} uuidMatch=${hasUuidMatch(active)})`);
     return { collectionId: active.collectionId, registryKey: active.registryKey };
 }
 
@@ -928,10 +931,11 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
  *
  * @param {object} settings - extension_settings.vectfox
  * @param {string} [chatUUID] - defaults to the current chat's UUID
+ * @param {{ shouldLogResolution?: boolean }} [options] - see resolveActiveEventBaseCollection
  * @returns {{ collectionId: string, registryKey: string } | null}
  */
-export function resolveEventBaseWriteTarget(settings, chatUUID) {
-    return resolveActiveEventBaseCollection(settings, chatUUID, { requireUuidMatch: true });
+export function resolveEventBaseWriteTarget(settings, chatUUID, { shouldLogResolution = true } = {}) {
+    return resolveActiveEventBaseCollection(settings, chatUUID, { requireUuidMatch: true, shouldLogResolution });
 }
 
 /**
@@ -964,8 +968,8 @@ async function _resolveEventBaseCollectionIdForRead(settings, chatUUID) {
         try {
             const hashes = await getSavedHashes(collectionId, settings);
             if (hashes?.length > 0) return collectionId;
-        } catch {
-            // Try next candidate.
+        } catch (error) {
+            log.warn(`[EventBase] Could not read ${collectionId} — trying the next candidate:`, error);
         }
     }
 

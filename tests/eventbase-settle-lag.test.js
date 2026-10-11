@@ -24,13 +24,13 @@ vi.mock('../../../../extensions.js', () => ({ extension_settings: {}, getContext
 vi.mock('../core/collection-ids.js', () => ({ getChatUUID: vi.fn(), parseRegistryKey: vi.fn(), COLLECTION_PREFIXES: {}, buildRegistryKey: vi.fn() }));
 vi.mock('../core/collection-loader.js', () => ({ getCollectionRegistry: vi.fn() }));
 vi.mock('../core/core-vector-api.js', () => ({ queryCollection: vi.fn(), getSavedHashes: vi.fn() }));
-vi.mock('../core/constants.js', () => ({ EXTENSION_PROMPT_TAG: '3_vectfox' }));
+vi.mock('../core/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));
 vi.mock('../core/eventbase-schema.js', () => ({ EventBaseFatalError: class {}, EventBaseExtractionError: class {} }));
 vi.mock('../core/eventbase-extractor.js', () => ({ extractEvents: vi.fn() }));
 vi.mock('../core/generation-rate-limiter.js', () => ({ generationRateLimiter: {}, generationRateLimitSettings: {} }));
 vi.mock('../core/eventbase-store.js', () => ({
     insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(),
-    clearExtractionCachesForChat: vi.fn(), buildEventBaseCollectionId: vi.fn(), isLastWindowExtracted: vi.fn(),
+    clearExtractionCachesForChat: vi.fn(), buildEventBaseCollectionId: vi.fn(), isLastWindowExtracted: vi.fn(), getVectorizationTip: vi.fn(),
     setVectorizationTip: vi.fn(), ensureVectorizationTip: vi.fn(), shouldUseTipFallback: vi.fn(),
     resolveEventBaseWriteTarget: vi.fn(),
 }));

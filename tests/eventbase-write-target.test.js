@@ -1,6 +1,7 @@
 /**
  * eventbase-write-target.test.js — resolver split: read honors a foreign lock,
- * ingestion does not.
+ * ingestion does not. Plus the resolver's `[EventBase][resolve]` diagnostics,
+ * which a passive UI refresh while VectFox is disabled switches off.
  *
  * A per-chat lock is the supported way to share an OLDER chat's EventBase with
  * the current chat so its events are retrieved here. Ingestion must not follow
@@ -11,7 +12,7 @@
  * Isolation: eventbase-store.js transitively imports ST modules that don't
  * resolve under vitest. Same empty-stub approach as eventbase-settle-lag.test.js.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const CHAT_A_UUID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const CHAT_B_UUID = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
@@ -67,6 +68,7 @@ vi.mock('../core/log.js', () => ({
 
 const { resolveActiveEventBaseCollection, resolveEventBaseWriteTarget } =
     await import('../core/eventbase-store.js');
+const { log } = await import('../core/log.js');
 
 const row = (collectionId, registryKey) => ({
     collectionId, registryKey, backend: 'qdrant', meta: {}, isOwn: true, isActive: true,
@@ -128,5 +130,37 @@ describe('resolveEventBaseWriteTarget — a foreign lock never captures writes',
         listingRows = [{ ...row(COL_B, KEY_B), isOwn: false }];
 
         expect(resolveEventBaseWriteTarget(settings, CHAT_B_UUID)).toBeNull();
+    });
+});
+
+describe('resolveEventBaseWriteTarget — resolution diagnostics', () => {
+    beforeEach(() => {
+        vi.spyOn(log, 'enabled').mockReturnValue(true);
+        log.lifecycle.mockClear();
+        listingRows = [row(COL_B, KEY_B)];
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('logs the candidates and the pick by default', () => {
+        resolveEventBaseWriteTarget(settings, CHAT_B_UUID);
+
+        expect(log.lifecycle).toHaveBeenCalledWith(expect.stringContaining('1 eligible'));
+        expect(log.lifecycle).toHaveBeenCalledWith(expect.stringContaining(`picked ${COL_B}`));
+    });
+
+    it('resolves the same collection but logs nothing when shouldLogResolution is false', () => {
+        expect(resolveEventBaseWriteTarget(settings, CHAT_B_UUID, { shouldLogResolution: false }))
+            .toEqual({ collectionId: COL_B, registryKey: KEY_B });
+        expect(log.lifecycle).not.toHaveBeenCalled();
+    });
+
+    it('logs nothing on a miss when shouldLogResolution is false', () => {
+        listingRows = [];
+
+        expect(resolveEventBaseWriteTarget(settings, CHAT_B_UUID, { shouldLogResolution: false })).toBeNull();
+        expect(log.lifecycle).not.toHaveBeenCalled();
     });
 });

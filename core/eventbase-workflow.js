@@ -16,11 +16,11 @@ import { extension_settings, getContext } from '../../../../extensions.js';
 import { getChatUUID, parseRegistryKey, COLLECTION_PREFIXES, buildRegistryKey } from './collection-ids.js';
 import { getCollectionRegistry } from './collection-loader.js';
 import { queryCollection } from './core-vector-api.js';
-import { EXTENSION_PROMPT_TAG } from './constants.js';
+import { EVENTBASE_PROMPT_TAG } from './constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
 import { extractEvents } from './eventbase-extractor.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
 import { getSavedHashes } from './core-vector-api.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
 import { retrieveEventsWithAgent } from './agentic-retrieval.js';
@@ -28,9 +28,6 @@ import { formatEventsForInjectionDetailed } from './eventbase-injection.js';
 import { isCollectionEnabled, isCollectionActiveForContextAnyKey, setCollectionLock, setCollectionMeta } from './collection-metadata.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { log } from './log.js';
-
-/** Extension prompt tag for EventBase (distinct from legacy chunks tag) */
-const EVENTBASE_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_eventbase`;
 
 /**
  * Resolve the auto-sync extraction window size in MESSAGES from the per-user
@@ -1336,9 +1333,14 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
 }
 
 /**
- * In-memory evaluation of chat auto-sync state for the current chat.
- * No backend probes — uses the registry, the eventbase window cache, and
- * extension_settings only. Used by the Chat Auto-Sync checkbox + LED.
+ * Evaluate chat auto-sync state for the current chat. Used by the Chat Auto-Sync
+ * checkbox + LED and by the checkbox's enable flow.
+ *
+ * Reads the registry, the eventbase window cache, and extension_settings. The one
+ * backend call is the vectorization-tip probe (ensureVectorizationTip), which runs
+ * only when the tip is not cached yet. Passive refreshes while VectFox is disabled
+ * pass `shouldProbeBackend: false` (report the cached tip alone, never call the
+ * backend) and `shouldLogResolution: false` (no write-target diagnostics).
  *
  * Returns one of:
  *   { state: 'no-chat' }                                              — no chat is open
@@ -1350,15 +1352,20 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
  *                                                                       deleted messages after vectorizing). NOTHING
  *                                                                       should sync — we wait for chat to catch up.
  *   { state: 'partial',          collectionId, registryKey,
- *     chatMessageCount, markerValue? }                                 — collection exists, last window not extracted;
+ *     chatMessageCount, commitBoundary,
+ *     markerValue?, vectorizationTip? }                                — collection exists, last window not extracted;
  *                                                                       counts let the UI show the backfill gap
  *   { state: 'fully-vectorized', collectionId, registryKey,
- *     chatMessageCount, markerValue? }                                 — collection exists, last window already extracted
+ *     chatMessageCount, commitBoundary,
+ *     markerValue?, vectorizationTip? }                                — collection exists, last window already extracted
  *
  * @param {object} settings - extension_settings.vectfox
- * @returns {object}
+ * @param {object} [options]
+ * @param {boolean} [options.shouldProbeBackend=true] - false = never query the backend for the tip
+ * @param {boolean} [options.shouldLogResolution=true] - false = skip the `[EventBase][resolve]` diagnostics
+ * @returns {Promise<object>}
  */
-export async function getChatAutoSyncStatus(settings) {
+export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = true, shouldLogResolution = true } = {}) {
     const chatId = getCurrentChatId();
     if (!chatId) return { state: 'no-chat' };
 
@@ -1368,7 +1375,7 @@ export async function getChatAutoSyncStatus(settings) {
     // Resolve THE active EventBase collection for this chat — ownership-filtered
     // and lock-aware (matches the DB Browser's "Active here only" and the
     // auto-sync write target). See resolveEventBaseWriteTarget.
-    const match = resolveEventBaseWriteTarget(settings, uuid);
+    const match = resolveEventBaseWriteTarget(settings, uuid, { shouldLogResolution });
 
     if (!match) return { state: 'no-collection' };
 
@@ -1416,8 +1423,10 @@ export async function getChatAutoSyncStatus(settings) {
     // Cache-first read; one-time probe on cold cache populates from Qdrant.
     // After first session-warmup, the ingestion loop keeps this up-to-date
     // via setVectorizationTip after each window. See eventbase-store.js for
-    // the cache lifecycle docs.
-    const vectorizationTip = await ensureVectorizationTip(uuid, match.collectionId, settings);
+    // the cache lifecycle docs. Without the probe, a cold cache reports no tip.
+    const vectorizationTip = shouldProbeBackend
+        ? await ensureVectorizationTip(uuid, match.collectionId, settings)
+        : getVectorizationTip(uuid);
 
     return {
         state: fullyVectorized ? 'fully-vectorized' : 'partial',

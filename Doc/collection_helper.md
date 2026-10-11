@@ -501,8 +501,8 @@ disambiguate which one is active.
 
 | Function | File | Use when |
 |---|---|---|
-| `resolveActiveEventBaseCollection(settings, chatUUID?, { requireUuidMatch? })` | [eventbase-store.js](../core/eventbase-store.js) | **Default choice for READS.** Returns `{ collectionId, registryKey }` for the single **active** collection — ownership-filtered (via `getCollectionListing`) and lock-aware (matches the DB Browser's "Active here only"). Returns `null` when none. Used by `buildSummarizerInjection`. |
-| `resolveEventBaseWriteTarget(settings, chatUUID?)` | [eventbase-store.js](../core/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `runEventBaseIngestion`, `synchronizeChat`, `stampAutoSyncMarker`, and `getChatAutoSyncStatus`. Returns `null` on a chat's first ingestion — callers fall through to `buildEventBaseCollectionId`. |
+| `resolveActiveEventBaseCollection(settings, chatUUID?, { requireUuidMatch?, shouldLogResolution? })` | [eventbase-store.js](../core/eventbase-store.js) | **Default choice for READS.** Returns `{ collectionId, registryKey }` for the single **active** collection — ownership-filtered (via `getCollectionListing`) and lock-aware (matches the DB Browser's "Active here only"). Returns `null` when none. Logs `[EventBase][resolve]` lifecycle diagnostics (candidates + pick) unless `shouldLogResolution: false`. Used by `buildSummarizerInjection`. |
+| `resolveEventBaseWriteTarget(settings, chatUUID?, { shouldLogResolution? })` | [eventbase-store.js](../core/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `runEventBaseIngestion`, `synchronizeChat`, `stampAutoSyncMarker`, and `getChatAutoSyncStatus`. Returns `null` on a chat's first ingestion — callers fall through to `buildEventBaseCollectionId`. |
 | `findEventBaseCollectionsForChat(uuid, preferredBackend)` | [eventbase-store.js](../core/eventbase-store.js) | Only when you genuinely need **every** candidate (e.g. pausing auto-sync on all of a chat's collections, or a has-data fallback probe). Returns `Array<{ collectionId, registryKey }>`, lock-ranked first. Pass `getRegistryBackend(settings.vector_backend)` as `preferredBackend`. **Do not** take `[0]` to mean "the active one" — call `resolveActiveEventBaseCollection` for that. Returns `[]` when no collection exists yet. |
 
 #### Eligibility rules inside `resolveActiveEventBaseCollection` — on READS an explicit lock is a FULL override
@@ -542,21 +542,21 @@ Called internally by the ingestion loop. Do not call from application code — r
 
 | Function | File | Role |
 |---|---|---|
-| `synchronizeChat(settings, batchSize, triggerEvent)` | [chat-vectorization.js](../core/chat-vectorization.js) | The auto-sync coordinator. Gates on **the write target only** — `resolveEventBaseWriteTarget(settings, uuid)` then `isCollectionAutoSyncEnabled(active.registryKey)` — NOT a `.some()` across every collection (a leftover `autoSync=true` on a non-active sibling used to fire even with the toggle visibly off). Then calls `runEventBaseIngestion({ isAutoSync: true, collectionIdOverride: active.collectionId })`. **The override is load-bearing** (commit `5d8a6dd`): it pins the write target to the resolved active collection so a group chat doesn't manufacture a new per-speaker collection each turn. Bails immediately when the VectFox master switch is off (`isVectFoxEnabled` — see [feature-gate.js](../core/feature-gate.js)). Called from ST event hooks (MESSAGE_SENT, MESSAGE_RECEIVED, etc.). Pass `triggerEvent` so it can suppress the popup on MESSAGE_SENT mid-generation. |
-| `rearrangeChat(chat, settings, type, { dryRun, testMessage })` | [chat-vectorization.js](../core/chat-vectorization.js) | ST generation interceptor (`CHAT_COMPLETION_PROMPT_READY`). Handles semantic retrieval and prompt injection. **Separate concern from `synchronizeChat`** — retrieval does not trigger auto-sync extraction. Clears stale injections then early-returns (injects nothing) when the master switch is off (`isVectFoxEnabled`); the `dryRun` query-tester path is exempt so debugging still works. The `dryRun` / `testMessage` params support the debug query tester. |
+| `synchronizeChat(settings, batchSize, triggerEvent)` | [chat-vectorization.js](../core/chat-vectorization.js) | The auto-sync coordinator. Gates on **the write target only** — `resolveEventBaseWriteTarget(settings, uuid)` then `isCollectionAutoSyncEnabled(active.registryKey)` — NOT a `.some()` across every collection (a leftover `autoSync=true` on a non-active sibling used to fire even with the toggle visibly off). Then calls `runEventBaseIngestion({ isAutoSync: true, collectionIdOverride: active.collectionId })`. **The override is load-bearing** (commit `5d8a6dd`): it pins the write target to the resolved active collection so a group chat doesn't manufacture a new per-speaker collection each turn. Called from ST event hooks (MESSAGE_SENT, MESSAGE_RECEIVED, etc.) in [index.js](../index.js), which schedule nothing while the VectFox master switch is off; it also bails on its own master-switch check (`isVectFoxEnabled` — see [feature-gate.js](../core/feature-gate.js)) when the switch goes off inside the debounce window. Pass `triggerEvent` so it can suppress the popup on MESSAGE_SENT mid-generation. |
+| `rearrangeChat(chat, settings, type, { dryRun, testMessage })` | [chat-vectorization.js](../core/chat-vectorization.js) | ST generation interceptor (manifest `generate_interceptor`, runs before the prompt is built). Handles semantic retrieval and prompt injection. **Separate concern from `synchronizeChat`** — retrieval does not trigger auto-sync extraction. Every live (non-quiet) generation first empties every block it owns via `clearInterceptorPrompts` (chunk block, per-position variants, EventBase, Summarizer), so a turn that injects nothing never resends last turn's memory; then it early-returns when the master switch is off (`isVectFoxEnabled`). The lorebook block is cleared by its own GENERATION_STARTED handler ([world-info-integration.js](../core/world-info-integration.js)). The `dryRun` / `testMessage` params support the debug query tester, which is exempt from the master switch so debugging still works. |
 
 ### Key-form parity
 
 **Key-form parity is load-bearing.** Four sites read or write the per-collection autoSync flag: `refreshAutoSyncCheckbox` (UI mirror), `getChatAutoSyncStatus` (state evaluator), the change handler (writer), and `synchronizeChat` (the engine that actually fires extraction). All four must use the **registry-key form** (`backend:id`) — built via `buildRegistryKey(collectionId, settings)` or pulled from `entry.registryKey`. The 2026-05-17 regression where the popup never fired and extraction never ran was a single site (`synchronizeChat`) reading with the bare collection ID while everyone else wrote with the registry key. The flag was saved correctly; the reader looked in the wrong bucket and saw `undefined`.
 
-State evaluator: **`async getChatAutoSyncStatus(settings)`** in `core/eventbase-workflow.js`. Mostly in-memory; performs at most ONE backend probe per (chat, session) for the vectorization-tip cache (see below). Returns one of:
+State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend = true, shouldLogResolution = true })`** in `core/eventbase-workflow.js`. Mostly in-memory; performs at most ONE backend probe per (chat, session) for the vectorization-tip cache (see below). `shouldProbeBackend: false` skips that probe and reports only the cached tip; `shouldLogResolution: false` silences the write-target resolver's diagnostics. `refreshAutoSyncCheckbox` passes both while the master switch is off, so a passive panel refresh never calls the backend and logs nothing. Returns one of:
 
 ```
 { state: 'no-chat' }
 { state: 'no-collection' }
 { state: 'vectorization-ahead', collectionId, registryKey, chatMessageCount, markerValue }
-{ state: 'partial',          collectionId, registryKey, chatMessageCount, markerValue?, vectorizationTip? }
-{ state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, markerValue?, vectorizationTip? }
+{ state: 'partial',          collectionId, registryKey, chatMessageCount, commitBoundary, markerValue?, vectorizationTip? }
+{ state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, markerValue?, vectorizationTip? }
 ```
 
 Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does NOT do its own UUID walk anymore; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`, and the UI offers Vectorize Content.
@@ -573,6 +573,9 @@ Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (ret
 - Initial load
 - `vectfox:collections-updated` custom event
 - `vectfox:eventbase-synced` custom event (after an ingestion run completes)
+- Master switch toggle (OFF: shows the paused status; ON: after the network startup re-runs)
+
+While the master switch is off, `refreshAutoSyncCheckbox` reads only cached state and logs nothing (`shouldProbeBackend: false`, `shouldLogResolution: false`), and every has-collection state shows the paused status below. It still runs on chat change so the checkbox matches the current chat — the Summarizer Injection toggle reads it.
 
 Resolution table:
 
@@ -580,6 +583,7 @@ Resolution table:
 |---|---|---|---|---|---|
 | `no-chat` | — | — | ❎ | 🟡 | "No chat loaded" |
 | `no-collection` | — | — | ❎ | 🟡 | "Not initialized — vectorize chat first" |
+| has-collection, master switch off | any | any | ✅ iff flag + lock | ⚪ | "Auto-sync paused — VectFox is disabled" + counts |
 | has-collection | false OR no lock | — | ❎ | ⚪ | "Auto-sync inactive" + counts |
 | `vectorization-ahead` | true | locked | ✅ | 🟡 | "Vectorization is ahead of current chat — no auto-sync needed." + counts + gap + remediation hint |
 | `partial` | true | locked | ✅ | 🟡 | "Locked — will sync to latest history on next auto-sync trigger" + counts |
@@ -655,7 +659,7 @@ There is **no global-scope priority**. That branch (formerly "priority 1.5") was
 ## Things you should NOT do
 
 - Don't call `.trigger('change')` from any refresh/auto-sync path. Use `prop('checked', x)` directly and persist settings inline.
-- Don't probe the backend for checkbox state. Every state evaluator (`isCollectionActiveForContext`, `getChatAutoSyncStatus`) uses in-memory data only.
+- Don't add backend probes to checkbox-state evaluators. `isCollectionActiveForContext` uses in-memory data only; `getChatAutoSyncStatus`'s only backend call is the one-time vectorization-tip probe, which `shouldProbeBackend: false` skips.
 - Don't add `scope === 'global'` checks. The only legitimate reference is the one-time migration block in `loadAllCollections`.
 - Don't duplicate `isCollectionActiveForContext` logic inline. If you need it in a new place, import it.
 - Don't write directly to `lockedToChatIds` / `lockedToCharacterIds`. Use the `setCollectionLock` / `removeCollectionLock` / `setCollectionCharacterLock` / `removeCollectionCharacterLock` helpers — they maintain the `chat_lock_index` reverse map too.

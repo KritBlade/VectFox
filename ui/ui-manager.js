@@ -29,6 +29,10 @@ import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { progressTracker } from './progress-tracker.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
 import { runNetworkStartup } from '../core/network-startup.js';
+import { isVectFoxEnabled } from '../core/feature-gate.js';
+import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
+import { clearLorebookPrompt } from '../core/world-info-integration.js';
+import { refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
 import { doesChatHaveVectors, getCollectionRegistry, getCollectionListing, checkPluginAvailable } from '../core/collection-loader.js';
 import { getCollectionMeta } from '../core/collection-metadata.js';
@@ -2026,7 +2030,15 @@ export async function refreshAutoSyncCheckbox(settings) {
     const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
     const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../core/collection-metadata.js');
 
-    const status = await getChatAutoSyncStatus(settings);
+    // While VectFox is disabled this refresh only reads cached state: no backend call,
+    // no diagnostics. It still runs so the checkbox matches the current chat — the
+    // Summarizer Injection toggle reads it. The master switch refreshes again when
+    // VectFox is turned back on.
+    const isVectFoxOn = isVectFoxEnabled(settings);
+    const status = await getChatAutoSyncStatus(settings, {
+        shouldProbeBackend: isVectFoxOn,
+        shouldLogResolution: isVectFoxOn,
+    });
     const chatId = getCurrentChatId();
 
     const LED = {
@@ -2084,7 +2096,9 @@ export async function refreshAutoSyncCheckbox(settings) {
           `</div>`
         : '';
 
-    if (!isEnabled || !isLocked) {
+    if (!isVectFoxOn) {
+        $status.html(`${LED.white} Auto-sync paused — VectFox is disabled${counts}`);
+    } else if (!isEnabled || !isLocked) {
         $status.html(`${LED.white} Auto-sync inactive${counts}`);
     } else if (status.state === 'vectorization-ahead') {
         // Distinct state — vectorization marker is past the current chat tail.
@@ -2425,16 +2439,16 @@ function bindSettingsEvents(settings, callbacks) {
     // Injection group on standard+no-plugin (its listChunks returns no metadata).
     let _refreshSummarizerInjectionAvailability = null;
 
-    // Master switch — global enable/disable. Default ON (only false disables);
-    // mirrors core/feature-gate.js::isVectFoxEnabled so the UI and the runtime
-    // gates agree. Dims the rest of the panel when off as a visual cue.
+    // Master switch — global enable/disable. Reads core/feature-gate.js::isVectFoxEnabled
+    // so the UI and the runtime gates agree. Dims the rest of the panel when off as a
+    // visual cue.
     const $masterSwitch = $('#VectFox_master_enabled');
     const _applyMasterSwitchUI = (on) => {
         $('#VectFox_settings .vectfox-tabs, #VectFox_settings .vectfox-card')
             .css({ opacity: on ? '' : '0.5' });
     };
     $masterSwitch
-        .prop('checked', settings.enabled !== false)
+        .prop('checked', isVectFoxEnabled(settings))
         .on('change', async function() {
             const on = $(this).prop('checked');
             settings.enabled = on;
@@ -2444,21 +2458,35 @@ function bindSettingsEvents(settings, callbacks) {
             toastr.info(on ? 'VectFox enabled' : 'VectFox disabled', 'VectFox');
             log.lifecycle(`VectFox: master switch ${on ? 'ON' : 'OFF'}`);
 
-            // A disabled VectFox skips its off-box startup work at page load. Two of
-            // those steps don't self-heal on demand — the EventBase payload-index
-            // backfill is one-shot-per-install, and collection discovery refreshes the
-            // registry that the Database Browser and cross-chat retrieval read. Run
-            // them now so switching back ON gives a working VectFox without a page
-            // reload. See core/network-startup.js for the full rationale.
-            if (on) {
-                try {
-                    await runNetworkStartup(settings);
-                } catch (error) {
-                    log.warn('VectFox: backend/network startup after re-enable failed:', error?.message || error);
-                }
+            if (!on) {
+                // Take every VectFox block out of the prompt now. ST keeps extension
+                // prompts until they are overwritten, and quiet generations skip the
+                // interceptor that would otherwise clear them.
+                clearInterceptorPrompts(settings);
+                clearLorebookPrompt(settings);
+                await refreshAutoSyncCheckbox(settings); // shows auto-sync as paused
+                return;
             }
+
+            // Switching back ON: redo the work skipped while off, so VectFox works
+            // without a page reload. The ghosting WI-scan floor goes first — the next
+            // generation may read it.
+            await refreshWorldInfoEntryDepthCache(settings);
+
+            // Off-box startup work. Two of its steps don't self-heal on demand — the
+            // EventBase payload-index backfill is one-shot-per-install, and collection
+            // discovery refreshes the registry that the Database Browser, cross-chat
+            // retrieval and the auto-sync status read. See core/network-startup.js for
+            // the full rationale.
+            try {
+                await runNetworkStartup(settings);
+            } catch (error) {
+                log.warn('VectFox: backend/network startup after re-enable failed:', error?.message || error);
+            }
+            await refreshAutoSyncCheckbox(settings);
+            await refreshHealthIndicator(); // its load-time probe is skipped while off
         });
-    _applyMasterSwitchUI(settings.enabled !== false);
+    _applyMasterSwitchUI(isVectFoxEnabled(settings));
 
     /**
      * Turn Summarizer Injection off, because auto-sync — its data source — is not
