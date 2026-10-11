@@ -485,13 +485,15 @@ export function cleanupTestCollections() {
 
 /**
  * Gets display name for a collection
- * @param {string} collectionId Collection identifier
+ * @param {string} collectionId Bare collection identifier
+ * @param {string} registryKey "backend:id" form — the key collection metadata
+ *   (including a user-set displayName from Rename) is stored under
  * @param {object} metadata Parsed collection metadata
  * @returns {string} Human-readable name
  */
-function getCollectionDisplayName(collectionId, metadata) {
+function getCollectionDisplayName(collectionId, registryKey, metadata) {
     // Check for custom display name first
-    const collectionMeta = getCollectionMeta(collectionId);
+    const collectionMeta = getCollectionMeta(registryKey);
     if (collectionMeta.displayName) {
         return collectionMeta.displayName;
     }
@@ -1254,7 +1256,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
                 }
             }
 
-            const displayName = getCollectionDisplayName(collectionId, metadata);
+            const displayName = getCollectionDisplayName(collectionId, registryKey, metadata);
             log.trace(`VectFox:   Display name: ${displayName}`);
 
             // Metadata is stored under the registry-key form ("backend:id") so it

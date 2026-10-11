@@ -1750,7 +1750,7 @@ function openRenameDialog(collectionId, currentName) {
       setCollectionMeta(id, { displayName: newName || null });
 
       // Update local state
-      const collection = browserState.collections.find((c) => c.id === id);
+      const collection = browserState.collections.find((c) => (c.registryKey || c.id) === id);
       if (collection) {
         collection.name = newName || collection.name; // Will refresh properly on next load
       }

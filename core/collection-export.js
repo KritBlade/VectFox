@@ -167,7 +167,9 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
     try {
         // Step 1: Get collection metadata
         progressTracker.updateProgress(1, 'Loading metadata...');
-        const collectionMeta = getCollectionMeta(collectionId) || {};
+        // Metadata (display name, triggers, conditions, …) lives under the
+        // registry-key form; callers pass the bare ID.
+        const collectionMeta = getCollectionMeta(buildRegistryKey(collectionId, exportSettings));
 
         // Step 2: Get all chunks WITH vectors
         progressTracker.updateProgress(2, 'Loading chunks and vectors...');
