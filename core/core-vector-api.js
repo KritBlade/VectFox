@@ -729,66 +729,56 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
             // Use streaming embedding generation with immediate writes
             await streamEmbeddingsAndWrite(backend, collectionId, items, textStrings, settings, onProgress, abortSignal);
         } else {
-            // Server-side embeddings - backend handles everything
-            // VEC-6: Use configurable batch size for optimized bulk inserts
-            // Some providers need smaller batches - Ollama and Transformers work best with batch size of 1
-            // Qdrant with local GPU sources (transformers/ollama/llamacpp) also defaults to 1:
-            // the Similharity server embeds all items in a single HTTP request sequentially,
-            // so 5 items = 5×T on the GPU inside one request, which 504s for large models.
-            // Sending 1 item per call keeps each request under the gateway timeout.
-            // API-based sources (openai, openrouter, etc.) can batch safely — the server
-            // runs those in parallel so total time stays ~T regardless of item count.
+            // Server-side embeddings - backend handles everything.
+            // Local GPU sources (transformers/ollama/llamacpp) always send 1 item per request.
+            // The server embeds one request's items one after another, so N items cost N×T
+            // inside a single request and a long batch runs past the 120s request timeout.
+            // One item per request also stops an item that fails to embed (e.g. Transformers
+            // running out of WASM memory on an over-long chunk) from failing the items
+            // batched with it. The embedding API rate limit does not apply to them: it guards
+            // a provider's request quota, and a local server has none.
+            // API-based sources send up to insert_batch_size items per request; how the
+            // server embeds a batch per provider is in Doc/dev_helper.md §6.
             const localGpuSources = new Set(['transformers', 'ollama', 'llamacpp', 'koboldcpp']);
+            const isLocalGpuSource = localGpuSources.has(settings.embedding_provider);
             const configuredBatchSize = settings.insert_batch_size || 50;
-            const hasExplicitBatchSize = !!settings.insert_batch_size;
-            const hasRateLimit = settings.rate_limit_calls > 0;
+            const hasRateLimit = !isLocalGpuSource && settings.rate_limit_calls > 0;
 
-            // Parallel-split insert — see plans/embedding-resilience-hedge-and-diagnostics.md §5.
-            // Default behavior: each event becomes its own embedding+insert POST, fired in
-            // parallel waves. Contains the blast radius when ONE upstream worker is stuck
-            // (SiliconFlow, vLLM-the-software) or ONE routing decision is bad (OpenRouter) —
-            // the stuck item retries in isolation while the rest finish normally.
-            //
-            // The `vector_group_embedding_call` setting (UI checkbox in the Core tab →
-            // Embedding section — path-agnostic, applies to every caller of insertVectorItems
-            // including EventBase ingestion AND content/document vectorization in
-            // content-vectorization.js). Default unchecked. Checking it
-            // opts INTO the legacy production behavior: a single batched POST containing all
-            // items. Cheaper (fewer HTTP calls) but ONE stuck item hangs the WHOLE batch —
-            // see the 555s monster batches observed 2026-05-30.
-            //
-            // Gated to non-local, non-rate-limited providers regardless of the setting —
-            // Ollama already uses batch=1 sequentially, and rate-limit requires serial
-            // execution via dynamicRateLimiter.
+            // Parallel-split insert — see plans/executed/embedding-resilience-hedge-and-diagnostics.md §5.
+            // Runs only when `vector_group_embedding_call` (default checked) is unchecked, the
+            // provider is not local, and the embedding API rate limit is off — the rate limit
+            // needs serial execution through dynamicRateLimiter. Each item then becomes its own
+            // embedding+insert POST, fired in parallel waves: when ONE upstream worker is stuck
+            // (SiliconFlow, vLLM-the-software) or ONE routing decision is bad (OpenRouter), the
+            // stuck item retries in isolation while the rest finish normally. Checked, each
+            // batch of up to insert_batch_size items is ONE POST — fewer HTTP calls, but ONE
+            // stuck item hangs the WHOLE batch. The setting applies to every caller of
+            // insertVectorItems: EventBase ingestion and content/document vectorization alike.
             const groupEmbeddingCall = settings?.vector_group_embedding_call === true;
             const shouldParallelSplit = (
                 !groupEmbeddingCall
-                && !localGpuSources.has(settings.embedding_provider)
+                && !isLocalGpuSource
                 && !hasRateLimit
                 && items.length > 1
             );
 
-            // Force 1-item batches for local GPU sources unless user overrides explicitly.
-            // Also force 1-item batches when parallel-split experiment is active.
-            const BATCH_SIZE = shouldParallelSplit
-                ? 1
-                : ((!hasExplicitBatchSize && localGpuSources.has(settings.embedding_provider)) ? 1 : configuredBatchSize);
+            const BATCH_SIZE = (isLocalGpuSource || shouldParallelSplit) ? 1 : configuredBatchSize;
             const batches = chunkArray(items, BATCH_SIZE);
 
             log.verbose(`VectFox: Processing ${items.length} items in ${batches.length} batch(es) of up to ${BATCH_SIZE}${hasRateLimit ? ` with rate limit (Max ${settings.rate_limit_calls} calls / ${settings.rate_limit_interval}s)` : ''}${shouldParallelSplit ? ` [parallel-split: ${batches.length} concurrent POSTs in waves of up to 16]` : ''}`);
 
             if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
 
-            // Hedge gating — opt-in via `vector_hedge_after_ms` setting (0 = off).
+            // Hedge gating — `vector_hedge_after_ms` (default 15000; 0 = off).
             // Skipped for local providers where opening a new HTTP connection wouldn't
             // change routing (Ollama / transformers / llama.cpp / KoboldCpp all land on
             // the same single endpoint regardless of connection identity).
-            // See plans/embedding-resilience-hedge-and-diagnostics.md §6.
+            // See plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
             const rawHedgeAfterMs = Number(settings?.vector_hedge_after_ms) || 0;
             const HEDGE_MAX_COUNT = 3;
             const hedgeEnabled = (
                 rawHedgeAfterMs > 0
-                && !localGpuSources.has(settings.embedding_provider)
+                && !isLocalGpuSource
             );
             const hedgeAfterMs = hedgeEnabled ? rawHedgeAfterMs : 0;
 

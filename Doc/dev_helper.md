@@ -130,37 +130,28 @@ After the Phase 2 GUI reorg, settings are grouped by which path consumes them:
 
 | Setting                                                                                  | UI tab                      | EventBase relevant? | What it actually does                                                                                |
 | ---------------------------------------------------------------------------------------- | --------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Insert Batch Size** (default 50)                                                       | ChunkBase → Ingestion       | **No**              | Controls chunks-per-API-call during chunk vectorization. EventBase inserts tiny batches (2–10 events per window) so this has no meaningful effect on EventBase. |
+| **Insert Batch Size** (default 50)                                                       | ChunkBase → Ingestion       | **No**              | Max chunks per insert request for API embedding sources (see §6); local Transformers / Ollama / llama.cpp always send 1 chunk per request. Also the client-side embedding batch size for WebLLM / KoboldCpp. EventBase inserts tiny batches (2–10 events per window) so this has no meaningful effect on EventBase. |
 | **Dedup Depth** (default 50 messages)                                                    | Core                        | **Yes**             | Used in`eventbase-retrieval.js` as `settings.deduplication_depth`. Filters out retrieved events whose source window falls within the last N messages of the current chat — avoids injecting content already visible in context. 0 = disabled. Also used by chunk-path retrieval in `chat-vectorization.js`. |
 | **Hybrid Search & BM25 block** (Keyword Scoring Method, BM25 k1/b, Fusion Method, RRF K) | Core → Hybrid Search & BM25 | **A1/A2 only**      | These are Vectra (Standard backend) controls. On Qdrant, hybrid is always A3 server-side native — k1/b/RRF K are managed by Qdrant's`modifier: idf` and the `fusion: rrf` API, and these UI knobs have no effect. EventBase callers inject `ebSettings` with `keyword_scoring_method` overridden from `eventbase_keyword_scoring_method` (internal, defaults `'bm25'`, not in UI). See §13 for the full matrix. |
 | **Query Keyword Budget** (`hybrid_keyword_level`)                                        | ChunkBase → Keyword Budget  | **No**              | Read only by`scoreResults()` (A1) and `hybridSearch()` (A2). A3 doesn't use it — the sparse-vector encoder tokenizes the full query and Qdrant handles IDF weighting. EventBase has its own importance/persist/recency re-ranker that dominates the final order anyway. |
 
 ---
 
-## 6) Similharity Plugin Speedup (Simultaneous Embedding Requests)
+## 6) Similharity Plugin — How One Insert Request Is Embedded
 
-Plugin file changed: `../similharity/index.js`
+Plugin: `../similharity/index.js`, `getVectorsForSource(...)`. One insert request carries N texts; the embedding source decides how they are embedded (T = one embedding call):
 
-What we changed:
+| Source | How the N texts are embedded | Time for one request |
+| --- | --- | --- |
+| `openai`, `openrouter`, `togetherai`, `mistral`, `electronhub` | one batched `/embeddings` call per 100 texts (`getOpenAIBatchVector`) | about T |
+| `nomicai`, `cohere` | N single-text calls in parallel (`Promise.all`) | about T, but N calls against the provider's limits |
+| every other source, including `vllm` and the local `transformers` / `ollama` / `llamacpp` | one after another | about N × T |
 
-- In `getVectorsForSource(...)`, API/network providers now run embedding calls in parallel using `Promise.all(...)`.
-- Parallel provider set:
-    - `vllm`
-    - `openrouter`
-- Local GPU providers remain sequential to avoid contention/queueing/OOM behavior:
-    - `transformers`
-    - `ollama`
-    - `llamacpp`
-    - `koboldcpp`
+VectFox side (`insertVectorItems` in `core/core-vector-api.js`):
 
-Why this speeds up:
-
-- Before: one request embedding N items sequentially, total about N x T.
-- After (API providers): N requests fired concurrently inside one batch, total about T (subject to upstream limits).
-
-Related client-side behavior (vectfox):
-
-- In `core/core-vector-api.js`, local GPU sources default to small batch behavior unless user explicitly overrides `insert_batch_size`.
+- Local GPU sources (`transformers`, `ollama`, `llamacpp`) always send 1 item per insert request, so the 120s request timeout bounds one embedding and an item that fails to embed fails only its own request. `insert_batch_size` and the embedding API rate limit (`rate_limit_calls` / `rate_limit_interval`) do not apply to them.
+- API sources send up to `insert_batch_size` items per request while `vector_group_embedding_call` is on (default) or a rate limit is set; otherwise each item is its own request, fired in parallel waves (parallel-split).
+- A grouped `vllm` request therefore costs about N × T inside one request.
 
 ---
 

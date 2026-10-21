@@ -352,7 +352,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                             <input type="number" id="VectFox_rate_limit_interval" class="vectfox-input" min="1" placeholder="60" />
                                         </div>
                                     </div>
-                                    <small class="VectFox_hint">Limit embedding API requests per time interval</small>
+                                    <small class="VectFox_hint">Limit embedding API requests per time interval. Local Transformers, Ollama and llama.cpp are not limited.</small>
                                 </div>
 
                                 <!-- Summarizer / Agent Mode Rate Limiting -->
@@ -725,7 +725,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <small>Insert Batch Size: <span id="VectFox_insert_batch_size_value">50</span></small>
                             </label>
                             <input type="range" id="VectFox_insert_batch_size" class="vectfox-slider" min="10" max="100" step="10" />
-                            <small class="VectFox_hint">Chunks per insert batch (50-100 recommended for faster bulk operations)</small>
+                            <small class="VectFox_hint">Chunks per insert batch (50-100 recommended for faster bulk operations). Local Transformers, Ollama and llama.cpp always send one chunk per request.</small>
 
                             <label class="checkbox_label" for="VectFox_document_glossary_injection" style="margin-top:12px;">
                                 <input type="checkbox" id="VectFox_document_glossary_injection" />
