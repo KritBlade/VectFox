@@ -133,6 +133,31 @@ describe('resolveEventBaseWriteTarget — a foreign lock never captures writes',
     });
 });
 
+describe('resolveEventBaseWriteTarget — writes stay on the current backend', () => {
+    const COL_B_VECTRA = `vf_eventbase_standard_rabbit_kagami_${CHAT_B_UUID}`;
+    const KEY_B_VECTRA = `vectra:${COL_B_VECTRA}`;
+    const vectraRow = { ...row(COL_B_VECTRA, KEY_B_VECTRA), backend: 'vectra' };
+
+    it('returns null when the chat\'s only collection is on the other backend', () => {
+        // Chat vectorized under Standard, then the user switched to Qdrant. The
+        // Vectra collection is still locked and UUID-matching, but writing its bare
+        // ID to Qdrant would create a Qdrant collection named vf_eventbase_standard_….
+        listingRows = [vectraRow];
+        lockedKeys = new Set([KEY_B_VECTRA, COL_B_VECTRA]);
+
+        expect(resolveEventBaseWriteTarget(settings, CHAT_B_UUID)).toBeNull();
+        // Reads still see it.
+        expect(resolveActiveEventBaseCollection(settings, CHAT_B_UUID)?.collectionId).toBe(COL_B_VECTRA);
+    });
+
+    it('picks the current-backend collection when both backends hold one', () => {
+        listingRows = [vectraRow, row(COL_B, KEY_B)];
+        lockedKeys = new Set([KEY_B_VECTRA, COL_B_VECTRA, KEY_B, COL_B]);
+
+        expect(resolveEventBaseWriteTarget(settings, CHAT_B_UUID)?.registryKey).toBe(KEY_B);
+    });
+});
+
 describe('resolveEventBaseWriteTarget — resolution diagnostics', () => {
     beforeEach(() => {
         vi.spyOn(log, 'enabled').mockReturnValue(true);
