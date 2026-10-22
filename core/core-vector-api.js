@@ -225,6 +225,16 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
 
         const label = (i) => (i === 0 ? 'primary' : `hedge ${i}/${maxHedges}`);
 
+        // Why the winning hedge was needed, for its always-on WON line. Each failed
+        // attempt's reason is otherwise logged only with verbose logging on, which
+        // left a bare "500 (Internal Server Error)" as the only clue in the console.
+        // With no failure, the winner fired on the clock because the attempt before
+        // it was still running.
+        const describeHedgeCause = (winnerIdx) => (errors.length > 0
+            ? errors.map(({ attemptIdx, error, elapsed }) =>
+                `${label(attemptIdx)} FAILED after ${elapsed}s — ${error?.name || 'Error'}: ${error?.message || error}`).join('; ')
+            : `previous attempt still running at t=${(winnerIdx * thresholdMs) / 1000}s`);
+
         // Hedges fire in order, from either the fixed schedule below or early when an
         // attempt fails. Both routes go through startHedge, and each slot checks
         // `hedgesFired`, so a slot can never fire twice and the total attempt count
@@ -272,7 +282,7 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                     if (attemptIdx > 0) {
                         // A hedge (not the primary) won — recovered-from anomaly.
                         const elapsed = ((performance.now() - start) / 1000).toFixed(1);
-                        log.warn(`VectFox: hedge — ${label(attemptIdx)} WON for batch ${batchIdx}/${totalBatches} via ${provider} after ${elapsed}s`);
+                        log.warn(`VectFox: hedge — ${label(attemptIdx)} WON for batch ${batchIdx}/${totalBatches} via ${provider} after ${elapsed}s (${describeHedgeCause(attemptIdx)})`);
                     } else {
                         const elapsed = ((performance.now() - start) / 1000).toFixed(1);
                         log.lifecycle(`VectFox: hedge — primary WON for batch ${batchIdx}/${totalBatches} via ${provider} after ${elapsed}s`);
@@ -281,9 +291,9 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                 },
                 (e) => {
                     attemptsInFlight--;
-                    errors.push({ attemptIdx, error: e });
+                    const elapsed = ((performance.now() - start) / 1000).toFixed(1);
+                    errors.push({ attemptIdx, error: e, elapsed });
                     if (debugOn && !settled) {
-                        const elapsed = ((performance.now() - start) / 1000).toFixed(1);
                         log.warn(
                             `VectFox: hedge — ${label(attemptIdx)} FAILED after ${elapsed}s for batch ${batchIdx}/${totalBatches} — ${e?.name || 'Error'}: ${e?.message || e}`,
                         );
@@ -729,66 +739,56 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
             // Use streaming embedding generation with immediate writes
             await streamEmbeddingsAndWrite(backend, collectionId, items, textStrings, settings, onProgress, abortSignal);
         } else {
-            // Server-side embeddings - backend handles everything
-            // VEC-6: Use configurable batch size for optimized bulk inserts
-            // Some providers need smaller batches - Ollama and Transformers work best with batch size of 1
-            // Qdrant with local GPU sources (transformers/ollama/llamacpp) also defaults to 1:
-            // the Similharity server embeds all items in a single HTTP request sequentially,
-            // so 5 items = 5×T on the GPU inside one request, which 504s for large models.
-            // Sending 1 item per call keeps each request under the gateway timeout.
-            // API-based sources (openai, openrouter, etc.) can batch safely — the server
-            // runs those in parallel so total time stays ~T regardless of item count.
+            // Server-side embeddings - backend handles everything.
+            // Local GPU sources (transformers/ollama/llamacpp) always send 1 item per request.
+            // The server embeds one request's items one after another, so N items cost N×T
+            // inside a single request and a long batch runs past the 120s request timeout.
+            // One item per request also stops an item that fails to embed (e.g. Transformers
+            // running out of WASM memory on an over-long chunk) from failing the items
+            // batched with it. The embedding API rate limit does not apply to them: it guards
+            // a provider's request quota, and a local server has none.
+            // API-based sources send up to insert_batch_size items per request; how the
+            // server embeds a batch per provider is in Doc/dev_helper.md §6.
             const localGpuSources = new Set(['transformers', 'ollama', 'llamacpp', 'koboldcpp']);
+            const isLocalGpuSource = localGpuSources.has(settings.embedding_provider);
             const configuredBatchSize = settings.insert_batch_size || 50;
-            const hasExplicitBatchSize = !!settings.insert_batch_size;
-            const hasRateLimit = settings.rate_limit_calls > 0;
+            const hasRateLimit = !isLocalGpuSource && settings.rate_limit_calls > 0;
 
-            // Parallel-split insert — see plans/embedding-resilience-hedge-and-diagnostics.md §5.
-            // Default behavior: each event becomes its own embedding+insert POST, fired in
-            // parallel waves. Contains the blast radius when ONE upstream worker is stuck
-            // (SiliconFlow, vLLM-the-software) or ONE routing decision is bad (OpenRouter) —
-            // the stuck item retries in isolation while the rest finish normally.
-            //
-            // The `vector_group_embedding_call` setting (UI checkbox in the Core tab →
-            // Embedding section — path-agnostic, applies to every caller of insertVectorItems
-            // including EventBase ingestion AND content/document vectorization in
-            // content-vectorization.js). Default unchecked. Checking it
-            // opts INTO the legacy production behavior: a single batched POST containing all
-            // items. Cheaper (fewer HTTP calls) but ONE stuck item hangs the WHOLE batch —
-            // see the 555s monster batches observed 2026-05-30.
-            //
-            // Gated to non-local, non-rate-limited providers regardless of the setting —
-            // Ollama already uses batch=1 sequentially, and rate-limit requires serial
-            // execution via dynamicRateLimiter.
+            // Parallel-split insert — see plans/executed/embedding-resilience-hedge-and-diagnostics.md §5.
+            // Runs only when `vector_group_embedding_call` (default checked) is unchecked, the
+            // provider is not local, and the embedding API rate limit is off — the rate limit
+            // needs serial execution through dynamicRateLimiter. Each item then becomes its own
+            // embedding+insert POST, fired in parallel waves: when ONE upstream worker is stuck
+            // (SiliconFlow, vLLM-the-software) or ONE routing decision is bad (OpenRouter), the
+            // stuck item retries in isolation while the rest finish normally. Checked, each
+            // batch of up to insert_batch_size items is ONE POST — fewer HTTP calls, but ONE
+            // stuck item hangs the WHOLE batch. The setting applies to every caller of
+            // insertVectorItems: EventBase ingestion and content/document vectorization alike.
             const groupEmbeddingCall = settings?.vector_group_embedding_call === true;
             const shouldParallelSplit = (
                 !groupEmbeddingCall
-                && !localGpuSources.has(settings.embedding_provider)
+                && !isLocalGpuSource
                 && !hasRateLimit
                 && items.length > 1
             );
 
-            // Force 1-item batches for local GPU sources unless user overrides explicitly.
-            // Also force 1-item batches when parallel-split experiment is active.
-            const BATCH_SIZE = shouldParallelSplit
-                ? 1
-                : ((!hasExplicitBatchSize && localGpuSources.has(settings.embedding_provider)) ? 1 : configuredBatchSize);
+            const BATCH_SIZE = (isLocalGpuSource || shouldParallelSplit) ? 1 : configuredBatchSize;
             const batches = chunkArray(items, BATCH_SIZE);
 
             log.verbose(`VectFox: Processing ${items.length} items in ${batches.length} batch(es) of up to ${BATCH_SIZE}${hasRateLimit ? ` with rate limit (Max ${settings.rate_limit_calls} calls / ${settings.rate_limit_interval}s)` : ''}${shouldParallelSplit ? ` [parallel-split: ${batches.length} concurrent POSTs in waves of up to 16]` : ''}`);
 
             if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
 
-            // Hedge gating — opt-in via `vector_hedge_after_ms` setting (0 = off).
+            // Hedge gating — `vector_hedge_after_ms` (default 15000; 0 = off).
             // Skipped for local providers where opening a new HTTP connection wouldn't
             // change routing (Ollama / transformers / llama.cpp / KoboldCpp all land on
             // the same single endpoint regardless of connection identity).
-            // See plans/embedding-resilience-hedge-and-diagnostics.md §6.
+            // See plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
             const rawHedgeAfterMs = Number(settings?.vector_hedge_after_ms) || 0;
             const HEDGE_MAX_COUNT = 3;
             const hedgeEnabled = (
                 rawHedgeAfterMs > 0
-                && !localGpuSources.has(settings.embedding_provider)
+                && !isLocalGpuSource
             );
             const hedgeAfterMs = hedgeEnabled ? rawHedgeAfterMs : 0;
 
@@ -1051,16 +1051,47 @@ export async function deleteVectorItems(collectionId, hashes, settings) {
 }
 
 /**
+ * Embeds a query text ONCE, so every route and fallback of the query reuses the
+ * vector. Each fallback used to re-send the text and re-embed it server-side, so a
+ * provider outage cost up to four embedding calls per query before it gave up —
+ * retries by accident, stacked on one another.
+ *
+ * Retries once on failure: a provider 429 ("The engine is currently overloaded")
+ * usually clears on the next call. A second failure throws, because every route
+ * needs the vector and no fallback could succeed without it. An invalid-model
+ * error is not retried: it fails the same way every time and must reach the
+ * sticky model-config popup.
+ *
+ * @param {object} backend - VectorBackend instance (see embedQuery)
+ * @param {string} searchText - Text to embed
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<number[]|null>} The vector, or null when the backend can only
+ *   embed per request (Standard without the Similharity plugin)
+ */
+export async function getQueryVector(backend, searchText, settings) {
+    try {
+        return await backend.embedQuery(searchText, settings);
+    } catch (error) {
+        if (error?.code === 'invalid_model_config') throw error;
+        log.warn(`VectFox: query embedding failed, retrying once — ${error?.message || error}`);
+        return await backend.embedQuery(searchText, settings);
+    }
+}
+
+/**
  * Queries a single collection for similar vectors
  * Applies keyword boost system: overfetch → boost → trim
- * For client-side embedding sources (webllm, koboldcpp), generates query embedding first.
+ * Embeds the query once (getQueryVector) unless the caller passes the vector.
  * @param {string} collectionId - The collection to query
  * @param {string} searchText - The text to query
  * @param {number} topK - The number of results to return
  * @param {object} settings VectFox settings object
+ * @param {object} [filters] - Payload filters (concepts_any also extends the keyword query)
+ * @param {number[]|null} [queryVector] - The query's embedding when the caller already has
+ *   it (e.g. one vector shared by several collections); otherwise embedded here
  * @returns {Promise<{ hashes: number[], metadata: object[]}>} - Hashes and metadata of the results
  */
-export async function queryCollection(collectionId, searchText, topK, settings, filters = {}) {
+export async function queryCollection(collectionId, searchText, topK, settings, filters = {}, queryVector = null) {
     // Canonical routing (Doc/collection_helper.md): resolveBackendForCollection accepts either form
     //   (registry-key "backend:id" or bare ID) and returns the backend label
     //   plus the BARE collectionId for downstream calls. Falls back to
@@ -1074,10 +1105,9 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
 
     // Sources that require client-side embedding generation
     const clientSideEmbeddingSources = ['webllm', 'koboldcpp'];
-    let queryVector = null;
 
     // If source requires client-side embeddings, generate query vector
-    if (clientSideEmbeddingSources.includes(settings.embedding_provider)) {
+    if (!queryVector && clientSideEmbeddingSources.includes(settings.embedding_provider)) {
         const queryItem = [searchText];
         try {
             const additionalArgs = await getAdditionalArgs(queryItem, settings);
@@ -1096,13 +1126,29 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     }
 
     // Append concepts_any terms to the query text so BM25 naturally boosts events containing
-    // those theme words — without hard-filtering anything out. Dense vector stays clean for
-    // client-side embedding paths because queryVector is already captured above.
+    // those theme words — without hard-filtering anything out. The dense vector stays clean
+    // when queryVector is already set (client-side source above, or the caller's vector);
+    // otherwise the embed below sees effectiveQuery, as the per-request embed used to.
     let effectiveQuery = searchText;
     if (Array.isArray(filters.concepts_any) && filters.concepts_any.length > 0) {
         effectiveQuery = `${searchText} ${filters.concepts_any.join(' ')}`;
         if (log.enabled('lifecycle')) {
             log.verbose(`[VectFox] concepts_any appended to query text: [${filters.concepts_any.join(', ')}]`);
+        }
+    }
+
+    // Backend name for metrics — resolved backend wins, fall back to settings.
+    const actualBackendName = resolved.backend || settings?.vector_backend || 'standard';
+
+    // Embed the query ONCE (getQueryVector). Every path below — native hybrid, its
+    // client-side fallback, and the plain vector query — reuses this vector instead
+    // of re-embedding the text.
+    if (!queryVector) {
+        try {
+            queryVector = await getQueryVector(backend, effectiveQuery, settings);
+        } catch (error) {
+            recordError(actualBackendName, error);
+            throw error;
         }
     }
 
@@ -1125,7 +1171,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
         try {
             const result = await hybridSearch(bareCollectionId, effectiveQuery, topK, settings, { queryVector, filters });
             const queryLatency = Date.now() - queryStart;
-            recordQuery(resolved.backend || settings?.vector_backend || 'standard', queryLatency);
+            recordQuery(actualBackendName, queryLatency);
             if (log.enabled('lifecycle')) {
                 const scores = (result.metadata || []).map(m => (m.score ?? 0).toFixed(4));
                 const fusionMethod = (settings.hybrid_fusion_method || 'rrf').toUpperCase();
@@ -1133,7 +1179,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
             }
             return result;
         } catch (error) {
-            recordError(resolved.backend || settings?.vector_backend || 'standard', error);
+            recordError(actualBackendName, error);
             throw error;
         }
     }
@@ -1147,8 +1193,6 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     // VEC-18: Track query latency for health dashboard
     const queryStart = Date.now();
     let rawResults;
-    // Backend name for metrics — resolved backend wins, fall back to settings.
-    const actualBackendName = resolved.backend || settings?.vector_backend || 'standard';
     try {
         rawResults = await backend.queryCollection(bareCollectionId, effectiveQuery, overfetchAmount, settings, queryVector);
         const queryLatency = Date.now() - queryStart;

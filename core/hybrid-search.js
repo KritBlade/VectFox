@@ -95,7 +95,7 @@ export async function hybridSearch(collectionId, searchText, topK, settings, opt
                 textWeight,
                 fusionMethod,
                 rrfK,
-            }, filters);
+            }, filters, queryVector);
         } catch (error) {
             // THE single fallback for the hybrid path. Backends must not degrade
             // internally — QdrantBackend.hybridQuery used to retry vector-only on

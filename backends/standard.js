@@ -35,6 +35,7 @@ import { extension_settings } from '../../../../extensions.js';
 import { oai_settings } from '../../../../openai.js';
 import { log } from '../core/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
+import { fetchQueryEmbedding } from './query-embedding.js';
 
 
 /**
@@ -570,8 +571,22 @@ export class StandardBackend extends VectorBackend {
     }
 
     /**
-     * Query a collection for similar vectors
-     * Uses native ST API
+     * Embed a query text once so every request of the query can reuse the vector
+     * (see core/core-vector-api.js getQueryVector). Returns null without the
+     * Similharity plugin: ST's native /api/vector/query then embeds the text
+     * itself, per request.
+     * @param {string} searchText
+     * @param {object} settings - VectFox settings
+     * @returns {Promise<number[]|null>}
+     */
+    async embedQuery(searchText, settings) {
+        if (!this.pluginAvailable) return null;
+        return fetchQueryEmbedding(searchText, settings, getProviderSpecificParams(settings, true));
+    }
+
+    /**
+     * Query a collection for similar vectors — through the Similharity plugin when
+     * it is available, otherwise ST's native /api/vector/query.
      */
     async queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
         const model = getModelFromSettings(settings);
@@ -833,17 +848,20 @@ export class StandardBackend extends VectorBackend {
         // Prefer the Similharity plugin's purge endpoint when available — it knows
         // about the `{source}/{collectionId}/{model}/` path layout that ST's
         // native /api/vector/purge does not. When the DB Browser passes
-        // `_discoveredModels` (from the plugin's collection discovery), iterate
-        // every model subdir so the on-disk dirs are actually deleted; otherwise
-        // the collection re-appears on the next discovery scan.
+        // `_discoveredSources` (from the plugin's collection discovery), purge
+        // every {source, model} index found on disk. One collection ID can sit in
+        // several source folders (one per embedding provider it was written with);
+        // any index left behind brings the collection back on the next discovery
+        // scan. Without discovery data, target the current provider and model.
         if (this.pluginAvailable) {
-            const source = settings.embedding_provider || 'transformers';
-            const discoveredModels = Array.isArray(settings._discoveredModels) && settings._discoveredModels.length > 0
-                ? settings._discoveredModels.map(m => m?.path ?? m ?? '')
-                : [getModelFromSettings(settings)];
+            const discoveredSources = Array.isArray(settings._discoveredSources) ? settings._discoveredSources : [];
+            const targets = discoveredSources.length > 0
+                ? discoveredSources.flatMap(({ source, models }) =>
+                    (models || []).map(m => ({ source, model: m?.path ?? '' })))
+                : [{ source: settings.embedding_provider || 'transformers', model: getModelFromSettings(settings) }];
 
             const errors = [];
-            for (const model of discoveredModels) {
+            for (const { source, model } of targets) {
                 try {
                     const response = await fetch('/api/plugins/similharity/chunks/purge', {
                         method: 'POST',
@@ -857,13 +875,13 @@ export class StandardBackend extends VectorBackend {
                     });
                     if (!response.ok) {
                         const errBody = await response.text().catch(() => 'No response body');
-                        errors.push(`model="${model}": ${response.status} ${errBody}`);
+                        errors.push(`source="${source}" model="${model}": ${response.status} ${errBody}`);
                     }
                 } catch (e) {
-                    errors.push(`model="${model}": ${e.message}`);
+                    errors.push(`source="${source}" model="${model}": ${e.message}`);
                 }
             }
-            if (errors.length === discoveredModels.length) {
+            if (errors.length === targets.length) {
                 // All purge attempts failed — surface the error
                 throw new Error(`Failed to purge collection via plugin: ${errors.join('; ')}`);
             }

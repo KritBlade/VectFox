@@ -28,9 +28,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- mock every DIRECT dependency of core/eventbase-retrieval.js ---
 const queryCollectionMock = vi.fn();
+const getQueryVectorMock = vi.fn();
 vi.mock('../core/core-vector-api.js', () => ({
     queryCollection: (...a) => queryCollectionMock(...a),
+    getQueryVector: (...a) => getQueryVectorMock(...a),
 }));
+
+/** A distinct fake embedding per query text, so tests can tell which vector went where. */
+const vectorFor = (text) => [text.length, 0.5];
 
 // Native-rerank path only (Qdrant + opt-in), not exercised here — stub to null.
 vi.mock('../backends/backend-manager.js', () => ({
@@ -92,6 +97,8 @@ function makeEvent(i, overrides = {}) {
 
 beforeEach(() => {
     queryCollectionMock.mockReset();
+    getQueryVectorMock.mockReset();
+    getQueryVectorMock.mockImplementation(async (_backend, text) => vectorFor(text));
     checkPluginAvailableMock.mockReset();
     checkPluginAvailableMock.mockResolvedValue(true);
 });
@@ -151,6 +158,44 @@ describe('retrieveEvents', () => {
         expect(queryCollectionMock).toHaveBeenCalled();
         expect(events.length).toBeGreaterThan(0);
         expect(debug.rawCount).toBeGreaterThan(0);
+    });
+
+    it('embeds each query text once and passes that vector to every collection\'s query', async () => {
+        queryCollectionMock.mockResolvedValue({ hashes: [], metadata: [] });
+
+        await retrieveEvents({
+            searchText: 'story recap',
+            keywordQuery: 'story',
+            chatLength: 100,
+            settings: baseSettings,
+            liveCollectionIds: ['standard:vf_eventbase_a', 'standard:vf_eventbase_b'],
+            additionalCandidates: [],
+            skipLiveQuery: false,
+        });
+
+        // Two query texts × two collections = four queries, but only two embeddings.
+        expect(getQueryVectorMock).toHaveBeenCalledTimes(2);
+        expect(queryCollectionMock).toHaveBeenCalledTimes(4);
+        for (const [, queryText, , , , queryVector] of queryCollectionMock.mock.calls) {
+            expect(queryVector).toEqual(vectorFor(queryText));
+        }
+    });
+
+    it('fails only the live query, not the whole retrieval, when the query embedding fails', async () => {
+        getQueryVectorMock.mockRejectedValue(new Error("Query embedding via 'openrouter' failed: 500"));
+
+        const { debug } = await retrieveEvents({
+            searchText: 'story recap',
+            keywordQuery: 'story',
+            chatLength: 100,
+            settings: baseSettings,
+            liveCollectionIds: ['standard:vf_eventbase_a'],
+            additionalCandidates: [makeEvent(10)],
+            skipLiveQuery: false,
+        });
+
+        expect(queryCollectionMock).not.toHaveBeenCalled(); // no route can run without the vector
+        expect(debug.archiveCandidates).toBe(1);
     });
 
     it('skips the live query and folds in archive candidates without calling the backend', async () => {

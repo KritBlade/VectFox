@@ -299,15 +299,15 @@ export async function deleteCollection(collectionId, settings, registryKey = nul
 
     log.verbose(`VectFox: Deleting collection ${collectionId} (registry key: ${registryKey || collectionId})`);
 
-    // Step 1: Delete vectors from backend (most important - actual data)
-    try {
-        await purgeVectorIndex(collectionId, settings);
+    // Step 1: Delete vectors from backend (most important - actual data).
+    // purgeVectorIndex logs its own error and returns false instead of throwing.
+    // Registry/metadata cleanup continues either way.
+    if (await purgeVectorIndex(collectionId, settings)) {
         vectorsDeleted = true;
         log.verbose(`VectFox: ✓ Deleted vectors for ${collectionId}`);
-    } catch (error) {
-        errors.push(`Vectors: ${error.message}`);
-        log.warn(`VectFox: ✗ Failed to delete vectors for ${collectionId}:`, error.message);
-        // Continue anyway - registry/metadata cleanup is still valuable
+    } else {
+        errors.push('Vectors: purge failed (see console)');
+        log.warn(`VectFox: ✗ Failed to delete vectors for ${collectionId}`);
     }
 
     // Step 2: Unregister from registry (try both formats)
@@ -327,8 +327,12 @@ export async function deleteCollection(collectionId, settings, registryKey = nul
         log.warn(`VectFox: ✗ Failed to unregister ${collectionId}:`, error.message);
     }
 
-    // Step 3: Delete metadata
+    // Step 3: Delete metadata — stored under the registry-key form, with bare-ID
+    // entries possible from older versions (same two forms as Step 2).
     try {
+        if (registryKey && registryKey !== collectionId) {
+            deleteCollectionMeta(registryKey);
+        }
         deleteCollectionMeta(collectionId);
         metadataDeleted = true;
         log.verbose(`VectFox: ✓ Deleted metadata for ${collectionId}`);
@@ -347,8 +351,9 @@ export async function deleteCollection(collectionId, settings, registryKey = nul
             // next re-vectorize fast-forward past every window (tip says "already at
             // message N") and extract 0 events.
             if (chatUUID) clearExtractionCachesForChat(chatUUID);
-        } catch {
-            // Best-effort — don't fail the whole delete if this breaks.
+        } catch (error) {
+            // Don't fail the whole delete over a cache clear.
+            log.warn(`VectFox: Failed to clear EventBase extraction caches for ${collectionId}:`, error);
         }
     }
 
@@ -720,12 +725,21 @@ async function discoverViaPlugin(settings) {
                 const existing = pluginCollectionData[cacheKey];
                 const incomingCount = collectionData.chunkCount || 0;
                 const existingCount = existing?.chunkCount || 0;
+                // `sources` lists EVERY source folder holding this ID, winner or not —
+                // deleteCollection must purge all of them, or the leftover folder
+                // brings the collection back on the next scan.
+                collectionData.sources = [
+                    ...(existing?.sources || []),
+                    { source: collection.source, models: collectionData.models },
+                ];
                 if (!existing || incomingCount > existingCount) {
                     if (existing && existingCount !== incomingCount) {
                         log.trace(`   🔀 Collision on ${cacheKey}: keeping ${incomingCount} chunks (source=${collectionData.source}) over ${existingCount} (source=${existing.source})`);
                     }
                     pluginCollectionData[cacheKey] = collectionData;
                     uniqueKeys.push(cacheKey);
+                } else {
+                    existing.sources = collectionData.sources;
                 }
 
                 // Also cache by sanitized version (for backend lookups) — same dedup rule
@@ -1089,12 +1103,14 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
             let chunkCount = 0;
             let source = parsed.source || 'unknown';
             let backend = parsed.backend || 'standard';
+            let sources = [];
 
             if (pluginCollectionData && pluginCollectionData[registryKey]) {
                 const cacheData = pluginCollectionData[registryKey];
                 chunkCount = cacheData.chunkCount || 0;
                 source = cacheData.source || source;
                 backend = cacheData.backend || backend;
+                sources = cacheData.sources || [];
             }
 
             matchingCollections.push({
@@ -1102,7 +1118,8 @@ export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID
                 registryKey,
                 chunkCount,
                 source,
-                backend
+                backend,
+                sources
             });
             log.verbose(`VectFox: Found matching collection ${collectionId} (${chunkCount} chunks, backend: ${backend})`);
         }
@@ -1199,6 +1216,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
             let backend = registryBackend || 'standard';
             let model = '';
             let models = [];
+            let sources = [];
 
             // If plugin is available, use chunk count, source, and backend from plugin cache
             // Cache key is "backend:collectionId" (same as registryKey for plugin-managed collections)
@@ -1209,6 +1227,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
                 source = cacheData.source;
                 backend = cacheData.backend;
                 models = cacheData.models || [];
+                sources = cacheData.sources || [];
 
                 // Check if user has a preferred model saved
                 const collectionMeta = getCollectionMeta(registryKey);
@@ -1279,7 +1298,8 @@ export async function loadAllCollections(settings, autoDiscover = true) {
                 source: source,
                 backend: backend,
                 model: model,               // Primary model path for vectra lookups
-                models: models              // All available models [{name, path, chunkCount}]
+                models: models,             // All available models [{name, path, chunkCount}]
+                sources: sources            // Every on-disk source folder [{source, models}] — delete purges all
             });
             log.trace(`VectFox:   ✓ Added to collections list`);
         } catch (error) {

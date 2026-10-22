@@ -830,8 +830,9 @@ export function findEventBaseCollectionsForChat(uuid, preferredBackend) {
  * @param {object} settings - extension_settings.vectfox
  * @param {string} [chatUUID] - defaults to the current chat's UUID
  * @param {{ requireUuidMatch?: boolean, shouldLogResolution?: boolean }} [options]
- *   `requireUuidMatch` — reject collections whose embedded chat UUID differs
- *   from this chat, so a foreign lock can never become a write target.
+ *   `requireUuidMatch` — write mode: reject collections whose embedded chat UUID
+ *   differs from this chat (a foreign lock can never become a write target) or
+ *   that are registered on a backend other than `vector_backend`.
  *   `shouldLogResolution` — false skips the `[EventBase][resolve]` lifecycle
  *   diagnostics, for passive UI refreshes while VectFox is disabled.
  * @returns {{ collectionId: string, registryKey: string } | null}
@@ -852,16 +853,23 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
     const patterns = buildChatSearchPatterns(null, uuid);
     const hasUuidMatch = (entry) =>
         matchesPatterns(entry.collectionId, patterns) || matchesPatterns(entry.registryKey, patterns);
+    const wantBackend = getRegistryBackend(settings?.vector_backend);
     const isEbMatch = (entry) => {
         const { collectionId } = entry;
         const idLower = String(collectionId || '').toLowerCase();
         if (!idLower.startsWith('vf_eventbase_') && !idLower.includes('eventbase_')) return false;
         // Write mode: the UUID match is mandatory, so a lock can widen ownership
         // but never redirect ingestion into another conversation's collection.
+        // The collection must also live on the current backend: every write caller
+        // sends the bare ID to the current backend, so a collection registered on
+        // another backend would be re-created there under that backend's name
+        // (a Qdrant collection called vf_eventbase_standard_…).
         // Returning null here is the correct outcome on a chat's first ingestion —
         // runEventBaseIngestion then falls through to buildEventBaseCollectionId
         // and creates this chat's own collection.
-        if (requireUuidMatch) return hasUuidMatch(entry) && (isLocked(entry) || entry.isOwn);
+        if (requireUuidMatch) {
+            return entry.backend === wantBackend && hasUuidMatch(entry) && (isLocked(entry) || entry.isOwn);
+        }
         // An explicit per-chat lock is a deliberate user override: the collection
         // is eligible regardless of ownership AND regardless of whether its
         // embedded UUID still matches this chat. The UUID can drift from the lock
@@ -905,7 +913,6 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
     // a foreign one locked in for cross-chat retrieval — without it both score 0
     // and the winner is decided by registry insertion order, which silently flips
     // if a collection is ever deleted and re-registered.
-    const wantBackend = getRegistryBackend(settings?.vector_backend);
     const rank = (m) => (isLocked(m) ? 0 : 10)
         + (hasUuidMatch(m) ? 0 : 4)
         + (m.backend === wantBackend ? 0 : 1);
@@ -917,17 +924,23 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
 /**
  * Resolve the EventBase collection that ingestion may WRITE to for this chat.
  *
- * Same resolution as {@link resolveActiveEventBaseCollection} except a foreign
- * lock is not enough: the collection's embedded chat UUID must match. A lock is
- * a read-side sharing mechanism (lock an older chat's EventBase into this chat
- * so its events are retrieved here). Honoring it on the write side put this
- * chat's events into that older collection, where the two chats' independent
- * `source_window_end` values collide inside one sort frame — the injected
- * timeline then interleaves both conversations, and Resume reads the foreign
- * collection's tip and skips every window ("0 events extracted").
+ * Same resolution as {@link resolveActiveEventBaseCollection} with two extra
+ * requirements:
+ *   - The collection's embedded chat UUID must match; a foreign lock is not
+ *     enough. A lock is a read-side sharing mechanism (lock an older chat's
+ *     EventBase into this chat so its events are retrieved here). Honoring it on
+ *     the write side put this chat's events into that older collection, where the
+ *     two chats' independent `source_window_end` values collide inside one sort
+ *     frame — the injected timeline then interleaves both conversations, and
+ *     Resume reads the foreign collection's tip and skips every window
+ *     ("0 events extracted").
+ *   - The collection must be registered on the current `vector_backend`. Write
+ *     callers send the bare ID to the current backend, so a collection from the
+ *     other backend would be re-created there under the wrong backend's name.
  *
- * Returns null when this chat has no collection of its own yet; the caller is
- * expected to fall back to `buildEventBaseCollectionId` and create one.
+ * Returns null when this chat has no collection of its own on the current
+ * backend yet; the caller is expected to fall back to `buildEventBaseCollectionId`
+ * and create one.
  *
  * @param {object} settings - extension_settings.vectfox
  * @param {string} [chatUUID] - defaults to the current chat's UUID

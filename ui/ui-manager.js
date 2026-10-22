@@ -352,7 +352,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                             <input type="number" id="VectFox_rate_limit_interval" class="vectfox-input" min="1" placeholder="60" />
                                         </div>
                                     </div>
-                                    <small class="VectFox_hint">Limit embedding API requests per time interval</small>
+                                    <small class="VectFox_hint">Limit embedding API requests per time interval. Local Transformers, Ollama and llama.cpp are not limited.</small>
                                 </div>
 
                                 <!-- Summarizer / Agent Mode Rate Limiting -->
@@ -725,7 +725,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <small>Insert Batch Size: <span id="VectFox_insert_batch_size_value">50</span></small>
                             </label>
                             <input type="range" id="VectFox_insert_batch_size" class="vectfox-slider" min="10" max="100" step="10" />
-                            <small class="VectFox_hint">Chunks per insert batch (50-100 recommended for faster bulk operations)</small>
+                            <small class="VectFox_hint">Chunks per insert batch (50-100 recommended for faster bulk operations). Local Transformers, Ollama and llama.cpp always send one chunk per request.</small>
 
                             <label class="checkbox_label" for="VectFox_document_glossary_injection" style="margin-top:12px;">
                                 <input type="checkbox" id="VectFox_document_glossary_injection" />
@@ -2256,7 +2256,7 @@ function toggleProviderSettings(selectedProvider, settings) {
 /**
  * Shows a confirmation modal when enabling auto-sync on a chat with existing vectors
  * If multiple collections match, lets user pick which one to use
- * @param {Array} allMatches - Array of matching collections [{collectionId, registryKey, chunkCount, source, backend}]
+ * @param {Array} allMatches - Array of matching collections [{collectionId, registryKey, chunkCount, source, backend, sources}]
  * @param {object} settings - VectFox settings for purge operations
  * @returns {Promise<{action: string, selectedCollection?: object}>} User's choice
  */
@@ -2371,10 +2371,13 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
             if (!confirm(`Delete ghost collection?\n\n${ghost.collectionId}\n\nThis will remove it from disk.`)) return;
 
             try {
-                // Use unified delete function - handles vectors, registry, AND metadata
+                // Use unified delete function - handles vectors, registry, AND metadata.
+                // Route to the ghost's own backend and on-disk source folders, not
+                // the current backend/provider settings.
                 const deleteSettings = {
                     ...settings,
-                    source: ghost.source || settings.embedding_provider,
+                    vector_backend: ghost.backend,
+                    _discoveredSources: ghost.sources,
                 };
                 const result = await deleteCollection(ghost.collectionId, deleteSettings, ghost.registryKey);
 

@@ -130,37 +130,28 @@ After the Phase 2 GUI reorg, settings are grouped by which path consumes them:
 
 | Setting                                                                                  | UI tab                      | EventBase relevant? | What it actually does                                                                                |
 | ---------------------------------------------------------------------------------------- | --------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Insert Batch Size** (default 50)                                                       | ChunkBase → Ingestion       | **No**              | Controls chunks-per-API-call during chunk vectorization. EventBase inserts tiny batches (2–10 events per window) so this has no meaningful effect on EventBase. |
+| **Insert Batch Size** (default 50)                                                       | ChunkBase → Ingestion       | **No**              | Max chunks per insert request for API embedding sources (see §6); local Transformers / Ollama / llama.cpp always send 1 chunk per request. Also the client-side embedding batch size for WebLLM / KoboldCpp. EventBase inserts tiny batches (2–10 events per window) so this has no meaningful effect on EventBase. |
 | **Dedup Depth** (default 50 messages)                                                    | Core                        | **Yes**             | Used in`eventbase-retrieval.js` as `settings.deduplication_depth`. Filters out retrieved events whose source window falls within the last N messages of the current chat — avoids injecting content already visible in context. 0 = disabled. Also used by chunk-path retrieval in `chat-vectorization.js`. |
 | **Hybrid Search & BM25 block** (Keyword Scoring Method, BM25 k1/b, Fusion Method, RRF K) | Core → Hybrid Search & BM25 | **A1/A2 only**      | These are Vectra (Standard backend) controls. On Qdrant, hybrid is always A3 server-side native — k1/b/RRF K are managed by Qdrant's`modifier: idf` and the `fusion: rrf` API, and these UI knobs have no effect. EventBase callers inject `ebSettings` with `keyword_scoring_method` overridden from `eventbase_keyword_scoring_method` (internal, defaults `'bm25'`, not in UI). See §13 for the full matrix. |
 | **Query Keyword Budget** (`hybrid_keyword_level`)                                        | ChunkBase → Keyword Budget  | **No**              | Read only by`scoreResults()` (A1) and `hybridSearch()` (A2). A3 doesn't use it — the sparse-vector encoder tokenizes the full query and Qdrant handles IDF weighting. EventBase has its own importance/persist/recency re-ranker that dominates the final order anyway. |
 
 ---
 
-## 6) Similharity Plugin Speedup (Simultaneous Embedding Requests)
+## 6) Similharity Plugin — How One Insert Request Is Embedded
 
-Plugin file changed: `../similharity/index.js`
+Plugin: `../similharity/index.js`, `getVectorsForSource(...)`. One insert request carries N texts; the embedding source decides how they are embedded (T = one embedding call):
 
-What we changed:
+| Source | How the N texts are embedded | Time for one request |
+| --- | --- | --- |
+| `openai`, `openrouter`, `togetherai`, `mistral`, `electronhub` | one batched `/embeddings` call per 100 texts (`getOpenAIBatchVector`) | about T |
+| `nomicai`, `cohere` | N single-text calls in parallel (`Promise.all`) | about T, but N calls against the provider's limits |
+| every other source, including `vllm` and the local `transformers` / `ollama` / `llamacpp` | one after another | about N × T |
 
-- In `getVectorsForSource(...)`, API/network providers now run embedding calls in parallel using `Promise.all(...)`.
-- Parallel provider set:
-    - `vllm`
-    - `openrouter`
-- Local GPU providers remain sequential to avoid contention/queueing/OOM behavior:
-    - `transformers`
-    - `ollama`
-    - `llamacpp`
-    - `koboldcpp`
+VectFox side (`insertVectorItems` in `core/core-vector-api.js`):
 
-Why this speeds up:
-
-- Before: one request embedding N items sequentially, total about N x T.
-- After (API providers): N requests fired concurrently inside one batch, total about T (subject to upstream limits).
-
-Related client-side behavior (vectfox):
-
-- In `core/core-vector-api.js`, local GPU sources default to small batch behavior unless user explicitly overrides `insert_batch_size`.
+- Local GPU sources (`transformers`, `ollama`, `llamacpp`) always send 1 item per insert request, so the 120s request timeout bounds one embedding and an item that fails to embed fails only its own request. `insert_batch_size` and the embedding API rate limit (`rate_limit_calls` / `rate_limit_interval`) do not apply to them.
+- API sources send up to `insert_batch_size` items per request while `vector_group_embedding_call` is on (default) or a rate limit is set; otherwise each item is its own request, fired in parallel waves (parallel-split).
+- A grouped `vllm` request therefore costs about N × T inside one request.
 
 ---
 
@@ -286,7 +277,7 @@ Gated to skip `localGpuSources` (Ollama / transformers / llama.cpp / KoboldCpp) 
 | Manual **Vectorize Content** (chat → EventBase) | ✅ | `ui/content-vectorizer.js` → `runEventBaseIngestion` → `insertEvents` → `insertVectorItems` |
 | Manual **Vectorize Content** (chunks: lorebook / docs / URLs / wiki) | ✅ | `content-vectorization.js` → `insertVectorItems` |
 | **Auto-Sync** | ✅ | `synchronizeChat` → `runEventBaseIngestion({ isAutoSync: true })` → `insertEvents` → `insertVectorItems` |
-| **Retrieval / per-turn search** | ❌ | `queryCollection` → `getAdditionalArgs` (query-embed) + `backend.queryCollection`. No hedge wrapper anywhere on this path. |
+| **Retrieval / per-turn search** | ❌ | `queryCollection` → `getQueryVector` (embeds the query once, one retry on failure) → every route and fallback reuses that vector. No hedge wrapper anywhere on this path. |
 | **Agent Mode** | ❌ | `agentic-retrieval.js` only calls `queryCollection` / `retrieveEvents` — it never inserts, so it never reaches the hedge. |
 
 Note that **auto-sync is not a separate path** — it's the same `runEventBaseIngestion → insertVectorItems` chain as the manual button, just invoked with `isAutoSync: true`. It was originally built to rescue the manual Vectorize Content run, but auto-sync gets the same protection automatically, which is desirable: a stalled embedding write hurts equally whether the user clicked the button or an ST message event triggered it.
@@ -300,7 +291,7 @@ Note that **auto-sync is not a separate path** — it's the same `runEventBaseIn
 
 **Read-path timeout (shipped 2026-05-31).** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. `rearrangeChat()` (the generation interceptor in [`core/chat-vectorization.js`](core/chat-vectorization.js), wired to ST via `window.vectfox_rearrangeChat`) wraps BOTH per-turn retrieval calls — `runEventBaseRetrieval` (EventBase / chat memory) and `queryAndMergeCollections` → `queryActiveCollections` (chunk / lorebook / docs) — in `AsyncUtils.timeout(promise, RETRIEVAL_TIMEOUT_MS, …)`. `RETRIEVAL_TIMEOUT_MS = 15000` ([core/constants.js](core/constants.js)) matches the write-side hedge threshold for one consistent "too slow" number.
 
-It's a **soft** timeout (Promise.race): on expiry the turn proceeds and the message sends WITHOUT that memory source — both call sites wrap the await in try/catch (EventBase logs and continues; the chunk path sets `chunks = []` so downstream injects nothing). The orphaned `fetch` keeps running until ST's server-side timeout reaps it — there is no client `AbortSignal` on the read fetches (see the timeout table above), so this is a "stop waiting", not a "cancel the request". No retry: a stalled retrieval fails soft (one turn without memory, self-corrects next message), so a single bounded attempt is the right tradeoff.
+It's a **soft** timeout (Promise.race): on expiry the turn proceeds and the message sends WITHOUT that memory source — both call sites wrap the await in try/catch (EventBase logs and continues; the chunk path sets `chunks = []` so downstream injects nothing). The orphaned `fetch` keeps running until ST's server-side timeout reaps it — there is no client `AbortSignal` on the read fetches (see the timeout table above), so this is a "stop waiting", not a "cancel the request". A stall is not retried: a stalled retrieval fails soft (one turn without memory, self-corrects next message), so a single bounded attempt is the right tradeoff. A query embedding that FAILS (e.g. a provider 429 "The engine is currently overloaded") is different — it fails fast, so `getQueryVector` ([core/core-vector-api.js](core/core-vector-api.js)) retries it once, then fails the query. That is the only retry on the read path: the query is embedded once and every route and fallback reuses the vector, so a fallback never re-embeds (each fallback used to, which stacked up to four embedding calls per failed query).
 
 Agent Mode is covered by the same `rearrangeChat` outer bound (its fan-out `queryCollection` calls run inside that hook), and additionally bounds its planner LLM call separately via `AbortSignal.timeout(agentic_retrieval_timeout_ms)` ([agentic-retrieval.js](core/agentic-retrieval.js)) — that one IS a hard cancel because it's a fresh fetch the agent code owns directly.
 

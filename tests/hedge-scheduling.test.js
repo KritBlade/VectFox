@@ -30,8 +30,9 @@ vi.mock('../backends/backend-manager.js', () => ({
     getBackend: vi.fn(), getBackendForCollection: vi.fn(), invalidateBackendHealth: vi.fn(),
     recordQuery: vi.fn(), recordInsert: vi.fn(), recordDelete: vi.fn(), recordError: vi.fn(),
 }));
+const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
 vi.mock('../core/log.js', () => ({
-    log: new Proxy({}, { get: () => () => {} }),
+    log: new Proxy({}, { get: (_target, level) => (level === 'warn' ? warnSpy : () => {}) }),
 }));
 
 const { callWithHedge } = await import('../core/core-vector-api.js');
@@ -160,6 +161,36 @@ describe('callWithHedge — a failure short-circuits the clock', () => {
         expect(calls.length).toBeGreaterThanOrEqual(3);
         calls[2].resolveIt('late win');
         await expect(race).resolves.toBe('late win');
+    });
+});
+
+describe('callWithHedge — the WON warning says why a hedge was needed', () => {
+    beforeEach(() => warnSpy.mockClear());
+
+    it('names the failed attempt and its error, so a bare HTTP 500 is not the only clue', async () => {
+        const { fn, calls } = deferredQueue();
+        const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
+
+        calls[0].rejectIt(new Error('[Qdrant] Failed to insert 14 vectors: 500 Internal Server Error - {"error":"API request failed"}'));
+        await vi.advanceTimersByTimeAsync(0);
+        calls[1].resolveIt('stored');
+        await race;
+
+        expect(warnSpy).toHaveBeenCalledTimes(1); // debugOn is off: the WON line is the only warning
+        expect(warnSpy.mock.calls[0][0]).toMatch(
+            /hedge 1\/3 WON .*\(primary FAILED after [\d.]+s — Error: \[Qdrant\] Failed to insert 14 vectors: 500 Internal Server Error/,
+        );
+    });
+
+    it('says the previous attempt was still running when the hedge fired on the clock', async () => {
+        const { fn, calls } = deferredQueue();
+        const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
+
+        await vi.advanceTimersByTimeAsync(THRESHOLD);
+        calls[1].resolveIt('stored by hedge');
+        await race;
+
+        expect(warnSpy.mock.calls[0][0]).toMatch(/hedge 1\/3 WON .*\(previous attempt still running at t=15s\)/);
     });
 });
 
