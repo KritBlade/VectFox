@@ -13,7 +13,7 @@
  * ============================================================================
  */
 
-import { queryCollection } from './core-vector-api.js';
+import { queryCollection, getQueryVector } from './core-vector-api.js';
 import { getBackendForCollection, getBackend } from '../backends/backend-manager.js';
 import { parseRegistryKey } from './collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
@@ -131,11 +131,13 @@ function _jsFinalScore(meta, weights, chatLength, anchorText, anchorAmount) {
  * Run a single live (collection, queryText) lookup. Branches between the native
  * rerank path and the existing queryCollection path. In compare mode, fires the
  * JS path in parallel for observability — its results never escape this helper.
+ * Every path, including each fallback, reuses `queryVector` — the query text's
+ * embedding, computed once by retrieveEvents — so nothing here re-embeds the text.
  *
  * @returns {Promise<Array<object>>} candidate metadata array (each tagged with _hash)
  */
 async function _runOneLiveQuery({
-    colId, queryText, topK, ebSettings, settings,
+    colId, queryText, queryVector, topK, ebSettings, settings,
     useNativeRerank, rerankParams, compareMode, comparisonLog,
     chatLength, anchorText, anchorBoostAmount, rerankWeights,
 }) {
@@ -158,7 +160,7 @@ async function _runOneLiveQuery({
                 let jsCompletedAt = null;
                 const jsQueryPromise = compareMode
                     ? Promise.race([
-                        queryCollection(colId, queryText, topK, ebSettings),
+                        queryCollection(colId, queryText, topK, ebSettings, {}, queryVector),
                         new Promise((_, reject) =>
                             setTimeout(() => reject(new Error(`JS compare timed out after ${JS_COMPARE_TIMEOUT_MS}ms`)), JS_COMPARE_TIMEOUT_MS)
                         ),
@@ -166,7 +168,7 @@ async function _runOneLiveQuery({
                     : null;
 
                 const { hashes, metadata } = await backend.hybridQueryWithRerank(
-                    colId, queryText, topK, ebSettings, rerankParams
+                    colId, queryText, topK, ebSettings, rerankParams, {}, {}, queryVector
                 );
                 const nativeMs = (performance.now() - tStart).toFixed(1);
                 const nativeResults = (hashes || []).map((h, i) => ({
@@ -215,7 +217,7 @@ async function _runOneLiveQuery({
     }
 
     // Legacy path: queryCollection (vector-only or hybrid, depending on settings).
-    const { hashes, metadata } = await queryCollection(colId, queryText, topK, ebSettings);
+    const { hashes, metadata } = await queryCollection(colId, queryText, topK, ebSettings, {}, queryVector);
     if (!hashes?.length) return [];
     return metadata.map((m, i) => {
         const base = { ...m, _hash: hashes[i] };
@@ -451,25 +453,34 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     if (skipLiveQuery || !liveCollectionIds?.length) {
         log.verbose('[EventBase] Live query skipped (no locked collection or paused)');
     } else {
+        // Embed each query text ONCE for every collection and every fallback inside
+        // _runOneLiveQuery (see getQueryVector). If a text's embedding fails twice,
+        // each of its queries fails into the per-query catch below.
+        const queryVectorByText = new Map(queryTexts.map(text => [
+            text,
+            getBackend(settings).then(backend => getQueryVector(backend, text, ebSettings)),
+        ]));
         const promises = [];
         for (const colId of liveCollectionIds) {
             for (const queryText of queryTexts) {
                 promises.push(
-                    _runOneLiveQuery({
-                        colId,
-                        queryText,
-                        topK,
-                        ebSettings,
-                        settings,
-                        useNativeRerank,
-                        rerankParams,
-                        compareMode,
-                        comparisonLog,
-                        chatLength,
-                        anchorText: (keywordQuery || '').toLowerCase(),
-                        anchorBoostAmount: _resolveAnchorBoostAmount(settings),
-                        rerankWeights,
-                    })
+                    queryVectorByText.get(queryText)
+                        .then(queryVector => _runOneLiveQuery({
+                            colId,
+                            queryText,
+                            queryVector,
+                            topK,
+                            ebSettings,
+                            settings,
+                            useNativeRerank,
+                            rerankParams,
+                            compareMode,
+                            comparisonLog,
+                            chatLength,
+                            anchorText: (keywordQuery || '').toLowerCase(),
+                            anchorBoostAmount: _resolveAnchorBoostAmount(settings),
+                            rerankWeights,
+                        }))
                         .then(evts => _tagFrame(evts, colId))
                         .catch(err => {
                             log.error(`[EventBase] Live query failed (${colId}):`, err);

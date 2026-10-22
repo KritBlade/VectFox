@@ -1051,16 +1051,47 @@ export async function deleteVectorItems(collectionId, hashes, settings) {
 }
 
 /**
+ * Embeds a query text ONCE, so every route and fallback of the query reuses the
+ * vector. Each fallback used to re-send the text and re-embed it server-side, so a
+ * provider outage cost up to four embedding calls per query before it gave up —
+ * retries by accident, stacked on one another.
+ *
+ * Retries once on failure: a provider 429 ("The engine is currently overloaded")
+ * usually clears on the next call. A second failure throws, because every route
+ * needs the vector and no fallback could succeed without it. An invalid-model
+ * error is not retried: it fails the same way every time and must reach the
+ * sticky model-config popup.
+ *
+ * @param {object} backend - VectorBackend instance (see embedQuery)
+ * @param {string} searchText - Text to embed
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<number[]|null>} The vector, or null when the backend can only
+ *   embed per request (Standard without the Similharity plugin)
+ */
+export async function getQueryVector(backend, searchText, settings) {
+    try {
+        return await backend.embedQuery(searchText, settings);
+    } catch (error) {
+        if (error?.code === 'invalid_model_config') throw error;
+        log.warn(`VectFox: query embedding failed, retrying once — ${error?.message || error}`);
+        return await backend.embedQuery(searchText, settings);
+    }
+}
+
+/**
  * Queries a single collection for similar vectors
  * Applies keyword boost system: overfetch → boost → trim
- * For client-side embedding sources (webllm, koboldcpp), generates query embedding first.
+ * Embeds the query once (getQueryVector) unless the caller passes the vector.
  * @param {string} collectionId - The collection to query
  * @param {string} searchText - The text to query
  * @param {number} topK - The number of results to return
  * @param {object} settings VectFox settings object
+ * @param {object} [filters] - Payload filters (concepts_any also extends the keyword query)
+ * @param {number[]|null} [queryVector] - The query's embedding when the caller already has
+ *   it (e.g. one vector shared by several collections); otherwise embedded here
  * @returns {Promise<{ hashes: number[], metadata: object[]}>} - Hashes and metadata of the results
  */
-export async function queryCollection(collectionId, searchText, topK, settings, filters = {}) {
+export async function queryCollection(collectionId, searchText, topK, settings, filters = {}, queryVector = null) {
     // Canonical routing (Doc/collection_helper.md): resolveBackendForCollection accepts either form
     //   (registry-key "backend:id" or bare ID) and returns the backend label
     //   plus the BARE collectionId for downstream calls. Falls back to
@@ -1074,10 +1105,9 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
 
     // Sources that require client-side embedding generation
     const clientSideEmbeddingSources = ['webllm', 'koboldcpp'];
-    let queryVector = null;
 
     // If source requires client-side embeddings, generate query vector
-    if (clientSideEmbeddingSources.includes(settings.embedding_provider)) {
+    if (!queryVector && clientSideEmbeddingSources.includes(settings.embedding_provider)) {
         const queryItem = [searchText];
         try {
             const additionalArgs = await getAdditionalArgs(queryItem, settings);
@@ -1096,13 +1126,29 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     }
 
     // Append concepts_any terms to the query text so BM25 naturally boosts events containing
-    // those theme words — without hard-filtering anything out. Dense vector stays clean for
-    // client-side embedding paths because queryVector is already captured above.
+    // those theme words — without hard-filtering anything out. The dense vector stays clean
+    // when queryVector is already set (client-side source above, or the caller's vector);
+    // otherwise the embed below sees effectiveQuery, as the per-request embed used to.
     let effectiveQuery = searchText;
     if (Array.isArray(filters.concepts_any) && filters.concepts_any.length > 0) {
         effectiveQuery = `${searchText} ${filters.concepts_any.join(' ')}`;
         if (log.enabled('lifecycle')) {
             log.verbose(`[VectFox] concepts_any appended to query text: [${filters.concepts_any.join(', ')}]`);
+        }
+    }
+
+    // Backend name for metrics — resolved backend wins, fall back to settings.
+    const actualBackendName = resolved.backend || settings?.vector_backend || 'standard';
+
+    // Embed the query ONCE (getQueryVector). Every path below — native hybrid, its
+    // client-side fallback, and the plain vector query — reuses this vector instead
+    // of re-embedding the text.
+    if (!queryVector) {
+        try {
+            queryVector = await getQueryVector(backend, effectiveQuery, settings);
+        } catch (error) {
+            recordError(actualBackendName, error);
+            throw error;
         }
     }
 
@@ -1125,7 +1171,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
         try {
             const result = await hybridSearch(bareCollectionId, effectiveQuery, topK, settings, { queryVector, filters });
             const queryLatency = Date.now() - queryStart;
-            recordQuery(resolved.backend || settings?.vector_backend || 'standard', queryLatency);
+            recordQuery(actualBackendName, queryLatency);
             if (log.enabled('lifecycle')) {
                 const scores = (result.metadata || []).map(m => (m.score ?? 0).toFixed(4));
                 const fusionMethod = (settings.hybrid_fusion_method || 'rrf').toUpperCase();
@@ -1133,7 +1179,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
             }
             return result;
         } catch (error) {
-            recordError(resolved.backend || settings?.vector_backend || 'standard', error);
+            recordError(actualBackendName, error);
             throw error;
         }
     }
@@ -1147,8 +1193,6 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     // VEC-18: Track query latency for health dashboard
     const queryStart = Date.now();
     let rawResults;
-    // Backend name for metrics — resolved backend wins, fall back to settings.
-    const actualBackendName = resolved.backend || settings?.vector_backend || 'standard';
     try {
         rawResults = await backend.queryCollection(bareCollectionId, effectiveQuery, overfetchAmount, settings, queryVector);
         const queryLatency = Date.now() - queryStart;

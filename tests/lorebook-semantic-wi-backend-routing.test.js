@@ -202,15 +202,18 @@ function baseSettings(overrides = {}) {
 let fetchLog = [];
 /** Per-test override: (parsedBody) => canned plugin response object. */
 let hybridQueryResponder;
-/** Per-test override for the vector-only paths (Vectra, and Qdrant's fallback). */
+/** Per-test override for the Vectra (and ST-native) vector query. */
 let plainQueryResponder;
 /**
- * Per-test override for the dense cosine-gate lookup QdrantBackend.hybridQuery
- * fires alongside every native hybrid query (distinguished from the plain paths
- * by the precomputed queryVector in its body). Result `score`s here are the
- * cosine similarities the WI threshold actually gates on.
+ * Per-test override for Qdrant's /chunks/query, which serves two callers: the
+ * dense cosine-gate lookup QdrantBackend.hybridQuery fires alongside every native
+ * hybrid query, and hybrid-search.js's client-side fallback when the hybrid query
+ * fails. Both carry the query vector embedded once up front. Result `score`s here
+ * are the cosine similarities the WI threshold actually gates on.
  */
 let denseCosineResponder;
+/** Per-test override for /get-embedding — the query's one embedding call (plus one retry). */
+let embeddingResponder;
 
 /** What the /get-embedding fixture returns — both queries must reuse this vector. */
 const QUERY_EMBEDDING_FIXTURE = [0.1, 0.2, 0.3];
@@ -256,14 +259,12 @@ function installFetchRouter() {
 
         // --- retrieval ---------------------------------------------------------
         if (url === '/api/plugins/similharity/get-embedding') {
-            return jsonResponse({ success: true, embedding: QUERY_EMBEDDING_FIXTURE });
+            return embeddingResponder(body);
         }
         if (url === '/api/plugins/similharity/chunks/hybrid-query') {
             return hybridQueryResponder(body);
         }
-        // The cosine-gate lookup always carries the precomputed queryVector; the
-        // plain/fallback paths never do (they send searchText for a server embed).
-        if (url === '/api/plugins/similharity/chunks/query' && body?.queryVector) {
+        if (url === '/api/plugins/similharity/chunks/query' && body?.backend === 'qdrant') {
             return denseCosineResponder(body);
         }
         if (url === '/api/plugins/similharity/chunks/query' || url === '/api/vector/query') {
@@ -281,11 +282,19 @@ function queryCalls() {
         .map(e => e.url);
 }
 
+/** Every retrieval endpoint answers 500; the query embedding itself still succeeds. */
+function failEveryRetrieval() {
+    hybridQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
+    plainQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
+    denseCosineResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
+}
+
 beforeEach(async () => {
     fetchLog = [];
     hybridQueryResponder = () => jsonResponse({ success: true, results: [] });
     plainQueryResponder = () => jsonResponse({ success: true, results: [] });
     denseCosineResponder = () => jsonResponse({ success: true, results: DENSE_COSINE_FIXTURES });
+    embeddingResponder = () => jsonResponse({ success: true, embedding: QUERY_EMBEDDING_FIXTURE });
     installFetchRouter();
 
     global.toastr = { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() };
@@ -351,7 +360,8 @@ describe('Qdrant lorebook routing', () => {
 
     it('falls back to vector-only query when the hybrid endpoint errors', async () => {
         hybridQueryResponder = () => jsonResponse({ error: 'sparse vector not configured' }, { ok: false, status: 500 });
-        plainQueryResponder = () => jsonResponse({ success: true, results: [perEntryChunk()] });
+        // Qdrant's /chunks/query serves the fallback, so it supplies the hit.
+        denseCosineResponder = () => jsonResponse({ success: true, results: [perEntryChunk()] });
 
         const entries = await getSemanticWorldInfoEntries(
             RECENT_MESSAGES, [], baseSettings(), null, [LOREBOOK_COLLECTION],
@@ -512,6 +522,8 @@ describe('Vectra lorebook routing (contrast case)', () => {
         const q = fetchLog.find(e => e.url === '/api/plugins/similharity/chunks/query');
         expect(q.body.backend).toBe('vectra');
         expect(q.body.collectionId).toBe(VECTRA_LOREBOOK_ID);
+        // Embedded once through /get-embedding like the Qdrant path, not server-side.
+        expect(q.body.queryVector).toEqual(QUERY_EMBEDDING_FIXTURE);
         expect(entries).toHaveLength(1);
     });
 });
@@ -754,8 +766,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
 
 describe('Backend failure behavior (issue #11 symptom)', () => {
     it('returns zero entries without throwing when every backend call fails', async () => {
-        hybridQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
-        plainQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
+        failEveryRetrieval();
 
         const entries = await getSemanticWorldInfoEntries(
             RECENT_MESSAGES, [], baseSettings(), null, [LOREBOOK_COLLECTION],
@@ -768,8 +779,7 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
         // Issue #11's core reporting gap: a backend outage used to be byte-identical
         // to "this book had nothing relevant" — no toast, no error, no log at the
         // default level. The failure must now announce itself and name the book.
-        hybridQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
-        plainQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
+        failEveryRetrieval();
 
         await getSemanticWorldInfoEntries(
             RECENT_MESSAGES, [], baseSettings({ world_info_retrieval_popup: true }), null, [LOREBOOK_COLLECTION],
@@ -792,8 +802,7 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
         // deliberately NOT behind world_info_retrieval_popup, which opts into the
         // success notice only.
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-        hybridQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
-        plainQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
+        failEveryRetrieval();
 
         const settings = baseSettings();          // debug_verbosity unset, popup unset
         expect(settings.world_info_retrieval_popup).toBeUndefined();
@@ -831,8 +840,7 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
         // hybrid) is a deliberate part of the happy path, NOT a retry — so the
         // failure sequence is: cosine lookup + hybrid + ONE fallback. Single query
         // text (no keywordQuery) keeps the arithmetic unambiguous.
-        hybridQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
-        plainQueryResponder = () => jsonResponse({ error: 'boom' }, { ok: false, status: 500 });
+        failEveryRetrieval();
 
         await getSemanticWorldInfoEntries(
             ['a single line of context'], [], baseSettings(), null, [LOREBOOK_COLLECTION],
@@ -844,11 +852,58 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
             '/api/plugins/similharity/chunks/hybrid-query', // native hybrid — fails
             '/api/plugins/similharity/chunks/query',        // hybrid-search.js client-side fallback
         ]);
-        // The cosine lookup carries the precomputed vector; the fallback re-sends
-        // text for a server-side embed. One vector-less retrieval total = the old
-        // internal retry has not crept back.
-        expect(retrievals[0].body.queryVector).toBeTruthy();
-        expect(retrievals[2].body.queryVector).toBeFalsy();
+        // The fallback reuses the query's one vector instead of re-sending text for
+        // a second, server-side embed: a fallback must never cost an embedding call.
+        expect(retrievals[0].body.queryVector).toEqual(QUERY_EMBEDDING_FIXTURE);
+        expect(retrievals[2].body.queryVector).toEqual(QUERY_EMBEDDING_FIXTURE);
+        expect(fetchLog.filter(e => e.url === '/api/plugins/similharity/get-embedding')).toHaveLength(1);
+    });
+
+    it('retries a failed query embedding once, then runs the query on the new vector', async () => {
+        // A provider 429 ("The engine is currently overloaded") usually clears on
+        // the next call. The query's one embedding gets one retry — not one per
+        // fallback, which is how a failing provider used to cost several calls.
+        let embedCalls = 0;
+        embeddingResponder = () => (++embedCalls === 1
+            ? jsonResponse({ error: 'API request failed' }, { ok: false, status: 500 })
+            : jsonResponse({ success: true, embedding: QUERY_EMBEDDING_FIXTURE }));
+        hybridQueryResponder = () => jsonResponse({ success: true, results: [perEntryChunk()] });
+
+        const entries = await getSemanticWorldInfoEntries(
+            ['a single line of context'], [], baseSettings(), null, [LOREBOOK_COLLECTION],
+        );
+
+        expect(embedCalls).toBe(2);
+        expect(entries).toHaveLength(1);
+    });
+
+    it('fails the query after the one retry, without any retrieval call, and says so', async () => {
+        // Every route needs the vector, so no fallback can succeed without it.
+        embeddingResponder = () => jsonResponse({ error: 'API request failed' }, { ok: false, status: 500 });
+
+        const entries = await getSemanticWorldInfoEntries(
+            ['a single line of context'], [], baseSettings(), null, [LOREBOOK_COLLECTION],
+        );
+
+        expect(fetchLog.filter(e => e.url === '/api/plugins/similharity/get-embedding')).toHaveLength(2);
+        expect(queryCalls()).toEqual([]);
+        expect(entries).toEqual([]);
+        expect(global.toastr.error).toHaveBeenCalledWith(
+            expect.stringContaining('WorldLore'),
+            expect.stringContaining('Lorebook retrieval failed'),
+            expect.any(Object),
+        );
+    });
+
+    it('does not retry an invalid-model embedding error — it fails the same way every time', async () => {
+        embeddingResponder = () => jsonResponse({ error: 'No endpoints found for baai/bge-m3' }, { ok: false, status: 404 });
+
+        await getSemanticWorldInfoEntries(
+            ['a single line of context'], [], baseSettings(), null, [LOREBOOK_COLLECTION],
+        );
+
+        expect(fetchLog.filter(e => e.url === '/api/plugins/similharity/get-embedding')).toHaveLength(1);
+        expect(queryCalls()).toEqual([]);
     });
 
     it('shows the retrieval popup when hits do come back', async () => {

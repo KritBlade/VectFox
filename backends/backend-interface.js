@@ -10,6 +10,8 @@
  * ============================================================================
  */
 
+import { log } from '../core/log.js';
+
 /**
  * Base class for all vector backends.
  * All backends must extend this and implement all methods.
@@ -64,14 +66,29 @@ export class VectorBackend {
     }
 
     /**
+     * Embed a query text once, so every request of the query (its routes and
+     * fallbacks) reuses the vector instead of re-embedding the text. The default
+     * returns null: the backend can only embed per request, server-side.
+     * See core/core-vector-api.js getQueryVector.
+     * @param {string} searchText
+     * @param {object} settings
+     * @returns {Promise<number[]|null>}
+     */
+    async embedQuery(searchText, settings) {
+        return null;
+    }
+
+    /**
      * Query collection for similar vectors
      * @param {string} collectionId
      * @param {string} searchText
      * @param {number} topK
      * @param {object} settings
+     * @param {number[]|null} [queryVector] Pre-computed query embedding; when
+     *   provided, query by vector instead of re-embedding searchText
      * @returns {Promise<object[]>}
      */
-    async queryCollection(collectionId, searchText, topK, settings) {
+    async queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
         throw new Error('Backend must implement queryCollection()');
     }
 
@@ -156,11 +173,13 @@ export class VectorBackend {
      * @param {number} hybridOptions.textWeight - Weight for text scores (0-1)
      * @param {string} hybridOptions.fusionMethod - Fusion method ('rrf' or 'weighted')
      * @param {number} hybridOptions.rrfK - RRF constant (default 60)
+     * @param {object} [filters] - Payload filters
+     * @param {number[]|null} [queryVector] - Pre-computed query embedding
      * @returns {Promise<{hashes: number[], metadata: object[]}>}
      */
-    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}) {
+    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}, filters = {}, queryVector = null) {
         // Default: fallback to vector-only search
-        console.warn(`VectFox: Backend ${this.constructor.name} does not support native hybrid search, using vector-only`);
-        return this.queryCollection(collectionId, searchText, topK, settings);
+        log.warn(`VectFox: Backend ${this.constructor.name} does not support native hybrid search, using vector-only`);
+        return this.queryCollection(collectionId, searchText, topK, settings, queryVector);
     }
 }

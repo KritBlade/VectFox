@@ -35,6 +35,7 @@ import { extension_settings } from '../../../../extensions.js';
 import { oai_settings } from '../../../../openai.js';
 import { log } from '../core/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
+import { fetchQueryEmbedding } from './query-embedding.js';
 
 
 /**
@@ -570,8 +571,22 @@ export class StandardBackend extends VectorBackend {
     }
 
     /**
-     * Query a collection for similar vectors
-     * Uses native ST API
+     * Embed a query text once so every request of the query can reuse the vector
+     * (see core/core-vector-api.js getQueryVector). Returns null without the
+     * Similharity plugin: ST's native /api/vector/query then embeds the text
+     * itself, per request.
+     * @param {string} searchText
+     * @param {object} settings - VectFox settings
+     * @returns {Promise<number[]|null>}
+     */
+    async embedQuery(searchText, settings) {
+        if (!this.pluginAvailable) return null;
+        return fetchQueryEmbedding(searchText, settings, getProviderSpecificParams(settings, true));
+    }
+
+    /**
+     * Query a collection for similar vectors — through the Similharity plugin when
+     * it is available, otherwise ST's native /api/vector/query.
      */
     async queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
         const model = getModelFromSettings(settings);

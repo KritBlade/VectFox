@@ -36,6 +36,7 @@ import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 import { getQdrantApiKey } from '../core/api-keys.js';
 import { log } from '../core/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
+import { fetchQueryEmbedding } from './query-embedding.js';
 
 const BACKEND_TYPE = 'qdrant';
 
@@ -54,52 +55,14 @@ function _warnDimensionMismatch(errorBody) {
     }
 }
 
-// A query request embeds the search text server-side BEFORE touching Qdrant.
-// Qdrant on LAN answers in <50ms, so a slow/504 response almost always means the
-// embedding provider is the bottleneck — not Qdrant. This note is appended to
-// query-failure logs so the embedding step is never misattributed to Qdrant.
+// A query request sent WITHOUT a queryVector embeds the search text server-side
+// before touching Qdrant. Qdrant on LAN answers in <50ms, so a slow/504 response
+// then almost always means the embedding provider is the bottleneck — not Qdrant.
+// This note is appended to the failure logs of such requests so the embedding
+// step is never misattributed to Qdrant.
 function _embedTimeoutHint(settings) {
     const source = settings?.embedding_provider || 'transformers';
     return `NOTE: this request embeds server-side via '${source}' before querying Qdrant. Qdrant on LAN answers in <50ms, so a timeout/504 here points to the embedding provider ('${source}'), NOT Qdrant.`;
-}
-
-/**
- * Embed the query text ONCE via the plugin's /get-embedding route, so the vector
- * can be reused across every Qdrant request this turn instead of letting each
- * query route re-embed the same string server-side. The route has existed since
- * the plugin's initial commit, so no plugin-version gate is needed.
- *
- * Throws on any failure — the hybrid path's single fallback owner
- * (core/hybrid-search.js) catches and degrades to client-side fusion, exactly as
- * it does for a failed hybrid query.
- *
- * @param {string} searchText - query text to embed
- * @param {object} settings - VectFox settings (provider, model, provider params)
- * @returns {Promise<{vector: number[], embedMs: number}>}
- */
-async function _fetchQueryEmbedding(searchText, settings) {
-    const tStart = performance.now();
-    const response = await fetch('/api/plugins/similharity/get-embedding', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({
-            text: searchText,
-            source: settings.embedding_provider || 'transformers',
-            model: getModelFromSettings(settings),
-            ...getPluginProviderParams(settings),
-        }),
-    });
-    if (!response.ok) {
-        const errorBody = await response.text().catch(() => '(no body)');
-        const failMs = (performance.now() - tStart).toFixed(1);
-        log.warn(`[Qdrant timing] get-embedding FAILED after ${failMs}ms (HTTP ${response.status}). ${_embedTimeoutHint(settings)} Server said: ${errorBody.slice(0, 300)}`);
-        throw new Error(`[Qdrant] Query embedding failed: ${response.status} ${response.statusText} - ${errorBody.slice(0, 300)}`);
-    }
-    const data = await response.json();
-    if (!Array.isArray(data.embedding) || data.embedding.length === 0) {
-        throw new Error('[Qdrant] Query embedding failed: plugin returned no embedding vector');
-    }
-    return { vector: data.embedding, embedMs: performance.now() - tStart };
 }
 
 // NOTE: `vectfox_main` is kept verbatim for on-disk compatibility
@@ -520,6 +483,9 @@ export class QdrantBackend extends VectorBackend {
             };
         }
 
+        // The plugin embeds server-side only when no queryVector was sent; only
+        // then can a slow or failed request be the embedding provider's fault.
+        const embedHint = queryVector ? '' : ` ${_embedTimeoutHint(settings)}`;
         const tNetStart = performance.now();
         let response;
         try {
@@ -530,14 +496,14 @@ export class QdrantBackend extends VectorBackend {
             });
         } catch (error) {
             const failMs = (performance.now() - tNetStart).toFixed(1);
-            log.warn(`[Qdrant timing] queryCollection FAILED after ${failMs}ms (exception): ${error.message}. ${_embedTimeoutHint(settings)}`);
+            log.warn(`[Qdrant timing] queryCollection FAILED after ${failMs}ms (exception): ${error.message}.${embedHint}`);
             throw error;
         }
 
         if (!response.ok) {
             const errorBody = await response.text().catch(() => 'No response body');
             const failMs = (performance.now() - tNetStart).toFixed(1);
-            log.warn(`[Qdrant timing] queryCollection FAILED after ${failMs}ms (HTTP ${response.status}). ${_embedTimeoutHint(settings)} Server said: ${errorBody.slice(0, 300)}`);
+            log.warn(`[Qdrant timing] queryCollection FAILED after ${failMs}ms (HTTP ${response.status}).${embedHint} Server said: ${errorBody.slice(0, 300)}`);
             throwIfModelConfigError({
                 contextLabel: 'Embedding',
                 provider: settings.embedding_provider,
@@ -552,7 +518,8 @@ export class QdrantBackend extends VectorBackend {
         const data = await response.json();
         if (log.enabled('verbose')) {
             const totalMs = (performance.now() - tNetStart).toFixed(1);
-            log.verbose(`[Qdrant timing] queryCollection total=${totalMs}ms (incl. server-side embed via '${settings.embedding_provider || 'transformers'}'), embed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
+            const embedNote = queryVector ? 'query vector supplied' : `incl. server-side embed via '${settings.embedding_provider || 'transformers'}'`;
+            log.verbose(`[Qdrant timing] queryCollection total=${totalMs}ms (${embedNote}), embed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
         }
         warnIfEmbeddingSlow(data.timings?.embedMs, settings, 'query');
 
@@ -846,6 +813,17 @@ export class QdrantBackend extends VectorBackend {
     }
 
     /**
+     * Embed a query text once so every request of the query can reuse the vector
+     * (see core/core-vector-api.js getQueryVector).
+     * @param {string} searchText
+     * @param {object} settings - VectFox settings
+     * @returns {Promise<number[]>}
+     */
+    async embedQuery(searchText, settings) {
+        return fetchQueryEmbedding(searchText, settings, getPluginProviderParams(settings));
+    }
+
+    /**
      * Perform hybrid search using Qdrant's sparse + dense vector capabilities.
      *
      * Score contract: each result's `score` is the COSINE similarity (0-1) from a
@@ -865,9 +843,12 @@ export class QdrantBackend extends VectorBackend {
      * @param {number} topK - Number of results to return
      * @param {object} settings - VectFox settings
      * @param {object} hybridOptions - Hybrid search options
+     * @param {object} [filters] - Payload filters
+     * @param {number[]|null} [queryVector] - The query's embedding, when the caller
+     *   already has it; otherwise this method embeds searchText itself
      * @returns {Promise<{hashes: number[], metadata: object[]}>}
      */
-    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}, filters = {}) {
+    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}, filters = {}, queryVector = null) {
         const {
             vectorWeight = 0.5,
             textWeight = 0.5,
@@ -921,12 +902,12 @@ export class QdrantBackend extends VectorBackend {
             throw new Error(`[Qdrant] Sparse query setup failed for ${collectionId}: ${error?.message || error}`, { cause: error });
         }
 
-        // Embed the query ONCE and reuse the vector for both requests below.
-        // Previously each request sent searchText and the plugin re-embedded it
-        // server-side — the dominant cost of the whole retrieval (measured
-        // 2.9s-16s via OpenRouter vs 18-23ms for the Qdrant query itself).
-        const { vector: queryVector, embedMs } = await _fetchQueryEmbedding(searchText, settings);
-        warnIfEmbeddingSlow(embedMs, settings, 'get-embedding');
+        // One vector serves both requests below. Retrieval callers pass the vector
+        // core/core-vector-api.js getQueryVector embedded once for the whole query;
+        // embed here only for a caller that has none. Letting each request re-embed
+        // server-side was the dominant cost of a retrieval (measured 2.9s-16s via
+        // OpenRouter vs 18-23ms for the Qdrant query itself).
+        const vector = queryVector ?? await this.embedQuery(searchText, settings);
 
         const prefetchLimit = topK * 4;
 
@@ -942,7 +923,7 @@ export class QdrantBackend extends VectorBackend {
         // outside the dense lookup window has no cosine → scores 0 → gated: a
         // keyword match with no semantic similarity does not clear a similarity
         // threshold (deliberate, decided 2026-07-31).
-        const cosineLookupPromise = this.queryCollection(collectionId, searchText, prefetchLimit, settings, queryVector)
+        const cosineLookupPromise = this.queryCollection(collectionId, searchText, prefetchLimit, settings, vector)
             .catch(error => ({ __cosineLookupError: error }));
 
         const body = {
@@ -951,7 +932,7 @@ export class QdrantBackend extends VectorBackend {
             // queryVector makes the plugin skip its server-side embed; searchText
             // is still sent so a plugin old enough to ignore queryVector simply
             // embeds it itself and keeps working.
-            queryVector,
+            queryVector: vector,
             searchText: searchText,
             topK: topK,
             threshold: 0.0,
@@ -1009,14 +990,14 @@ export class QdrantBackend extends VectorBackend {
             });
         } catch (error) {
             const failMs = (performance.now() - tNetStart).toFixed(1);
-            log.warn(`[Qdrant timing] hybridQuery FAILED after ${failMs}ms (exception): ${error.message}. ${_embedTimeoutHint(settings)}`);
+            log.warn(`[Qdrant timing] hybridQuery FAILED after ${failMs}ms (exception): ${error.message}`);
             throw error;
         }
 
         if (response.ok) {
             const data = await response.json();
             const totalMs = (performance.now() - tNetStart).toFixed(1);
-            log.verbose(`[Qdrant timing] total=${totalMs}ms, clientEmbed=${embedMs.toFixed(0)}ms, serverEmbed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
+            log.verbose(`[Qdrant timing] total=${totalMs}ms, serverEmbed=${data.timings?.embedMs ?? 'n/a'}ms, qdrant=${data.timings?.queryMs ?? 'n/a'}ms, results=${data.results?.length || 0}`);
             // serverEmbed is normally null (we sent queryVector); non-null means an
             // old plugin ignored it and embedded anyway — still worth surfacing.
             warnIfEmbeddingSlow(data.timings?.embedMs, settings, 'hybrid-query');
@@ -1058,7 +1039,7 @@ export class QdrantBackend extends VectorBackend {
             _warnDimensionMismatch(errorBody);
             return { hashes: [], metadata: [] };
         }
-        log.warn(`[Qdrant timing] hybridQuery FAILED after ${failMs}ms (HTTP ${response.status}). ${_embedTimeoutHint(settings)} Server said: ${errorBody.slice(0, 500)}`);
+        log.warn(`[Qdrant timing] hybridQuery FAILED after ${failMs}ms (HTTP ${response.status}). Server said: ${errorBody.slice(0, 500)}`);
         throw new Error(`[Qdrant] Hybrid query failed for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody.slice(0, 500)}`);
     }
 
@@ -1084,9 +1065,12 @@ export class QdrantBackend extends VectorBackend {
      * @param {object} settings - VectFox settings
      * @param {object} rerankParams - { weights, chatLength, halfLife, minImportance, visibleThreshold, applyContextDedupFilter, rrfScoreScale? }
      * @param {object} hybridOptions - { prefetchLimit }
+     * @param {object} [filters] - Payload filters
+     * @param {number[]|null} [queryVector] - The query's embedding, reused by this
+     *   call and by both fallbacks; without it the plugin embeds searchText itself
      * @returns {Promise<{hashes:number[], metadata:object[]}>}
      */
-    async hybridQueryWithRerank(collectionId, searchText, topK, settings, rerankParams, hybridOptions = {}, filters = {}) {
+    async hybridQueryWithRerank(collectionId, searchText, topK, settings, rerankParams, hybridOptions = {}, filters = {}, queryVector = null) {
         const strippedCollectionId = this._stripRegistryPrefix(collectionId);
         const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
 
@@ -1123,12 +1107,15 @@ export class QdrantBackend extends VectorBackend {
             sparseQueryVector = encodeSparseQuery(searchText);
         } catch (error) {
             log.warn('[Qdrant] sparse query setup failed (rerank path):', error?.message);
-            return this.queryCollection(collectionId, searchText, topK, settings);
+            return this.queryCollection(collectionId, searchText, topK, settings, queryVector);
         }
 
         const body = {
             backend: BACKEND_TYPE,
             collectionId: actualCollectionId,
+            // Same contract as hybridQuery: queryVector skips the plugin's
+            // server-side embed, searchText keeps an older plugin working.
+            queryVector,
             searchText,
             topK,
             threshold: 0.0,
@@ -1156,6 +1143,8 @@ export class QdrantBackend extends VectorBackend {
             log.verbose(`[EventBase] Hybrid+rerank request: collection=${body.collectionId}, topK=${topK}, sparse=${sparseQueryVector.indices.length} tokens, preview="${preview}"`);
         }
 
+        // Only a vector-less request embeds server-side (see queryCollection).
+        const embedHint = queryVector ? '' : ` ${_embedTimeoutHint(settings)}`;
         const tNetStart = performance.now();
 
         try {
@@ -1193,15 +1182,15 @@ export class QdrantBackend extends VectorBackend {
                 _warnDimensionMismatch(errorBody);
                 return { hashes: [], metadata: [] };
             }
-            log.warn(`[Qdrant timing] hybrid+rerank FAILED after ${failMs}ms (HTTP ${response.status}), falling back to hybridQuery. ${_embedTimeoutHint(settings)} Server said: ${errorBody.slice(0, 500)}`);
+            log.warn(`[Qdrant timing] hybrid+rerank FAILED after ${failMs}ms (HTTP ${response.status}), falling back to hybridQuery.${embedHint} Server said: ${errorBody.slice(0, 500)}`);
         } catch (error) {
             const failMs = (performance.now() - tNetStart).toFixed(1);
-            log.warn(`[Qdrant timing] hybrid+rerank FAILED after ${failMs}ms (exception): ${error.message}. ${_embedTimeoutHint(settings)}`);
+            log.warn(`[Qdrant timing] hybrid+rerank FAILED after ${failMs}ms (exception): ${error.message}.${embedHint}`);
         }
 
         // Fallback: regular hybridQuery (no server-side rerank). The caller
         // (eventbase-retrieval) will then need to apply JS re-rank itself; the
         // result lacks `rerankApplied: true` so the caller can detect and branch.
-        return this.hybridQuery(collectionId, searchText, topK, settings, hybridOptions, filters);
+        return this.hybridQuery(collectionId, searchText, topK, settings, hybridOptions, filters, queryVector);
     }
 }

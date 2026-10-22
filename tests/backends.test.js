@@ -511,6 +511,23 @@ describe('StandardBackend', () => {
         });
     });
 
+    describe('embedQuery', () => {
+        it("returns null without the plugin, so ST's native query embeds per request", async () => {
+            backend.pluginAvailable = false;
+
+            await expect(backend.embedQuery('text', defaultSettings)).resolves.toBeNull();
+            expect(fetchMock).not.toHaveBeenCalled();
+        });
+
+        it('embeds through the plugin /get-embedding route when the plugin is available', async () => {
+            backend.pluginAvailable = true;
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({ embedding: [0.1, 0.2] }));
+
+            await expect(backend.embedQuery('text', defaultSettings)).resolves.toEqual([0.1, 0.2]);
+            expect(fetchMock).toHaveBeenCalledWith('/api/plugins/similharity/get-embedding', expect.objectContaining({ method: 'POST' }));
+        });
+    });
+
     describe('purgeAllVectorIndexes', () => {
         it('should purge all collections successfully', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
@@ -753,6 +770,42 @@ describe('QdrantBackend', () => {
             const result = await backend.hybridQuery('test-collection', 'search', 5, defaultSettings);
 
             expect(result).toEqual({ hashes: [], metadata: [] });
+        });
+
+        it('reuses a supplied query vector instead of calling /get-embedding', async () => {
+            fetchMock.mockImplementation((url) => (url.endsWith('collection-metadata')
+                ? mockFetchResponse({ payload: null, supported: true })
+                : mockFetchResponse({ results: [] })));
+            const queryVector = [0.4, 0.5, 0.6];
+
+            await backend.hybridQuery('test-collection', 'search', 5, defaultSettings, {}, {}, queryVector);
+
+            const calls = fetchMock.mock.calls.map(([url, opts]) => ({ url, body: opts?.body ? JSON.parse(opts.body) : null }));
+            expect(calls.map(c => c.url)).not.toContain('/api/plugins/similharity/get-embedding');
+            for (const c of calls.filter(c => /chunks\/(hybrid-query|query)$/.test(c.url))) {
+                expect(c.body.queryVector).toEqual(queryVector);
+            }
+        });
+    });
+
+    describe('hybridQueryWithRerank', () => {
+        it('sends the supplied vector and falls back to hybridQuery without re-embedding', async () => {
+            fetchMock.mockImplementation((url) => {
+                if (url.endsWith('collection-metadata')) return mockFetchResponse({ payload: null, supported: true });
+                if (url.endsWith('hybrid-query-rerank')) return mockFetchError(400, 'formula queries need Qdrant 1.13');
+                return mockFetchResponse({ results: [] });
+            });
+            const queryVector = [0.4, 0.5, 0.6];
+
+            await backend.hybridQueryWithRerank('test-collection', 'search', 5, defaultSettings, { weights: {} }, {}, {}, queryVector);
+
+            const calls = fetchMock.mock.calls.map(([url, opts]) => ({ url, body: opts?.body ? JSON.parse(opts.body) : null }));
+            expect(calls.map(c => c.url)).not.toContain('/api/plugins/similharity/get-embedding');
+            const retrievals = calls.filter(c => /chunks\/(hybrid-query-rerank|hybrid-query|query)$/.test(c.url));
+            expect(retrievals.map(c => c.url)).toContain('/api/plugins/similharity/chunks/hybrid-query'); // the fallback ran
+            for (const c of retrievals) {
+                expect(c.body.queryVector).toEqual(queryVector);
+            }
         });
     });
 });
