@@ -59,7 +59,7 @@ export function getAutoSyncWindowSize(settings) {
  * Returns `messages.length` (no lag) when the feature is off. This is the SINGLE
  * source of truth shared by the window-builder, the quick-exit, and the LED /
  * counter so "fully synced" means "all committed windows done", not "the active
- * turn done". See plans/autosync-settle-lag.md.
+ * turn done". See plans/executed/autosync-settle-lag.md.
  *
  * @param {object[]} messages - filtered chat messages
  * @param {object}   settings - VectFox settings
@@ -231,7 +231,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Content / backfill (isAutoSync=false) covers the whole chat. The boundary is
     // the SINGLE source of truth for "what is eligible", reused by the LED/counter
     // (see getChatAutoSyncStatus) so "fully synced" tracks committed windows, not
-    // the active turn. See plans/autosync-settle-lag.md.
+    // the active turn. See plans/executed/autosync-settle-lag.md.
     const commitBoundary = isAutoSync ? getCommitBoundary(messages, settings) : messages.length;
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
 
@@ -1394,7 +1394,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     // actually extracts. Without this, the deliberately-unextracted active turn
     // would pin the LED on "partial" forever. After a manual full vectorize the
     // committed slice's last window is also extracted, so the LED is still green —
-    // both modes stay consistent. See plans/autosync-settle-lag.md.
+    // both modes stay consistent. See plans/executed/autosync-settle-lag.md.
     const commitBoundary = getCommitBoundary(messages, settings);
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
     const fullyVectorized = isChatFullyVectorized(committedMessages, settings, uuid, getAutoSyncWindowSize(settings), 0);

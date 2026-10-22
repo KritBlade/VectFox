@@ -2143,7 +2143,7 @@ export async function refreshAutoSyncCheckbox(settings) {
     // Settle/commit lag: when fully synced, the active last turn is intentionally
     // held back (it's already in live context), so "vectorization" can sit one
     // turn behind "chat" without being a backlog. Label that gap so green + a
-    // small delta reads as intentional, not "behind". See plans/autosync-settle-lag.md.
+    // small delta reads as intentional, not "behind". See plans/executed/autosync-settle-lag.md.
     const settleGap = (typeof status.chatMessageCount === 'number' && vectorizedCount !== null)
         ? status.chatMessageCount - vectorizedCount
         : 0;
@@ -2670,7 +2670,7 @@ function bindSettingsEvents(settings, callbacks) {
                     const windowSize = Math.max(1, getAutoSyncWindowSize(settings));
                     // Clamp the backlog to the commit boundary — the active last turn is
                     // held back by the settle-lag and settles on its own, so it isn't
-                    // "pending backlog". See plans/autosync-settle-lag.md.
+                    // "pending backlog". See plans/executed/autosync-settle-lag.md.
                     const boundary = typeof status.commitBoundary === 'number' ? status.commitBoundary : chatMsgCount;
                     const pendingMsgs = Math.max(0, boundary - tip);
                     const pendingWindows = Math.floor(pendingMsgs / windowSize);

@@ -451,7 +451,7 @@ getCommitBoundary(messages, settings)
 
 Because un-kept swipes only ever live on the active turn (which is past the boundary), they never reach the window-builder → **zero embeddings for discarded generations**. When the user sends the next turn, the previously-active turn falls inside the boundary and extracts exactly once.
 
-- **On by default, no migration, no practical downside:** the held-back turn is always the newest message, hence always inside ST's live context window — retrieval never needs it. Existing fully-synced chats show no gap at upgrade (their tail was already extracted; the monotonic tip already covers it). See [plans/autosync-settle-lag.md](../plans/autosync-settle-lag.md).
+- **On by default, no migration, no practical downside:** the held-back turn is always the newest message, hence always inside ST's live context window — retrieval never needs it. Existing fully-synced chats show no gap at upgrade (their tail was already extracted; the monotonic tip already covers it). See [plans/executed/autosync-settle-lag.md](../plans/executed/autosync-settle-lag.md).
 - **UI:** when fully synced with `vectorization < chat`, the counter appends `· latest turn pending settle` so green + a one-turn gap reads as intentional, not a backlog. The enable-time backlog estimate clamps pending to `status.commitBoundary` so the held turn isn't counted as backfill.
 - **The one inherent property:** the final turn of a chat that is never continued is never auto-extracted (nothing supersedes it) — it's still in live context, and manual Vectorize Content force-covers it if ever wanted.
 

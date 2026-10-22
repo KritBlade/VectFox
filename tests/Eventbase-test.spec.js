@@ -4104,7 +4104,7 @@ test('TEST 022 — Standard+plugin: context/xmlTag wrapping + condition filter t
 //   the active turn changes only messages beyond the boundary → the committed
 //   slice is unchanged → no re-extraction. Once the user sends a newer turn,
 //   the previously-active turn falls inside the boundary and extracts exactly
-//   once. See plans/autosync-settle-lag.md.
+//   once. See plans/executed/autosync-settle-lag.md.
 //
 // What it proves (using the SAME real functions the ingestion loop uses):
 //   - getCommitBoundary holds back exactly one turn by default, none when off.
