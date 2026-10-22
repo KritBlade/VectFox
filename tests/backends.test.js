@@ -464,6 +464,53 @@ describe('StandardBackend', () => {
         });
     });
 
+    describe('purgeVectorIndex with plugin', () => {
+        beforeEach(() => {
+            backend.pluginAvailable = true;
+            fetchMock.mockImplementation(() => mockFetchResponse({ success: true }));
+        });
+
+        const purgeBodies = () => fetchMock.mock.calls
+            .filter(([url]) => url === '/api/plugins/similharity/chunks/purge')
+            .map(([, opts]) => JSON.parse(opts.body));
+
+        it('purges every discovered source folder, not the current embedding provider', async () => {
+            // Collection written under transformers, plus an empty leftover under
+            // openrouter. The current provider (openrouter) must not decide the path.
+            await backend.purgeVectorIndex('col', {
+                ...defaultSettings,
+                embedding_provider: 'openrouter',
+                _discoveredSources: [
+                    { source: 'openrouter', models: [{ name: 'baaibge-m3', path: 'baaibge-m3', chunkCount: 0 }] },
+                    { source: 'transformers', models: [{ name: 'jina', path: 'jina', chunkCount: 56 }] },
+                ],
+            });
+
+            expect(purgeBodies()).toEqual([
+                { backend: 'vectra', collectionId: 'col', source: 'openrouter', model: 'baaibge-m3' },
+                { backend: 'vectra', collectionId: 'col', source: 'transformers', model: 'jina' },
+            ]);
+        });
+
+        it('sends an empty model for a model-less index instead of the model object', async () => {
+            await backend.purgeVectorIndex('col', {
+                ...defaultSettings,
+                _discoveredSources: [{ source: 'unknown', models: [{ name: '(default)', path: null, chunkCount: 0 }] }],
+            });
+
+            expect(purgeBodies()).toEqual([
+                { backend: 'vectra', collectionId: 'col', source: 'unknown', model: '' },
+            ]);
+        });
+
+        it('targets the current provider when no discovery data is passed', async () => {
+            await backend.purgeVectorIndex('col', defaultSettings);
+
+            expect(purgeBodies()).toHaveLength(1);
+            expect(purgeBodies()[0].source).toBe('transformers');
+        });
+    });
+
     describe('purgeAllVectorIndexes', () => {
         it('should purge all collections successfully', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));

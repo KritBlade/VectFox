@@ -2256,7 +2256,7 @@ function toggleProviderSettings(selectedProvider, settings) {
 /**
  * Shows a confirmation modal when enabling auto-sync on a chat with existing vectors
  * If multiple collections match, lets user pick which one to use
- * @param {Array} allMatches - Array of matching collections [{collectionId, registryKey, chunkCount, source, backend}]
+ * @param {Array} allMatches - Array of matching collections [{collectionId, registryKey, chunkCount, source, backend, sources}]
  * @param {object} settings - VectFox settings for purge operations
  * @returns {Promise<{action: string, selectedCollection?: object}>} User's choice
  */
@@ -2371,10 +2371,13 @@ async function showAutoSyncConfirmModal(allMatches, settings) {
             if (!confirm(`Delete ghost collection?\n\n${ghost.collectionId}\n\nThis will remove it from disk.`)) return;
 
             try {
-                // Use unified delete function - handles vectors, registry, AND metadata
+                // Use unified delete function - handles vectors, registry, AND metadata.
+                // Route to the ghost's own backend and on-disk source folders, not
+                // the current backend/provider settings.
                 const deleteSettings = {
                     ...settings,
-                    source: ghost.source || settings.embedding_provider,
+                    vector_backend: ghost.backend,
+                    _discoveredSources: ghost.sources,
                 };
                 const result = await deleteCollection(ghost.collectionId, deleteSettings, ghost.registryKey);
 
