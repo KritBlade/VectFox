@@ -225,6 +225,16 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
 
         const label = (i) => (i === 0 ? 'primary' : `hedge ${i}/${maxHedges}`);
 
+        // Why the winning hedge was needed, for its always-on WON line. Each failed
+        // attempt's reason is otherwise logged only with verbose logging on, which
+        // left a bare "500 (Internal Server Error)" as the only clue in the console.
+        // With no failure, the winner fired on the clock because the attempt before
+        // it was still running.
+        const describeHedgeCause = (winnerIdx) => (errors.length > 0
+            ? errors.map(({ attemptIdx, error, elapsed }) =>
+                `${label(attemptIdx)} FAILED after ${elapsed}s — ${error?.name || 'Error'}: ${error?.message || error}`).join('; ')
+            : `previous attempt still running at t=${(winnerIdx * thresholdMs) / 1000}s`);
+
         // Hedges fire in order, from either the fixed schedule below or early when an
         // attempt fails. Both routes go through startHedge, and each slot checks
         // `hedgesFired`, so a slot can never fire twice and the total attempt count
@@ -272,7 +282,7 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                     if (attemptIdx > 0) {
                         // A hedge (not the primary) won — recovered-from anomaly.
                         const elapsed = ((performance.now() - start) / 1000).toFixed(1);
-                        log.warn(`VectFox: hedge — ${label(attemptIdx)} WON for batch ${batchIdx}/${totalBatches} via ${provider} after ${elapsed}s`);
+                        log.warn(`VectFox: hedge — ${label(attemptIdx)} WON for batch ${batchIdx}/${totalBatches} via ${provider} after ${elapsed}s (${describeHedgeCause(attemptIdx)})`);
                     } else {
                         const elapsed = ((performance.now() - start) / 1000).toFixed(1);
                         log.lifecycle(`VectFox: hedge — primary WON for batch ${batchIdx}/${totalBatches} via ${provider} after ${elapsed}s`);
@@ -281,9 +291,9 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                 },
                 (e) => {
                     attemptsInFlight--;
-                    errors.push({ attemptIdx, error: e });
+                    const elapsed = ((performance.now() - start) / 1000).toFixed(1);
+                    errors.push({ attemptIdx, error: e, elapsed });
                     if (debugOn && !settled) {
-                        const elapsed = ((performance.now() - start) / 1000).toFixed(1);
                         log.warn(
                             `VectFox: hedge — ${label(attemptIdx)} FAILED after ${elapsed}s for batch ${batchIdx}/${totalBatches} — ${e?.name || 'Error'}: ${e?.message || e}`,
                         );
