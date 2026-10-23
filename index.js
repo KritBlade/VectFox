@@ -254,7 +254,7 @@ const defaultSettings = {
     // the held-back turn is always the newest message, so it is always inside ST's
     // live context window already — retrieval never needs it. Manual Vectorize
     // Content ignores this and still covers the whole chat. See
-    // plans/autosync-settle-lag.md.
+    // plans/executed/autosync-settle-lag.md.
     eventbase_autosync_settle_lag: true,
     // Summarizer Injection (Feature B): when enabled, inject the most recent N
     // EventBase events (by source_window_end desc) into the prompt every turn,

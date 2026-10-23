@@ -12,7 +12,7 @@
  * graph with empty stubs — the functions under test use none of it. Same approach
  * as summarizer-injection.test.js.
  *
- * See plans/autosync-settle-lag.md.
+ * See plans/executed/autosync-settle-lag.md.
  */
 import { describe, it, expect, vi } from 'vitest';
 
