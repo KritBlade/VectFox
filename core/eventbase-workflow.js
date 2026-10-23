@@ -240,21 +240,6 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
     }
 
-    // Past the quick-exit: at least the last window is new, so real work will happen.
-    // Fire the auto-sync popup here so it shows once per ingestion call regardless of
-    // whether older windows turn out to be dedup-skipped in the loop below.
-    // suppressAutoSyncPopup is set by synchronizeChat when the trigger was MESSAGE_SENT
-    // (user-send mid-generation) — extraction still runs, only the toast is hidden.
-    const popupAllowed = isAutoSync && !suppressAutoSyncPopup && settings.eventbase_autosync_popup !== false;
-    log.verbose(`[EventBase Popup] auto-sync gate: isAutoSync=${isAutoSync}, suppressAutoSyncPopup=${suppressAutoSyncPopup}, eventbase_autosync_popup=${settings.eventbase_autosync_popup} → fire=${popupAllowed}`);
-    if (popupAllowed) {
-        try { toastr.info('Auto-Sync: extracting events...', 'VectFox', { timeOut: 3000 }); } catch (_) {}
-    }
-
-    // Always-on trace so the user can confirm auto-sync ran without enabling debug logging.
-    // popupShown=false here means popup was suppressed (e.g. MESSAGE_SENT) — extraction still runs.
-    if (isAutoSync) log.lifecycle(`[VectFox AutoSync] running — messages=${messages.length}, popupShown=${popupAllowed}`);
-
     let windows = [];
     for (let start = 0; start < commitBoundary; start += step) {
         const end = Math.min(start + windowSize - 1, commitBoundary - 1);
@@ -340,7 +325,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Smart fast-forward: windows are processed in order, so already-extracted ones
     // cluster at the front. Linear-scan past them with cheap Set.has() lookups instead
     // of spinning up Promise.allSettled batches that do the same check 3-at-a-time.
-    // The per-window inner check at line ~210 stays as a safety net for edit-in-middle
+    // The per-window check in _runOneExtractBatch stays as a safety net for edit-in-middle
     // cases (where an old message's hash changes and breaks the contiguity assumption).
     let fastForwardSkipped = 0;
     while (fastForwardSkipped < windows.length) {
@@ -393,6 +378,21 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         windowsSkipped = fastForwardSkipped;
         log.lifecycle(`[EventBase] Fast-forward: skipped ${fastForwardSkipped} already-extracted window(s), starting at window ${fastForwardSkipped}`);
     }
+
+    // Auto-sync popup: shown once per ingestion call, and only when windows are left
+    // to extract. Passing the quick-exit does not guarantee that — the start-marker
+    // filter or the fast-forward can still remove every window. suppressAutoSyncPopup
+    // is set by synchronizeChat when the trigger was MESSAGE_SENT (user-send
+    // mid-generation) — extraction still runs, only the toast is hidden.
+    const windowsToExtract = windows.length - fastForwardSkipped;
+    const popupAllowed = isAutoSync && windowsToExtract > 0 && !suppressAutoSyncPopup && settings.eventbase_autosync_popup !== false;
+    log.verbose(`[EventBase Popup] auto-sync gate: isAutoSync=${isAutoSync}, windowsToExtract=${windowsToExtract}, suppressAutoSyncPopup=${suppressAutoSyncPopup}, eventbase_autosync_popup=${settings.eventbase_autosync_popup} → fire=${popupAllowed}`);
+    if (popupAllowed) globalThis.toastr?.info('Auto-Sync: extracting events...', 'VectFox', { timeOut: 3000 });
+
+    // Lifecycle line so the user can confirm auto-sync ran. popupShown=false with
+    // windowsToExtract > 0 means the popup was suppressed (e.g. MESSAGE_SENT).
+    if (isAutoSync) log.lifecycle(`[VectFox AutoSync] running — messages=${messages.length}, windowsToExtract=${windowsToExtract}, popupShown=${popupAllowed}`);
+
     // -----------------------------------------------------------------------
     // Pipelined extract/insert loop (see plans/eventbase-extract-insert-pipeline.md).
     //
