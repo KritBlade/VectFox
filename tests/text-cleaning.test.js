@@ -9,6 +9,11 @@
  *
  * strip_mvu_engine_tags: the vectorization builtin removes MVU engine state and
  * UI-scaffolding blocks (paired and self-closing) without touching narrative.
+ *
+ * strip_mvu_pictures / strip_mvu_cast_records: the vectorization builtins remove
+ * mvu-helper's stored pictures (every wrap shape it writes, with the image
+ * prompts inside) and its <cast> records, and never swallow prose next to a
+ * shape they don't know.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -29,9 +34,34 @@ import {
     stripReasoningBlocks,
     stripGameSystemBlocks,
     BUILTIN_PATTERNS,
+    CLEANING_PRESETS,
+    getCleaningSettings,
     testPattern,
     cleanText,
 } from '../core/text-cleaning.js';
+
+// The picture shapes mvu-helper writes into message.mes
+// (mvu-helper src/features/imagegen/image-splice-core.js): the original <pic>
+// tag rides HTML-escaped in data-rawtag, the full image prompt in the <img> title.
+const ESCAPED_PIC_TAG = '&lt;pic char=&quot;橘美月&quot; outfit=&quot;default&quot; prompt=&quot;1girl, mitsuki pouting &gt;_&lt; at the gate&quot;&gt;';
+const PICTURE_WRAPS = {
+    rendered: `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}"><img src="/user/images/ArtificKoi/a.png" title="masterpiece, best quality, 1girl, mitsuki pouting" alt="generated image">`
+        + '<span class="auto-img-regen fa-solid fa-arrows-rotate" title="Regenerate image" role="button" tabindex="0" style="cursor:pointer;margin-inline-start:6px;opacity:0.7;"></span></span>',
+    'rendered with debug line': `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}"><img src="/user/images/ArtificKoi/a.png" title="masterpiece, best quality, 1girl" alt="generated image">`
+        + `<code class="auto-img-pictag" style="display:block;font-size:0.75em;opacity:0.65;overflow-wrap:anywhere;">${ESCAPED_PIC_TAG}</code>`
+        + '<span class="auto-img-regen fa-solid fa-arrows-rotate" title="Regenerate image" role="button" tabindex="0"></span></span>',
+    unrendered: `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}">`
+        + `<code class="auto-img-pictag" style="display:block;font-size:0.75em;opacity:0.65;overflow-wrap:anywhere;">${ESCAPED_PIC_TAG}</code>`
+        + '<span class="auto-img-unrendered" title="This pic tag was not rendered (generation failed, or it was over the per-reply image cap)"></span></span>',
+    trace: `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}"><span class="auto-img-trace"></span></span>`,
+};
+
+const stripWith = (builtinId) => (text) => {
+    const { pattern, flags, replacement } = BUILTIN_PATTERNS[builtinId];
+    const outcome = testPattern(pattern, flags, replacement, text);
+    expect(outcome.success).toBe(true);
+    return outcome.result;
+};
 
 describe('stripReasoningBlocks', () => {
     it('removes a paired <think>…</think> block and keeps the narrative after it', () => {
@@ -150,15 +180,15 @@ describe('stripGameSystemBlocks', () => {
         // The narrative after the reasoning block must survive.
         expect(out).toMatch(/列車停下的動靜很輕/);
     });
+
+    it('removes mvu-helper pictures, cast records and the <reply_cast> block', () => {
+        const raw = `美月跑了過來。\n${PICTURE_WRAPS.rendered}\n<cast name="橘美月" outfit="default">\n<reply_cast>\n<cast name="有川真奈">\n</reply_cast>`;
+        expect(stripGameSystemBlocks(raw)).toBe('美月跑了過來。');
+    });
 });
 
 describe('strip_mvu_engine_tags builtin', () => {
-    const { pattern, flags, replacement } = BUILTIN_PATTERNS.strip_mvu_engine_tags;
-    const strip = (text) => {
-        const outcome = testPattern(pattern, flags, replacement, text);
-        expect(outcome.success).toBe(true);
-        return outcome.result;
-    };
+    const strip = stripWith('strip_mvu_engine_tags');
 
     // Shape of a real ArtificKoi reply: narrative inside <maintext>, engine
     // blocks after it, and a self-closing <background … /> up front.
@@ -204,5 +234,67 @@ describe('strip_mvu_engine_tags builtin', () => {
         const out = cleanText(reply);
         expect(out).not.toMatch(/RES_Variable|reply_cast|Scene Stats|<background/);
         expect(out).toContain('美月整個人趴在課桌上。');
+    });
+});
+
+describe('strip_mvu_pictures builtin', () => {
+    const strip = stripWith('strip_mvu_pictures');
+
+    it.each(Object.entries(PICTURE_WRAPS))('removes the %s wrap whole, image prompts included', (shape, wrap) => {
+        expect(strip(`前文。\n${wrap}\n後文。`)).toBe('前文。\n\n後文。');
+    });
+
+    it('removes a bare <img> and its title prompt', () => {
+        expect(strip('A<img src="/user/images/a.png" title="1girl, smile" alt="a">B')).toBe('AB');
+    });
+
+    it('removes an undrawn <pic> whose quoted prompt contains ">"', () => {
+        expect(strip('A<pic char="橘美月" outfit="default" prompt="mitsuki pouting >_< at the gate">B')).toBe('AB');
+    });
+
+    it('leaves a wrap holding anything else alone, so the prose after it survives', () => {
+        const text = '<span class="auto-img-wrap"><b>kept</b></span>美月笑了。</span></span>';
+        expect(strip(text)).toBe(text);
+    });
+
+    it('leaves tags whose name only starts with pic or img untouched', () => {
+        const text = '<picture><source srcset="a.webp"></picture><image_generation>rules</image_generation>';
+        expect(strip(text)).toBe(text);
+    });
+});
+
+describe('strip_mvu_cast_records builtin', () => {
+    const strip = stripWith('strip_mvu_cast_records');
+
+    it('removes every record and keeps the prose between them', () => {
+        expect(strip('<cast name="橘美月" outfit="default">\n美月笑了。\n<cast name="有川真奈" key="mana">'))
+            .toBe('\n美月笑了。\n');
+    });
+
+    it('cannot cross a line, so a record missing its ">" never swallows the prose after it', () => {
+        const text = '<cast name="橘美月" outfit="default\n美月笑了。>';
+        expect(strip(text)).toBe(text);
+    });
+
+    it('leaves tags whose name only starts with cast untouched', () => {
+        const text = '<castle>tower</castle><cast_list>a</cast_list>';
+        expect(strip(text)).toBe(text);
+    });
+});
+
+describe('MVU preset', () => {
+    it('is the fresh-install default', () => {
+        expect(getCleaningSettings().selectedPreset).toBe('mvu_game_maker');
+        expect(CLEANING_PRESETS.mvu_game_maker.name).toBe('MVU');
+    });
+
+    it('holds every MVU builtin, so a new one reaches everyone on the preset', () => {
+        const mvuBuiltins = Object.keys(BUILTIN_PATTERNS).filter((id) => id.startsWith('strip_mvu_'));
+        expect(CLEANING_PRESETS.mvu_game_maker.patterns).toEqual(expect.arrayContaining(mvuBuiltins));
+    });
+
+    it('cleans pictures and cast records on a fresh install', () => {
+        const reply = `<p>美月跑了過來。</p>\n${PICTURE_WRAPS.rendered}\n<cast name="橘美月" outfit="default">`;
+        expect(cleanText(reply)).toBe('<p>美月跑了過來。</p>');
     });
 });

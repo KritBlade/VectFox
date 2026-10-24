@@ -452,9 +452,10 @@ function _getRecentChatForPlanner(settings) {
             speaker: m.is_user ? '{{user}}' : (m.name || '{{character}}'),
             // Reduce each turn to narrative for the planner: drop the model's
             // <think>/planning blocks (chain-of-thought that names off-screen
-            // characters and meta plot lines) and the MVU game-system blocks
-            // (<UpdateVariable>/<JSONPatch>/<combat_log> bookkeeping). Otherwise
-            // they dominate the 600-char per-turn budget and steer the queries.
+            // characters and meta plot lines), the MVU game-system blocks
+            // (<UpdateVariable>/<JSONPatch>/<combat_log> bookkeeping, the cast
+            // roster) and pictures with their image prompts. Otherwise they
+            // dominate the 600-char per-turn budget and steer the queries.
             text: stripGameSystemBlocks(stripReasoningBlocks((m.mes || '').toString())),
         }));
 }

@@ -35,7 +35,7 @@ import { renderCollections } from './database-browser.js';
 import { buildArchiveEventCollectionId } from '../core/collection-ids.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
-import { getCleaningSettings } from '../core/text-cleaning.js';
+import { getCleaningSettings, CLEANING_PRESETS } from '../core/text-cleaning.js';
 import { progressTracker } from './progress-tracker.js';
 
 // ============================================================================
@@ -1388,21 +1388,17 @@ function renderFieldSelection() {
 }
 
 /**
+ * The cleaning presets the dropdown offers: VectFox's presets, then Custom.
+ */
+function cleaningPresetChoices() {
+    return [...Object.values(CLEANING_PRESETS), { id: 'custom', name: 'Custom', description: 'Your own pattern selection' }];
+}
+
+/**
  * Renders text cleaning options with preset dropdown and manage button
  */
 function renderTextCleaningOptions() {
-    // Import dynamically to get current settings
-    const presets = [
-        { id: 'none', name: 'None', desc: 'No cleaning applied' },
-        { id: 'html_formatting', name: 'Strip HTML Formatting', desc: 'Removes font, color, bold/italic tags' },
-        { id: 'metadata_blocks', name: 'Strip Metadata Blocks', desc: 'Removes hidden divs, details sections' },
-        { id: 'ai_reasoning', name: 'Strip AI Reasoning Tags', desc: 'Removes thinking, tucao tags' },
-        { id: 'comprehensive', name: 'Comprehensive Clean', desc: 'All formatting + metadata + reasoning' },
-        { id: 'nuclear', name: 'Strip All HTML', desc: 'Plain text only' },
-        { id: 'mvu_game_maker', name: 'MVU Game Maker', desc: 'Strips MVU engine tags + standard formatting' },
-        { id: 'custom', name: 'Custom', desc: 'Your own pattern selection' },
-    ];
-
+    const presets = cleaningPresetChoices();
     const currentPreset = currentSettings.cleaningPreset || getCleaningSettings().selectedPreset || 'custom';
 
     return `
@@ -1426,7 +1422,7 @@ function renderTextCleaningOptions() {
                 </div>
             </div>
             <span class="vectfox-cv-option-hint" id="vectfox_cv_cleaning_hint">
-                ${presets.find(p => p.id === currentPreset)?.desc || ''}
+                ${presets.find(p => p.id === currentPreset)?.description || ''}
             </span>
         </div>
     `;
@@ -1580,18 +1576,7 @@ function bindEvents() {
         const presetId = $(this).val();
         currentSettings.cleaningPreset = presetId;
 
-        // Update hint text
-        const hints = {
-            none: 'No cleaning applied',
-            html_formatting: 'Removes font, color, bold/italic tags',
-            metadata_blocks: 'Removes hidden divs, details sections',
-            ai_reasoning: 'Removes thinking, tucao tags',
-            comprehensive: 'All formatting + metadata + reasoning',
-            nuclear: 'Plain text only',
-            mvu_game_maker: 'Strips MVU engine tags (state updates, combat logs, game-system guides, cast/stats/choices) + standard formatting',
-            custom: 'Your own pattern selection',
-        };
-        $('#vectfox_cv_cleaning_hint').text(hints[presetId] || '');
+        $('#vectfox_cv_cleaning_hint').text(cleaningPresetChoices().find(p => p.id === presetId)?.description || '');
 
         // Save to extension settings
         saveCleaningPresetToSettings(presetId);

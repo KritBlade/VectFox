@@ -71,7 +71,7 @@ export function openTextCleaningManager() {
                                 </option>
                             </select>
                             <span class="vectfox-tcm-preset-desc" id="VectFox_tcm_preset_desc">
-                                ${getPresetDescription(settings.selectedPreset)}
+                                ${StringUtils.escapeHtml(getPresetDescription(settings.selectedPreset))}
                             </span>
                         </div>
                     </div>
@@ -150,16 +150,8 @@ export function openTextCleaningManager() {
  * Gets preset description
  */
 function getPresetDescription(presetId) {
-    const descriptions = {
-        none: 'No cleaning applied - text vectorized as-is',
-        html_formatting: 'Removes font, color, bold/italic tags but keeps text content',
-        metadata_blocks: 'Removes hidden divs and details/summary sections',
-        ai_reasoning: 'Removes <thinking> and <tucao> AI reasoning tags',
-        comprehensive: 'All formatting, metadata, and reasoning tags removed',
-        nuclear: 'Strips ALL HTML tags - plain text only',
-        custom: 'Uses your selected built-in and custom patterns',
-    };
-    return descriptions[presetId] || '';
+    if (presetId === 'custom') return 'Uses your selected built-in and custom patterns';
+    return CLEANING_PRESETS[presetId]?.description || '';
 }
 
 /**
@@ -188,7 +180,7 @@ function renderBuiltinPatterns(settings) {
                    ${activeIds.includes(p.id) ? 'checked' : ''}
                    ${isCustom ? '' : 'disabled'}>
             <div class="vectfox-tcm-pattern-info">
-                <span class="vectfox-tcm-pattern-name">${p.name}</span>
+                <span class="vectfox-tcm-pattern-name">${StringUtils.escapeHtml(p.name)}</span>
                 <code class="vectfox-tcm-pattern-regex">${StringUtils.escapeHtml(p.pattern.substring(0, 40))}${p.pattern.length > 40 ? '...' : ''}</code>
             </div>
         </label>

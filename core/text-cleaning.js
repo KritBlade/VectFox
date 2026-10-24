@@ -138,6 +138,33 @@ export const BUILTIN_PATTERNS = {
         flags: 'gi',
         builtin: true,
     },
+    // Pictures and the image prompts they carry. mvu-helper stores a drawn picture
+    // as an auto-img-wrap span: data-rawtag holds the original <pic> tag (escaped,
+    // prompt included) and the <img> title holds the full image prompt. The wrap is
+    // matched only through the elements mvu-helper puts in it (image, escaped tag
+    // line, regenerate or trace span), so a wrap of any other shape is left alone
+    // instead of swallowing the prose after it. Bare <img> tags and undrawn <pic>
+    // tags go too; a quoted <pic> value may contain ">".
+    strip_mvu_pictures: {
+        id: 'strip_mvu_pictures',
+        name: 'Strip Pictures & Image Prompts (<img>, <pic>)',
+        pattern: '<span\\b[^>]*\\bauto-img-wrap\\b[^>]*>(?:\\s*(?:<img\\b[^>]*>|<code\\b[^>]*>[^<]*</code>|<span\\b[^>]*>\\s*</span>))*\\s*</span>|<pic\\b(?:"[^"]*"|[^"<>])*>|<img\\b[^>]*>',
+        replacement: '',
+        flags: 'gi',
+        builtin: true,
+    },
+    // mvu-helper's reply-cast records: one self-contained <cast name="…"> tag per
+    // line, no closing tag, inside a <reply_cast> block or outside it. This is the
+    // CAST_RECORD_PATTERN mvu-helper publishes for memory tools; it cannot cross a
+    // line or a ">", so a malformed record never swallows prose.
+    strip_mvu_cast_records: {
+        id: 'strip_mvu_cast_records',
+        name: 'Strip <cast> Records (MVU)',
+        pattern: '<cast\\b[^>\\n]*>',
+        replacement: '',
+        flags: 'gi',
+        builtin: true,
+    },
 };
 
 /**
@@ -180,10 +207,13 @@ export const CLEANING_PRESETS = {
         description: 'Removes ALL HTML tags - plain text only',
         patterns: ['strip_all_html'],
     },
+    // VectFox owns this list: it lives in code, never in saved settings, so every
+    // MVU builtin added in an update reaches everyone on the preset. The id stays
+    // mvu_game_maker because saved settings and exported templates store it.
     mvu_game_maker: {
         id: 'mvu_game_maker',
-        name: 'MVU Game Maker',
-        description: 'Strips MVU game engine tags (state updates, combat logs, game-system guides, cast/stats/choices scaffolding) plus standard HTML formatting and AI reasoning tags',
+        name: 'MVU',
+        description: 'Strips MVU tags (state updates, combat logs, game-system guides, cast/stats/choices scaffolding, pictures with their image prompts) plus standard HTML formatting and AI reasoning tags. VectFox updates add new MVU tags to it.',
         patterns: [
             'strip_font_tags',
             'strip_color_spans',
@@ -198,6 +228,8 @@ export const CLEANING_PRESETS = {
             'strip_mvu_combat_log',
             'strip_mvu_game_system_tags',
             'strip_mvu_engine_tags',
+            'strip_mvu_pictures',
+            'strip_mvu_cast_records',
         ],
     },
 };
@@ -215,13 +247,12 @@ export function getCleaningSettings() {
         extension_settings.vectfox = {};
     }
     if (!extension_settings.vectfox.cleaning) {
-        // Default: Custom preset with all MVU + standard patterns pre-checked
-        // (equivalent to MVU Game Maker preset, but lets users toggle individual patterns)
-        const defaultEnabled = Object.keys(BUILTIN_PATTERNS).filter(id => id !== 'strip_all_html');
+        // Default: the MVU preset. Custom mode starts from the same selection
+        // (a copy, so toggling a builtin never edits the preset).
         extension_settings.vectfox.cleaning = {
-            selectedPreset: 'custom',
+            selectedPreset: 'mvu_game_maker',
             customPatterns: [],
-            enabledBuiltins: defaultEnabled,
+            enabledBuiltins: [...CLEANING_PRESETS.mvu_game_maker.patterns],
         };
     }
     return extension_settings.vectfox.cleaning;
@@ -307,15 +338,13 @@ function applyPattern(text, pattern) {
  *   - input is not a string
  *   - cleaned result has zero non-whitespace characters
  *
- * Why a separate function vs. an `if (!cleanText(x).trim())` check at
- * each call site: the 2026-05-24 lorebook regression where a stripped
- * `<Intimacy_System>...</Intimacy_System>` block left an empty entry
- * whose `# <comment>` header + auto-appended `[KEYWORDS: ...]` still
- * built a "valid-looking" chunk. The fix needed an emptiness re-check
- * after cleanText — and every other content pipeline (character per-
- * field, document, URL, wiki, YouTube, wiki per-page) has the exact
- * same shape, the exact same bug, just with different surrounding
- * metadata. Centralizing the gate stops the pattern from drifting.
+ * Why one function rather than an `if (!cleanText(x).trim())` check at
+ * each call site: a unit whose content cleans away entirely still carries
+ * its surrounding metadata (a lorebook entry's `# <comment>` header and
+ * auto-appended `[KEYWORDS: ...]`, a document's title), which would build
+ * a valid-looking chunk with no content. Every content pipeline (character
+ * per-field, document, URL, wiki, wiki per-page, YouTube) has that shape,
+ * so the gate lives here once.
  *
  * DOES NOT replace `cleanText`. Use the original when you want the
  * cleaned string regardless of whether it's empty (e.g. per-message
@@ -371,9 +400,8 @@ export function cleanText(text) {
  *      (model-injected planning scaffolds; tag names may contain ~ or -).
  *   3. An unterminated <think> that is never closed with </think> — common when the
  *      model only closes the inner planning wrapper. Here we strip the orphan TAG
- *      itself (step 3), NOT everything to end-of-string: an earlier version stripped
- *      <think>…$ and silently deleted the entire narrative reply, leaving the planner
- *      with an empty turn (observed 2026-06-02).
+ *      itself (step 3), NOT everything to end-of-string: stripping <think>…$ would
+ *      delete the whole narrative reply and leave the planner an empty turn.
  *
  * @param {string} text
  * @returns {string} text with reasoning blocks removed
@@ -407,19 +435,26 @@ export function stripReasoningBlocks(text) {
         .trim();
 }
 
-// Game-system blocks the model appends AFTER the narrative (MVU engine output).
-// <UpdateVariable> wraps <UpdateAnalysis> + <JSONPatch>; the inner two are also
-// listed so a standalone (un-wrapped) occurrence is still caught. <combat_log>
-// is empty most turns but pure noise to a retrieval planner. These overlap with
-// BUILTIN_PATTERNS (strip_mvu_update_variable / strip_mvu_combat_log) but those
-// are config-gated for vectorization; the planner strip must be unconditional,
-// and the builtins don't cover <UpdateAnalysis>/<JSONPatch> by name.
-const PLANNER_NOISE_TAGS = ['UpdateVariable', 'UpdateAnalysis', 'JSONPatch', 'combat_log'];
+// Paired game-system blocks the model writes beside the narrative: MVU engine
+// output and mvu-helper's <reply_cast> roster. <UpdateVariable> wraps
+// <UpdateAnalysis> + <JSONPatch>; the inner two are also listed so a standalone
+// (un-wrapped) occurrence is still caught. <combat_log> is empty most turns but
+// pure noise to a retrieval planner. These overlap with BUILTIN_PATTERNS
+// (strip_mvu_update_variable / strip_mvu_combat_log / strip_mvu_engine_tags) but
+// those are config-gated for vectorization; the planner strip must be
+// unconditional, and the builtins don't cover <UpdateAnalysis>/<JSONPatch> by name.
+const PLANNER_NOISE_TAGS = ['UpdateVariable', 'UpdateAnalysis', 'JSONPatch', 'combat_log', 'reply_cast'];
+
+// Unpaired machinery, removed with the builtins' own patterns whether or not the
+// user enabled them: pictures (one image prompt alone fills the planner's
+// 600-char view of a turn) and cast records written outside <reply_cast>.
+const PLANNER_NOISE_PATTERNS = [BUILTIN_PATTERNS.strip_mvu_pictures, BUILTIN_PATTERNS.strip_mvu_cast_records];
 
 /**
- * Strip MVU game-system blocks (state-update JSON, combat logs) so the agentic
- * planner reads only the narrative, never engine bookkeeping. Unconditional,
- * like stripReasoningBlocks — independent of the vectorization cleaning config.
+ * Strip MVU game-system blocks (state-update JSON, combat logs, cast roster) and
+ * pictures so the agentic planner reads only the narrative, never engine
+ * bookkeeping or image prompts. Unconditional, like stripReasoningBlocks —
+ * independent of the vectorization cleaning config.
  *
  * Compose with stripReasoningBlocks to clean a chat turn for the planner:
  *   stripGameSystemBlocks(stripReasoningBlocks(mes))
@@ -435,12 +470,11 @@ export function stripGameSystemBlocks(text) {
         // sibling blocks of the same tag aren't swallowed together.
         out = out.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\s*>`, 'gi'), '');
     }
+    for (const { pattern, flags } of PLANNER_NOISE_PATTERNS) {
+        out = out.replace(new RegExp(pattern, flags), '');
+    }
     return out.replace(/\n{3,}/g, '\n\n').trim();
 }
-
-// cleanMessages removed 2026-05-24 — its only consumer was prepareChatContent
-// in content-vectorization.js, which is itself gone. EventBase's per-message
-// cleaning happens inline in eventbase-extractor.js via cleanText() directly.
 
 // ============================================================================
 // CUSTOM PATTERN MANAGEMENT
