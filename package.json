@@ -7,7 +7,7 @@
     "lint": "eslint .",
     "test": "eslint . && knip && knip --production && npm run check:duplicates && npm run check:imports && vitest run",
     "check:imports": "npm run check:import-graph && npm run check:named-exports && npm run check:host-imports",
-    "check:import-graph": "depcruise index.js --config .dependency-cruiser.cjs",
+    "check:import-graph": "depcruise src/index.js --config .dependency-cruiser.cjs",
     "check:named-exports": "node tools/check-named-exports.mjs",
     "check:host-imports": "node tools/check-host-imports.mjs",
     "test:watch": "vitest",
@@ -16,8 +16,8 @@
     "test:e2e": "node scripts/run-e2e-logged.mjs",
     "test:e2e:no-log": "playwright test",
     "test:e2e:report": "playwright show-report",
-    "check:duplicates": "jscpd index.js backends core diagnostics Migration providers src ui --format javascript --min-tokens 50 --ignore \"**/vendor/**\" --baseline .jscpd-baseline.json --fail-on-new-clones --silent",
-    "list:duplicates": "jscpd index.js backends core diagnostics Migration providers src ui --format javascript --min-tokens 50 --ignore \"**/vendor/**\""
+    "check:duplicates": "jscpd src --format javascript --min-tokens 50 --ignore \"**/vendor/**\" --baseline .jscpd-baseline.json --fail-on-new-clones --silent",
+    "list:duplicates": "jscpd src --format javascript --min-tokens 50 --ignore \"**/vendor/**\""
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

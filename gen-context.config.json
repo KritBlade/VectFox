@@ -6,16 +6,16 @@
   "_outputs_comment": "ONLY copilot. The 'claude' adapter targets CLAUDE.md, which is hand-maintained project instructions loaded every session — SigMap must never write signatures into it. codex/gemini are unused here.",
   "outputs": ["copilot"],
 
-  "_exclude_comment": "srcDirs stays auto-detected. 'tests' is excluded from SIGNATURE EXTRACTION only: 35 test files yielded 41 signatures total (most yield 0) while consuming 35 of 123 file slots, which is what starved real source files out of the budget. Test-coverage detection uses testDirs below and is unaffected.",
+  "_exclude_comment": "'tests' is excluded from SIGNATURE EXTRACTION only: 35 test files yielded 41 signatures total (most yield 0) while consuming 35 of 123 file slots, which is what starved real source files out of the budget. Test-coverage detection uses testDirs below and is unaffected.",
   "exclude": [
     "node_modules", ".git", "dist", "build", "out",
     "__pycache__", ".next", "coverage", "target", "vendor",
     ".context", "tests",
-    "playwright-report", "test-results", "Doc", "plans", "assets", "styles"
+    "playwright-report", "test-results", "Doc", "plans", "assets"
   ],
 
-  "_srcDirs_comment": "Pinned because auto-detection is unstable here: excluding 'tests' caused it to pull in Migration/ (one-off scripts) instead, while never finding providers/. These six are the shipped source roots apart from Migration/.",
-  "srcDirs": ["core", "ui", "backends", "diagnostics", "providers", "src"],
+  "_srcDirs_comment": "Pinned because auto-detection is unstable here. src/ holds all shipped source.",
+  "srcDirs": ["src"],
 
   "maxDepth": 6,
 

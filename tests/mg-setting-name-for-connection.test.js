@@ -19,7 +19,7 @@ import { describe, it, expect } from 'vitest';
 import {
     migration_setting_name_for_connection,
     CONNECTION_SETTING_RENAMES,
-} from '../Migration/mg_setting_name_for_connection.js';
+} from '../src/app/settings-migration-connection-setting-names.js';
 
 describe('migration_setting_name_for_connection', () => {
     it('renames every old key to its new name and deletes the old key', () => {

@@ -23,7 +23,7 @@ vi.mock('../src/shared/similharity-plugin.js', () => ({
     getDetectedPluginVersion: vi.fn(() => null),
 }));
 
-import { checkSimilharityVersion } from '../core/network-startup.js';
+import { checkSimilharityVersion } from '../src/app/network-startup.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';
 import { log } from '../src/sillytavern/log.js';
 

@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import {
     migration_embedding_source_key,
     EMBEDDING_SOURCE_RENAME,
-} from '../Migration/mg_embedding_source_key.js';
+} from '../src/app/settings-migration-embedding-provider-key.js';
 
 describe('migration_embedding_source_key', () => {
     it('renames source → embedding_provider, preserving the value', () => {

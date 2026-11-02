@@ -1,0 +1,36 @@
+/* ============================================================================
+ * VECTFOX - ADVANCED RAG SYSTEM
+ * ============================================================================
+ * Main stylesheet - imports all component styles
+ *
+ * @author Kritblade
+ * @version 3.3.1
+ * ============================================================================ */
+
+/* Base styles - variables, icons, container */
+@import url('./shared/base.css');
+
+/* Component styles */
+@import url('./features/settings-panel/settings-panel.css');
+@import url('./shared/forms.css');
+@import url('./shared/buttons.css');
+@import url('./features/database-browser/collection-badges.css');
+@import url('./shared/modals.css');
+
+/* Progress panel */
+@import url('./shared/progress-tracker.css');
+
+/* UI component styles */
+@import url('./features/diagnostics/diagnostics.css');
+@import url('./features/database-browser/database-browser.css');
+@import url('./features/database-browser/chunk-visualizer.css');
+@import url('./features/chunkbase/content-vectorizer.css');
+@import url('./features/chunkbase/reformat-review.css');
+@import url('./features/text-cleaning/text-cleaning-ui.css');
+@import url('./features/diagnostics/health-dashboard.css');
+
+/* Tab navigation styles */
+@import url('./shared/tabs.css');
+
+/* Mobile responsive styles - must be last to override */
+@import url('./shared/mobile.css');

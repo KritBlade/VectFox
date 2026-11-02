@@ -3,10 +3,10 @@
 // is reported too.
 {
     "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
-    // index.js is the manifest's "js" entry; bm25-scorer.js loads the vendored jieba glue by URL.
-    "entry": ["index.js!", "src/vendor/jieba/jieba_rs_wasm.js!"],
+    // src/index.js is the manifest's "js" entry; bm25-scorer.js loads the vendored jieba glue by URL.
+    "entry": ["src/index.js!", "src/vendor/jieba/jieba_rs_wasm.js!"],
     "project": [
-        "{backends,core,diagnostics,Migration,providers,src,ui}/**/*.js!",
+        "src/**/*.js!",
         "tests/**/*.{js,mjs}",
         "scripts/**/*.mjs",
         "tools/**/*.mjs"

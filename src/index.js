@@ -10,38 +10,38 @@
  * ============================================================================
  */
 
-import { eventSource, event_types } from './src/sillytavern/events.js';
-import { extension_prompt_types } from './src/sillytavern/prompt-injection.js';
-import { ModuleWorkerWrapper, debounce, debounce_timeout } from './src/sillytavern/extension-runtime.js';
-import { extension_settings } from './src/sillytavern/settings.js';
+import { eventSource, event_types } from './sillytavern/events.js';
+import { extension_prompt_types } from './sillytavern/prompt-injection.js';
+import { ModuleWorkerWrapper, debounce, debounce_timeout } from './sillytavern/extension-runtime.js';
+import { extension_settings } from './sillytavern/settings.js';
 
 // VectFox modules - Core
-import { synchronizeChat, rearrangeChat } from './src/features/chunkbase/chat-vectorization.js';
-import { migrateOldEnabledKeys } from './src/features/collections/collection-metadata.js';
-import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './src/features/collections/collection-loader.js';
-import { clearCachesForDeletedCollection } from './src/features/eventbase/eventbase-store.js';
-import { setInsertedCollectionRegistrar } from './src/features/vector-backend/qdrant.js';
-import { migrateLegacyApiKeys } from './src/shared/api-keys.js';
-import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
-import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
-import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEFAULT } from './Migration/mg_world_info_threshold_rrf_workaround.js';
-import { log } from './src/sillytavern/log.js';
+import { synchronizeChat, rearrangeChat } from './features/chunkbase/chat-vectorization.js';
+import { migrateOldEnabledKeys } from './features/collections/collection-metadata.js';
+import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './features/collections/collection-loader.js';
+import { clearCachesForDeletedCollection } from './features/eventbase/eventbase-store.js';
+import { setInsertedCollectionRegistrar } from './features/vector-backend/qdrant.js';
+import { migrateLegacyApiKeys } from './shared/api-keys.js';
+import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
+import { migration_embedding_source_key } from './app/settings-migration-embedding-provider-key.js';
+import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEFAULT } from './app/settings-migration-world-info-threshold.js';
+import { log } from './sillytavern/log.js';
 import {
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
     AGENTIC_MAX_TOKENS_DEFAULT,
-} from './src/shared/constants.js';
-import { isVectFoxEnabled } from './src/shared/feature-gate.js';
-import { runNetworkStartup } from './core/network-startup.js';
+} from './shared/constants.js';
+import { isVectFoxEnabled } from './shared/feature-gate.js';
+import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
-import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './src/features/settings-panel/settings-panel.js';
-import { initializeVisualizer } from './src/features/database-browser/chunk-visualizer.js';
-import { initializeDatabaseBrowser } from './src/features/database-browser/database-browser.js';
-import { initializeWorldInfoIntegration } from './src/features/world-info/world-info-integration.js';
-import { refreshWorldInfoEntryDepthCache } from './src/features/eventbase/summarizer-injection.js';
-import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './src/features/keyword-search/bm25-scorer.js';
+import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/settings-panel.js';
+import { initializeVisualizer } from './features/database-browser/chunk-visualizer.js';
+import { initializeDatabaseBrowser } from './features/database-browser/database-browser.js';
+import { initializeWorldInfoIntegration } from './features/world-info/world-info-integration.js';
+import { refreshWorldInfoEntryDepthCache } from './features/eventbase/summarizer-injection.js';
+import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/bm25-scorer.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
 setDeletedCollectionCleanup(clearCachesForDeletedCollection);
@@ -463,7 +463,7 @@ window['vectfox_rearrangeChat'] = vectfox_rearrangeChat;
  * screen — instead of its own code — removes the risk of the two drifting.
  */
 async function onVectorizeAllClick() {
-    const { openContentVectorizer } = await import('./src/features/chunkbase/content-vectorizer.js');
+    const { openContentVectorizer } = await import('./features/chunkbase/content-vectorizer.js');
     openContentVectorizer('chat');
 }
 
@@ -482,7 +482,7 @@ async function onPurgeClick() {
     }
 
     try {
-        const { getRequestHeaders } = await import('./src/sillytavern/requests.js');
+        const { getRequestHeaders } = await import('./sillytavern/requests.js');
 
         // 1. Delete entire vectors folder
         await fetch('/api/plugins/similharity/purge-all', {
@@ -498,7 +498,7 @@ async function onPurgeClick() {
         }
 
         // 3. Save settings
-        const { saveSettingsDebounced } = await import('./src/sillytavern/settings.js');
+        const { saveSettingsDebounced } = await import('./sillytavern/settings.js');
         saveSettingsDebounced();
 
         toastr.success('All vector data purged', 'Purge Complete');
@@ -530,7 +530,7 @@ async function onCleanupCorruptedClick() {
             return;
         }
 
-        const { saveSettingsDebounced } = await import('./src/sillytavern/settings.js');
+        const { saveSettingsDebounced } = await import('./sillytavern/settings.js');
         saveSettingsDebounced();
 
         const failed = result.purged.filter(p => !p.ok).length;
@@ -614,7 +614,7 @@ jQuery(async () => {
         // 2026-05-26 against a user whose summarize_openrouter_api_key /
         // summarize_vllm_api_key persisted on disk across multiple reloads
         // because the debounced save never fired before page close.
-        const { saveSettings } = await import('./src/sillytavern/settings.js');
+        const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }
 
@@ -631,7 +631,7 @@ jQuery(async () => {
         log.lifecycle(`VectFox: Renamed ${_connRename.migrated} connection setting key(s): ${_connRename.keys.join(', ')}`);
         // Persist immediately (not debounced) — same reload-safety reason as the
         // eventbase block above (R5 in the plan's crash-safety checklist).
-        const { saveSettings } = await import('./src/sillytavern/settings.js');
+        const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }
 
@@ -641,7 +641,7 @@ jQuery(async () => {
     const _srcRename = migration_embedding_source_key(extension_settings.vectfox);
     if (_srcRename.migrated > 0) {
         log.lifecycle('VectFox: Renamed embedding `source` → `embedding_provider`');
-        const { saveSettings } = await import('./src/sillytavern/settings.js');
+        const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }
 
@@ -661,7 +661,7 @@ jQuery(async () => {
         } catch (_) { /* toastr unavailable (headless) — the log line stands alone */ }
     }
     if (_thresholdReset.stamped) {
-        const { saveSettings } = await import('./src/sillytavern/settings.js');
+        const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }
 

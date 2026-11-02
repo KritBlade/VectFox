@@ -1,6 +1,6 @@
 // .dependency-cruiser.cjs — the import rules `npm test` holds the shipped code to (dependency-cruiser).
 //
-// `npm run check:import-graph` walks the import graph from the manifest's entry, index.js, and checks two rules:
+// `npm run check:import-graph` walks the import graph from the manifest's entry, src/index.js, and checks two rules:
 // every in-repo import resolves, and no module imports itself back through a cycle.
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {

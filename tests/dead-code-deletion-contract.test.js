@@ -52,8 +52,7 @@ const ALLOWLIST = new Set([
 ]);
 
 // Source roots to scan. Anything outside these is ignored (node_modules, etc).
-const SCAN_DIRS = ['core', 'ui', 'backends', 'diagnostics', 'src'];
-const SCAN_TOP_FILES = ['index.js'];
+const SCAN_DIRS = ['src'];
 
 // ============================================================================
 // HELPERS
@@ -72,10 +71,6 @@ function* walkSourceFiles() {
         const abs = path.join(ROOT, dir);
         if (!fs.existsSync(abs)) continue;
         yield* walkDir(abs);
-    }
-    for (const f of SCAN_TOP_FILES) {
-        const abs = path.join(ROOT, f);
-        if (fs.existsSync(abs)) yield abs;
     }
 }
 
@@ -235,7 +230,7 @@ describe('Live code remains intact (regression guard)', () => {
 
     describe('Critical settings defaults', () => {
         it('keyword_scoring_method default is "hybrid" (recent flip)', () => {
-            expect(readRel('index.js'))
+            expect(readRel('src/index.js'))
                 .toMatch(/keyword_scoring_method:\s*['"]hybrid['"]/);
         });
 
@@ -389,12 +384,12 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('temporal_decay setting is gone from index.js defaults', () => {
-            const src = readRel('index.js');
+            const src = readRel('src/index.js');
             expect(src).not.toMatch(/temporal_decay\s*:/);
         });
 
         it('nostalgia_* settings are gone from index.js defaults', () => {
-            const src = readRel('index.js');
+            const src = readRel('src/index.js');
             expect(src).not.toMatch(/nostalgia_\w+\s*:/);
         });
 
@@ -562,6 +557,6 @@ describe('Test infrastructure self-check', () => {
 
     it('repo root resolves correctly', () => {
         expect(existsRel('package.json')).toBe(true);
-        expect(existsRel('index.js')).toBe(true);
+        expect(existsRel('src/index.js')).toBe(true);
     });
 });

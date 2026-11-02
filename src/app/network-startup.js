@@ -39,11 +39,11 @@
  * ============================================================================
  */
 
-import { discoverExistingCollections } from '../src/features/collections/collection-loader.js';
-import { pruneOrphanedEventBaseChatMaps } from '../src/features/eventbase/eventbase-store.js';
-import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';
-import { retry } from '../src/shared/retry.js';
-import { log } from '../src/sillytavern/log.js';
+import { discoverExistingCollections } from '../features/collections/collection-loader.js';
+import { pruneOrphanedEventBaseChatMaps } from '../features/eventbase/eventbase-store.js';
+import { checkPluginAvailable, getDetectedPluginVersion } from '../shared/similharity-plugin.js';
+import { retry } from '../shared/retry.js';
+import { log } from '../sillytavern/log.js';
 
 /**
  * D5: Cross-repo version floor — warn ONLY when the installed similharity is OLDER
@@ -181,7 +181,7 @@ export function runNetworkStartup(startupSettings) {
 
             // Phase 1.5: backfill EventBase payload indexes on pre-existing Qdrant collections.
             if (startupSettings.vector_backend === 'qdrant') {
-                import('../src/features/eventbase/eventbase-store.js').then(({ ensureEventBaseIndexes }) => {
+                import('../features/eventbase/eventbase-store.js').then(({ ensureEventBaseIndexes }) => {
                     ensureEventBaseIndexes(startupSettings).catch(error => {
                         log.warn('[VectFox] EventBase index backfill failed:', error);
                     });

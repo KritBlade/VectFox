@@ -15,7 +15,7 @@ import {
     migration_world_info_threshold_rrf_workaround,
     RRF_WORKAROUND_THRESHOLD_CEILING,
     WORLD_INFO_THRESHOLD_DEFAULT,
-} from '../Migration/mg_world_info_threshold_rrf_workaround.js';
+} from '../src/app/settings-migration-world-info-threshold.js';
 
 describe('migration_world_info_threshold_rrf_workaround', () => {
     it('resets a sub-0.05 workaround value to the default and reports what it was', () => {
