@@ -3579,7 +3579,7 @@ test('TEST 019 — WI / AutoSync refresh smoke: refresh paths do not mutate lock
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 019 [RefreshSmoke]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { refreshWIStatus, refreshAutoSyncCheckbox } = await import(base + 'ui/ui-manager.js');
+        const { refreshWIStatus, refreshAutoSyncCheckbox } = await import(base + 'src/features/settings-panel/settings-panel.js');
         const {
             setCollectionMeta,
             setCollectionLock,

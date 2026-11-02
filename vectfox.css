@@ -11,7 +11,7 @@
 @import url('./src/shared/base.css');
 
 /* Component styles */
-@import url('./styles/cards.css');
+@import url('./src/features/settings-panel/settings-panel.css');
 @import url('./src/shared/forms.css');
 @import url('./src/shared/buttons.css');
 @import url('./src/features/database-browser/collection-badges.css');

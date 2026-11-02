@@ -10,38 +10,38 @@
  * ============================================================================
  */
 
-import { saveSettingsDebounced, extension_settings } from '../src/sillytavern/settings.js';
-import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
-import { eventSource, event_types } from '../src/sillytavern/events.js';
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { openThirdPartyExtensionMenu } from '../src/sillytavern/extension-runtime.js';
-import { writeSecret, deleteSecret, SECRET_KEYS, readSecretState } from '../src/sillytavern/secrets.js';
+import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
+import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
+import { eventSource, event_types } from '../../sillytavern/events.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { openThirdPartyExtensionMenu } from '../../sillytavern/extension-runtime.js';
+import { writeSecret, deleteSecret, SECRET_KEYS, readSecretState } from '../../sillytavern/secrets.js';
 import {
     getOpenRouterApiKey,
     getCustomApiKey,
     getQdrantApiKey,
     fetchQdrantApiKeyPresence,
-} from '../src/shared/api-keys.js';
-import { getWebLlmProvider as getSharedWebLlmProvider } from '../src/features/embedding/webllm-provider.js';
-import { escapeHtml } from '../src/shared/html-escape.js';
-import { openDatabaseBrowser } from '../src/features/database-browser/database-browser.js';
-import { openContentVectorizer } from '../src/features/chunkbase/content-vectorizer.js';
-import { openQueryTestModal } from '../src/features/query-tester/query-tester.js';
-import { openTextCleaningManager } from '../src/features/text-cleaning/text-cleaning-ui.js';
-import { progressTracker } from '../src/shared/progress-tracker.js';
-import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';
-import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
-import { clearInterceptorPrompts } from '../src/features/chunkbase/chat-vectorization.js';
-import { clearLorebookPrompt } from '../src/features/world-info/world-info-integration.js';
-import { refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
-import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from '../src/features/diagnostics/health-dashboard.js';
-import { getCollectionRegistry, getCollectionListing } from '../src/features/collections/collection-loader.js';
-import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
-import { getCollectionMeta } from '../src/features/collections/collection-metadata.js';
-import { parseRegistryKey } from '../src/shared/collection-ids.js';
-import { getModelField, resolveProviderApiUrl } from '../src/features/embedding/providers.js';
-import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../src/features/keyword-search/bm25-scorer.js';
-import { LANGUAGE_MODES } from '../src/features/keyword-search/language-modes.js';
+} from '../../shared/api-keys.js';
+import { getWebLlmProvider as getSharedWebLlmProvider } from '../embedding/webllm-provider.js';
+import { escapeHtml } from '../../shared/html-escape.js';
+import { openDatabaseBrowser } from '../database-browser/database-browser.js';
+import { openContentVectorizer } from '../chunkbase/content-vectorizer.js';
+import { openQueryTestModal } from '../query-tester/query-tester.js';
+import { openTextCleaningManager } from '../text-cleaning/text-cleaning-ui.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
+import { resetBackendHealth } from '../vector-backend/backend-registry.js';
+import { isVectFoxEnabled } from '../../shared/feature-gate.js';
+import { clearInterceptorPrompts } from '../chunkbase/chat-vectorization.js';
+import { clearLorebookPrompt } from '../world-info/world-info-integration.js';
+import { refreshWorldInfoEntryDepthCache } from '../eventbase/summarizer-injection.js';
+import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from '../diagnostics/health-dashboard.js';
+import { getCollectionRegistry, getCollectionListing } from '../collections/collection-loader.js';
+import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
+import { getCollectionMeta } from '../collections/collection-metadata.js';
+import { parseRegistryKey } from '../../shared/collection-ids.js';
+import { getModelField, resolveProviderApiUrl } from '../embedding/providers.js';
+import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../keyword-search/bm25-scorer.js';
+import { LANGUAGE_MODES } from '../keyword-search/language-modes.js';
 import {
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     RETRIEVAL_TIMEOUT_MIN_MS,
@@ -53,14 +53,14 @@ import {
     AGENTIC_MAX_TOKENS_DEFAULT,
     AGENTIC_MAX_TOKENS_MIN,
     AGENTIC_MAX_TOKENS_MAX,
-} from '../src/shared/constants.js';
+} from '../../shared/constants.js';
 import {
     resolveRetrievalTimeoutMs,
     resolveAgenticPlannerTimeoutMs,
     resolveAgenticQueryTimeoutMs,
     resolveAgenticMaxTokens,
-} from '../src/shared/retrieval-budget.js';
-import { log } from '../src/sillytavern/log.js';
+} from '../../shared/retrieval-budget.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * Renders the VectFox settings UI
@@ -1726,7 +1726,7 @@ async function executeDiagnostics() {
 
     try {
         // Import and run diagnostics
-        const { runDiagnostics } = await import('../src/features/diagnostics/diagnostics-runner.js');
+        const { runDiagnostics } = await import('../diagnostics/diagnostics-runner.js');
         const results = await runDiagnostics(settings, runProduction);
 
         // Stop capturing and get logs
@@ -2033,7 +2033,7 @@ export async function refreshWIStatus() {
  *   'cancel' — the user closed the popup, stopped the fork, or it failed.
  */
 async function _offerEventBaseFork(settings) {
-    const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../src/features/eventbase/eventbase-fork.js');
+    const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../eventbase/eventbase-fork.js');
 
     let source;
     try {
@@ -2049,7 +2049,7 @@ async function _offerEventBaseFork(settings) {
     const remainingText = remainingCount > 0
         ? ` The ${remainingCount} message${remainingCount === 1 ? '' : 's'} after them still need extraction.`
         : '';
-    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../src/sillytavern/popup.js');
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../../sillytavern/popup.js');
     const choice = await callGenericPopup(
         `<div style="text-align:left">
             <p><strong>This chat is a branch or checkpoint.</strong> Its first ${source.sharedPrefixLength} messages match the EventBase <em>${escapeHtml(source.collectionId)}</em>.</p>
@@ -2084,8 +2084,8 @@ export async function refreshAutoSyncCheckbox(settings) {
     const $status = $('#VectFox_autosync_status');
     const $hint = $('#VectFox_autosync_hint');
 
-    const { getChatAutoSyncStatus } = await import('../src/features/eventbase/eventbase-workflow.js');
-    const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../src/features/collections/collection-metadata.js');
+    const { getChatAutoSyncStatus } = await import('../eventbase/eventbase-workflow.js');
+    const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../collections/collection-metadata.js');
 
     // While VectFox is disabled this refresh only reads cached state: no backend call,
     // no diagnostics. It still runs so the checkbox matches the current chat — the
@@ -2402,8 +2402,8 @@ function bindSettingsEvents(settings, callbacks) {
             const enabling = $(this).prop('checked');
             const $checkbox = $(this);
 
-            const { getChatAutoSyncStatus } = await import('../src/features/eventbase/eventbase-workflow.js');
-            const { setCollectionAutoSync, setCollectionLock } = await import('../src/features/collections/collection-metadata.js');
+            const { getChatAutoSyncStatus } = await import('../eventbase/eventbase-workflow.js');
+            const { setCollectionAutoSync, setCollectionLock } = await import('../collections/collection-metadata.js');
             let status = await getChatAutoSyncStatus(settings);
             const chatId = getCurrentChatId();
             log.lifecycle(`[AutoSync][checkbox] ${enabling ? 'CHECK' : 'UNCHECK'} → status.state=${status.state}, chatId=${chatId || '(none)'}, collection=${status.registryKey || status.collectionId || '(none)'}`);
@@ -2465,9 +2465,9 @@ function bindSettingsEvents(settings, callbacks) {
                 // See plans/autosync-backlog-catchup-on-enable.md.
                 let markerFloorOverride; // undefined → smart placement (catch up to tip)
                 try {
-                    const { getVectorizationTip } = await import('../src/features/eventbase/eventbase-store.js');
-                    const { getAutoSyncWindowSize } = await import('../src/features/eventbase/eventbase-workflow.js');
-                    const { getChatUUID } = await import('../src/shared/collection-ids.js');
+                    const { getVectorizationTip } = await import('../eventbase/eventbase-store.js');
+                    const { getAutoSyncWindowSize } = await import('../eventbase/eventbase-workflow.js');
+                    const { getChatUUID } = await import('../../shared/collection-ids.js');
                     const uuid = getChatUUID();
                     const chatMsgCount = typeof status.chatMessageCount === 'number'
                         ? status.chatMessageCount
@@ -2483,7 +2483,7 @@ function bindSettingsEvents(settings, callbacks) {
                     const CATCHUP_PROMPT_THRESHOLD = 5; // windows (~5 LLM calls)
 
                     if (pendingWindows >= CATCHUP_PROMPT_THRESHOLD) {
-                        const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../src/sillytavern/popup.js');
+                        const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../../sillytavern/popup.js');
                         const choice = await callGenericPopup(
                             `<div style="text-align:left">
                                 <p><strong>${pendingMsgs} messages aren't vectorized yet</strong> (~${pendingWindows} extraction call${pendingWindows === 1 ? '' : 's'}).</p>
@@ -2497,7 +2497,7 @@ function bindSettingsEvents(settings, callbacks) {
                             // Run the backfill now with the standard progress UI (full-screen
                             // on mobile). Resolves at extraction completion; the marker then
                             // lands at the freshly-advanced tip (smart placement below).
-                            const { backfillCurrentChatWithProgress } = await import('../src/features/chunkbase/content-vectorizer.js');
+                            const { backfillCurrentChatWithProgress } = await import('../chunkbase/content-vectorizer.js');
                             await backfillCurrentChatWithProgress();
                         } else if (choice === POPUP_RESULT.NEGATIVE) {
                             // Keep up from here — skip the backlog (floor the marker at "now").
@@ -2527,8 +2527,8 @@ function bindSettingsEvents(settings, callbacks) {
                 // chat length when collection is empty. markerFloorOverride='chatLength'
                 // forces from-now-on when the user chose "just keep up from here".
                 try {
-                    const { stampAutoSyncMarker } = await import('../src/features/eventbase/eventbase-store.js');
-                    const { getChatUUID } = await import('../src/shared/collection-ids.js');
+                    const { stampAutoSyncMarker } = await import('../eventbase/eventbase-store.js');
+                    const { getChatUUID } = await import('../../shared/collection-ids.js');
                     const uuid = getChatUUID();
                     if (uuid) await stampAutoSyncMarker(uuid, settings, markerFloorOverride ? { floor: markerFloorOverride } : {});
                 } catch (err) {
@@ -2558,8 +2558,8 @@ function bindSettingsEvents(settings, callbacks) {
                     // Clear the marker so re-enabling later re-computes a fresh one
                     // against whatever collection state exists at that time.
                     try {
-                        const { clearAutoSyncMarker } = await import('../src/features/eventbase/eventbase-store.js');
-                        const { getChatUUID } = await import('../src/shared/collection-ids.js');
+                        const { clearAutoSyncMarker } = await import('../eventbase/eventbase-store.js');
+                        const { getChatUUID } = await import('../../shared/collection-ids.js');
                         const uuid = getChatUUID();
                         if (uuid) clearAutoSyncMarker(uuid);
                     } catch (err) {
@@ -3323,7 +3323,7 @@ function bindSettingsEvents(settings, callbacks) {
             // Proactively reinitialize if Qdrant is the current backend
             if (settings.vector_backend === 'qdrant') {
                 try {
-                    const { initializeBackend } = await import('../src/features/vector-backend/backend-registry.js');
+                    const { initializeBackend } = await import('../vector-backend/backend-registry.js');
                     await initializeBackend('qdrant', settings, false);
                     toastr.success(
                         `Qdrant re-initialized in ${settings.qdrant_use_cloud ? 'cloud' : 'local'} mode`,
@@ -3677,8 +3677,8 @@ function bindSettingsEvents(settings, callbacks) {
                 // storm. Guarded on real change (input fires on every drag tick).
                 if (prev !== val) {
                     try {
-                        const { stampAutoSyncMarker } = await import('../src/features/eventbase/eventbase-store.js');
-                        const { getChatUUID } = await import('../src/shared/collection-ids.js');
+                        const { stampAutoSyncMarker } = await import('../eventbase/eventbase-store.js');
+                        const { getChatUUID } = await import('../../shared/collection-ids.js');
                         const uuid = getChatUUID();
                         if (uuid) await stampAutoSyncMarker(uuid, extension_settings.vectfox);
                     } catch (err) {
@@ -3920,7 +3920,7 @@ function bindSettingsEvents(settings, callbacks) {
 
             const chatId = getCurrentChatId();
             const characterId = getContext()?.characterId;
-            const { removeCollectionLock, removeCollectionCharacterLock } = await import('../src/features/collections/collection-metadata.js');
+            const { removeCollectionLock, removeCollectionCharacterLock } = await import('../collections/collection-metadata.js');
 
             if (enabled) {
                 if (ownLorebookEntries.length === 0) {
@@ -4095,8 +4095,8 @@ function bindSettingsEvents(settings, callbacks) {
                         const registry = getCollectionRegistry();
                         log.trace('VectFox: Collection registry:', registry);
 
-                        const coreApi = await import('../src/features/vector-backend/vector-api.js');
-                        const metaMod = await import('../src/features/collections/collection-metadata.js');
+                        const coreApi = await import('../vector-backend/vector-api.js');
+                        const metaMod = await import('../collections/collection-metadata.js');
 
                         for (const registryKey of registry) {
                             try {
@@ -4144,7 +4144,7 @@ function bindSettingsEvents(settings, callbacks) {
 
             // Fallback: try dynamic import of module (in case initialization order differed)
             try {
-                const { getSemanticWorldInfoEntries } = await import('../src/features/world-info/world-info-integration.js');
+                const { getSemanticWorldInfoEntries } = await import('../world-info/world-info-integration.js');
                 const entries = await getSemanticWorldInfoEntries(recentMessages, activeEntries, cfg);
                 log.trace('VectFox: Semantic WI test results (via dynamic import):', entries);
                 if (cfg.world_info_retrieval_popup) toastr.info(`Semantic WI test completed - ${entries.length} entries (see console)`);
@@ -4622,7 +4622,7 @@ function bindSettingsEvents(settings, callbacks) {
     // been saved, we show the localized built-in so the user sees the variant
     // that will actually be sent at extraction time.
     (async () => {
-        const { getEventBaseExtractionPrompt } = await import('../src/features/eventbase/prompts-i18n.js');
+        const { getEventBaseExtractionPrompt } = await import('../eventbase/prompts-i18n.js');
         const saved = settings.eventbase_custom_prompt || '';
         const mode = settings.cjk_tokenizer_mode || 'intl';
         $('#VectFox_eventbase_custom_prompt').val(saved || getEventBaseExtractionPrompt(mode));
@@ -4636,7 +4636,7 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Reset prompt to built-in default for the current CJK Tokenizer Mode.
     $('#VectFox_eventbase_prompt_reset').on('click', async function() {
-        const { getEventBaseExtractionPrompt } = await import('../src/features/eventbase/prompts-i18n.js');
+        const { getEventBaseExtractionPrompt } = await import('../eventbase/prompts-i18n.js');
         const mode = settings.cjk_tokenizer_mode || 'intl';
         settings.eventbase_custom_prompt = '';
         $('#VectFox_eventbase_custom_prompt').val(getEventBaseExtractionPrompt(mode));
@@ -4651,7 +4651,7 @@ function bindSettingsEvents(settings, callbacks) {
     // has a custom prompt, leave it alone — they explicitly customized it.
     $('#VectFox_cjk_tokenizer_mode').on('change.eventbasePromptSync', async function() {
         if (settings.eventbase_custom_prompt && settings.eventbase_custom_prompt.trim()) return;
-        const { getEventBaseExtractionPrompt } = await import('../src/features/eventbase/prompts-i18n.js');
+        const { getEventBaseExtractionPrompt } = await import('../eventbase/prompts-i18n.js');
         const mode = $(this).val() || 'intl';
         $('#VectFox_eventbase_custom_prompt').val(getEventBaseExtractionPrompt(mode));
     });
@@ -5017,11 +5017,11 @@ function bindSettingsEvents(settings, callbacks) {
  * @param {object} settings - extension_settings.vectfox
  */
 async function openSummarizerDebug(settings) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../src/sillytavern/popup.js');
+    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
 
     let result;
     try {
-        const { buildSummarizerInjection } = await import('../src/features/eventbase/summarizer-injection.js');
+        const { buildSummarizerInjection } = await import('../eventbase/summarizer-injection.js');
         result = await buildSummarizerInjection(settings);
     } catch (err) {
         result = { text: '', count: 0, reason: 'error', error: err?.message || String(err) };

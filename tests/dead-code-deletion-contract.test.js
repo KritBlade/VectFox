@@ -201,7 +201,7 @@ describe('Live code remains intact (regression guard)', () => {
         });
 
         it('ui-manager.js consumes getCollectionListing', () => {
-            expect(readRel('ui/ui-manager.js'))
+            expect(readRel('src/features/settings-panel/settings-panel.js'))
                 .toMatch(/getCollectionListing/);
         });
     });
@@ -399,7 +399,7 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('UI bindings for temporal_decay are removed from ui-manager.js', () => {
-            const src = readRel('ui/ui-manager.js');
+            const src = readRel('src/features/settings-panel/settings-panel.js');
             // Allow incidental string mentions but no live `settings.temporal_decay.X = ...`
             expect(src).not.toMatch(/settings\.temporal_decay\./);
             expect(src).not.toMatch(/\$\(['"]#VectFox_temporal_decay/);

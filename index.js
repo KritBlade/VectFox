@@ -36,7 +36,7 @@ import { isVectFoxEnabled } from './src/shared/feature-gate.js';
 import { runNetworkStartup } from './core/network-startup.js';
 
 // VectFox modules - UI
-import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './ui/ui-manager.js';
+import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './src/features/settings-panel/settings-panel.js';
 import { initializeVisualizer } from './src/features/database-browser/chunk-visualizer.js';
 import { initializeDatabaseBrowser } from './src/features/database-browser/database-browser.js';
 import { initializeWorldInfoIntegration } from './src/features/world-info/world-info-integration.js';
