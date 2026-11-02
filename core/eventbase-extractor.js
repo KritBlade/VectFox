@@ -12,7 +12,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../src/shared/api-keys.js';
-import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../src/features/llm-provider/llm-provider-call.js';
 import {
     EventBaseExtractionError,
     EventBaseFatalError,
@@ -22,7 +22,7 @@ import {
     packTimelineSortKey,
     truncateCodePoints,
 } from './eventbase-schema.js';
-import { cleanText } from './text-cleaning.js';
+import { cleanText } from '../src/features/text-cleaning/text-cleaning.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { log } from '../src/sillytavern/log.js';
 

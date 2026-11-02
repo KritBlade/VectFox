@@ -149,7 +149,7 @@ export async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
  */
 export async function applyTokenizerRevert(savedMode, settings) {
     const { setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded, CJK_TOKENIZER_MODES } =
-        await import('./bm25-scorer.js');
+        await import('../src/features/keyword-search/bm25-scorer.js');
     const { saveSettingsDebounced, extension_settings } = await import('../src/sillytavern/settings.js');
 
     settings.cjk_tokenizer_mode = savedMode;

@@ -20,7 +20,7 @@ import { registerCollection } from './collection-loader.js';
 import { getChatLockedCollections, removeCollectionLock, setCollectionLock, setCollectionMeta } from './collection-metadata.js';
 import { fetchPortableChunks, insertChunksWithVectors } from './collection-export.js';
 import { purgeVectorIndex } from './core-vector-api.js';
-import { getModelFromSettings } from './providers.js';
+import { getModelFromSettings } from '../src/features/embedding/providers.js';
 import { resolveActiveEventBaseCollection, markWindowExtracted, setVectorizationTip, getLastUsedWindowSize, setLastUsedWindowSize } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import {

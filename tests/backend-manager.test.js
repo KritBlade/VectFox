@@ -44,7 +44,7 @@ vi.mock('../../../../secrets.js', () => ({
 }));
 
 // Mock providers.js
-vi.mock('../core/providers.js', () => ({
+vi.mock('../src/features/embedding/providers.js', () => ({
     getModelField: vi.fn(() => null),
 }));
 

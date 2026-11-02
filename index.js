@@ -41,7 +41,7 @@ import { initializeVisualizer } from './ui/chunk-visualizer.js';
 import { initializeDatabaseBrowser } from './ui/database-browser.js';
 import { initializeWorldInfoIntegration } from './core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from './core/summarizer-injection.js';
-import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './core/bm25-scorer.js';
+import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './src/features/keyword-search/bm25-scorer.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
 setDeletedCollectionCleanup(clearCachesForDeletedCollection);

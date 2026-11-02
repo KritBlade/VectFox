@@ -23,13 +23,13 @@ import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/se
 import { getContext } from '../src/sillytavern/chat.js';
 import { callGenericPopup, POPUP_TYPE } from '../src/sillytavern/popup.js';
 import { getChatUUID, vectorizeAll } from '../core/chat-vectorization.js';
-import { validateLLMConfig } from '../core/llm-config-validation.js';
+import { validateLLMConfig } from '../src/features/llm-provider/llm-config-validation.js';
 import { getOpenRouterApiKey } from '../src/shared/api-keys.js';
 import { escapeHtml } from '../src/shared/html-escape.js';
 import { resolveEffectiveSettings } from '../core/content-vectorization.js';
 import { buildArchiveEventCollectionId } from '../src/shared/collection-ids.js';
-import { openTextCleaningManager } from './text-cleaning-manager.js';
-import { getCleaningSettings, CLEANING_PRESETS } from '../core/text-cleaning.js';
+import { openTextCleaningManager } from '../src/features/text-cleaning/text-cleaning-ui.js';
+import { getCleaningSettings, CLEANING_PRESETS } from '../src/features/text-cleaning/text-cleaning.js';
 import { progressTracker } from '../src/shared/progress-tracker.js';
 
 // ============================================================================
@@ -3422,7 +3422,7 @@ async function startVectorization() {
  * Saves the cleaning preset to extension settings
  */
 async function saveCleaningPresetToSettings(presetId) {
-    const { saveCleaningSettings, getCleaningSettings } = await import('../core/text-cleaning.js');
+    const { saveCleaningSettings, getCleaningSettings } = await import('../src/features/text-cleaning/text-cleaning.js');
     const settings = getCleaningSettings();
     settings.selectedPreset = presetId;
     saveCleaningSettings(settings);

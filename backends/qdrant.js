@@ -30,15 +30,15 @@
 
 import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { VectorBackend } from './backend-interface.js';
-import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
+import { getModelFromSettings, resolveProviderApiUrl } from '../src/features/embedding/providers.js';
 import { throwIfModelConfigError } from '../src/shared/model-http-errors.js';
 import { VECTOR_LIST_LIMIT } from '../src/shared/constants.js';
 import { getQdrantApiKey } from '../src/shared/api-keys.js';
 import { log } from '../src/sillytavern/log.js';
-import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
+import { warnIfEmbeddingSlow } from '../src/features/embedding/embedding-latency-warning.js';
 import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
 import { buildRegistryKey } from '../src/shared/collection-ids.js';
-import { fetchQueryEmbedding } from './query-embedding.js';
+import { fetchQueryEmbedding } from '../src/features/embedding/query-embedding.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
 // shows in the registry. The registry sits above the backends, so index.js sets it at startup.
@@ -976,7 +976,7 @@ export class QdrantBackend extends VectorBackend {
         if (log.enabled('verbose')) {
             const preview = String(searchText || '').replace(/\s+/g, ' ').slice(0, 280);
             try {
-                const { tokenize } = await import('../core/bm25-scorer.js');
+                const { tokenize } = await import('../src/features/keyword-search/bm25-scorer.js');
                 const terms = [...new Set(tokenize(searchText, { dedupe: false }))];
                 log.verbose(`[EventBase] Hybrid request: collection=${body.collectionId}, topK=${topK}, sparse=${sparseQueryVector.indices.length} tokens, terms=[${terms.join(', ')}], preview="${preview}"`);
             } catch {

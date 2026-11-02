@@ -40,7 +40,7 @@ import {
     getCleaningSettings,
     testPattern,
     cleanText,
-} from '../core/text-cleaning.js';
+} from '../src/features/text-cleaning/text-cleaning.js';
 
 // The picture shapes mvu-helper writes into message.mes
 // (mvu-helper src/features/imagegen/image-splice-core.js): the original <pic>

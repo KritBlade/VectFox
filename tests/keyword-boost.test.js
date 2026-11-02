@@ -32,7 +32,7 @@ import {
     extractBM25Keywords,
     applyKeywordBoost,
     getOverfetchAmount,
-} from '../core/keyword-boost.js';
+} from '../src/features/keyword-search/keyword-boost.js';
 
 // ============================================================================
 // EXTRACTION_LEVELS Configuration Tests

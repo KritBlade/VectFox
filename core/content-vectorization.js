@@ -26,8 +26,8 @@ import {
     getBackendFromCollectionId,
     sanitizeNameSegment,
 } from '../src/shared/collection-ids.js';
-import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from './keyword-boost.js';
-import { cleanContentOrNull } from './text-cleaning.js';
+import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from '../src/features/keyword-search/keyword-boost.js';
+import { cleanContentOrNull } from '../src/features/text-cleaning/text-cleaning.js';
 import { prepareLorebookContent } from './lorebook-content-preparer.js';
 import { extractGlossary, injectGlossary } from './glossary-extractor.js';
 import { getReformatCache } from './reformat-store.js';

@@ -1,8 +1,8 @@
 import { porterStemmer, extractCJKTokens, getCjkTokenizerMode, CJK_TOKENIZER_MODES } from './bm25-scorer.js';
-import { substituteParams } from '../src/sillytavern/chat.js';
+import { substituteParams } from '../../sillytavern/chat.js';
 import { buildStopSet } from './stop-words.js';
 import { stopLocalesForMode } from './language-modes.js';
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * ============================================================================

@@ -34,7 +34,7 @@ import {
     registerCollection,
 } from './collection-loader.js';
 import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from '../src/shared/collection-ids.js';
-import { getModelFromSettings } from './providers.js';
+import { getModelFromSettings } from '../src/features/embedding/providers.js';
 import { encodeSparseVector } from './sparse-vector-encoder.js';
 import { progressTracker } from '../src/shared/progress-tracker.js';
 import { log } from '../src/sillytavern/log.js';

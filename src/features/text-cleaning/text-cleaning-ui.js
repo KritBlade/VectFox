@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { saveSettingsDebounced } from '../src/sillytavern/settings.js';
+import { saveSettingsDebounced } from '../../sillytavern/settings.js';
 import {
     BUILTIN_PATTERNS,
     CLEANING_PRESETS,
@@ -22,8 +22,8 @@ import {
     exportPatterns,
     importPatterns,
     testPattern,
-} from '../core/text-cleaning.js';
-import { escapeHtml } from '../src/shared/html-escape.js';
+} from './text-cleaning.js';
+import { escapeHtml } from '../../shared/html-escape.js';
 
 /**
  * Opens the Text Cleaning Manager modal

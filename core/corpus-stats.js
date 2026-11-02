@@ -27,8 +27,8 @@
  * ============================================================================
  */
 import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { tokenize } from './bm25-scorer.js';
-import { getModelFromSettings } from './providers.js';
+import { tokenize } from '../src/features/keyword-search/bm25-scorer.js';
+import { getModelFromSettings } from '../src/features/embedding/providers.js';
 import { log } from '../src/sillytavern/log.js';
 import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
 

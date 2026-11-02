@@ -68,7 +68,7 @@ vi.mock('../src/shared/similharity-plugin.js', () => ({
 }));
 
 // Mock providers.js
-vi.mock('../core/providers.js', () => ({
+vi.mock('../src/features/embedding/providers.js', () => ({
     getModelField: vi.fn((source) => {
         const modelFields = {
             openai: 'openai_model',

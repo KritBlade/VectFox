@@ -16,15 +16,15 @@ import {
     LANGUAGE_MODES,
     CJK_TOKENIZER_MODES,
     stopLocalesForMode,
-} from '../core/language-modes.js';
+} from '../src/features/keyword-search/language-modes.js';
 
 import {
     STOP_WORDS_BY_LOCALE,
     isStopWord,
     buildStopSet,
-} from '../core/stop-words.js';
+} from '../src/features/keyword-search/stop-words.js';
 
-import { LATIN_TOKEN_RE, NON_WORD_RE, localeForSpan, getSegmenter, CJK_CHAR_RE } from '../core/script-segmentation.js';
+import { LATIN_TOKEN_RE, NON_WORD_RE, localeForSpan, getSegmenter, CJK_CHAR_RE } from '../src/features/keyword-search/script-segmentation.js';
 
 // ── §6.1–6.3: stopLocalesForMode returns correct locale arrays ────────────────
 
@@ -122,7 +122,7 @@ describe('Set memoization', () => {
 
 describe('Back-compat: extractQueryKeywords without mode', () => {
     it('filters English stop words and passes non-English CJK tokens', async () => {
-        const { extractQueryKeywords } = await import('../core/query-keyword-extractor.js');
+        const { extractQueryKeywords } = await import('../src/features/keyword-search/query-keyword-extractor.js');
         // "the" is an EN stop word, "dragon" is not; no mode = EN-only filter.
         const result = extractQueryKeywords('the dragon flew over the mountains', 50);
         expect(result).not.toContain('the');
@@ -134,7 +134,7 @@ describe('Back-compat: extractQueryKeywords without mode', () => {
 
 describe('English stop-word baseline in tokenize()', () => {
     it('world and within are still filtered in default (intl) mode', async () => {
-        const { tokenize } = await import('../core/bm25-scorer.js');
+        const { tokenize } = await import('../src/features/keyword-search/bm25-scorer.js');
         const tokens = tokenize('world within the system', { removeStopWords: true, stem: false });
         expect(tokens).not.toContain('world');
         expect(tokens).not.toContain('within');
@@ -274,8 +274,8 @@ describe('Language probe — undefined-in-dropdown languages fall back to a safe
 
 describe('Ingest/query stop-word parity', () => {
     it('same text + same mode → both paths drop the same English stop tokens', async () => {
-        const { tokenize, setCjkTokenizerMode } = await import('../core/bm25-scorer.js');
-        const { extractQueryKeywords } = await import('../core/query-keyword-extractor.js');
+        const { tokenize, setCjkTokenizerMode } = await import('../src/features/keyword-search/bm25-scorer.js');
+        const { extractQueryKeywords } = await import('../src/features/keyword-search/query-keyword-extractor.js');
 
         const mode = 'intl';
         setCjkTokenizerMode(mode); // ingest path reads the module-global locked mode
@@ -298,8 +298,8 @@ describe('Ingest/query stop-word parity', () => {
     });
 
     it('korean mode → a Japanese stop word survives on BOTH paths (per-mode parity)', async () => {
-        const { tokenize, setCjkTokenizerMode } = await import('../core/bm25-scorer.js');
-        const { extractQueryKeywords } = await import('../core/query-keyword-extractor.js');
+        const { tokenize, setCjkTokenizerMode } = await import('../src/features/keyword-search/bm25-scorer.js');
+        const { extractQueryKeywords } = await import('../src/features/keyword-search/query-keyword-extractor.js');
 
         const mode = 'korean';
         setCjkTokenizerMode(mode);

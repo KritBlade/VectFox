@@ -70,7 +70,7 @@ vi.mock('../../../../openai.js', () => ({ oai_settings: {} }));
 
 vi.mock('../../../shared.js', () => ({ isWebLlmSupported: vi.fn(() => false) }));
 
-vi.mock('../providers/webllm.js', () => ({
+vi.mock('../src/features/embedding/webllm-provider.js', () => ({
     getWebLlmProvider: vi.fn(() => ({ embedTexts: vi.fn() })),
 }));
 

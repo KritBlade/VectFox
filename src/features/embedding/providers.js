@@ -10,8 +10,8 @@
  * ============================================================================
  */
 
-import { SECRET_KEYS } from '../src/sillytavern/secrets.js';
-import { textgen_types, textgenerationwebui_settings } from '../src/sillytavern/connection-settings.js';
+import { SECRET_KEYS } from '../../sillytavern/secrets.js';
+import { textgen_types, textgenerationwebui_settings } from '../../sillytavern/connection-settings.js';
 
 /**
  * All supported embedding providers

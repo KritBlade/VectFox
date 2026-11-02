@@ -20,7 +20,7 @@ import {
     requiresApiKey,
     requiresUrl,
     resolveProviderApiUrl
-} from '../core/providers.js';
+} from '../src/features/embedding/providers.js';
 
 /**
  * Helper: Get provider-specific body parameters for Similharity plugin requests

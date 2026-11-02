@@ -22,12 +22,12 @@ import {
     getQdrantApiKey,
     fetchQdrantApiKeyPresence,
 } from '../src/shared/api-keys.js';
-import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webllm.js';
+import { getWebLlmProvider as getSharedWebLlmProvider } from '../src/features/embedding/webllm-provider.js';
 import { escapeHtml } from '../src/shared/html-escape.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openQueryTestModal } from './query-tester.js';
-import { openTextCleaningManager } from './text-cleaning-manager.js';
+import { openTextCleaningManager } from '../src/features/text-cleaning/text-cleaning-ui.js';
 import { progressTracker } from '../src/shared/progress-tracker.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
 import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
@@ -39,9 +39,9 @@ import { getCollectionRegistry, getCollectionListing } from '../core/collection-
 import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
 import { getCollectionMeta } from '../core/collection-metadata.js';
 import { parseRegistryKey } from '../src/shared/collection-ids.js';
-import { getModelField, resolveProviderApiUrl } from '../core/providers.js';
-import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../core/bm25-scorer.js';
-import { LANGUAGE_MODES } from '../core/language-modes.js';
+import { getModelField, resolveProviderApiUrl } from '../src/features/embedding/providers.js';
+import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../src/features/keyword-search/bm25-scorer.js';
+import { LANGUAGE_MODES } from '../src/features/keyword-search/language-modes.js';
 import {
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     RETRIEVAL_TIMEOUT_MIN_MS,

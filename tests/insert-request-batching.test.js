@@ -21,7 +21,7 @@ vi.mock('../../../../secrets.js', () => ({ secret_state: {}, SECRET_KEYS: {}, fi
 vi.mock('../../../../textgen-settings.js', () => ({ textgen_types: {}, textgenerationwebui_settings: {} }));
 vi.mock('../../../../openai.js', () => ({ oai_settings: {} }));
 vi.mock('../../../shared.js', () => ({ isWebLlmSupported: () => false }));
-vi.mock('../providers/webllm.js', () => ({ getWebLlmProvider: vi.fn() }));
+vi.mock('../src/features/embedding/webllm-provider.js', () => ({ getWebLlmProvider: vi.fn() }));
 vi.mock('../backends/backend-manager.js', () => ({
     getBackend: vi.fn(), getBackendForCollection: vi.fn(), invalidateBackendHealth: vi.fn(),
     recordQuery: vi.fn(), recordInsert: vi.fn(), recordDelete: vi.fn(), recordError: vi.fn(),

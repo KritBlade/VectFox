@@ -25,7 +25,7 @@ import {
     applyBM25Scoring,
     porterStemmer,
     tokenize,
-} from '../core/bm25-scorer.js';
+} from '../src/features/keyword-search/bm25-scorer.js';
 
 // =============================================================================
 // PORTER STEMMER TESTS

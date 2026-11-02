@@ -22,10 +22,10 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { getModelConfigErrorMessage } from '../src/shared/model-http-errors.js';
-import { isConnectionError, notifyConnectionError, notifyUpstreamRejection } from '../src/shared/model-config-notifier.js';
-import { log } from '../src/sillytavern/log.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { getModelConfigErrorMessage } from '../../shared/model-http-errors.js';
+import { isConnectionError, notifyConnectionError, notifyUpstreamRejection } from '../../shared/model-config-notifier.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * Neutral error from a shared LLM call. Callers switch on `kind` to map this

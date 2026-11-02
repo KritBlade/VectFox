@@ -33,7 +33,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: () => () => {} }),
 }));
 
-import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../core/llm-provider-call.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../src/features/llm-provider/llm-provider-call.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

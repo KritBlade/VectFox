@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 // text-cleaning.js imports ST globals; mock the whole module so we never
 // touch ../../../../extensions.js or any other SillyTavern path.
-vi.mock('../core/text-cleaning.js', () => ({
+vi.mock('../src/features/text-cleaning/text-cleaning.js', () => ({
     cleanText: vi.fn((t) => (t ?? '').trim()),
     cleanContentOrNull: vi.fn((t) => {
         const trimmed = (t ?? '').trim();

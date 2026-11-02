@@ -40,8 +40,8 @@ vi.mock('../../../../../script.js', () => ({
 import {
     extractBM25Keywords,
     extractTextKeywords,
-} from '../core/keyword-boost.js';
-import { porterStemmer, extractCJKTokens } from '../core/bm25-scorer.js';
+} from '../src/features/keyword-search/keyword-boost.js';
+import { porterStemmer, extractCJKTokens } from '../src/features/keyword-search/bm25-scorer.js';
 
 // ============================================================================
 // TEST STORY — Bilingual Chinese/English roleplay narrative

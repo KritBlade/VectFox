@@ -19,11 +19,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { warn: vi.fn(), error: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
-vi.mock('../core/providers.js', () => ({
+vi.mock('../src/features/embedding/providers.js', () => ({
     getModelFromSettings: (s) => s?.embedding_openrouter_model || '',
 }));
 
-import { warnIfEmbeddingSlow, slowEmbeddingWarnMs } from '../core/embedding-latency-warning.js';
+import { warnIfEmbeddingSlow, slowEmbeddingWarnMs } from '../src/features/embedding/embedding-latency-warning.js';
 import { RETRIEVAL_TIMEOUT_DEFAULT_MS } from '../src/shared/constants.js';
 import { log } from '../src/sillytavern/log.js';
 

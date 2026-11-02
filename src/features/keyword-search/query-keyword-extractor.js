@@ -5,7 +5,7 @@
 import { isStopWord } from './stop-words.js';
 import { CJK_SPAN_RE, CJK_CHAR_RE, LATIN_TOKEN_RE, getSegmenter } from './script-segmentation.js';
 import { stopLocalesForMode } from './language-modes.js';
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 
 export const RETRIEVAL_KEYWORD_LEVELS = {
     minimal: { label: 'Minimal — 30 keywords', maxKeywords: 30 },

@@ -26,7 +26,7 @@ vi.mock('../backends/backend-manager.js', () => ({
 }));
 
 // Mock the bm25-scorer - provide a working implementation
-vi.mock('../core/bm25-scorer.js', () => ({
+vi.mock('../src/features/keyword-search/bm25-scorer.js', () => ({
     // porterStemmer: identity function in tests (real one stems English Latin tokens).
     // hybrid-search.js calls it on every query token after extraction.
     porterStemmer: vi.fn((token) => token),

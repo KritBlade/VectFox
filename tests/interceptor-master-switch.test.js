@@ -43,8 +43,8 @@ vi.mock('../../../../../script.js', () => ({
 }));
 vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [] })), extension_settings: { vectfox: {} } }));
 vi.mock('../../../../utils.js', () => ({ getStringHash: vi.fn(() => 1) }));
-vi.mock('../core/keyword-boost.js', () => ({ extractChatKeywords: vi.fn(), extractBM25Keywords: vi.fn() }));
-vi.mock('../core/text-cleaning.js', () => ({ cleanText: vi.fn((text) => text) }));
+vi.mock('../src/features/keyword-search/keyword-boost.js', () => ({ extractChatKeywords: vi.fn(), extractBM25Keywords: vi.fn() }));
+vi.mock('../src/features/text-cleaning/text-cleaning.js', () => ({ cleanText: vi.fn((text) => text) }));
 vi.mock('../core/core-vector-api.js', () => ({
     getSavedHashes: vi.fn(), insertVectorItems: vi.fn(), queryCollection: vi.fn(),
     deleteVectorItems: vi.fn(),

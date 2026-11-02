@@ -13,7 +13,7 @@ import { getCurrentChatId, substituteParams, getContext } from '../src/sillytave
 import { is_send_press } from '../src/sillytavern/generation.js';
 import { setExtensionPrompt, extension_prompts } from '../src/sillytavern/prompt-injection.js';
 import { getStringHash as calculateHash } from '../src/sillytavern/identifiers.js';
-import { extractChatKeywords } from './keyword-boost.js';
+import { extractChatKeywords } from '../src/features/keyword-search/keyword-boost.js';
 import {
     getSavedHashes,
     queryCollection,
