@@ -17,8 +17,8 @@ import {
   sanitizeHandleId,
   getCollectionListing,
 } from "../core/collection-loader.js";
-import { checkPluginAvailable } from "../core/similharity-plugin.js";
-import { COLLECTION_PREFIXES } from "../core/collection-ids.js";
+import { checkPluginAvailable } from "../src/shared/similharity-plugin.js";
+import { COLLECTION_PREFIXES } from "../src/shared/collection-ids.js";
 import {
   queryMultipleCollections,
 } from "../core/core-vector-api.js";

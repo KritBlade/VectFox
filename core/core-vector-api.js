@@ -26,12 +26,12 @@ import { getRequestHeaders } from '../src/sillytavern/requests.js';
 // auth path for it). Cloud providers like OpenRouter route through ST's
 // chat-completions proxy from elsewhere, not through this file.
 import { getBackend, getBackendForCollection, invalidateBackendHealth, recordQuery, recordInsert, recordDelete, recordError } from '../backends/backend-manager.js';
-import { resolveBackendForCollection } from './collection-ids.js';
+import { resolveBackendForCollection } from '../src/shared/collection-ids.js';
 import {
     getModelFromSettings,
     resolveProviderApiUrl
 } from './providers.js';
-import { isConnectionError, notifyConnectionError } from './model-config-notifier.js';
+import { isConnectionError, notifyConnectionError } from '../src/shared/model-config-notifier.js';
 import { getOverfetchAmount } from './keyword-boost.js';
 import { applyBM25Scoring, porterStemmer } from './bm25-scorer.js';
 import { hybridSearch } from './hybrid-search.js';
@@ -62,7 +62,7 @@ import {
     RETRY_INITIAL_DELAY_MS,
     RETRY_MAX_DELAY_MS,
     RETRY_BACKOFF_MULTIPLIER
-} from './constants.js';
+} from '../src/shared/constants.js';
 
 // Get shared WebLLM provider singleton (lazy-initialized)
 

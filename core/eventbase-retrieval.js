@@ -15,9 +15,9 @@
 
 import { queryCollection, getQueryVector } from './core-vector-api.js';
 import { getBackendForCollection, getBackend } from '../backends/backend-manager.js';
-import { parseRegistryKey } from './collection-ids.js';
+import { parseRegistryKey } from '../src/shared/collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
-import { checkPluginAvailable } from './similharity-plugin.js';
+import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
 import { log } from '../src/sillytavern/log.js';
 
 // ---------------------------------------------------------------------------

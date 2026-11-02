@@ -82,7 +82,7 @@ vi.mock('../core/collection-loader.js', () => ({
     getCollectionRegistry: vi.fn(() => []),
 }));
 
-vi.mock('../core/similharity-plugin.js', () => ({
+vi.mock('../src/shared/similharity-plugin.js', () => ({
     checkPluginAvailable: vi.fn(async () => true),
 }));
 
@@ -108,7 +108,7 @@ import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
 import {
     resetRetrievalFailureNotifications,
     resetNoActiveCollectionsNotifications,
-} from '../core/model-config-notifier.js';
+} from '../src/shared/model-config-notifier.js';
 
 // ============================================================================
 // FIXTURES

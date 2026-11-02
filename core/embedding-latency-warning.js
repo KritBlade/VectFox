@@ -34,7 +34,7 @@
 
 import { log } from '../src/sillytavern/log.js';
 import { getModelFromSettings } from './providers.js';
-import { resolveRetrievalTimeoutMs } from './retrieval-budget.js';
+import { resolveRetrievalTimeoutMs } from '../src/shared/retrieval-budget.js';
 
 /**
  * Embed durations at or above this get a log line.

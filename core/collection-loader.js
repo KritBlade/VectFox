@@ -34,8 +34,8 @@ import {
     buildRegistryKey,
     sanitizeHandleId,
     sanitizeNameSegment,
-} from './collection-ids.js';
-import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from './similharity-plugin.js';
+} from '../src/shared/collection-ids.js';
+import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from '../src/shared/similharity-plugin.js';
 
 /**
  * Detect collection IDs that VECTFOX should NOT register or query.

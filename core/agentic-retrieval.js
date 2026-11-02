@@ -24,10 +24,10 @@ import { retrieveEvents } from './eventbase-retrieval.js';
 import { queryCollection } from './core-vector-api.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { stripReasoningBlocks, stripGameSystemBlocks } from './text-cleaning.js';
-import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
+import { getOpenRouterApiKey, getCustomApiKey } from '../src/shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from './retrieval-budget.js';
+import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../src/shared/retrieval-budget.js';
 import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================
@@ -136,7 +136,7 @@ export async function retrieveEventsWithAgent(params) {
         // A retired/unknown Agent Mode model would otherwise silently degrade to
         // pre-search forever. Warn the user (once) so they know to fix it; we still
         // fall back to pre-search below so retrieval keeps working in the meantime.
-        const { isInvalidModelConfigError, notifyInvalidModel } = await import('./model-config-notifier.js');
+        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
         if (isInvalidModelConfigError(err)) {
             notifyInvalidModel(err.message);
         }

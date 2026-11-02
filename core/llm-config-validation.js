@@ -3,7 +3,7 @@
  * provider's credential or URL) are filled in before a run that needs them starts.
  */
 
-import { getOpenRouterApiKey } from './api-keys.js';
+import { getOpenRouterApiKey } from '../src/shared/api-keys.js';
 
 /**
  * Validate that the LLM configuration (provider, model, credentials) is filled in.

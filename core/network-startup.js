@@ -41,7 +41,7 @@
 
 import { discoverExistingCollections } from './collection-loader.js';
 import { pruneOrphanedEventBaseChatMaps } from './eventbase-store.js';
-import { checkPluginAvailable, getDetectedPluginVersion } from './similharity-plugin.js';
+import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';
 import { retry } from '../src/shared/retry.js';
 import { log } from '../src/sillytavern/log.js';
 

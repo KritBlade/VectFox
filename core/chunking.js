@@ -26,7 +26,7 @@
  * ============================================================================
  */
 
-import { DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP } from './constants.js';
+import { DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP } from '../src/shared/constants.js';
 
 /**
  * Main entry point - chunks text using specified strategy

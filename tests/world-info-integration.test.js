@@ -51,7 +51,7 @@ vi.mock('../core/collection-metadata.js', () => ({
     isCollectionLockedToCharacter: vi.fn(() => false),
 }));
 
-vi.mock('../core/collection-ids.js', () => ({
+vi.mock('../src/shared/collection-ids.js', () => ({
     parseRegistryKey: vi.fn((key) => ({
         backend: 'standard',
         source: 'local',
@@ -95,7 +95,7 @@ vi.mock('../core/collection-loader.js', () => ({
     getCollectionRegistry: vi.fn(() => _testState.registry),
 }));
 
-vi.mock('../core/constants.js', () => ({
+vi.mock('../src/shared/constants.js', () => ({
     EXTENSION_PROMPT_TAG: 'vectfox_world_info',
     LOREBOOK_PROMPT_TAG: 'vectfox_lorebook',
     // Reached via backends -> embedding-latency-warning -> retrieval-budget,
@@ -129,7 +129,7 @@ import { getContext, extension_settings } from '../../../../extensions.js';
 import { setExtensionPrompt, eventSource } from '../../../../../script.js';
 import { queryCollection } from '../core/core-vector-api.js';
 import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from '../core/collection-metadata.js';
-import { buildLorebookCollectionId } from '../core/collection-ids.js';
+import { buildLorebookCollectionId } from '../src/shared/collection-ids.js';
 
 import {
     getSemanticWorldInfoEntries,

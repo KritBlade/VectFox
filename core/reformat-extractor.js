@@ -21,7 +21,7 @@
  * ============================================================================
  */
 
-import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
+import { getOpenRouterApiKey, getCustomApiKey } from '../src/shared/api-keys.js';
 import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { chunkText } from './chunking.js';
 import { retry } from '../src/shared/retry.js';

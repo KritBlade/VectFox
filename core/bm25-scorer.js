@@ -16,7 +16,7 @@
  * ============================================================================
  */
 
-import TinySegmenter from './vendor/tiny-segmenter-0.2.0.js';
+import TinySegmenter from '../src/vendor/tiny-segmenter-0.2.0.js';
 import { isStopWord } from './stop-words.js';
 import { CJK_SPAN_RE, KANA_RE, NON_WORD_RE, getSegmenter } from './script-segmentation.js';
 import { CJK_TOKENIZER_MODES, DEFAULT_CJK_TOKENIZER_MODE, stopLocalesForMode, tokenizerForMode } from './language-modes.js';
@@ -41,9 +41,9 @@ const JIEBA_WASM_MODULE_URL = 'https://cdn.jsdelivr.net/gh/cxumol/jieba-wasm-htm
 //   - jieba_rs_wasm.js     (~14 KB, WASM module wrapper, from jieba-wasm@2.4.0)
 //   - jieba_rs_wasm_bg.wasm (~4 MB, compiled tokenizer, from jieba-wasm@2.4.0)
 //   - dict.txt             (~4 MB, Traditional Chinese dictionary)
-const JIEBA_TW_WASM_MODULE_URL = new URL('./vendor/jieba/jieba_rs_wasm.js', import.meta.url).href;
-const JIEBA_TW_WASM_BINARY_URL = new URL('./vendor/jieba/jieba_rs_wasm_bg.wasm', import.meta.url).href;
-const JIEBA_TW_DICT_URL = new URL('./vendor/jieba/dict.txt', import.meta.url).href;
+const JIEBA_TW_WASM_MODULE_URL = new URL('../src/vendor/jieba/jieba_rs_wasm.js', import.meta.url).href;
+const JIEBA_TW_WASM_BINARY_URL = new URL('../src/vendor/jieba/jieba_rs_wasm_bg.wasm', import.meta.url).href;
+const JIEBA_TW_DICT_URL = new URL('../src/vendor/jieba/dict.txt', import.meta.url).href;
 
 let cjkTokenizerMode = DEFAULT_CJK_TOKENIZER_MODE;
 let jiebaCutFunction = null;

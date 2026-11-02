@@ -16,14 +16,14 @@ vi.mock('../../../../../script.js', () => ({
 
 // Configurable per test.
 const mockGetModelConfigError = vi.fn(() => null);
-vi.mock('../core/model-http-errors.js', () => ({
+vi.mock('../src/shared/model-http-errors.js', () => ({
     getModelConfigErrorMessage: (...args) => mockGetModelConfigError(...args),
 }));
 
 const mockIsConnectionError = vi.fn(() => false);
 const mockNotifyConnectionError = vi.fn();
 const mockNotifyUpstreamRejection = vi.fn();
-vi.mock('../core/model-config-notifier.js', () => ({
+vi.mock('../src/shared/model-config-notifier.js', () => ({
     isConnectionError: (...args) => mockIsConnectionError(...args),
     notifyConnectionError: (...args) => mockNotifyConnectionError(...args),
     notifyUpstreamRejection: (...args) => mockNotifyUpstreamRejection(...args),

@@ -19,7 +19,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: () => () => {} }),
 }));
 
-import { remapCollectionIdToHandle, sanitizeHandleId, sanitizeNameSegment, sanitizeIdSegment } from '../core/collection-ids.js';
+import { remapCollectionIdToHandle, sanitizeHandleId, sanitizeNameSegment, sanitizeIdSegment } from '../src/shared/collection-ids.js';
 
 describe('sanitizeIdSegment (primitive)', () => {
     it('does not edge-trim or apply fallback by default', () => {

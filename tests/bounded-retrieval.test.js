@@ -20,18 +20,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // 50ms stands in for the resolved budget so the timeout cases finish instantly.
 // The real resolver (settings -> clamped ms, plus the Agent Mode addition) is
 // covered on its own in tests/retrieval-budget.test.js.
-vi.mock('../core/retrieval-budget.js', () => ({ resolveRetrievalTimeoutMs: () => 50 }));
+vi.mock('../src/shared/retrieval-budget.js', () => ({ resolveRetrievalTimeoutMs: () => 50 }));
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { error: vi.fn(), warn: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
-vi.mock('../core/model-config-notifier.js', () => ({ notifyRetrievalFailure: vi.fn() }));
+vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyRetrievalFailure: vi.fn() }));
 // Real module reaches core/providers.js, which imports SillyTavern host modules.
 vi.mock('../core/embedding-latency-warning.js', () => ({
     describeEmbeddingTimeoutCause: (s) => `Almost always the embedding provider — ${s?.embedding_provider || 'transformers'}.`,
 }));
 
 import { runBoundedRetrieval } from '../core/bounded-retrieval.js';
-import { notifyRetrievalFailure } from '../core/model-config-notifier.js';
+import { notifyRetrievalFailure } from '../src/shared/model-config-notifier.js';
 import { log } from '../src/sillytavern/log.js';
 
 const OPTIONS = {

@@ -13,7 +13,7 @@
 import { getContentType, getContentTypeDefaults } from './content-types.js';
 import { chunkText } from './chunking.js';
 import { insertVectorItems, purgeVectorIndex, getSavedHashes } from './core-vector-api.js';
-import { isConnectionError } from './model-config-notifier.js';
+import { isConnectionError } from '../src/shared/model-config-notifier.js';
 import { setCollectionMeta, setCollectionLock, setCollectionCharacterLock, saveChunkMetadata } from './collection-metadata.js';
 import { registerCollection } from './collection-loader.js';
 import { getBackend } from '../backends/backend-manager.js';
@@ -25,13 +25,13 @@ import {
     buildRegistryKey,
     getBackendFromCollectionId,
     sanitizeNameSegment,
-} from './collection-ids.js';
+} from '../src/shared/collection-ids.js';
 import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from './keyword-boost.js';
 import { cleanContentOrNull } from './text-cleaning.js';
 import { prepareLorebookContent } from './lorebook-content-preparer.js';
 import { extractGlossary, injectGlossary } from './glossary-extractor.js';
 import { getReformatCache } from './reformat-store.js';
-import { progressTracker } from '../ui/progress-tracker.js';
+import { progressTracker } from '../src/shared/progress-tracker.js';
 import { extension_settings } from '../src/sillytavern/settings.js';
 import { getContext, getCurrentChatId } from '../src/sillytavern/chat.js';
 import { getStringHash } from '../src/sillytavern/identifiers.js';

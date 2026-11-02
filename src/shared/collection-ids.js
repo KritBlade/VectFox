@@ -11,8 +11,8 @@
  * ============================================================================
  */
 
-import { getContext, getCurrentChatId, chat_metadata } from '../src/sillytavern/chat.js';
-import { log } from '../src/sillytavern/log.js';
+import { getContext, getCurrentChatId, chat_metadata } from '../sillytavern/chat.js';
+import { log } from '../sillytavern/log.js';
 
 // ============================================================================
 // CONSTANTS

@@ -30,7 +30,7 @@ import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { tokenize } from './bm25-scorer.js';
 import { getModelFromSettings } from './providers.js';
 import { log } from '../src/sillytavern/log.js';
-import { checkPluginAvailable } from './similharity-plugin.js';
+import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
 
 const _cache = new Map(); // collectionId -> { totalDocs, documentFrequencies, avgDocLength, builtAt }
 const _inflight = new Map(); // collectionId -> Promise (dedupe concurrent fetches)

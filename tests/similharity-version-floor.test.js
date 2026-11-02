@@ -18,13 +18,13 @@ vi.mock('../core/collection-loader.js', () => ({
 vi.mock('../core/eventbase-store.js', () => ({
     pruneOrphanedEventBaseChatMaps: vi.fn(),
 }));
-vi.mock('../core/similharity-plugin.js', () => ({
+vi.mock('../src/shared/similharity-plugin.js', () => ({
     checkPluginAvailable: vi.fn(async () => true),
     getDetectedPluginVersion: vi.fn(() => null),
 }));
 
 import { checkSimilharityVersion } from '../core/network-startup.js';
-import { checkPluginAvailable, getDetectedPluginVersion } from '../core/similharity-plugin.js';
+import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';
 import { log } from '../src/sillytavern/log.js';
 
 /** Concatenated text of every toastr.warning call, for substring assertions. */

@@ -39,7 +39,7 @@ vi.mock('../core/core-vector-api.js', () => ({
     insertVectorItems: vi.fn(), queryCollection: vi.fn(), deleteVectorItems: vi.fn(),
     getAdditionalArgs: vi.fn(), getSavedHashes: vi.fn(),
 }));
-vi.mock('../core/collection-ids.js', () => ({
+vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: vi.fn(() => CHAT_B_UUID),
     buildEventBaseCollectionId: vi.fn(),
     getRegistryBackend: vi.fn(() => 'qdrant'),

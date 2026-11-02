@@ -43,7 +43,7 @@ vi.mock('../backends/backend-manager.js', () => ({
     getBackend: vi.fn(async () => null),
 }));
 
-vi.mock('../core/collection-ids.js', () => ({
+vi.mock('../src/shared/collection-ids.js', () => ({
     parseRegistryKey: vi.fn((id) => ({ backend: null, collectionId: id })),
 }));
 
@@ -52,7 +52,7 @@ vi.mock('../core/eventbase-schema.js', () => ({
 }));
 
 const checkPluginAvailableMock = vi.fn(async () => true);
-vi.mock('../core/similharity-plugin.js', () => ({
+vi.mock('../src/shared/similharity-plugin.js', () => ({
     checkPluginAvailable: (...a) => checkPluginAvailableMock(...a),
 }));
 

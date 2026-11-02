@@ -21,16 +21,16 @@ import {
 import { isBackendAvailable } from '../backends/backend-manager.js';
 import { getCollectionRegistry, isCollectionEmpty } from './collection-loader.js';
 import { isCollectionEnabled, filterActiveCollections } from './collection-metadata.js';
-import { progressTracker } from '../ui/progress-tracker.js';
+import { progressTracker } from '../src/shared/progress-tracker.js';
 import { buildSearchContext, filterChunksByConditions, processChunkLinks } from './conditional-activation.js';
 import { getChunkMetadata, getCollectionMeta } from './collection-metadata.js';
 
 import { LRUCache } from '../src/features/chunkbase/lru-cache.js';
-import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
+import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from '../src/shared/constants.js';
 import { runBoundedRetrieval } from './bounded-retrieval.js';
-import { resolveEventBaseRetrievalTimeoutMs } from './retrieval-budget.js';
+import { resolveEventBaseRetrievalTimeoutMs } from '../src/shared/retrieval-budget.js';
 import { log } from '../src/sillytavern/log.js';
-import { isVectFoxEnabled } from './feature-gate.js';
+import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
     getChatUUID,
@@ -38,7 +38,7 @@ import {
     INTERNAL_COLLECTION_IDS,
     parseRegistryKey,
     getRegistryBackend,
-} from './collection-ids.js';
+} from '../src/shared/collection-ids.js';
 
 // Hash cache for performance
 const hashCache = new LRUCache(HASH_CACHE_SIZE);
@@ -261,7 +261,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         // A retired/unknown model (extraction OR embedding) would otherwise be
         // swallowed by ST's ModuleWorkerWrapper and silently re-fail every message.
         // Warn the user once and pause auto-sync so the loop stops until they fix it.
-        const { isInvalidModelConfigError, notifyInvalidModel } = await import('./model-config-notifier.js');
+        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
         if (isInvalidModelConfigError(err)) {
             notifyInvalidModel(err.message);
             pauseAutoSyncForChat(uuid, backend);
@@ -1389,7 +1389,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
         log.error('VectFox: Failed to vectorize all', error);
         progressTracker.addError(error.message);
         progressTracker.complete(false, 'Vectorization failed');
-        const { isInvalidModelConfigError, notifyInvalidModel } = await import('./model-config-notifier.js');
+        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
         if (isInvalidModelConfigError(error)) {
             notifyInvalidModel(error.message);
         } else {

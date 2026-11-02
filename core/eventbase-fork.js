@@ -15,7 +15,7 @@
 
 import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
 import { extension_settings } from '../src/sillytavern/settings.js';
-import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from './collection-ids.js';
+import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from '../src/shared/collection-ids.js';
 import { registerCollection } from './collection-loader.js';
 import { getChatLockedCollections, removeCollectionLock, setCollectionLock, setCollectionMeta } from './collection-metadata.js';
 import { fetchPortableChunks, insertChunksWithVectors } from './collection-export.js';
@@ -32,7 +32,7 @@ import {
     findEmbeddingMismatch,
     summarizeCopiedWindows,
 } from './eventbase-fork-core.js';
-import { progressTracker } from '../ui/progress-tracker.js';
+import { progressTracker } from '../src/shared/progress-tracker.js';
 import { log } from '../src/sillytavern/log.js';
 
 /**

@@ -10,7 +10,7 @@
  */
 
 import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/settings.js';
-import { parseRegistryKey, parseCollectionId } from './collection-ids.js';
+import { parseRegistryKey, parseCollectionId } from '../src/shared/collection-ids.js';
 import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================

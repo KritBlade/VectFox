@@ -11,7 +11,7 @@
 
 import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { getModelFromSettings } from '../core/providers.js';
-import { throwIfModelConfigError } from '../core/model-http-errors.js';
+import { throwIfModelConfigError } from '../src/shared/model-http-errors.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
 import { log } from '../src/sillytavern/log.js';
 

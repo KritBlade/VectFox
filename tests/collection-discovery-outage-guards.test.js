@@ -46,7 +46,7 @@ import { saveSettingsDebounced } from '../../../../../script.js';
 import { getSavedHashes } from '../core/core-vector-api.js';
 import { log } from '../src/sillytavern/log.js';
 import { discoverExistingCollections, getCollectionRegistry } from '../core/collection-loader.js';
-import { resetPluginAvailableCache } from '../core/similharity-plugin.js';
+import { resetPluginAvailableCache } from '../src/shared/similharity-plugin.js';
 import { cleanupOrphanedMeta } from '../core/collection-metadata.js';
 
 const QDRANT_KEY = 'qdrant:vf_lorebook_qdrant_testpersona_worldlore_1750000000000';

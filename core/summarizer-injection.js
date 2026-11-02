@@ -21,10 +21,10 @@ import { setExtensionPrompt } from '../src/sillytavern/prompt-injection.js';
 import { getContext } from '../src/sillytavern/chat.js';
 import { getWorldInfoSettings, getSortedEntries } from '../src/sillytavern/world-info.js';
 import { getBackend } from '../backends/backend-manager.js';
-import { getChatUUID } from './collection-ids.js';
+import { getChatUUID } from '../src/shared/collection-ids.js';
 import { resolveActiveEventBaseCollection, getVectorizationTip } from './eventbase-store.js';
-import { SUMMARIZER_PROMPT_TAG } from './constants.js';
-import { isVectFoxEnabled } from './feature-gate.js';
+import { SUMMARIZER_PROMPT_TAG } from '../src/shared/constants.js';
+import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
 import { log } from '../src/sillytavern/log.js';
 
 /**

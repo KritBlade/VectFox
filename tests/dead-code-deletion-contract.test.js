@@ -301,7 +301,7 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('VECTFOX_CHAT prefix is removed from COLLECTION_PREFIXES', () => {
-            const src = readRel('core/collection-ids.js');
+            const src = readRel('src/shared/collection-ids.js');
             expect(src).not.toMatch(/VECTFOX_CHAT:\s*['"]vf_chat_['"]/);
         });
 

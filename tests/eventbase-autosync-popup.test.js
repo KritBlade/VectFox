@@ -15,7 +15,7 @@ vi.mock('../../../../../script.js', () => ({
     saveSettingsDebounced: vi.fn(), getRequestHeaders: () => ({}),
 }));
 vi.mock('../../../../extensions.js', () => ({ extension_settings: state.extensionSettings, getContext: () => ({ chat: [] }) }));
-vi.mock('../core/collection-ids.js', () => ({
+vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'popup-uuid', parseRegistryKey: (k) => ({ collectionId: k }),
     COLLECTION_PREFIXES: { VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_', VECTFOX_EVENTBASE: 'vf_eventbase_' },
     buildRegistryKey: (id) => `qdrant:${id}`, buildEventBaseCollectionId: () => 'vf_eventbase_popup', getRegistryBackend: () => 'qdrant',
@@ -26,7 +26,7 @@ vi.mock('../core/core-vector-api.js', () => ({
     queryCollection: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn(), getAdditionalArgs: vi.fn(),
     getSavedHashes: async () => state.points.map((_, i) => i),
 }));
-vi.mock('../core/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));
+vi.mock('../src/shared/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));
 vi.mock('../core/eventbase-schema.js', () => ({
     EventBaseFatalError: class extends Error {}, EventBaseExtractionError: class extends Error {}, buildEmbedText: (e) => e.summary,
 }));
@@ -50,7 +50,7 @@ vi.mock('../core/collection-metadata.js', () => ({
     isCollectionEnabled: () => true, isCollectionActiveForContextAnyKey: () => true,
     setCollectionLock: vi.fn(), setCollectionMeta: vi.fn(), getChatLockedCollections: () => [],
 }));
-vi.mock('../ui/progress-tracker.js', () => ({ progressTracker: new Proxy({}, { get: () => () => {} }) }));
+vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: new Proxy({}, { get: () => () => {} }) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
 
 const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../core/eventbase-workflow.js');

@@ -27,7 +27,7 @@ const runtimeRules = {
 };
 
 export default [
-    { ignores: ['node_modules/**', 'core/vendor/**', 'playwright-report/**', 'test-results/**', 'coverage/**'] },
+    { ignores: ['node_modules/**', 'src/vendor/**', 'playwright-report/**', 'test-results/**', 'coverage/**'] },
 
     // ── extension source: runs in the SillyTavern page ──────────────────────────
     {

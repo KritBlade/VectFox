@@ -24,7 +24,7 @@ vi.mock('../core/providers.js', () => ({
 }));
 
 import { warnIfEmbeddingSlow, slowEmbeddingWarnMs } from '../core/embedding-latency-warning.js';
-import { RETRIEVAL_TIMEOUT_DEFAULT_MS } from '../core/constants.js';
+import { RETRIEVAL_TIMEOUT_DEFAULT_MS } from '../src/shared/constants.js';
 import { log } from '../src/sillytavern/log.js';
 
 const settings = { embedding_provider: 'openrouter', embedding_openrouter_model: 'qwen/qwen3-embedding-8b' };

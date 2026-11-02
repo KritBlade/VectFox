@@ -2281,7 +2281,7 @@ test('TEST 012 — Cross-backend import: qdrant ↔ standard rename', async () =
         const TEST = 'TEST 012 [ImportRename]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { importCollection } = await import(base + 'core/collection-export.js');
-        const { remapCollectionIdToBackend, getBackendFromCollectionId } = await import(base + 'core/collection-ids.js');
+        const { remapCollectionIdToBackend, getBackendFromCollectionId } = await import(base + 'src/shared/collection-ids.js');
         const { deleteContentCollection } = await import(base + 'core/content-vectorization.js');
         const { deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
         const { unregisterCollection } = await import(base + 'core/collection-loader.js');
@@ -3252,7 +3252,7 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
             deleteCollectionMeta,
         } = await import(base + 'core/collection-metadata.js');
         const { registerCollection, unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { buildRegistryKey } = await import(base + 'core/collection-ids.js');
+        const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
@@ -3400,7 +3400,7 @@ test('TEST 018 — shouldCollectionActivate priority chain (triggers / condition
             shouldCollectionActivate,
         } = await import(base + 'core/collection-metadata.js');
         const { registerCollection, unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { buildRegistryKey } = await import(base + 'core/collection-ids.js');
+        const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
@@ -3591,7 +3591,7 @@ test('TEST 019 — WI / AutoSync refresh smoke: refresh paths do not mutate lock
             deleteCollectionMeta,
         } = await import(base + 'core/collection-metadata.js');
         const { registerCollection, unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { buildRegistryKey } = await import(base + 'core/collection-ids.js');
+        const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};

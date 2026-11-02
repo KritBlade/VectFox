@@ -23,7 +23,7 @@ import {
     resolveAgenticMaxTokens,
     agenticRetrievalExtraBudgetMs,
     resolveEventBaseRetrievalTimeoutMs,
-} from '../core/retrieval-budget.js';
+} from '../src/shared/retrieval-budget.js';
 import {
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     RETRIEVAL_TIMEOUT_MIN_MS,
@@ -35,7 +35,7 @@ import {
     AGENTIC_MAX_TOKENS_DEFAULT,
     AGENTIC_MAX_TOKENS_MIN,
     AGENTIC_MAX_TOKENS_MAX,
-} from '../core/constants.js';
+} from '../src/shared/constants.js';
 
 /** Agent mode active: enabled AND on the only backend that supports it. */
 const agentOn = { agentic_retrieval_enabled: true, vector_backend: 'qdrant' };

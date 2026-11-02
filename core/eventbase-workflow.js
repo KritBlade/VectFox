@@ -14,10 +14,10 @@
 import { setExtensionPrompt, extension_prompts } from '../src/sillytavern/prompt-injection.js';
 import { getCurrentChatId, substituteParams, getContext } from '../src/sillytavern/chat.js';
 import { extension_settings } from '../src/sillytavern/settings.js';
-import { getChatUUID, parseRegistryKey, COLLECTION_PREFIXES, buildRegistryKey } from './collection-ids.js';
+import { getChatUUID, parseRegistryKey, COLLECTION_PREFIXES, buildRegistryKey } from '../src/shared/collection-ids.js';
 import { getCollectionRegistry } from './collection-loader.js';
 import { queryCollection } from './core-vector-api.js';
-import { EVENTBASE_PROMPT_TAG } from './constants.js';
+import { EVENTBASE_PROMPT_TAG } from '../src/shared/constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
 import { extractEvents } from './eventbase-extractor.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
@@ -28,7 +28,7 @@ import { retrieveEvents } from './eventbase-retrieval.js';
 import { retrieveEventsWithAgent } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed } from './eventbase-injection.js';
 import { isCollectionEnabled, isCollectionActiveForContextAnyKey, setCollectionLock, setCollectionMeta } from './collection-metadata.js';
-import { progressTracker } from '../ui/progress-tracker.js';
+import { progressTracker } from '../src/shared/progress-tracker.js';
 import { log } from '../src/sillytavern/log.js';
 
 /**

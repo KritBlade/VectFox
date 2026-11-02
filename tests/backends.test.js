@@ -55,7 +55,7 @@ vi.mock('../../../../secrets.js', () => ({
 // checkPluginAvailable(). Stub it at the unit boundary so these tests drive
 // availability through the fetchMock /health response, with `response.ok`
 // semantics and the single-arg /health call the assertions expect.
-vi.mock('../core/similharity-plugin.js', () => ({
+vi.mock('../src/shared/similharity-plugin.js', () => ({
     checkPluginAvailable: vi.fn(async () => {
         try {
             const r = await fetch('/api/plugins/similharity/health');
@@ -82,7 +82,7 @@ vi.mock('../core/providers.js', () => ({
 }));
 
 // Mock constants.js
-vi.mock('../core/constants.js', () => ({
+vi.mock('../src/shared/constants.js', () => ({
     VECTOR_LIST_LIMIT: 10000,
     // Reached via backends -> embedding-latency-warning -> retrieval-budget,
     // which derives its slow-embed log threshold from the retrieval budget.
@@ -100,7 +100,7 @@ vi.mock('../core/constants.js', () => ({
 // Import backends after mocks are set up
 import { StandardBackend } from '../backends/standard.js';
 import { QdrantBackend, setInsertedCollectionRegistrar } from '../backends/qdrant.js';
-import { buildRegistryKey } from '../core/collection-ids.js';
+import { buildRegistryKey } from '../src/shared/collection-ids.js';
 import { VectorBackend } from '../backends/backend-interface.js';
 
 // =============================================================================

@@ -21,7 +21,7 @@ import { migrateOldEnabledKeys } from './core/collection-metadata.js';
 import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './core/collection-loader.js';
 import { clearCachesForDeletedCollection } from './core/eventbase-store.js';
 import { setInsertedCollectionRegistrar } from './backends/qdrant.js';
-import { migrateLegacyApiKeys } from './core/api-keys.js';
+import { migrateLegacyApiKeys } from './src/shared/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
 import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEFAULT } from './Migration/mg_world_info_threshold_rrf_workaround.js';
@@ -31,8 +31,8 @@ import {
     AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
     AGENTIC_MAX_TOKENS_DEFAULT,
-} from './core/constants.js';
-import { isVectFoxEnabled } from './core/feature-gate.js';
+} from './src/shared/constants.js';
+import { isVectFoxEnabled } from './src/shared/feature-gate.js';
 import { runNetworkStartup } from './core/network-startup.js';
 
 // VectFox modules - UI

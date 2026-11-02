@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getModelConfigErrorMessage } from '../core/model-http-errors.js';
+import { getModelConfigErrorMessage } from '../src/shared/model-http-errors.js';
 
 describe('getModelConfigErrorMessage', () => {
     it('classifies OpenRouter deprecated model 404 responses as fatal model config errors', () => {

@@ -16,7 +16,7 @@
 
 import { extension_settings } from "../src/sillytavern/settings.js";
 import { loadAllCollections } from "../core/collection-loader.js";
-import { buildRegistryKey } from "../core/collection-ids.js";
+import { buildRegistryKey } from "../src/shared/collection-ids.js";
 import { listChunks } from "../core/core-vector-api.js";
 import { icons } from "./icons.js";
 import { escapeHtml } from "../src/shared/html-escape.js";

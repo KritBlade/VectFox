@@ -21,24 +21,24 @@ import {
     getCustomApiKey,
     getQdrantApiKey,
     fetchQdrantApiKeyPresence,
-} from '../core/api-keys.js';
+} from '../src/shared/api-keys.js';
 import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webllm.js';
 import { escapeHtml } from '../src/shared/html-escape.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openQueryTestModal } from './query-tester.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
-import { progressTracker } from './progress-tracker.js';
+import { progressTracker } from '../src/shared/progress-tracker.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
-import { isVectFoxEnabled } from '../core/feature-gate.js';
+import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
 import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
 import { clearLorebookPrompt } from '../core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
 import { getCollectionRegistry, getCollectionListing } from '../core/collection-loader.js';
-import { checkPluginAvailable } from '../core/similharity-plugin.js';
+import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
 import { getCollectionMeta } from '../core/collection-metadata.js';
-import { parseRegistryKey } from '../core/collection-ids.js';
+import { parseRegistryKey } from '../src/shared/collection-ids.js';
 import { getModelField, resolveProviderApiUrl } from '../core/providers.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../core/bm25-scorer.js';
 import { LANGUAGE_MODES } from '../core/language-modes.js';
@@ -53,13 +53,13 @@ import {
     AGENTIC_MAX_TOKENS_DEFAULT,
     AGENTIC_MAX_TOKENS_MIN,
     AGENTIC_MAX_TOKENS_MAX,
-} from '../core/constants.js';
+} from '../src/shared/constants.js';
 import {
     resolveRetrievalTimeoutMs,
     resolveAgenticPlannerTimeoutMs,
     resolveAgenticQueryTimeoutMs,
     resolveAgenticMaxTokens,
-} from '../core/retrieval-budget.js';
+} from '../src/shared/retrieval-budget.js';
 import { log } from '../src/sillytavern/log.js';
 
 /**
@@ -2467,7 +2467,7 @@ function bindSettingsEvents(settings, callbacks) {
                 try {
                     const { getVectorizationTip } = await import('../core/eventbase-store.js');
                     const { getAutoSyncWindowSize } = await import('../core/eventbase-workflow.js');
-                    const { getChatUUID } = await import('../core/collection-ids.js');
+                    const { getChatUUID } = await import('../src/shared/collection-ids.js');
                     const uuid = getChatUUID();
                     const chatMsgCount = typeof status.chatMessageCount === 'number'
                         ? status.chatMessageCount
@@ -2528,7 +2528,7 @@ function bindSettingsEvents(settings, callbacks) {
                 // forces from-now-on when the user chose "just keep up from here".
                 try {
                     const { stampAutoSyncMarker } = await import('../core/eventbase-store.js');
-                    const { getChatUUID } = await import('../core/collection-ids.js');
+                    const { getChatUUID } = await import('../src/shared/collection-ids.js');
                     const uuid = getChatUUID();
                     if (uuid) await stampAutoSyncMarker(uuid, settings, markerFloorOverride ? { floor: markerFloorOverride } : {});
                 } catch (err) {
@@ -2559,7 +2559,7 @@ function bindSettingsEvents(settings, callbacks) {
                     // against whatever collection state exists at that time.
                     try {
                         const { clearAutoSyncMarker } = await import('../core/eventbase-store.js');
-                        const { getChatUUID } = await import('../core/collection-ids.js');
+                        const { getChatUUID } = await import('../src/shared/collection-ids.js');
                         const uuid = getChatUUID();
                         if (uuid) clearAutoSyncMarker(uuid);
                     } catch (err) {
@@ -3678,7 +3678,7 @@ function bindSettingsEvents(settings, callbacks) {
                 if (prev !== val) {
                     try {
                         const { stampAutoSyncMarker } = await import('../core/eventbase-store.js');
-                        const { getChatUUID } = await import('../core/collection-ids.js');
+                        const { getChatUUID } = await import('../src/shared/collection-ids.js');
                         const uuid = getChatUUID();
                         if (uuid) await stampAutoSyncMarker(uuid, extension_settings.vectfox);
                     } catch (err) {

@@ -31,13 +31,13 @@
 import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
-import { throwIfModelConfigError } from '../core/model-http-errors.js';
-import { VECTOR_LIST_LIMIT } from '../core/constants.js';
-import { getQdrantApiKey } from '../core/api-keys.js';
+import { throwIfModelConfigError } from '../src/shared/model-http-errors.js';
+import { VECTOR_LIST_LIMIT } from '../src/shared/constants.js';
+import { getQdrantApiKey } from '../src/shared/api-keys.js';
 import { log } from '../src/sillytavern/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
 import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
-import { buildRegistryKey } from '../core/collection-ids.js';
+import { buildRegistryKey } from '../src/shared/collection-ids.js';
 import { fetchQueryEmbedding } from './query-embedding.js';
 
 // What a successful insert calls with the collection's registry key, so the collection

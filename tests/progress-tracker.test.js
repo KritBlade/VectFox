@@ -24,7 +24,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: { verbose: () => {}, trace: () => {}, error: () => {}, warn: () => {}, lifecycle: () => {}, log: () => {}, enabled: () => false },
 }));
 
-import { ProgressTracker } from '../ui/progress-tracker.js';
+import { ProgressTracker } from '../src/shared/progress-tracker.js';
 
 /**
  * Mock window.matchMedia. jsdom does not implement it, and the tracker keys its

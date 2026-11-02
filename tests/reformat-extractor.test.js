@@ -14,7 +14,7 @@ vi.mock('../../../../../script.js', () => ({
     getRequestHeaders: () => ({ 'Content-Type': 'application/json' }),
 }));
 
-vi.mock('../core/api-keys.js', () => ({
+vi.mock('../src/shared/api-keys.js', () => ({
     getOpenRouterApiKey: () => 'mock-masked-key',
     getCustomApiKey: () => 'mock-masked-key',
 }));

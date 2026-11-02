@@ -8,17 +8,17 @@
  * ============================================================================ */
 
 /* Base styles - variables, icons, container */
-@import url('./styles/base.css');
+@import url('./src/shared/base.css');
 
 /* Component styles */
 @import url('./styles/cards.css');
-@import url('./styles/forms.css');
-@import url('./styles/buttons.css');
+@import url('./src/shared/forms.css');
+@import url('./src/shared/buttons.css');
 @import url('./styles/badges.css');
-@import url('./styles/modals.css');
+@import url('./src/shared/modals.css');
 
 /* Progress panel */
-@import url('./styles/progress-indicator.css');
+@import url('./src/shared/progress-tracker.css');
 
 /* UI component styles */
 @import url('./ui/diagnostics.css');
@@ -30,7 +30,7 @@
 @import url('./ui/health-dashboard.css');
 
 /* Tab navigation styles */
-@import url('./styles/tabs.css');
+@import url('./src/shared/tabs.css');
 
 /* Mobile responsive styles - must be last to override */
-@import url('./styles/mobile.css');
+@import url('./src/shared/mobile.css');

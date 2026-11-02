@@ -13,7 +13,7 @@
  */
 
 import { getBackend, getBackendForCollection } from '../backends/backend-manager.js';
-import { parseRegistryKey, COLLECTION_PREFIXES } from './collection-ids.js';
+import { parseRegistryKey, COLLECTION_PREFIXES } from '../src/shared/collection-ids.js';
 import { createBM25Scorer, porterStemmer } from './bm25-scorer.js';
 import { extractQueryKeywords, RETRIEVAL_KEYWORD_LEVELS, isCJKToken } from './query-keyword-extractor.js';
 import { log } from '../src/sillytavern/log.js';

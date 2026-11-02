@@ -3,8 +3,8 @@
  * every caller, so a plugin-less install sends one request (one 404 in the console) however many features ask.
  */
 
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { log } from '../src/sillytavern/log.js';
+import { getRequestHeaders } from '../sillytavern/requests.js';
+import { log } from '../sillytavern/log.js';
 
 // `pluginAvailable` is the settled result, null until a probe settles. `pluginProbeInFlight` is the promise of a
 // probe that has started but not finished, so concurrent callers share one request.

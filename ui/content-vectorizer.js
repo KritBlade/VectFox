@@ -24,13 +24,13 @@ import { getContext } from '../src/sillytavern/chat.js';
 import { callGenericPopup, POPUP_TYPE } from '../src/sillytavern/popup.js';
 import { getChatUUID, vectorizeAll } from '../core/chat-vectorization.js';
 import { validateLLMConfig } from '../core/llm-config-validation.js';
-import { getOpenRouterApiKey } from '../core/api-keys.js';
+import { getOpenRouterApiKey } from '../src/shared/api-keys.js';
 import { escapeHtml } from '../src/shared/html-escape.js';
 import { resolveEffectiveSettings } from '../core/content-vectorization.js';
-import { buildArchiveEventCollectionId } from '../core/collection-ids.js';
+import { buildArchiveEventCollectionId } from '../src/shared/collection-ids.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { getCleaningSettings, CLEANING_PRESETS } from '../core/text-cleaning.js';
-import { progressTracker } from './progress-tracker.js';
+import { progressTracker } from '../src/shared/progress-tracker.js';
 
 // ============================================================================
 // STATE

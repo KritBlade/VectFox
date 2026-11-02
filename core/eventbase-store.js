@@ -15,7 +15,7 @@ import {
 import { saveSettingsDebounced, extension_settings } from '../src/sillytavern/settings.js';
 import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
-import { getChatUUID, buildEventBaseCollectionId, getRegistryBackend, COLLECTION_PREFIXES, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from './collection-ids.js';
+import { getChatUUID, buildEventBaseCollectionId, getRegistryBackend, COLLECTION_PREFIXES, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../src/shared/collection-ids.js';
 import { registerCollection, getCollectionRegistry, getCollectionListing } from './collection-loader.js';
 import { getChatLockedCollections, isCollectionActiveForContextAnyKey, setCollectionAutoSync } from './collection-metadata.js';
 import { buildEmbedText } from './eventbase-schema.js';

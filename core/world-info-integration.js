@@ -15,7 +15,7 @@ import { getContext, substituteParams, getCurrentChatId } from '../src/sillytave
 import { eventSource, event_types } from '../src/sillytavern/events.js';
 import { setExtensionPrompt } from '../src/sillytavern/prompt-injection.js';
 import { queryCollection } from './core-vector-api.js';
-import { resolveBackendForCollection, sanitizeNameSegment } from './collection-ids.js';
+import { resolveBackendForCollection, sanitizeNameSegment } from '../src/shared/collection-ids.js';
 import { getCollectionListing, getCollectionRegistry } from './collection-loader.js';
 import {
     getCollectionMeta,
@@ -26,15 +26,15 @@ import {
     isCollectionLockedToChat,
     isCollectionLockedToCharacter,
 } from './collection-metadata.js';
-import { LOREBOOK_PROMPT_TAG } from './constants.js';
-import { notifyRetrievalFailure, notifyNoActiveCollections } from './model-config-notifier.js';
+import { LOREBOOK_PROMPT_TAG } from '../src/shared/constants.js';
+import { notifyRetrievalFailure, notifyNoActiveCollections } from '../src/shared/model-config-notifier.js';
 import { runBoundedRetrieval } from './bounded-retrieval.js';
 import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
 // the builder is intentionally not imported here because lookups can't reconstruct the
 // exact ID (backend + handle + timestamp segments are not known at lookup time).
 import { log } from '../src/sillytavern/log.js';
-import { isVectFoxEnabled } from './feature-gate.js';
+import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
 
 // ============================================================================
 // WORLD INFO ACTIVATION HOOKS

@@ -108,9 +108,9 @@
  * ============================================================================
  */
 
-import { extension_settings, saveSettings } from '../src/sillytavern/settings.js';
-import { SECRET_KEYS, secret_state, writeSecret, readSecretState } from '../src/sillytavern/secrets.js';
-import { log } from '../src/sillytavern/log.js';
+import { extension_settings, saveSettings } from '../sillytavern/settings.js';
+import { SECRET_KEYS, secret_state, writeSecret, readSecretState } from '../sillytavern/secrets.js';
+import { log } from '../sillytavern/log.js';
 import { checkPluginAvailable } from './similharity-plugin.js';
 
 // ─── Internal helpers ───────────────────────────────────────────────────
