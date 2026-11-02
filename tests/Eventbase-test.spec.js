@@ -31,7 +31,9 @@ npm run test:e2e:report
  */
 
 import { test, expect } from '@playwright/test';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // ---------------------------------------------------------------------------
 // SillyTavern target URL — override here for quick A/B testing across machines
@@ -68,12 +70,40 @@ let sharedContext;
 
 const AUTH_FILE = '.playwright-auth.json';
 
+// The folder SillyTavern serves VectFox from, and every VectFox file the page requested but could not load
+// (HTTP 400 and up, or a network failure), recorded from the first navigation on. TEST 000 asserts it is empty.
+const VECTFOX_SERVED_PATH = '/scripts/extensions/third-party/VectFox/';
+const vectfoxLoadFailures = [];
+
+function watchVectFoxLoads(page) {
+    page.on('response', (response) => {
+        if (response.url().includes(VECTFOX_SERVED_PATH) && response.status() >= 400) {
+            vectfoxLoadFailures.push(`${response.status()} ${response.url()}`);
+        }
+    });
+    page.on('requestfailed', (request) => {
+        if (request.url().includes(VECTFOX_SERVED_PATH)) {
+            vectfoxLoadFailures.push(`${request.failure()?.errorText ?? 'request failed'} ${request.url()}`);
+        }
+    });
+}
+
+/** Every file under src/ in this repo, as a path relative to the repo root. */
+function shippedFiles(folder = 'src') {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    return readdirSync(path.join(repoRoot, folder)).flatMap((name) => {
+        const relative = `${folder}/${name}`;
+        return statSync(path.join(repoRoot, relative)).isDirectory() ? shippedFiles(relative) : [relative];
+    });
+}
+
 test.beforeAll(async ({ browser }) => {
     // Reuse saved cookies/localStorage from the last run so login is skipped
     sharedContext = await browser.newContext({
         storageState: existsSync(AUTH_FILE) ? AUTH_FILE : undefined,
     });
     sharedPage = await sharedContext.newPage();
+    watchVectFoxLoads(sharedPage);
 
     // Force-disable HTTP cache via Chrome DevTools Protocol BEFORE the first
     // navigation. Without this, the browser will happily reuse a cached copy
@@ -485,6 +515,39 @@ async function skipIfNoPlugin() {
     }
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// TEST 000 — the deployed copy is complete: every VectFox file loads
+// ═══════════════════════════════════════════════════════════════════
+// A file missing from the deployed copy, or a path that names no file, fails here instead of when a user first
+// opens the screen that loads it. Three checks: nothing VectFox requested since the first navigation failed (the
+// manifest's src/index.js and src/vectfox.css with everything they import); every file under this repo's src/ is
+// served; and every module outside src/vendor/ imports, which also loads the modules VectFox imports on demand.
+test('TEST 000 — every VectFox file loads from the deployed copy', async () => {
+    expect(vectfoxLoadFailures, 'VectFox files that failed to load at startup').toEqual([]);
+
+    const files = shippedFiles();
+    const modules = files.filter((file) => file.endsWith('.js') && !file.startsWith('src/vendor/'));
+    const problems = await sharedPage.evaluate(async ({ base, files, modules }) => {
+        const found = [];
+        for (const file of files) {
+            const response = await fetch(base + file, { method: 'HEAD', cache: 'no-store' });
+            if (!response.ok) found.push(`${response.status} ${file}`);
+        }
+        for (const module of modules) {
+            try {
+                await import(base + module);
+            } catch (error) {
+                found.push(`import failed: ${module}: ${error.message}`);
+            }
+        }
+        return found;
+    }, { base: VECTFOX_SERVED_PATH, files, modules });
+
+    console.log(`TEST 000: ${files.length} files served, ${modules.length} modules imported, ${problems.length} problem(s)`);
+    expect(problems, 'VectFox files the deployed copy does not serve or cannot import').toEqual([]);
+    expect(vectfoxLoadFailures, 'VectFox files that failed to load').toEqual([]);
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // TEST 001 — Qdrant lorebook: vectorize → lock → query isolation
