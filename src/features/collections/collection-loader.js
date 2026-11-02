@@ -9,10 +9,10 @@
  * ============================================================================
  */
 
-import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/settings.js';
-import { getContext, characters, getCurrentChatId } from '../src/sillytavern/chat.js';
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { getSavedHashes } from './core-vector-api.js';
+import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
+import { getContext, characters, getCurrentChatId } from '../../sillytavern/chat.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { getSavedHashes } from '../vector-backend/vector-api.js';
 import {
     isCollectionEnabled,
     deleteCollectionMeta,
@@ -21,8 +21,8 @@ import {
     setCollectionMeta,
     isCollectionActiveForContext,
 } from './collection-metadata.js';
-import { purgeVectorIndex } from './core-vector-api.js';
-import { log } from '../src/sillytavern/log.js';
+import { purgeVectorIndex } from '../vector-backend/vector-api.js';
+import { log } from '../../sillytavern/log.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
     getChatUUID,
@@ -34,8 +34,8 @@ import {
     buildRegistryKey,
     sanitizeHandleId,
     sanitizeNameSegment,
-} from '../src/shared/collection-ids.js';
-import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from '../src/shared/similharity-plugin.js';
+} from '../../shared/collection-ids.js';
+import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from '../../shared/similharity-plugin.js';
 
 /**
  * Detect collection IDs that VECTFOX should NOT register or query.

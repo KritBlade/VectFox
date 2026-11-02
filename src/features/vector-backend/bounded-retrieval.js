@@ -16,10 +16,10 @@
  * ============================================================================
  */
 
-import { resolveRetrievalTimeoutMs } from '../src/shared/retrieval-budget.js';
-import { notifyRetrievalFailure } from '../src/shared/model-config-notifier.js';
-import { describeEmbeddingTimeoutCause } from '../src/features/embedding/embedding-latency-warning.js';
-import { log } from '../src/sillytavern/log.js';
+import { resolveRetrievalTimeoutMs } from '../../shared/retrieval-budget.js';
+import { notifyRetrievalFailure } from '../../shared/model-config-notifier.js';
+import { describeEmbeddingTimeoutCause } from '../embedding/embedding-latency-warning.js';
+import { log } from '../../sillytavern/log.js';
 
 /** A retrieval that never returned, vs. one that returned an error. */
 const TIMEOUT_PATTERN = /timed out|timeout|aborted/i;

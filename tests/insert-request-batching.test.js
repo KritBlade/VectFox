@@ -22,7 +22,7 @@ vi.mock('../../../../textgen-settings.js', () => ({ textgen_types: {}, textgener
 vi.mock('../../../../openai.js', () => ({ oai_settings: {} }));
 vi.mock('../../../shared.js', () => ({ isWebLlmSupported: () => false }));
 vi.mock('../src/features/embedding/webllm-provider.js', () => ({ getWebLlmProvider: vi.fn() }));
-vi.mock('../backends/backend-manager.js', () => ({
+vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackend: vi.fn(), getBackendForCollection: vi.fn(), invalidateBackendHealth: vi.fn(),
     recordQuery: vi.fn(), recordInsert: vi.fn(), recordDelete: vi.fn(), recordError: vi.fn(),
 }));
@@ -30,8 +30,8 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: () => () => {} }),
 }));
 
-const { insertVectorItems, DynamicRateLimiter } = await import('../core/core-vector-api.js');
-const { getBackend } = await import('../backends/backend-manager.js');
+const { insertVectorItems, DynamicRateLimiter } = await import('../src/features/vector-backend/vector-api.js');
+const { getBackend } = await import('../src/features/vector-backend/backend-registry.js');
 
 /** The index.js defaults for every setting insertVectorItems reads. */
 const INSTALL_DEFAULTS = {

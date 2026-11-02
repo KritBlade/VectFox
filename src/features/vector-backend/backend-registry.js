@@ -10,10 +10,10 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../src/sillytavern/settings.js';
+import { extension_settings } from '../../sillytavern/settings.js';
 import { StandardBackend } from './standard.js';
 import { QdrantBackend } from './qdrant.js';
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 
 // Backend registry - add new backends here
 const BACKENDS = {

@@ -29,15 +29,15 @@ import { openContentVectorizer } from './content-vectorizer.js';
 import { openQueryTestModal } from './query-tester.js';
 import { openTextCleaningManager } from '../src/features/text-cleaning/text-cleaning-ui.js';
 import { progressTracker } from '../src/shared/progress-tracker.js';
-import { resetBackendHealth } from '../backends/backend-manager.js';
+import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';
 import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
 import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
 import { clearLorebookPrompt } from '../core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
-import { getCollectionRegistry, getCollectionListing } from '../core/collection-loader.js';
+import { getCollectionRegistry, getCollectionListing } from '../src/features/collections/collection-loader.js';
 import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
-import { getCollectionMeta } from '../core/collection-metadata.js';
+import { getCollectionMeta } from '../src/features/collections/collection-metadata.js';
 import { parseRegistryKey } from '../src/shared/collection-ids.js';
 import { getModelField, resolveProviderApiUrl } from '../src/features/embedding/providers.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../src/features/keyword-search/bm25-scorer.js';
@@ -2085,7 +2085,7 @@ export async function refreshAutoSyncCheckbox(settings) {
     const $hint = $('#VectFox_autosync_hint');
 
     const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
-    const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../core/collection-metadata.js');
+    const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../src/features/collections/collection-metadata.js');
 
     // While VectFox is disabled this refresh only reads cached state: no backend call,
     // no diagnostics. It still runs so the checkbox matches the current chat — the
@@ -2403,7 +2403,7 @@ function bindSettingsEvents(settings, callbacks) {
             const $checkbox = $(this);
 
             const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
-            const { setCollectionAutoSync, setCollectionLock } = await import('../core/collection-metadata.js');
+            const { setCollectionAutoSync, setCollectionLock } = await import('../src/features/collections/collection-metadata.js');
             let status = await getChatAutoSyncStatus(settings);
             const chatId = getCurrentChatId();
             log.lifecycle(`[AutoSync][checkbox] ${enabling ? 'CHECK' : 'UNCHECK'} → status.state=${status.state}, chatId=${chatId || '(none)'}, collection=${status.registryKey || status.collectionId || '(none)'}`);
@@ -3323,7 +3323,7 @@ function bindSettingsEvents(settings, callbacks) {
             // Proactively reinitialize if Qdrant is the current backend
             if (settings.vector_backend === 'qdrant') {
                 try {
-                    const { initializeBackend } = await import('../backends/backend-manager.js');
+                    const { initializeBackend } = await import('../src/features/vector-backend/backend-registry.js');
                     await initializeBackend('qdrant', settings, false);
                     toastr.success(
                         `Qdrant re-initialized in ${settings.qdrant_use_cloud ? 'cloud' : 'local'} mode`,
@@ -3920,7 +3920,7 @@ function bindSettingsEvents(settings, callbacks) {
 
             const chatId = getCurrentChatId();
             const characterId = getContext()?.characterId;
-            const { removeCollectionLock, removeCollectionCharacterLock } = await import('../core/collection-metadata.js');
+            const { removeCollectionLock, removeCollectionCharacterLock } = await import('../src/features/collections/collection-metadata.js');
 
             if (enabled) {
                 if (ownLorebookEntries.length === 0) {
@@ -4095,8 +4095,8 @@ function bindSettingsEvents(settings, callbacks) {
                         const registry = getCollectionRegistry();
                         log.trace('VectFox: Collection registry:', registry);
 
-                        const coreApi = await import('../core/core-vector-api.js');
-                        const metaMod = await import('../core/collection-metadata.js');
+                        const coreApi = await import('../src/features/vector-backend/vector-api.js');
+                        const metaMod = await import('../src/features/collections/collection-metadata.js');
 
                         for (const registryKey of registry) {
                             try {

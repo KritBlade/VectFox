@@ -77,7 +77,7 @@ vi.mock('../src/features/embedding/webllm-provider.js', () => ({
 // Collection discovery is exercised by tests/world-info-integration.test.js.
 // Here every test passes `preloadedCollections` explicitly so the subject under
 // test is the query path, not the listing/activation gate.
-vi.mock('../core/collection-loader.js', () => ({
+vi.mock('../src/features/collections/collection-loader.js', () => ({
     getCollectionListing: vi.fn(() => []),
     getCollectionRegistry: vi.fn(() => []),
 }));
@@ -86,7 +86,7 @@ vi.mock('../src/shared/similharity-plugin.js', () => ({
     checkPluginAvailable: vi.fn(async () => true),
 }));
 
-vi.mock('../core/collection-metadata.js', () => ({
+vi.mock('../src/features/collections/collection-metadata.js', () => ({
     getCollectionMeta: vi.fn(() => ({})),
     isCollectionEnabled: vi.fn(() => true),
     shouldCollectionActivate: vi.fn(async () => true),
@@ -103,8 +103,8 @@ vi.mock('../core/lorebook-rename-detector.js', () => ({
 }));
 
 import { getSemanticWorldInfoEntries } from '../core/world-info-integration.js';
-import { resetBackendHealth } from '../backends/backend-manager.js';
-import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
+import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';
+import { invalidateCollectionMetadata } from '../src/features/vector-backend/tokenizer-lock.js';
 import {
     resetRetrievalFailureNotifications,
     resetNoActiveCollectionsNotifications,
@@ -544,7 +544,7 @@ describe('Collection discovery gate', () => {
     // ca65530, re-added in 33bb63a). These tests pin the behavior that is
     // actually shipped so a future change to it is deliberate.
     beforeEach(async () => {
-        const { getCollectionListing } = await import('../core/collection-loader.js');
+        const { getCollectionListing } = await import('../src/features/collections/collection-loader.js');
         getCollectionListing.mockReturnValue([{
             registryKey: QDRANT_LOREBOOK_KEY,
             collectionId: QDRANT_LOREBOOK_ID,
@@ -556,7 +556,7 @@ describe('Collection discovery gate', () => {
     });
 
     it('never queries a lorebook that fails shouldCollectionActivate', async () => {
-        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         shouldCollectionActivate.mockResolvedValue(false);
         hybridQueryResponder = () => jsonResponse({ success: true, results: [chunkedChunk()] });
 
@@ -576,7 +576,7 @@ describe('Collection discovery gate', () => {
         // A trigger-keyword lorebook with no chat/character lock could then never
         // activate, no matter what the user typed. The document/ChunkBase path was
         // unaffected because it passes a full buildSearchContext().
-        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         shouldCollectionActivate.mockResolvedValue(true);
         hybridQueryResponder = () => jsonResponse({ success: true, results: [chunkedChunk()] });
 
@@ -589,7 +589,7 @@ describe('Collection discovery gate', () => {
     });
 
     it('queries a lorebook that passes the gate', async () => {
-        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         shouldCollectionActivate.mockResolvedValue(true);
         hybridQueryResponder = () => jsonResponse({ success: true, results: [chunkedChunk()] });
 
@@ -615,7 +615,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
 
     /** Put one lorebook in the registry listing with the given meta/ownership. */
     async function listOneLorebook({ meta = {}, isOwn = true } = {}) {
-        const { getCollectionListing } = await import('../core/collection-loader.js');
+        const { getCollectionListing } = await import('../src/features/collections/collection-loader.js');
         getCollectionListing.mockReturnValue([{
             registryKey: QDRANT_LOREBOOK_KEY,
             collectionId: QDRANT_LOREBOOK_ID,
@@ -638,7 +638,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
 
     it('toasts and warns when a vectorized lorebook exists but nothing activated', async () => {
         const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         await listOneLorebook();
         shouldCollectionActivate.mockResolvedValue(false);
 
@@ -661,7 +661,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
         // everything (core/collection-metadata.js shouldCollectionActivate). So the
         // actionable advice is "switch it on", not "your keyword missed".
         const { shouldCollectionActivate, getCollectionMeta,
-            getCollectionLockCount, getCollectionCharacterLockCount } = await import('../core/collection-metadata.js');
+            getCollectionLockCount, getCollectionCharacterLockCount } = await import('../src/features/collections/collection-metadata.js');
         await listOneLorebook();
         shouldCollectionActivate.mockResolvedValue(false);
         getCollectionMeta.mockReturnValue({ triggers: ['dragon'], sourceName: 'WorldLore' });
@@ -679,7 +679,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
 
     it('names the reason when the book is locked to a different chat or character', async () => {
         const { shouldCollectionActivate, getCollectionMeta,
-            getCollectionLockCount, getCollectionCharacterLockCount } = await import('../core/collection-metadata.js');
+            getCollectionLockCount, getCollectionCharacterLockCount } = await import('../src/features/collections/collection-metadata.js');
         await listOneLorebook();
         shouldCollectionActivate.mockResolvedValue(false);
         getCollectionMeta.mockReturnValue({ triggers: [], sourceName: 'WorldLore' });
@@ -699,7 +699,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
         // Only reachable now that the lock gate passed first — this is the state
         // the user actually designed triggers for: on, but filtered out this turn.
         const { shouldCollectionActivate, getCollectionMeta, isCollectionLockedToChat } =
-            await import('../core/collection-metadata.js');
+            await import('../src/features/collections/collection-metadata.js');
         await listOneLorebook();
         shouldCollectionActivate.mockResolvedValue(false);
         getCollectionMeta.mockReturnValue({ triggers: ['unicorn'], sourceName: 'WorldLore' });
@@ -717,7 +717,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
     it('stays quiet when the only lorebook was deliberately paused by the user', async () => {
         // "I turned it off and it is off" is not a surprise. Paused collections are
         // counted for the log but must never trigger the toast.
-        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         await listOneLorebook({ meta: { enabled: false } });
         shouldCollectionActivate.mockResolvedValue(false);
 
@@ -728,7 +728,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
 
     it('stays quiet when there are no vectorized lorebooks at all', async () => {
         // Nothing to act on — the user simply has not vectorized anything yet.
-        const { getCollectionListing } = await import('../core/collection-loader.js');
+        const { getCollectionListing } = await import('../src/features/collections/collection-loader.js');
         getCollectionListing.mockReturnValue([]);
 
         await fireGenerationStarted();
@@ -737,7 +737,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
     });
 
     it('de-dups per chat so it does not fire on every generation', async () => {
-        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         await listOneLorebook();
         shouldCollectionActivate.mockResolvedValue(false);
 
@@ -753,7 +753,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
         const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
         const { extension_settings } = await import('../../../../extensions.js');
         extension_settings.vectfox = baseSettings({ enabled: true, debug_verbosity: 'verbose' });
-        const { shouldCollectionActivate } = await import('../core/collection-metadata.js');
+        const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         await listOneLorebook();
         shouldCollectionActivate.mockResolvedValue(false);
 

@@ -16,7 +16,7 @@ import {
     encodeSparseVector,
     encodeSparseQuery,
     hashToken,
-} from '../core/sparse-vector-encoder.js';
+} from '../src/features/vector-backend/sparse-vector-encoder.js';
 
 describe('hashToken', () => {
     it('returns an unsigned 32-bit integer', () => {

@@ -21,8 +21,8 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     buildRegistryKey: (id) => `qdrant:${id}`, buildEventBaseCollectionId: () => 'vf_eventbase_popup', getRegistryBackend: () => 'qdrant',
     buildChatSearchPatterns: () => [], matchesPatterns: () => false,
 }));
-vi.mock('../core/collection-loader.js', () => ({ getCollectionRegistry: () => [], registerCollection: vi.fn(), getCollectionListing: vi.fn() }));
-vi.mock('../core/core-vector-api.js', () => ({
+vi.mock('../src/features/collections/collection-loader.js', () => ({ getCollectionRegistry: () => [], registerCollection: vi.fn(), getCollectionListing: vi.fn() }));
+vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     queryCollection: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn(), getAdditionalArgs: vi.fn(),
     getSavedHashes: async () => state.points.map((_, i) => i),
 }));
@@ -40,13 +40,13 @@ vi.mock('../core/eventbase-store.js', async (importOriginal) => ({
     ...(await importOriginal()),
     insertEvents: vi.fn(async (events) => { state.points.push(...events); }),
 }));
-vi.mock('../backends/backend-manager.js', () => ({
+vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackend: async () => ({ listChunks: async () => ({ items: state.points.map(p => ({ metadata: { source_window_end: p.source_window_end } })) }) }),
 }));
 vi.mock('../core/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../core/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
 vi.mock('../core/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
-vi.mock('../core/collection-metadata.js', () => ({
+vi.mock('../src/features/collections/collection-metadata.js', () => ({
     isCollectionEnabled: () => true, isCollectionActiveForContextAnyKey: () => true,
     setCollectionLock: vi.fn(), setCollectionMeta: vi.fn(), getChatLockedCollections: () => [],
 }));

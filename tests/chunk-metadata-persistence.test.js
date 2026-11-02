@@ -29,7 +29,7 @@ vi.mock('../../../../../script.js', () => ({
     saveSettingsDebounced: vi.fn(),
 }));
 
-import { saveChunkMetadata, getChunkMetadata, deleteChunkMetadata } from '../core/collection-metadata.js';
+import { saveChunkMetadata, getChunkMetadata, deleteChunkMetadata } from '../src/features/collections/collection-metadata.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

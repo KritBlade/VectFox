@@ -19,24 +19,24 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
 // Embedding-side: no key helpers needed here. vLLM, Ollama, and other
 // "local-or-self-hosted" providers either resolve keys server-side via ST
 // (vLLM → SECRET_KEYS.VLLM) or send no auth at all (Ollama — ST has no
 // auth path for it). Cloud providers like OpenRouter route through ST's
 // chat-completions proxy from elsewhere, not through this file.
-import { getBackend, getBackendForCollection, invalidateBackendHealth, recordQuery, recordInsert, recordDelete, recordError } from '../backends/backend-manager.js';
-import { resolveBackendForCollection } from '../src/shared/collection-ids.js';
+import { getBackend, getBackendForCollection, invalidateBackendHealth, recordQuery, recordInsert, recordDelete, recordError } from './backend-registry.js';
+import { resolveBackendForCollection } from '../../shared/collection-ids.js';
 import {
     getModelFromSettings,
     resolveProviderApiUrl
-} from '../src/features/embedding/providers.js';
-import { isConnectionError, notifyConnectionError } from '../src/shared/model-config-notifier.js';
-import { getOverfetchAmount } from '../src/features/keyword-search/keyword-boost.js';
-import { applyBM25Scoring, porterStemmer } from '../src/features/keyword-search/bm25-scorer.js';
+} from '../embedding/providers.js';
+import { isConnectionError, notifyConnectionError } from '../../shared/model-config-notifier.js';
+import { getOverfetchAmount } from '../keyword-search/keyword-boost.js';
+import { applyBM25Scoring, porterStemmer } from '../keyword-search/bm25-scorer.js';
 import { hybridSearch } from './hybrid-search.js';
-import { extractQueryKeywords, RETRIEVAL_KEYWORD_LEVELS, isCJKToken } from '../src/features/keyword-search/query-keyword-extractor.js';
-import { log } from '../src/sillytavern/log.js';
+import { extractQueryKeywords, RETRIEVAL_KEYWORD_LEVELS, isCJKToken } from '../keyword-search/query-keyword-extractor.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * Lazy + best-effort cache invalidation for the corpus-IDF stats.
@@ -56,13 +56,13 @@ async function _invalidateCorpusStats(collectionId, reason) {
         log.warn(`[CorpusStats] Cache invalidation failed for ${collectionId}:`, err);
     }
 }
-import { retry } from '../src/shared/retry.js';
+import { retry } from '../../shared/retry.js';
 import {
     RETRY_MAX_ATTEMPTS,
     RETRY_INITIAL_DELAY_MS,
     RETRY_MAX_DELAY_MS,
     RETRY_BACKOFF_MULTIPLIER
-} from '../src/shared/constants.js';
+} from '../../shared/constants.js';
 
 // Get shared WebLLM provider singleton (lazy-initialized)
 

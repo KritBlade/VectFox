@@ -183,7 +183,7 @@ describe('Live code remains intact (regression guard)', () => {
 
     describe('Centralized collection listing (recent refactor)', () => {
         it('getCollectionListing is exported from collection-loader.js', () => {
-            expect(readRel('core/collection-loader.js'))
+            expect(readRel('src/features/collections/collection-loader.js'))
                 .toMatch(/export\s+function\s+getCollectionListing/);
         });
 

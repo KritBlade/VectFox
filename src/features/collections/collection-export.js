@@ -17,11 +17,11 @@
  * ============================================================================
  */
 
-import { getContext } from '../src/sillytavern/chat.js';
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { saveSettingsDebounced } from '../src/sillytavern/settings.js';
-import { getStringHash } from '../src/sillytavern/identifiers.js';
-import { insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
+import { getContext } from '../../sillytavern/chat.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { saveSettingsDebounced } from '../../sillytavern/settings.js';
+import { getStringHash } from '../../sillytavern/identifiers.js';
+import { insertVectorItems, purgeVectorIndex } from '../vector-backend/vector-api.js';
 import {
     getCollectionMeta,
     setCollectionMeta,
@@ -33,11 +33,11 @@ import {
 import {
     registerCollection,
 } from './collection-loader.js';
-import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from '../src/shared/collection-ids.js';
-import { getModelFromSettings } from '../src/features/embedding/providers.js';
-import { encodeSparseVector } from './sparse-vector-encoder.js';
-import { progressTracker } from '../src/shared/progress-tracker.js';
-import { log } from '../src/sillytavern/log.js';
+import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from '../../shared/collection-ids.js';
+import { getModelFromSettings } from '../embedding/providers.js';
+import { encodeSparseVector } from '../vector-backend/sparse-vector-encoder.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
+import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
 // HELPERS
@@ -495,7 +495,7 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
     // Best-effort + dynamic import — failure must not break the import flow.
     if (chunks.length > 0) {
         try {
-            const mod = await import('./corpus-stats.js');
+            const mod = await import('../vector-backend/corpus-stats.js');
             mod.clearCorpusStatsCache(collectionId);
         } catch (err) {
             log.warn(`VectFox Import: corpus-stats cache clear failed for ${collectionId} (BM25 stats stay stale until the next rebuild):`, err);

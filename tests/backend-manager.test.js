@@ -74,7 +74,7 @@ import {
     recordError,
     recordHealthCheck,
     getBackendMetrics,
-} from '../backends/backend-manager.js';
+} from '../src/features/vector-backend/backend-registry.js';
 
 // =============================================================================
 // BACKEND MANAGER TESTS

@@ -26,7 +26,7 @@ vi.mock('../../../../textgen-settings.js', () => ({ textgen_types: {}, textgener
 vi.mock('../../../../openai.js', () => ({ oai_settings: {} }));
 vi.mock('../../../shared.js', () => ({ isWebLlmSupported: () => false }));
 vi.mock('../src/features/embedding/webllm-provider.js', () => ({ getWebLlmProvider: vi.fn() }));
-vi.mock('../backends/backend-manager.js', () => ({
+vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackend: vi.fn(), getBackendForCollection: vi.fn(), invalidateBackendHealth: vi.fn(),
     recordQuery: vi.fn(), recordInsert: vi.fn(), recordDelete: vi.fn(), recordError: vi.fn(),
 }));
@@ -35,7 +35,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: (_target, level) => (level === 'warn' ? warnSpy : () => {}) }),
 }));
 
-const { callWithHedge } = await import('../core/core-vector-api.js');
+const { callWithHedge } = await import('../src/features/vector-backend/vector-api.js');
 
 const THRESHOLD = 15000;
 const MAX_HEDGES = 3;

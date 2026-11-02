@@ -20,7 +20,7 @@ const mockSettings = vi.hoisted(() => ({ vectfox: {} }));
 vi.mock('../../../../extensions.js', () => ({ extension_settings: mockSettings }));
 vi.mock('../../../../../script.js', () => ({ saveSettingsDebounced: vi.fn() }));
 
-import { processChunkLinks } from '../core/conditional-activation.js';
+import { processChunkLinks } from '../src/features/collections/conditional-activation.js';
 
 // ---------------------------------------------------------------------------
 // Mirror of getChunkData()'s field merge (ui/chunk-visualizer.js). Keep in sync.

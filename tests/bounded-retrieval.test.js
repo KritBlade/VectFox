@@ -30,7 +30,7 @@ vi.mock('../src/features/embedding/embedding-latency-warning.js', () => ({
     describeEmbeddingTimeoutCause: (s) => `Almost always the embedding provider — ${s?.embedding_provider || 'transformers'}.`,
 }));
 
-import { runBoundedRetrieval } from '../core/bounded-retrieval.js';
+import { runBoundedRetrieval } from '../src/features/vector-backend/bounded-retrieval.js';
 import { notifyRetrievalFailure } from '../src/shared/model-config-notifier.js';
 import { log } from '../src/sillytavern/log.js';
 

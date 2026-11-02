@@ -3320,7 +3320,7 @@ async function startVectorization() {
     // Check if vectors already exist for this content (chat specifically)
     if (currentContentType === 'chat' && source.type === 'current') {
         try {
-            const { doesChatHaveVectors } = await import('../core/collection-loader.js');
+            const { doesChatHaveVectors } = await import('../src/features/collections/collection-loader.js');
             const existing = await doesChatHaveVectors(currentSettings);
 
             if (existing.hasVectors && existing.chunkCount > 0) {
@@ -3342,8 +3342,8 @@ async function startVectorization() {
                 }
 
                 // User wants to replace - purge existing first
-                const { purgeVectorIndex } = await import('../core/core-vector-api.js');
-                const { unregisterCollection } = await import('../core/collection-loader.js');
+                const { purgeVectorIndex } = await import('../src/features/vector-backend/vector-api.js');
+                const { unregisterCollection } = await import('../src/features/collections/collection-loader.js');
                 await purgeVectorIndex(existing.collectionId, currentSettings);
                 unregisterCollection(existing.collectionId);
                 toastr.info('Cleared existing vectors', 'VectFox');

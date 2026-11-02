@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { warn: vi.fn(), error: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
-vi.mock('../core/collection-loader.js', () => ({
+vi.mock('../src/features/collections/collection-loader.js', () => ({
     discoverExistingCollections: vi.fn(async () => []),
 }));
 vi.mock('../core/eventbase-store.js', () => ({

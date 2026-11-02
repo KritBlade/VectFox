@@ -29,7 +29,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // --- mock every DIRECT dependency of core/eventbase-retrieval.js ---
 const queryCollectionMock = vi.fn();
 const getQueryVectorMock = vi.fn();
-vi.mock('../core/core-vector-api.js', () => ({
+vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     queryCollection: (...a) => queryCollectionMock(...a),
     getQueryVector: (...a) => getQueryVectorMock(...a),
 }));
@@ -38,7 +38,7 @@ vi.mock('../core/core-vector-api.js', () => ({
 const vectorFor = (text) => [text.length, 0.5];
 
 // Native-rerank path only (Qdrant + opt-in), not exercised here — stub to null.
-vi.mock('../backends/backend-manager.js', () => ({
+vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackendForCollection: vi.fn(async () => null),
     getBackend: vi.fn(async () => null),
 }));

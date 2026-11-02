@@ -17,17 +17,17 @@ import { extractChatKeywords } from '../src/features/keyword-search/keyword-boos
 import {
     getSavedHashes,
     queryCollection,
-} from './core-vector-api.js';
-import { isBackendAvailable } from '../backends/backend-manager.js';
-import { getCollectionRegistry, isCollectionEmpty } from './collection-loader.js';
-import { isCollectionEnabled, filterActiveCollections } from './collection-metadata.js';
+} from '../src/features/vector-backend/vector-api.js';
+import { isBackendAvailable } from '../src/features/vector-backend/backend-registry.js';
+import { getCollectionRegistry, isCollectionEmpty } from '../src/features/collections/collection-loader.js';
+import { isCollectionEnabled, filterActiveCollections } from '../src/features/collections/collection-metadata.js';
 import { progressTracker } from '../src/shared/progress-tracker.js';
-import { buildSearchContext, filterChunksByConditions, processChunkLinks } from './conditional-activation.js';
-import { getChunkMetadata, getCollectionMeta } from './collection-metadata.js';
+import { buildSearchContext, filterChunksByConditions, processChunkLinks } from '../src/features/collections/conditional-activation.js';
+import { getChunkMetadata, getCollectionMeta } from '../src/features/collections/collection-metadata.js';
 
 import { LRUCache } from '../src/features/chunkbase/lru-cache.js';
 import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from '../src/shared/constants.js';
-import { runBoundedRetrieval } from './bounded-retrieval.js';
+import { runBoundedRetrieval } from '../src/features/vector-backend/bounded-retrieval.js';
 import { resolveEventBaseRetrievalTimeoutMs } from '../src/shared/retrieval-budget.js';
 import { log } from '../src/sillytavern/log.js';
 import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
@@ -194,7 +194,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
 
     // Find EventBase collections registered for this chat and check the per-collection auto-sync flag
     const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('./eventbase-store.js');
-    const { isCollectionAutoSyncEnabled } = await import('./collection-metadata.js');
+    const { isCollectionAutoSyncEnabled } = await import('../src/features/collections/collection-metadata.js');
     const backend = getRegistryBackend(settings?.vector_backend);
     const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
     // Metadata is keyed by the registry-key form ("backend:id"), matching the

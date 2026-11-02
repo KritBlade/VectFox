@@ -16,10 +16,10 @@
 import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
 import { extension_settings } from '../src/sillytavern/settings.js';
 import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from '../src/shared/collection-ids.js';
-import { registerCollection } from './collection-loader.js';
-import { getChatLockedCollections, removeCollectionLock, setCollectionLock, setCollectionMeta } from './collection-metadata.js';
-import { fetchPortableChunks, insertChunksWithVectors } from './collection-export.js';
-import { purgeVectorIndex } from './core-vector-api.js';
+import { registerCollection } from '../src/features/collections/collection-loader.js';
+import { getChatLockedCollections, removeCollectionLock, setCollectionLock, setCollectionMeta } from '../src/features/collections/collection-metadata.js';
+import { fetchPortableChunks, insertChunksWithVectors } from '../src/features/collections/collection-export.js';
+import { purgeVectorIndex } from '../src/features/vector-backend/vector-api.js';
 import { getModelFromSettings } from '../src/features/embedding/providers.js';
 import { resolveActiveEventBaseCollection, markWindowExtracted, setVectorizationTip, getLastUsedWindowSize, setLastUsedWindowSize } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';

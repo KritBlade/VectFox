@@ -16,13 +16,13 @@ import {
     insertVectorItems,
     getSavedHashes,
     purgeVectorIndex,
-} from '../core/core-vector-api.js';
+} from '../src/features/vector-backend/vector-api.js';
 import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
-} from '../core/collection-metadata.js';
-import { unregisterCollection } from '../core/collection-loader.js';
+} from '../src/features/collections/collection-metadata.js';
+import { unregisterCollection } from '../src/features/collections/collection-loader.js';
 import { getStringHash } from '../src/sillytavern/identifiers.js';
 
 // Test collection prefix using VectFox vf_ format

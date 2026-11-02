@@ -29,7 +29,7 @@ vi.mock('../../../../../script.js', () => ({ setExtensionPrompt: mocks.setExtens
 // host module throws on import (vitest.config.js), so stub them here.
 vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [], symbols: { ignore: null } })) }));
 vi.mock('../../../../world-info.js', () => ({ getWorldInfoSettings: vi.fn(() => ({})), getSortedEntries: vi.fn(async () => []) }));
-vi.mock('../backends/backend-manager.js', () => ({ getBackend: vi.fn(async () => ({ listChunks: mocks.listChunks })) }));
+vi.mock('../src/features/vector-backend/backend-registry.js', () => ({ getBackend: vi.fn(async () => ({ listChunks: mocks.listChunks })) }));
 vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: mocks.getChatUUID }));
 vi.mock('../core/eventbase-store.js', () => ({ resolveActiveEventBaseCollection: mocks.resolveActive }));
 vi.mock('../src/shared/constants.js', () => ({ SUMMARIZER_PROMPT_TAG: '3_vectfox_summarizer' }));

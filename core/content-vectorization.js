@@ -12,11 +12,11 @@
 
 import { getContentType, getContentTypeDefaults } from './content-types.js';
 import { chunkText } from './chunking.js';
-import { insertVectorItems, purgeVectorIndex, getSavedHashes } from './core-vector-api.js';
+import { insertVectorItems, purgeVectorIndex, getSavedHashes } from '../src/features/vector-backend/vector-api.js';
 import { isConnectionError } from '../src/shared/model-config-notifier.js';
-import { setCollectionMeta, setCollectionLock, setCollectionCharacterLock, saveChunkMetadata } from './collection-metadata.js';
-import { registerCollection } from './collection-loader.js';
-import { getBackend } from '../backends/backend-manager.js';
+import { setCollectionMeta, setCollectionLock, setCollectionCharacterLock, saveChunkMetadata } from '../src/features/collections/collection-metadata.js';
+import { registerCollection } from '../src/features/collections/collection-loader.js';
+import { getBackend } from '../src/features/vector-backend/backend-registry.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
     buildLorebookCollectionId,

@@ -31,7 +31,7 @@ vi.mock('../../../../../script.js', () => ({
     getCurrentChatId: vi.fn(() => 'chat-1'),
 }));
 
-vi.mock('../core/core-vector-api.js', () => ({
+vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     getSavedHashes: vi.fn(),
     queryCollection: vi.fn(),
     purgeVectorIndex: vi.fn(),
@@ -43,11 +43,11 @@ vi.mock('../src/sillytavern/log.js', () => ({
 
 import { extension_settings } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
-import { getSavedHashes } from '../core/core-vector-api.js';
+import { getSavedHashes } from '../src/features/vector-backend/vector-api.js';
 import { log } from '../src/sillytavern/log.js';
-import { discoverExistingCollections, getCollectionRegistry } from '../core/collection-loader.js';
+import { discoverExistingCollections, getCollectionRegistry } from '../src/features/collections/collection-loader.js';
 import { resetPluginAvailableCache } from '../src/shared/similharity-plugin.js';
-import { cleanupOrphanedMeta } from '../core/collection-metadata.js';
+import { cleanupOrphanedMeta } from '../src/features/collections/collection-metadata.js';
 
 const QDRANT_KEY = 'qdrant:vf_lorebook_qdrant_testpersona_worldlore_1750000000000';
 const VECTRA_KEY = 'standard:transformers:vf_lorebook_testpersona_oldbook_1740000000000';

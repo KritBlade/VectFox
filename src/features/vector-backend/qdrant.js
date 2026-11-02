@@ -28,17 +28,17 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { VectorBackend } from './backend-interface.js';
-import { getModelFromSettings, resolveProviderApiUrl } from '../src/features/embedding/providers.js';
-import { throwIfModelConfigError } from '../src/shared/model-http-errors.js';
-import { VECTOR_LIST_LIMIT } from '../src/shared/constants.js';
-import { getQdrantApiKey } from '../src/shared/api-keys.js';
-import { log } from '../src/sillytavern/log.js';
-import { warnIfEmbeddingSlow } from '../src/features/embedding/embedding-latency-warning.js';
-import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
-import { buildRegistryKey } from '../src/shared/collection-ids.js';
-import { fetchQueryEmbedding } from '../src/features/embedding/query-embedding.js';
+import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/providers.js';
+import { throwIfModelConfigError } from '../../shared/model-http-errors.js';
+import { VECTOR_LIST_LIMIT } from '../../shared/constants.js';
+import { getQdrantApiKey } from '../../shared/api-keys.js';
+import { log } from '../../sillytavern/log.js';
+import { warnIfEmbeddingSlow } from '../embedding/embedding-latency-warning.js';
+import { invalidateCollectionMetadata } from './tokenizer-lock.js';
+import { buildRegistryKey } from '../../shared/collection-ids.js';
+import { fetchQueryEmbedding } from '../embedding/query-embedding.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
 // shows in the registry. The registry sits above the backends, so index.js sets it at startup.
@@ -309,7 +309,7 @@ export class QdrantBackend extends VectorBackend {
         // Compute sparse vectors per item. The browser owns tokenization (CJK pipeline lives
         // here), so we encode each item's text into Qdrant's {indices, values} format and
         // ship it as opaque payload to the plugin. Single path for Qdrant.
-        const { encodeSparseVector } = await import('../core/sparse-vector-encoder.js');
+        const { encodeSparseVector } = await import('./sparse-vector-encoder.js');
 
         // Batch items to avoid exceeding Qdrant's 32MB payload limit
         // Qdrant's default limit is 33554432 bytes (32MB)
@@ -881,7 +881,7 @@ export class QdrantBackend extends VectorBackend {
         // they differ.
         let sparseQueryVector;
         try {
-            const { detectTokenizerMismatch, showTokenizerMismatchModal, applyTokenizerRevert, openCjkTokenizerSetting } = await import('../core/tokenizer-lock.js');
+            const { detectTokenizerMismatch, showTokenizerMismatchModal, applyTokenizerRevert, openCjkTokenizerSetting } = await import('./tokenizer-lock.js');
             const mismatch = await detectTokenizerMismatch(settings, actualCollectionId);
             if (mismatch) {
                 const debugLog = log.enabled('lifecycle');
@@ -896,7 +896,7 @@ export class QdrantBackend extends VectorBackend {
                     // a broken query. Without this the user has to hit ST's Stop
                     // button manually after dismissing the modal.
                     try {
-                        const { stopGeneration } = await import('../src/sillytavern/generation.js');
+                        const { stopGeneration } = await import('../../sillytavern/generation.js');
                         stopGeneration();
                     } catch (e) {
                         log.warn('[Qdrant] stopGeneration() failed:', e?.message);
@@ -905,7 +905,7 @@ export class QdrantBackend extends VectorBackend {
                     return { hashes: [], metadata: [] };
                 }
             }
-            const { encodeSparseQuery } = await import('../core/sparse-vector-encoder.js');
+            const { encodeSparseQuery } = await import('./sparse-vector-encoder.js');
             sparseQueryVector = encodeSparseQuery(searchText);
         } catch (error) {
             // Throw rather than falling back here. Fallback for the whole hybrid
@@ -976,7 +976,7 @@ export class QdrantBackend extends VectorBackend {
         if (log.enabled('verbose')) {
             const preview = String(searchText || '').replace(/\s+/g, ' ').slice(0, 280);
             try {
-                const { tokenize } = await import('../src/features/keyword-search/bm25-scorer.js');
+                const { tokenize } = await import('../keyword-search/bm25-scorer.js');
                 const terms = [...new Set(tokenize(searchText, { dedupe: false }))];
                 log.verbose(`[EventBase] Hybrid request: collection=${body.collectionId}, topK=${topK}, sparse=${sparseQueryVector.indices.length} tokens, terms=[${terms.join(', ')}], preview="${preview}"`);
             } catch {
@@ -1092,7 +1092,7 @@ export class QdrantBackend extends VectorBackend {
         // (matches the legacy behavior).
         let sparseQueryVector;
         try {
-            const { detectTokenizerMismatch, showTokenizerMismatchModal, applyTokenizerRevert, openCjkTokenizerSetting } = await import('../core/tokenizer-lock.js');
+            const { detectTokenizerMismatch, showTokenizerMismatchModal, applyTokenizerRevert, openCjkTokenizerSetting } = await import('./tokenizer-lock.js');
             const mismatch = await detectTokenizerMismatch(settings, actualCollectionId);
             if (mismatch) {
                 const debugLog = log.enabled('lifecycle');
@@ -1107,7 +1107,7 @@ export class QdrantBackend extends VectorBackend {
                     // a broken query. Without this the user has to hit ST's Stop
                     // button manually after dismissing the modal.
                     try {
-                        const { stopGeneration } = await import('../src/sillytavern/generation.js');
+                        const { stopGeneration } = await import('../../sillytavern/generation.js');
                         stopGeneration();
                     } catch (e) {
                         log.warn('[Qdrant] stopGeneration() failed:', e?.message);
@@ -1116,7 +1116,7 @@ export class QdrantBackend extends VectorBackend {
                     return { hashes: [], metadata: [] };
                 }
             }
-            const { encodeSparseQuery } = await import('../core/sparse-vector-encoder.js');
+            const { encodeSparseQuery } = await import('./sparse-vector-encoder.js');
             sparseQueryVector = encodeSparseQuery(searchText);
         } catch (error) {
             log.warn('[Qdrant] sparse query setup failed (rerank path):', error?.message);

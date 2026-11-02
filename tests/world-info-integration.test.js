@@ -29,7 +29,7 @@ vi.mock('../../../../../script.js', () => ({
     substituteParams: vi.fn((s) => s),
 }));
 
-vi.mock('../core/core-vector-api.js', () => ({
+vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     queryCollection: vi.fn(),
 }));
 
@@ -40,7 +40,7 @@ vi.mock('../src/features/embedding/providers.js', () => ({
     getModelFromSettings: (s) => s?.embedding_openrouter_model || '',
 }));
 
-vi.mock('../core/collection-metadata.js', () => ({
+vi.mock('../src/features/collections/collection-metadata.js', () => ({
     getCollectionMeta: vi.fn(),
     isCollectionEnabled: vi.fn(),
     shouldCollectionActivate: vi.fn(),
@@ -72,7 +72,7 @@ const _testState = vi.hoisted(() => ({
     disabledByKey: {},    // registryKey → true if disabled
 }));
 
-vi.mock('../core/collection-loader.js', () => ({
+vi.mock('../src/features/collections/collection-loader.js', () => ({
     // getCollectionListing: synthesize entries from settings.vectfox_collection_registry.
     // sourceName and enabled come from _testState (tests set them in beforeEach).
     getCollectionListing: vi.fn((settings) => {
@@ -117,7 +117,7 @@ vi.mock('../core/lorebook-rename-detector.js', () => ({
     openDatabaseBrowserForRename: vi.fn(),
 }));
 
-vi.mock('../core/conditional-activation.js', () => ({
+vi.mock('../src/features/collections/conditional-activation.js', () => ({
     buildSearchContext: vi.fn(() => ({
         recentMessages: [],
         generationType: 'normal',
@@ -127,8 +127,8 @@ vi.mock('../core/conditional-activation.js', () => ({
 
 import { getContext, extension_settings } from '../../../../extensions.js';
 import { setExtensionPrompt, eventSource } from '../../../../../script.js';
-import { queryCollection } from '../core/core-vector-api.js';
-import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from '../core/collection-metadata.js';
+import { queryCollection } from '../src/features/vector-backend/vector-api.js';
+import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from '../src/features/collections/collection-metadata.js';
 import { buildLorebookCollectionId } from '../src/shared/collection-ids.js';
 
 import {

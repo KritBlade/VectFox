@@ -174,8 +174,8 @@ test.beforeAll(async ({ browser }) => {
     // contain it accidentally.
     const cleanupReport = await sharedPage.evaluate(async () => {
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { getCollectionListing, unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
+        const { getCollectionListing, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { deleteContentCollection } = await import(base + 'core/content-vectorization.js');
         const { extension_settings } = await import('/scripts/extensions.js');
         const { saveSettingsDebounced } = await import('/script.js');
@@ -498,10 +498,10 @@ test('TEST 001 — Qdrant lorebook: lock + query isolation', async () => {
         const TEST = 'TEST 001 [QdrantLorebook]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { shouldCollectionActivate, deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
+        const { shouldCollectionActivate, deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -637,8 +637,8 @@ test('TEST 002 — Qdrant EventBase: insert + field check', async () => {
         const TEST = 'TEST 002 [EventBaseQdrant]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { insertEvents } = await import(base + 'core/eventbase-store.js');
-        const { deleteCollection } = await import(base + 'core/collection-loader.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
         const vf = extension_settings?.vectfox;
         if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
@@ -780,10 +780,10 @@ test('TEST 003 — E2E qdrant: both locked, both return results', async () => {
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
         const { insertEvents } = await import(base + 'core/eventbase-store.js');
-        const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection, deleteCollection } = await import(base + 'core/collection-loader.js');
+        const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -961,9 +961,9 @@ test('TEST 004 — DB Browser: listing + delete (any backend)', async () => {
         const TEST = 'TEST 004 [DBBrowser]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -1087,10 +1087,10 @@ test('TEST 005 — Standard lorebook: lock + query isolation', async () => {
         const TEST = 'TEST 005 [StdLorebook]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { shouldCollectionActivate, deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
+        const { shouldCollectionActivate, deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -1206,8 +1206,8 @@ test('TEST 006 — Standard EventBase: insert + parseEmbedText recovery', async 
         const TEST = 'TEST 006 [StdEventBase]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { insertEvents } = await import(base + 'core/eventbase-store.js');
-        const { deleteCollection } = await import(base + 'core/collection-loader.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { parseEmbedText } = await import(base + 'core/eventbase-schema.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -1358,10 +1358,10 @@ test('TEST 007 — E2E standard: both locked, both return results', async () => 
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
         const { insertEvents } = await import(base + 'core/eventbase-store.js');
-        const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection, deleteCollection } = await import(base + 'core/collection-loader.js');
+        const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -1568,9 +1568,9 @@ test('TEST 008 — DB Browser standard + plugin: listing + delete', async () => 
         const TEST = 'TEST 008 [DBBrowserStd]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -1715,9 +1715,9 @@ test('TEST 009 — DB Browser standard, no plugin: graceful degradation', async 
         const TEST = 'TEST 009 [DBBrowserStdNoPlugin]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -1904,10 +1904,10 @@ test('TEST 010 — Cross-collection isolation: lock controls lorebook visibility
         const TEST = 'TEST 010 [LeakCheck]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { shouldCollectionActivate, deleteCollectionMeta, removeCollectionLock, clearCollectionLock } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
+        const { shouldCollectionActivate, deleteCollectionMeta, removeCollectionLock, clearCollectionLock } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -2111,10 +2111,10 @@ test('TEST 011 — Cross-persona activation isolation', async () => {
         const TEST = 'TEST 011 [CrossPersona]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { getCollectionMeta, setCollectionMeta, deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
-        const { getCollectionListing, unregisterCollection } = await import(base + 'core/collection-loader.js');
+        const { getCollectionMeta, setCollectionMeta, deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { getCollectionListing, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -2280,12 +2280,12 @@ test('TEST 012 — Cross-backend import: qdrant ↔ standard rename', async () =
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 012 [ImportRename]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { importCollection } = await import(base + 'core/collection-export.js');
+        const { importCollection } = await import(base + 'src/features/collections/collection-export.js');
         const { remapCollectionIdToBackend, getBackendFromCollectionId } = await import(base + 'src/shared/collection-ids.js');
         const { deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -2476,10 +2476,10 @@ test('TEST 013 — Synthetic E2E qdrant: lorebook + EventBase round-trip', async
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
         const { insertEvents } = await import(base + 'core/eventbase-store.js');
-        const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection, deleteCollection } = await import(base + 'core/collection-loader.js');
+        const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -3061,8 +3061,8 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             clearAutoSyncMarker,
             findEventBaseCollectionsForChat,
         } = await import(base + 'core/eventbase-store.js');
-        const { registerCollection, unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { deleteCollectionMeta } = await import(base + 'core/collection-metadata.js');
+        const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { deleteContentCollection } = await import(base + 'core/content-vectorization.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -3250,8 +3250,8 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
             isCollectionLockedToChat,
             shouldCollectionActivate,
             deleteCollectionMeta,
-        } = await import(base + 'core/collection-metadata.js');
-        const { registerCollection, unregisterCollection } = await import(base + 'core/collection-loader.js');
+        } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -3398,8 +3398,8 @@ test('TEST 018 — shouldCollectionActivate priority chain (triggers / condition
             removeCollectionCharacterLock,
             isCollectionLockedToCharacter,
             shouldCollectionActivate,
-        } = await import(base + 'core/collection-metadata.js');
-        const { registerCollection, unregisterCollection } = await import(base + 'core/collection-loader.js');
+        } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -3589,8 +3589,8 @@ test('TEST 019 — WI / AutoSync refresh smoke: refresh paths do not mutate lock
             isCollectionLockedToChat,
             isCollectionEnabled,
             deleteCollectionMeta,
-        } = await import(base + 'core/collection-metadata.js');
-        const { registerCollection, unregisterCollection } = await import(base + 'core/collection-loader.js');
+        } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -3766,10 +3766,10 @@ async function overrideBackendFirstBody({ BACKEND, LABEL }) {
     const TEST = `${LABEL} [BackendFirst:${BACKEND}]`;
     const base = '/scripts/extensions/third-party/VectFox/';
     const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-    const { deleteCollectionMeta, getChunkMetadata, saveChunkMetadata, deleteChunkMetadata } = await import(base + 'core/collection-metadata.js');
-    const { unregisterCollection } = await import(base + 'core/collection-loader.js');
-    const { updateChunkMetadata } = await import(base + 'core/core-vector-api.js');
-    const { getBackend } = await import(base + 'backends/backend-manager.js');
+    const { deleteCollectionMeta, getChunkMetadata, saveChunkMetadata, deleteChunkMetadata } = await import(base + 'src/features/collections/collection-metadata.js');
+    const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+    const { updateChunkMetadata } = await import(base + 'src/features/vector-backend/vector-api.js');
+    const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
     const { extension_settings } = await import('/scripts/extensions.js');
 
     const vf = extension_settings?.vectfox;
@@ -3910,10 +3910,10 @@ test('TEST 022 — Standard+plugin: context/xmlTag wrapping + condition filter t
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
         const { rearrangeChat } = await import(base + 'core/chat-vectorization.js');
-        const { updateChunkMetadata, queryCollection, insertVectorItems } = await import(base + 'core/core-vector-api.js');
-        const { getChunkMetadata, saveChunkMetadata, deleteChunkMetadata, deleteCollectionMeta, shouldCollectionActivate, setCollectionLock, clearCollectionLock, setCollectionEnabled } = await import(base + 'core/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'core/collection-loader.js');
-        const { getBackend } = await import(base + 'backends/backend-manager.js');
+        const { updateChunkMetadata, queryCollection, insertVectorItems } = await import(base + 'src/features/vector-backend/vector-api.js');
+        const { getChunkMetadata, saveChunkMetadata, deleteChunkMetadata, deleteCollectionMeta, shouldCollectionActivate, setCollectionLock, clearCollectionLock, setCollectionEnabled } = await import(base + 'src/features/collections/collection-metadata.js');
+        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
         const { getStringHash } = await import('/scripts/utils.js');
 

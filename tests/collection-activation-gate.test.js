@@ -34,12 +34,12 @@ vi.mock('../../../../../script.js', () => ({
 // Advanced conditions have their own suite; here they are a controllable gate so
 // the AND relationship with triggers can be pinned without a rules engine.
 const conditionResult = vi.hoisted(() => ({ value: true }));
-vi.mock('../core/conditional-activation.js', () => ({
+vi.mock('../src/features/collections/conditional-activation.js', () => ({
     evaluateConditionRule: vi.fn(() => conditionResult.value),
 }));
 
 import { extension_settings } from '../../../../extensions.js';
-import { shouldCollectionActivate } from '../core/collection-metadata.js';
+import { shouldCollectionActivate } from '../src/features/collections/collection-metadata.js';
 
 const COLLECTION = 'qdrant:vf_lorebook_qdrant_testpersona_worldlore_1750000000000';
 const CHAT_ID = 'chat-abc';

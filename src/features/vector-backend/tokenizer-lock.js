@@ -18,13 +18,13 @@
  * ============================================================================
  */
 
-import { escapeHtml } from '../src/shared/html-escape.js';
-import { log } from '../src/sillytavern/log.js';
+import { escapeHtml } from '../../shared/html-escape.js';
+import { log } from '../../sillytavern/log.js';
 
 const metadataCache = new Map();
 
 async function getRequestHeadersImport() {
-    const mod = await import('../src/sillytavern/requests.js');
+    const mod = await import('../../sillytavern/requests.js');
     return mod.getRequestHeaders;
 }
 
@@ -93,7 +93,7 @@ export async function detectTokenizerMismatch(settings, actualCollectionId) {
  * @returns {Promise<'revert'|'settings'|'cancel'>}
  */
 export async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../src/sillytavern/popup.js');
+    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
 
     const html = `
         <h3>Tokenizer Mode Mismatch</h3>
@@ -149,8 +149,8 @@ export async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
  */
 export async function applyTokenizerRevert(savedMode, settings) {
     const { setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded, CJK_TOKENIZER_MODES } =
-        await import('../src/features/keyword-search/bm25-scorer.js');
-    const { saveSettingsDebounced, extension_settings } = await import('../src/sillytavern/settings.js');
+        await import('../keyword-search/bm25-scorer.js');
+    const { saveSettingsDebounced, extension_settings } = await import('../../sillytavern/settings.js');
 
     settings.cjk_tokenizer_mode = savedMode;
     setCjkTokenizerMode(savedMode);
@@ -212,7 +212,7 @@ async function waitForPopupsClosed(maxWaitMs = 1500) {
     // Last-resort manual close: walk Popup.util.popups and force completeCancelled on any
     // that survived. Then strip them from the DOM if they still cling on.
     try {
-        const { Popup } = await import('../src/sillytavern/popup.js');
+        const { Popup } = await import('../../sillytavern/popup.js');
         const survivors = (Popup?.util?.popups || []).slice();
         for (const p of survivors) {
             try { await p.completeCancelled(); } catch { /* tolerate */ }

@@ -21,8 +21,8 @@ vi.mock('../../../../../script.js', () => ({
 }));
 vi.mock('../../../../extensions.js', () => ({ extension_settings: {}, getContext: vi.fn(() => ({ chat: [] })) }));
 vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: vi.fn(), parseRegistryKey: vi.fn(), COLLECTION_PREFIXES: {}, buildRegistryKey: vi.fn() }));
-vi.mock('../core/collection-loader.js', () => ({ getCollectionRegistry: vi.fn() }));
-vi.mock('../core/core-vector-api.js', () => ({ queryCollection: vi.fn(), getSavedHashes: vi.fn() }));
+vi.mock('../src/features/collections/collection-loader.js', () => ({ getCollectionRegistry: vi.fn() }));
+vi.mock('../src/features/vector-backend/vector-api.js', () => ({ queryCollection: vi.fn(), getSavedHashes: vi.fn() }));
 vi.mock('../src/shared/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));
 vi.mock('../core/eventbase-schema.js', () => ({ EventBaseFatalError: class {}, EventBaseExtractionError: class {} }));
 vi.mock('../core/eventbase-extractor.js', () => ({ extractEvents: vi.fn() }));
@@ -36,7 +36,7 @@ vi.mock('../core/eventbase-store.js', () => ({
 vi.mock('../core/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../core/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
 vi.mock('../core/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
-vi.mock('../core/collection-metadata.js', () => ({ isCollectionEnabled: vi.fn(), isCollectionLockedToChat: vi.fn(), setCollectionLock: vi.fn(), setCollectionMeta: vi.fn() }));
+vi.mock('../src/features/collections/collection-metadata.js', () => ({ isCollectionEnabled: vi.fn(), isCollectionLockedToChat: vi.fn(), setCollectionLock: vi.fn(), setCollectionMeta: vi.fn() }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: {} }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
 

@@ -45,19 +45,19 @@ vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [
 vi.mock('../../../../utils.js', () => ({ getStringHash: vi.fn(() => 1) }));
 vi.mock('../src/features/keyword-search/keyword-boost.js', () => ({ extractChatKeywords: vi.fn(), extractBM25Keywords: vi.fn() }));
 vi.mock('../src/features/text-cleaning/text-cleaning.js', () => ({ cleanText: vi.fn((text) => text) }));
-vi.mock('../core/core-vector-api.js', () => ({
+vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     getSavedHashes: vi.fn(), insertVectorItems: vi.fn(), queryCollection: vi.fn(),
     deleteVectorItems: vi.fn(),
 }));
-vi.mock('../backends/backend-manager.js', () => ({ isBackendAvailable: vi.fn() }));
-vi.mock('../core/collection-loader.js', () => ({ registerCollection: vi.fn(), getCollectionRegistry: vi.fn(() => []), isCollectionEmpty: vi.fn() }));
-vi.mock('../core/collection-metadata.js', () => ({
+vi.mock('../src/features/vector-backend/backend-registry.js', () => ({ isBackendAvailable: vi.fn() }));
+vi.mock('../src/features/collections/collection-loader.js', () => ({ registerCollection: vi.fn(), getCollectionRegistry: vi.fn(() => []), isCollectionEmpty: vi.fn() }));
+vi.mock('../src/features/collections/collection-metadata.js', () => ({
     isCollectionEnabled: vi.fn(), filterActiveCollections: vi.fn(), setCollectionLock: vi.fn(),
     getChunkMetadata: vi.fn(), getCollectionMeta: vi.fn(),
 }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: {} }));
-vi.mock('../core/conditional-activation.js', () => ({ buildSearchContext: vi.fn(), filterChunksByConditions: vi.fn(), processChunkLinks: vi.fn() }));
-vi.mock('../core/bounded-retrieval.js', () => ({ runBoundedRetrieval: mocks.runBoundedRetrieval }));
+vi.mock('../src/features/collections/conditional-activation.js', () => ({ buildSearchContext: vi.fn(), filterChunksByConditions: vi.fn(), processChunkLinks: vi.fn() }));
+vi.mock('../src/features/vector-backend/bounded-retrieval.js', () => ({ runBoundedRetrieval: mocks.runBoundedRetrieval }));
 vi.mock('../src/shared/retrieval-budget.js', () => ({ resolveEventBaseRetrievalTimeoutMs: vi.fn(() => 15000) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: mocks.log }));
 vi.mock('../src/shared/collection-ids.js', () => ({

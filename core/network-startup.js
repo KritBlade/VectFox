@@ -39,7 +39,7 @@
  * ============================================================================
  */
 
-import { discoverExistingCollections } from './collection-loader.js';
+import { discoverExistingCollections } from '../src/features/collections/collection-loader.js';
 import { pruneOrphanedEventBaseChatMaps } from './eventbase-store.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';
 import { retry } from '../src/shared/retry.js';

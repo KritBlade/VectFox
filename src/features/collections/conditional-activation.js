@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
 // COLLECTION & CHUNK CONDITION EVALUATORS (10 types)

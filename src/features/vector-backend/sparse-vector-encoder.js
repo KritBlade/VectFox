@@ -17,7 +17,7 @@
  * ============================================================================
  */
 
-import { tokenize } from '../src/features/keyword-search/bm25-scorer.js';
+import { tokenize } from '../keyword-search/bm25-scorer.js';
 
 /**
  * FNV-1a 32-bit hash. Deterministic, fast, no dependencies.

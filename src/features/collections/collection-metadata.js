@@ -9,9 +9,9 @@
  * - collection-metadata.js = Settings & state (talks to extension_settings)
  */
 
-import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/settings.js';
-import { parseRegistryKey, parseCollectionId } from '../src/shared/collection-ids.js';
-import { log } from '../src/sillytavern/log.js';
+import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
+import { parseRegistryKey, parseCollectionId } from '../../shared/collection-ids.js';
+import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
 // COLLECTION METADATA CRUD

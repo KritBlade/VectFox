@@ -15,13 +15,13 @@ import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
-} from '../core/collection-metadata.js';
+} from '../src/features/collections/collection-metadata.js';
 import {
     deleteVectorItems,
     insertVectorItems,
     updateChunkText,
     updateChunkMetadata,
-} from '../core/core-vector-api.js';
+} from '../src/features/vector-backend/vector-api.js';
 import { getStringHash } from '../src/sillytavern/identifiers.js';
 import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { escapeHtml } from '../src/shared/html-escape.js';

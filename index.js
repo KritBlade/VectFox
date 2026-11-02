@@ -17,10 +17,10 @@ import { extension_settings } from './src/sillytavern/settings.js';
 
 // VectFox modules - Core
 import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
-import { migrateOldEnabledKeys } from './core/collection-metadata.js';
-import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './core/collection-loader.js';
+import { migrateOldEnabledKeys } from './src/features/collections/collection-metadata.js';
+import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './src/features/collections/collection-loader.js';
 import { clearCachesForDeletedCollection } from './core/eventbase-store.js';
-import { setInsertedCollectionRegistrar } from './backends/qdrant.js';
+import { setInsertedCollectionRegistrar } from './src/features/vector-backend/qdrant.js';
 import { migrateLegacyApiKeys } from './src/shared/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';

@@ -35,7 +35,7 @@ vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },
     getContext: vi.fn(() => ({ name1: 'Rabbit', name2: 'Kagami', chat: [] })),
 }));
-vi.mock('../core/core-vector-api.js', () => ({
+vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     insertVectorItems: vi.fn(), queryCollection: vi.fn(), deleteVectorItems: vi.fn(),
     getAdditionalArgs: vi.fn(), getSavedHashes: vi.fn(),
 }));
@@ -49,12 +49,12 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     matchesPatterns: vi.fn((id, patterns) =>
         !!id && patterns.some(p => String(id).toLowerCase().includes(p))),
 }));
-vi.mock('../core/collection-loader.js', () => ({
+vi.mock('../src/features/collections/collection-loader.js', () => ({
     registerCollection: vi.fn(),
     getCollectionRegistry: vi.fn(() => []),
     getCollectionListing: vi.fn(() => listingRows),
 }));
-vi.mock('../core/collection-metadata.js', () => ({
+vi.mock('../src/features/collections/collection-metadata.js', () => ({
     getChatLockedCollections: vi.fn(() => []),
     isCollectionActiveForContextAnyKey: vi.fn(keys => keys.some(k => lockedKeys.has(k))),
 }));

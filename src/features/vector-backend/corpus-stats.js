@@ -26,11 +26,11 @@
  * vectorization stay snappy and the cost is amortized over future reads.
  * ============================================================================
  */
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { tokenize } from '../src/features/keyword-search/bm25-scorer.js';
-import { getModelFromSettings } from '../src/features/embedding/providers.js';
-import { log } from '../src/sillytavern/log.js';
-import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { tokenize } from '../keyword-search/bm25-scorer.js';
+import { getModelFromSettings } from '../embedding/providers.js';
+import { log } from '../../sillytavern/log.js';
+import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 
 const _cache = new Map(); // collectionId -> { totalDocs, documentFrequencies, avgDocLength, builtAt }
 const _inflight = new Map(); // collectionId -> Promise (dedupe concurrent fetches)

@@ -21,7 +21,7 @@
 
 import { getContext } from '../src/sillytavern/chat.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
-import { queryCollection } from './core-vector-api.js';
+import { queryCollection } from '../src/features/vector-backend/vector-api.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { stripReasoningBlocks, stripGameSystemBlocks } from '../src/features/text-cleaning/text-cleaning.js';
 import { getOpenRouterApiKey, getCustomApiKey } from '../src/shared/api-keys.js';

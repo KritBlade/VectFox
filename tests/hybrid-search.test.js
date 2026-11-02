@@ -20,7 +20,7 @@ vi.mock('../../../../../script.js', () => ({
 }));
 
 // Mock the backend-manager (both helpers — hybrid-search.js uses both)
-vi.mock('../backends/backend-manager.js', () => ({
+vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackend: vi.fn(),
     getBackendForCollection: vi.fn(),
 }));
@@ -60,13 +60,13 @@ vi.mock('../src/features/keyword-search/bm25-scorer.js', () => ({
     }),
 }));
 
-import { getBackend } from '../backends/backend-manager.js';
+import { getBackend } from '../src/features/vector-backend/backend-registry.js';
 import {
     DEFAULT_RRF_K,
     hybridSearch,
     reciprocalRankFusion,
     weightedCombination,
-} from '../core/hybrid-search.js';
+} from '../src/features/vector-backend/hybrid-search.js';
 
 // ============================================================================
 // Constants Tests

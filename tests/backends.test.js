@@ -98,10 +98,10 @@ vi.mock('../src/shared/constants.js', () => ({
 }));
 
 // Import backends after mocks are set up
-import { StandardBackend } from '../backends/standard.js';
-import { QdrantBackend, setInsertedCollectionRegistrar } from '../backends/qdrant.js';
+import { StandardBackend } from '../src/features/vector-backend/standard.js';
+import { QdrantBackend, setInsertedCollectionRegistrar } from '../src/features/vector-backend/qdrant.js';
 import { buildRegistryKey } from '../src/shared/collection-ids.js';
-import { VectorBackend } from '../backends/backend-interface.js';
+import { VectorBackend } from '../src/features/vector-backend/backend-interface.js';
 
 // =============================================================================
 // TEST UTILITIES
@@ -567,7 +567,7 @@ describe('QdrantBackend', () => {
         setInsertedCollectionRegistrar(registrar);
         // tokenizer-lock caches sentinel metadata per-collection; clear between tests so
         // each hybridQuery test starts with a clean sentinel state.
-        const { invalidateCollectionMetadata } = await import('../core/tokenizer-lock.js');
+        const { invalidateCollectionMetadata } = await import('../src/features/vector-backend/tokenizer-lock.js');
         invalidateCollectionMetadata('test-collection');
     });
 
@@ -714,7 +714,7 @@ describe('QdrantBackend', () => {
 
     describe('purgeVectorIndex', () => {
         it('makes the next tokenizer-sentinel read refetch instead of reusing the cached sentinel', async () => {
-            const { fetchCollectionMetadata } = await import('../core/tokenizer-lock.js');
+            const { fetchCollectionMetadata } = await import('../src/features/vector-backend/tokenizer-lock.js');
             fetchMock
                 .mockResolvedValueOnce(mockFetchResponse({ payload: { cjk_tokenizer_mode: 'jieba' } }))   // sentinel before the purge
                 .mockResolvedValueOnce(mockFetchResponse({}))                                              // purge

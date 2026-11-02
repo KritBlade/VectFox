@@ -50,7 +50,7 @@ export default [
 
     // ── abstract backend: each method's parameters are the contract its subclasses implement ──
     {
-        files: ['backends/backend-interface.js'],
+        files: ['src/features/vector-backend/backend-interface.js'],
         rules: { 'no-unused-vars': ['error', { ...unusedVariablesRule[1], args: 'none' }] },
     },
 
