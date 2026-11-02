@@ -18,7 +18,7 @@
  * ============================================================================
  */
 
-import { escapeHtml } from '../src/shared/html-escape.js';
+import { escapeHtml } from '../../shared/html-escape.js';
 
 let _onAccept = null;
 let _onDiscard = null;

@@ -156,27 +156,27 @@ describe('Live code remains intact (regression guard)', () => {
 
     describe('ChunkBase pipeline (lorebook / document / character / url / wiki / youtube)', () => {
         it('core/chat-vectorization.js exists', () => {
-            expect(existsRel('core/chat-vectorization.js')).toBe(true);
+            expect(existsRel('src/features/chunkbase/chat-vectorization.js')).toBe(true);
         });
 
         it('rearrangeChat is exported (main retrieval entry)', () => {
-            expect(readRel('core/chat-vectorization.js'))
+            expect(readRel('src/features/chunkbase/chat-vectorization.js'))
                 .toMatch(/export\s+(?:async\s+)?function\s+rearrangeChat/);
         });
 
         it('Stage 8 conditions stage is still wired into the pipeline', () => {
-            expect(readRel('core/chat-vectorization.js'))
+            expect(readRel('src/features/chunkbase/chat-vectorization.js'))
                 .toMatch(/applyChunkConditions\s*\(/);
         });
 
         it('Stage 8.5 chunk groups and links stage is still wired', () => {
-            expect(readRel('core/chat-vectorization.js'))
+            expect(readRel('src/features/chunkbase/chat-vectorization.js'))
                 .toMatch(/applyGroupsAndLinksStage\s*\(/);
         });
 
         it('Keyword extraction is still wired for non-chat content', () => {
             // extractTextKeywords is what lorebook/document/character ingestion calls
-            expect(readRel('core/content-vectorization.js'))
+            expect(readRel('src/features/chunkbase/content-vectorization.js'))
                 .toMatch(/extractTextKeywords\s*\(/);
         });
     });
@@ -240,7 +240,7 @@ describe('Live code remains intact (regression guard)', () => {
         });
 
         it('chat content type has keywordExtraction flag set to false', () => {
-            const src = readRel('core/content-types.js');
+            const src = readRel('src/features/chunkbase/content-types.js');
             const chatIdx = src.indexOf("chat: {");
             const block = src.slice(chatIdx, chatIdx + 800);
             expect(block).toMatch(/keywordExtraction:\s*false/);
@@ -382,7 +382,7 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('Pipeline no longer has Stage 7 temporal decay marker', () => {
-            const src = readRel('core/chat-vectorization.js');
+            const src = readRel('src/features/chunkbase/chat-vectorization.js');
             // Match the comment block "STAGE 7: Temporal decay" or similar
             expect(src).not.toMatch(/STAGE\s*7\s*:.*[Tt]emporal.*[Dd]ecay/);
             expect(src).not.toMatch(/===\s*STAGE\s*7\s*:\s*Temporal\s*decay/);
@@ -419,14 +419,14 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('Vectorize Content modal no longer has Temporal Weighting block', () => {
-            const src = readRel('ui/content-vectorizer.js');
+            const src = readRel('src/features/chunkbase/content-vectorizer.js');
             expect(src).not.toMatch(/Temporal\s+Weighting/);
         });
 
         it('content-types.js no longer has temporalDecay feature flag', () => {
             // The flag itself becomes meaningless once the subsystem is gone.
             // It can be removed entirely from CONTENT_TYPES feature blocks.
-            const src = readRel('core/content-types.js');
+            const src = readRel('src/features/chunkbase/content-types.js');
             expect(src).not.toMatch(/temporalDecay:\s*(true|false)/);
         });
     });
@@ -481,7 +481,7 @@ describe('Dead code is removed (cleanup contract)', () => {
             // prepareContent(contentType, ...) switch. We grep narrowly so
             // we don't flag the unrelated tripwire in generateCollectionId
             // (different function, intentional defense).
-            const src = readRel('core/content-vectorization.js');
+            const src = readRel('src/features/chunkbase/content-vectorization.js');
             const prepIdx = src.indexOf('function prepareContent(');
             expect(prepIdx, 'prepareContent function not found').toBeGreaterThan(-1);
             // Slice a generous window covering the whole switch.
@@ -493,7 +493,7 @@ describe('Dead code is removed (cleanup contract)', () => {
         it('generateCollectionId tripwire for chat is preserved (intentional defense)', () => {
             // Mirror of the above but inverted — we WANT this case to stay.
             // It's the last line of defense if both UI gates are bypassed.
-            const src = readRel('core/content-vectorization.js');
+            const src = readRel('src/features/chunkbase/content-vectorization.js');
             const genIdx = src.indexOf('function generateCollectionId(');
             expect(genIdx, 'generateCollectionId function not found').toBeGreaterThan(-1);
             const block = src.slice(genIdx, genIdx + 1500);
@@ -502,7 +502,7 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('CONTENT_TYPES.chat no longer declares chunkingStrategies', () => {
-            const src = readRel('core/content-types.js');
+            const src = readRel('src/features/chunkbase/content-types.js');
             const chatIdx = src.indexOf('chat: {');
             expect(chatIdx, 'CONTENT_TYPES.chat entry not found').toBeGreaterThan(-1);
             const block = src.slice(chatIdx, chatIdx + 800);
@@ -511,7 +511,7 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('CONTENT_TYPES.chat no longer declares defaultStrategy', () => {
-            const src = readRel('core/content-types.js');
+            const src = readRel('src/features/chunkbase/content-types.js');
             const chatIdx = src.indexOf('chat: {');
             expect(chatIdx, 'CONTENT_TYPES.chat entry not found').toBeGreaterThan(-1);
             const block = src.slice(chatIdx, chatIdx + 800);
@@ -532,7 +532,7 @@ describe('Dead code is removed (cleanup contract)', () => {
             //
             // What we MUST NOT see: `defaults: { chunkSize: ..., batchSize: ... }`
             // with legacy chunking config still wired up.
-            const src = readRel('core/content-types.js');
+            const src = readRel('src/features/chunkbase/content-types.js');
             const chatIdx = src.indexOf('chat: {');
             expect(chatIdx, 'CONTENT_TYPES.chat entry not found').toBeGreaterThan(-1);
             const block = src.slice(chatIdx, chatIdx + 800);

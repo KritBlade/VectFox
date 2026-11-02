@@ -99,7 +99,7 @@ export function openQueryTestModal() {
                 import('../src/sillytavern/settings.js'),
                 import('../src/sillytavern/chat.js'),
                 import('../src/features/eventbase/eventbase-workflow.js'),
-                import('../core/chat-vectorization.js'),
+                import('../src/features/chunkbase/chat-vectorization.js'),
                 import('../core/world-info-integration.js'),
             ]);
 

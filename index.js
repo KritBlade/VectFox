@@ -16,7 +16,7 @@ import { ModuleWorkerWrapper, debounce, debounce_timeout } from './src/sillytave
 import { extension_settings } from './src/sillytavern/settings.js';
 
 // VectFox modules - Core
-import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
+import { synchronizeChat, rearrangeChat } from './src/features/chunkbase/chat-vectorization.js';
 import { migrateOldEnabledKeys } from './src/features/collections/collection-metadata.js';
 import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './src/features/collections/collection-loader.js';
 import { clearCachesForDeletedCollection } from './src/features/eventbase/eventbase-store.js';
@@ -463,7 +463,7 @@ window['vectfox_rearrangeChat'] = vectfox_rearrangeChat;
  * screen — instead of its own code — removes the risk of the two drifting.
  */
 async function onVectorizeAllClick() {
-    const { openContentVectorizer } = await import('./ui/content-vectorizer.js');
+    const { openContentVectorizer } = await import('./src/features/chunkbase/content-vectorizer.js');
     openContentVectorizer('chat');
 }
 

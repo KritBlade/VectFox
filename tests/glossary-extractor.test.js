@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { extractGlossary, injectGlossary } from '../core/glossary-extractor.js';
+import { extractGlossary, injectGlossary } from '../src/features/chunkbase/glossary-extractor.js';
 
 describe('extractGlossary', () => {
     it('extracts a simple "Full Name (ACRONYM)" definition', () => {

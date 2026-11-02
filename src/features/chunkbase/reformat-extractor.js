@@ -21,10 +21,10 @@
  * ============================================================================
  */
 
-import { getOpenRouterApiKey, getCustomApiKey } from '../src/shared/api-keys.js';
-import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../src/features/llm-provider/llm-provider-call.js';
+import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../llm-provider/llm-provider-call.js';
 import { chunkText } from './chunking.js';
-import { retry } from '../src/shared/retry.js';
+import { retry } from '../../shared/retry.js';
 import {
     ReformatExtractionError,
     ReformatFatalError,
@@ -32,7 +32,7 @@ import {
     buildReformatPrompt,
     computeNameVerification,
 } from './reformat-schema.js';
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 
 // ---------------------------------------------------------------------------
 // Constants

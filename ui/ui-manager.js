@@ -25,13 +25,13 @@ import {
 import { getWebLlmProvider as getSharedWebLlmProvider } from '../src/features/embedding/webllm-provider.js';
 import { escapeHtml } from '../src/shared/html-escape.js';
 import { openDatabaseBrowser } from './database-browser.js';
-import { openContentVectorizer } from './content-vectorizer.js';
+import { openContentVectorizer } from '../src/features/chunkbase/content-vectorizer.js';
 import { openQueryTestModal } from './query-tester.js';
 import { openTextCleaningManager } from '../src/features/text-cleaning/text-cleaning-ui.js';
 import { progressTracker } from '../src/shared/progress-tracker.js';
 import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';
 import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
-import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
+import { clearInterceptorPrompts } from '../src/features/chunkbase/chat-vectorization.js';
 import { clearLorebookPrompt } from '../core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
@@ -2497,7 +2497,7 @@ function bindSettingsEvents(settings, callbacks) {
                             // Run the backfill now with the standard progress UI (full-screen
                             // on mobile). Resolves at extraction completion; the marker then
                             // lands at the freshly-advanced tip (smart placement below).
-                            const { backfillCurrentChatWithProgress } = await import('./content-vectorizer.js');
+                            const { backfillCurrentChatWithProgress } = await import('../src/features/chunkbase/content-vectorizer.js');
                             await backfillCurrentChatWithProgress();
                         } else if (choice === POPUP_RESULT.NEGATIVE) {
                             // Keep up from here — skip the backlog (floor the marker at "now").

@@ -65,7 +65,7 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     parseCollectionId: vi.fn(), parseRegistryKey: vi.fn(), getRegistryBackend: vi.fn(),
 }));
 
-import { clearInterceptorPrompts, rearrangeChat } from '../core/chat-vectorization.js';
+import { clearInterceptorPrompts, rearrangeChat } from '../src/features/chunkbase/chat-vectorization.js';
 
 /** Blocks left over from a previous generation, plus two the interceptor must not touch. */
 function seedPreviousGeneration() {

@@ -18,19 +18,19 @@ import {
     getContentTypeDefaults,
     hasFeature,
     CHARACTER_FIELDS,
-} from '../core/content-types.js';
-import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/settings.js';
-import { getContext } from '../src/sillytavern/chat.js';
-import { callGenericPopup, POPUP_TYPE } from '../src/sillytavern/popup.js';
-import { getChatUUID, vectorizeAll } from '../core/chat-vectorization.js';
-import { validateLLMConfig } from '../src/features/llm-provider/llm-config-validation.js';
-import { getOpenRouterApiKey } from '../src/shared/api-keys.js';
-import { escapeHtml } from '../src/shared/html-escape.js';
-import { resolveEffectiveSettings } from '../core/content-vectorization.js';
-import { buildArchiveEventCollectionId } from '../src/shared/collection-ids.js';
-import { openTextCleaningManager } from '../src/features/text-cleaning/text-cleaning-ui.js';
-import { getCleaningSettings, CLEANING_PRESETS } from '../src/features/text-cleaning/text-cleaning.js';
-import { progressTracker } from '../src/shared/progress-tracker.js';
+} from './content-types.js';
+import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
+import { getContext } from '../../sillytavern/chat.js';
+import { callGenericPopup, POPUP_TYPE } from '../../sillytavern/popup.js';
+import { getChatUUID, vectorizeAll } from './chat-vectorization.js';
+import { validateLLMConfig } from '../llm-provider/llm-config-validation.js';
+import { getOpenRouterApiKey } from '../../shared/api-keys.js';
+import { escapeHtml } from '../../shared/html-escape.js';
+import { resolveEffectiveSettings } from './content-vectorization.js';
+import { buildArchiveEventCollectionId } from '../../shared/collection-ids.js';
+import { openTextCleaningManager } from '../text-cleaning/text-cleaning-ui.js';
+import { getCleaningSettings, CLEANING_PRESETS } from '../text-cleaning/text-cleaning.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
 
 // ============================================================================
 // STATE
@@ -58,7 +58,7 @@ async function _hasPriorExtractionState(chatUUID) {
     if (!chatUUID) return false;
     const arr = extension_settings?.vectfox?.eventbase_extracted_windows?.[chatUUID];
     if (Array.isArray(arr) && arr.length > 0) return true;
-    const { getVectorizationTip } = await import('../src/features/eventbase/eventbase-store.js');
+    const { getVectorizationTip } = await import('../eventbase/eventbase-store.js');
     return typeof getVectorizationTip(chatUUID) === 'number';
 }
 
@@ -935,7 +935,7 @@ function renderReformatSection() {
  * objects, not a single string the batching packer can consume).
  */
 async function _resolveReformatSourceText(source) {
-    const { resolveAndPrepareContent } = await import('../core/content-vectorization.js');
+    const { resolveAndPrepareContent } = await import('./content-vectorization.js');
     const prepSettings = currentContentType === 'wiki'
         ? { ...currentSettings, strategy: 'adaptive' }
         : currentSettings;
@@ -968,11 +968,11 @@ async function runAutoReformat() {
             return;
         }
 
-        const { getStringHash } = await import('../src/sillytavern/identifiers.js');
+        const { getStringHash } = await import('../../sillytavern/identifiers.js');
         const sourceHash = getStringHash(text);
         const mergedSettings = resolveEffectiveSettings(currentSettings);
 
-        const { getReformatCache } = await import('../core/reformat-store.js');
+        const { getReformatCache } = await import('./reformat-store.js');
         const existing = getReformatCache(sourceHash);
         if (existing?.chunks?.length) {
             currentSettings.reformat = { accepted: true, sourceHash };
@@ -984,7 +984,7 @@ async function runAutoReformat() {
 
         container.html('<div class="vectfox-cv-loading"><i class="fa-solid fa-spinner fa-spin"></i> Running Auto-Reformat...</div>');
 
-        const { reformatDocument } = await import('../core/reformat-extractor.js');
+        const { reformatDocument } = await import('./reformat-extractor.js');
         const result = await reformatDocument({
             text,
             contentType: currentContentType,
@@ -1034,8 +1034,8 @@ async function runAutoReformat() {
  */
 async function _finalizeReformatAccept({ acceptedRecords, sourceHash, text, sourceName, mergedSettings }) {
     try {
-        const { expandOversizedChunk } = await import('../core/reformat-extractor.js');
-        const { saveReformatCache, getReformatCache } = await import('../core/reformat-store.js');
+        const { expandOversizedChunk } = await import('./reformat-extractor.js');
+        const { saveReformatCache, getReformatCache } = await import('./reformat-store.js');
 
         const maxBodyChars = mergedSettings.reformat_max_body_chars || 2000;
         const previous = getReformatCache(sourceHash);
@@ -1730,7 +1730,7 @@ async function loadSourceStats(contentType, sourceId) {
     try {
         if (contentType === 'lorebook') {
             // Load lorebook info
-            const worldInfoModule = await import('../src/sillytavern/world-info.js');
+            const worldInfoModule = await import('../../sillytavern/world-info.js');
             const loadWorldInfo = worldInfoModule.loadWorldInfo;
 
             if (loadWorldInfo) {
@@ -1802,7 +1802,7 @@ async function populateSourceSelect(type) {
         if (type.id === 'lorebook') {
             // world_names from SillyTavern's world-info module
             try {
-                const worldInfoModule = await import('../src/sillytavern/world-info.js');
+                const worldInfoModule = await import('../../sillytavern/world-info.js');
                 const worldNames = worldInfoModule.world_names || [];
 
                 if (worldNames && worldNames.length > 0) {
@@ -2667,7 +2667,7 @@ async function previewChunks() {
         const reformatContainer = $('#vectfox_cv_preview_content');
         reformatContainer.html('<div class="vectfox-cv-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading Auto-Reformat result...</div>');
         try {
-            const { getReformatCache } = await import('../core/reformat-store.js');
+            const { getReformatCache } = await import('./reformat-store.js');
             const frozen = getReformatCache(currentSettings.reformat.sourceHash);
             const chunks = frozen?.chunks || [];
             if (chunks.length === 0) {
@@ -2708,8 +2708,8 @@ async function previewChunks() {
 
     try {
         // Import modules for content resolution and chunking
-        const { chunkText } = await import('../core/chunking.js');
-        const { resolveAndPrepareContent } = await import('../core/content-vectorization.js');
+        const { chunkText } = await import('./chunking.js');
+        const { resolveAndPrepareContent } = await import('./content-vectorization.js');
 
         // Resolve and prepare content (handles 'select' type sources like lorebooks)
         const prepared = await resolveAndPrepareContent(currentContentType, source, currentSettings);
@@ -2915,7 +2915,7 @@ async function startContinueVectorization() {
     hideVectorizerForProgress();
 
     try {
-        const { vectorizeContent } = await import('../core/content-vectorization.js');
+        const { vectorizeContent } = await import('./content-vectorization.js');
         // Merge global VECTFOX settings (vector_backend, source, model, etc.) into currentSettings,
         // which by itself is only the content-type defaults. Without this, the collection-ID builder
         // sees `settings.vector_backend` as undefined and drops the backend segment from the name.
@@ -2984,8 +2984,8 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
     hideVectorizerForProgress();
 
     try {
-        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../src/features/eventbase/eventbase-workflow.js');
-        const { chunkText } = await import('../core/chunking.js');
+        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../eventbase/eventbase-workflow.js');
+        const { chunkText } = await import('./chunking.js');
         const context = getContext();
         const settings = extension_settings.vectfox || {};
         const source = getSourceData();
@@ -3003,7 +3003,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             // is also threaded into vectorizeAll / runEventBaseIngestion below via the
             // `resetCaches` truthiness — keeping both legs of the dual-mechanism fix
             // (clear caches + bypass Qdrant tip fallback) coordinated through one call.
-            const { prepareForFreshExtraction } = await import('../src/features/eventbase/eventbase-store.js');
+            const { prepareForFreshExtraction } = await import('../eventbase/eventbase-store.js');
             await prepareForFreshExtraction(uuid);
         };
 
@@ -3085,7 +3085,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             // are the single source of truth for "did size change?" and "prep for fresh
             // re-extraction" — DO NOT inline these. Two bugs on 2026-05-30 came from
             // popups inlining incompatible versions of this logic.
-            const { checkWindowSizeChanged, prepareForFreshExtraction } = await import('../src/features/eventbase/eventbase-store.js');
+            const { checkWindowSizeChanged, prepareForFreshExtraction } = await import('../eventbase/eventbase-store.js');
             const sizeCheck = checkWindowSizeChanged(chatUUID, Math.max(2, settings.eventbase_window_size || 6));
             let freshExtractionOpts = null;
             if (sizeCheck.changed) {
@@ -3124,7 +3124,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 // See 2026-05-30 bug report — user clicked Proceed multiple
                 // times because intermediate runs failed without updating the
                 // stamp.
-                const { setLastUsedWindowSize } = await import('../src/features/eventbase/eventbase-store.js');
+                const { setLastUsedWindowSize } = await import('../eventbase/eventbase-store.js');
                 setLastUsedWindowSize(chatUUID, sizeCheck.newSize);
                 console.log(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
                 // Single shared entry point for "user said yes to fresh re-extraction".
@@ -3320,7 +3320,7 @@ async function startVectorization() {
     // Check if vectors already exist for this content (chat specifically)
     if (currentContentType === 'chat' && source.type === 'current') {
         try {
-            const { doesChatHaveVectors } = await import('../src/features/collections/collection-loader.js');
+            const { doesChatHaveVectors } = await import('../collections/collection-loader.js');
             const existing = await doesChatHaveVectors(currentSettings);
 
             if (existing.hasVectors && existing.chunkCount > 0) {
@@ -3342,8 +3342,8 @@ async function startVectorization() {
                 }
 
                 // User wants to replace - purge existing first
-                const { purgeVectorIndex } = await import('../src/features/vector-backend/vector-api.js');
-                const { unregisterCollection } = await import('../src/features/collections/collection-loader.js');
+                const { purgeVectorIndex } = await import('../vector-backend/vector-api.js');
+                const { unregisterCollection } = await import('../collections/collection-loader.js');
                 await purgeVectorIndex(existing.collectionId, currentSettings);
                 unregisterCollection(existing.collectionId);
                 toastr.info('Cleared existing vectors', 'VectFox');
@@ -3362,7 +3362,7 @@ async function startVectorization() {
 
     try {
         // Import the appropriate handler
-        const { vectorizeContent } = await import('../core/content-vectorization.js');
+        const { vectorizeContent } = await import('./content-vectorization.js');
 
         // Merge global VECTFOX settings (vector_backend, source, model, etc.) into currentSettings.
         const mergedSettings = resolveEffectiveSettings(currentSettings);
@@ -3422,7 +3422,7 @@ async function startVectorization() {
  * Saves the cleaning preset to extension settings
  */
 async function saveCleaningPresetToSettings(presetId) {
-    const { saveCleaningSettings, getCleaningSettings } = await import('../src/features/text-cleaning/text-cleaning.js');
+    const { saveCleaningSettings, getCleaningSettings } = await import('../text-cleaning/text-cleaning.js');
     const settings = getCleaningSettings();
     settings.selectedPreset = presetId;
     saveCleaningSettings(settings);

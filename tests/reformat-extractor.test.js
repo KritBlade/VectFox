@@ -25,7 +25,7 @@ vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },
 }));
 
-import { reformatDocument, expandOversizedChunk } from '../core/reformat-extractor.js';
+import { reformatDocument, expandOversizedChunk } from '../src/features/chunkbase/reformat-extractor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

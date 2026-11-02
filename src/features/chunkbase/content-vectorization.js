@@ -12,11 +12,11 @@
 
 import { getContentType, getContentTypeDefaults } from './content-types.js';
 import { chunkText } from './chunking.js';
-import { insertVectorItems, purgeVectorIndex, getSavedHashes } from '../src/features/vector-backend/vector-api.js';
-import { isConnectionError } from '../src/shared/model-config-notifier.js';
-import { setCollectionMeta, setCollectionLock, setCollectionCharacterLock, saveChunkMetadata } from '../src/features/collections/collection-metadata.js';
-import { registerCollection } from '../src/features/collections/collection-loader.js';
-import { getBackend } from '../src/features/vector-backend/backend-registry.js';
+import { insertVectorItems, purgeVectorIndex, getSavedHashes } from '../vector-backend/vector-api.js';
+import { isConnectionError } from '../../shared/model-config-notifier.js';
+import { setCollectionMeta, setCollectionLock, setCollectionCharacterLock, saveChunkMetadata } from '../collections/collection-metadata.js';
+import { registerCollection } from '../collections/collection-loader.js';
+import { getBackend } from '../vector-backend/backend-registry.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
     buildLorebookCollectionId,
@@ -25,17 +25,17 @@ import {
     buildRegistryKey,
     getBackendFromCollectionId,
     sanitizeNameSegment,
-} from '../src/shared/collection-ids.js';
-import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from '../src/features/keyword-search/keyword-boost.js';
-import { cleanContentOrNull } from '../src/features/text-cleaning/text-cleaning.js';
+} from '../../shared/collection-ids.js';
+import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from '../keyword-search/keyword-boost.js';
+import { cleanContentOrNull } from '../text-cleaning/text-cleaning.js';
 import { prepareLorebookContent } from './lorebook-content-preparer.js';
 import { extractGlossary, injectGlossary } from './glossary-extractor.js';
 import { getReformatCache } from './reformat-store.js';
-import { progressTracker } from '../src/shared/progress-tracker.js';
-import { extension_settings } from '../src/sillytavern/settings.js';
-import { getContext, getCurrentChatId } from '../src/sillytavern/chat.js';
-import { getStringHash } from '../src/sillytavern/identifiers.js';
-import { log } from '../src/sillytavern/log.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
+import { extension_settings } from '../../sillytavern/settings.js';
+import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
+import { getStringHash } from '../../sillytavern/identifiers.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * Merge per-call settings on top of the user's global VectFox settings.
@@ -508,7 +508,7 @@ async function loadSelectedSource(contentType, sourceId) {
 async function loadLorebookContent(lorebookName) {
     try {
         // Import ST's world-info module to load the lorebook
-        const worldInfoModule = await import('../src/sillytavern/world-info.js');
+        const worldInfoModule = await import('../../sillytavern/world-info.js');
         const loadWorldInfo = worldInfoModule.loadWorldInfo;
 
         if (!loadWorldInfo) {

@@ -23,7 +23,7 @@
  * ============================================================================
  */
 
-import { normalizeStringList } from '../src/shared/string-list.js';
+import { normalizeStringList } from '../../shared/string-list.js';
 
 /**
  * Controlled vocabulary for entry_type field. LLM is instructed to map every

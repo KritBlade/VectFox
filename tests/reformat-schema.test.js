@@ -12,7 +12,7 @@ import {
     validateReformattedChunk,
     computeNameVerification,
     buildReformatPrompt,
-} from '../core/reformat-schema.js';
+} from '../src/features/chunkbase/reformat-schema.js';
 
 describe('validateReformattedChunk', () => {
     it('accepts a well-formed record and normalizes array fields', () => {

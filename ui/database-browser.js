@@ -476,7 +476,7 @@ function bindBrowserEvents() {
     e.stopPropagation();
     e.preventDefault();
     try {
-      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../core/reformat-store.js");
+      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../src/features/chunkbase/reformat-store.js");
       const entries = listReformatCacheEntries();
       const totalBytes = entries.reduce((sum, entry) => sum + entry.originalTextBytes, 0);
 

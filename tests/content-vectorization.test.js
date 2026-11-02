@@ -22,7 +22,7 @@ vi.mock('../src/features/text-cleaning/text-cleaning.js', () => ({
     }),
 }));
 
-import { prepareLorebookContent } from '../core/lorebook-content-preparer.js';
+import { prepareLorebookContent } from '../src/features/chunkbase/lorebook-content-preparer.js';
 
 // ============================================================================
 // HELPERS

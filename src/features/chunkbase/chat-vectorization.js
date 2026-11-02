@@ -9,28 +9,28 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, substituteParams, getContext } from '../src/sillytavern/chat.js';
-import { is_send_press } from '../src/sillytavern/generation.js';
-import { setExtensionPrompt, extension_prompts } from '../src/sillytavern/prompt-injection.js';
-import { getStringHash as calculateHash } from '../src/sillytavern/identifiers.js';
-import { extractChatKeywords } from '../src/features/keyword-search/keyword-boost.js';
+import { getCurrentChatId, substituteParams, getContext } from '../../sillytavern/chat.js';
+import { is_send_press } from '../../sillytavern/generation.js';
+import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-injection.js';
+import { getStringHash as calculateHash } from '../../sillytavern/identifiers.js';
+import { extractChatKeywords } from '../keyword-search/keyword-boost.js';
 import {
     getSavedHashes,
     queryCollection,
-} from '../src/features/vector-backend/vector-api.js';
-import { isBackendAvailable } from '../src/features/vector-backend/backend-registry.js';
-import { getCollectionRegistry, isCollectionEmpty } from '../src/features/collections/collection-loader.js';
-import { isCollectionEnabled, filterActiveCollections } from '../src/features/collections/collection-metadata.js';
-import { progressTracker } from '../src/shared/progress-tracker.js';
-import { buildSearchContext, filterChunksByConditions, processChunkLinks } from '../src/features/collections/conditional-activation.js';
-import { getChunkMetadata, getCollectionMeta } from '../src/features/collections/collection-metadata.js';
+} from '../vector-backend/vector-api.js';
+import { isBackendAvailable } from '../vector-backend/backend-registry.js';
+import { getCollectionRegistry, isCollectionEmpty } from '../collections/collection-loader.js';
+import { isCollectionEnabled, filterActiveCollections } from '../collections/collection-metadata.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
+import { buildSearchContext, filterChunksByConditions, processChunkLinks } from '../collections/conditional-activation.js';
+import { getChunkMetadata, getCollectionMeta } from '../collections/collection-metadata.js';
 
-import { LRUCache } from '../src/features/chunkbase/lru-cache.js';
-import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from '../src/shared/constants.js';
-import { runBoundedRetrieval } from '../src/features/vector-backend/bounded-retrieval.js';
-import { resolveEventBaseRetrievalTimeoutMs } from '../src/shared/retrieval-budget.js';
-import { log } from '../src/sillytavern/log.js';
-import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
+import { LRUCache } from './lru-cache.js';
+import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from '../../shared/constants.js';
+import { runBoundedRetrieval } from '../vector-backend/bounded-retrieval.js';
+import { resolveEventBaseRetrievalTimeoutMs } from '../../shared/retrieval-budget.js';
+import { log } from '../../sillytavern/log.js';
+import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
     getChatUUID,
@@ -38,7 +38,7 @@ import {
     INTERNAL_COLLECTION_IDS,
     parseRegistryKey,
     getRegistryBackend,
-} from '../src/shared/collection-ids.js';
+} from '../../shared/collection-ids.js';
 
 // Hash cache for performance
 const hashCache = new LRUCache(HASH_CACHE_SIZE);
@@ -193,8 +193,8 @@ export async function synchronizeChat(settings, triggerEvent = null) {
     }
 
     // Find EventBase collections registered for this chat and check the per-collection auto-sync flag
-    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('../src/features/eventbase/eventbase-store.js');
-    const { isCollectionAutoSyncEnabled } = await import('../src/features/collections/collection-metadata.js');
+    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('../eventbase/eventbase-store.js');
+    const { isCollectionAutoSyncEnabled } = await import('../collections/collection-metadata.js');
     const backend = getRegistryBackend(settings?.vector_backend);
     const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
     // Metadata is keyed by the registry-key form ("backend:id"), matching the
@@ -224,7 +224,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
-    const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../src/features/eventbase/eventbase-workflow.js');
+    const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../eventbase/eventbase-workflow.js');
     const messages = context.chat.filter(m => m.mes && m.mes.trim().length > 0);
     log.lifecycle(`[AutoSync] calling runEventBaseIngestion: messages=${messages.length}`);
     let result;
@@ -261,7 +261,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         // A retired/unknown model (extraction OR embedding) would otherwise be
         // swallowed by ST's ModuleWorkerWrapper and silently re-fail every message.
         // Warn the user once and pause auto-sync so the loop stops until they fix it.
-        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
+        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../../shared/model-config-notifier.js');
         if (isInvalidModelConfigError(err)) {
             notifyInvalidModel(err.message);
             pauseAutoSyncForChat(uuid, backend);
@@ -1042,7 +1042,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         if (!dryRun) {
             const queryText = buildSearchQuery(chat, settings);
             if (queryText) {
-                const { runEventBaseRetrieval } = await import('../src/features/eventbase/eventbase-workflow.js');
+                const { runEventBaseRetrieval } = await import('../eventbase/eventbase-workflow.js');
                 // On timeout the message proceeds WITHOUT EventBase injection and
                 // the user is told why — see core/bounded-retrieval.js for the
                 // timeout/degrade/surface contract shared by every retrieval path.
@@ -1073,7 +1073,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             // when disabled (so a toggle-off mid-session doesn't leave a stale block).
             // Non-fatal + time-bounded so a slow listChunks can't freeze the turn.
             {
-                const { runSummarizerInjection } = await import('../src/features/eventbase/summarizer-injection.js');
+                const { runSummarizerInjection } = await import('../eventbase/summarizer-injection.js');
                 await runBoundedRetrieval(runSummarizerInjection(settings), {
                     contextLabel: 'Summarizer',
                     sourceName: 'recent event summaries',
@@ -1088,7 +1088,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             // and the wiped span (old history, below the tip) sits below the ChunkBase
             // condition dedup tail — so query + conditions are unaffected.
             try {
-                const { applyGhosting } = await import('../src/features/eventbase/summarizer-injection.js');
+                const { applyGhosting } = await import('../eventbase/summarizer-injection.js');
                 applyGhosting(chat, settings);
             } catch (error) {
                 log.error('VectFox Ghost: prompt wipe error (non-fatal):', error);
@@ -1345,7 +1345,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
             ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
             : allMessages;
 
-        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../src/features/eventbase/eventbase-workflow.js');
+        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../eventbase/eventbase-workflow.js');
         const result = await runEventBaseIngestion({
             messages,
             chatUUID: getChatUUID(),
@@ -1389,7 +1389,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
         log.error('VectFox: Failed to vectorize all', error);
         progressTracker.addError(error.message);
         progressTracker.complete(false, 'Vectorization failed');
-        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
+        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../../shared/model-config-notifier.js');
         if (isInvalidModelConfigError(error)) {
             notifyInvalidModel(error.message);
         } else {
