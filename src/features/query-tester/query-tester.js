@@ -11,7 +11,7 @@
  * ============================================================================
  */
 
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * Opens the Query Tester modal. The user types a test message, clicks Run, and
@@ -96,11 +96,11 @@ export function openQueryTestModal() {
                 { rearrangeChat },
                 { runLorebookWIDryRun },
             ] = await Promise.all([
-                import('../src/sillytavern/settings.js'),
-                import('../src/sillytavern/chat.js'),
-                import('../src/features/eventbase/eventbase-workflow.js'),
-                import('../src/features/chunkbase/chat-vectorization.js'),
-                import('../core/world-info-integration.js'),
+                import('../../sillytavern/settings.js'),
+                import('../../sillytavern/chat.js'),
+                import('../eventbase/eventbase-workflow.js'),
+                import('../chunkbase/chat-vectorization.js'),
+                import('../world-info/world-info-integration.js'),
             ]);
 
             const settings = extension_settings.vectfox;

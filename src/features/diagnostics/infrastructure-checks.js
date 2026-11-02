@@ -9,8 +9,8 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { secret_state } from '../src/sillytavern/secrets.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { secret_state } from '../../sillytavern/secrets.js';
 import {
     isValidProvider,
     getProviderConfig,
@@ -20,7 +20,7 @@ import {
     requiresApiKey,
     requiresUrl,
     resolveProviderApiUrl
-} from '../src/features/embedding/providers.js';
+} from '../embedding/providers.js';
 
 /**
  * Helper: Get provider-specific body parameters for Similharity plugin requests

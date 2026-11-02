@@ -14,20 +14,20 @@
 @import url('./styles/cards.css');
 @import url('./src/shared/forms.css');
 @import url('./src/shared/buttons.css');
-@import url('./styles/badges.css');
+@import url('./src/features/database-browser/collection-badges.css');
 @import url('./src/shared/modals.css');
 
 /* Progress panel */
 @import url('./src/shared/progress-tracker.css');
 
 /* UI component styles */
-@import url('./ui/diagnostics.css');
-@import url('./ui/database-browser.css');
-@import url('./ui/chunk-visualizer.css');
+@import url('./src/features/diagnostics/diagnostics.css');
+@import url('./src/features/database-browser/database-browser.css');
+@import url('./src/features/database-browser/chunk-visualizer.css');
 @import url('./src/features/chunkbase/content-vectorizer.css');
 @import url('./src/features/chunkbase/reformat-review.css');
 @import url('./src/features/text-cleaning/text-cleaning-ui.css');
-@import url('./ui/health-dashboard.css');
+@import url('./src/features/diagnostics/health-dashboard.css');
 
 /* Tab navigation styles */
 @import url('./src/shared/tabs.css');

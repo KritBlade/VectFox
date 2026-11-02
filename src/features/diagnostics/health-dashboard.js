@@ -16,9 +16,9 @@
  * ============================================================================
  */
 
-import { getBackendMetrics, probeBackendHealth } from '../src/features/vector-backend/backend-registry.js';
-import { extension_settings } from '../src/sillytavern/settings.js';
-import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
+import { getBackendMetrics, probeBackendHealth } from '../vector-backend/backend-registry.js';
+import { extension_settings } from '../../sillytavern/settings.js';
+import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 
 let refreshInterval = null;
 let isModalOpen = false;

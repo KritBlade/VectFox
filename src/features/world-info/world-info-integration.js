@@ -10,13 +10,13 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../src/sillytavern/settings.js';
-import { getContext, substituteParams, getCurrentChatId } from '../src/sillytavern/chat.js';
-import { eventSource, event_types } from '../src/sillytavern/events.js';
-import { setExtensionPrompt } from '../src/sillytavern/prompt-injection.js';
-import { queryCollection } from '../src/features/vector-backend/vector-api.js';
-import { resolveBackendForCollection, sanitizeNameSegment } from '../src/shared/collection-ids.js';
-import { getCollectionListing, getCollectionRegistry } from '../src/features/collections/collection-loader.js';
+import { extension_settings } from '../../sillytavern/settings.js';
+import { getContext, substituteParams, getCurrentChatId } from '../../sillytavern/chat.js';
+import { eventSource, event_types } from '../../sillytavern/events.js';
+import { setExtensionPrompt } from '../../sillytavern/prompt-injection.js';
+import { queryCollection } from '../vector-backend/vector-api.js';
+import { resolveBackendForCollection, sanitizeNameSegment } from '../../shared/collection-ids.js';
+import { getCollectionListing, getCollectionRegistry } from '../collections/collection-loader.js';
 import {
     getCollectionMeta,
     isCollectionEnabled,
@@ -25,16 +25,16 @@ import {
     getCollectionCharacterLockCount,
     isCollectionLockedToChat,
     isCollectionLockedToCharacter,
-} from '../src/features/collections/collection-metadata.js';
-import { LOREBOOK_PROMPT_TAG } from '../src/shared/constants.js';
-import { notifyRetrievalFailure, notifyNoActiveCollections } from '../src/shared/model-config-notifier.js';
-import { runBoundedRetrieval } from '../src/features/vector-backend/bounded-retrieval.js';
+} from '../collections/collection-metadata.js';
+import { LOREBOOK_PROMPT_TAG } from '../../shared/constants.js';
+import { notifyRetrievalFailure, notifyNoActiveCollections } from '../../shared/model-config-notifier.js';
+import { runBoundedRetrieval } from '../vector-backend/bounded-retrieval.js';
 import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
 // the builder is intentionally not imported here because lookups can't reconstruct the
 // exact ID (backend + handle + timestamp segments are not known at lookup time).
-import { log } from '../src/sillytavern/log.js';
-import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
+import { log } from '../../sillytavern/log.js';
+import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 
 // ============================================================================
 // WORLD INFO ACTIVATION HOOKS
@@ -396,7 +396,7 @@ export async function resolveLiveEntries(semanticEntries, settings) {
 
     let loadWorldInfo = null;
     try {
-        ({ loadWorldInfo } = await import('../src/sillytavern/world-info.js'));
+        ({ loadWorldInfo } = await import('../../sillytavern/world-info.js'));
     } catch (_) { /* host module unavailable (tests/headless) — fall through */ }
     if (typeof loadWorldInfo !== 'function') return semanticEntries;
 
@@ -696,7 +696,7 @@ async function handleGenerationStarted(type, options, dryRun) {
             const choice = await showLorebookRenameModal(mismatches);
             if (choice === 'open_browser') {
                 try {
-                    const { stopGeneration } = await import('../src/sillytavern/generation.js');
+                    const { stopGeneration } = await import('../../sillytavern/generation.js');
                     stopGeneration();
                 } catch (e) {
                     log.warn('[LorebookRename] stopGeneration() failed:', e?.message);

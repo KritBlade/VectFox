@@ -500,7 +500,7 @@ test('TEST 001 — Qdrant lorebook: lock + query isolation', async () => {
         const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
         const { shouldCollectionActivate, deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
+        const { runLorebookWIDryRun } = await import(base + 'src/features/world-info/world-info-integration.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -782,7 +782,7 @@ test('TEST 003 — E2E qdrant: both locked, both return results', async () => {
         const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
+        const { runLorebookWIDryRun } = await import(base + 'src/features/world-info/world-info-integration.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -1089,7 +1089,7 @@ test('TEST 005 — Standard lorebook: lock + query isolation', async () => {
         const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
         const { shouldCollectionActivate, deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
+        const { runLorebookWIDryRun } = await import(base + 'src/features/world-info/world-info-integration.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -1360,7 +1360,7 @@ test('TEST 007 — E2E standard: both locked, both return results', async () => 
         const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
+        const { runLorebookWIDryRun } = await import(base + 'src/features/world-info/world-info-integration.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -1906,7 +1906,7 @@ test('TEST 010 — Cross-collection isolation: lock controls lorebook visibility
         const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
         const { shouldCollectionActivate, deleteCollectionMeta, removeCollectionLock, clearCollectionLock } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
+        const { runLorebookWIDryRun } = await import(base + 'src/features/world-info/world-info-integration.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -2113,7 +2113,7 @@ test('TEST 011 — Cross-persona activation isolation', async () => {
         const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
         const { getCollectionMeta, setCollectionMeta, deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { getCollectionListing, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
+        const { runLorebookWIDryRun } = await import(base + 'src/features/world-info/world-info-integration.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -2478,7 +2478,7 @@ test('TEST 013 — Synthetic E2E qdrant: lorebook + EventBase round-trip', async
         const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
+        const { runLorebookWIDryRun } = await import(base + 'src/features/world-info/world-info-integration.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 

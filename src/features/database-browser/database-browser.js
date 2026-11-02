@@ -16,16 +16,16 @@ import {
   deleteCollection,
   sanitizeHandleId,
   getCollectionListing,
-} from "../src/features/collections/collection-loader.js";
-import { checkPluginAvailable } from "../src/shared/similharity-plugin.js";
-import { COLLECTION_PREFIXES } from "../src/shared/collection-ids.js";
+} from "../collections/collection-loader.js";
+import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
+import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
   queryMultipleCollections,
-} from "../src/features/vector-backend/vector-api.js";
-import { getRequestHeaders } from "../src/sillytavern/requests.js";
-import { getCurrentChatId, getContext } from "../src/sillytavern/chat.js";
-import { eventSource, event_types } from "../src/sillytavern/events.js";
-import { world_names, loadWorldInfo } from "../src/sillytavern/world-info.js";
+} from "../vector-backend/vector-api.js";
+import { getRequestHeaders } from "../../sillytavern/requests.js";
+import { getCurrentChatId, getContext } from "../../sillytavern/chat.js";
+import { eventSource, event_types } from "../../sillytavern/events.js";
+import { world_names, loadWorldInfo } from "../../sillytavern/world-info.js";
 import {
   cleanupOrphanedMeta,
   getCollectionConditions,
@@ -46,13 +46,13 @@ import {
   isCollectionLockedToCharacter,
   getCollectionCharacterLockCount,
   isCollectionActiveForContext,
-} from "../src/features/collections/collection-metadata.js";
+} from "../collections/collection-metadata.js";
 import {
   VALID_GENERATION_TYPES,
-} from "../src/features/collections/conditional-activation.js";
+} from "../collections/conditional-activation.js";
 import { icons } from "./icons.js";
-import { escapeHtml } from "../src/shared/html-escape.js";
-import { log } from "../src/sillytavern/log.js";
+import { escapeHtml } from "../../shared/html-escape.js";
+import { log } from "../../sillytavern/log.js";
 import { openVisualizer } from "./chunk-visualizer.js";
 import {
   exportCollection,
@@ -62,14 +62,14 @@ import {
   validateImportData,
   getExportInfo,
   MAX_IMPORT_FILE_BYTES,
-} from "../src/features/collections/collection-export.js";
+} from "../collections/collection-export.js";
 import {
   embedDataInPNG,
   extractDataFromPNG,
   downloadPNG,
   readPNGFile,
   convertToPNG,
-} from "../src/features/collections/png-export.js";
+} from "../collections/png-export.js";
 import { renderSizeInspectorTab } from "./size-inspector.js";
 
 // Browser state
@@ -476,7 +476,7 @@ function bindBrowserEvents() {
     e.stopPropagation();
     e.preventDefault();
     try {
-      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../src/features/chunkbase/reformat-store.js");
+      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../chunkbase/reformat-store.js");
       const entries = listReformatCacheEntries();
       const totalBytes = entries.reduce((sum, entry) => sum + entry.originalTextBytes, 0);
 
@@ -485,7 +485,7 @@ function bindBrowserEvents() {
         return;
       }
 
-      const { callGenericPopup, POPUP_TYPE } = await import("../src/sillytavern/popup.js");
+      const { callGenericPopup, POPUP_TYPE } = await import("../../sillytavern/popup.js");
       const confirmed = await callGenericPopup(
         `<div style="text-align:left;">
                     <p><strong>Clear retained Auto-Reformat originals?</strong></p>

@@ -15,18 +15,18 @@ import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
-} from '../src/features/collections/collection-metadata.js';
+} from '../collections/collection-metadata.js';
 import {
     deleteVectorItems,
     insertVectorItems,
     updateChunkText,
     updateChunkMetadata,
-} from '../src/features/vector-backend/vector-api.js';
-import { getStringHash } from '../src/sillytavern/identifiers.js';
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { escapeHtml } from '../src/shared/html-escape.js';
-import { packTimelineSortKey } from '../src/features/eventbase/eventbase-schema.js';
-import { log } from '../src/sillytavern/log.js';
+} from '../vector-backend/vector-api.js';
+import { getStringHash } from '../../sillytavern/identifiers.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { escapeHtml } from '../../shared/html-escape.js';
+import { packTimelineSortKey } from '../eventbase/eventbase-schema.js';
+import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
 // STATE

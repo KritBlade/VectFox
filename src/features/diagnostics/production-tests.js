@@ -9,13 +9,13 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { log } from '../src/sillytavern/log.js';
-import { getSavedHashes, purgeVectorIndex } from '../src/features/vector-backend/vector-api.js';
-import { getModelFromSettings, resolveProviderApiUrl } from '../src/features/embedding/providers.js';
-import { unregisterCollection } from '../src/features/collections/collection-loader.js';
-import { reciprocalRankFusion, weightedCombination } from '../src/features/vector-backend/hybrid-search.js';
-import { applyKeywordBoost, extractTextKeywords, extractLorebookKeywords } from '../src/features/keyword-search/keyword-boost.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { log } from '../../sillytavern/log.js';
+import { getSavedHashes, purgeVectorIndex } from '../vector-backend/vector-api.js';
+import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/providers.js';
+import { unregisterCollection } from '../collections/collection-loader.js';
+import { reciprocalRankFusion, weightedCombination } from '../vector-backend/hybrid-search.js';
+import { applyKeywordBoost, extractTextKeywords, extractLorebookKeywords } from '../keyword-search/keyword-boost.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
 
@@ -337,7 +337,7 @@ export async function testChunkServerSync(settings, collectionId) {
     }
 
     try {
-        const { getAllChunkMetadata } = await import('../src/features/collections/collection-metadata.js');
+        const { getAllChunkMetadata } = await import('../collections/collection-metadata.js');
 
         // Get server-side hashes
         const serverHashes = await getSavedHashes(collectionId, settings);

@@ -14,12 +14,12 @@
  * ============================================================================
  */
 
-import { extension_settings } from "../src/sillytavern/settings.js";
-import { loadAllCollections } from "../src/features/collections/collection-loader.js";
-import { buildRegistryKey } from "../src/shared/collection-ids.js";
-import { listChunks } from "../src/features/vector-backend/vector-api.js";
+import { extension_settings } from "../../sillytavern/settings.js";
+import { loadAllCollections } from "../collections/collection-loader.js";
+import { buildRegistryKey } from "../../shared/collection-ids.js";
+import { listChunks } from "../vector-backend/vector-api.js";
 import { icons } from "./icons.js";
-import { escapeHtml } from "../src/shared/html-escape.js";
+import { escapeHtml } from "../../shared/html-escape.js";
 
 // Cache of last scan so the detail view can reuse already-fetched items
 // without re-hitting the backend.

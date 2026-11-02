@@ -10,8 +10,8 @@
  * ============================================================================
  */
 
-import { escapeHtml } from '../src/shared/html-escape.js';
-import { log } from '../src/sillytavern/log.js';
+import { escapeHtml } from '../../shared/html-escape.js';
+import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
 // INTERNALS
@@ -19,7 +19,7 @@ import { log } from '../src/sillytavern/log.js';
 
 async function getWorldNames() {
     try {
-        const mod = await import('../src/sillytavern/world-info.js');
+        const mod = await import('../../sillytavern/world-info.js');
         return Array.isArray(mod.world_names) ? mod.world_names : [];
     } catch {
         return [];
@@ -40,7 +40,7 @@ async function waitForPopupsClosed(maxWaitMs = 1500) {
     }
     // Last-resort: force-complete any survivors, then strip from DOM.
     try {
-        const { Popup } = await import('../src/sillytavern/popup.js');
+        const { Popup } = await import('../../sillytavern/popup.js');
         const survivors = (Popup?.util?.popups || []).slice();
         for (const p of survivors) {
             try { await p.completeCancelled(); } catch { /* tolerate */ }
@@ -84,7 +84,7 @@ export async function detectLorebookRenames(collections) {
  * @returns {Promise<'open_browser'|'continue'>}
  */
 export async function showLorebookRenameModal(mismatches) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../src/sillytavern/popup.js');
+    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
 
     const list = mismatches
         .map(m => `<li><code>${escapeHtml(m.sourceName)}</code></li>`)
@@ -125,7 +125,7 @@ export async function openDatabaseBrowserForRename() {
     await waitForPopupsClosed();
 
     try {
-        const { openDatabaseBrowser } = await import('../ui/database-browser.js');
+        const { openDatabaseBrowser } = await import('../database-browser/database-browser.js');
         openDatabaseBrowser();
     } catch (e) {
         log.warn('[LorebookRename] Could not open Database Browser:', e?.message);

@@ -96,13 +96,13 @@ vi.mock('../src/features/collections/collection-metadata.js', () => ({
     isCollectionLockedToCharacter: vi.fn(() => false),
 }));
 
-vi.mock('../core/lorebook-rename-detector.js', () => ({
+vi.mock('../src/features/world-info/lorebook-rename-detector.js', () => ({
     detectLorebookRenames: vi.fn(async () => []),
     showLorebookRenameModal: vi.fn(),
     openDatabaseBrowserForRename: vi.fn(),
 }));
 
-import { getSemanticWorldInfoEntries } from '../core/world-info-integration.js';
+import { getSemanticWorldInfoEntries } from '../src/features/world-info/world-info-integration.js';
 import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';
 import { invalidateCollectionMetadata } from '../src/features/vector-backend/tokenizer-lock.js';
 import {
@@ -606,7 +606,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
     // handler simply returns before any query. Grab the handler the way ST does.
     async function fireGenerationStarted() {
         const { eventSource } = await import('../../../../../script.js');
-        const { initializeWorldInfoIntegration } = await import('../core/world-info-integration.js');
+        const { initializeWorldInfoIntegration } = await import('../src/features/world-info/world-info-integration.js');
         eventSource.on.mockClear();
         initializeWorldInfoIntegration();
         const call = eventSource.on.mock.calls.find(c => c[0] === 'GENERATION_STARTED');

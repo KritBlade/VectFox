@@ -188,7 +188,7 @@ describe('Live code remains intact (regression guard)', () => {
         });
 
         it('database-browser.js consumes getCollectionListing', () => {
-            expect(readRel('ui/database-browser.js'))
+            expect(readRel('src/features/database-browser/database-browser.js'))
                 .toMatch(/getCollectionListing/);
         });
 
@@ -208,12 +208,12 @@ describe('Live code remains intact (regression guard)', () => {
 
     describe('Chunk visualizer conditional rendering (per content type)', () => {
         it('isEventBaseCollection helper exists', () => {
-            expect(readRel('ui/chunk-visualizer.js'))
+            expect(readRel('src/features/database-browser/chunk-visualizer.js'))
                 .toMatch(/function\s+isEventBaseCollection/);
         });
 
         it('renderDetailPanel computes per-section visibility flags', () => {
-            const src = readRel('ui/chunk-visualizer.js');
+            const src = readRel('src/features/database-browser/chunk-visualizer.js');
             expect(src).toContain('showEnabledToggle');
             expect(src).toContain('showKeywords');
             expect(src).toContain('showConditions');
@@ -223,7 +223,7 @@ describe('Live code remains intact (regression guard)', () => {
         it('Prompt Context section is unconditional (still works for EventBase)', () => {
             // The XML tag textarea must NOT be wrapped in a feature flag — it's
             // the one piece that EventBase still uses (post-retrieval injection).
-            const src = readRel('ui/chunk-visualizer.js');
+            const src = readRel('src/features/database-browser/chunk-visualizer.js');
             const xmlTagBlock = src.match(/Prompt Context Section[\s\S]{0,400}/);
             expect(xmlTagBlock, 'Prompt Context comment marker still present').toBeTruthy();
             // The 100 chars BEFORE the comment marker should NOT contain a feature flag opener
@@ -249,15 +249,15 @@ describe('Live code remains intact (regression guard)', () => {
 
     describe('Database browser still loads', () => {
         it('database-browser.js file exists', () => {
-            expect(existsRel('ui/database-browser.js')).toBe(true);
+            expect(existsRel('src/features/database-browser/database-browser.js')).toBe(true);
         });
 
         it('chunk-visualizer.js file exists', () => {
-            expect(existsRel('ui/chunk-visualizer.js')).toBe(true);
+            expect(existsRel('src/features/database-browser/chunk-visualizer.js')).toBe(true);
         });
 
         it('openVisualizer is exported', () => {
-            expect(readRel('ui/chunk-visualizer.js'))
+            expect(readRel('src/features/database-browser/chunk-visualizer.js'))
                 .toMatch(/export\s+(?:default\s+)?function\s+openVisualizer|export\s*\{\s*openVisualizer/);
         });
     });
@@ -406,13 +406,13 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
 
         it('Decay Immune toggle is removed from chunk visualizer', () => {
-            const src = readRel('ui/chunk-visualizer.js');
+            const src = readRel('src/features/database-browser/chunk-visualizer.js');
             expect(src).not.toContain('Decay Immune');
             expect(src).not.toMatch(/VectFox_detail_blind/);
         });
 
         it('"blind" filter option is removed from chunk visualizer', () => {
-            const src = readRel('ui/chunk-visualizer.js');
+            const src = readRel('src/features/database-browser/chunk-visualizer.js');
             // The filterBy enum used to include 'blind'
             expect(src).not.toMatch(/filterBy\s*===?\s*['"]blind['"]/);
             expect(src).not.toMatch(/data\.temporallyBlind/);
@@ -433,14 +433,14 @@ describe('Dead code is removed (cleanup contract)', () => {
 
     describe('Phase B + C — diagnostics cleanup', () => {
         it('diagnostics/configuration.js has no DEAD-CHUNK-CHAT branches', () => {
-            if (!existsRel('diagnostics/configuration.js')) return; // file may be deleted
-            const src = readRel('diagnostics/configuration.js');
+            if (!existsRel('src/features/diagnostics/configuration-checks.js')) return; // file may be deleted
+            const src = readRel('src/features/diagnostics/configuration-checks.js');
             expect(src).not.toMatch(/DEAD-CHUNK-CHAT/);
         });
 
         it('diagnostics/production-tests.js has no temporal-decay test blocks', () => {
-            if (!existsRel('diagnostics/production-tests.js')) return;
-            const src = readRel('diagnostics/production-tests.js');
+            if (!existsRel('src/features/diagnostics/production-tests.js')) return;
+            const src = readRel('src/features/diagnostics/production-tests.js');
             expect(src).not.toMatch(/applyTemporalDecay/);
             expect(src).not.toMatch(/setChunkTemporallyBlind/);
         });

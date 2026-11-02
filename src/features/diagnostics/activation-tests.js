@@ -26,7 +26,7 @@ export async function testConditionalActivation() {
             filterChunksByConditions,
             validateConditionRule,
             processChunkLinks
-        } = await import('../src/features/collections/conditional-activation.js');
+        } = await import('../collections/conditional-activation.js');
 
         // Build mock context for all tests
         const mockChat = [

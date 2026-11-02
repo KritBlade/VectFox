@@ -10,20 +10,20 @@
  * ============================================================================
  */
 
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 import {
     deleteVectorItems,
     insertVectorItems,
     getSavedHashes,
     purgeVectorIndex,
-} from '../src/features/vector-backend/vector-api.js';
+} from '../vector-backend/vector-api.js';
 import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
-} from '../src/features/collections/collection-metadata.js';
-import { unregisterCollection } from '../src/features/collections/collection-loader.js';
-import { getStringHash } from '../src/sillytavern/identifiers.js';
+} from '../collections/collection-metadata.js';
+import { unregisterCollection } from '../collections/collection-loader.js';
+import { getStringHash } from '../../sillytavern/identifiers.js';
 
 // Test collection prefix using VectFox vf_ format
 // Format: vf_test_{type}_{sourceId}

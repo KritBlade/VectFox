@@ -24,17 +24,17 @@ import {
 } from '../src/shared/api-keys.js';
 import { getWebLlmProvider as getSharedWebLlmProvider } from '../src/features/embedding/webllm-provider.js';
 import { escapeHtml } from '../src/shared/html-escape.js';
-import { openDatabaseBrowser } from './database-browser.js';
+import { openDatabaseBrowser } from '../src/features/database-browser/database-browser.js';
 import { openContentVectorizer } from '../src/features/chunkbase/content-vectorizer.js';
-import { openQueryTestModal } from './query-tester.js';
+import { openQueryTestModal } from '../src/features/query-tester/query-tester.js';
 import { openTextCleaningManager } from '../src/features/text-cleaning/text-cleaning-ui.js';
 import { progressTracker } from '../src/shared/progress-tracker.js';
 import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';
 import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
 import { clearInterceptorPrompts } from '../src/features/chunkbase/chat-vectorization.js';
-import { clearLorebookPrompt } from '../core/world-info-integration.js';
+import { clearLorebookPrompt } from '../src/features/world-info/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
-import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
+import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from '../src/features/diagnostics/health-dashboard.js';
 import { getCollectionRegistry, getCollectionListing } from '../src/features/collections/collection-loader.js';
 import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
 import { getCollectionMeta } from '../src/features/collections/collection-metadata.js';
@@ -1726,7 +1726,7 @@ async function executeDiagnostics() {
 
     try {
         // Import and run diagnostics
-        const { runDiagnostics } = await import('../diagnostics/index.js');
+        const { runDiagnostics } = await import('../src/features/diagnostics/diagnostics-runner.js');
         const results = await runDiagnostics(settings, runProduction);
 
         // Stop capturing and get logs
@@ -4144,7 +4144,7 @@ function bindSettingsEvents(settings, callbacks) {
 
             // Fallback: try dynamic import of module (in case initialization order differed)
             try {
-                const { getSemanticWorldInfoEntries } = await import('../core/world-info-integration.js');
+                const { getSemanticWorldInfoEntries } = await import('../src/features/world-info/world-info-integration.js');
                 const entries = await getSemanticWorldInfoEntries(recentMessages, activeEntries, cfg);
                 log.trace('VectFox: Semantic WI test results (via dynamic import):', entries);
                 if (cfg.world_info_retrieval_popup) toastr.info(`Semantic WI test completed - ${entries.length} entries (see console)`);

@@ -111,7 +111,7 @@ vi.mock('../src/shared/constants.js', () => ({
     AGENTIC_TIMEOUT_MAX_MS: 60000,
 }));
 
-vi.mock('../core/lorebook-rename-detector.js', () => ({
+vi.mock('../src/features/world-info/lorebook-rename-detector.js', () => ({
     detectLorebookRenames: vi.fn(() => []),
     showLorebookRenameModal: vi.fn(),
     openDatabaseBrowserForRename: vi.fn(),
@@ -138,7 +138,7 @@ import {
     getLorebookVectorStats,
     enhanceWorldInfoEntriesUI,
     initializeWorldInfoIntegration,
-} from '../core/world-info-integration.js';
+} from '../src/features/world-info/world-info-integration.js';
 
 // ============================================================================
 // getSemanticWorldInfoEntries Tests

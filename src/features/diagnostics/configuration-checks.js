@@ -9,9 +9,9 @@
  * ============================================================================
  */
 
-import { VALID_GENERATION_TYPES, validateConditionRule } from '../src/features/collections/conditional-activation.js';
-import { isCollectionEnabled } from '../src/features/collections/collection-metadata.js';
-import { getCollectionRegistry } from '../src/features/collections/collection-loader.js';
+import { VALID_GENERATION_TYPES, validateConditionRule } from '../collections/conditional-activation.js';
+import { isCollectionEnabled } from '../collections/collection-metadata.js';
+import { getCollectionRegistry } from '../collections/collection-loader.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
 
@@ -321,7 +321,7 @@ export async function checkCollectionRegistryStatus(settings) {
  */
 export async function checkPromptContextConfig(settings) {
     try {
-        const { getCollectionMeta } = await import('../src/features/collections/collection-metadata.js');
+        const { getCollectionMeta } = await import('../collections/collection-metadata.js');
         const registry = getCollectionRegistry();
 
         // Check global settings

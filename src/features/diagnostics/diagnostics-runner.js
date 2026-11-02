@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 import {
     checkVectorsExtension,
     checkBackendEndpoints,
@@ -24,7 +24,7 @@ import {
     checkApiUrls,
     checkProviderConnectivity,
     checkWebLlmExtension
-} from './infrastructure.js';
+} from './infrastructure-checks.js';
 
 import {
     checkChatEnabled,
@@ -40,7 +40,7 @@ import {
     checkCollectionRegistryStatus,
     checkPromptContextConfig,
     checkPNGExportCapability
-} from './configuration.js';
+} from './configuration-checks.js';
 
 import {
     testEmbeddingGeneration,
@@ -61,7 +61,7 @@ import {
 import { testConditionalActivation } from './activation-tests.js';
 
 import { runVisualizerTests } from './visualizer-tests.js';
-import { cleanupTestCollections } from '../src/features/collections/collection-loader.js';
+import { cleanupTestCollections } from '../collections/collection-loader.js';
 
 /**
  * Runs all diagnostic checks
@@ -80,7 +80,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     try {
         // Derive manifest URL from this module's location so it works regardless of
         // the folder name the user installs the extension under (e.g. VectFox vs VectFox).
-        const manifestUrl = new URL('../manifest.json', import.meta.url).href + `?_=${Date.now()}`;
+        const manifestUrl = new URL('../../../manifest.json', import.meta.url).href + `?_=${Date.now()}`;
         console.log('VectFox Diagnostics: Fetching manifest from:', manifestUrl);
         const manifestResponse = await fetch(manifestUrl);
         console.log('VectFox Diagnostics: Manifest response status:', manifestResponse.status);
