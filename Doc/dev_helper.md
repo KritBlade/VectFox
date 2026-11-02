@@ -75,17 +75,6 @@ export const EXTRACTION_LEVELS = {
 };
 ```
 
-## 3) Default Summarizer Token/Timeout Constants
-
-Located in: `core/summarizer.js`
-
-Exact constant names:
-
-- `DEFAULT_MAX_TOKENS`
-- `DEFAULT_TIMEOUT_MS`
-
----
-
 ## 4) EventBase Window Dedup — Fingerprint Cache
 
 ### Problem with old approach
@@ -289,7 +278,7 @@ Note that **auto-sync is not a separate path** — it's the same `runEventBaseIn
 3. **A stalled search fails soft; a stalled ingest fails expensive.** If a retrieval embed genuinely hangs, the cost is one turn with degraded/no memory injection — annoying but self-correcting on the next message. A hung ingest wastes minutes of a long batch run and can leave the user staring at a frozen progress bar. Hedge's value is highest exactly where the blast radius is largest.
 4. **Idempotency only holds for writes.** Hedge's "fire a duplicate, race-first-wins, discard the loser" trick is safe because a duplicate **write** is a no-op (hash-deterministic Qdrant upsert overwrites the same point with identical data). A duplicate **query** isn't harmful, but it also buys nothing — you'd just pay for two embeds to shave time off a path that's already fast (see #2). Agent Mode compounds this: it already fans out 1–4 parallel queries, so adding per-query hedging would multiply planner-stage API cost for no latency win on an already-parallel, already-fast stage.
 
-**Read-path timeout (shipped 2026-05-31).** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. `rearrangeChat()` (the generation interceptor in [`core/chat-vectorization.js`](core/chat-vectorization.js), wired to ST via `window.vectfox_rearrangeChat`) wraps BOTH per-turn retrieval calls — `runEventBaseRetrieval` (EventBase / chat memory) and `queryAndMergeCollections` → `queryActiveCollections` (chunk / lorebook / docs) — in `AsyncUtils.timeout(promise, RETRIEVAL_TIMEOUT_MS, …)`. `RETRIEVAL_TIMEOUT_MS = 15000` ([core/constants.js](core/constants.js)) matches the write-side hedge threshold for one consistent "too slow" number.
+**Read-path timeout (shipped 2026-05-31).** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. `rearrangeChat()` (the generation interceptor in [`core/chat-vectorization.js`](core/chat-vectorization.js), wired to ST via `window.vectfox_rearrangeChat`) wraps BOTH per-turn retrieval calls — `runEventBaseRetrieval` (EventBase / chat memory) and `queryAndMergeCollections` → `queryCollection` (chunk / lorebook / docs) — in `AsyncUtils.timeout(promise, RETRIEVAL_TIMEOUT_MS, …)`. `RETRIEVAL_TIMEOUT_MS = 15000` ([core/constants.js](core/constants.js)) matches the write-side hedge threshold for one consistent "too slow" number.
 
 It's a **soft** timeout (Promise.race): on expiry the turn proceeds and the message sends WITHOUT that memory source — both call sites wrap the await in try/catch (EventBase logs and continues; the chunk path sets `chunks = []` so downstream injects nothing). The orphaned `fetch` keeps running until ST's server-side timeout reaps it — there is no client `AbortSignal` on the read fetches (see the timeout table above), so this is a "stop waiting", not a "cancel the request". A stall is not retried: a stalled retrieval fails soft (one turn without memory, self-corrects next message), so a single bounded attempt is the right tradeoff. A query embedding that FAILS (e.g. a provider 429 "The engine is currently overloaded") is different — it fails fast, so `getQueryVector` ([core/core-vector-api.js](core/core-vector-api.js)) retries it once, then fails the query. That is the only retry on the read path: the query is embedded once and every route and fallback reuses the vector, so a fallback never re-embeds (each fallback used to, which stacked up to four embedding calls per failed query).
 
@@ -378,16 +367,16 @@ The whole `core/temporal-decay.js` subsystem (and `tests/temporal-decay.test.js`
 **Module:** [`core/hybrid-search.js`](core/hybrid-search.js)
 **Decision:** ✅ EventBase benefits from it — but through `queryCollection()`, not by direct call.
 
-EventBase calls `queryEvents()` → `queryCollection()` (via an `ebSettings` shim that pins `keyword_scoring_method` to `eventbase_keyword_scoring_method || 'bm25'`). Inside `queryCollection()`, the A1/A2/A3 routing decides whether to invoke `clientSideHybridSearch()` (A2) or the backend's native hybrid (A3, `backend.hybridQuery()`). On Standard backend, EventBase is always A1 unless `eventbase_keyword_scoring_method` is explicitly set to `'hybrid'`. On Qdrant, A3 (native sparse + server-side RRF) is the **only** hybrid path — the previous user-toggle was removed after the A/B/C testing picked native_rrf as the winner. `hybrid_native_prefer` remains as a hidden settings.json escape hatch (default `true`) for testing A2 without UI.
+EventBase retrieval (`retrieveEvents()` in `core/eventbase-retrieval.js`) calls `queryCollection()` directly (via an `ebSettings` shim that pins `keyword_scoring_method` to `eventbase_keyword_scoring_method || 'bm25'`). Inside `queryCollection()`, the A1/A2/A3 routing decides whether to invoke `clientSideHybridSearch()` (A2) or the backend's native hybrid (A3, `backend.hybridQuery()`). On Standard backend, EventBase is always A1 unless `eventbase_keyword_scoring_method` is explicitly set to `'hybrid'`. On Qdrant, A3 (native sparse + server-side RRF) is the **only** hybrid path — the previous user-toggle was removed after the A/B/C testing picked native_rrf as the winner. `hybrid_native_prefer` remains as a hidden settings.json escape hatch (default `true`) for testing A2 without UI.
 
-Do **not** call `hybridSearch()` directly from `eventbase-retrieval.js` or `eventbase-workflow.js`. It operates at the backend/collection layer — returns raw `{ hashes, metadata }` and bypasses `queryEvents()`, the store schema hydration, and EventBase-specific field population (`score`, `importance`, etc.).
+Do **not** call `hybridSearch()` directly from `eventbase-retrieval.js` or `eventbase-workflow.js`. It operates at the backend/collection layer — returns raw `{ hashes, metadata }` and bypasses `queryCollection()`'s A1/A2/A3 routing, the store schema hydration, and EventBase-specific field population (`score`, `importance`, etc.).
 
 ### Summary table
 
 | Module                                      | Add directly to EventBase? | Reason                                                                                               |
 | ------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `core/temporal-decay.js`                    | n/a — module deleted       | Subsystem only fired on`source: 'chat'` chunks (legacy chunk path). Recency on EventBase is handled by `_recencyBonus` inside the 4-weight formula. |
-| [`hybrid-search.js`](core/hybrid-search.js) | No (used indirectly)       | EventBase inherits A2/A3 hybrid automatically via`queryCollection()`. Direct calls would bypass `queryEvents()` and the store layer. |
+| [`hybrid-search.js`](core/hybrid-search.js) | No (used indirectly)       | EventBase inherits A2/A3 hybrid automatically via`queryCollection()`. Direct calls would bypass `queryCollection()`'s routing and the store layer. |
 
 ---
 
@@ -587,7 +576,7 @@ VectFox's **retrieval** path (BM25 sparse vectors + query keyword extraction) is
 | Shared primitives | `core/script-segmentation.js` — `CJK_SPAN_RE`, `CJK_CHAR_RE`, `KANA_RE`, `LATIN_TOKEN_RE`, `NON_WORD_RE`, `localeForSpan()`, `getSegmenter()` |
 | Ingest path       | `core/bm25-scorer.js` → `tokenize()` / `encodeSparseVector()` (imports the shared module)            |
 | Query path        | `core/query-keyword-extractor.js` → `extractQueryKeywords()`, `isCJKToken()` (imports the shared module) |
-| Stop-word source  | Per-mode selection via `core/language-modes.js` (`LANGUAGE_MODES`) + `isStopWord()` in `./stop-words.js`. Each CJK-tokenizer mode declares its `stopLocales` (e.g. `korean`→`['en','ko']`); only those locale lists are consulted. English is the always-on baseline. `DEFAULT_STOP_WORD_SET` (English + CJK union) is kept only as back-compat/fallback. |
+| Stop-word source  | Per-mode selection via `core/language-modes.js` (`LANGUAGE_MODES`) + `isStopWord()` in `./stop-words.js`. Each CJK-tokenizer mode declares its `stopLocales` (e.g. `korean`→`['en','ko']`); only those locale lists are consulted. English is the always-on baseline. |
 
 ### How language neutrality works
 
@@ -709,7 +698,7 @@ A3 leverages **all four** of Qdrant's relevant server-side features:
 - A3 server entrypoint: `hybridQueryNative()` at [similharity/qdrant-backend.js](../../similharity/qdrant-backend.js).
 - Sparse encoder: [core/sparse-vector-encoder.js](../core/sparse-vector-encoder.js).
 - Tokenizer lock + mismatch modal: [core/tokenizer-lock.js](../core/tokenizer-lock.js).
-- EventBase invocation: `queryEvents()` at [core/eventbase-store.js](../core/eventbase-store.js) and direct `queryCollection` calls in [core/eventbase-retrieval.js](../core/eventbase-retrieval.js), [core/eventbase-workflow.js](../core/eventbase-workflow.js).
+- EventBase invocation: direct `queryCollection` calls in [core/eventbase-retrieval.js](../core/eventbase-retrieval.js), [core/eventbase-workflow.js](../core/eventbase-workflow.js).
 
 ---
 

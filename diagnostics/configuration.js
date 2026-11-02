@@ -9,7 +9,6 @@
  * ============================================================================
  */
 
-import { getSavedHashes } from '../core/core-vector-api.js';
 import { VALID_GENERATION_TYPES, validateConditionRule } from '../core/conditional-activation.js';
 import { isCollectionEnabled } from '../core/collection-metadata.js';
 import { getCollectionRegistry } from '../core/collection-loader.js';
@@ -47,9 +46,7 @@ export function checkChatEnabled(settings) {
         return {
             name: 'RAG Query Status',
             status: 'warning',
-            message: 'No collections enabled for querying. Enable chat vectorization or enable other collections in the Database Browser.',
-            fixable: true,
-            fixAction: 'enable_chats'
+            message: 'No collections enabled for querying. Enable chat vectorization or enable other collections in the Database Browser.'
         };
     }
 
@@ -59,9 +56,6 @@ export function checkChatEnabled(settings) {
         parts.push('Chat: enabled');
     }
     if (otherEnabledCount > 0) {
-        const names = otherEnabledNames.length < otherEnabledCount
-            ? `${otherEnabledNames.join(', ')}... (+${otherEnabledCount - otherEnabledNames.length} more)`
-            : otherEnabledNames.join(', ');
         parts.push(`Other collections: ${otherEnabledCount} enabled`);
     }
 
@@ -82,9 +76,7 @@ export function checkChunkSize(settings) {
         return {
             name: 'Chunk Size',
             status: 'fail',
-            message: `Chunk size too small (${size} chars). Minimum: 50`,
-            fixable: true,
-            fixAction: 'fix_chunk_size'
+            message: `Chunk size too small (${size} chars). Minimum: 50`
         };
     }
 
@@ -121,9 +113,7 @@ export function checkScoreThreshold(settings) {
         return {
             name: 'Score Threshold',
             status: 'fail',
-            message: `Invalid threshold (${threshold}). Must be 0.0-1.0`,
-            fixable: true,
-            fixAction: 'fix_threshold'
+            message: `Invalid threshold (${threshold}). Must be 0.0-1.0`
         };
     }
 
@@ -161,9 +151,7 @@ export function checkInsertQueryCounts(settings) {
         return {
             name: 'Insert/Query Counts',
             status: 'fail',
-            message: `Invalid counts (insert: ${insert}, query: ${query}). Must be >= 1`,
-            fixable: true,
-            fixAction: 'fix_counts'
+            message: `Invalid counts (insert: ${insert}, query: ${query}). Must be >= 1`
         };
     }
 
@@ -185,56 +173,11 @@ export function checkInsertQueryCounts(settings) {
 /**
  * Check: Current chat has vectors
  */
-export async function checkChatVectors(settings) {
+export async function checkChatVectors() {
     return {
         name: 'Chat Vectors',
         status: 'pass',
         message: CHAT_NOT_APPLICABLE_MESSAGE
-    };
-}
-
-/**
- * Check: Chunk visualizer API readiness
- * Verifies the visualizer can perform edit/delete operations
- */
-export function checkVisualizerApiReadiness(settings) {
-    const checks = [];
-
-    // Check if settings are valid for API operations
-    if (!settings) {
-        return {
-            name: 'Visualizer API',
-            status: 'fail',
-            message: 'No settings available for visualizer operations',
-            category: 'configuration'
-        };
-    }
-
-    // Check for required source configuration
-    if (!settings.embedding_provider) {
-        return {
-            name: 'Visualizer API',
-            status: 'fail',
-            message: 'No embedding source configured - cannot create/edit vectors',
-            category: 'configuration'
-        };
-    }
-
-    // Check backend configuration
-    if (!settings.vector_backend) {
-        return {
-            name: 'Visualizer API',
-            status: 'warning',
-            message: 'No backend database specified (using default)',
-            category: 'configuration'
-        };
-    }
-
-    return {
-        name: 'Visualizer API',
-        status: 'pass',
-        message: `Ready for vector operations (source: ${settings.embedding_provider}, backend: ${settings.vector_backend || 'standard'})`,
-        category: 'configuration'
     };
 }
 
@@ -294,7 +237,7 @@ export function checkConditionalActivationModule() {
  * This is INFORMATIONAL - collisions are intentional semantic deduplication.
  * High collision rate (>10%) may indicate repetitive conversations or chunking misconfiguration.
  */
-export async function checkHashCollisionRate(settings) {
+export async function checkHashCollisionRate() {
     return {
         name: 'Hash Collision Rate',
         status: 'pass',
@@ -321,7 +264,7 @@ export function checkChatMetadataIntegrity() {
  * Check: Condition Rule Validity
  * Verifies all chunk conditions in the current chat collection use valid operators and values.
  */
-export async function checkConditionRuleValidity(settings) {
+export async function checkConditionRuleValidity() {
     return {
         name: 'Condition Rules',
         status: 'pass',

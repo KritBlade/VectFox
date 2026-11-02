@@ -89,7 +89,7 @@ export const BUILTIN_PATTERNS = {
     strip_mvu_update_variable: {
         id: 'strip_mvu_update_variable',
         name: 'Strip <UpdateVariable> Tags (MVU)',
-        pattern: '<UpdateVariable>[\\s\\S]*?<\/UpdateVariable>',
+        pattern: '<UpdateVariable>[\\s\\S]*?</UpdateVariable>',
         replacement: '',
         flags: 'gm',
         builtin: true,
@@ -97,7 +97,7 @@ export const BUILTIN_PATTERNS = {
     strip_mvu_combat_calculation: {
         id: 'strip_mvu_combat_calculation',
         name: 'Strip <combat_calculation> Tags (MVU)',
-        pattern: '<combat_calculation>[\\s\\S]*?<\/combat_calculation>',
+        pattern: '<combat_calculation>[\\s\\S]*?</combat_calculation>',
         replacement: '',
         flags: 'gm',
         builtin: true,
@@ -105,7 +105,7 @@ export const BUILTIN_PATTERNS = {
     strip_mvu_story_analysis: {
         id: 'strip_mvu_story_analysis',
         name: 'Strip <StoryAnalysis> Tags (MVU)',
-        pattern: '<StoryAnalysis>[\\s\\S]*?<\/StoryAnalysis>',
+        pattern: '<StoryAnalysis>[\\s\\S]*?</StoryAnalysis>',
         replacement: '',
         flags: 'gm',
         builtin: true,
@@ -113,7 +113,7 @@ export const BUILTIN_PATTERNS = {
     strip_mvu_combat_log: {
         id: 'strip_mvu_combat_log',
         name: 'Strip <combat_log> Tags (MVU)',
-        pattern: '<combat_log>[\\s\\S]*?<\/combat_log>',
+        pattern: '<combat_log>[\\s\\S]*?</combat_log>',
         replacement: '',
         flags: 'gm',
         builtin: true,
@@ -537,24 +537,6 @@ export function updateCustomPattern(id, updates) {
 export function removeCustomPattern(id) {
     const settings = getCleaningSettings();
     settings.customPatterns = (settings.customPatterns || []).filter(p => p.id !== id);
-    saveCleaningSettings(settings);
-}
-
-/**
- * Toggles a builtin pattern
- * @param {string} id - Builtin pattern ID
- * @param {boolean} enabled - Whether to enable
- */
-export function toggleBuiltinPattern(id, enabled) {
-    const settings = getCleaningSettings();
-    settings.enabledBuiltins = settings.enabledBuiltins || [];
-
-    if (enabled && !settings.enabledBuiltins.includes(id)) {
-        settings.enabledBuiltins.push(id);
-    } else if (!enabled) {
-        settings.enabledBuiltins = settings.enabledBuiltins.filter(x => x !== id);
-    }
-
     saveCleaningSettings(settings);
 }
 

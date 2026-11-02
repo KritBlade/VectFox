@@ -70,7 +70,6 @@ vi.mock('../core/log.js', () => ({
         trace: () => {},
         domain: () => {},
     },
-    LOG_DOMAINS: [],
 }));
 
 import { retrieveEvents } from '../core/eventbase-retrieval.js';

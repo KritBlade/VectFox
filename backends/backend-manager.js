@@ -482,10 +482,3 @@ export async function probeBackendHealth(backendName, settings) {
     return backend !== null;
 }
 
-/**
- * Get available backend names
- * @returns {string[]}
- */
-export function getAvailableBackends() {
-    return Object.keys(BACKENDS);
-}

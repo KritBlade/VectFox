@@ -24,9 +24,8 @@ import { debounce_timeout } from '../../../constants.js';
 
 // VectFox modules - Core
 import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
-import { purgeAllVectorIndexes, purgeVectorIndex } from './core/core-vector-api.js';
 import { migrateOldEnabledKeys } from './core/collection-metadata.js';
-import { clearCollectionRegistry, cleanupCorruptedCollections } from './core/collection-loader.js';
+import { cleanupCorruptedCollections } from './core/collection-loader.js';
 import { migrateLegacyApiKeys } from './core/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
@@ -48,9 +47,6 @@ import { initializeDatabaseBrowser } from './ui/database-browser.js';
 import { initializeWorldInfoIntegration } from './core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from './core/summarizer-injection.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './core/bm25-scorer.js';
-
-// SillyTavern display label — NOT the settings key. For settings, use 'vectfox' (lowercase).
-const MODULE_NAME = 'VectFox';
 
 // Default settings
 const defaultSettings = {
@@ -314,10 +310,10 @@ const defaultSettings = {
     // ─── Logging (core/log.js) ──────────────────────────────────────────
     // Verbosity dropdown — single noise floor for the whole pipeline.
     // 'off' (default) | 'lifecycle' | 'verbose' | 'trace'. Errors/warnings
-    // always fire regardless. See plans/logging-levels-and-classification.md.
+    // always fire regardless. See plans/executed/logging-levels-and-classification.md.
     debug_verbosity: 'off',
     // Orthogonal per-subsystem deep-dives, independent of debug_verbosity.
-    // Keys must match LOG_DOMAINS in core/log.js. All default off.
+    // Each key is a name that log.domain() in core/log.js takes. All default off.
     debug_domain: {
         raw_llm: false,     // per-window raw LLM text + parser candidate dumps
         qdrant: false,      // native hybrid keyword/fusion diagnostics
@@ -437,10 +433,7 @@ const defaultSettings = {
 let settings = { ...defaultSettings };
 
 // Module worker for automatic syncing
-const moduleWorker = new ModuleWorkerWrapper(() => synchronizeChat(settings, getBatchSize(), _lastChatTriggerEvent));
-
-// Batch size based on provider
-const getBatchSize = () => ['transformers', 'ollama'].includes(settings.embedding_provider) ? 1 : 5;
+const moduleWorker = new ModuleWorkerWrapper(() => synchronizeChat(settings, _lastChatTriggerEvent));
 
 // Most recent SillyTavern event that triggered the debounced chat-event handler.
 // Read by synchronizeChat to suppress the auto-sync popup on MESSAGE_SENT (so the

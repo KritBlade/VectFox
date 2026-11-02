@@ -126,11 +126,10 @@ vi.mock('../core/conditional-activation.js', () => ({
 }));
 
 import { getContext, extension_settings } from '../../../../extensions.js';
-import { setExtensionPrompt, getCurrentChatId, eventSource } from '../../../../../script.js';
+import { setExtensionPrompt, eventSource } from '../../../../../script.js';
 import { queryCollection } from '../core/core-vector-api.js';
 import { getCollectionMeta, isCollectionEnabled, shouldCollectionActivate } from '../core/collection-metadata.js';
-import { parseRegistryKey, buildLorebookCollectionId } from '../core/collection-ids.js';
-import { buildSearchContext } from '../core/conditional-activation.js';
+import { buildLorebookCollectionId } from '../core/collection-ids.js';
 
 import {
     getSemanticWorldInfoEntries,
@@ -704,12 +703,12 @@ describe('initializeWorldInfoIntegration', () => {
     it('should expose functions on window.VectFox_WorldInfo', () => {
         initializeWorldInfoIntegration();
 
-        expect(window.VectFox_WorldInfo).toBeDefined();
-        expect(window.VectFox_WorldInfo.getSemanticEntries).toBe(getSemanticWorldInfoEntries);
-        expect(window.VectFox_WorldInfo.isLorebookVectorized).toBe(isLorebookVectorized);
-        expect(window.VectFox_WorldInfo.getVectorizationStatus).toBe(getLorebooksVectorizationStatus);
-        expect(window.VectFox_WorldInfo.getVectorStats).toBe(getLorebookVectorStats);
-        expect(window.VectFox_WorldInfo.enhanceEntriesUI).toBe(enhanceWorldInfoEntriesUI);
+        expect(globalThis.window.VectFox_WorldInfo).toBeDefined();
+        expect(globalThis.window.VectFox_WorldInfo.getSemanticEntries).toBe(getSemanticWorldInfoEntries);
+        expect(globalThis.window.VectFox_WorldInfo.isLorebookVectorized).toBe(isLorebookVectorized);
+        expect(globalThis.window.VectFox_WorldInfo.getVectorizationStatus).toBe(getLorebooksVectorizationStatus);
+        expect(globalThis.window.VectFox_WorldInfo.getVectorStats).toBe(getLorebookVectorStats);
+        expect(globalThis.window.VectFox_WorldInfo.enhanceEntriesUI).toBe(enhanceWorldInfoEntriesUI);
     });
 });
 

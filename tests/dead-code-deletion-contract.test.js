@@ -150,7 +150,7 @@ describe('Live code remains intact (regression guard)', () => {
             const candidates = ['core/eventbase-retrieval.js', 'core/eventbase-query.js'];
             const found = candidates.find(p => existsRel(p));
             expect(found, `expected one of ${candidates.join(', ')}`).toBeTruthy();
-            expect(readRel(found)).toMatch(/retrieveEvents|queryEvents|hybridQueryWithRerank/);
+            expect(readRel(found)).toMatch(/retrieveEvents|hybridQueryWithRerank/);
         });
     });
 
@@ -165,10 +165,8 @@ describe('Live code remains intact (regression guard)', () => {
         });
 
         it('Stage 8 conditions stage is still wired into the pipeline', () => {
-            const src = readRel('core/chat-vectorization.js');
-            // applyConditionsStage is the wrapper called from rearrangeChat
-            expect(src).toMatch(/applyConditionsStage\s*\(/);
-            expect(src).toMatch(/applyChunkConditions/);
+            expect(readRel('core/chat-vectorization.js'))
+                .toMatch(/applyChunkConditions\s*\(/);
         });
 
         it('Stage 8.5 chunk groups and links stage is still wired', () => {

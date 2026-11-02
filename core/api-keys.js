@@ -159,12 +159,11 @@ function _readSecretValue(slot) {
  * route OpenRouter requests through ST's `/api/backends/chat-completions/generate`
  * proxy with `chat_completion_source: 'openrouter'`; the server reads the
  * real key via `readSecret(SECRET_KEYS.OPENROUTER)` and forwards correctly.
- * See `core/summarizer.js::_callOpenRouter` for the canonical call pattern.
+ * `postChatCompletion` in `core/llm-provider-call.js` is that call.
  *
- * @param {object} [settings] - kept for signature compat; not read.
  * @returns {string} masked value (presence indicator) or empty string
  */
-export function getOpenRouterApiKey(settings) {
+export function getOpenRouterApiKey() {
     return _readSecretValue(SECRET_KEYS.OPENROUTER);
 }
 
@@ -177,22 +176,11 @@ export function getOpenRouterApiKey(settings) {
  * `chat_completion_source: 'custom'` where the server reads the real
  * key via `readSecret(SECRET_KEYS.CUSTOM)`.
  *
- * @param {object} [settings] - kept for signature compat; not read.
  * @returns {string} masked value (presence indicator) or empty string
  */
-export function getCustomApiKey(settings) {
+export function getCustomApiKey() {
     return _readSecretValue(SECRET_KEYS.CUSTOM);
 }
-
-/**
- * @deprecated Use {@link getCustomApiKey}. Kept as an alias for the
- * transition period; both readers point at the same `SECRET_KEYS.CUSTOM`
- * slot. Pre-2026-05-26 callers expected plaintext from
- * `settings.vllm_api_key` — that field is migrated and deleted on first
- * load post-upgrade. Remove this alias once all call sites are confirmed
- * migrated.
- */
-export const getVllmApiKey = getCustomApiKey;
 
 /**
  * Resolve the Qdrant API key presence indicator.
@@ -250,8 +238,8 @@ export async function fetchQdrantApiKeyPresence() {
             masked: typeof data?.masked === 'string' ? data.masked : '',
         };
     } catch (err) {
-        // Plugin unreachable (not installed, network error, etc.) — caller
-        // should treat as "presence unknown" and not render the key indicator.
+        // The caller treats this as "presence unknown" and does not render the key indicator.
+        log.warn('VectFox: Qdrant key-status check failed:', err);
         return { set: false, masked: '' };
     }
 }
@@ -564,7 +552,7 @@ export async function migrateLegacyApiKeys() {
     if (moves.length > 0) {
         log.lifecycle(`[VectFox migrate] Migration complete:\n  - ${moves.join('\n  - ')}`);
         // Refresh in-memory secret_state if we wrote OpenRouter or CUSTOM
-        try { await readSecretState(); } catch {}
+        try { await readSecretState(); } catch (error) { log.warn('[VectFox migrate] secret_state refresh failed:', error); }
     } else {
         log.lifecycle('[VectFox migrate] No legacy API-key fields found — nothing to migrate');
     }

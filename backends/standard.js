@@ -29,7 +29,6 @@ import { getRequestHeaders } from '../../../../../script.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
 import { throwIfModelConfigError } from '../core/model-http-errors.js';
-import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 import { INTERNAL_COLLECTION_IDS } from '../core/collection-ids.js';
 import { extension_settings } from '../../../../extensions.js';
 import { oai_settings } from '../../../../openai.js';
@@ -150,7 +149,7 @@ export class StandardBackend extends VectorBackend {
         this.pluginAvailable = false;
     }
 
-    async initialize(settings) {
+    async initialize(_settings) {
         // Check if plugin is available via the canonical, session-cached probe
         // in core/collection-loader.js. Dynamic import breaks the otherwise
         // circular static dependency (collection-loader → core-vector-api →
@@ -916,7 +915,7 @@ export class StandardBackend extends VectorBackend {
      * Purge all vector indexes
      * Uses native ST API
      */
-    async purgeAllVectorIndexes(settings) {
+    async purgeAllVectorIndexes(_settings) {
         const response = await fetch('/api/vector/purge-all', {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -1011,7 +1010,7 @@ export class StandardBackend extends VectorBackend {
                 return data.chunk;
             }
         } catch (e) {
-            log.warn('VectFox: Plugin getChunk failed');
+            log.warn('VectFox: Plugin getChunk failed:', e);
         }
 
         return null;
@@ -1096,7 +1095,7 @@ export class StandardBackend extends VectorBackend {
                     return data.stats;
                 }
             } catch (e) {
-                log.warn('VectFox: Plugin getStats failed, using native fallback');
+                log.warn('VectFox: Plugin getStats failed, using native fallback:', e);
             }
         }
 

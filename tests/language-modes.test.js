@@ -15,9 +15,7 @@ vi.mock('../../../../extensions.js', () => ({
 import {
     LANGUAGE_MODES,
     CJK_TOKENIZER_MODES,
-    DEFAULT_CJK_TOKENIZER_MODE,
     stopLocalesForMode,
-    tokenizerForMode,
 } from '../core/language-modes.js';
 
 import {

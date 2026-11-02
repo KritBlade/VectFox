@@ -143,27 +143,6 @@ export function getChunkingStrategy(strategyId) {
 }
 
 /**
- * Check if a strategy needs size controls
- */
-export function strategyNeedsSize(strategyId) {
-    return CHUNKING_STRATEGIES[strategyId]?.needsSize ?? false;
-}
-
-/**
- * Check if a strategy needs overlap controls
- */
-export function strategyNeedsOverlap(strategyId) {
-    return CHUNKING_STRATEGIES[strategyId]?.needsOverlap ?? false;
-}
-
-/**
- * Check if a strategy needs batch size controls
- */
-export function strategyNeedsBatchSize(strategyId) {
-    return CHUNKING_STRATEGIES[strategyId]?.needsBatchSize ?? false;
-}
-
-/**
  * Content Type Definitions
  * Each type defines its unique characteristics while sharing core infrastructure
  */
@@ -444,14 +423,6 @@ export function hasFeature(typeId, feature) {
     const type = CONTENT_TYPES[typeId];
     return type?.features?.[feature] === true;
 }
-
-/**
- * Scope options available for content types that support it
- */
-export const SCOPE_OPTIONS = [
-    { id: 'character', name: 'Character', description: 'Only with current character', icon: 'fa-user' },
-    { id: 'chat', name: 'This Chat', description: 'Only in current conversation', icon: 'fa-comment' },
-];
 
 /**
  * Character card fields that can be vectorized

@@ -10,7 +10,7 @@
  *
  * Gated by settings.bm25_use_corpus_idf. When ON, A1/A2 client-side BM25
  * paths plug these stats into BM25Scorer instead of computing IDF over the
- * local ANN candidate set. See dev_helper.md §10 (A1/A2 vs A3).
+ * local ANN candidate set. See dev_helper.md §8 (A1/A2 vs A3).
  *
  * Lifecycle:
  *   - Built lazily on the first getCorpusStats(collectionId) call after page
@@ -27,7 +27,6 @@
  * ============================================================================
  */
 import { getRequestHeaders } from '../../../../../script.js';
-import { extension_settings } from '../../../../extensions.js';
 import { tokenize } from './bm25-scorer.js';
 import { getModelFromSettings } from './providers.js';
 import { log } from './log.js';

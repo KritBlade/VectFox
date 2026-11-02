@@ -46,7 +46,7 @@ async function waitForPopupsClosed(maxWaitMs = 1500) {
             try { await p.completeCancelled(); } catch { /* tolerate */ }
         }
         document.querySelectorAll('dialog.popup[open], dialog.popup[closing]').forEach(d => {
-            try { d.close(); } catch {}
+            d.close();
             d.remove();
         });
     } catch (e) {

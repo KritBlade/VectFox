@@ -15,8 +15,9 @@ Read `Doc/collection_helper.md` before touching collection routing. It states th
 | **`getCollectionListing(settings)`** | [collection-loader.js](../core/collection-loader.js) | You need to iterate every collection (rendering a list, finding matches by pattern, computing aggregate state). |
 | **`resolveActiveEventBaseCollection(settings, chatUUID?)`** | [eventbase-store.js](../core/eventbase-store.js) | You need *the one* active EventBase collection to READ for a chat (ownership-filtered + lock-aware). Use this instead of taking `[0]` from `findEventBaseCollectionsForChat`. |
 | **`resolveEventBaseWriteTarget(settings, chatUUID?)`** | [eventbase-store.js](../core/eventbase-store.js) | You are about to INGEST events, stamp the auto-sync marker, or report sync status. Same resolution, but the collection's embedded chat UUID must match and it must be registered on the current `vector_backend` — a foreign lock can widen ownership, never redirect writes. |
-| **`getLock(collectionId, options)`** | [collection-metadata.js](../core/collection-metadata.js) | You need lock state for *one* collection (badge, tooltip, checkbox state, "is this active right now?"). |
-| **`setLock(collectionId, action, options)`** | [collection-metadata.js](../core/collection-metadata.js) | You need to *mutate* lock state for *one* collection (user clicks lock / unlock / clear). |
+| **`getCollectionLocks(key)`** / **`getCollectionCharacterLocks(key)`** | [collection-metadata.js](../core/collection-metadata.js) | You need the chats / characters *one* collection is locked to (lock dialog, badge, tooltip). |
+| **`isCollectionActiveForContext(key, { chatId, characterId })`** | [collection-metadata.js](../core/collection-metadata.js) | You need "is *one* collection locked to the current chat / character?" (badge, checkbox state). Activation itself goes through `shouldCollectionActivate`, which also weighs triggers and conditions. |
+| **`setCollectionLock`** / **`removeCollectionLock`** / **`clearCollectionLock`**, and **`setCollectionCharacterLock`** / **`removeCollectionCharacterLock`** | [collection-metadata.js](../core/collection-metadata.js) | You need to *change* one collection's locks (user clicks lock / unlock / clear). |
 | **`buildRegistryKey(collectionId, settings)`** | [collection-ids.js](../core/collection-ids.js) | You only have a bare collection ID and need to convert it to the canonical `"backend:id"` storage key (for any metadata read/write). Never hand-roll `` `${backend}:${collectionId}` `` — use this instead. |
 | **`resolveBackendForCollection(input)`** | [collection-ids.js](../core/collection-ids.js) | You have an ID (either registry-key or bare) and need to pick the right backend instance for it (query, delete, list, etc.). Returns `{ backend, collectionId }` where `collectionId` is the bare form. Replaces hand-rolled `parseRegistryKey(...).backend ?? settings.vector_backend` chains. |
 
@@ -55,40 +56,27 @@ Built-in checks:
 - `isActive`: calls `isCollectionActiveForContext(registryKey, …)` internally — already keyed correctly.
 - Call this **once** per render and reuse the array. Do not call `isCollectionActiveForContext` in a per-card loop.
 
-### `getLock(collectionId, options)` — single-collection read
+### Lock state for one collection — read and change
 
 ```js
-const lock = getLock(collection.registryKey || collection.id, {
-    chatId: getCurrentChatId(),
-    characterId: getContext()?.characterId,
-    settings,
-});
-// lock: null  (caller unauthorized — not superadmin, not owner)
-//     | { storageKey, scope, chatLocks, characterLocks, isLocked, isActiveHere, canModify }
+const key = collection.registryKey || collection.id;
+
+getCollectionLocks(key);            // → ['chatId', …]       chats it is locked to
+getCollectionCharacterLocks(key);   // → ['characterId', …]  characters it is locked to
+isCollectionActiveForContext(key, { chatId: getCurrentChatId(), characterId: getContext()?.characterId });
+// → true when it is locked to the current chat (scope 'chat') or character (scope 'character')
+
+setCollectionLock(key, chatId);         // add a chat lock
+removeCollectionLock(key, chatId);      // drop one chat lock; other chats keep theirs
+clearCollectionLock(key);               // drop every chat lock
+setCollectionCharacterLock(key, String(characterId));
+removeCollectionCharacterLock(key, String(characterId));
 ```
 
-Built-in checks:
-- Authorization: `null` return when current persona is not superadmin AND doesn't own the collection. Use `options.ignoreAuth: true` for headless/system code (import flow, registry registration).
-- Scope-aware `isActiveHere`: checks the right list (chat vs character) based on `meta.scope`.
-- `canModify` flag: lets the UI grey out the lock button rather than letting the click silently fail.
-
-**Storage-key convention:** callers must pass the registry-key form (`backend:id`). On a `collection` object from `findCollectionByKey` or `getCollectionListing`, use `collection.registryKey || collection.id`. **No silent fallback to bare ID** — passing the wrong form gives wrong-state reads, not errors.
-
-### `setLock(collectionId, action, options)` — single-collection mutation
-
-```js
-const result = setLock(collection.registryKey || collection.id, {
-    kind: 'chat',           // 'chat' | 'character'
-    op: 'add',              // 'add' | 'remove' | 'clear'
-    target: getCurrentChatId(),  // chatId or characterId; ignored when op='clear'
-}, { settings });
-// result: { success: true } | { success: false, reason: 'unauthorized' | 'invalid kind' | ... }
-```
-
-Built-in checks:
-- Same authorization gate as `getLock`. Denied mutations log a warning and return `{success:false, reason:'unauthorized'}` — caller must check the result.
-- Routes to the right primitive (`setCollectionLock` / `removeCollectionLock` / `clearCollectionLock` / character variants) based on `action.kind`.
-- Updates the reverse index (`chat_lock_index`) atomically with the forward write.
+- **Storage-key convention:** pass the registry-key form (`backend:id`). On a `collection` object from `findCollectionByKey` or `getCollectionListing`, use `collection.registryKey || collection.id`. These functions read and write exactly the key they are given — **no fallback to the other form**, so the wrong form gives wrong-state reads, not errors. When a lock may sit under either form (EventBase resolution, the auto-sync LED), use `isCollectionActiveForContextAnyKey`.
+- **Scope:** `getCollectionMeta` resolves every collection's scope to `'chat'` or `'character'` (`getEffectiveScope`: the stored value, else parsed from the ID), and `isCollectionActiveForContext` checks the matching list.
+- **Ownership:** the lock functions do not check it. It is applied where collections are listed — `getCollectionListing`'s `isOwn` and the DB browser's persona filter — so lock controls are only offered on the persona's own collections (every collection under `superadmin`).
+- The chat-lock writes keep the `chat_lock_index` reverse map (read by `getChatLockedCollections(chatId)`) in step with `lockedToChatIds`.
 
 ### What NOT to do
 
@@ -96,8 +84,8 @@ These patterns will look correct but produce broken state:
 
 | Wrong | Right |
 |---|---|
-| `isCollectionActiveForContext(collection.id, …)` | `isCollectionActiveForContext(collection.registryKey \|\| collection.id, …)` — or use `getLock` |
-| `setCollectionLock(collection.id, chatId)` | `setLock(collection.registryKey \|\| collection.id, { kind: 'chat', op: 'add', target: chatId }, { settings })` |
+| `isCollectionActiveForContext(collection.id, …)` | `isCollectionActiveForContext(collection.registryKey \|\| collection.id, …)` |
+| `setCollectionLock(collection.id, chatId)` | `setCollectionLock(collection.registryKey \|\| collection.id, chatId)` |
 | Iterating the registry + checking `creatorHandle.toLowerCase() === handle` inline | `getCollectionListing(settings).filter(e => e.isOwn)` |
 | Iterating collections + calling `isCollectionActiveForContext` per card | `getCollectionListing` once → use `entry.isActive` |
 | Reading `extension_settings.vectfox.collections[bare_id]` directly | `getCollectionMeta(registryKey)` (storage now keyed by `backend:id`) |
@@ -108,10 +96,6 @@ These patterns will look correct but produce broken state:
 | `queryCollection(collection.collectionId, ...)` — passing the bare ID. `queryCollection`'s `parseRegistryKey` returns `backend=null`, then it falls back to `settings.vector_backend` (the user's *default* backend). On mixed-backend setups this silently queries the wrong backend → 0 results, or worse, returns content from a *different* collection that happens to be on the default backend. Root cause of the 2026-05-23 EventBase cross-backend retrieval bug (TEST 013). | `queryCollection(collection.registryKey, ...)` — the registry-key form lets `resolveBackendForCollection` pick the right backend per-collection. |
 | `liveCollectionIds: lockedLiveCollections.map(c => c.collectionId)` — destructuring `.collectionId` off a `_gatherLockedEventBaseCollections` result. The object has BOTH `.collectionId` (bare) and `.registryKey` (canonical) — picking the wrong one cascades the bare-ID bug down to every consumer (retrieveEvents, retrieveEventsWithAgent). | `liveCollectionIds: lockedLiveCollections.map(c => c.registryKey)` — same pattern, right field. |
 | `parseRegistryKey(id).backend ?? 'qdrant'` (or `?? settings.vector_backend`) hand-rolled — silently misroutes bare IDs that *do* have a detectable backend in the ID structure. | `resolveBackendForCollection(id)` — tries registry-key prefix first, then ID-structure detection, then returns `null` so the caller knows resolution failed. |
-
-### Older primitives — when you might still need them
-
-`setCollectionLock`, `removeCollectionLock`, `clearCollectionLock`, `setCollectionCharacterLock`, etc. ([collection-metadata.js](../core/collection-metadata.js)) are the raw write primitives without authorization. The facade routes to these. **Only call them directly from inside `setLock` or from system code that already enforces auth at a higher layer** (`registerCollection`'s creatorHandle stamping is the canonical example). Application code, UI handlers, and anything user-triggered should go through `setLock`.
 
 ## Pause/Resume button — `enabled` flag
 
@@ -164,7 +148,7 @@ Priority chain inside `shouldCollectionActivate`:
 
 ## ⚠️ Embedding model resolution — `getModelFromSettings`
 
-Sibling principle to the lock facade — same "use the one helper, never reimplement inline" rule, different domain. Lives in this doc because the model is part of the **storage-key contract** for every collection: vectra partitions chunks by model on disk, so insert and query must agree on the model value or the read silently misses.
+Sibling principle to the canonical APIs above — same "use the one helper, never reimplement inline" rule, different domain. Lives in this doc because the model is part of the **storage-key contract** for every collection: vectra partitions chunks by model on disk, so insert and query must agree on the model value or the read silently misses.
 
 The settings object stores the embedding model under **provider-specific** field names: `embedding_openrouter_model`, `embedding_ollama_model`, `embedding_vllm_model`, `cohere_model`, etc. (the active providers were renamed to the `embedding_*` convention; the embedding-provider selection itself is `settings.embedding_provider`, formerly `settings.source`). There is **no flat `settings.model`** — that key is always empty/undefined. Code that reads `settings.model` directly silently produces the wrong value (empty string) without throwing.
 
@@ -209,15 +193,14 @@ If you just need the value, `getModelFromSettings(settings)` is shorter and hard
 
 ## Lock-state read tiers — which layer to call
 
-Three tiers exist. Call the highest tier that covers your use case:
+Call the highest tier that covers your use case:
 
 | Tier | Function | Use when |
 |---|---|---|
-| **API (preferred)** | `getLock(registryKey, opts)` | One collection — UI badge, checkbox, tooltip. Returns `isActiveHere`, `canModify`, `chatLocks`, etc. Bundles auth check. |
-| **API (preferred)** | `getCollectionListing(settings)` | All collections — render loop, aggregate state. Use `entry.isActive` — no per-card calls needed. |
-| **Underlying** | `isCollectionActiveForContext(registryKey, { chatId, characterId })` | Called internally by both API functions. Do not call per-card in a loop — use `getCollectionListing` instead. Still correct when you have exactly one collection and no auth check is needed (e.g. runtime activation in `world-info-integration.js`). |
-| **Underlying (raw keys)** | `isCollectionActiveForContextAnyKey([registryKey, collectionId], { chatId, characterId })` | Same single-source check, but tolerant of both key forms when a lock/scope may be stamped under either the registry-key or the bare id (EventBase read/write resolution, auto-sync LED). Returns true if active under ANY form. Use this instead of re-spreading `isCollectionLockedToChat` across call sites. |
-| **Raw** | `setCollectionLock` / `removeCollectionLock` etc. | Internal only — called by `setLock` facade. Do not call from application code. |
+| **All collections** | `getCollectionListing(settings)` | Render loop, aggregate state. Use `entry.isActive` (and `entry.isOwn`) — no per-card calls needed. |
+| **One collection** | `isCollectionActiveForContext(registryKey, { chatId, characterId })` | One collection — the DB browser's badge, checkbox and activation editor. `getCollectionListing` calls it per entry; do not call it per card in a loop. |
+| **One collection, either key form** | `isCollectionActiveForContextAnyKey([registryKey, collectionId], { chatId, characterId })` | Same single-source check, but tolerant of both key forms when a lock/scope may be stamped under either the registry-key or the bare id (EventBase read/write resolution, auto-sync LED). Returns true if active under ANY form. Use this instead of re-spreading `isCollectionLockedToChat` across call sites. |
+| **Lock lists** | `getCollectionLocks(registryKey)` / `getCollectionCharacterLocks(registryKey)` | The chats / characters one collection is locked to (the DB browser's lock dialog). |
 
 `isCollectionActiveForContext` returns `true` based on the collection's scope:
 - `scope='chat'` → `chatId` is in `lockedToChatIds`
@@ -326,7 +309,7 @@ scope='character' + checked   →  setCollectionCharacterLock(state.collectionId
 scope='character' + unchecked →  removeCollectionCharacterLock(state.collectionId, currentCharacterId)
 ```
 
-`state.collectionId` is the registry-key form (`backend:id`) — set when `openActivationEditor` is called with `collection.registryKey || collection.id`. Key form is correct. **Note:** these calls use the raw primitives directly rather than the `setLock` facade. They bypass the auth check that `setLock` performs, which is acceptable here because `saveActivation` is only reachable by the collection owner. Migration to `setLock` is a known pending cleanup.
+`state.collectionId` is the registry-key form (`backend:id`) — set when `openActivationEditor` is called with `collection.registryKey || collection.id`. Key form is correct.
 
 Each call only touches the lock for the **current** chat/character. Other chats or characters that have this collection locked keep their entries intact — `removeCollectionLock` filters by id, doesn't wipe the list.
 
@@ -672,7 +655,7 @@ There is **no global-scope priority**. That branch (formerly "priority 1.5") was
 | File | Role |
 |---|---|
 | `core/collection-ids.js` | `buildRegistryKey`, `parseRegistryKey`, `resolveBackendForCollection`, `getBackendFromCollectionId`, `remapCollectionIdToBackend`, `normalizeBackendForId`, `KNOWN_BACKEND_LABELS` |
-| `core/collection-metadata.js` | `isCollectionActiveForContext`, `setCollectionLock`, `removeCollectionLock`, `setCollectionCharacterLock`, `removeCollectionCharacterLock`, `setCollectionAutoSync`, `shouldCollectionActivate`, `getLock`, `setLock` |
+| `core/collection-metadata.js` | `isCollectionActiveForContext`, `getCollectionLocks`, `getCollectionCharacterLocks`, `setCollectionLock`, `removeCollectionLock`, `setCollectionCharacterLock`, `removeCollectionCharacterLock`, `setCollectionAutoSync`, `shouldCollectionActivate` |
 | `core/collection-loader.js` | Migration (`scope='global'` → `'character'`), `loadAllCollections`, `getCollectionListing` |
 | `core/core-vector-api.js` | `queryCollection` — the canonical per-collection-backend routing entry point |
 | `core/eventbase-workflow.js` | `getChatAutoSyncStatus`, `isChatFullyVectorized`, dispatches `vectfox:eventbase-synced` |

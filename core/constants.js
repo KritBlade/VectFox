@@ -26,9 +26,6 @@ export const EVENTBASE_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_eventbase`;
 /** Extension prompt tag for Summarizer Injection (most recent N EventBase events) */
 export const SUMMARIZER_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_summarizer`;
 
-/** Extension name for logging and UI */
-export const EXTENSION_NAME = 'VectFox';
-
 // =============================================================================
 // PERFORMANCE & RATE LIMITING
 // =============================================================================
@@ -38,15 +35,6 @@ export const HASH_CACHE_SIZE = 10000;
 
 /** Maximum items to fetch when listing vectors (for hash comparison) */
 export const VECTOR_LIST_LIMIT = 10000;
-
-/** Rate limiter: max calls per window */
-export const RATE_LIMIT_CALLS = 50;
-
-/** Rate limiter: window duration in ms (1 minute) */
-export const RATE_LIMIT_WINDOW_MS = 60000;
-
-/** API request timeout in ms (30 seconds) */
-export const API_TIMEOUT_MS = 30000;
 
 /**
  * DEFAULT per-turn retrieval timeout in ms (15 seconds) -- the fallback for the
@@ -141,28 +129,11 @@ export const DEFAULT_CHUNK_SIZE = 500;
 /** Default overlap between chunks in characters */
 export const DEFAULT_CHUNK_OVERLAP = 50;
 
-/** Characters to search back when finding sentence boundaries */
-export const SENTENCE_SEARCH_WINDOW = 50;
-
 // =============================================================================
 // CONDITIONAL ACTIVATION DEFAULTS
 // =============================================================================
-
-/** Default recency threshold for activation rules (messages ago) */
-export const DEFAULT_RECENCY_THRESHOLD = 50;
 
 // =============================================================================
 // UI DEFAULTS
 // =============================================================================
 
-/** Default score threshold for vector search results */
-export const DEFAULT_SCORE_THRESHOLD = 0.25;
-
-/** Default number of chunks to insert into prompt */
-export const DEFAULT_INSERT_COUNT = 5;
-
-/** Default number of recent messages to use for query */
-export const DEFAULT_QUERY_COUNT = 5;
-
-/** Default number of messages to protect from vectorization */
-export const DEFAULT_PROTECT_COUNT = 5;

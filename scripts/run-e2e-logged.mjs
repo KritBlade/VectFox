@@ -52,7 +52,7 @@ const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
 const shellQuote = (arg) => {
     if (typeof arg !== 'string') arg = String(arg);
-    if (arg === '' || /[\s"\\^<>|&;()\[\]{}*?$`!]/.test(arg)) {
+    if (arg === '' || /[\s"\\^<>|&;()[\]{}*?$`!]/.test(arg)) {
         return `"${arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
     return arg;

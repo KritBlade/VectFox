@@ -10,10 +10,7 @@
 
 import {
     insertVectorItems,
-    queryCollection,
-    deleteVectorItems,
     getAdditionalArgs,
-    getSavedHashes,
 } from './core-vector-api.js';
 import { saveSettingsDebounced, getRequestHeaders, getCurrentChatId } from '../../../../../script.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
@@ -217,7 +214,7 @@ export async function insertEvents(events, settings, abortSignal = null, collect
     }
 
     // Generate embeddings (reuses same provider/model as legacy path)
-    const additionalArgs = await getAdditionalArgs(embedTexts, settings);
+    const additionalArgs = await getAdditionalArgs();
     const clientEmbeddings = additionalArgs.embeddings || null;
 
     // Build insertable items
@@ -295,67 +292,13 @@ export async function insertEvents(events, settings, abortSignal = null, collect
 // Query (for retrieval)
 // ---------------------------------------------------------------------------
 
-/**
- * Query the EventBase collection for events semantically similar to searchText.
- * Returns raw metadata array sorted by score (descending).
- *
- * @param {string} searchText
- * @param {number} topK
- * @param {object} settings
- * @param {string} [chatUUID]
- * @returns {Promise<object[]>}  Array of event metadata objects with `.score`
- */
-export async function queryEvents(searchText, topK, settings, chatUUID) {
-    const uuid = chatUUID || getChatUUID();
-    const collectionId = await _resolveEventBaseCollectionIdForRead(settings, uuid);
-    if (!collectionId) return [];
-
-    const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
-    const { hashes, metadata } = await queryCollection(collectionId, searchText, topK, ebSettings);
-    if (!hashes?.length) return [];
-
-    // Attach hash to each metadata item for dedup / downstream use
-    return metadata.map((meta, i) => ({
-        ...meta,
-        _hash: hashes[i],
-    }));
-}
-
 // ---------------------------------------------------------------------------
 // List (for Event Browser)
 // ---------------------------------------------------------------------------
 
-/**
- * List all stored events for the current chat.
- * @param {object} settings
- * @param {number} [limit]
- * @param {string} [chatUUID]
- * @returns {Promise<object[]>}
- */
-export async function listEvents(settings, limit = 100, chatUUID) {
-    // Reuse queryEvents with a broad query (empty string → backend returns recent/all items)
-    // We overfetch and return up to `limit` items.
-    return queryEvents('', Math.min(limit, 200), settings, chatUUID);
-}
-
 // ---------------------------------------------------------------------------
 // Delete
 // ---------------------------------------------------------------------------
-
-/**
- * Delete a stored event by its numeric hash.
- * @param {number} hash
- * @param {object} settings
- * @param {string} [chatUUID]
- * @returns {Promise<void>}
- */
-export async function deleteEventByHash(hash, settings, chatUUID) {
-    const uuid = chatUUID || getChatUUID();
-    const collectionId = await _resolveEventBaseCollectionIdForRead(settings, uuid);
-    if (!collectionId) return;
-
-    await deleteVectorItems(collectionId, [hash], settings);
-}
 
 // ---------------------------------------------------------------------------
 // Deduplication check
@@ -949,46 +892,6 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
  */
 export function resolveEventBaseWriteTarget(settings, chatUUID, { shouldLogResolution = true } = {}) {
     return resolveActiveEventBaseCollection(settings, chatUUID, { requireUuidMatch: true, shouldLogResolution });
-}
-
-/**
- * Resolve which EventBase collection ID to read from for the given chat.
- *
- * Looks up the registered collection(s) by UUID and returns the first one
- * that actually has data. When no collection has been registered yet (first
- * ingestion), returns the freshly-computed backend-scoped ID so the write
- * path has somewhere to insert.
- *
- * @param {object} settings
- * @param {string} [chatUUID]
- * @returns {Promise<string|null>}
- */
-async function _resolveEventBaseCollectionIdForRead(settings, chatUUID) {
-    const uuid = chatUUID || getChatUUID();
-    if (!uuid) return null;
-
-    const backend = getRegistryBackend(settings?.vector_backend);
-    const registered = findEventBaseCollectionsForChat(uuid, backend);
-
-    for (const { collectionId, registryKey } of registered) {
-        // Only probe collections that match the current backend.
-        // Cross-backend probing causes the similharity plugin's getIndex() to
-        // auto-create empty vectra directories for qdrant-named collections (and
-        // vice versa), producing ghost 0-chunk entries in the DB Browser.
-        const { backend: ownBackend } = parseRegistryKey(registryKey);
-        if (ownBackend && ownBackend !== backend) continue;
-
-        try {
-            const hashes = await getSavedHashes(collectionId, settings);
-            if (hashes?.length > 0) return collectionId;
-        } catch (error) {
-            log.warn(`[EventBase] Could not read ${collectionId} — trying the next candidate:`, error);
-        }
-    }
-
-    // No registered collection has data yet — return the would-be ID so
-    // first-time writers have a target. May be null if no chat is active.
-    return buildEventBaseCollectionId(uuid, settings?.vector_backend);
 }
 
 // ---------------------------------------------------------------------------

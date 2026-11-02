@@ -36,6 +36,7 @@ import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 import { getQdrantApiKey } from '../core/api-keys.js';
 import { log } from '../core/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
+import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
 import { fetchQueryEmbedding } from './query-embedding.js';
 
 const BACKEND_TYPE = 'qdrant';
@@ -652,6 +653,9 @@ export class QdrantBackend extends VectorBackend {
             throw new Error(`[Qdrant] Failed to purge collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
+        // The purged collection's sentinel is gone or about to be rewritten by the next
+        // vectorization, so the session cache must re-read it.
+        invalidateCollectionMetadata(actualCollectionId);
         log.lifecycle(`VectFox Qdrant: Purged ${actualCollectionId}`);
     }
 
@@ -659,7 +663,7 @@ export class QdrantBackend extends VectorBackend {
         return this.purgeVectorIndex(collectionId, settings);
     }
 
-    async purgeAllVectorIndexes(settings) {
+    async purgeAllVectorIndexes(_settings) {
         // Note: With separate collections per content type, we need to purge each collection individually
         log.warn('VectFox: purgeAllVectorIndexes now requires calling purgeVectorIndex for each collection');
         throw new Error('purgeAllVectorIndexes requires collection IDs - call purgeVectorIndex for each collection instead');

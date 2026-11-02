@@ -270,9 +270,10 @@ function evaluateRecencyCondition(rule, context) {
         case 'lte':
             // Chunk is at most X messages old (recent)
             return messagesAgo <= targetAge;
-        case 'between':
+        case 'between': {
             const upperBound = settings.upperBound || 100;
             return messagesAgo >= targetAge && messagesAgo <= upperBound;
+        }
         default:
             return messagesAgo >= targetAge;
     }
@@ -294,7 +295,6 @@ function evaluateFrequencyCondition(rule, context) {
 
     const maxActivations = settings.maxActivations || 1;
     const cooldownMessages = settings.cooldownMessages || 0;
-    const scope = settings.scope || 'conversation';
 
     // Get activation history for this chunk
     const chunkHash = context.currentChunkHash;
@@ -322,10 +322,9 @@ function evaluateFrequencyCondition(rule, context) {
 /**
  * Evaluates a time of day condition
  * @param {object} rule Condition rule
- * @param {object} context Search context
  * @returns {boolean} Whether condition is met
  */
-function evaluateTimeOfDayCondition(rule, context) {
+function evaluateTimeOfDayCondition(rule) {
     try {
         const settings = rule.settings || {};
         const startTime = settings.startTime || '00:00';
@@ -346,7 +345,7 @@ function evaluateTimeOfDayCondition(rule, context) {
             return currentTime >= start || currentTime <= end;
         }
     } catch (error) {
-        log.warn('VectFox Conditions: Invalid timeOfDay format');
+        log.warn('VectFox Conditions: Invalid timeOfDay format:', error);
         return false;
     }
 }
@@ -379,10 +378,9 @@ function evaluateCharacterPresentCondition(rule, context) {
 /**
  * Evaluates a random chance condition
  * @param {object} rule Condition rule
- * @param {object} context Search context
  * @returns {boolean} Whether condition is met
  */
-function evaluateRandomChanceCondition(rule, context) {
+function evaluateRandomChanceCondition(rule) {
     const settings = rule.settings || { probability: parseInt(rule.value) || 50 };
     const chance = settings.probability || 50;
     const roll = Math.random() * 100;
@@ -743,12 +741,13 @@ export function validateConditionRule(rule) {
     }
 
     switch (rule.type) {
-        case 'messageCount':
+        case 'messageCount': {
             const mcCount = rule.settings?.count ?? parseInt(rule.value);
             if (isNaN(mcCount) || mcCount < 0) {
                 errors.push('Message count must be a positive number');
             }
             break;
+        }
 
         case 'chunkActive':
             if (rule.settings?.matchBy === 'hash' || !rule.settings) {
@@ -759,7 +758,7 @@ export function validateConditionRule(rule) {
             }
             break;
 
-        case 'timeOfDay':
+        case 'timeOfDay': {
             const todSettings = rule.settings || {};
             if (todSettings.startTime || todSettings.endTime) {
                 const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
@@ -782,22 +781,25 @@ export function validateConditionRule(rule) {
                 }
             }
             break;
+        }
 
-        case 'randomChance':
+        case 'randomChance': {
             const chance = rule.settings?.probability ?? parseInt(rule.value);
             if (isNaN(chance) || chance < 0 || chance > 100) {
                 errors.push('Random chance must be between 0 and 100');
             }
             break;
+        }
 
-        case 'characterPresent':
+        case 'characterPresent': {
             const cpValues = rule.settings?.values || [rule.value];
             if (cpValues.length === 0 || cpValues.every(v => !v || v.trim() === '')) {
                 errors.push('Character name cannot be empty');
             }
             break;
+        }
 
-        case 'generationType':
+        case 'generationType': {
             const gtValues = rule.settings?.values || [rule.value];
             for (const genType of gtValues) {
                 if (genType && !VALID_GENERATION_TYPES.includes(genType.toLowerCase())) {
@@ -805,53 +807,60 @@ export function validateConditionRule(rule) {
                 }
             }
             break;
+        }
 
-        case 'swipeCount':
+        case 'swipeCount': {
             const scCount = rule.settings?.count ?? parseInt(rule.value);
             if (isNaN(scCount) || scCount < 0) {
                 errors.push('Swipe count must be a positive number');
             }
             break;
+        }
 
-        case 'lorebookActive':
+        case 'lorebookActive': {
             const lbValues = rule.settings?.values || [rule.value];
             if (lbValues.length === 0 || lbValues.every(v => !v || v.trim() === '')) {
                 errors.push('Lorebook entry key or UID cannot be empty');
             }
             break;
+        }
 
-        case 'isGroupChat':
+        case 'isGroupChat': {
             const gcValue = rule.settings?.isGroup ?? rule.value;
             if (gcValue !== 'true' && gcValue !== 'false' && gcValue !== true && gcValue !== false) {
                 errors.push('isGroupChat value must be true or false');
             }
             break;
+        }
 
         // =================================================================
         // CHUNK-ONLY CONDITIONS VALIDATION
         // =================================================================
-        case 'dependency':
+        case 'dependency': {
             const depValues = rule.settings?.values || [rule.value];
             if (depValues.length === 0 || depValues.every(v => !v || String(v).trim() === '')) {
                 errors.push('Dependency target (hash, section, or tag) cannot be empty');
             }
             break;
+        }
 
-        case 'similarity':
+        case 'similarity': {
             const simThreshold = rule.settings?.threshold ?? parseFloat(rule.value);
             if (isNaN(simThreshold) || simThreshold < 0 || simThreshold > 1) {
                 errors.push('Similarity threshold must be between 0 and 1');
             }
             break;
+        }
 
-        case 'recency':
+        case 'recency': {
             const recAge = rule.settings?.messagesAgo ?? parseInt(rule.value);
             if (isNaN(recAge) || recAge < 0) {
                 errors.push('Recency (messages ago) must be a positive number');
             }
             break;
+        }
 
-        case 'frequency':
+        case 'frequency': {
             const freqMax = rule.settings?.maxActivations ?? parseInt(rule.value);
             if (isNaN(freqMax) || freqMax < 1) {
                 errors.push('Max activations must be at least 1');
@@ -861,6 +870,7 @@ export function validateConditionRule(rule) {
                 errors.push('Cooldown messages must be 0 or positive');
             }
             break;
+        }
     }
 
     return {

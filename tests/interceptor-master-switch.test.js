@@ -43,15 +43,13 @@ vi.mock('../../../../../script.js', () => ({
 }));
 vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [] })), extension_settings: { vectfox: {} } }));
 vi.mock('../../../../utils.js', () => ({ getStringHash: vi.fn(() => 1) }));
-vi.mock('../core/chunking.js', () => ({ isUnitStrategy: vi.fn() }));
 vi.mock('../core/keyword-boost.js', () => ({ extractChatKeywords: vi.fn(), extractBM25Keywords: vi.fn() }));
 vi.mock('../core/text-cleaning.js', () => ({ cleanText: vi.fn((text) => text) }));
 vi.mock('../core/core-vector-api.js', () => ({
     getSavedHashes: vi.fn(), insertVectorItems: vi.fn(), queryCollection: vi.fn(),
-    queryActiveCollections: vi.fn(), deleteVectorItems: vi.fn(),
+    deleteVectorItems: vi.fn(),
 }));
 vi.mock('../backends/backend-manager.js', () => ({ isBackendAvailable: vi.fn() }));
-vi.mock('../core/summarizer.js', () => ({ summarizeText: vi.fn() }));
 vi.mock('../core/collection-loader.js', () => ({ registerCollection: vi.fn(), getCollectionRegistry: vi.fn(() => []), isCollectionEmpty: vi.fn() }));
 vi.mock('../core/collection-metadata.js', () => ({
     isCollectionEnabled: vi.fn(), filterActiveCollections: vi.fn(), setCollectionLock: vi.fn(),
@@ -59,7 +57,6 @@ vi.mock('../core/collection-metadata.js', () => ({
 }));
 vi.mock('../ui/progress-tracker.js', () => ({ progressTracker: {} }));
 vi.mock('../core/conditional-activation.js', () => ({ buildSearchContext: vi.fn(), filterChunksByConditions: vi.fn(), processChunkLinks: vi.fn() }));
-vi.mock('../ui/search-debug.js', () => ({ createDebugData: vi.fn(), setLastSearchDebug: vi.fn(), addTrace: vi.fn(), recordChunkFate: vi.fn() }));
 vi.mock('../core/bounded-retrieval.js', () => ({ runBoundedRetrieval: mocks.runBoundedRetrieval }));
 vi.mock('../core/retrieval-budget.js', () => ({ resolveEventBaseRetrievalTimeoutMs: vi.fn(() => 15000) }));
 vi.mock('../core/log.js', () => ({ log: mocks.log }));

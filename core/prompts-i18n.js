@@ -4,8 +4,8 @@
  * ============================================================================
  * Single source of truth for all localised prompt strings.
  *
- * Both the agentic planner and the summarizer pick their system prompt from
- * here based on the user's CJK Tokenizer Mode setting, which doubles as the
+ * The agentic planner and EventBase extraction pick their prompts from here
+ * based on the user's CJK Tokenizer Mode setting, which doubles as the
  * "story language" selector.
  *
  * Supported modes (mirrors CJK_TOKENIZER_MODES in bm25-scorer.js):
@@ -503,115 +503,6 @@ const _PLANNER_PROMPTS = {
  */
 export function getAgenticPlannerPrompt(mode) {
     return _PLANNER_PROMPTS[mode] ?? _PLANNER_PROMPTS.intl;
-}
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DEFAULT SUMMARIZE PROMPT
-// ─────────────────────────────────────────────────────────────────────────────
-
-const _SUMMARIZE_INTL =
-`You are a story memory archivist. Compress the following roleplay excerpt into a dense 2-10 sentence summary optimized for semantic search and retrieval.
-
-Requirements:
-- If a Date or Date + Time is in the main text, always include that in your summary.
-- Preserve ALL proper nouns exactly as written: character names, location names, item names, organization names, and titles
-- Capture: who is present, where the scene takes place, what actions occurred, any significant items or abilities referenced, and the emotional/relationship dynamics
-- Write in English
-- Be factual and information-dense — no filler phrases, no meta-commentary, no interpretation
-- Output only the summary with no preamble or explanation
-
-Story excerpt:
-{{text}}`;
-
-const _SUMMARIZE_JIEBA_TW =
-`你是故事記憶檔案員。將以下角色扮演片段壓縮成一段2至10句的摘要，針對語義搜尋和檢索進行優化。
-
-要求：
-- 如果正文中有日期或日期加時間，請務必在摘要中包含。
-- 完整保留所有專有名詞：角色名稱、地點名稱、物品名稱、組織名稱和頭銜
-- 涵蓋：在場人物、場景發生地點、發生的行動、任何重要的物品或能力，以及情感╱關係動態
-- 以繁體中文撰寫
-- 以事實為依據，資訊密集——不使用填充詞、不加入後設評論、不作詮釋
-- 僅輸出摘要，不加前言或說明
-
-故事片段：
-{{text}}`;
-
-const _SUMMARIZE_JIEBA =
-`你是故事记忆档案员。将以下角色扮演片段压缩成一段2至10句的摘要，针对语义搜索和检索进行优化。
-
-要求：
-- 如果正文中有日期或日期加时间，请务必在摘要中包含。
-- 完整保留所有专有名词：角色名称、地点名称、物品名称、组织名称和称号
-- 涵盖：在场人物、场景发生地点、发生的行动、任何重要的物品或能力，以及情感╱关系动态
-- 以简体中文撰写
-- 以事实为依据，信息密集——不使用填充词、不加入元评论、不作诠释
-- 仅输出摘要，不加前言或说明
-
-故事片段：
-{{text}}`;
-
-const _SUMMARIZE_TINY_SEGMENTER =
-`あなたはストーリーの記憶アーカイバーです。以下のロールプレイの抜粋を、セマンティック検索と検索に最適化された2〜10文の密度の高い要約に圧縮してください。
-
-要件：
-- 本文に日付または日付＋時刻がある場合は、必ず要約に含めてください。
-- すべての固有名詞をそのまま保持する：キャラクター名、場所名、アイテム名、組織名、称号
-- 捉えること：誰が存在するか、場面はどこで起きるか、どんな行動が起きたか、重要なアイテムや能力、感情╱関係のダイナミクス
-- 日本語で記述する
-- 事実に基づき情報密度を高く——つなぎ言葉なし、メタコメントなし、解釈なし
-- 前置きや説明なしに要約のみを出力する
-
-ストーリーの抜粋：
-{{text}}`;
-
-const _SUMMARIZE_KOREAN =
-`당신은 스토리 기억 아카이버입니다. 다음 롤플레이 발췌문을 시맨틱 검색 및 검색에 최적화된 2~10문장의 간결한 요약으로 압축하세요.
-
-요건:
-- 본문에 날짜 또는 날짜+시간이 있으면 반드시 요약에 포함하세요.
-- 모든 고유명사를 그대로 보존하세요: 캐릭터 이름, 장소 이름, 아이템 이름, 조직 이름, 직함
-- 다음을 포함하세요: 등장 인물, 장면 장소, 발생한 행동, 중요한 아이템이나 능력, 감정/관계 역학
-- 한국어로 작성하세요
-- 사실에 기반하여 정보 밀도를 높게 유지하세요 — 불필요한 표현, 메타 해설, 해석 없이
-- 서문이나 설명 없이 요약만 출력하세요
-
-스토리 발췌:
-{{text}}`;
-
-const _SUMMARIZE_OTHERS =
-`You are a story memory archivist. Compress the following roleplay excerpt into a dense 2-10 sentence summary optimized for semantic search and retrieval.
-
-Requirements:
-- If a Date or Date + Time is in the main text, always include that in your summary.
-- Preserve ALL proper nouns exactly as written: character names, location names, item names, organization names, and titles
-- Capture: who is present, where the scene takes place, what actions occurred, any significant items or abilities referenced, and the emotional/relationship dynamics
-- IMPORTANT: Write in the same language as the story excerpt — do not translate into English or any other language. Match the story's language exactly.
-- Be factual and information-dense — no filler phrases, no meta-commentary, no interpretation
-- Output only the summary with no preamble or explanation
-
-Story excerpt:
-{{text}}`;
-
-const _SUMMARIZE_PROMPTS = {
-    intl:           _SUMMARIZE_INTL,
-    jieba:          _SUMMARIZE_JIEBA,
-    jieba_tw:       _SUMMARIZE_JIEBA_TW,
-    tiny_segmenter: _SUMMARIZE_TINY_SEGMENTER,
-    korean:         _SUMMARIZE_KOREAN,
-    others:         _SUMMARIZE_OTHERS,
-};
-
-/**
- * Returns the default summarization prompt for the given story language mode.
- * Falls back to the English (intl) prompt for unknown modes.
- *
- * @param {string} [mode] - Value from CJK_TOKENIZER_MODES (e.g. 'jieba_tw')
- * @returns {string}
- */
-export function getDefaultSummarizePrompt(mode) {
-    return _SUMMARIZE_PROMPTS[mode] ?? _SUMMARIZE_PROMPTS.intl;
 }
 
 

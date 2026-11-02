@@ -523,9 +523,6 @@ describe('VECTFOX vs OpenVault Keyword Comparison', () => {
             const textChinese = textKeywords.filter(k => /[\u4E00-\u9FFF]/.test(k.text));
             const ovChinese = ovTokens.filter(t => /[\u4E00-\u9FFF]/.test(t));
 
-            // Count unique CJK segments from VectFox
-            const vhCjkSegments = bm25Chinese.length;
-
             // Count CJK blobs from OpenVault (tokens > 5 chars)
             const ovCjkBlobs = ovChinese.filter(t => t.length > 5);
 

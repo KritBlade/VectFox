@@ -11,6 +11,7 @@
  * The tracker is self-contained DOM (its only import is core/log.js), so jsdom +
  * a mocked matchMedia exercises the real createPanel/show/complete/hide logic.
  */
+/* global window, document -- this file runs under the jsdom environment */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 

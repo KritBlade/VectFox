@@ -590,7 +590,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 // If we got here after a retry, signal recovery to the user so the
                 // earlier toast ("retrying...") gets a closing parenthesis.
                 if (attempt > 1) {
-                    try { toastr.success(`Insert recovered on attempt ${attempt}/3`, 'VectFox', { timeOut: 4000 }); } catch (_) {}
+                    globalThis.toastr?.success(`Insert recovered on attempt ${attempt}/3`, 'VectFox', { timeOut: 4000 });
                 }
                 return; // success
             } catch (err) {
@@ -616,13 +616,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     // Without this signal, retry attempts look identical to a
                     // stall and users press Stop unnecessarily (which throws
                     // away an in-flight retry that probably would have worked).
-                    try {
-                        toastr.warning(
-                            `Insert failed (attempt ${attempt}/3), retrying in ${backoffMs/1000}s. Server said: ${(err?.message || '').slice(0, 120)}`,
-                            'VectFox — retrying',
-                            { timeOut: backoffMs + 500 },
-                        );
-                    } catch (_) {}
+                    globalThis.toastr?.warning(
+                        `Insert failed (attempt ${attempt}/3), retrying in ${backoffMs/1000}s. Server said: ${(err?.message || '').slice(0, 120)}`,
+                        'VectFox — retrying',
+                        { timeOut: backoffMs + 500 },
+                    );
                     progressTracker.updateProgress(
                         nextBatchFirstIdx,
                         `Insert retry ${attempt}/3 — waiting ${backoffMs/1000}s...`,
@@ -1121,7 +1119,7 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
 
     // --- Query archive event collections in parallel ---
     // Archive events are stored with the same schema as live EventBase events so we
-    // query them via queryCollection directly and attach _hash (same as queryEvents does).
+    // query them via queryCollection directly and attach _hash.
     const topK = (settings.eventbase_retrieval_top_k || 8) * 2;
     const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
     const archiveEventPromises = archiveCollections.map(async ({ registryKey: archKey, collectionId: archColId }) => {

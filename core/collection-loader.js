@@ -12,13 +12,9 @@
 import { extension_settings } from '../../../../extensions.js';
 import { getContext } from '../../../../extensions.js';
 import { characters, getRequestHeaders, saveSettingsDebounced, getCurrentChatId } from '../../../../../script.js';
-import { getSavedHashes, queryCollection } from './core-vector-api.js';
+import { getSavedHashes } from './core-vector-api.js';
 import {
     isCollectionEnabled,
-    setCollectionEnabled,
-    getChunkMetadata,
-    saveChunkMetadata,
-    deleteChunkMetadata,
     deleteCollectionMeta,
     ensureCollectionMeta,
     getCollectionMeta,
@@ -35,7 +31,6 @@ import {
     matchesPatterns,
     parseRegistryKey,
     COLLECTION_PREFIXES,
-    getRegistryBackend,
     buildRegistryKey,
     sanitizeHandleId,
     sanitizeNameSegment,
@@ -239,7 +234,7 @@ export function getCollectionListing(settings) {
         const backend = parsed.backend || '';
 
         // Idempotent: stamps creatorHandle on legacy entries.
-        try { registerCollection(registryKey); } catch (_) {}
+        try { registerCollection(registryKey); } catch (error) { log.warn(`VectFox: registerCollection failed for ${registryKey}:`, error); }
 
         const meta = getCollectionMeta(registryKey);
 
@@ -585,6 +580,7 @@ export async function checkPluginAvailable() {
                 pluginAvailable = false;
             }
         } catch (error) {
+            log.warn('VectFox: plugin availability probe failed:', error);
             pluginAvailable = false;
         } finally {
             pluginProbeInFlight = null;
@@ -598,9 +594,8 @@ export async function checkPluginAvailable() {
 
 /**
  * Clears the session-cached plugin-availability result so the next
- * checkPluginAvailable() call re-probes /health. Used by test isolation and
- * any flow that needs to force a fresh detection (e.g. after the user is told
- * to restart ST to pick up a newly-installed plugin).
+ * checkPluginAvailable() call re-probes /health.
+ * @internal Resets module state between tests.
  */
 export function resetPluginAvailableCache() {
     pluginAvailable = null;
@@ -634,10 +629,9 @@ let pluginCollectionData = null;
 
 /**
  * Discovers existing collections using server plugin (scans file system)
- * @param {object} settings VECTFOX settings
  * @returns {Promise<string[]>} Array of discovered collection IDs
  */
-async function discoverViaPlugin(settings) {
+async function discoverViaPlugin() {
     try {
         log.trace('🔍 VectFox: Requesting collection discovery from plugin...');
 
@@ -948,6 +942,7 @@ async function probeCollection(collectionId, settings) {
         // prune on exists:false must check `unreachable` first, or a transient
         // outage gets recorded as a permanent deletion (and cleanupOrphanedMeta
         // then wipes the collection's locks/metadata).
+        log.warn(`VectFox: probe of ${collectionId} failed; treating it as unreachable:`, error);
         return { exists: false, count: 0, unreachable: true };
     }
     return { exists: false, count: 0, unreachable: false };
@@ -964,7 +959,6 @@ async function probeCollection(collectionId, settings) {
  * @returns {Promise<string[]>} Array of discovered collection IDs
  */
 async function discoverViaFallback(settings) {
-    const context = getContext();
     const discovered = [];
     const probed = new Set();
 
@@ -1029,14 +1023,6 @@ async function discoverViaFallback(settings) {
             }
         }
     }
-
-    // 4. Probe for common content type patterns that might exist
-    const contentPatterns = [
-        // Lorebook patterns
-        `${COLLECTION_PREFIXES.VECTFOX_LOREBOOK}`,
-        // Document patterns
-        `${COLLECTION_PREFIXES.VECTFOX_DOCUMENT}`,
-    ];
 
     // Note: Without filesystem access, we can't discover collections with unknown IDs
     // The registry is our primary source of truth for non-current-chat collections
@@ -1259,17 +1245,17 @@ export async function loadAllCollections(settings, autoDiscover = true) {
                 } catch (standardError) {
                     // Try the currently-configured backend if different
                     if (settings.vector_backend && settings.vector_backend !== registryBk) {
-                        log.verbose(`VectFox:   ${registryBk} backend failed, trying ${settings.vector_backend}`);
+                        log.verbose(`VectFox:   ${registryBk} backend failed, trying ${settings.vector_backend}:`, standardError);
                         try {
                             hashes = await getSavedHashes(collectionId, settings);
                             chunkCount = hashes?.length || 0;
                             log.verbose(`VectFox:   Found ${chunkCount} hashes via ${settings.vector_backend}`);
                         } catch (altError) {
-                            log.warn(`VectFox:   Both backends failed for ${collectionId}`);
+                            log.warn(`VectFox:   Both backends failed for ${collectionId}:`, standardError, altError);
                             chunkCount = 0;
                         }
                     } else {
-                        log.warn(`VectFox:   ${registryBk} backend failed for ${collectionId}`);
+                        log.warn(`VectFox:   ${registryBk} backend failed for ${collectionId}:`, standardError);
                         chunkCount = 0;
                     }
                 }
@@ -1323,9 +1309,6 @@ export async function loadAllCollections(settings, autoDiscover = true) {
     return collections;
 }
 
-// Re-export from collection-metadata.js for backwards compatibility
-export { setCollectionEnabled, isCollectionEnabled } from './collection-metadata.js';
-
 /**
  * Returns true if the collection has 0 chunks according to the plugin discovery cache.
  * Used by retrieval to skip empty collections without querying them.
@@ -1337,6 +1320,3 @@ export function isCollectionEmpty(registryKey) {
     const cached = pluginCollectionData[registryKey];
     return cached !== undefined && !cached.chunkCount;
 }
-
-// Re-export chunk metadata functions from collection-metadata.js for backwards compatibility
-export { getChunkMetadata, saveChunkMetadata, deleteChunkMetadata } from './collection-metadata.js';

@@ -10,8 +10,9 @@
  */
 
 import { getRequestHeaders } from '../../../../../script.js';
+import { log } from '../core/log.js';
 import { getSavedHashes, purgeVectorIndex } from '../core/core-vector-api.js';
-import { getModelField, getModelFromSettings, getProviderConfig, resolveProviderApiUrl } from '../core/providers.js';
+import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
 import { unregisterCollection } from '../core/collection-loader.js';
 import { reciprocalRankFusion, weightedCombination } from '../core/hybrid-search.js';
 import { applyKeywordBoost, extractTextKeywords, extractLorebookKeywords } from '../core/keyword-boost.js';
@@ -28,7 +29,7 @@ async function cleanupTestCollection(collectionId, settings) {
         // Purge all vectors from the backend
         await purgeVectorIndex(collectionId, settings);
     } catch (e) {
-        // Ignore purge errors - collection might already be empty
+        log.warn(`VectFox diagnostics: cleanup purge of ${collectionId} failed:`, e);
     }
     // Always unregister from registry to prevent ghost entries
     const registryKey = `${settings.embedding_provider}:${collectionId}`;
@@ -109,30 +110,6 @@ export async function sweepLeftoverTestCollections(settings) {
             category: 'infrastructure'
         };
     }
-}
-
-/**
- * Helper: Get provider-specific body parameters for native ST vector API
- */
-function getProviderBody(settings) {
-    const body = {};
-    const source = settings.embedding_provider;
-    const modelField = getModelField(source);
-
-    if (modelField && settings[modelField]) {
-        body.model = settings[modelField];
-    }
-
-    // Google APIs need special handling
-    if (source === 'palm') {
-        body.api = 'makersuite';
-        body.model = settings.google_model;
-    } else if (source === 'vertexai') {
-        body.api = 'vertexai';
-        body.model = settings.google_model;
-    }
-
-    return body;
 }
 
 /**
@@ -321,7 +298,7 @@ export async function testVectorStorage(settings) {
 /**
  * Test: Can we query and retrieve similar vectors?
  */
-export async function testVectorRetrieval(settings) {
+export async function testVectorRetrieval() {
     return {
         name: '[PROD] Vector Retrieval',
         status: 'pass',
@@ -336,7 +313,7 @@ export async function testVectorRetrieval(settings) {
  * Compares stored collection dimensions with current provider's expected dimensions.
  * Uses the dedicated get-embedding endpoint to avoid inserting test data.
  */
-export async function testVectorDimensions(settings) {
+export async function testVectorDimensions() {
     return {
         name: '[PROD] Vector Dimensions',
         status: 'pass',
@@ -382,8 +359,7 @@ export async function testChunkServerSync(settings, collectionId) {
                 name: '[PROD] Chunk-Server Sync',
                 status: 'pass',
                 message: `In sync: ${totalServer} server vectors, ${totalLocal} local metadata entries`,
-                category: 'production',
-                data: { serverHashes, localHashes, collectionId }
+                category: 'production'
             };
         }
 
@@ -394,10 +370,7 @@ export async function testChunkServerSync(settings, collectionId) {
                 name: '[PROD] Chunk-Server Sync',
                 status: 'warning',
                 message: `${onlyLocal.length} orphaned local entries (vectors deleted from server)`,
-                category: 'production',
-                fixable: true,
-                fixAction: 'cleanOrphanedMetadata',
-                data: { orphanedHashes: onlyLocal, collectionId }
+                category: 'production'
             };
         }
 
@@ -405,8 +378,7 @@ export async function testChunkServerSync(settings, collectionId) {
             name: '[PROD] Chunk-Server Sync',
             status: 'pass',
             message: `Server has ${onlyOnServer.length} vectors without local metadata (normal for new chunks)`,
-            category: 'production',
-            data: { serverHashes, localHashes, collectionId }
+            category: 'production'
         };
     } catch (error) {
         return {
@@ -414,31 +386,6 @@ export async function testChunkServerSync(settings, collectionId) {
             status: 'fail',
             message: `Sync check error: ${error.message}`,
             category: 'production'
-        };
-    }
-}
-
-/**
- * Fix: Clean orphaned local metadata entries
- */
-export async function fixOrphanedMetadata(orphanedHashes) {
-    try {
-        const { deleteChunkMetadata } = await import('../core/collection-metadata.js');
-
-        let cleaned = 0;
-        for (const hash of orphanedHashes) {
-            deleteChunkMetadata(hash);
-            cleaned++;
-        }
-
-        return {
-            success: true,
-            message: `Cleaned ${cleaned} orphaned metadata entries`
-        };
-    } catch (error) {
-        return {
-            success: false,
-            message: `Failed to clean: ${error.message}`
         };
     }
 }
@@ -500,10 +447,7 @@ export async function testDuplicateHashes(settings, collectionId) {
             name: '[PROD] Duplicate Hash Check',
             status: 'warning',
             message: `Found ${duplicates.length} duplicate hashes (${totalDupes} extra entries)`,
-            category: 'production',
-            fixable: true,
-            fixAction: 'removeDuplicateHashes',
-            data: { duplicates, collectionId, totalDuplicates: totalDupes }
+            category: 'production'
         };
     } catch (error) {
         return {
@@ -511,87 +455,6 @@ export async function testDuplicateHashes(settings, collectionId) {
             status: 'fail',
             message: `Check failed: ${error.message}`,
             category: 'production'
-        };
-    }
-}
-
-/**
- * Fix: Remove duplicate hash entries from vector store
- * Strategy: Query to get chunk text, delete all instances, re-insert one copy
- */
-export async function fixDuplicateHashes(duplicates, collectionId, settings) {
-    try {
-        const { deleteVectorItems, insertVectorItems, queryCollection } = await import('../core/core-vector-api.js');
-
-        let fixed = 0;
-        const chunksToReinsert = [];
-
-        // First, query to get the chunk data for each duplicate hash
-        // We query with minimal text to find chunks by hash
-        for (const { hash } of duplicates) {
-            try {
-                // Query with a broad search to find chunks - we'll filter by hash
-                const result = await queryCollection(collectionId, '', 1000, settings);
-
-                if (result?.metadata) {
-                    // Find chunk with this hash
-                    const chunk = result.metadata.find(m => String(m.hash) === String(hash));
-                    if (chunk) {
-                        chunksToReinsert.push({
-                            hash: chunk.hash,
-                            text: chunk.text,
-                            index: chunk.index || 0,
-                            metadata: {
-                                source: chunk.source,
-                                messageId: chunk.messageId,
-                                chunkIndex: chunk.chunkIndex,
-                                totalChunks: chunk.totalChunks,
-                                originalMessageHash: chunk.originalMessageHash
-                            }
-                        });
-                    }
-                }
-            } catch (e) {
-                console.warn(`VectFox: Failed to get data for hash ${hash}:`, e);
-            }
-        }
-
-        // Delete ALL instances of duplicate hashes
-        const hashesToDelete = duplicates.map(d => d.hash);
-        try {
-            await deleteVectorItems(collectionId, hashesToDelete, settings);
-            console.log(`VectFox: Deleted ${hashesToDelete.length} duplicate hashes`);
-        } catch (e) {
-            console.warn('VectFox: Delete failed:', e);
-            return {
-                success: false,
-                message: `Failed to delete duplicates: ${e.message}`
-            };
-        }
-
-        // Re-insert ONE copy of each
-        if (chunksToReinsert.length > 0) {
-            try {
-                await insertVectorItems(collectionId, chunksToReinsert, settings);
-                fixed = chunksToReinsert.length;
-                console.log(`VectFox: Re-inserted ${fixed} chunks (deduplicated)`);
-            } catch (e) {
-                console.warn('VectFox: Re-insert failed:', e);
-                return {
-                    success: false,
-                    message: `Deleted duplicates but failed to re-insert: ${e.message}. Re-vectorize chat to restore.`
-                };
-            }
-        }
-
-        return {
-            success: true,
-            message: `Fixed ${fixed} duplicate hashes (deleted extras, kept one copy each)`
-        };
-    } catch (error) {
-        return {
-            success: false,
-            message: `Failed to fix duplicates: ${error.message}`
         };
     }
 }
@@ -704,7 +567,7 @@ export async function testPluginEmbeddingGeneration(settings) {
  * Test: Reciprocal Rank Fusion (RRF) algorithm
  * Tests the core RRF fusion algorithm with known inputs
  */
-export async function testReciprocalRankFusion(settings) {
+export async function testReciprocalRankFusion() {
     try {
         // Mock vector results (high semantic similarity for "dragon")
         const vectorResults = [
@@ -792,7 +655,7 @@ export async function testReciprocalRankFusion(settings) {
  * Test: Weighted Linear Combination algorithm
  * Tests the weighted fusion algorithm with known inputs
  */
-export async function testWeightedCombination(settings) {
+export async function testWeightedCombination() {
     try {
         // Mock vector results
         const vectorResults = [
@@ -885,7 +748,7 @@ export async function testWeightedCombination(settings) {
  * Test: Keyword extraction from text
  * Tests TF-IDF based keyword extraction at different levels
  */
-export async function testKeywordExtraction(settings) {
+export async function testKeywordExtraction() {
     try {
         const testText = `
 The ancient dragon soared through the sky, its massive wings casting shadows over the kingdom.
@@ -1000,7 +863,7 @@ in claiming the legendary treasure that lay within the dragon's mountain fortres
  * Test: Keyword boosting on search results
  * Tests that keyword matching correctly boosts result scores
  */
-export async function testKeywordBoosting(settings) {
+export async function testKeywordBoosting() {
     try {
         // Mock search results with keywords
         const results = [
@@ -1145,7 +1008,7 @@ export async function testKeywordBoosting(settings) {
  * Test: Lorebook keyword extraction
  * Tests extraction of keywords from lorebook entries
  */
-export async function testLorebookKeywordExtraction(settings) {
+export async function testLorebookKeywordExtraction() {
     try {
         // Mock lorebook entry
         const lorebookEntry = {

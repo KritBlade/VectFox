@@ -17,7 +17,7 @@
  */
 
 import TinySegmenter from './vendor/tiny-segmenter-0.2.0.js';
-import { DEFAULT_STOP_WORD_SET, isStopWord } from './stop-words.js';
+import { isStopWord } from './stop-words.js';
 import { CJK_SPAN_RE, KANA_RE, NON_WORD_RE, getSegmenter } from './script-segmentation.js';
 import { CJK_TOKENIZER_MODES, DEFAULT_CJK_TOKENIZER_MODE, stopLocalesForMode, tokenizerForMode } from './language-modes.js';
 import { log } from './log.js';
@@ -207,8 +207,6 @@ function _getTinySegmenter() {
     return tinySegmenterInstance;
 }
 
-const STOP_WORDS = DEFAULT_STOP_WORD_SET;
-
 /**
  * Porter Stemmer cache (LRU-style with max size)
  */
@@ -394,19 +392,6 @@ function tokenize(text, options = {}) {
 
     // Deduplicate (preserve order). Skip when caller needs raw TF (sparse-vector encoder).
     return dedupe ? [...new Set(tokens)] : tokens;
-}
-
-/**
- * Simple tokenizer (no stemming, no stop word removal)
- * For backwards compatibility
- */
-function tokenizeSimple(text) {
-    if (!text || typeof text !== 'string') return [];
-    return text
-        .toLowerCase()
-        .replace(/[^\w\s]/g, ' ')
-        .split(/\s+/)
-        .filter(token => token.length > 0);
 }
 
 /**
@@ -953,8 +938,6 @@ function extractCJKTokens(text) {
 export {
     porterStemmer,
     tokenize,
-    tokenizeSimple,
-    STOP_WORDS,
     extractCJKTokens,
     CJK_TOKENIZER_MODES,
     setCjkTokenizerMode,

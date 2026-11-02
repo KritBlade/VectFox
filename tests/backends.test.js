@@ -702,6 +702,22 @@ describe('QdrantBackend', () => {
         });
     });
 
+    describe('purgeVectorIndex', () => {
+        it('makes the next tokenizer-sentinel read refetch instead of reusing the cached sentinel', async () => {
+            const { fetchCollectionMetadata } = await import('../core/tokenizer-lock.js');
+            fetchMock
+                .mockResolvedValueOnce(mockFetchResponse({ payload: { cjk_tokenizer_mode: 'jieba' } }))   // sentinel before the purge
+                .mockResolvedValueOnce(mockFetchResponse({}))                                              // purge
+                .mockResolvedValueOnce(mockFetchResponse({ payload: { cjk_tokenizer_mode: 'intl' } }));   // sentinel after re-vectorizing
+
+            expect(await fetchCollectionMetadata('test-collection')).toEqual({ cjk_tokenizer_mode: 'jieba' });
+            await backend.purgeVectorIndex('test-collection', defaultSettings);
+
+            expect(await fetchCollectionMetadata('test-collection')).toEqual({ cjk_tokenizer_mode: 'intl' });
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+        });
+    });
+
     describe('hybridQuery', () => {
         // Call order per hybridQuery: sentinel-metadata fetch (tokenizer-lock
         // check) → /get-embedding (embed ONCE, vector reused by both queries) →

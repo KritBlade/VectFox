@@ -25,8 +25,7 @@ export async function testConditionalActivation() {
             buildSearchContext,
             filterChunksByConditions,
             validateConditionRule,
-            processChunkLinks,
-            VALID_GENERATION_TYPES
+            processChunkLinks
         } = await import('../core/conditional-activation.js');
 
         // Build mock context for all tests
@@ -182,29 +181,3 @@ export async function testConditionalActivation() {
     }
 }
 
-/**
- * Test: Activation triggers system
- * Tests the simple keyword-based activation (like lorebook entries)
- */
-export async function testActivationTriggers() {
-    try {
-        const { getChunkMetadata } = await import('../core/collection-metadata.js');
-
-        // This test would check activation triggers on chunks
-        // For now, just verify the metadata system works
-
-        return {
-            name: '[PROD] Activation Triggers',
-            status: 'pass',
-            message: 'Activation triggers system available',
-            category: 'production'
-        };
-    } catch (error) {
-        return {
-            name: '[PROD] Activation Triggers',
-            status: 'fail',
-            message: `Triggers test error: ${error.message}`,
-            category: 'production'
-        };
-    }
-}

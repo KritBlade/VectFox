@@ -19,9 +19,6 @@ import { log } from './log.js';
 // CONSTANTS
 // ============================================================================
 
-/** Prefix for new VectFox format */
-export const VF_PREFIX = 'vf';
-
 /** Internal system collection IDs that must never participate in retrieval */
 export const INTERNAL_COLLECTION_IDS = Object.freeze([
     '__vectfox_health_check__',
@@ -346,9 +343,9 @@ export function sanitizeNameSegment(name, maxLength) {
  * Sanitize a persona name into the canonical handleId form used across collection IDs
  * (NFC-normalized, lowercase, underscore-joined, edge-trimmed, capped at 30 chars,
  * empty → 'user'). Single source of truth — the ID builders, `registerCollection`'s
- * creatorHandle stamp, the DB-browser persona filter, the lock-ownership check in
- * collection-metadata.js, and `remapCollectionIdToHandle` all derive the handle this
- * way, so they must all route through here.
+ * creatorHandle stamp, `getCollectionListing`'s ownership check (behind the DB-browser
+ * persona filter), and `remapCollectionIdToHandle` all derive the handle this way, so
+ * they must all route through here.
  *
  * @param {string} name - raw persona name (typically getContext().name1)
  * @returns {string} sanitized handleId

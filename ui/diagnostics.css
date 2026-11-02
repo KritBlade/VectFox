@@ -186,43 +186,6 @@
     flex: 1;
 }
 
-.diagnostic-fix-btn {
-    align-self: flex-end;
-    padding: 8px 16px;
-    background: linear-gradient(135deg,
-        color-mix(in srgb, var(--vectfox-primary) 70%, transparent) 0%,
-        color-mix(in srgb, var(--vectfox-primary) 50%, transparent) 100%);
-    border: 1px solid color-mix(in srgb, var(--vectfox-primary) 40%, transparent);
-    border-radius: 6px;
-    color: var(--SmartThemeBodyColor);
-    font-size: 0.85em;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    box-shadow: 0 2px 6px color-mix(in srgb, var(--vectfox-primary) 15%, transparent);
-}
-
-.diagnostic-fix-btn:hover {
-    background: linear-gradient(135deg,
-        color-mix(in srgb, var(--vectfox-primary) 85%, transparent) 0%,
-        color-mix(in srgb, var(--vectfox-primary) 65%, transparent) 100%);
-    border-color: color-mix(in srgb, var(--vectfox-primary) 60%, transparent);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--vectfox-primary) 25%, transparent);
-}
-
-.diagnostic-fix-btn:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 6px color-mix(in srgb, var(--vectfox-primary) 20%, transparent);
-}
-
-.diagnostic-fix-btn i {
-    font-size: 1.1em;
-}
-
 .vectfox-diagnostics-summary {
     margin-top: 16px;
     padding: 16px 20px;
@@ -480,7 +443,8 @@
     margin-left: auto;
 }
 
-/* Danger button for Fix All */
+/* Danger button. Loaded after styles/buttons.css and styles/modals.css, so this
+   definition is the one every .vectfox-btn-danger gets. */
 .vectfox-btn-danger {
     padding: 10px 20px;
     border-radius: 8px;

@@ -14,11 +14,9 @@
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
 import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import {
-    EVENT_TYPES,
     EventBaseExtractionError,
     EventBaseFatalError,
     validateEvent,
-    buildEmbedText,
     buildExtractionPrompt,
     EVENTBASE_SCHEMA_VERSION,
     packTimelineSortKey,
@@ -47,7 +45,7 @@ const DEFAULT_TEMPERATURE = 0.2;
 const DEFAULT_TIMEOUT_MS = 60000;
 
 // ---------------------------------------------------------------------------
-// Key resolution (mirrors summarizer.js pattern)
+// Key resolution
 // ---------------------------------------------------------------------------
 
 /**
@@ -140,7 +138,7 @@ function _inferLanguageHint(text) {
 async function _callOpenRouter(prompt, settings, windowIndex) {
     // Presence-only check: getOpenRouterApiKey() returns ST's MASKED value; the
     // real key is read server-side by the proxy (see llm-provider-call.js).
-    const apiKey = _getOpenRouterApiKey(settings);
+    const apiKey = _getOpenRouterApiKey();
     if (!apiKey) {
         throw new EventBaseFatalError(
             'EventBase: OpenRouter API key not found. Add it in EventBase settings (or Summarize Before Store settings uses the same key).',
@@ -190,7 +188,7 @@ async function _callVLLM(prompt, settings, windowIndex) {
         );
     }
 
-    const apiKey = getCustomApiKey(settings);
+    const apiKey = getCustomApiKey();
     if (!apiKey) {
         throw new EventBaseFatalError(
             'EventBase: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → LLM Summarization settings.',

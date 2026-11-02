@@ -97,18 +97,6 @@ export function saveReformatCache(sourceHash, data) {
 }
 
 /**
- * @param {string} sourceHash
- */
-export function deleteReformatCache(sourceHash) {
-    if (!sourceHash || !_ensureReformatCacheObject()) return;
-    if (extension_settings.vectfox.reformat_cache[sourceHash]) {
-        delete extension_settings.vectfox.reformat_cache[sourceHash];
-        saveSettingsDebounced();
-        log.lifecycle(`VectFox: Deleted Auto-Reformat cache for source ${sourceHash}`);
-    }
-}
-
-/**
  * Lists all cached entries with their storage footprint, for the Database
  * Browser's "Clear Auto-Reformat originals" maintenance action.
  * @returns {Array<{sourceHash: string, sourceName: string, contentType: string, acceptedAt: number, originalTextBytes: number, chunkCount: number}>}

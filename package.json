@@ -4,20 +4,27 @@
   "description": "Automated tests for VectFox RAG extension",
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "lint": "eslint .",
+    "test": "eslint . && knip && knip --production && npm run check:duplicates && vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
     "test:e2e": "node scripts/run-e2e-logged.mjs",
     "test:e2e:no-log": "playwright test",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "check:duplicates": "jscpd index.js backends core diagnostics Migration providers ui utils --format javascript --min-tokens 50 --ignore \"**/vendor/**\" --baseline .jscpd-baseline.json --fail-on-new-clones --silent",
+    "list:duplicates": "jscpd index.js backends core diagnostics Migration providers ui utils --format javascript --min-tokens 50 --ignore \"**/vendor/**\""
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.60.0",
     "@vitest/coverage-v8": "^4.1.10",
     "@vitest/ui": "^4.1.10",
-    "jieba-wasm": "^2.4.0",
+    "eslint": "^9.39.5",
+    "globals": "^17.7.0",
+    "jscpd": "^5.4.0",
     "jsdom": "^27.0.1",
+    "knip": "^6.41.0",
     "vitest": "^4.1.10"
   }
 }

@@ -40,8 +40,6 @@ export const REFORMAT_ENTRY_TYPES = Object.freeze([
     'other',
 ]);
 
-export const REFORMAT_SCHEMA_VERSION = 1;
-
 /**
  * Non-fatal extraction parse error (per-batch; caller should log + skip that
  * batch while continuing with the rest of the document).

@@ -70,13 +70,6 @@ export const EMBEDDING_PROVIDERS = {
 };
 
 /**
- * Get list of all valid provider IDs
- */
-export function getValidProviderIds() {
-    return Object.keys(EMBEDDING_PROVIDERS);
-}
-
-/**
  * Check if a provider ID is valid
  */
 export function isValidProvider(providerId) {
@@ -141,24 +134,6 @@ export function requiresApiKey(providerId) {
  */
 export function requiresUrl(providerId) {
     return EMBEDDING_PROVIDERS[providerId]?.requiresUrl || false;
-}
-
-/**
- * Get providers that require API keys
- */
-export function getCloudProviders() {
-    return Object.entries(EMBEDDING_PROVIDERS)
-        .filter(([_, config]) => config.requiresApiKey)
-        .map(([id]) => id);
-}
-
-/**
- * Get providers that require custom URLs
- */
-export function getUrlProviders() {
-    return Object.entries(EMBEDDING_PROVIDERS)
-        .filter(([_, config]) => config.requiresUrl)
-        .map(([id]) => id);
 }
 
 /**

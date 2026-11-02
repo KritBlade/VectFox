@@ -94,7 +94,7 @@ function _mapReformatError(e, batchIndex) {
 }
 
 async function _callOpenRouter(prompt, settings, batchIndex) {
-    const apiKey = getOpenRouterApiKey(settings);
+    const apiKey = getOpenRouterApiKey();
     if (!apiKey) {
         throw new ReformatFatalError(
             'Auto-Reformat: OpenRouter API key not found. Add it in Core → LLM Summarization settings (Auto-Reformat inherits it unless overridden in ChunkBase settings).',
@@ -151,7 +151,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
         );
     }
 
-    const apiKey = getCustomApiKey(settings);
+    const apiKey = getCustomApiKey();
     if (!apiKey) {
         throw new ReformatFatalError(
             'Auto-Reformat: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → LLM Summarization settings.',

@@ -823,6 +823,7 @@
 
 .vectfox-search-result-score-hybrid .vectfox-score-vector {
     color: #60a5fa; /* blue for semantic */
+    font-weight: 600;
     cursor: help;
 }
 

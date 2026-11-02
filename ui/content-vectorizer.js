@@ -11,23 +11,18 @@
  */
 
 import {
-    CONTENT_TYPES,
-    CHUNKING_STRATEGIES,
     getContentType,
     getAllContentTypes,
     getChunkingStrategies,
     getChunkingStrategy,
-    strategyNeedsSize,
-    strategyNeedsOverlap,
     getContentTypeDefaults,
     hasFeature,
-    SCOPE_OPTIONS,
     CHARACTER_FIELDS,
 } from '../core/content-types.js';
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
 import { getChatUUID, vectorizeAll } from '../core/chat-vectorization.js';
-import { validateLLMConfig } from '../core/summarizer.js';
+import { validateLLMConfig } from '../core/llm-config-validation.js';
 import { getOpenRouterApiKey } from '../core/api-keys.js';
 import StringUtils from '../utils/string-utils.js';
 import { resolveEffectiveSettings } from '../core/content-vectorization.js';
@@ -581,7 +576,7 @@ function renderChatSource(type) {
 /**
  * Renders current chat source (for chat type) - legacy, kept for compatibility
  */
-function renderCurrentChatSource(type) {
+function renderCurrentChatSource() {
     const context = getContext();
     const hasChat = !!context?.chatId;
     const messageCount = context?.chat?.length || 0;
@@ -1319,8 +1314,8 @@ function renderScopeOptions(type) {
     let chatName = 'No chat';
     if (hasChat) {
         // Try to get a meaningful chat name
-        if (typeof chat_metadata !== 'undefined' && chat_metadata?.chat_name) {
-            chatName = chat_metadata.chat_name;
+        if (context.chatMetadata?.chat_name) {
+            chatName = context.chatMetadata.chat_name;
         } else {
             chatName = `Chat #${context.chatId}`;
         }
@@ -1494,7 +1489,6 @@ function bindEvents() {
     // Strategy change
     $('#vectfox_cv_strategy').on('change', function() {
         const strategy = $(this).val();
-        const type = getContentType(currentContentType);
         const strategies = getChunkingStrategies(currentContentType);
         const selected = strategies.find(s => s.id === strategy);
 
@@ -1893,7 +1887,6 @@ function handleFileUpload(e) {
 
                     // Show stats
                     const enabledCount = entries.filter(e => !e.disable).length;
-                    const totalChars = entries.reduce((sum, e) => sum + (e.content?.length || 0), 0);
 
                     $('#vectfox_cv_upload_zone').hide();
                     $('#vectfox_cv_upload_info').show();
@@ -2599,8 +2592,6 @@ async function handleChatFileUpload(e) {
 
         // Show stats
         const totalChars = messages.reduce((sum, m) => sum + (m.mes?.length || 0), 0);
-        const userCount = messages.filter(m => m.is_user).length;
-        const charCount = messages.filter(m => !m.is_user).length;
 
         $('#vectfox_cv_chat_upload_stats').show().html(`
             <div class="vectfox-cv-stats-grid">
@@ -2899,7 +2890,7 @@ async function startContinueVectorization() {
     console.log('[VectFox] LLM config check (vectorize-content):', {
         provider: mergedSettings.chat_provider,
         model: mergedSettings.chat_model,
-        hasOpenRouterKey: !!getOpenRouterApiKey(mergedSettings),
+        hasOpenRouterKey: !!getOpenRouterApiKey(),
         hasVllmUrl: !!mergedSettings.chat_vllm_url,
     });
     const llmCheck = validateLLMConfig(mergedSettings);
@@ -2915,18 +2906,6 @@ async function startContinueVectorization() {
     // If no vectors exist yet, just run the normal vectorization
     if (currentContentType === 'chat' && (source.type === 'current' || source.type === 'file')) {
         return _runEventBaseBackfill();
-    }
-    // (dead code guard — left in place so chunk path below still compiles)
-    if (false) {
-        try {
-            const { doesChatHaveVectors } = await import('../core/collection-loader.js');
-            const existing = await doesChatHaveVectors(currentSettings);
-            if (!existing.hasVectors || existing.chunkCount === 0) {
-                return startVectorization();
-            }
-        } catch (e) {
-            // If check fails, fall through to backfill path
-        }
     }
 
     isVectorizing = true;
@@ -3285,7 +3264,6 @@ async function startVectorization() {
 
     syncStartFromMessageFromUI();
 
-    const type = getContentType(currentContentType);
     const source = getSourceData();
 
     if (!source) {
@@ -3301,7 +3279,7 @@ async function startVectorization() {
     console.log('[VectFox] LLM config check (start-vectorization):', {
         provider: mergedSettings.chat_provider,
         model: mergedSettings.chat_model,
-        hasOpenRouterKey: !!getOpenRouterApiKey(mergedSettings),
+        hasOpenRouterKey: !!getOpenRouterApiKey(),
         hasVllmUrl: !!mergedSettings.chat_vllm_url,
     });
     const llmCheck = validateLLMConfig(mergedSettings);

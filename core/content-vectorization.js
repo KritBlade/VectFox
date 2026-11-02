@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { getContentType, getContentTypeDefaults, hasFeature } from './content-types.js';
+import { getContentType, getContentTypeDefaults } from './content-types.js';
 import { chunkText } from './chunking.js';
 import { insertVectorItems, purgeVectorIndex, getSavedHashes } from './core-vector-api.js';
 import { isConnectionError } from './model-config-notifier.js';
@@ -22,13 +22,12 @@ import {
     buildLorebookCollectionId,
     buildCharacterCollectionId,
     buildDocumentCollectionId,
-    COLLECTION_PREFIXES,
     buildRegistryKey,
     getBackendFromCollectionId,
     sanitizeNameSegment,
 } from './collection-ids.js';
-import { extractLorebookKeywords, extractTextKeywords, extractChatKeywords, extractBM25Keywords, EXTRACTION_LEVELS, DEFAULT_EXTRACTION_LEVEL, DEFAULT_BASE_WEIGHT } from './keyword-boost.js';
-import { cleanText, cleanContentOrNull } from './text-cleaning.js';
+import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from './keyword-boost.js';
+import { cleanContentOrNull } from './text-cleaning.js';
 import { prepareLorebookContent } from './lorebook-content-preparer.js';
 import { extractGlossary, injectGlossary } from './glossary-extractor.js';
 import { getReformatCache } from './reformat-store.js';
@@ -239,16 +238,12 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
         // in case we want to re-enable per-chunk LLM summarization later (e.g. summarize a
         // lorebook/document chunk BEFORE vectorizing it).
         //
-        // REVIVAL NOTE — when re-enabling this block, do NOT reuse its summarizer-specific
-        // error handling (`isSummarizationFatalError` / `SummarizationFatalError` and
-        // `summarizeText`'s bespoke throws). Route errors through the SHARED helpers in
-        // core/model-config-notifier.js that the rest of the codebase already uses:
+        // REVIVAL NOTE — the block calls `summarizeText` and `isSummarizationFatalError`, which
+        // do not exist. Re-enabling it means making the LLM call through `postChatCompletion`
+        // (core/llm-provider-call.js) and routing errors through the shared helpers in
+        // core/model-config-notifier.js, as EventBase extraction, agent mode and embedding do:
         //   - `isInvalidModelConfigError` / `notifyInvalidModel`  → config/auth/model failures
         //   - `isConnectionError` / `notifyConnectionError`       → wrong / unreachable URLs
-        // (the same pattern as EventBase extraction, agent mode, and embedding). Once this is
-        // revived on the shared helpers, DELETE `summarizeText` + `isSummarizationFatalError` +
-        // `SummarizationFatalError` from summarizer.js for good — we don't keep one-off error
-        // types for a single feature.
         /* ----- BEGIN: summarize-before-store pipeline (DISABLED, kept for future use) -----
         if (contentType === 'chat') {
             progressTracker.updateProgress(3, `Summarizing and inserting ${finalChunks.length} chunks...`);
@@ -317,8 +312,8 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
                 await getBackend(effectiveSettings);
             } catch (e) {
                 log.warn('VectFox: Backend initialization failed before insert, will still attempt insert:', e.message);
-                try { progressTracker.addError(`Backend init failed: ${e.message}`); } catch (_) {}
-                try { toastr.error('Backend initialization failed: ' + e.message, 'VectFox'); } catch (_) {}
+                progressTracker.addError?.(`Backend init failed: ${e.message}`);
+                globalThis.toastr?.error('Backend initialization failed: ' + e.message, 'VectFox');
             }
 
             try {
@@ -330,7 +325,7 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
                 }, abortSignal);
             } catch (error) {
                 log.error('VectFox: insertVectorItems failed', error);
-                try { progressTracker.addError(error.message || String(error)); } catch (_) {}
+                progressTracker.addError?.(error.message || String(error));
                 // Distinguish an embedder-call failure from a storage-write failure
                 // (#4): they were both reported as "Failed to write embeddings",
                 // which misleads when the real problem is the embedding provider
@@ -342,7 +337,7 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
                     const headline = isEmbedFail
                         ? 'Failed to generate embeddings (check your embedding provider URL and model): '
                         : 'Failed to write embeddings to storage: ';
-                    try { toastr.error(headline + (error.message || String(error)), 'VectFox'); } catch (_) {}
+                    globalThis.toastr?.error(headline + (error.message || String(error)), 'VectFox');
                 }
                 throw error;
             }
@@ -510,7 +505,7 @@ async function loadSelectedSource(contentType, sourceId) {
 /**
  * Loads lorebook/world info content by name
  */
-async function loadLorebookContent(lorebookName, context) {
+async function loadLorebookContent(lorebookName) {
     try {
         // Import ST's world-info module to load the lorebook
         const worldInfoModule = await import('../../../../world-info.js');
@@ -564,7 +559,7 @@ async function loadCharacterContent(characterId, context) {
 /**
  * Prepares content for chunking based on content type
  */
-async function prepareContent(contentType, rawContent, settings, startFromMessage = 1) {
+async function prepareContent(contentType, rawContent, settings) {
     switch (contentType) {
         case 'lorebook':
             return prepareLorebookContent(rawContent, settings);
@@ -663,7 +658,7 @@ function prepareCharacterContent(rawContent, settings) {
 /**
  * Prepares URL/webpage content
  */
-function prepareUrlContent(rawContent, settings) {
+function prepareUrlContent(rawContent) {
     let text = rawContent.content || rawContent;
 
     // Basic text cleaning for web content
@@ -691,7 +686,7 @@ function prepareUrlContent(rawContent, settings) {
 /**
  * Prepares document content
  */
-function prepareDocumentContent(rawContent, settings) {
+function prepareDocumentContent(rawContent) {
     let text = rawContent.content || rawContent;
 
     // Basic text cleaning
@@ -774,7 +769,7 @@ function prepareWikiContent(rawContent, settings) {
 /**
  * Prepares YouTube transcript content
  */
-function prepareYouTubeContent(rawContent, settings) {
+function prepareYouTubeContent(rawContent) {
     let text = rawContent.content || rawContent;
 
     // Clean up transcript text
@@ -826,7 +821,7 @@ function generateCollectionId(contentType, source, settings) {
         case 'document':
             return buildDocumentCollectionId(sourceName, settings.vector_backend, timestamp);
 
-        case 'url':
+        case 'url': {
             // Use domain from URL or title
             let urlName = sourceName;
             try {
@@ -836,6 +831,7 @@ function generateCollectionId(contentType, source, settings) {
                 urlName = source.title || source.name || 'webpage';
             }
             return buildDocumentCollectionId(urlName, settings.vector_backend, timestamp);
+        }
 
         case 'wiki':
             return buildDocumentCollectionId(source.name || 'wiki', settings.vector_backend, timestamp);
@@ -1010,6 +1006,7 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
  * @param {string} collectionId - bare collection ID (no `backend:` prefix)
  * @param {object} [callerSettings] - per-call overrides; if omitted, the
  *   backend is detected from the collection ID format.
+ * @public Imported by URL from the page code in tests/Eventbase-test.spec.js.
  */
 export async function deleteContentCollection(collectionId, callerSettings = null) {
     let baseSettings = callerSettings;

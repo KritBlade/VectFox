@@ -119,7 +119,9 @@ describe('formatEventsForInjectionDetailed — presentation ordering', () => {
         expect(res.includedCount).toBe(3);
         expect(res.requestedCount).toBe(3);
         // and they came out sorted b(1) → c(2) → a(3)
-        const [a, b, c] = order(res.text, '[combat] a', 'summary: b', 'summary: c');
+        const [a, b, c] = order(res.text, 'summary: a', 'summary: b', 'summary: c');
         expect(b).toBeGreaterThan(-1);
+        expect(b).toBeLessThan(c);
+        expect(c).toBeLessThan(a);
     });
 });

@@ -12,7 +12,7 @@
 
 import { saveSettingsDebounced, getCurrentChatId, eventSource, event_types, getRequestHeaders } from '../../../../../script.js';
 import { extension_settings, openThirdPartyExtensionMenu, getContext } from '../../../../extensions.js';
-import { writeSecret, deleteSecret, SECRET_KEYS, secret_state, readSecretState } from '../../../../secrets.js';
+import { writeSecret, deleteSecret, SECRET_KEYS, readSecretState } from '../../../../secrets.js';
 import {
     getOpenRouterApiKey,
     getCustomApiKey,
@@ -21,10 +21,9 @@ import {
 } from '../core/api-keys.js';
 import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webllm.js';
 import StringUtils from '../utils/string-utils.js';
-import { openVisualizer } from './chunk-visualizer.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
-import { openSearchDebugModal, openQueryTestModal, getLastSearchDebug } from './search-debug.js';
+import { openQueryTestModal } from './query-tester.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { progressTracker } from './progress-tracker.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
@@ -34,11 +33,10 @@ import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
 import { clearLorebookPrompt } from '../core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
-import { doesChatHaveVectors, getCollectionRegistry, getCollectionListing, checkPluginAvailable } from '../core/collection-loader.js';
+import { getCollectionRegistry, getCollectionListing, checkPluginAvailable } from '../core/collection-loader.js';
 import { getCollectionMeta } from '../core/collection-metadata.js';
 import { parseRegistryKey } from '../core/collection-ids.js';
-import { getModelField } from '../core/providers.js';
-import { getChunkingStrategies } from '../core/content-types.js';
+import { getModelField, resolveProviderApiUrl } from '../core/providers.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from '../core/bm25-scorer.js';
 import { LANGUAGE_MODES } from '../core/language-modes.js';
 import {
@@ -1481,9 +1479,6 @@ export function renderSettings(containerId, settings, callbacks) {
                             <button class="vectfox-btn-secondary" id="VectFox_diag_copy">
                                 <i class="fa-solid fa-copy"></i> Copy Report
                             </button>
-                            <button class="vectfox-btn-danger" id="VectFox_diag_fix_all" style="display: none;">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i> Fix All Issues
-                            </button>
                             <button class="vectfox-btn-primary" id="VectFox_diag_done">Done</button>
                         </div>
                     </div>
@@ -2254,198 +2249,6 @@ function toggleProviderSettings(selectedProvider, settings) {
 }
 
 /**
- * Shows a confirmation modal when enabling auto-sync on a chat with existing vectors
- * If multiple collections match, lets user pick which one to use
- * @param {Array} allMatches - Array of matching collections [{collectionId, registryKey, chunkCount, source, backend, sources}]
- * @param {object} settings - VectFox settings for purge operations
- * @returns {Promise<{action: string, selectedCollection?: object}>} User's choice
- */
-async function showAutoSyncConfirmModal(allMatches, settings) {
-    // Import unified delete function for ghost cleanup
-    const { deleteCollection } = await import('../core/collection-loader.js');
-
-    return new Promise((resolve) => {
-        const hasMultiple = allMatches.length > 1;
-        const hasGhosts = allMatches.some(m => m.chunkCount === 0);
-
-        // Build collection list HTML
-        const collectionListHtml = allMatches.map((match, index) => {
-            const displayId = match.collectionId.length > 35
-                ? match.collectionId.substring(0, 18) + '...' + match.collectionId.substring(match.collectionId.length - 12)
-                : match.collectionId;
-            const isGhost = match.chunkCount === 0;
-            const isRecommended = index === 0 && !isGhost;
-
-            return `
-                <div class="vectfox-collection-option ${isGhost ? 'ghost' : ''}" data-index="${index}" style="
-                    background: var(--SmartThemeBlurTintColor);
-                    padding: 12px;
-                    border-radius: 8px;
-                    margin-bottom: 10px;
-                    cursor: pointer;
-                    border: 2px solid ${isRecommended ? 'var(--SmartThemeQuoteColor)' : 'transparent'};
-                    opacity: ${isGhost ? '0.6' : '1'};
-                    position: relative;
-                ">
-                    ${isRecommended ? '<span style="position: absolute; top: -8px; right: 10px; background: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); font-size: 0.7em; padding: 2px 6px; border-radius: 4px;">RECOMMENDED</span>' : ''}
-                    ${isGhost ? '<span style="position: absolute; top: -8px; right: 10px; background: var(--SmartThemeFontColorOverrideWarning, #f0ad4e); color: #000; font-size: 0.7em; padding: 2px 6px; border-radius: 4px;">GHOST</span>' : ''}
-                    <div style="display: flex; justify-content: space-between; align-items: start;">
-                        <div style="flex: 1; min-width: 0;">
-                            <div style="font-family: monospace; word-break: break-all; font-size: 0.85em; margin-bottom: 6px;">
-                                ${displayId}
-                            </div>
-                            <div style="font-size: 0.8em; color: var(--SmartThemeQuoteColor);">
-                                <i class="fa-solid fa-cube"></i> <strong>${match.chunkCount}</strong> chunks
-                                ${match.source ? `<span style="margin-left: 10px;"><i class="fa-solid fa-database"></i> ${match.source}</span>` : ''}
-                            </div>
-                        </div>
-                        ${isGhost ? `
-                            <button class="menu_button menu_button_icon vectfox-delete-ghost" data-index="${index}" style="margin-left: 10px; color: var(--SmartThemeFontColorOverrideWarning, #f0ad4e);" title="Delete this ghost collection">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        const modalHtml = `
-            <div id="VectFox_autosync_confirm_modal" class="vectfox-modal" style="display: flex;">
-                <div class="vectfox-modal-content" style="max-width: 500px;">
-                    <div class="vectfox-modal-header">
-                        <h3><i class="fa-solid fa-link"></i> ${hasMultiple ? 'Multiple Collections Found' : 'Existing Collection Found'}</h3>
-                        <button class="vectfox-modal-close" data-action="cancel">
-                            <i class="fa-solid fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="vectfox-modal-body" style="padding: 20px;">
-                        <p style="margin-bottom: 15px;">
-                            ${hasMultiple
-                                ? `Found <strong>${allMatches.length}</strong> collections matching this chat.${hasGhosts ? ' <span style="color: var(--SmartThemeFontColorOverrideWarning, #f0ad4e);">Ghost collections (0 chunks) can be deleted.</span>' : ''}`
-                                : 'This chat already has a vectorized collection:'}
-                        </p>
-                        <div style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;">
-                            ${collectionListHtml}
-                        </div>
-                        <p style="margin-bottom: 10px; font-size: 0.9em; color: var(--SmartThemeQuoteColor);">
-                            ${hasMultiple ? 'Click a collection to select it, then choose an action.' : 'What would you like to do?'}
-                        </p>
-                    </div>
-                    <div class="vectfox-modal-footer" style="display: flex; gap: 10px; padding: 15px 20px; border-top: 1px solid var(--SmartThemeBorderColor);">
-                        <button class="menu_button" data-action="reconnect" style="flex: 1;">
-                            <i class="fa-solid fa-plug"></i> Connect
-                        </button>
-                        <button class="menu_button" data-action="revectorize" style="flex: 1;">
-                            <i class="fa-solid fa-rotate"></i> Re-vectorize
-                        </button>
-                        <button class="menu_button menu_button_icon" data-action="cancel">
-                            <i class="fa-solid fa-times"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const $modal = $(modalHtml);
-        $('body').append($modal);
-
-        // Track selected collection (default to first/best)
-        let selectedIndex = 0;
-        $modal.find('.vectfox-collection-option').first().css('border-color', 'var(--SmartThemeQuoteColor)');
-
-        // Handle collection selection
-        $modal.find('.vectfox-collection-option').on('click', function(e) {
-            if ($(e.target).closest('.vectfox-delete-ghost').length) return; // Don't select when clicking delete
-
-            selectedIndex = parseInt($(this).data('index'));
-            $modal.find('.vectfox-collection-option').css('border-color', 'transparent');
-            $(this).css('border-color', 'var(--SmartThemeQuoteColor)');
-        });
-
-        // Handle ghost deletion - uses unified deleteCollection()
-        $modal.find('.vectfox-delete-ghost').on('click', async function(e) {
-            e.stopPropagation();
-            const index = parseInt($(this).data('index'));
-            const ghost = allMatches[index];
-
-            if (!confirm(`Delete ghost collection?\n\n${ghost.collectionId}\n\nThis will remove it from disk.`)) return;
-
-            try {
-                // Use unified delete function - handles vectors, registry, AND metadata.
-                // Route to the ghost's own backend and on-disk source folders, not
-                // the current backend/provider settings.
-                const deleteSettings = {
-                    ...settings,
-                    vector_backend: ghost.backend,
-                    _discoveredSources: ghost.sources,
-                };
-                const result = await deleteCollection(ghost.collectionId, deleteSettings, ghost.registryKey);
-
-                // Remove from UI
-                allMatches.splice(index, 1);
-                $(this).closest('.vectfox-collection-option').fadeOut(200, function() {
-                    $(this).remove();
-                    // Re-index remaining items
-                    $modal.find('.vectfox-collection-option').each((i, el) => {
-                        $(el).attr('data-index', i);
-                        $(el).find('.vectfox-delete-ghost').attr('data-index', i);
-                    });
-                });
-
-                if (result.success) {
-                    toastr.success('Ghost collection deleted', 'VectFox');
-                } else {
-                    toastr.warning(`Partial deletion: ${result.errors.join(', ')}`, 'VectFox');
-                }
-
-                // If no collections left, close modal
-                if (allMatches.length === 0) {
-                    $modal.remove();
-                    resolve({ action: 'revectorize' });
-                } else if (selectedIndex >= allMatches.length) {
-                    selectedIndex = 0;
-                    $modal.find('.vectfox-collection-option').first().css('border-color', 'var(--SmartThemeQuoteColor)');
-                }
-            } catch (error) {
-                log.error('VectFox: Failed to delete ghost', error);
-                toastr.error('Failed to delete ghost collection', 'VectFox');
-            }
-        });
-
-        // Handle action buttons
-        $modal.find('[data-action]').on('click', function() {
-            const action = $(this).data('action');
-            $modal.remove();
-            resolve({
-                action,
-                selectedCollection: action === 'reconnect' ? allMatches[selectedIndex] : null
-            });
-        });
-
-        // Stop mousedown propagation (ST closes drawers on mousedown/touchstart)
-        $modal.on('mousedown touchstart', function(e) {
-            e.stopPropagation();
-        });
-
-        // Close on background click
-        $modal.on('click', function(e) {
-            if (e.target === this) {
-                $modal.remove();
-                resolve({ action: 'cancel' });
-            }
-        });
-
-        // Handle escape key
-        $(document).one('keydown.autosync_modal', function(e) {
-            if (e.key === 'Escape') {
-                $modal.remove();
-                resolve({ action: 'cancel' });
-            }
-        });
-    });
-}
-
-/**
  * Delete a shared VectFox API key from ST's secret store and refresh every input that
  * displays it. ONE implementation reused by all "Clear saved key" buttons (Embedding /
  * Summarization / AgentMode, OpenRouter + vLLM) so the delete + refresh logic never drifts.
@@ -2973,7 +2776,7 @@ function bindSettingsEvents(settings, callbacks) {
     // `vectfox:vllm-key-changed` custom event, so saving the key in any
     // of the three inputs updates all three placeholders.
     const updateSummarizeVllmKeyDisplay = () => {
-        const savedKey = getCustomApiKey(settings);
+        const savedKey = getCustomApiKey();
         if (savedKey) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
@@ -3031,7 +2834,7 @@ function bindSettingsEvents(settings, callbacks) {
     // `vectfox:openrouter-key-changed` custom event, so saving the key in any
     // of the three inputs updates all three placeholders immediately.
     const updateSummarizeORKeyDisplay = () => {
-        const savedKey = getOpenRouterApiKey(settings);
+        const savedKey = getOpenRouterApiKey();
         if (savedKey) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
@@ -3101,7 +2904,7 @@ function bindSettingsEvents(settings, callbacks) {
     // architecture pivot, the "override" semantics are gone — there's now
     // ONE OpenRouter key everywhere.
     const updateAgenticORKeyDisplay = () => {
-        const savedKey = getOpenRouterApiKey(settings);
+        const savedKey = getOpenRouterApiKey();
         if (savedKey) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
@@ -3144,7 +2947,7 @@ function bindSettingsEvents(settings, callbacks) {
     // `chat_completion_source: 'custom'`; embedding-side reads
     // SECRET_KEYS.VLLM (ST's Text Completion vLLM slot) separately.
     const updateAgenticVllmKeyDisplay = () => {
-        const savedKey = getCustomApiKey(settings);
+        const savedKey = getCustomApiKey();
         if (savedKey) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
@@ -3194,14 +2997,14 @@ function bindSettingsEvents(settings, callbacks) {
         slots: [SECRET_KEYS.OPENROUTER],
         changedEvent: 'vectfox:openrouter-key-changed',
         label: 'OpenRouter',
-        getCurrent: () => getOpenRouterApiKey(settings),
+        getCurrent: () => getOpenRouterApiKey(),
         sharedWithST: true,
     };
     const _vllmClearOpts = {
         slots: [SECRET_KEYS.CUSTOM, SECRET_KEYS.VLLM],
         changedEvent: 'vectfox:vllm-key-changed',
         label: 'vLLM',
-        getCurrent: () => getCustomApiKey(settings),
+        getCurrent: () => getCustomApiKey(),
         sharedWithST: true,
     };
     ['#VectFox_openrouter_apikey_clear', '#VectFox_summarize_openrouter_apikey_clear', '#VectFox_agentic_openrouter_apikey_clear']
@@ -3585,6 +3388,7 @@ function bindSettingsEvents(settings, callbacks) {
                 $('#VectFox_qdrant_api_key').attr('placeholder', 'Your Qdrant Cloud API key');
             }
         } catch (err) {
+            log.warn('VectFox: Qdrant API key presence check failed:', err);
             $('#VectFox_qdrant_api_key').attr('placeholder', 'Your Qdrant Cloud API key (presence check unavailable)');
         }
     };
@@ -4323,7 +4127,7 @@ function bindSettingsEvents(settings, callbacks) {
                                     }
                                 }
                             } catch (inner) {
-                                log.warn('VectFox: Error inspecting collection', collKey, inner.message);
+                                log.warn(`VectFox: Error inspecting collection ${registryKey}:`, inner);
                             }
                         }
 
@@ -4356,7 +4160,7 @@ function bindSettingsEvents(settings, callbacks) {
 
         } catch (e) {
             log.error('VectFox: Semantic WI test failed', e);
-            try { toastr.error('Semantic WI test failed: ' + (e.message || String(e))); } catch (_) {}
+            globalThis.toastr?.error('Semantic WI test failed: ' + (e.message || String(e)));
         }
     });
 
@@ -4442,7 +4246,7 @@ function bindSettingsEvents(settings, callbacks) {
                 await navigator.clipboard.writeText(text);
                 toastr.info('Semantic entry copied to clipboard. Paste into World Info editor to activate.');
             } catch (e) {
-                log.warn('VectFox: Clipboard write failed, showing content in console');
+                log.warn('VectFox: Clipboard write failed, showing content in console:', e);
                 log.trace('Semantic entry content:', text);
                 toastr.info('Semantic entry logged to console. Paste into World Info editor to activate.');
             }
@@ -4632,7 +4436,7 @@ function bindSettingsEvents(settings, callbacks) {
     // The remaining domain deep-dives (qdrant / standard / injection / rerank)
     // ship in Phase 2 when their read sites migrate — until then their old
     // checkboxes below (Injection / Qdrant / Compare re-rank) stay on the old
-    // flags so they keep working. See plans/logging-levels-and-classification.md.
+    // flags so they keep working. See plans/executed/logging-levels-and-classification.md.
     const _ensureDebugDomain = () => {
         if (!settings.debug_domain || typeof settings.debug_domain !== 'object') {
             settings.debug_domain = {};
@@ -4944,7 +4748,7 @@ function bindSettingsEvents(settings, callbacks) {
     // pattern as the Summarize and AgentMode inputs above. One shared key,
     // both ST slots. See core/api-keys.js header for the full rationale.
     const updateVllmKeyDisplay = () => {
-        const savedKey = getCustomApiKey(settings);
+        const savedKey = getCustomApiKey();
         if (savedKey) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
@@ -5103,7 +4907,7 @@ function bindSettingsEvents(settings, callbacks) {
     // the shared slot used by ST's own Connection Profile and by VectFox's
     // Summarize + AgentMode inputs. See core/api-keys.js for the rationale.
     const updateOpenRouterKeyDisplay = () => {
-        const savedKey = getOpenRouterApiKey(settings);
+        const savedKey = getOpenRouterApiKey();
         if (savedKey) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
@@ -5352,7 +5156,6 @@ function renderDiagnosticsContent(results, filter = 'all') {
     const passCount = results.checks.filter(c => c.status === 'pass').length;
     const warnCount = results.checks.filter(c => c.status === 'warning').length;
     const failCount = results.checks.filter(c => c.status === 'fail').length;
-    const fixableCount = results.checks.filter(c => c.fixable && (c.status === 'fail' || c.status === 'warning')).length;
 
     // Filter checks if needed
     const filterCheck = (check) => {
@@ -5366,18 +5169,12 @@ function renderDiagnosticsContent(results, filter = 'all') {
             return '<div class="diagnostic-item-empty">No items match current filter</div>';
         }
         return filteredChecks.map(check => `
-            <div class="diagnostic-item ${check.status}" data-fix-action="${check.fixAction || ''}" data-status="${check.status}">
+            <div class="diagnostic-item ${check.status}" data-status="${check.status}">
                 <div class="diagnostic-main">
                     <span class="diagnostic-icon">${statusIcons[check.status]}</span>
                     <span class="diagnostic-label">${check.name}</span>
                     <span class="diagnostic-message">${check.message}</span>
                 </div>
-                ${check.fixable ? `
-                    <button class="diagnostic-fix-btn" data-fix-action="${check.fixAction}">
-                        <i class="fa-solid fa-wrench"></i>
-                        Fix
-                    </button>
-                ` : ''}
             </div>
         `).join('');
     };
@@ -5426,7 +5223,6 @@ function renderDiagnosticsContent(results, filter = 'all') {
             const catPass = checks.filter(c => c.status === 'pass').length;
             const catWarn = checks.filter(c => c.status === 'warning').length;
             const catFail = checks.filter(c => c.status === 'fail').length;
-            const catTotal = checks.length;
             const filteredCount = checks.filter(filterCheck).length;
 
             // Don't show category if all items filtered out
@@ -5467,19 +5263,6 @@ function renderDiagnosticsContent(results, filter = 'all') {
             : 'Issues Found';
     $('#VectFox_diagnostics_title').text(titleText);
 
-    // Show/hide Fix All button based on fixable issues
-    if (fixableCount > 0) {
-        $('#VectFox_diag_fix_all')
-            .show()
-            .html(`<i class="fa-solid fa-wand-magic-sparkles"></i> Fix All (${fixableCount})`)
-            .off('click')
-            .on('click', function() {
-                handleFixAll(results.checks);
-            });
-    } else {
-        $('#VectFox_diag_fix_all').hide();
-    }
-
     // Bind filter click handlers on stat boxes
     $('.vectfox-diag-stat').off('click').on('click', function() {
         const clickedFilter = $(this).data('filter');
@@ -5513,19 +5296,6 @@ function renderDiagnosticsContent(results, filter = 'all') {
             $header.attr('data-collapsed', 'true');
             $header.find('.diagnostic-category-collapse-icon i').removeClass('fa-chevron-down').addClass('fa-chevron-right');
         }
-    });
-
-    // Bind individual fix button click handlers
-    $('.diagnostic-fix-btn').off('click').on('click', function(e) {
-        e.stopPropagation();
-        const action = $(this).data('fix-action');
-        handleDiagnosticFix(action);
-        // Mark this item as fixed visually
-        $(this).closest('.diagnostic-item')
-            .removeClass('fail warning')
-            .addClass('pass')
-            .find('.diagnostic-icon').html(statusIcons.pass);
-        $(this).fadeOut(200);
     });
 
     // Bind copy button
@@ -5590,16 +5360,10 @@ function copyDiagnosticsReport(results) {
         ? (qdrantMode === 'cloud' ? settings.qdrant_cloud_url : settings.qdrant_url)
         : null;
 
-    // Build provider URL info
+    // Provider URL: the one the embedding requests themselves use
     let providerUrl = 'n/a';
-    if (source === 'ollama') {
-        providerUrl = settings.embedding_ollama_url_override && settings.embedding_ollama_url
-            ? settings.embedding_ollama_url
-            : (textgenerationwebui_settings?.server_urls?.[textgen_types?.OLLAMA] || 'http://127.0.0.1:11434');
-    } else if (source === 'vllm') {
-        providerUrl = settings.embedding_vllm_url_override && settings.embedding_vllm_url
-            ? settings.embedding_vllm_url
-            : (textgenerationwebui_settings?.server_urls?.[textgen_types?.VLLM] || 'http://127.0.0.1:8000');
+    if (source === 'ollama' || source === 'vllm') {
+        providerUrl = resolveProviderApiUrl(settings, source) || 'n/a';
     }
 
     let report = `╔══════════════════════════════════════════════════════════════╗
@@ -5707,248 +5471,4 @@ export function openDiagnosticsModal() {
     showDiagnosticsPhase('selection');
     $('#VectFox_diagnostics_title').text('Run Diagnostics');
     $('#VectFox_diagnostics_modal').fadeIn(200);
-}
-
-/**
- * Handles fixing all fixable issues
- * @param {Array} checks - Array of diagnostic checks
- */
-function handleFixAll(checks) {
-    const fixableChecks = checks.filter(c => c.fixable && (c.status === 'fail' || c.status === 'warning'));
-
-    if (fixableChecks.length === 0) {
-        toastr.info('No fixable issues found');
-        return;
-    }
-
-    let fixedCount = 0;
-    const statusIcons = {
-        'pass': '<i class="fa-solid fa-circle-check" style="color: var(--vectfox-success);"></i>'
-    };
-
-    fixableChecks.forEach(check => {
-        try {
-            handleDiagnosticFix(check.fixAction, true); // silent mode
-            fixedCount++;
-
-            // Update UI for this item
-            $(`.diagnostic-item[data-fix-action="${check.fixAction}"]`)
-                .removeClass('fail warning')
-                .addClass('pass')
-                .find('.diagnostic-icon').html(statusIcons.pass);
-            $(`.diagnostic-item[data-fix-action="${check.fixAction}"] .diagnostic-fix-btn`).fadeOut(200);
-        } catch (e) {
-            log.warn(`Failed to fix: ${check.fixAction}`, e);
-        }
-    });
-
-    // Hide Fix All button after use
-    $('#VectFox_diag_fix_all').fadeOut(200);
-
-    toastr.success(`Fixed ${fixedCount} issue${fixedCount !== 1 ? 's' : ''}`);
-}
-
-/**
- * Handles diagnostic fix actions
- * @param {string} action - The fix action to perform
- * @param {boolean} silent - If true, suppress toast notifications and don't close modal
- */
-function handleDiagnosticFix(action, silent = false) {
-    const settings = extension_settings.vectfox;
-
-    switch (action) {
-        case 'enable_chats':
-            $('#VectFox_autosync_enabled').prop('checked', true).trigger('change');
-            if (!silent) toastr.success('Chat auto-sync enabled');
-            break;
-
-        case 'vectorize_all':
-            $('#VectFox_vectorize_all').click();
-            break;
-
-        case 'configure_provider':
-            // Scroll to provider settings
-            $('#VectFox_provider_settings')[0]?.scrollIntoView({ behavior: 'smooth' });
-            if (!silent) toastr.info('Please select an embedding provider');
-            break;
-
-        case 'configure_api_key':
-            if (!silent) toastr.info('Go to Settings > API Connections to add your API key');
-            break;
-
-        case 'configure_url':
-            // Scroll to provider settings
-            $('#VectFox_provider_settings')[0]?.scrollIntoView({ behavior: 'smooth' });
-            if (!silent) toastr.info('Please configure your API URL in the provider settings');
-            break;
-
-        case 'fix_threshold':
-            $('#VectFox_score_threshold').val(0.25).trigger('change');
-            if (!silent) toastr.success('Score threshold reset to 0.25');
-            break;
-
-        case 'fix_counts':
-            if (settings.insert < 1) {
-                $('#VectFox_insert').val(3).trigger('change');
-            }
-            if ((settings.top_k ?? settings.insert) < 1) {
-                $('#VectFox_topk').val(3).trigger('change');
-            }
-            if (settings.query < 1) {
-                $('#VectFox_query').val(2).trigger('change');
-            }
-            if (!silent) toastr.success('Insert/Query counts fixed');
-            break;
-
-        case 'fix_chunk_size':
-            $('#VectFox_chunk_size').val(500).trigger('input');
-            if (!silent) toastr.success('Chunk size reset to 500');
-            break;
-
-        case 'fix_qdrant_dimension':
-            // This needs a dialog - don't auto-fix, show options
-            if (!silent) {
-                showQdrantDimensionFixDialog();
-            }
-            return; // Don't close modal
-
-        default:
-            if (!silent) toastr.error(`Unknown fix action: ${action}`);
-    }
-
-    // Only close modal for individual fixes (not batch Fix All)
-    if (!silent) {
-        setTimeout(() => {
-            closeDiagnosticsModal();
-        }, 500);
-    }
-}
-
-/**
- * Shows a dialog with options to fix Qdrant dimension mismatch
- */
-async function showQdrantDimensionFixDialog() {
-    // Get the check data from the current diagnostics results
-    const check = currentDiagnosticResults?.checks?.find(c => c.fixAction === 'fix_qdrant_dimension');
-    const data = check?.data || {};
-
-    const collectionDim = data.collectionDimension || '?';
-    const currentDim = data.currentDimension || '?';
-    const sources = data.collectionSources?.join(', ') || 'unknown';
-    const models = data.collectionModels?.length > 0 ? data.collectionModels.join(', ') : '(not recorded)';
-    const pointsCount = data.pointsCount || 0;
-
-    const dialogHtml = `
-        <div class="vectfox-dimension-fix-dialog">
-            <h3 style="margin-top: 0; color: var(--vectfox-danger);">
-                <i class="fa-solid fa-triangle-exclamation"></i> Vector Dimension Mismatch
-            </h3>
-
-            <div class="vectfox-dimension-info" style="background: var(--SmartThemeBlurTintColor); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-                <p style="margin: 0 0 8px 0;"><strong>Your Qdrant collection:</strong></p>
-                <ul style="margin: 0; padding-left: 20px;">
-                    <li><strong>${collectionDim}</strong> dimensions</li>
-                    <li>Source: <strong>${sources}</strong></li>
-                    <li>Model: <strong>${models}</strong></li>
-                    <li><strong>${pointsCount.toLocaleString()}</strong> vectors stored</li>
-                </ul>
-
-                <p style="margin: 12px 0 8px 0;"><strong>Your current embedding model:</strong></p>
-                <ul style="margin: 0; padding-left: 20px;">
-                    <li><strong>${currentDim}</strong> dimensions</li>
-                </ul>
-            </div>
-
-            <p style="margin-bottom: 16px;">These dimensions don't match. You have two options:</p>
-
-            <div class="vectfox-dimension-options" style="display: flex; flex-direction: column; gap: 12px;">
-                <button id="VectFox_dim_fix_purge" class="vectfox-btn-danger" style="padding: 12px; text-align: left;">
-                    <i class="fa-solid fa-trash"></i>
-                    <strong>Purge collection and start fresh</strong>
-                    <br><small style="opacity: 0.8;">Delete all ${pointsCount.toLocaleString()} vectors and re-vectorize with your current model</small>
-                </button>
-
-                <button id="VectFox_dim_fix_switch" class="vectfox-btn-secondary" style="padding: 12px; text-align: left;">
-                    <i class="fa-solid fa-rotate-left"></i>
-                    <strong>I'll switch my embedding model back</strong>
-                    <br><small style="opacity: 0.8;">Keep your vectors; change your embedding settings to match (${sources}${models !== '(not recorded)' ? ': ' + models : ''})</small>
-                </button>
-
-                <button id="VectFox_dim_fix_cancel" class="vectfox-btn-secondary" style="padding: 12px; text-align: left;">
-                    <i class="fa-solid fa-clock"></i>
-                    <strong>Hold off for now</strong>
-                    <br><small style="opacity: 0.8;">I'll figure it out later</small>
-                </button>
-            </div>
-        </div>
-    `;
-
-    // Use callGenericPopup for the dialog
-    const { callGenericPopup, POPUP_TYPE } = await import('../../../../popup.js');
-
-    callGenericPopup(dialogHtml, POPUP_TYPE.TEXT, '', {
-        okButton: false,
-        cancelButton: false,
-        wide: false,
-        allowVerticalScrolling: true,
-    });
-
-    // Bind button handlers
-    $('#VectFox_dim_fix_purge').off('click').on('click', async () => {
-        // Close popup
-        $('.popup-button-close').click();
-
-        // Show confirmation
-        const confirmHtml = `
-            <p><strong>Are you sure you want to purge the Qdrant collection?</strong></p>
-            <p>This will delete all <strong>${pointsCount.toLocaleString()}</strong> vectors permanently.</p>
-            <p>You'll need to re-vectorize all your chats, lorebooks, and documents.</p>
-        `;
-
-        const confirmed = await callGenericPopup(confirmHtml, POPUP_TYPE.CONFIRM, '', {
-            okButton: 'Yes, purge it',
-            cancelButton: 'Cancel',
-        });
-
-        if (confirmed) {
-            toastr.info('Purging Qdrant collection...');
-            try {
-                const { getRequestHeaders } = await import('../../../../../script.js');
-                const response = await fetch('/api/plugins/similharity/backend/qdrant/purge-collection', {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({ collectionName: 'VectFox_main' })
-                });
-
-                if (response.ok) {
-                    toastr.success('Qdrant collection purged! You can now re-vectorize your content.');
-                    closeDiagnosticsModal();
-                } else {
-                    const error = await response.text();
-                    toastr.error(`Failed to purge: ${error}`);
-                }
-            } catch (e) {
-                toastr.error(`Purge failed: ${e.message}`);
-            }
-        }
-    });
-
-    $('#VectFox_dim_fix_switch').off('click').on('click', () => {
-        $('.popup-button-close').click();
-        toastr.info(`Switch your embedding provider to "${sources}"${models !== '(not recorded)' ? ` with model "${models}"` : ''} to match your stored vectors.`);
-        closeDiagnosticsModal();
-        // Scroll to provider settings
-        $('#VectFox_provider_settings')[0]?.scrollIntoView({ behavior: 'smooth' });
-    });
-
-    $('#VectFox_dim_fix_cancel').off('click').on('click', () => {
-        $('.popup-button-close').click();
-    });
-}
-
-/**
- * Hides diagnostics output
- */
-export function hideDiagnosticsResults() {
-    $('#VectFox_diagnostics_output').hide();
 }

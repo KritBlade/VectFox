@@ -83,7 +83,7 @@ const STRATEGIES = {
      * Per Message - each message becomes one chunk
      * @param {Array} messages - Array of message objects with .text or .mes
      */
-    per_message: (messages, options) => {
+    per_message: (messages) => {
         if (!Array.isArray(messages)) {
             // Single text input - treat as one chunk
             const text = typeof messages === 'string' ? messages : (messages.text || messages.mes || String(messages));
@@ -113,7 +113,7 @@ const STRATEGIES = {
      * Conversation Turns - pairs user + AI messages together
      * @param {Array} messages - Array of message objects
      */
-    conversation_turns: (messages, options) => {
+    conversation_turns: (messages) => {
         if (!Array.isArray(messages) || messages.length === 0) {
             return [];
         }
@@ -201,7 +201,7 @@ const STRATEGIES = {
     /**
      * Split on paragraph boundaries (double newlines)
      */
-    paragraph: (text, options) => {
+    paragraph: (text) => {
         if (typeof text !== 'string') {
             return [String(text)];
         }
@@ -282,7 +282,7 @@ const STRATEGIES = {
     /**
      * Per Entry - each lorebook entry becomes one chunk
      */
-    per_entry: (entries, options) => {
+    per_entry: (entries) => {
         if (!Array.isArray(entries)) {
             return [typeof entries === 'string' ? entries : String(entries)];
         }
@@ -301,7 +301,7 @@ const STRATEGIES = {
     /**
      * Per Field - each character field becomes one chunk
      */
-    per_field: (fields, options) => {
+    per_field: (fields) => {
         if (typeof fields !== 'object' || Array.isArray(fields)) {
             return [String(fields)];
         }
@@ -457,23 +457,3 @@ function splitLargeParagraph(text, maxSize) {
     return chunks;
 }
 
-/**
- * Get available strategies
- */
-export function getAvailableStrategies() {
-    return Object.keys(STRATEGIES);
-}
-
-/**
- * Check if a strategy is unit-based (doesn't use size controls)
- */
-export function isUnitStrategy(strategyId) {
-    return ['per_message', 'conversation_turns', 'message_batch', 'per_entry', 'per_field'].includes(strategyId);
-}
-
-/**
- * Get chat-specific strategies
- */
-export function getChatStrategies() {
-    return ['per_message', 'conversation_turns', 'message_batch', 'adaptive'];
-}

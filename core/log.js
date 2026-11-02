@@ -6,7 +6,7 @@
  * old ad-hoc mix of `console.log` + scattered debug-flag checks
  * (`eventbase_debug_logging`, `debug_vectorizing_log`, etc.).
  *
- * Spec: plans/logging-levels-and-classification.md
+ * Spec: plans/executed/logging-levels-and-classification.md
  *
  * Levels are chosen by CALL FREQUENCY, not by topic:
  *   error / warn          — always on, never gated
@@ -24,9 +24,6 @@
 import { extension_settings } from '../../../../extensions.js';
 
 const VERBOSITY_LEVELS = { off: 0, lifecycle: 1, verbose: 2, trace: 3 };
-
-/** Valid domain keys — must match the `debug_domain.*` settings + UI toggles. */
-export const LOG_DOMAINS = ['raw_llm', 'qdrant', 'standard', 'injection', 'agent', 'rerank'];
 
 function getVerbosity() {
     const setting = extension_settings?.vectfox?.debug_verbosity;
@@ -61,7 +58,7 @@ export const log = {
     /**
      * Subsystem deep-dive. Fires only when the matching `debug_domain.<name>`
      * toggle is on, regardless of the verbosity dropdown.
-     * @param {string} name  one of LOG_DOMAINS
+     * @param {string} name  a key of the `debug_domain` setting (defaults in index.js)
      * @param {string} level internal level — metadata for future sub-gating; ignored for now
      */
     domain: (name, level, ...args) => {

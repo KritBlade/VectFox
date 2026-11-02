@@ -13,8 +13,6 @@ export const RETRIEVAL_KEYWORD_LEVELS = {
     maximum: { label: 'Maximum — 70 keywords', maxKeywords: 70 },
 };
 
-export const DEFAULT_RETRIEVAL_KEYWORD_LEVEL = 'balance';
-
 /**
  * Extract search keywords from a mixed Latin/CJK query string.
  *

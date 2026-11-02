@@ -12,9 +12,6 @@
 
 import {
   loadAllCollections,
-  setCollectionEnabled,
-  registerCollection,
-  unregisterCollection,
   clearCollectionRegistry,
   deleteCollection,
   sanitizeHandleId,
@@ -23,33 +20,26 @@ import {
 } from "../core/collection-loader.js";
 import { COLLECTION_PREFIXES } from "../core/collection-ids.js";
 import {
-  purgeVectorIndex,
   queryMultipleCollections,
 } from "../core/core-vector-api.js";
 import { getRequestHeaders, getCurrentChatId, eventSource, event_types } from "../../../../../script.js";
 import {
   cleanupOrphanedMeta,
-  deleteCollectionMeta,
   getCollectionConditions,
   setCollectionConditions,
   getCollectionTriggers,
-  setCollectionTriggers,
   getCollectionMeta,
   setCollectionMeta,
   getCollectionActivationSummary,
-  isCollectionEnabled,
-  // Locking API
+  setCollectionEnabled,
   getCollectionLocks,
   setCollectionLock,
   removeCollectionLock,
-  clearCollectionLock,
   isCollectionLockedToChat,
   getCollectionLockCount,
-  // Character Locking API
   getCollectionCharacterLocks,
   setCollectionCharacterLock,
   removeCollectionCharacterLock,
-  clearCollectionCharacterLocks,
   isCollectionLockedToCharacter,
   getCollectionCharacterLockCount,
   isCollectionActiveForContext,
@@ -63,7 +53,6 @@ import { icons } from "./icons.js";
 import StringUtils from "../utils/string-utils.js";
 import { log } from "../core/log.js";
 import { openVisualizer } from "./chunk-visualizer.js";
-import { queryCollection } from "../core/core-vector-api.js";
 import {
   exportCollection,
   importCollection,
@@ -79,7 +68,6 @@ import {
   downloadPNG,
   readPNGFile,
   convertToPNG,
-  isVectFoxPNG,
 } from "../core/png-export.js";
 import { renderSizeInspectorTab } from "./size-inspector.js";
 
@@ -803,7 +791,7 @@ function _extractHandleFromCollectionId(collectionId) {
 
 /**
  * Collection prefixes whose collections carry a persona-owned `creatorHandle`.
- * All VECTFOX content types follow the unified `vectfox_<type>_<backend>_<handle>_...`
+ * All VECTFOX content types follow the unified `vf_<type>_<backend>_<handle>_...`
  * naming protocol and are persona-scoped.
  */
 const _PERSONA_SCOPED_PREFIXES = [
@@ -815,16 +803,16 @@ const _PERSONA_SCOPED_PREFIXES = [
 ];
 
 /**
- * Filter collections to only the current persona's chat-scoped collections.
- * Global-scope collections (lorebook, document, character) are always kept.
+ * Hides the VectFox collections the current persona does not own. Every VectFox
+ * content type (eventbase, archived events, lorebook, character, document) is
+ * persona-scoped; a collection without a VectFox prefix is always kept.
  *
- * Authoritative source: `creatorHandle` stamped onto collection metadata at
- * registerCollection time (see core/collection-loader.js). Exact-equality check —
- * collision-proof regardless of underscores in handle or charName.
- *
- * Chat-scoped collections without a `creatorHandle` are treated as foreign and hidden.
- * loadAllCollections() calls registerCollection() for every registry entry on each open,
- * so the stamp is always applied before this filter runs — even for pre-stamp or imported entries.
+ * Ownership comes from getCollectionListing: the `creatorHandle` stamped onto
+ * collection metadata at registerCollection time (exact equality, collision-proof
+ * regardless of underscores in handle or charName), or for an unstamped entry the
+ * handle inside its ID. loadAllCollections() calls registerCollection() for every
+ * registry entry on each open, so the stamp is applied before this filter runs —
+ * even for pre-stamp or imported entries.
  *
  * UI-only filter — not access control. The server still stores everything;
  * a determined user could load another persona's collection by knowing its ID.
@@ -856,12 +844,12 @@ function _filterCollectionsByCurrentPersona(collections) {
   return collections.filter((c) => {
     const idLower = String(c.id || "").toLowerCase();
 
-    // Persona-scoped check by prefix (chat / eventbase / archiveevent).
+    // Persona-scoped: any VectFox content-type prefix.
     const isPersonaScoped = _PERSONA_SCOPED_PREFIXES.some((prefix) =>
       idLower.startsWith(prefix.toLowerCase())
     );
 
-    // Shared types (lorebook / document / character) — always visible.
+    // Not a VectFox collection — always visible.
     if (!isPersonaScoped) return true;
 
     // Persona-scoped — keep only if the listing says we own it.
@@ -1044,17 +1032,8 @@ function renderCollectionCard(collection, isActiveById = null) {
     ? '<span class="vectfox-badge vectfox-badge-success">Active</span>'
     : '<span class="vectfox-badge vectfox-badge-muted">Paused</span>';
 
-  // Activation badge (shows triggers or conditions)
+  // Drives the Settings button's highlight when activation is not on auto
   const activationSummary = getCollectionActivationSummary(collection.id);
-  let activationBadge = "";
-  if (activationSummary.alwaysActive) {
-    activationBadge =
-      '<span class="vectfox-badge vectfox-badge-always" title="Always active">∞ Always</span>';
-  } else if (activationSummary.triggerCount > 0) {
-    activationBadge = `<span class="vectfox-badge vectfox-badge-triggers" title="${activationSummary.triggerCount} trigger(s)">🎯 ${activationSummary.triggerCount}</span>`;
-  } else if (activationSummary.conditionsEnabled) {
-    activationBadge = `<span class="vectfox-badge vectfox-badge-conditions" title="${activationSummary.conditionCount} condition(s)">⚡ ${activationSummary.conditionCount}</span>`;
-  }
 
   // Backend badge - shows vector database (Standard, Qdrant)
   const backendDisplayName =
@@ -2664,7 +2643,7 @@ function renderConditionSettings(rule, index) {
                 </select>
             `;
 
-    case "generationType":
+    case "generationType": {
       const genOptions = VALID_GENERATION_TYPES.map(
         (g) =>
           `<option value="${g}" ${(settings.values || []).includes(g) ? "selected" : ""}>${g}</option>`,
@@ -2674,8 +2653,9 @@ function renderConditionSettings(rule, index) {
                     ${genOptions}
                 </select>
             `;
+    }
 
-    case "lorebookActive":
+    case "lorebookActive": {
       // Get available world names for the picker
       const availableWorlds = world_names || [];
       const worldOptions = availableWorlds
@@ -2708,6 +2688,7 @@ function renderConditionSettings(rule, index) {
                     <input type="hidden" data-field="values" data-rule-index="${index}" value="${selectedValues.join(",")}">
                 </div>
             `;
+    }
 
     case "timeOfDay":
       return `

@@ -2,28 +2,23 @@
  * ============================================================================
  * LLM PROVIDER CALL (shared)
  * ============================================================================
- * Single home for the OpenAI-compatible chat-completions plumbing that four
- * VectFox features previously each re-implemented (summarizer.js,
- * eventbase-extractor.js, agentic-retrieval.js, and reformat-extractor.js):
+ * The OpenAI-compatible chat-completions plumbing that VectFox's LLM features
+ * share (eventbase-extractor.js, agentic-retrieval.js, reformat-extractor.js):
  * build request body → POST through ST's proxy → classify the response
  * (auth / model-config / connection / generic) → extract the reply → classify
  * an empty reply. Plus the LLM-output JSON-array parser both extraction
- * features shared verbatim, and the string-array coercion the two schemas
- * copied.
+ * features use, and the string-array coercion their two schemas share.
  *
  * DESIGN — neutral core, feature policy at the edge.
  * This module throws ONE neutral error type (LlmCallError, carrying a `kind`).
  * Each caller keeps its own config resolution + pre-fetch presence checks
- * (whose messages legitimately differ — "set the key in EventBase settings"
- * vs "…in Summarize Before Store settings") and maps LlmCallError.kind onto
- * its own feature error class in a tiny catch. That preserves every feature's
- * existing error TYPES (SummarizationFatalError / EventBaseFatalError / …) and
- * fatal-vs-retryable policy, while the ~70 lines of identical HTTP mechanics
- * live here once.
+ * (whose messages legitimately differ per feature) and maps LlmCallError.kind
+ * onto its own feature error class in a tiny catch. That keeps every feature's
+ * error TYPES (EventBaseFatalError / …) and fatal-vs-retryable policy, while
+ * the HTTP mechanics live here once.
  *
- * The wire path (fetch to /api/backends/chat-completions/generate) had NO
- * wire-level test coverage across any of the four copies; consolidating it
- * here means it can finally be tested once — see tests/llm-provider-call.test.js.
+ * The wire path (fetch to /api/backends/chat-completions/generate) is tested in
+ * tests/llm-provider-call.test.js.
  * ============================================================================
  */
 

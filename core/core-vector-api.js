@@ -6,9 +6,7 @@
  * Routes to different backends: ST's Vectra API (Standard) or Qdrant.
  *
  * Functions:
- * - getVectorsRequestBody() - Builds request body for embedding providers
- * - getAdditionalArgs() - Special handling for WebLLM/KoboldCpp
- * - throwIfSourceInvalid() - Validates provider configuration
+ * - getAdditionalArgs() - Client-side embedding arguments (no provider produces any)
  * - getSavedHashes() - GET existing hashes from a collection
  * - insertVectorItems() - POST embeddings to backend
  * - queryCollection() - POST query to find similar vectors
@@ -16,34 +14,21 @@
  * - deleteVectorItems() - DELETE specific hashes
  * - purgeVectorIndex() - DELETE entire collection
  * - purgeAllVectorIndexes() - DELETE all collections
- * - purgeFileVectorIndex() - DELETE file-specific collection
  *
  * @author Base: Cohee#1207 | VectFox: Backend abstraction
  * ============================================================================
  */
 
 import { getRequestHeaders } from '../../../../../script.js';
-import { extension_settings, modules } from '../../../../extensions.js';
-import { secret_state } from '../../../../secrets.js';
-import { textgen_types, textgenerationwebui_settings } from '../../../../textgen-settings.js';
 // Embedding-side: no key helpers needed here. vLLM, Ollama, and other
 // "local-or-self-hosted" providers either resolve keys server-side via ST
 // (vLLM → SECRET_KEYS.VLLM) or send no auth at all (Ollama — ST has no
 // auth path for it). Cloud providers like OpenRouter route through ST's
 // chat-completions proxy from elsewhere, not through this file.
-import { oai_settings } from '../../../../openai.js';
-import { isWebLlmSupported } from '../../../shared.js';
-import { getWebLlmProvider } from '../providers/webllm.js';
 import { getBackend, getBackendForCollection, invalidateBackendHealth, recordQuery, recordInsert, recordDelete, recordError } from '../backends/backend-manager.js';
-import { parseRegistryKey, resolveBackendForCollection } from './collection-ids.js';
+import { resolveBackendForCollection } from './collection-ids.js';
 import {
-    getProviderConfig,
-    getModelField,
     getModelFromSettings,
-    getSecretKey,
-    requiresApiKey,
-    requiresUrl,
-    getUrlProviders,
     resolveProviderApiUrl
 } from './providers.js';
 import { isConnectionError, notifyConnectionError } from './model-config-notifier.js';
@@ -68,16 +53,11 @@ async function _invalidateCorpusStats(collectionId, reason) {
         mod.clearCorpusStatsCache(collectionId);
         log.trace(`[CorpusStats] Invalidated cache for ${collectionId} (${reason})`);
     } catch (err) {
-        // Silent — invalidation is best-effort. Stale stats are acceptable;
-        // a stack trace mid-write is not.
+        log.warn(`[CorpusStats] Cache invalidation failed for ${collectionId}:`, err);
     }
 }
 import AsyncUtils from '../utils/async-utils.js';
-import StringUtils from '../utils/string-utils.js';
 import {
-    RATE_LIMIT_CALLS,
-    RATE_LIMIT_WINDOW_MS,
-    API_TIMEOUT_MS,
     RETRY_MAX_ATTEMPTS,
     RETRY_INITIAL_DELAY_MS,
     RETRY_MAX_DELAY_MS,
@@ -85,7 +65,6 @@ import {
 } from './constants.js';
 
 // Get shared WebLLM provider singleton (lazy-initialized)
-const webllmProvider = getWebLlmProvider();
 
 /**
  * VEC-33: Wrapper for backend operations that invalidates health cache on error
@@ -393,272 +372,13 @@ const RETRY_CONFIG = {
 };
 
 /**
- * Strips HTML and Markdown formatting from text before embedding.
- * Uses StringUtils from ST-Helpers for consistent text cleaning.
- * @param {string} text - Text to clean
- * @returns {string} Cleaned text
- */
-function stripFormatting(text) {
-    if (!text || typeof text !== 'string') {
-        return text;
-    }
-    // Strip HTML first, then Markdown
-    let cleaned = StringUtils.stripHtml(text, true);
-    cleaned = StringUtils.stripMarkdown(cleaned);
-    return cleaned.trim();
-}
-
-/**
- * Gets common body parameters for vector requests.
- * @param {object} args Additional arguments
- * @param {object} settings VectFox settings object
- * @returns {object} Request body
- */
-export function getVectorsRequestBody(args = {}, settings) {
-    const body = Object.assign({}, args);
-    switch (settings.embedding_provider) {
-        case 'openrouter':
-            body.model = settings.embedding_openrouter_model;
-            break;
-        case 'ollama':
-            body.model = settings.embedding_ollama_model;
-            body.apiUrl = resolveProviderApiUrl(settings, 'ollama');
-            body.keep = !!settings.ollama_keep;
-            // No apiKey: ST has no ollama auth path. See backends/qdrant.js for
-            // the full rationale.
-            break;
-        case 'vllm':
-            body.apiUrl = resolveProviderApiUrl(settings, 'vllm')
-                ?.replace(/\/$/, '')
-                .replace(/\/v1\/embeddings$/, '')
-                .replace(/\/embeddings$/, '');
-            body.model = settings.embedding_vllm_model;
-            // No apiKey passed: ST's vLLM embedding handler reads
-            // SECRET_KEYS.VLLM server-side. See backends/standard.js for the
-            // full rationale.
-            break;
-        // case 'extras': body.extrasUrl = extension_settings.apiUrl; body.extrasKey = extension_settings.apiKey; break;
-        // case 'electronhub': body.model = settings.electronhub_model; break;
-        // case 'togetherai': body.model = settings.togetherai_model; break;
-        // case 'openai': body.model = settings.openai_model; break;
-        // case 'cohere': body.model = settings.cohere_model; break;
-        // case 'llamacpp': body.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.LLAMACPP]; break;
-        // case 'webllm': body.model = settings.webllm_model; break;
-        // case 'palm': body.model = settings.google_model; body.api = 'makersuite'; break;
-        // case 'vertexai': body.model = settings.google_model; body.api = 'vertexai'; body.vertexai_auth_mode = oai_settings.vertexai_auth_mode; body.vertexai_region = oai_settings.vertexai_region; body.vertexai_express_project_id = oai_settings.vertexai_express_project_id; break;
-        default:
-            break;
-    }
-    return body;
-}
-
-/**
- * Gets additional arguments for embeddings.
- * For client-side providers (webllm, koboldcpp), this generates embeddings.
- * @param {string[]} items Items to embed
- * @param {object} settings VectFox settings object
- * @param {Function} onProgress - Optional callback (embedded, total) => void for progress updates
+ * Gets additional arguments for embeddings: the client-side embeddings of a provider that
+ * embeds in the browser. No provider does, so this returns {} and every caller takes the
+ * server-side path.
  * @returns {Promise<object>} Additional arguments
  */
-export async function getAdditionalArgs(items, settings, onProgress = null) {
-    const args = {};
-    switch (settings.embedding_provider) {
-        // case 'webllm': args.embeddings = await createWebLlmEmbeddings(items, settings); break;
-        // case 'koboldcpp': { const { embeddings, model } = await createKoboldCppEmbeddings(items, settings, onProgress); args.embeddings = embeddings; args.model = model; break; }
-    }
-    return args;
-}
-
-/**
- * Creates WebLLM embeddings for a list of items.
- * Wrapped with retry and timeout for robustness.
- * @param {string[]} items Items to embed
- * @param {object} settings VectFox settings object
- * @returns {Promise<Record<string, number[]>>} Calculated embeddings
- */
-async function createWebLlmEmbeddings(items, settings) {
-    if (items.length === 0) {
-        return /** @type {Record<string, number[]>} */ ({});
-    }
-
-    if (!isWebLlmSupported()) {
-        throw new Error('VectFox: WebLLM is not supported', { cause: 'webllm_not_supported' });
-    }
-
-    // Clean text before embedding
-    const cleanedItems = items.map(item => stripFormatting(item) || item);
-
-    return await AsyncUtils.retry(async () => {
-        const embedPromise = webllmProvider.embedTexts(cleanedItems, settings.webllm_model);
-        const embeddings = await AsyncUtils.timeout(embedPromise, API_TIMEOUT_MS * 2, 'WebLLM embedding request timed out');
-
-        const result = /** @type {Record<string, number[]>} */ ({});
-        for (let i = 0; i < items.length; i++) {
-            // Map back to original items for hash consistency
-            result[items[i]] = embeddings[i];
-        }
-        return result;
-    }, {
-        ...RETRY_CONFIG,
-        onRetry: (attempt, error) => {
-            log.warn(`VectFox: WebLLM embedding retry ${attempt} - ${error.message}`);
-        }
-    });
-}
-
-/**
- * Creates KoboldCpp embeddings for a list of items.
- * Wrapped with retry and rate limiting for robustness.
- * @param {string[]} items Items to embed
- * @param {object} settings VectFox settings object
- * @param {Function} onProgress - Optional callback (embedded, total) => void for progress updates
- * @returns {Promise<{embeddings: Record<string, number[]>, model: string}>} Calculated embeddings
- */
-async function createKoboldCppEmbeddings(items, settings, onProgress = null) {
-    // Clean text before embedding (strip HTML/Markdown)
-    const cleanedItems = items.map(item => stripFormatting(item) || item);
-
-    // Batch size for progress tracking
-    const BATCH_SIZE = 10;
-    const allEmbeddings = /** @type {Record<string, number[]>} */ ({});
-    let modelName = 'koboldcpp';
-
-    // Process in batches to show progress
-    for (let i = 0; i < cleanedItems.length; i += BATCH_SIZE) {
-        const batchItems = cleanedItems.slice(i, Math.min(i + BATCH_SIZE, cleanedItems.length));
-        const originalBatchItems = items.slice(i, Math.min(i + BATCH_SIZE, items.length));
-
-        const result = await dynamicRateLimiter.execute(async () => {
-            return await AsyncUtils.retry(async () => {
-                const serverUrl = resolveProviderApiUrl(settings, 'koboldcpp');
-                if (!serverUrl) {
-                    throw new Error('KoboldCpp URL not found');
-                }
-
-                const cleanUrl = serverUrl.replace(/\/$/, '');
-                const response = await fetch(`${cleanUrl}/v1/embeddings`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        input: batchItems,
-                        model: settings.koboldcpp_model || 'koboldcpp',
-                    }),
-                });
-
-                if (!response.ok) {
-                    // Try legacy endpoint if v1 fails (fallback)
-                    if (response.status === 404) {
-                        log.warn('VectFox: KoboldCpp /v1/embeddings not found, trying legacy endpoint...');
-                        // Fallthrough to retry or handle legacy?
-                        // Better to throw specific error so we can potentially retry with legacy logic if we wanted,
-                        // but for now let's stick to the directive of using OpenAI compatible endpoint.
-                    }
-                    throw new Error(`Failed to get KoboldCpp embeddings: ${response.status} ${response.statusText}`);
-                }
-
-                const data = await response.json();
-
-                // OpenAI format: { data: [{ embedding: [], index: 0, ... }, ...], model: "..." }
-                if (!data.data || !Array.isArray(data.data) || data.data.length !== batchItems.length) {
-                     throw new Error('Invalid response from KoboldCpp embeddings (OpenAI format)');
-                }
-
-                // Sort by index to ensure order matches items
-                data.data.sort((a, b) => a.index - b.index);
-
-                const batchEmbeddings = {};
-                for (let j = 0; j < data.data.length; j++) {
-                    const embedding = data.data[j].embedding;
-                    if (!Array.isArray(embedding) || embedding.length === 0) {
-                        throw new Error('KoboldCpp returned an empty embedding.');
-                    }
-                    // Map back to original items (not cleaned) for hash consistency
-                    batchEmbeddings[originalBatchItems[j]] = embedding;
-                }
-
-                return {
-                    embeddings: batchEmbeddings,
-                    model: data.model || 'koboldcpp',
-                };
-            }, {
-                ...RETRY_CONFIG,
-                onRetry: (attempt, error) => {
-                    log.warn(`VectFox: KoboldCpp embedding retry ${attempt} - ${error.message}`);
-                }
-            });
-        }, settings);
-
-        // Merge batch embeddings into all embeddings
-        Object.assign(allEmbeddings, result.embeddings);
-        modelName = result.model;
-
-        // Call progress callback after each batch
-        const embeddedSoFar = Math.min(i + BATCH_SIZE, items.length);
-        if (onProgress) {
-            log.verbose(`[KoboldCpp] Calling progress callback: ${embeddedSoFar}/${items.length}`);
-            onProgress(embeddedSoFar, items.length);
-        }
-    }
-
-    return {
-        embeddings: allEmbeddings,
-        model: modelName,
-    };
-}
-
-/**
- * Throws an error if the source is invalid (missing API key or URL, or missing module)
- * @param {object} settings VectFox settings object
- */
-export function throwIfSourceInvalid(settings) {
-    const source = settings.embedding_provider;
-    const config = getProviderConfig(source);
-
-    if (!config) {
-        throw new Error(`VectFox: Unknown provider ${source}`, { cause: 'unknown_provider' });
-    }
-
-    // Check API key requirement
-    if (requiresApiKey(source)) {
-        const secretKey = getSecretKey(source);
-        if (secretKey && !secret_state[secretKey]) {
-            // Special case: VertexAI can use service account as fallback
-            if (source === 'vertexai' && secret_state['VERTEXAI_SERVICE_ACCOUNT']) {
-                // Service account auth is available, continue
-            } else {
-                throw new Error('VectFox: API key missing', { cause: 'api_key_missing' });
-            }
-        }
-    }
-
-    // Check URL requirement. resolveProviderApiUrl() reads the canonical
-    // per-provider alt-endpoint keys and falls back to ST's native server URL,
-    // so an empty result means nothing is configured for this provider.
-    if (requiresUrl(source)) {
-        if (!resolveProviderApiUrl(settings, source)) {
-            throw new Error('VectFox: API URL missing', { cause: 'api_url_missing' });
-        }
-    }
-
-    // Check model requirement
-    if (config.requiresModel) {
-        const modelField = getModelField(source);
-        if (modelField && !settings[modelField]) {
-            throw new Error('VectFox: API model missing', { cause: 'api_model_missing' });
-        }
-    }
-
-    // Special case: extras requires embeddings module
-    if (source === 'extras' && !modules.includes('embeddings')) {
-        throw new Error('VectFox: Embeddings module missing', { cause: 'extras_module_missing' });
-    }
-
-    // Special case: WebLLM requires browser support
-    if (source === 'webllm' && !isWebLlmSupported()) {
-        throw new Error('VectFox: WebLLM is not supported', { cause: 'webllm_not_supported' });
-    }
+export async function getAdditionalArgs() {
+    return {};
 }
 
 /**
@@ -950,7 +670,7 @@ async function streamEmbeddingsAndWrite(backend, collectionId, items, textString
         let additionalArgs;
         try {
             additionalArgs = await AsyncUtils.retry(async () => {
-                return await getAdditionalArgs(batchTextStrings, settings);
+                return await getAdditionalArgs();
             }, RETRY_CONFIG);
         } catch (error) {
             // A wrong/unreachable embedding URL surfaces here, NOT at the DB-write
@@ -1108,9 +828,8 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
 
     // If source requires client-side embeddings, generate query vector
     if (!queryVector && clientSideEmbeddingSources.includes(settings.embedding_provider)) {
-        const queryItem = [searchText];
         try {
-            const additionalArgs = await getAdditionalArgs(queryItem, settings);
+            const additionalArgs = await getAdditionalArgs();
             // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
             if (additionalArgs.embeddings && additionalArgs.embeddings[searchText]) {
                 queryVector = additionalArgs.embeddings[searchText];
@@ -1311,7 +1030,7 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
     if (clientSideEmbeddingSources.includes(settings.embedding_provider)) {
         try {
             // getAdditionalArgs expects string[], not objects
-            const additionalArgs = await getAdditionalArgs([searchText], settings);
+            const additionalArgs = await getAdditionalArgs();
             // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
             if (additionalArgs.embeddings && additionalArgs.embeddings[searchText]) {
                 queryVector = additionalArgs.embeddings[searchText];
@@ -1410,35 +1129,6 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
 }
 
 /**
- * Queries multiple collections with conditional activation filtering.
- * Collections that don't meet their activation conditions are skipped.
- *
- * @param {string[]} collectionIds - Collection IDs to potentially query
- * @param {string} searchText - Text to query
- * @param {number} topK - Number of results to return
- * @param {number} threshold - Score threshold
- * @param {object} settings - VectFox settings object
- * @param {object} context - Search context (from buildSearchContext)
- * @returns {Promise<Record<string, { hashes: number[], metadata: object[] }>>} - Results mapped to collection IDs
- */
-export async function queryActiveCollections(collectionIds, searchText, topK, threshold, settings, context) {
-    // Lazy import to avoid circular dependency
-    const { filterActiveCollections } = await import('./collection-metadata.js');
-
-    // Filter collections based on their activation conditions
-    const activeCollectionIds = await filterActiveCollections(collectionIds, context);
-
-    if (activeCollectionIds.length === 0) {
-        log.lifecycle('VectFox: No collections passed activation conditions');
-        return {};
-    }
-
-    // Query only the active collections
-    const backend = await getBackend(settings);
-    return await backend.queryMultipleCollections(activeCollectionIds, searchText, topK, threshold, settings);
-}
-
-/**
  * Purges the vector index for a collection.
  * @param {string} collectionId Collection ID to purge
  * @param {object} settings VectFox settings object
@@ -1457,44 +1147,6 @@ export async function purgeVectorIndex(collectionId, settings) {
         invalidateBackendHealth(settings?.vector_backend || 'standard', error);
         log.error('VectFox: Failed to purge', error);
         return false;
-    }
-}
-
-/**
- * Purges the vector index for a file.
- * @param {string} collectionId File collection ID to purge
- * @param {object} settings VectFox settings object
- * @returns {Promise<void>}
- */
-export async function purgeFileVectorIndex(collectionId, settings) {
-    try {
-        log.lifecycle(`VectFox: Purging file vector index for collection ${collectionId}`);
-        const backend = await getBackend(settings);
-        await backend.purgeFileVectorIndex(collectionId, settings);
-        log.lifecycle(`VectFox: Purged vector index for collection ${collectionId}`);
-    } catch (error) {
-        // VEC-33: Invalidate health cache on operation error
-        invalidateBackendHealth(settings?.vector_backend || 'standard', error);
-        log.error('VectFox: Failed to purge file', error);
-    }
-}
-
-/**
- * Purges all vector indexes.
- * @param {object} settings VectFox settings object
- * @returns {Promise<void>}
- */
-export async function purgeAllVectorIndexes(settings) {
-    try {
-        const backend = await getBackend(settings);
-        await backend.purgeAllVectorIndexes(settings);
-        log.lifecycle('VectFox: Purged all vector indexes');
-        toastr.success('All vector indexes purged', 'Purge successful');
-    } catch (error) {
-        // VEC-33: Invalidate health cache on operation error
-        invalidateBackendHealth(settings?.vector_backend || 'standard', error);
-        log.error('VectFox: Failed to purge all', error);
-        toastr.error('Failed to purge all vector indexes', 'Purge failed');
     }
 }
 

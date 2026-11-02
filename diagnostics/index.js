@@ -10,6 +10,7 @@
  * ============================================================================
  */
 
+import { log } from '../core/log.js';
 import {
     checkVectorsExtension,
     checkBackendEndpoints,
@@ -54,8 +55,6 @@ import {
     testKeywordExtraction,
     testKeywordBoosting,
     testLorebookKeywordExtraction,
-    fixOrphanedMetadata,
-    fixDuplicateHashes,
     sweepLeftoverTestCollections
 } from './production-tests.js';
 
@@ -108,7 +107,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
             pluginVersion = data.version || 'Unknown';
         }
     } catch (error) {
-        // Plugin not available
+        log.warn('VectFox: plugin version check failed:', error);
     }
 
     // Auto-clean any ghost test collections from the registry
@@ -257,87 +256,4 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     return results;
 }
 
-/**
- * Gets a user-friendly fix suggestion for a failed check
- * @param {object} check Diagnostic check result
- * @returns {string} Fix suggestion
- */
-export function getFixSuggestion(check) {
-    switch (check.name) {
-        case 'Embedding Provider':
-            return 'Go to VectFox settings and select an embedding provider. For local setup, choose "Transformers" or "Ollama".';
-
-        case 'API Key':
-            return 'Go to SillyTavern Settings > API Connections and add your API key for the selected provider.';
-
-        case 'API URL':
-            return 'Go to SillyTavern Settings > API Connections and configure the server URL for your local embedding provider.';
-
-        case 'Chat Vectors':
-            return 'Click the "Vectorize All" button in VectFox settings to vectorize this chat.';
-
-        case 'Settings Validation':
-            return 'Review your VectFox settings and adjust the values within recommended ranges.';
-
-        case 'Qdrant Backend':
-            return 'Configure Qdrant settings in VectFox panel. For local: set host/port (default 127.0.0.1:6333). Start Qdrant: docker run -p 6333:6333 qdrant/qdrant. Note: Qdrant Cloud may have connectivity issues - local instance recommended.';
-
-        case '[PROD] Chunk-Server Sync':
-            return 'Click "Fix Now" to clean orphaned local metadata entries that no longer have corresponding vectors on the server.';
-
-        case '[PROD] Duplicate Hash Check':
-            return 'Click "Fix Now" to remove duplicate entries. Then re-vectorize the chat to restore clean data. Duplicates usually happen from the native ST vectors extension.';
-
-        case 'Chat Metadata Integrity':
-            return 'Start a new chat or send a message to generate a valid chat UUID. If this persists, the chat file may be corrupted.';
-
-        case 'Condition Rule Validity':
-            return 'Open the Chunk Editor and review the condition rules on affected chunks. Remove invalid operators or fix malformed values.';
-
-        case 'WebLLM Extension':
-            return 'Install the WebLLM extension from Extensions > Download Extensions, then paste: https://github.com/SillyTavern/Extension-WebLLM. Requires Chrome 113+ or Edge 113+ for WebGPU support.';
-
-        default:
-            return 'Check the console for more details.';
-    }
-}
-
-/**
- * Execute a fix action for a diagnostic check
- * @param {object} check Diagnostic check result with fixAction
- * @returns {Promise<object>} Fix result
- */
-export async function executeFixAction(check) {
-    if (!check.fixable || !check.fixAction) {
-        return { success: false, message: 'No fix available for this check' };
-    }
-
-    switch (check.fixAction) {
-        case 'cleanOrphanedMetadata':
-            if (check.data?.orphanedHashes) {
-                return await fixOrphanedMetadata(check.data.orphanedHashes);
-            }
-            return { success: false, message: 'No orphaned hashes found in check data' };
-
-        case 'removeDuplicateHashes':
-            if (check.data?.duplicates && check.data?.collectionId) {
-                // Need settings for the fix function - get from VectFox
-                const { getVectFoxSettings } = await import('../ui/ui-settings.js');
-                const settings = getVectFoxSettings();
-                return await fixDuplicateHashes(check.data.duplicates, check.data.collectionId, settings);
-            }
-            return { success: false, message: 'No duplicate data found in check' };
-
-        case 'install_webllm':
-        case 'update_webllm': {
-            // Open the third-party extension menu with WebLLM URL
-            const { openThirdPartyExtensionMenu } = await import('../../../../extensions.js');
-            openThirdPartyExtensionMenu('https://github.com/SillyTavern/Extension-WebLLM');
-            return { success: true, message: 'Opening extension installer...' };
-        }
-
-        default:
-            return { success: false, message: `Unknown fix action: ${check.fixAction}` };
-    }
-}
 

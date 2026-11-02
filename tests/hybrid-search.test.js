@@ -30,7 +30,7 @@ vi.mock('../core/bm25-scorer.js', () => ({
     // porterStemmer: identity function in tests (real one stems English Latin tokens).
     // hybrid-search.js calls it on every query token after extraction.
     porterStemmer: vi.fn((token) => token),
-    createBM25Scorer: vi.fn((documents, options) => {
+    createBM25Scorer: vi.fn((documents) => {
         // Simple mock BM25 scorer that scores based on query term overlap
         const docs = documents.map(d => {
             const text = (d.text || '').toLowerCase();
@@ -599,7 +599,7 @@ describe('hybridSearch', () => {
         });
 
         const settings = { hybrid_native_prefer: false };
-        const results = await hybridSearch('test-collection', 'dragon', 10, settings);
+        await hybridSearch('test-collection', 'dragon', 10, settings);
 
         expect(mockBackend.hybridQuery).not.toHaveBeenCalled();
         expect(mockBackend.queryCollection).toHaveBeenCalled();
@@ -616,7 +616,7 @@ describe('hybridSearch', () => {
         });
 
         const settings = {};
-        const results = await hybridSearch('test-collection', 'dragon', 10, settings);
+        await hybridSearch('test-collection', 'dragon', 10, settings);
 
         expect(mockBackend.hybridQuery).not.toHaveBeenCalled();
         expect(mockBackend.queryCollection).toHaveBeenCalled();

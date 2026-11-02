@@ -14,7 +14,7 @@
  *    — imported REAL from core/conditional-activation.js.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 const mockSettings = vi.hoisted(() => ({ vectfox: {} }));
 vi.mock('../../../../extensions.js', () => ({ extension_settings: mockSettings }));

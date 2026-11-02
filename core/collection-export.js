@@ -17,23 +17,21 @@
  * ============================================================================
  */
 
-import { extension_settings, getContext } from '../../../../extensions.js';
+import { getContext } from '../../../../extensions.js';
 import { getRequestHeaders, saveSettingsDebounced } from '../../../../../script.js';
-import { getSavedHashes, insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
+import { insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
 import {
     getCollectionMeta,
     setCollectionMeta,
     getChunkMetadata,
     saveChunkMetadata,
-    getAllChunkMetadata,
     clearCollectionLock,
     getEffectiveScope,
 } from './collection-metadata.js';
 import {
     registerCollection,
-    getCollectionRegistry,
 } from './collection-loader.js';
-import { COLLECTION_PREFIXES, buildRegistryKey, parseCollectionId, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from './collection-ids.js';
+import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from './collection-ids.js';
 import { getModelFromSettings } from './providers.js';
 import { encodeSparseVector } from './sparse-vector-encoder.js';
 import { progressTracker } from '../ui/progress-tracker.js';
@@ -57,9 +55,6 @@ const EXPORT_VERSION = '1.0.0';
 
 /** File extension for VectFox exports */
 export const EXPORT_FILE_EXTENSION = '.vectfox.json';
-
-/** Maximum chunks to export at once (for progress updates) */
-const EXPORT_BATCH_SIZE = 100;
 
 // Backend-name helpers (normalize / remap) used to live here as private copies;
 // they're now canonicalized in core/collection-ids.js (`normalizeBackendForId`,
@@ -267,128 +262,6 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
 }
 
 /**
- * Exports multiple collections to a single file
- * @param {string[]} collectionIds - Collections to export
- * @param {object} settings - VectFox settings
- * @returns {Promise<object>} Export data with multiple collections
- */
-export async function exportMultipleCollections(collectionIds, settings) {
-    progressTracker.show('Exporting Collections', collectionIds.length, 'Collections');
-
-    const exports = [];
-    const errors = [];
-
-    for (let i = 0; i < collectionIds.length; i++) {
-        const collectionId = collectionIds[i];
-        progressTracker.updateProgress(i + 1, `Exporting: ${collectionId}`);
-        progressTracker.updateCurrentItem(collectionId);
-
-        try {
-            // Export without showing nested progress
-            const collectionMeta = getCollectionMeta(collectionId) || {};
-            const chunksResult = await getSavedHashes(collectionId, settings, true);
-
-            let chunks = [];
-            if (chunksResult && chunksResult.metadata) {
-                chunks = chunksResult.metadata.map(meta => ({
-                    hash: meta.hash,
-                    text: meta.text || '',
-                    index: meta.index,
-                    metadata: {
-                        contentType: meta.contentType,
-                        sourceName: meta.sourceName,
-                        entryName: meta.entryName,
-                        entryUid: meta.entryUid,
-                        keywords: meta.keywords || [],
-                        keywordLevel: meta.keywordLevel,
-                        keywordBaseWeight: meta.keywordBaseWeight,
-                        importance: meta.importance,
-                        conditions: meta.conditions,
-                        isSummaryChunk: meta.isSummaryChunk,
-                        parentHash: meta.parentHash,
-                        speaker: meta.speaker,
-                        isUser: meta.isUser,
-                        messageId: meta.messageId,
-                        // Per-chunk user overrides — backend is the source of truth, so these
-                        // must roundtrip via the payload (not just ext_settings/chunkMeta).
-                        name: meta.name,
-                        context: meta.context,
-                        xmlTag: meta.xmlTag,
-                        position: meta.position,
-                        depth: meta.depth,
-                        enabled: meta.enabled,
-                        chunkLinks: meta.chunkLinks,
-                    },
-                }));
-
-                for (const chunk of chunks) {
-                    const chunkMeta = getChunkMetadata(chunk.hash);
-                    if (chunkMeta) {
-                        chunk.chunkMeta = chunkMeta;
-                    }
-                }
-            }
-
-            exports.push({
-                collection: {
-                    id: collectionId,
-                    name: collectionMeta.displayName || collectionId,
-                    description: collectionMeta.description || '',
-                    contentType: collectionMeta.contentType || detectContentType(collectionId),
-                    // Auto-resolved by getCollectionMeta — see Doc/collection_helper.md.
-                    scope: collectionMeta.scope,
-                    tags: collectionMeta.tags || [],
-                    color: collectionMeta.color,
-                    createdAt: collectionMeta.createdAt,
-                },
-                settings: {
-                    alwaysActive: collectionMeta.alwaysActive || false,
-                    triggers: collectionMeta.triggers || [],
-                    triggerMatchMode: collectionMeta.triggerMatchMode || 'any',
-                    triggerCaseSensitive: collectionMeta.triggerCaseSensitive || false,
-                    triggerScanDepth: collectionMeta.triggerScanDepth || 5,
-                    conditions: collectionMeta.conditions || { enabled: false, logic: 'AND', rules: [] },
-                    temporalDecay: collectionMeta.temporalDecay || {
-                        enabled: false,
-                        mode: 'exponential',
-                        halfLife: 50,
-                        linearRate: 0.01,
-                        minRelevance: 0.3,
-                    },
-                    context: collectionMeta.context || '',
-                    xmlTag: collectionMeta.xmlTag || '',
-                },
-                chunks: chunks,
-                stats: {
-                    chunkCount: chunks.length,
-                    hasText: chunks.filter(c => c.text).length,
-                    hasKeywords: chunks.filter(c => c.metadata?.keywords?.length > 0).length,
-                },
-            });
-        } catch (error) {
-            log.error(`VectFox Export: Failed to export ${collectionId}:`, error);
-            errors.push({ collectionId, error: error.message });
-        }
-    }
-
-    progressTracker.complete(errors.length === 0, `Exported ${exports.length}/${collectionIds.length} collections`);
-
-    return {
-        version: EXPORT_VERSION,
-        exportDate: new Date().toISOString(),
-        generator: 'VectFox',
-        type: 'multi',
-        collections: exports,
-        errors: errors,
-        stats: {
-            totalCollections: exports.length,
-            totalChunks: exports.reduce((sum, e) => sum + e.chunks.length, 0),
-            failedCollections: errors.length,
-        },
-    };
-}
-
-/**
  * Downloads export data as a JSON file
  * @param {object} exportData - The export data object
  * @param {string} filename - Optional filename (without extension)
@@ -403,6 +276,7 @@ export function downloadExport(exportData, filename = null) {
     // Preserves letters (including CJK), digits, hyphens, dots, and underscores.
     const sanitized = String(rawName)
         .replace(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu, '')
+        // eslint-disable-next-line no-control-regex -- control characters are not allowed in file names
         .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
         .replace(/\s+/g, '_')
         .replace(/_+/g, '_')
@@ -905,211 +779,6 @@ export async function importCollection(exportData, settings, options = {}) {
     }
 }
 
-/**
- * Imports multiple collections from a multi-export file
- * @param {object} multiExportData - Multi-collection export data
- * @param {object} settings - VectFox settings
- * @param {object} options - Import options
- * @returns {Promise<{ success: boolean, imported: number, failed: number, results: object[] }>}
- */
-export async function importMultipleCollections(multiExportData, settings, options = {}) {
-    const collections = multiExportData.collections || [];
-
-    if (collections.length === 0) {
-        throw new Error('No collections in export file');
-    }
-
-    progressTracker.show('Importing Collections', collections.length, 'Collections');
-
-    const results = [];
-    let imported = 0;
-    let failed = 0;
-
-    for (let i = 0; i < collections.length; i++) {
-        const exportItem = collections[i];
-        const collectionId = exportItem.collection?.id;
-
-        progressTracker.updateProgress(i + 1, `Importing: ${collectionId || 'unknown'}`);
-        progressTracker.updateCurrentItem(collectionId || `Collection ${i + 1}`);
-
-        try {
-            // Don't show nested progress tracker
-            const result = await importCollectionSilent(exportItem, settings, options);
-            results.push(result);
-            imported++;
-        } catch (error) {
-            log.error(`VectFox Import: Failed to import ${collectionId}:`, error);
-            results.push({
-                success: false,
-                collectionId,
-                error: error.message,
-            });
-            failed++;
-        }
-    }
-
-    progressTracker.complete(failed === 0, `Imported ${imported}/${collections.length} collections`);
-
-    return {
-        success: failed === 0,
-        imported,
-        failed,
-        results,
-    };
-}
-
-/**
- * Silent import (no progress tracker) for batch operations
- */
-async function importCollectionSilent(exportData, settings, options = {}) {
-    const sourceCollection = exportData.collection || {};
-    const sourceId = options.collectionId || sourceCollection.id;
-
-    if (!sourceId) {
-        throw new Error('No collection ID specified');
-    }
-
-    // Remap collection ID when the export's backend differs from the current
-    // backend — same logic as importCollection. Missing this previously caused
-    // bulk-imports of qdrant exports into standard to keep the `_qdrant_`
-    // segment in the on-disk vectra folder name, breaking every other code
-    // path that parses the backend out of the ID. Surfaced 2026-05-23.
-    const targetBackendLabel = normalizeBackendForId(settings.vector_backend);
-    const targetHandle = sanitizeHandleId(getContext()?.name1);
-    const backendRemapped = remapCollectionIdToBackend(sourceId, targetBackendLabel);
-    const collectionId = remapCollectionIdToHandle(backendRemapped, targetHandle);
-    if (collectionId !== sourceId) {
-        const srcLabel = normalizeBackendForId(exportData.embedding?.backend || '?');
-        log.lifecycle(`VectFox Import (silent): remapped (backend ${srcLabel} → ${targetBackendLabel}, handle → ${targetHandle}): "${sourceId}" → "${collectionId}"`);
-    }
-
-    const chunks = exportData.chunks || [];
-    const validChunks = chunks.filter(c => c.text && c.text.trim());
-
-    if (validChunks.length === 0) {
-        throw new Error('No valid chunks to import');
-    }
-
-    // Mirror importCollection's vector validation: NaN/Infinity guard +
-    // dimension consistency check. Standard/Vectra silently accepts bad
-    // dims; Qdrant catches it reactively. Catching it here once per import
-    // gives a clear actionable error regardless of target backend.
-    let importDim = null;
-    for (let i = 0; i < validChunks.length; i++) {
-        const v = validChunks[i].vector;
-        if (!v || !Array.isArray(v)) continue;
-        for (let j = 0; j < v.length; j++) {
-            if (!Number.isFinite(v[j])) {
-                throw new Error(`Chunk ${i} vector has non-finite component at index ${j} (value: ${v[j]}). Refusing to import.`);
-            }
-        }
-        if (importDim === null) {
-            importDim = v.length;
-        } else if (v.length !== importDim) {
-            throw new Error(
-                `Vector dimension mismatch: chunk 0 has dim=${importDim}, ` +
-                `chunk ${i} has dim=${v.length}. All vectors in an import must share one dimension. ` +
-                `Refusing to import.`
-            );
-        }
-    }
-
-    // Check if we can use pre-computed vectors
-    const embeddingInfo = exportData.embedding || {};
-    const chunksWithVectors = validChunks.filter(c => c.vector && Array.isArray(c.vector));
-    const canUseVectors = !options.forceReembed &&
-        chunksWithVectors.length === validChunks.length &&
-        embeddingInfo.source === settings.embedding_provider &&
-        (!embeddingInfo.model || !getModelFromSettings(settings) || embeddingInfo.model === getModelFromSettings(settings));
-
-    // Handle existing collection
-    if (options.overwrite) {
-        try {
-            await purgeVectorIndex(collectionId, settings);
-        } catch (e) {
-            // Collection might not exist - log at debug level
-            log.trace(`VectFox Import: Could not purge ${collectionId} (may not exist):`, e.message);
-        }
-    }
-
-    // Prepare chunks
-    const preparedChunks = validChunks.map((chunk, index) => ({
-        text: chunk.text,
-        index: chunk.index ?? index,
-        hash: getStringHash(chunk.text),
-        vector: canUseVectors ? chunk.vector : undefined,
-        metadata: chunk.metadata || {},
-    }));
-
-    // Insert
-    if (canUseVectors) {
-        await insertChunksWithVectors(collectionId, preparedChunks, settings);
-    } else {
-        await insertVectorItems(collectionId, preparedChunks, settings);
-    }
-
-    // Metadata is keyed by the registry-key form ("backend:id"). See importCollection
-    // for the rationale; same logic applies here.
-    const registryKey = buildRegistryKey(collectionId, settings);
-
-    // Convert = unchecked: clear prior chat locks (with reverse-map cleanup)
-    // before merging metadata; lockedToCharacterIds + autoSync are zeroed via importedMeta.
-    clearCollectionLock(registryKey);
-
-    // Save metadata
-    const importedMeta = {
-        enabled: true,
-        displayName: sourceCollection.name || collectionId,
-        description: sourceCollection.description || '',
-        // Import side: sourceCollection is from the export file payload
-        // (not getCollectionMeta), so use the canonical resolver explicitly.
-        scope: getEffectiveScope(collectionId, sourceCollection),
-        tags: sourceCollection.tags || [],
-        color: sourceCollection.color,
-        contentType: sourceCollection.contentType,
-        createdAt: new Date().toISOString(),
-        importedFrom: exportData.exportDate,
-        importedAt: new Date().toISOString(),
-        // Re-home under the importing persona (matches importCollection).
-        creatorHandle: targetHandle,
-        lockedToCharacterIds: [],
-        autoSync: false,
-    };
-
-    if (exportData.settings) {
-        Object.assign(importedMeta, {
-            alwaysActive: exportData.settings.alwaysActive,
-            triggers: exportData.settings.triggers,
-            triggerMatchMode: exportData.settings.triggerMatchMode,
-            triggerCaseSensitive: exportData.settings.triggerCaseSensitive,
-            triggerScanDepth: exportData.settings.triggerScanDepth,
-            conditions: exportData.settings.conditions,
-            temporalDecay: exportData.settings.temporalDecay,
-            context: exportData.settings.context || '',
-            xmlTag: exportData.settings.xmlTag || '',
-        });
-    }
-
-    setCollectionMeta(registryKey, importedMeta);
-
-    for (const chunk of validChunks) {
-        if (chunk.chunkMeta) {
-            const newHash = getStringHash(chunk.text);
-            saveChunkMetadata(newHash, chunk.chunkMeta);
-        }
-    }
-
-    registerCollection(registryKey);
-    saveSettingsDebounced();
-
-    return {
-        success: true,
-        collectionId,
-        chunkCount: preparedChunks.length,
-        usedVectors: canUseVectors,
-    };
-}
-
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -1163,7 +832,7 @@ export async function readImportFile(file) {
                 const data = JSON.parse(e.target.result);
                 resolve(data);
             } catch (error) {
-                reject(new Error('Invalid JSON file'));
+                reject(new Error('Invalid JSON file', { cause: error }));
             }
         };
 

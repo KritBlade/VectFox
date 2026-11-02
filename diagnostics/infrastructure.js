@@ -12,8 +12,6 @@
 import { getRequestHeaders } from '../../../../../script.js';
 import { secret_state } from '../../../../secrets.js';
 import {
-    EMBEDDING_PROVIDERS,
-    getValidProviderIds,
     isValidProvider,
     getProviderConfig,
     getModelField,
@@ -21,7 +19,6 @@ import {
     getSecretKey,
     requiresApiKey,
     requiresUrl,
-    getUrlProviders,
     resolveProviderApiUrl
 } from '../core/providers.js';
 
@@ -74,7 +71,6 @@ export async function checkVectorsExtension() {
                 name: 'ST Vectra (Standard)',
                 status: 'fail',
                 message: 'ST vector API not available - check SillyTavern installation',
-                fixable: false,
                 category: 'infrastructure'
             };
         }
@@ -89,8 +85,7 @@ export async function checkVectorsExtension() {
         return {
             name: 'ST Vectra (Standard)',
             status: 'fail',
-            message: 'Cannot reach ST vector API',
-            fixable: false,
+            message: `Cannot reach ST vector API: ${error.message}`,
             category: 'infrastructure'
         };
     }
@@ -103,7 +98,7 @@ export async function checkVectorsExtension() {
  * endpoints don't recognize VectFox's plugin-routed sources. VectFox uses
  * the Similharity plugin endpoints for actual operations, not these.
  */
-export async function checkBackendEndpoints(settings) {
+export async function checkBackendEndpoints() {
     const results = [];
     // Always use 'transformers' - native ST endpoints don't know custom sources
     // This check tests "do endpoints respond?" not "does my provider work?"
@@ -182,7 +177,6 @@ export async function checkServerPlugin() {
                 name: 'VectFox Plugin',
                 status: 'warning',
                 message: 'Plugin not installed (optional - enables Qdrant, advanced features)',
-                fixable: false,
                 category: 'infrastructure'
             };
         }
@@ -209,7 +203,7 @@ export async function checkServerPlugin() {
         return {
             name: 'VectFox Plugin',
             status: 'warning',
-            message: 'Plugin not available (standard mode only)',
+            message: `Plugin not available (standard mode only): ${error.message}`,
             category: 'infrastructure'
         };
     }
@@ -243,7 +237,7 @@ export async function checkPluginEndpoints() {
         return {
             name: 'Plugin API Endpoints',
             status: 'skipped',
-            message: 'Plugin not available',
+            message: `Plugin not available: ${error.message}`,
             category: 'infrastructure'
         };
     }
@@ -327,8 +321,6 @@ export async function checkQdrantBackend(settings) {
                 name: backendName,
                 status: 'fail',
                 message: 'Qdrant Cloud URL not configured',
-                fixable: true,
-                fixAction: 'configure_qdrant',
                 category: 'infrastructure'
             };
         }
@@ -343,8 +335,6 @@ export async function checkQdrantBackend(settings) {
                 name: backendName,
                 status: 'fail',
                 message: 'Qdrant local host/port not configured (default: 127.0.0.1:6333)',
-                fixable: true,
-                fixAction: 'configure_qdrant',
                 category: 'infrastructure'
             };
         }
@@ -376,8 +366,6 @@ export async function checkQdrantBackend(settings) {
                 name: backendName,
                 status: 'fail',
                 message: `Qdrant init failed: ${errorText}`,
-                fixable: true,
-                fixAction: 'configure_qdrant',
                 category: 'infrastructure'
             };
         }
@@ -386,8 +374,6 @@ export async function checkQdrantBackend(settings) {
             name: backendName,
             status: 'fail',
             message: `Qdrant init error: ${error.message}`,
-            fixable: true,
-            fixAction: 'configure_qdrant',
             category: 'infrastructure'
         };
     }
@@ -404,9 +390,7 @@ export async function checkQdrantBackend(settings) {
                 name: backendName,
                 status: 'fail',
                 message: 'Qdrant plugin health check failed',
-                category: 'infrastructure',
-                fixable: true,
-                fixAction: 'configure_qdrant'
+                category: 'infrastructure'
             };
         }
 
@@ -437,8 +421,6 @@ export async function checkQdrantBackend(settings) {
                 name: backendName,
                 status: 'fail',
                 message: `Qdrant error: ${error}${suggestion}`,
-                fixable: true,
-                fixAction: 'configure_qdrant',
                 category: 'infrastructure'
             };
         }
@@ -541,16 +523,7 @@ export async function checkQdrantDimensionMatch(settings) {
                 name: 'Qdrant Dimensions',
                 status: 'fail',
                 message: `Dimension mismatch! Collection: ${info.dimension}-dim (source: ${sourceInfo}, model: ${modelInfo}). Current model: ${currentDimension}-dim.`,
-                fixable: true,
-                fixAction: 'fix_qdrant_dimension',
-                category: 'infrastructure',
-                data: {
-                    collectionDimension: info.dimension,
-                    currentDimension: currentDimension,
-                    collectionSources: info.embeddingSources,
-                    collectionModels: info.embeddingModels,
-                    pointsCount: info.pointsCount,
-                }
+                category: 'infrastructure'
             };
         }
 
@@ -582,9 +555,7 @@ export async function checkEmbeddingProvider(settings) {
         return {
             name: 'Embedding Provider',
             status: 'fail',
-            message: 'No embedding provider selected',
-            fixable: true,
-            fixAction: 'configure_provider'
+            message: 'No embedding provider selected'
         };
     }
 
@@ -593,9 +564,7 @@ export async function checkEmbeddingProvider(settings) {
         return {
             name: 'Embedding Provider',
             status: 'fail',
-            message: `Unknown provider: ${source}`,
-            fixable: true,
-            fixAction: 'configure_provider'
+            message: `Unknown provider: ${source}`
         };
     }
 
@@ -604,9 +573,7 @@ export async function checkEmbeddingProvider(settings) {
         return {
             name: 'Embedding Provider',
             status: 'fail',
-            message: `${config.name} selected but no model configured`,
-            fixable: true,
-            fixAction: 'configure_provider'
+            message: `${config.name} selected but no model configured`
         };
     }
 
@@ -664,9 +631,7 @@ export function checkApiKeys(settings) {
         return {
             name: 'API Key',
             status: 'fail',
-            message: `${config?.name || source} requires an API key`,
-            fixable: true,
-            fixAction: 'configure_api_key'
+            message: `${config?.name || source} requires an API key`
         };
     }
 
@@ -701,9 +666,7 @@ export function checkApiUrls(settings) {
         return {
             name: 'API URL',
             status: 'fail',
-            message: `${config?.name || source} requires a server URL`,
-            fixable: true,
-            fixAction: 'configure_url'
+            message: `${config?.name || source} requires a server URL`
         };
     }
 
@@ -722,9 +685,7 @@ export async function checkProviderConnectivity(settings) {
         return {
             name: 'Provider Connectivity',
             status: 'fail',
-            message: `Unknown provider: ${settings.embedding_provider}`,
-            fixable: true,
-            fixAction: 'configure_provider'
+            message: `Unknown provider: ${settings.embedding_provider}`
         };
     }
 
@@ -757,7 +718,6 @@ export function checkWebLlmExtension(settings) {
             name: 'WebLLM Extension',
             status: 'fail',
             message: 'Browser does not support WebGPU. Use Chrome 113+, Edge 113+, or another WebGPU-compatible browser.',
-            fixable: false,
             category: 'infrastructure'
         };
     }
@@ -768,8 +728,6 @@ export function checkWebLlmExtension(settings) {
             name: 'WebLLM Extension',
             status: 'fail',
             message: 'WebLLM extension is not installed. Install from: github.com/SillyTavern/Extension-WebLLM',
-            fixable: true,
-            fixAction: 'install_webllm',
             category: 'infrastructure'
         };
     }
@@ -780,8 +738,6 @@ export function checkWebLlmExtension(settings) {
             name: 'WebLLM Extension',
             status: 'fail',
             message: 'WebLLM extension is outdated and does not support embeddings. Please update the extension.',
-            fixable: true,
-            fixAction: 'update_webllm',
             category: 'infrastructure'
         };
     }
@@ -792,7 +748,6 @@ export function checkWebLlmExtension(settings) {
             name: 'WebLLM Extension',
             status: 'warning',
             message: 'WebLLM extension is installed but no model is selected. Select a model in VectFox settings.',
-            fixable: false,
             category: 'infrastructure'
         };
     }

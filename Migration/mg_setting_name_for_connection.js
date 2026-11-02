@@ -20,7 +20,7 @@
  * old key is deleted. Re-running does nothing.
  *
  * ⚠️ TWO HALVES: this file only moves the stored values. Landing the rename also
- * requires updating every READ SITE (summarizer.js, eventbase-extractor.js,
+ * requires updating every READ SITE (llm-config-validation.js, eventbase-extractor.js,
  * agentic-retrieval.js, providers.js, core-vector-api.js, ui-manager.js) and the
  * `defaultSettings` keys in index.js to the new names. Do NOT wire this migration
  * into init until those read sites are switched, or reads will miss the renamed keys.

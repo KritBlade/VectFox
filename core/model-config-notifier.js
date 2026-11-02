@@ -41,11 +41,6 @@ export function notifyInvalidModel(message) {
     } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
 }
 
-/** Forget prior notifications so a corrected-then-broken-again model can warn afresh. */
-export function resetInvalidModelNotifications() {
-    _notified.clear();
-}
-
 // ---------------------------------------------------------------------------
 // Connection / URL error surfacing — sibling concern to model-config.
 // ---------------------------------------------------------------------------
@@ -91,11 +86,6 @@ export function notifyConnectionError(contextLabel, url, detail) {
             { timeOut: 0, extendedTimeOut: 0 },
         );
     } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
-}
-
-/** Forget prior connection notifications (parity with resetInvalidModelNotifications). */
-export function resetConnectionNotifications() {
-    _connNotified.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -156,11 +146,6 @@ export function notifyUpstreamRejection(contextLabel, model, detail, isQuotaErro
     } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
 }
 
-/** Forget prior upstream-rejection notifications (parity with the notifiers above). */
-export function resetUpstreamRejectionNotifications() {
-    _upstreamNotified.clear();
-}
-
 // ---------------------------------------------------------------------------
 // Retrieval failure surfacing — sibling concern to model-config and connection.
 // ---------------------------------------------------------------------------
@@ -206,7 +191,10 @@ export function notifyRetrievalFailure(contextLabel, sourceName, detail) {
     } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
 }
 
-/** Forget prior retrieval notifications (parity with the notifiers above). */
+/**
+ * Forget prior retrieval-failure notifications.
+ * @internal Resets module state between tests.
+ */
 export function resetRetrievalFailureNotifications() {
     _retrievalNotified.clear();
 }
@@ -251,7 +239,10 @@ export function notifyNoActiveCollections(contextLabel, scopeKey, reason) {
     } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
 }
 
-/** Forget prior no-active-source notifications (parity with the notifiers above). */
+/**
+ * Forget prior no-active-source notifications.
+ * @internal Resets module state between tests.
+ */
 export function resetNoActiveCollectionsNotifications() {
     _noActiveSourceNotified.clear();
 }
@@ -275,6 +266,6 @@ export async function pauseAutoSyncForChat(chatUUID, backend) {
         paused++;
     }
     if (paused > 0) {
-        try { document.dispatchEvent(new CustomEvent('vectfox:collections-updated')); } catch (_) {}
+        globalThis.document?.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
     }
 }

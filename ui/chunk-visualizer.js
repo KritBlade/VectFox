@@ -23,8 +23,7 @@ import {
     updateChunkMetadata,
 } from '../core/core-vector-api.js';
 import { getStringHash } from '../../../../utils.js';
-import { getContext } from '../../../../extensions.js';
-import { eventSource, getRequestHeaders } from '../../../../../script.js';
+import { getRequestHeaders } from '../../../../../script.js';
 import StringUtils from '../utils/string-utils.js';
 import { packTimelineSortKey } from '../core/eventbase-schema.js';
 import { log } from '../core/log.js';
@@ -169,7 +168,6 @@ function updateChunkData(hash, updates) {
         allChunks.forEach(chunk => {
             if (chunk.hash === hash) {
                 // merge pending changes into the chunk for fresh data if chunks end up with same hash somehow.
-                const stored = getChunkMetadata(hash) || {};
                 const pending = pendingChanges.get(hash) || {};
                 chunk.data = { ...chunk.data, ...pending };
             }
@@ -264,20 +262,6 @@ async function saveAllChanges() {
         console.error('VectFox: Failed to save changes', error);
         toastr.error(`Failed to save changes: ${error.message}`, 'VectFox');
     }
-}
-
-function discardAllChanges() {
-    pendingChanges.clear();
-    hasUnsavedChanges = false;
-    // Reload chunk data from stored metadata
-    allChunks = allChunks.map(chunk => ({
-        ...chunk,
-        data: getChunkData(chunk)
-    }));
-    // PERF: Rebuild lookup map after allChunks modification
-    allChunksMap = new Map(allChunks.map(c => [c.uniqueId, c]));
-    renderChunkList();
-    renderDetailPanel();
 }
 
 // ============================================================================
@@ -701,9 +685,6 @@ function renderDetailPanel() {
     const listPosition = filteredChunksMap.get(selectedChunkId);
     const displayNumber = listPosition !== undefined ? listPosition + 1 : '?';
 
-    const hasConditions = data.conditions?.enabled && data.conditions?.rules?.length > 0;
-    const hasSummaries = data.summaries?.length > 0;
-
     // Feature gating — EventBase chat ignores per-chunk enabled/keywords/conditions/links
     // (its retrieval re-ranks by importance/persist/recency). XML tag and injection
     // position still apply because they're consumed at the post-retrieval injection stage.
@@ -982,7 +963,7 @@ function formatConditionRule(rule) {
             return `${negation}Pattern: "${value}"`;
         case 'speaker':
             return `${negation}Speaker: ${value || 'undefined'}`;
-        case 'messageCount':
+        case 'messageCount': {
             // Extract operator and number if value is like ">=100" or just "100"
             const match = value.match(/^([><=!]+)?(\d+)$/);
             if (match) {
@@ -991,16 +972,18 @@ function formatConditionRule(rule) {
                 return `${negation}Message Count ${operator} ${count}`;
             }
             return `${negation}Message Count: ${value}`;
+        }
         case 'isGroupChat':
             return `${negation}Is Group Chat`;
         case 'timeOfDay':
             // Handle different time formats
             if (!value) return `${negation}Time of Day: (no time set)`;
             return `${negation}Time of Day: ${value}`;
-        case 'randomChance':
+        case 'randomChance': {
             // Value should be a percentage
             const percent = value || rule.settings?.percent || '50';
             return `${negation}Random Chance: ${percent}%`;
+        }
         default:
             return `${negation}${rule.type}: ${value || '(empty)'}`;
     }
@@ -1393,89 +1376,6 @@ function parsePlaintextKeywords(text) {
 // TEXT EDITOR
 // ============================================================================
 
-function openTextEditor(chunk) {
-    const overlay = $(`
-        <div class="vectfox-text-editor-overlay" id="VectFox_text_editor_overlay">
-            <div class="vectfox-text-editor-modal">
-                <div class="vectfox-text-editor-header">
-                    <h4>Edit Chunk Text</h4>
-                </div>
-                <div class="vectfox-text-editor-body">
-                    <textarea class="vectfox-text-editor-textarea" id="VectFox_text_editor_textarea">${StringUtils.escapeHtml(chunk.data.text)}</textarea>
-                </div>
-                <div class="vectfox-text-editor-footer">
-                    <button class="vectfox-text-editor-btn vectfox-text-editor-cancel" id="VectFox_text_cancel">Cancel</button>
-                    <button class="vectfox-text-editor-btn vectfox-text-editor-save" id="VectFox_text_save">Save & Re-embed</button>
-                </div>
-            </div>
-        </div>
-    `);
-
-    $('.vectfox-visualizer-container').append(overlay);
-
-    $('#VectFox_text_cancel').on('click', () => overlay.remove());
-    overlay.on('click', function(e) {
-        if (e.target === this) overlay.remove();
-    });
-
-    $('#VectFox_text_save').on('click', async function() {
-        const newText = $('#VectFox_text_editor_textarea').val().trim();
-        if (!newText) return;
-
-        $(this).prop('disabled', true).text('Saving...');
-
-        try {
-            // Delete old
-            await deleteVectorItems(currentCollectionId, [chunk.hash], currentSettings);
-
-            // Insert new with new hash (keep as number for Qdrant compatibility)
-            const newHash = getStringHash(newText);
-            // Carry existing metadata onto the NEW backend point. Re-embedding creates a
-            // fresh point with a new hash; the backend is the source of truth, so the
-            // payload must be carried over — merge the backend payload over any legacy
-            // ext_settings entry. Without this, text-editing wipes name/context/keywords
-            // etc. See plans/chunk-metadata-read-source-fix.md (R8).
-            const oldStored = getChunkMetadata(String(chunk.hash)) || {};
-            const carriedMeta = { ...oldStored, ...(chunk.metadata || {}) };
-            delete carriedMeta.hash;
-            delete carriedMeta.text;
-            await insertVectorItems(currentCollectionId, [{
-                hash: newHash,
-                text: newText,
-                index: chunk.index,
-                metadata: carriedMeta,
-            }], currentSettings);
-
-            // Backend fields were carried onto the new point above (Phase B: backend is the
-            // source of truth). In ext_settings, only migrate client-only state (summaries)
-            // to the new hash and drop the old entry.
-            deleteChunkMetadata(String(chunk.hash));
-            const carriedClientOnly = {};
-            for (const k of CLIENT_ONLY_CHUNK_FIELDS) {
-                if (k in oldStored) carriedClientOnly[k] = oldStored[k];
-            }
-            if (Object.keys(carriedClientOnly).length > 0) {
-                saveChunkMetadata(String(newHash), carriedClientOnly);
-            }
-
-            // Update local state - update hash but keep same uniqueId for selection
-            chunk.hash = newHash;
-            chunk.text = newText;
-            chunk.data.text = newText;
-            // selectedChunkId stays the same since uniqueId doesn't change
-
-            overlay.remove();
-            renderChunkList();
-            renderDetailPanel();
-            toastr.success('Chunk updated successfully', 'VectFox');
-        } catch (error) {
-            console.error('Failed to update chunk:', error);
-            toastr.error('Failed to update chunk', 'VectFox');
-            $(this).prop('disabled', false).text('Save & Re-embed');
-        }
-    });
-}
-
 // ============================================================================
 // CONDITION EDITOR
 // ============================================================================
@@ -1752,4 +1652,3 @@ export function initializeVisualizer() {
 // EXPORTS
 // ============================================================================
 
-export { openVisualizer as default };

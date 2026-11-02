@@ -301,14 +301,6 @@ export function parseEmbedText(text) {
 // Extraction prompt builder
 // ---------------------------------------------------------------------------
 
-/**
- * Deprecated direct export — points at the English (intl) variant for any
- * importers that haven't migrated. New callers should pass the user's
- * cjk_tokenizer_mode through buildExtractionPrompt() or call
- * getEventBaseExtractionPrompt(mode) from prompts-i18n.js directly.
- */
-export const DEFAULT_EXTRACTION_PROMPT = getEventBaseExtractionPrompt('intl');
-
 
 /**
  * Builds the LLM extraction prompt for a given excerpt.

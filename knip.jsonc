@@ -1,0 +1,20 @@
+// knip — the dead-code gate (npm test). Two runs: `knip` holds tests and scripts to the same rule as the
+// shipped code, and `knip --production` reads only the `!` files, so an export that only a test imports
+// is reported too.
+{
+    "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+    // index.js is the manifest's "js" entry; core/bm25-scorer.js loads the vendored jieba glue by URL.
+    "entry": ["index.js!", "core/vendor/jieba/jieba_rs_wasm.js!"],
+    "project": [
+        "{backends,core,diagnostics,Migration,providers,ui,utils}/**/*.js!",
+        "tests/**/*.{js,mjs}",
+        "scripts/**/*.mjs"
+    ],
+    // An export used inside its own file is not dead; only one that nothing uses is.
+    "ignoreExportsUsedInFile": true,
+    // SillyTavern's own modules: by relative paths that leave this repo, or by URL from e2e page code.
+    "ignoreUnresolved": [
+        "^(\\.\\./){3,}(script|scripts/popup|extensions|constants|shared|openai|popup|secrets|textgen-settings|utils|world-info)\\.js$",
+        "^/(script|scripts/extensions|scripts/utils)\\.js$"
+    ]
+}

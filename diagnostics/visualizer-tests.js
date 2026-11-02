@@ -10,11 +10,11 @@
  * ============================================================================
  */
 
+import { log } from '../core/log.js';
 import {
     deleteVectorItems,
     insertVectorItems,
     getSavedHashes,
-    queryCollection,
     purgeVectorIndex,
 } from '../core/core-vector-api.js';
 import {
@@ -39,7 +39,7 @@ async function cleanupTestCollection(collectionId, settings) {
         // Purge all vectors from the backend
         await purgeVectorIndex(collectionId, settings);
     } catch (e) {
-        // Ignore purge errors - collection might already be empty
+        log.warn(`VectFox diagnostics: cleanup purge of ${collectionId} failed:`, e);
     }
     // Always unregister from registry to prevent ghost entries
     const registryKey = `${settings.embedding_provider}:${collectionId}`;
@@ -208,7 +208,7 @@ export function checkMetadataOperations() {
         };
     } catch (error) {
         // Cleanup attempt
-        try { deleteChunkMetadata(testHash); } catch {}
+        try { deleteChunkMetadata(testHash); } catch (cleanupError) { log.warn('VectFox diagnostics: test metadata cleanup failed:', cleanupError); }
         return {
             name: 'Metadata Operations',
             status: 'fail',
@@ -266,7 +266,7 @@ export async function checkVectorInsert(settings) {
         };
     } catch (error) {
         // Cleanup even on failure
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
         return {
             name: 'Vector Insert',
             status: 'fail',
@@ -340,7 +340,7 @@ export async function checkVectorDelete(settings) {
         };
     } catch (error) {
         // Cleanup even on failure
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
         return {
             name: 'Vector Delete',
             status: 'fail',
@@ -452,7 +452,7 @@ export async function checkReVectorization(settings) {
         // Cleanup attempts
         deleteChunkMetadata(String(originalHash));
         deleteChunkMetadata(String(editedHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
 
         return {
             name: 'Re-Vectorization',
@@ -542,7 +542,7 @@ export async function checkSummaryVectorCreate(settings) {
     } catch (error) {
         // Cleanup
         deleteChunkMetadata(String(summaryHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
 
         return {
             name: 'Summary Vector Create',
@@ -625,7 +625,7 @@ export async function checkSummaryVectorDelete(settings) {
     } catch (error) {
         // Cleanup
         deleteChunkMetadata(String(summaryHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
 
         return {
             name: 'Summary Vector Delete',
@@ -706,7 +706,7 @@ export async function checkBackendResponsiveness(settings) {
         };
     } catch (error) {
         // Cleanup attempt
-        try { await cleanupTestCollection(testCollectionId, settings); } catch {}
+        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
 
         return {
             name: 'Backend Responsiveness',

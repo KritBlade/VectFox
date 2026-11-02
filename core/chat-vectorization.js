@@ -9,30 +9,22 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, chat_metadata, extension_prompts } from '../../../../../script.js';
+import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, extension_prompts } from '../../../../../script.js';
 import { getContext } from '../../../../extensions.js';
 import { getStringHash as calculateHash } from '../../../../utils.js';
-import { isUnitStrategy } from './chunking.js';
-import { extractChatKeywords, extractBM25Keywords } from './keyword-boost.js';
-import { cleanText } from './text-cleaning.js';
+import { extractChatKeywords } from './keyword-boost.js';
 import {
     getSavedHashes,
-    insertVectorItems,
     queryCollection,
-    queryActiveCollections,
-    deleteVectorItems,
 } from './core-vector-api.js';
 import { isBackendAvailable } from '../backends/backend-manager.js';
-import { summarizeText } from './summarizer.js';
-import { registerCollection, getCollectionRegistry, isCollectionEmpty } from './collection-loader.js';
-import { isCollectionEnabled, filterActiveCollections, setCollectionLock } from './collection-metadata.js';
+import { getCollectionRegistry, isCollectionEmpty } from './collection-loader.js';
+import { isCollectionEnabled, filterActiveCollections } from './collection-metadata.js';
 import { progressTracker } from '../ui/progress-tracker.js';
 import { buildSearchContext, filterChunksByConditions, processChunkLinks } from './conditional-activation.js';
 import { getChunkMetadata, getCollectionMeta } from './collection-metadata.js';
 
-import { createDebugData, setLastSearchDebug, addTrace, recordChunkFate } from '../ui/search-debug.js';
-import { Queue, LRUCache } from '../utils/data-structures.js';
-import { getRequestHeaders } from '../../../../../script.js';
+import { LRUCache } from '../utils/data-structures.js';
 import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
 import { runBoundedRetrieval } from './bounded-retrieval.js';
 import { resolveEventBaseRetrievalTimeoutMs } from './retrieval-budget.js';
@@ -43,7 +35,6 @@ import {
     getChatUUID,
     COLLECTION_PREFIXES,
     INTERNAL_COLLECTION_IDS,
-    parseCollectionId,
     parseRegistryKey,
     getRegistryBackend,
 } from './collection-ids.js';
@@ -51,7 +42,7 @@ import {
 // Hash cache for performance
 const hashCache = new LRUCache(HASH_CACHE_SIZE);
 
-export { getChatUUID, parseCollectionId, parseRegistryKey };
+export { getChatUUID, parseRegistryKey };
 
 /**
  * Gets the hash value for a string (with LRU caching)
@@ -99,102 +90,6 @@ function getTextWithoutAttachments(message) {
 // *** will be remove in future version because no longer used by eventbased path ***
 // EventBase-enabled chat sync no longer depends on these chat chunk grouping modes, but
 // they are kept temporarily for backward compatibility and non-EventBase legacy flows.
-async function groupMessagesByStrategy(messages, strategy, batchSize = 4, keywordLevel = 'balanced', settings = {}) {
-    if (!messages.length) return [];
-
-    log.verbose(`[VectFox] groupMessagesByStrategy: ${messages.length} messages, strategy=${strategy}, chat_provider=${settings?.chat_provider || 'openrouter'}`);
-
-    const summarize = (text) => summarizeText(text, settings);
-
-    // Helper to extract keywords based on level
-    const getKeywords = (text) => {
-        if (keywordLevel === 'off') return [];
-        return extractBM25Keywords(text, { level: keywordLevel, settings });
-    };
-
-    const toLabeledText = (batch) => batch.map(m => {
-        const role = m.is_user ? 'User' : 'Character';
-        return `[${role}]: ${m.text}`;
-    }).join('\n\n');
-
-    switch (strategy) {
-        case 'conversation_turns': {
-            // Group user + AI message pairs
-            const grouped = [];
-            for (let i = 0; i < messages.length; i += 2) {
-                const pair = [messages[i]];
-                if (i + 1 < messages.length) {
-                    pair.push(messages[i + 1]);
-                }
-                const combinedText = toLabeledText(pair);
-                const storedText = await summarize(combinedText);
-
-                grouped.push({
-                    text: storedText,
-                    hash: getStringHash(combinedText),
-                    index: messages[i].index,
-                    keywords: getKeywords(storedText),
-                    metadata: {
-                        strategy: 'conversation_turns',
-                        messageIds: pair.map(m => m.index),
-                        messageHashes: pair.map(m => m.hash), // Store individual hashes for injection lookup
-                        startIndex: messages[i].index,
-                        endIndex: pair[pair.length - 1].index
-                    }
-                });
-            }
-            return grouped;
-        }
-
-        case 'message_batch': {
-            // Group N messages together
-            const grouped = [];
-            for (let i = 0; i < messages.length; i += batchSize) {
-                const batch = messages.slice(i, i + batchSize);
-                const combinedText = toLabeledText(batch);
-                const storedText = await summarize(combinedText);
-
-                grouped.push({
-                    text: storedText,
-                    hash: getStringHash(combinedText),
-                    index: batch[0].index,
-                    keywords: getKeywords(storedText),
-                    metadata: {
-                        strategy: 'message_batch',
-                        batchSize: batch.length,
-                        messageIds: batch.map(m => m.index),
-                        messageHashes: batch.map(m => m.hash), // Store individual hashes for injection lookup
-                        startIndex: batch[0].index,
-                        endIndex: batch[batch.length - 1].index
-                    }
-                });
-            }
-            return grouped;
-        }
-
-        case 'per_message':
-        default: {
-            // Each message is its own item
-            const grouped = [];
-            for (const m of messages) {
-                const storedText = await summarize(m.text);
-                grouped.push({
-                    text: storedText,
-                    hash: m.hash,
-                    index: m.index,
-                    is_user: m.is_user,
-                    keywords: getKeywords(storedText),
-                    metadata: {
-                        strategy: 'per_message',
-                        messageId: m.index,
-                        messageHashes: [m.hash] // Consistent with grouped strategies
-                    }
-                });
-            }
-            return grouped;
-        }
-    }
-}
 
 /**
  * Applies chunk-level conditions to filter results
@@ -272,10 +167,10 @@ function trackChunkActivation(hash, messageCount) {
  * 4. Repeat until queue empty
  *
  * @param {object} settings VECTFOX settings
- * @param {number} batchSize Number of messages to process per call
+ * @param {string|null} [triggerEvent] ST event that scheduled this sync
  * @returns {Promise<object>} Progress info
  */
-export async function synchronizeChat(settings, batchSize = 5, triggerEvent = null) {
+export async function synchronizeChat(settings, triggerEvent = null) {
     log.lifecycle(`[AutoSync] synchronizeChat: invoked (trigger=${triggerEvent || 'unknown'})`);
 
     // Master switch: no auto-sync work while VectFox is disabled.
@@ -391,10 +286,9 @@ export async function synchronizeChat(settings, batchSize = 5, triggerEvent = nu
 
 /**
  * Stage 1: Gather all collections that should be queried
- * @param {object} settings VECTFOX settings
  * @returns {string[]} Array of collection IDs to query
  */
-function gatherCollectionsToQuery(settings) {
+function gatherCollectionsToQuery() {
     const collectionsToQuery = [];
     const registry = getCollectionRegistry();
 
@@ -441,15 +335,14 @@ function buildSearchQuery(chat, settings) {
 }
 
 /**
- * Stage 3: Query all active collections and merge results
+ * Stage 4: Query all active collections and merge results
  * @param {string[]} activeCollections Collections that passed activation filters
  * @param {string} queryText Search query
  * @param {object} settings VECTFOX settings
  * @param {object[]} chat Current chat messages
- * @param {object} debugData Debug tracking object
  * @returns {Promise<object[]>} Array of chunk objects with scores
  */
-async function queryAndMergeCollections(activeCollections, queryText, settings, chat, debugData) {
+async function queryAndMergeCollections(activeCollections, queryText, settings, chat) {
     let chunksForVisualizer = [];
     const effectiveTopK = settings.top_k ?? settings.insert;
 
@@ -467,19 +360,6 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
     for (const collectionId of activeCollections) {
         try {
             const queryResults = await queryCollection(collectionId, queryText, effectiveTopK, settings);
-
-            // TRACE: Vector query results for this collection
-            addTrace(debugData, 'vector_search', `Query completed for ${collectionId}`, {
-                hashesReturned: queryResults.hashes.length,
-                hashes: queryResults.hashes.slice(0, 5),
-                scoreBreakdown: queryResults.metadata.slice(0, 5).map(m => ({
-                    finalScore: m.score?.toFixed(3),
-                    originalScore: m.originalScore?.toFixed(3),
-                    keywordBoost: m.keywordBoost?.toFixed(2) || '1.00',
-                    matchedKeywords: m.matchedKeywords || [],
-                    keywordBoosted: m.keywordBoosted || false
-                }))
-            });
 
             log.trace(`VectFox: Retrieved ${queryResults.hashes.length} chunks from ${collectionId}`);
 
@@ -503,17 +383,6 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
                         log.warn(`[VectFox] ⚠️ Chunk text not found! hash=${hash}, meta.text=${meta.text ? 'exists' : 'missing'}, chatMessage=${chatMessage ? 'found' : 'not found'}`);
                     }
                 }
-
-                // TRACE: Record initial chunk state
-                recordChunkFate(debugData, hash, 'vector_search', 'passed', null, {
-                    finalScore: meta.score || 1.0,
-                    originalScore: meta.originalScore,
-                    keywordBoost: meta.keywordBoost,
-                    matchedKeywords: meta.matchedKeywords,
-                    textSource,
-                    textLength: text?.length || 0,
-                    collectionId
-                });
 
                 return {
                     hash: hash,
@@ -539,9 +408,6 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
             chunksForVisualizer.push(...collectionChunks);
         } catch (error) {
             log.warn(`VectFox: Failed to query collection ${collectionId}:`, error.message);
-            addTrace(debugData, 'vector_search', `Query failed for ${collectionId}`, {
-                error: error.message
-            });
         }
     }
 
@@ -554,17 +420,16 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
 }
 
 /**
- * Stage 3.5: Expand summary chunks to their parent chunks (dual-vector system)
+ * Stage 4.5: Expand summary chunks to their parent chunks (dual-vector system)
  * When a summary chunk matches a query, we want to inject the full parent text instead.
  * The summary's score is preserved since that's what semantically matched.
  *
  * @param {object[]} chunks Chunks from query results
  * @param {string[]} activeCollections Collections that were queried
  * @param {object} settings VECTFOX settings
- * @param {object} debugData Debug tracking object
  * @returns {Promise<object[]>} Chunks with summaries expanded to parents
  */
-async function expandSummaryChunks(chunks, activeCollections, settings, debugData) {
+async function expandSummaryChunks(chunks, activeCollections, settings) {
     const expandedChunks = [];
     const parentHashesNeeded = new Map(); // parentHash -> { summaryChunk, collectionId }
 
@@ -578,13 +443,6 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
             // Track this summary for parent lookup
             parentHashesNeeded.set(String(parentHash), {
                 summaryChunk: chunk,
-                collectionId: chunk.collectionId
-            });
-
-            addTrace(debugData, 'summary_expansion', `Summary chunk found, will expand to parent`, {
-                summaryHash: chunk.hash,
-                parentHash: parentHash,
-                summaryScore: chunk.score?.toFixed(3),
                 collectionId: chunk.collectionId
             });
         } else {
@@ -646,29 +504,10 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
                         };
 
                         expandedChunks.push(expandedChunk);
-
-                        recordChunkFate(debugData, parentHash, 'summary_expansion', 'passed',
-                            `Expanded from summary #${summaryChunk.hash}`, {
-                                summaryHash: summaryChunk.hash,
-                                parentTextLength: expandedChunk.text?.length || 0,
-                                inheritedScore: summaryChunk.score?.toFixed(3)
-                            });
-
-                        addTrace(debugData, 'summary_expansion', `Parent chunk retrieved`, {
-                            parentHash: parentHash,
-                            summaryHash: summaryChunk.hash,
-                            parentTextLength: expandedChunk.text?.length || 0
-                        });
                     } else {
                         // Parent not found - keep the summary chunk as fallback
                         log.warn(`VectFox: Parent chunk ${parentHash} not found for summary ${summaryChunk.hash}, using summary text`);
                         expandedChunks.push(summaryChunk);
-
-                        recordChunkFate(debugData, summaryChunk.hash, 'summary_expansion', 'passed',
-                            `Parent not found, using summary text`, {
-                                parentHash: parentHash,
-                                fallback: true
-                            });
                     }
                 }
             } else {
@@ -686,110 +525,28 @@ async function expandSummaryChunks(chunks, activeCollections, settings, debugDat
         }
     }
 
-    addTrace(debugData, 'summary_expansion', 'Summary expansion complete', {
-        originalCount: chunks.length,
-        summariesExpanded: parentHashesNeeded.size,
-        finalCount: expandedChunks.length
-    });
-
     return expandedChunks;
 }
 
 /**
- * Stage 4: Apply threshold filter to chunks
+ * Stage 6: Apply threshold filter to chunks
  * @param {object[]} chunks Chunks to filter
  * @param {number} threshold Score threshold
- * @param {object} debugData Debug tracking object
  * @returns {object[]} Filtered chunks
  */
-function applyThresholdFilter(chunks, threshold, debugData) {
-    const beforeCount = chunks.length;
-    const filtered = chunks.filter(chunk => {
-        const passes = chunk.score >= threshold;
-        if (!passes) {
-            recordChunkFate(debugData, chunk.hash, 'threshold', 'dropped',
-                `Score ${chunk.score.toFixed(3)} < threshold ${threshold}`,
-                { score: chunk.score, threshold }
-            );
-        } else {
-            recordChunkFate(debugData, chunk.hash, 'threshold', 'passed', null,
-                { score: chunk.score, threshold }
-            );
-        }
-        return passes;
-    });
-
-    addTrace(debugData, 'threshold', 'Threshold filter applied', {
-        threshold,
-        before: beforeCount,
-        after: filtered.length,
-        dropped: beforeCount - filtered.length
-    });
-
-    return filtered;
+function applyThresholdFilter(chunks, threshold) {
+    return chunks.filter(chunk => chunk.score >= threshold);
 }
 
 /**
- * Stage 6: Apply chunk-level conditions
- * @param {object[]} chunks Chunks to filter
- * @param {object[]} chat Current chat messages
- * @param {object} settings VECTFOX settings
- * @param {object} debugData Debug tracking object
- * @returns {Promise<object[]>} Chunks that passed conditions
- */
-async function applyConditionsStage(chunks, chat, settings, debugData) {
-    const beforeCount = chunks.length;
-    // PERF: Build a Map of hash -> chunk data for tracking instead of copying entire array
-    const chunkDataByHash = new Map(chunks.map(c => [c.hash, { score: c.score, conditions: c.metadata?.conditions }]));
-
-    addTrace(debugData, 'conditions', 'Starting condition filtering', {
-        chunksToFilter: beforeCount,
-        hasConditions: chunks.some(c => c.metadata?.conditions)
-    });
-
-    const filtered = await applyChunkConditions(chunks, chat, settings);
-
-    // Record which chunks were dropped by conditions
-    const afterConditionsHashes = new Set(filtered.map(c => c.hash));
-    for (const [hash, data] of chunkDataByHash) {
-        if (afterConditionsHashes.has(hash)) {
-            recordChunkFate(debugData, hash, 'conditions', 'passed', null, {
-                score: data.score,
-                hadConditions: !!data.conditions
-            });
-        } else {
-            recordChunkFate(debugData, hash, 'conditions', 'dropped',
-                data.conditions
-                    ? `Failed condition: ${JSON.stringify(data.conditions)}`
-                    : 'Filtered by condition system',
-                {
-                    score: data.score,
-                    conditions: data.conditions
-                }
-            );
-        }
-    }
-
-    addTrace(debugData, 'conditions', 'Condition filtering completed', {
-        before: beforeCount,
-        after: filtered.length,
-        dropped: beforeCount - filtered.length
-    });
-
-    return filtered;
-}
-
-/**
- * Stage 6.5: Process chunk links
+ * Stage 8.5: Process chunk links
  * - Processes explicit chunk links (soft boost / hard include)
  * @param {object[]} chunks Chunks to process
  * @param {string[]} activeCollections Active collection IDs (unused, kept for call-site compatibility)
  * @param {object} settings VECTFOX settings
- * @param {object} debugData Debug tracking object
  * @returns {Promise<object[]>} Processed chunks with links applied
  */
-async function applyGroupsAndLinksStage(chunks, activeCollections, settings, debugData) {
-    const beforeCount = chunks.length;
+async function applyGroupsAndLinksStage(chunks, activeCollections, settings) {
     let processedChunks = [...chunks];
 
     // Build metadata map for chunks that have explicit links.
@@ -814,11 +571,6 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
         const linkResult = processChunkLinks(processedChunks, chunkMetadataMap, settings.group_soft_boost || 0.15);
         processedChunks = linkResult.chunks;
 
-        const boosted = processedChunks.filter(c => c.softLinked);
-        if (boosted.length > 0) {
-            addTrace(debugData, 'links', `Explicit links boosted ${boosted.length} chunks`, {});
-        }
-
         // Force links: pull in any force-linked targets that weren't already retrieved, so
         // "target MUST appear when this chunk appears" actually holds. These bypass the
         // query/threshold/conditions stages by design (they ran earlier); dedup may still
@@ -829,17 +581,9 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings, deb
             const toAdd = fetched.filter(c => !present.has(String(c.hash)));
             if (toAdd.length > 0) {
                 processedChunks.push(...toAdd);
-                addTrace(debugData, 'links', `Force links pulled in ${toAdd.length} missing target(s)`, {
-                    hashes: toAdd.map(c => c.hash),
-                });
             }
         }
     }
-
-    addTrace(debugData, 'links', 'Links processing complete', {
-        before: beforeCount,
-        after: processedChunks.length,
-    });
 
     return processedChunks;
 }
@@ -899,24 +643,17 @@ async function fetchForceLinkedChunks(missingHashes, targetCollection, settings)
 }
 
 /**
- * Stage 7: Deduplicate chunks already in chat context
+ * Stage 9: Deduplicate chunks already in chat context
  * Only checks against recent messages within the context window, not entire chat history.
  * @param {object[]} chunks Chunks to deduplicate
  * @param {object[]} chat Current chat messages
  * @param {object} settings VECTFOX settings (uses deduplication_depth)
- * @param {object} debugData Debug tracking object
  * @returns {{toInject: object[], skipped: object[]}} Chunks to inject and skipped duplicates
  */
-function deduplicateChunks(chunks, chat, settings, debugData) {
+function deduplicateChunks(chunks, chat, settings) {
     // Determine how far back to check for duplicates
     // Default to 50 messages if not specified (reasonable context window)
     const deduplicationDepth = settings.deduplication_depth ?? 50;
-
-    addTrace(debugData, 'injection', 'Starting deduplication and injection', {
-        chunksToInject: chunks.length,
-        chatLength: chat.length,
-        deduplicationDepth: deduplicationDepth
-    });
 
     // Only check the most recent N messages (within context window)
     const recentMessages = deduplicationDepth > 0 && deduplicationDepth < chat.length
@@ -966,27 +703,13 @@ function deduplicateChunks(chunks, chat, settings, debugData) {
             log.trace(`  Score: ${chunk.score?.toFixed(4)}, Collection: ${chunk.collectionId}`);
 
             skipped.push(chunk);
-            recordChunkFate(debugData, chunk.hash, 'injection', 'skipped',
-                'Already in current chat context - no injection needed',
-                { score: chunk.score }
-            );
         } else {
             log.trace(`[VECTFOX Dedup] ✅ KEEPING chunk (hash: ${chunk.hash}, score: ${chunk.score?.toFixed(4)})`);
             log.trace(`  Text: "${chunk.text?.substring(0, 80)}..."`);
 
             toInject.push(chunk);
-            recordChunkFate(debugData, chunk.hash, 'injection', 'passed',
-                'Not in current context - will inject',
-                { score: chunk.score, collectionId: chunk.collectionId }
-            );
         }
     }
-
-    addTrace(debugData, 'injection', 'Deduplication complete', {
-        totalChunks: chunks.length,
-        toInject: toInject.length,
-        skippedDuplicates: skipped.length
-    });
 
     log.verbose(`[VECTFOX Dedup] FINAL: ${toInject.length} will inject, ${skipped.length} skipped as duplicates`);
 
@@ -1103,16 +826,15 @@ function resolveChunkInjectionPosition(chunk, settings) {
 }
 
 /**
- * Stage 8: Format and inject chunks into prompt
+ * Stage 10: Format and inject chunks into prompt
  * Supports per-chunk/per-collection injection positions via cascade resolution.
  * Groups chunks by their resolved position+depth and creates separate injections.
  *
  * @param {object[]} chunksToInject Chunks to inject
  * @param {object} settings VECTFOX settings
- * @param {object} debugData Debug tracking object
  * @returns {{verified: boolean, text: string}} Injection result
  */
-function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
+function injectChunksIntoPrompt(chunksToInject, settings) {
     const injectionDebug = log.domainEnabled('injection');
     // Control print: Log chunks QUEUED for injection (not yet injected)
     if (injectionDebug) {
@@ -1186,14 +908,6 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
             });
         }
 
-        // Record final fate for injected chunks
-        group.chunks.forEach(chunk => {
-            recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
-                score: chunk.score,
-                collectionId: chunk.collectionId
-            });
-        });
-
         return { verified: injectionVerified, text: insertedText };
     }
 
@@ -1238,16 +952,6 @@ function injectChunksIntoPrompt(chunksToInject, settings, debugData) {
             });
             allVerified = false;
         }
-
-        // Record fates
-        group.chunks.forEach(chunk => {
-            recordChunkFate(debugData, chunk.hash, 'final', 'injected', null, {
-                score: chunk.score,
-                collectionId: chunk.collectionId,
-                position: group.position,
-                depth: group.depth
-            });
-        });
 
         allTexts.push(groupText);
         groupIndex++;
@@ -1459,28 +1163,6 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             log.verbose(`✅ VectFox: ${activeCollections.length} collections passed activation filters:`, activeCollections);
         }
 
-        // === INITIALIZE DEBUG DATA ===
-        const debugData = createDebugData();
-        debugData.query = queryText;
-        debugData.queryKeywords = queryKeywordTexts;
-        debugData.collectionId = activeCollections.length > 0 ? activeCollections.join(', ') : 'world_info_only';
-        debugData.collectionsQueried = activeCollections;
-        const effectiveTopK = settings.top_k ?? settings.insert;
-        debugData.settings = {
-            threshold: settings.score_threshold,
-            topK: effectiveTopK,
-            protect: settings.protect,
-            chatLength: chat.length
-        };
-
-        addTrace(debugData, 'init', 'Pipeline started', {
-            collectionsQueried: activeCollections,
-            queryLength: queryText.length,
-            threshold: settings.score_threshold,
-            topK: effectiveTopK,
-            protect: settings.protect
-        });
-
         // === STAGE 4: Query all collections and merge results ===
         // Popup gating:
         //   - retrieval_popup_on_start / retrieval_popup_on_result: ChunkBase chunks
@@ -1495,7 +1177,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         // Same contract as EventBase above (core/bounded-retrieval.js): on failure
         // we proceed with no chunks this turn and say so.
         let chunks = await runBoundedRetrieval(
-            queryAndMergeCollections(activeCollections, queryText, settings, chat, debugData),
+            queryAndMergeCollections(activeCollections, queryText, settings, chat),
             {
                 contextLabel: 'Chat memory',
                 sourceName: 'vectorized chunks',
@@ -1534,24 +1216,11 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
                     chunk.score = 1.0; // 100% perfect match
                     chunk.originalScore = oldScore;
                     keywordMatchCount++;
-
-                    addTrace(debugData, 'keyword_boost', `Chunk boosted by ${matchedKeywords.length} keyword(s)`, {
-                        hash: chunk.hash,
-                        matchedKeywords,
-                        newScore: 1.0,
-                        oldScore
-                    });
                 }
             }
 
             if (keywordMatchCount > 0) {
                 log.verbose(`VectFox: Boosted ${keywordMatchCount}/${chunks.length} chunks with matching keywords to 100% score`);
-                debugData.stages.afterKeywordBoost = [...chunks];
-                debugData.stats.keywordBoosted = keywordMatchCount;
-                addTrace(debugData, 'keyword_boost', `Boosted ${keywordMatchCount} chunks with keyword matches`, {
-                    totalChunks: chunks.length,
-                    boostedCount: keywordMatchCount
-                });
             } else {
                 log.verbose(`VectFox: No chunks matched query keywords, all ${chunks.length} chunks keep original scores`);
             }
@@ -1559,48 +1228,38 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
 
         log.verbose(`VectFox: Retrieved ${chunks.length} total chunks from ${activeCollections.length} collections`);
 
-        debugData.stages.initial = [...chunks];
-        debugData.stats.retrievedFromVector = chunks.length;
-
         // === STAGE 4.5: Expand summary chunks to parent chunks (dual-vector) ===
         const chunksBeforeExpansion = chunks.length;
-        chunks = await expandSummaryChunks(chunks, activeCollections, settings, debugData);
+        chunks = await expandSummaryChunks(chunks, activeCollections, settings);
         if (chunks.length !== chunksBeforeExpansion || chunks.some(c => c.expandedFromSummary)) {
             const expandedCount = chunks.filter(c => c.expandedFromSummary).length;
             log.verbose(`VectFox: Expanded ${expandedCount} summary chunks to parent text`);
-            debugData.stages.afterSummaryExpansion = [...chunks];
-            debugData.stats.summariesExpanded = expandedCount;
         }
 
         // === STAGE 6: Threshold filter ===
         const threshold = settings.score_threshold || 0;
-        chunks = applyThresholdFilter(chunks, threshold, debugData);
-        debugData.stages.afterThreshold = [...chunks];
+        chunks = applyThresholdFilter(chunks, threshold);
 
         // === STAGE 8: Chunk conditions ===
-        chunks = await applyConditionsStage(chunks, chat, settings, debugData);
-        debugData.stages.afterConditions = [...chunks];
-        debugData.stats.afterConditions = chunks.length;
+        chunks = await applyChunkConditions(chunks, chat, settings);
 
         // === STAGE 8.5: Chunk Groups and Links ===
-        chunks = await applyGroupsAndLinksStage(chunks, activeCollections, settings, debugData);
-        debugData.stages.afterGroups = [...chunks];
-        debugData.stats.afterGroups = chunks.length;
+        chunks = await applyGroupsAndLinksStage(chunks, activeCollections, settings);
 
-        // Store for legacy visualizer
+        // Read by the e2e spec's mid-pipeline diagnostics (tests/Eventbase-test.spec.js)
         window.VectFox_LastSearch = {
             chunks: chunks,
             query: queryText,
             timestamp: Date.now(),
             settings: { threshold: settings.score_threshold, topK: (settings.top_k ?? settings.insert) }
         };
-        log.verbose(`VectFox: Stored ${chunks.length} chunks for visualizer`);
+        log.verbose(`VectFox: Stored ${chunks.length} chunks in window.VectFox_LastSearch`);
 
         // === STAGE 9: Deduplicate ===
         log.verbose(`[VECTFOX Deduplication] Starting with ${chunks.length} chunks before deduplication`);
         log.verbose(`[VECTFOX Deduplication] Current chat has ${chat.length} messages`);
 
-        const { toInject: chunksToInject, skipped: skippedDuplicates } = deduplicateChunks(chunks, chat, settings, debugData);
+        const { toInject: chunksToInject, skipped: skippedDuplicates } = deduplicateChunks(chunks, chat, settings);
 
         log.verbose(`[VECTFOX Deduplication] After deduplication: ${chunksToInject.length} to inject, ${skippedDuplicates.length} skipped`);
         if (skippedDuplicates.length > 0) {
@@ -1614,14 +1273,6 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             log.lifecycle('ℹ️ VectFox: All retrieved chunks already in context, nothing to inject');
             log.verbose(`   ${skippedDuplicates.length} chunks were skipped (already in current chat)`);
             log.lifecycle('[VectFox] Injection blocked: All retrieved chunks are already present in the current chat context. Adjust temporal decay or query depth if you want older messages.');
-            debugData.stages.injected = [];
-            debugData.stats.actuallyInjected = 0;
-            debugData.stats.skippedDuplicates = skippedDuplicates.length;
-            addTrace(debugData, 'injection', 'PIPELINE COMPLETE - NO INJECTION NEEDED', {
-                reason: 'All chunks already in current context',
-                skippedCount: skippedDuplicates.length
-            });
-            setLastSearchDebug(debugData);
             return dryRun ? { injectionText: null, chunkCount: 0, allDuplicates: true } : undefined;
         }
 
@@ -1630,40 +1281,15 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         // === STAGE 10: Inject into prompt (or return dry-run result) ===
         if (dryRun) {
             const injectionText = buildNestedInjectionText(chunksToInject, settings);
-            setLastSearchDebug(debugData);
             return { injectionText, chunkCount: chunksToInject.length };
         }
 
-        const injection = injectChunksIntoPrompt(chunksToInject, settings, debugData);
+        const injection = injectChunksIntoPrompt(chunksToInject, settings);
 
         log.lifecycle(`\n✅ VectFox: Successfully injected ${chunksToInject.length} chunk(s) into prompt`);
         log.verbose(`   Verification: ${injection.verified ? '✓ PASSED' : '✗ FAILED'}`);
         log.verbose(`   Total characters injected: ${injection.text.length}\n`);
 
-        // Finalize debug data
-        debugData.stages.injected = chunksToInject;
-        debugData.stats.actuallyInjected = chunksToInject.length;
-        debugData.stats.skippedDuplicates = skippedDuplicates.length;
-        debugData.injection = {
-            verified: injection.verified,
-            text: injection.text,
-            position: settings.position,
-            depth: settings.depth,
-            promptTag: EXTENSION_PROMPT_TAG,
-            charCount: injection.text.length
-        };
-
-        addTrace(debugData, 'final', 'PIPELINE COMPLETE - SUCCESS', {
-            injectedCount: chunksToInject.length,
-            skippedDuplicates: skippedDuplicates.length,
-            injectedHashes: chunksToInject.map(c => c.hash),
-            totalTokens: injection.text.length,
-            position: settings.position,
-            depth: settings.depth,
-            verified: injection.verified
-        });
-
-        setLastSearchDebug(debugData);
         log.lifecycle(`VectFox: ✅ Injected ${chunksToInject.length} chunks (${skippedDuplicates.length} skipped - already in context)`);
 
     } catch (error) {

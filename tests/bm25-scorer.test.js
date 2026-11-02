@@ -25,8 +25,6 @@ import {
     applyBM25Scoring,
     porterStemmer,
     tokenize,
-    tokenizeSimple,
-    STOP_WORDS
 } from '../core/bm25-scorer.js';
 
 // =============================================================================
@@ -209,38 +207,9 @@ describe('Tokenize', () => {
     });
 });
 
-describe('TokenizeSimple', () => {
-    it('should tokenize without stemming or stop word removal', () => {
-        const tokens = tokenizeSimple('The quick brown fox');
-        expect(tokens).toContain('the');
-        expect(tokens).toContain('quick');
-        expect(tokens).toContain('brown');
-        expect(tokens).toContain('fox');
-    });
-});
-
 // =============================================================================
 // STOP WORDS TESTS
 // =============================================================================
-
-describe('Stop Words', () => {
-    it('should be a Set', () => {
-        expect(STOP_WORDS instanceof Set).toBe(true);
-    });
-
-    it('should contain common English stop words', () => {
-        expect(STOP_WORDS.has('the')).toBe(true);
-        expect(STOP_WORDS.has('and')).toBe(true);
-        expect(STOP_WORDS.has('is')).toBe(true);
-        expect(STOP_WORDS.has('are')).toBe(true);
-        expect(STOP_WORDS.has('was')).toBe(true);
-        expect(STOP_WORDS.has('were')).toBe(true);
-    });
-
-    it('should have at least 100 words', () => {
-        expect(STOP_WORDS.size).toBeGreaterThanOrEqual(100);
-    });
-});
 
 // =============================================================================
 // BM25 SCORER CLASS TESTS
@@ -406,7 +375,6 @@ describe('BM25Scorer', () => {
 describe('BM25Scorer with Field Boosting', () => {
     it('should boost title matches', () => {
         const boostScorer = new BM25Scorer({ fieldBoosting: true });
-        const noBoostScorer = new BM25Scorer({ fieldBoosting: false });
 
         const docs = [
             { text: 'A document about cats', title: 'Fox Story' },
@@ -414,10 +382,8 @@ describe('BM25Scorer with Field Boosting', () => {
         ];
 
         boostScorer.indexDocuments(docs);
-        noBoostScorer.indexDocuments(docs);
 
         const boostResults = boostScorer.search('fox', 2);
-        const noBoostResults = noBoostScorer.search('fox', 2);
 
         // With field boosting, doc with "fox" in title should score higher
         expect(boostResults[0].index).toBe(0);
