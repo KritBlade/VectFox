@@ -4143,12 +4143,8 @@ function bindSettingsEvents(settings, callbacks) {
 
             // Fallback: try dynamic import of module (in case initialization order differed)
             try {
-                const mod = await import('../core/world-info-integration.js');
-                const fn = mod.getSemanticWorldInfoEntries || mod.getSemanticEntries || mod.default;
-                if (!fn || typeof fn !== 'function') {
-                    throw new Error('WorldInfo module does not export a usable function');
-                }
-                const entries = await fn(recentMessages, activeEntries, cfg);
+                const { getSemanticWorldInfoEntries } = await import('../core/world-info-integration.js');
+                const entries = await getSemanticWorldInfoEntries(recentMessages, activeEntries, cfg);
                 log.trace('VectFox: Semantic WI test results (via dynamic import):', entries);
                 if (cfg.world_info_retrieval_popup) toastr.info(`Semantic WI test completed - ${entries.length} entries (see console)`);
                 return;

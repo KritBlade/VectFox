@@ -56,8 +56,13 @@ export default [
 
     // ── Node tooling and config files ───────────────────────────────────────────
     {
-        files: ['scripts/**/*.mjs', '*.config.js'],
+        files: ['scripts/**/*.mjs', 'tools/**/*.mjs', '*.config.js'],
         languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...globals.node } },
+        rules: runtimeRules,
+    },
+    {
+        files: ['.dependency-cruiser.cjs'],
+        languageOptions: { ecmaVersion: 2023, sourceType: 'commonjs', globals: { ...globals.node } },
         rules: runtimeRules,
     },
 

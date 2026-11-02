@@ -8,7 +8,8 @@
     "project": [
         "{backends,core,diagnostics,Migration,providers,ui,utils}/**/*.js!",
         "tests/**/*.{js,mjs}",
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "tools/**/*.mjs"
     ],
     // An export used inside its own file is not dead; only one that nothing uses is.
     "ignoreExportsUsedInFile": true,
