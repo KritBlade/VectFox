@@ -136,10 +136,6 @@ describe('Back-compat: extractQueryKeywords without mode', () => {
 
 describe('English stop-word baseline in tokenize()', () => {
     it('world and within are still filtered in default (intl) mode', async () => {
-        vi.mock('../../../../extensions.js', () => ({
-            extension_settings: { vectfox: {} },
-            getContext: vi.fn(() => ({ chat: [], characterId: null })),
-        }));
         const { tokenize } = await import('../core/bm25-scorer.js');
         const tokens = tokenize('world within the system', { removeStopWords: true, stem: false });
         expect(tokens).not.toContain('world');

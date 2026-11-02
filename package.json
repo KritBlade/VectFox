@@ -14,10 +14,10 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "@vitest/coverage-v8": "^3.2.7",
-    "@vitest/ui": "^3.2.7",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/ui": "^4.1.10",
     "jieba-wasm": "^2.4.0",
     "jsdom": "^27.0.1",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.10"
   }
 }
