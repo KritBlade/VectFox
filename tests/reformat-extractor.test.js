@@ -3,8 +3,8 @@
  *
  * Covers the parts that are risky to get wrong and aren't exercised by
  * reformat-schema.test.js: the oversized-section batching/continuation
- * packer, retry-vs-fatal-error provider-call behavior, and the
- * expandOversizedChunk() accept-time fallback. Mocks ST globals + fetch —
+ * packer, the chain concurrency limit, retry-vs-fatal-error provider-call
+ * behavior, and the expandOversizedChunk() accept-time fallback. Mocks ST globals + fetch —
  * same convention as chunk-metadata-persistence.test.js.
  */
 
@@ -139,6 +139,45 @@ describe('reformatDocument — batching', () => {
 
         expect(result.chunks).toHaveLength(1);
         expect(result.warnings.some(w => /truncated/i.test(w))).toBe(true);
+
+        vi.unstubAllGlobals();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Chain concurrency
+// ---------------------------------------------------------------------------
+
+describe('reformatDocument — chain concurrency', () => {
+    it('runs independent sections in parallel, never more at once than reformat_concurrency', async () => {
+        // Each section fits the 150-char budget alone but no two fit together,
+        // so every section becomes its own chain.
+        const doc = ['A', 'B', 'C', 'D', 'E']
+            .map(letter => `# Section ${letter}\n\nSection ${letter} holds one paragraph, long enough that no two sections share a batch.`)
+            .join('\n\n');
+
+        let inFlight = 0;
+        let maxInFlight = 0;
+        let callCount = 0;
+        const fetchMock = vi.fn(async () => {
+            callCount++;
+            const name = `Entry-${callCount}`;
+            inFlight++;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await new Promise(resolve => setTimeout(resolve, 20));
+            inFlight--;
+            return mockChatCompletionResponse([
+                { entry_type: 'concept', name, aliases: [], affiliation: '', traits: [], relationships: [], keywords: [], body: `Body of ${name}.` },
+            ]);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await reformatDocument({ text: doc, contentType: 'document', settings: baseSettings({ reformat_concurrency: 2 }) });
+
+        expect(fetchMock).toHaveBeenCalledTimes(5);
+        expect(maxInFlight).toBe(2);
+        expect(result.batchesFailed).toBe(0);
+        expect(result.chunks).toHaveLength(5);
 
         vi.unstubAllGlobals();
     });

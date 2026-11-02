@@ -10,9 +10,9 @@
  * The lorebook block belongs to the GENERATION_STARTED handler and is covered in
  * world-info-integration.test.js.
  *
- * chat-vectorization.js imports ST host modules that don't resolve under vitest, so
- * every direct import is stubbed except constants.js, feature-gate.js and
- * data-structures.js, which stay real.
+ * chat-vectorization.js reaches ST host modules (through src/sillytavern/) that don't
+ * resolve under vitest, so those host modules and every other direct import are
+ * stubbed, except constants.js, feature-gate.js and lru-cache.js, which stay real.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';

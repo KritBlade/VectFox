@@ -18,16 +18,12 @@
  * ============================================================================
  */
 
-import StringUtils from '../utils/string-utils.js';
+import { escapeHtml } from '../src/shared/html-escape.js';
 
 let _onAccept = null;
 let _onDiscard = null;
 let _onRerun = null;
 let _records = []; // working copy: validated reformatted chunks + _accepted/_grounded flags
-
-function _escapeHtml(text) {
-    return StringUtils.escapeHtml(String(text ?? ''));
-}
 
 function _csv(arr) {
     return Array.isArray(arr) ? arr.join(', ') : '';
@@ -80,7 +76,7 @@ function _createModal({ warnings, sourceText, sourceName, contentType }) {
     const warningsHtml = warnings.length
         ? `<div class="vectfox-rr-run-warnings">
              <i class="fa-solid fa-triangle-exclamation"></i>
-             <div>${warnings.map(w => `<div>${_escapeHtml(w)}</div>`).join('')}</div>
+             <div>${warnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
            </div>`
         : '';
 
@@ -89,19 +85,19 @@ function _createModal({ warnings, sourceText, sourceName, contentType }) {
             <div class="vectfox-modal-overlay"></div>
             <div class="vectfox-modal-content vectfox-rr-modal">
                 <div class="vectfox-modal-header">
-                    <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Review Auto-Reformat — ${_escapeHtml(sourceName)}</h3>
+                    <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Review Auto-Reformat — ${escapeHtml(sourceName)}</h3>
                     <button class="vectfox-modal-close" id="vectfox_rr_close"><i class="fa-solid fa-times"></i></button>
                 </div>
                 <div class="vectfox-rr-body">
                     ${warningsHtml}
                     <div class="vectfox-rr-summary">
-                        <span><strong id="vectfox_rr_count">0</strong> entries extracted from <strong>${_escapeHtml(sourceName)}</strong> (${_escapeHtml(contentType)})</span>
+                        <span><strong id="vectfox_rr_count">0</strong> entries extracted from <strong>${escapeHtml(sourceName)}</strong> (${escapeHtml(contentType)})</span>
                         <span class="vectfox-rr-hint">Review each entry below. Uncheck to drop one, edit any field to correct it, then Accept &amp; Continue.</span>
                     </div>
                     <div class="vectfox-rr-columns">
                         <div class="vectfox-rr-source-panel">
                             <div class="vectfox-rr-panel-title">Original source</div>
-                            <pre class="vectfox-rr-source-text">${_escapeHtml(sourceText)}</pre>
+                            <pre class="vectfox-rr-source-text">${escapeHtml(sourceText)}</pre>
                         </div>
                         <div class="vectfox-rr-records-panel" id="vectfox_rr_records"></div>
                     </div>
@@ -130,8 +126,8 @@ function _recordCardHtml(record) {
     const warningHtml = ungrounded
         ? `<div class="vectfox-rr-hallucination-warning">
              <i class="fa-solid fa-triangle-exclamation"></i>
-             ${!record._nameGrounded ? `"${_escapeHtml(record.name)}" wasn't found in the source text — verify this wasn't invented.` : ''}
-             ${record._ungroundedAliases?.length ? `Alias(es) not found in source: ${_escapeHtml(record._ungroundedAliases.join(', '))}.` : ''}
+             ${!record._nameGrounded ? `"${escapeHtml(record.name)}" wasn't found in the source text — verify this wasn't invented.` : ''}
+             ${record._ungroundedAliases?.length ? `Alias(es) not found in source: ${escapeHtml(record._ungroundedAliases.join(', '))}.` : ''}
            </div>`
         : '';
 
@@ -150,31 +146,31 @@ function _recordCardHtml(record) {
             ${warningHtml}
             <div class="vectfox-rr-field-row">
                 <label>Name</label>
-                <input type="text" class="vectfox-rr-field" data-field="name" value="${_escapeHtml(record.name)}" />
+                <input type="text" class="vectfox-rr-field" data-field="name" value="${escapeHtml(record.name)}" />
             </div>
             <div class="vectfox-rr-field-row">
                 <label>Aliases</label>
-                <input type="text" class="vectfox-rr-field" data-field="aliases" value="${_escapeHtml(_csv(record.aliases))}" placeholder="comma-separated" />
+                <input type="text" class="vectfox-rr-field" data-field="aliases" value="${escapeHtml(_csv(record.aliases))}" placeholder="comma-separated" />
             </div>
             <div class="vectfox-rr-field-row">
                 <label>Affiliation</label>
-                <input type="text" class="vectfox-rr-field" data-field="affiliation" value="${_escapeHtml(record.affiliation)}" />
+                <input type="text" class="vectfox-rr-field" data-field="affiliation" value="${escapeHtml(record.affiliation)}" />
             </div>
             <div class="vectfox-rr-field-row">
                 <label>Traits</label>
-                <input type="text" class="vectfox-rr-field" data-field="traits" value="${_escapeHtml(_csv(record.traits))}" placeholder="comma-separated" />
+                <input type="text" class="vectfox-rr-field" data-field="traits" value="${escapeHtml(_csv(record.traits))}" placeholder="comma-separated" />
             </div>
             <div class="vectfox-rr-field-row">
                 <label>Relationships</label>
-                <input type="text" class="vectfox-rr-field" data-field="relationships" value="${_escapeHtml(_csv(record.relationships))}" placeholder="comma-separated" />
+                <input type="text" class="vectfox-rr-field" data-field="relationships" value="${escapeHtml(_csv(record.relationships))}" placeholder="comma-separated" />
             </div>
             <div class="vectfox-rr-field-row">
                 <label>Keywords</label>
-                <input type="text" class="vectfox-rr-field" data-field="keywords" value="${_escapeHtml(_csv(record.keywords))}" placeholder="comma-separated" />
+                <input type="text" class="vectfox-rr-field" data-field="keywords" value="${escapeHtml(_csv(record.keywords))}" placeholder="comma-separated" />
             </div>
             <div class="vectfox-rr-field-row vectfox-rr-field-row-body">
                 <label>Body</label>
-                <textarea class="vectfox-rr-field" data-field="body" rows="4">${_escapeHtml(record.body)}</textarea>
+                <textarea class="vectfox-rr-field" data-field="body" rows="4">${escapeHtml(record.body)}</textarea>
             </div>
         </div>
     `;

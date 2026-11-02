@@ -25,7 +25,7 @@ import { progressTracker } from '../ui/progress-tracker.js';
 import { buildSearchContext, filterChunksByConditions, processChunkLinks } from './conditional-activation.js';
 import { getChunkMetadata, getCollectionMeta } from './collection-metadata.js';
 
-import { LRUCache } from '../utils/data-structures.js';
+import { LRUCache } from '../src/features/chunkbase/lru-cache.js';
 import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
 import { runBoundedRetrieval } from './bounded-retrieval.js';
 import { resolveEventBaseRetrievalTimeoutMs } from './retrieval-budget.js';

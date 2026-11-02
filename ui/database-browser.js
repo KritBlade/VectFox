@@ -51,7 +51,7 @@ import {
   VALID_GENERATION_TYPES,
 } from "../core/conditional-activation.js";
 import { icons } from "./icons.js";
-import StringUtils from "../utils/string-utils.js";
+import { escapeHtml } from "../src/shared/html-escape.js";
 import { log } from "../src/sillytavern/log.js";
 import { openVisualizer } from "./chunk-visualizer.js";
 import {
@@ -1054,13 +1054,13 @@ function renderCollectionCard(collection, isActiveById = null) {
   // Source badge - shows embedding source (transformers, palm, openai, etc.)
   const sourceBadge =
     collection.source && collection.source !== "unknown"
-      ? `<span class="vectfox-badge vectfox-badge-source" title="Embedding source">${StringUtils.escapeHtml(collection.source)}</span>`
+      ? `<span class="vectfox-badge vectfox-badge-source" title="Embedding source">${escapeHtml(collection.source)}</span>`
       : "";
 
   // Model info - show current model and count if multiple
   const hasMultipleModels = collection.models && collection.models.length > 1;
   const currentModelName = collection.model || "(default)";
-  const safeCurrentModelName = StringUtils.escapeHtml(currentModelName);
+  const safeCurrentModelName = escapeHtml(currentModelName);
   const modelBadge = hasMultipleModels
     ? `<span class="vectfox-badge vectfox-badge-model" title="Current model: ${safeCurrentModelName} (${collection.models.length} available)">📐 ${safeCurrentModelName}</span>`
     : "";
@@ -1119,12 +1119,12 @@ function renderCollectionCard(collection, isActiveById = null) {
   // HTML payloads. C-3: defense-in-depth — even `collection.id` (auto-
   // generated `vf_*`) and the backend/source enums get escaped so a future
   // malformed registry entry can't introduce attribute-context XSS.
-  const safeKey       = StringUtils.escapeHtml(uniqueKey);
-  const safeId        = StringUtils.escapeHtml(collection.id);
-  const safeName      = StringUtils.escapeHtml(collection.name);
-  const safeBackend   = StringUtils.escapeHtml(collection.backend);
-  const safeSource    = StringUtils.escapeHtml(collection.source || "transformers");
-  const safeModel     = StringUtils.escapeHtml(collection.model || "");
+  const safeKey       = escapeHtml(uniqueKey);
+  const safeId        = escapeHtml(collection.id);
+  const safeName      = escapeHtml(collection.name);
+  const safeBackend   = escapeHtml(collection.backend);
+  const safeSource    = escapeHtml(collection.source || "transformers");
+  const safeModel     = escapeHtml(collection.model || "");
 
   return `
         <div class="vectfox-collection-card" data-collection-key="${safeKey}" data-status="${collection.enabled ? "active" : "paused"}">
@@ -3110,9 +3110,9 @@ function renderKeywordTags() {
   let html = displayKeywords.map(kw => {
     const isActive = currentFilter.includes(kw.text);
     return `<span class="vectfox-keyword-tag ${isActive ? 'active' : ''}"
-                  data-keyword="${StringUtils.escapeHtml(kw.text)}"
+                  data-keyword="${escapeHtml(kw.text)}"
                   title="${kw.count} occurrence(s)">
-              ${StringUtils.escapeHtml(kw.text)} <small>(${kw.count})</small>
+              ${escapeHtml(kw.text)} <small>(${kw.count})</small>
             </span>`;
   }).join('');
 
@@ -3325,8 +3325,8 @@ function renderSearchResults(results, query, originalResults = null) {
 
   if (totalResults === 0) {
     const filterMsg = wasFiltered
-      ? `<p>No results match keyword filter: "${StringUtils.escapeHtml(browserState.keywordFilter)}"</p><small>${originalTotal} result(s) found before filtering</small>`
-      : `<p>No results found for "${StringUtils.escapeHtml(query)}"</p><small>Try adjusting the score threshold or search in more collections</small>`;
+      ? `<p>No results match keyword filter: "${escapeHtml(browserState.keywordFilter)}"</p><small>${originalTotal} result(s) found before filtering</small>`
+      : `<p>No results found for "${escapeHtml(query)}"</p><small>Try adjusting the score threshold or search in more collections</small>`;
 
     $("#vectfox_search_results").html(`
             <div class="vectfox-search-empty">
@@ -3359,7 +3359,7 @@ function renderSearchResults(results, query, originalResults = null) {
     html += `
             <div class="vectfox-search-collection">
                 <div class="vectfox-search-collection-header">
-                    ${icons.folder(16)} ${StringUtils.escapeHtml(collectionName)}
+                    ${icons.folder(16)} ${escapeHtml(collectionName)}
                     <span class="vectfox-search-count">${collectionResults.hashes.length} result(s)</span>
                 </div>
                 <div class="vectfox-search-collection-results">
@@ -3395,25 +3395,25 @@ function renderSearchResults(results, query, originalResults = null) {
       if (chunkKeywords.length > 0) {
         const keywordTags = chunkKeywords.slice(0, 5).map(kw => {
           const text = typeof kw === 'object' ? kw.text : kw;
-          return `<span class="vectfox-result-keyword">${StringUtils.escapeHtml(text)}</span>`;
+          return `<span class="vectfox-result-keyword">${escapeHtml(text)}</span>`;
         }).join('');
         const moreCount = chunkKeywords.length > 5 ? `<span class="vectfox-result-keyword-more">+${chunkKeywords.length - 5}</span>` : '';
         keywordsHtml = `<div class="vectfox-result-keywords">${keywordTags}${moreCount}</div>`;
       }
 
       html += `
-                <div class="vectfox-search-result" data-collection="${StringUtils.escapeHtml(collectionId)}" data-hash="${collectionResults.hashes[i]}">
+                <div class="vectfox-search-result" data-collection="${escapeHtml(collectionId)}" data-hash="${collectionResults.hashes[i]}">
                     ${scoreDisplay}
                     <div class="vectfox-search-result-content">
-                        <div class="vectfox-search-result-text">${StringUtils.escapeHtml(preview)}</div>
+                        <div class="vectfox-search-result-text">${escapeHtml(preview)}</div>
                         ${keywordsHtml}
                     </div>
                 </div>
 
                 <button class="vectfox-btn-sm vectfox-action-visualize"
-                        data-collection-key="${StringUtils.escapeHtml(uniqueKey)}"
-                        data-backend="${StringUtils.escapeHtml(collection.backend)}"
-                        data-source="${StringUtils.escapeHtml(collection.source || "transformers")}"
+                        data-collection-key="${escapeHtml(uniqueKey)}"
+                        data-backend="${escapeHtml(collection.backend)}"
+                        data-source="${escapeHtml(collection.source || "transformers")}"
                         title="View and edit chunks in this collection">
                     ${icons.eye(16)} View Chunks
                 </button>
@@ -3467,7 +3467,7 @@ function renderBulkList() {
   for (const collection of collections) {
     const uniqueKey = collection.registryKey || collection.id;
     const isSelected = browserState.bulkSelected.has(uniqueKey);
-    const safeKey = StringUtils.escapeHtml(uniqueKey);
+    const safeKey = escapeHtml(uniqueKey);
 
     html += `
             <div class="vectfox-bulk-item ${isSelected ? "selected" : ""}" data-key="${safeKey}">
@@ -3475,7 +3475,7 @@ function renderBulkList() {
                     <input type="checkbox" ${isSelected ? "checked" : ""} data-key="${safeKey}">
                 </label>
                 <div class="vectfox-bulk-item-info">
-                    <span class="vectfox-bulk-item-name">${StringUtils.escapeHtml(collection.name || collection.id)}</span>
+                    <span class="vectfox-bulk-item-name">${escapeHtml(collection.name || collection.id)}</span>
                     <span class="vectfox-bulk-item-meta">
                         ${collection.chunkCount || 0} chunks •
                         ${collection.enabled ? `${icons.toggleRight(12)} Enabled` : `${icons.toggleLeft(12)} Disabled`}

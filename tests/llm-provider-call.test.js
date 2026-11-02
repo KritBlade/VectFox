@@ -33,7 +33,6 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: () => () => {} }),
 }));
 
-import StringUtils from '../utils/string-utils.js';
 import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../core/llm-provider-call.js';
 
 // ---------------------------------------------------------------------------
@@ -514,23 +513,5 @@ describe('parseJsonArrayFromLlm', () => {
             expect(e).toBeInstanceOf(LlmCallError);
             expect(e.kind).toBe('parse');
         }
-    });
-});
-
-// ---------------------------------------------------------------------------
-// StringUtils.ensureArray (the shared string-array coercion)
-// ---------------------------------------------------------------------------
-
-describe('StringUtils.ensureArray', () => {
-    it('trims, dedupes, and drops empties', () => {
-        expect(StringUtils.ensureArray([' a ', 'a', '', 'b', '  '])).toEqual(['a', 'b']);
-    });
-    it('returns [] for non-arrays', () => {
-        expect(StringUtils.ensureArray(null)).toEqual([]);
-        expect(StringUtils.ensureArray('x')).toEqual([]);
-        expect(StringUtils.ensureArray(undefined)).toEqual([]);
-    });
-    it('coerces non-string members via String()', () => {
-        expect(StringUtils.ensureArray([1, 2, 2, null])).toEqual(['1', '2']);
     });
 });

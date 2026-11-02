@@ -25,7 +25,7 @@ import { callGenericPopup, POPUP_TYPE } from '../src/sillytavern/popup.js';
 import { getChatUUID, vectorizeAll } from '../core/chat-vectorization.js';
 import { validateLLMConfig } from '../core/llm-config-validation.js';
 import { getOpenRouterApiKey } from '../core/api-keys.js';
-import StringUtils from '../utils/string-utils.js';
+import { escapeHtml } from '../src/shared/html-escape.js';
 import { resolveEffectiveSettings } from '../core/content-vectorization.js';
 import { buildArchiveEventCollectionId } from '../core/collection-ids.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
@@ -1827,7 +1827,7 @@ async function populateSourceSelect(type) {
                 if (context?.characterId) {
                     const currentChar = characters.find(c => c.avatar === context.characterId);
                     if (currentChar) {
-                        select.append(`<option value="${StringUtils.escapeHtml(currentChar.avatar)}" selected>📌 ${StringUtils.escapeHtml(currentChar.name)} (current)</option>`);
+                        select.append(`<option value="${escapeHtml(currentChar.avatar)}" selected>📌 ${escapeHtml(currentChar.name)} (current)</option>`);
                     }
                 }
 
@@ -1835,7 +1835,7 @@ async function populateSourceSelect(type) {
                 characters.forEach(char => {
                     // Skip if already added as current
                     if (char.avatar === context?.characterId) return;
-                    select.append(`<option value="${StringUtils.escapeHtml(char.avatar)}">${StringUtils.escapeHtml(char.name)}</option>`);
+                    select.append(`<option value="${escapeHtml(char.avatar)}">${escapeHtml(char.name)}</option>`);
                 });
             } else {
                 select.append('<option value="" disabled>No characters found</option>');
@@ -2687,7 +2687,7 @@ async function previewChunks() {
                         return `
                         <div class="vectfox-cv-preview-chunk">
                             <span class="vectfox-cv-preview-num">#${i + 1}</span>
-                            <span class="vectfox-cv-preview-text">${StringUtils.escapeHtml(label)}${StringUtils.escapeHtml(chunk.text.substring(0, 120))}${chunk.text.length > 120 ? '...' : ''}</span>
+                            <span class="vectfox-cv-preview-text">${escapeHtml(label)}${escapeHtml(chunk.text.substring(0, 120))}${chunk.text.length > 120 ? '...' : ''}</span>
                             <span class="vectfox-cv-preview-size">${chunk.text.length} chars</span>
                         </div>
                     `}).join('')}
@@ -2750,7 +2750,7 @@ async function previewChunks() {
                     return `
                     <div class="vectfox-cv-preview-chunk">
                         <span class="vectfox-cv-preview-num">#${i + 1}</span>
-                        <span class="vectfox-cv-preview-text">${StringUtils.escapeHtml(chunkText.substring(0, 150))}${chunkText.length > 150 ? '...' : ''}</span>
+                        <span class="vectfox-cv-preview-text">${escapeHtml(chunkText.substring(0, 150))}${chunkText.length > 150 ? '...' : ''}</span>
                         <span class="vectfox-cv-preview-size">${chunkText.length} chars</span>
                     </div>
                 `}).join('')}
@@ -3185,7 +3185,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                     <p><strong>Vectorization stopped — database insert failed</strong></p>
                     <p>VectFox tried 3 times to write a batch of events to the vector store and the database rejected every attempt. Your collection is consistent (no partial writes), and the next run will pick up where this one stopped.</p>
                     <p>Underlying error:</p>
-                    <pre style="white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;">${StringUtils.escapeHtml(e.message)}</pre>
+                    <pre style="white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;">${escapeHtml(e.message)}</pre>
                 </div>`,
                 POPUP_TYPE.TEXT,
                 '',
@@ -3206,7 +3206,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                     <p>The number of events stored in the database is smaller than the number VectFox tried to insert. Some events were dropped between the workflow and Qdrant without any error being raised. <strong>Your collection is incomplete</strong> and should not be trusted until this is resolved.</p>
                     <p>This is usually one of: (a) a hash collision (two events colliding to the same point ID, where Qdrant treats the second as an overwrite of the first), (b) the Similharity plugin silently rejecting a payload field, or (c) a Qdrant capacity / network issue under the gateway.</p>
                     <p>Details:</p>
-                    <pre style="white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;">${StringUtils.escapeHtml(e.message)}</pre>
+                    <pre style="white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;">${escapeHtml(e.message)}</pre>
                     <p>Suggested next step: delete this collection and re-vectorize after the fix. The console has more details.</p>
                 </div>`,
                 POPUP_TYPE.TEXT,

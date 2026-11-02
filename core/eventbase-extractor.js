@@ -20,10 +20,10 @@ import {
     buildExtractionPrompt,
     EVENTBASE_SCHEMA_VERSION,
     packTimelineSortKey,
+    truncateCodePoints,
 } from './eventbase-schema.js';
 import { cleanText } from './text-cleaning.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
-import StringUtils from '../utils/string-utils.js';
 import { log } from '../src/sillytavern/log.js';
 
 // Cap each message's reasoning (chain-of-thought) fed to the extractor as a
@@ -285,7 +285,7 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
         log.trace(`[EventBase][scene_time] win=${windowIndex} msg#${mi} "${speaker}": mes=${text.length}c reasoning=${reasoning.length}c src=${rsrc}`);
         if (!reasoning) return `${speaker}: ${text}`;
         _reasoningMsgs++;
-        const capped = StringUtils.truncateCodePoints(reasoning, REASONING_FEED_CHAR_CAP);
+        const capped = truncateCodePoints(reasoning, REASONING_FEED_CHAR_CAP);
         // Log the EXACT reasoning substring sent to the model (cap = REASONING_FEED_CHAR_CAP
         // code points). Lets you confirm the date/time/location line survived the cut.
         log.trace(`[EventBase][scene_time] win=${windowIndex} msg#${mi} REASONING SENT (${Array.from(capped).length}cp of ${Array.from(reasoning).length}cp original, cap=${REASONING_FEED_CHAR_CAP}):\n>>>${capped}<<<`);

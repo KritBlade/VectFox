@@ -12,7 +12,7 @@
  * ============================================================================
  */
 import { getEventBaseExtractionPrompt } from './prompts-i18n.js';
-import StringUtils from '../utils/string-utils.js';
+import { normalizeStringList } from '../src/shared/string-list.js';
 
 /**
  * Controlled vocabulary for event_type field.
@@ -111,10 +111,22 @@ export class EventBaseFatalError extends Error {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Dedupe + trim an array of strings; drop empties. Single implementation lives
-// in StringUtils (shared with reformat-schema.js) — aliased here so the call
-// sites below stay terse.
-const ensureArray = StringUtils.ensureArray;
+/**
+ * Cap a string at `max` Unicode code points, not UTF-16 code units, so the cut
+ * never splits a surrogate pair (an emoji such as 🗓️, a rare CJK-extension
+ * ideograph) into a lone half-character. No ellipsis and no word-boundary trim.
+ * Bounds the stored scene_time here and the reasoning eventbase-extractor.js
+ * feeds the LLM.
+ * @param {string} str
+ * @param {number} max - most code points kept
+ * @returns {string} `str` itself when it fits, else its first `max` code points;
+ *   '' for a non-string or a `max` of 0 or less
+ */
+export function truncateCodePoints(str, max) {
+    if (typeof str !== 'string' || max <= 0) return '';
+    const codePoints = Array.from(str);
+    return codePoints.length <= max ? str : codePoints.slice(0, max).join('');
+}
 
 /**
  * Normalize optional DateTime field (ISO 8601 string) from LLM output.
@@ -183,8 +195,8 @@ export function validateEvent(raw) {
         return { ok: false, errors: ['summary is empty or missing'] };
     }
 
-    const concepts = ensureArray((/** @type {any} */ (raw)).concepts);
-    const rawKeywords = ensureArray((/** @type {any} */ (raw)).keywords);
+    const concepts = normalizeStringList((/** @type {any} */ (raw)).concepts);
+    const rawKeywords = normalizeStringList((/** @type {any} */ (raw)).keywords);
 
     // Merge concepts into keywords (case-insensitive dedup) so concept terms are
     // always searchable via the keyword index even if the LLM forgot to copy them
@@ -209,17 +221,17 @@ export function validateEvent(raw) {
         // format/language). Companion to the ISO DateTime above — NOT parsed. Single
         // line + capped to 100 code points so parseEmbedText round-trips it cleanly.
         scene_time: typeof (/** @type {any} */ (raw)).scene_time === 'string'
-            ? StringUtils.truncateCodePoints((/** @type {any} */ (raw)).scene_time.replace(/\s+/g, ' ').trim(), 100)
+            ? truncateCodePoints((/** @type {any} */ (raw)).scene_time.replace(/\s+/g, ' ').trim(), 100)
             : '',
         cause: typeof (/** @type {any} */ (raw)).cause === 'string' ? (/** @type {any} */ (raw)).cause.trim() : '',
         result: typeof (/** @type {any} */ (raw)).result === 'string' ? (/** @type {any} */ (raw)).result.trim() : '',
-        characters: ensureArray((/** @type {any} */ (raw)).characters),
-        locations: ensureArray((/** @type {any} */ (raw)).locations),
-        factions: ensureArray((/** @type {any} */ (raw)).factions),
-        items: ensureArray((/** @type {any} */ (raw)).items),
+        characters: normalizeStringList((/** @type {any} */ (raw)).characters),
+        locations: normalizeStringList((/** @type {any} */ (raw)).locations),
+        factions: normalizeStringList((/** @type {any} */ (raw)).factions),
+        items: normalizeStringList((/** @type {any} */ (raw)).items),
         concepts,
         keywords: mergedKeywords,
-        open_threads: ensureArray((/** @type {any} */ (raw)).open_threads),
+        open_threads: normalizeStringList((/** @type {any} */ (raw)).open_threads),
         should_persist: (/** @type {any} */ (raw)).should_persist === true,
     };
 

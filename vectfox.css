@@ -17,8 +17,7 @@
 @import url('./styles/badges.css');
 @import url('./styles/modals.css');
 
-/* Utility styles */
-@import url('./styles/sleek-ui.css');
+/* Progress panel */
 @import url('./styles/progress-indicator.css');
 
 /* UI component styles */
@@ -30,7 +29,6 @@
 @import url('./ui/text-cleaning-manager.css');
 @import url('./ui/health-dashboard.css');
 
-/* Mobile responsive styles - must be last to override */
 /* Tab navigation styles */
 @import url('./styles/tabs.css');
 

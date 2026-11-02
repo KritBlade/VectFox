@@ -42,7 +42,7 @@
 import { discoverExistingCollections } from './collection-loader.js';
 import { pruneOrphanedEventBaseChatMaps } from './eventbase-store.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from './similharity-plugin.js';
-import AsyncUtils from '../utils/async-utils.js';
+import { retry } from '../src/shared/retry.js';
 import { log } from '../src/sillytavern/log.js';
 
 /**
@@ -147,7 +147,7 @@ export function runNetworkStartup(startupSettings) {
             // VEC-34: Discover existing collections with retry.
             // Exponential backoff handles temporary backend unavailability.
             try {
-                const collections = await AsyncUtils.retry(
+                const collections = await retry(
                     () => discoverExistingCollections(startupSettings),
                     {
                         maxAttempts: 3,

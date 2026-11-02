@@ -56,7 +56,7 @@ async function _invalidateCorpusStats(collectionId, reason) {
         log.warn(`[CorpusStats] Cache invalidation failed for ${collectionId}:`, err);
     }
 }
-import AsyncUtils from '../utils/async-utils.js';
+import { retry } from '../src/shared/retry.js';
 import {
     RETRY_MAX_ATTEMPTS,
     RETRY_INITIAL_DELAY_MS,
@@ -120,7 +120,7 @@ export class DynamicRateLimiter {
 
             if (waitTime > 0) {
                 log.verbose(`VectFox: Rate limit reached${label ? ` [${label}]` : ''}. Waiting ${Math.round(waitTime / 1000)}s...`);
-                await AsyncUtils.sleep(waitTime + 100); // Add small buffer
+                await new Promise(resolve => setTimeout(resolve, waitTime + 100)); // Add small buffer
             }
 
             // Recursive call to re-check
@@ -332,7 +332,7 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
     });
 }
 
-// Retry configuration for transient failures (matches AsyncUtils.retry signature)
+// Retry configuration for transient failures: the options of retry() (src/shared/retry.js)
 const RETRY_CONFIG = {
     maxAttempts: RETRY_MAX_ATTEMPTS,
     delay: RETRY_INITIAL_DELAY_MS,
@@ -522,7 +522,7 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
             // attributable.
             const makeProcessBatch = (batch, batchIdx, batchItemCount) => async () => {
                 let attemptCount = 0;
-                await AsyncUtils.retry(async () => {
+                await retry(async () => {
                     attemptCount++;
                     const attemptStart = performance.now();
                     const debugOn = log.enabled('verbose');
@@ -669,7 +669,7 @@ async function streamEmbeddingsAndWrite(backend, collectionId, items, textString
         // VEC-6: Retry logic per batch instead of per chunk
         let additionalArgs;
         try {
-            additionalArgs = await AsyncUtils.retry(async () => {
+            additionalArgs = await retry(async () => {
                 return await getAdditionalArgs();
             }, RETRY_CONFIG);
         } catch (error) {
@@ -723,7 +723,7 @@ async function streamEmbeddingsAndWrite(backend, collectionId, items, textString
         // VEC-6: Write batch to database with retry logic
         log.verbose(`VectFox: Writing batch ${batchNum} to database (${itemsToWrite.length} items)`);
         try {
-            await AsyncUtils.retry(async () => {
+            await retry(async () => {
                 if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
                 await backend.insertVectorItems(collectionId, itemsToWrite, settings, abortSignal);
             }, RETRY_CONFIG);

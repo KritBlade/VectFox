@@ -23,7 +23,7 @@ import {
     fetchQdrantApiKeyPresence,
 } from '../core/api-keys.js';
 import { getWebLlmProvider as getSharedWebLlmProvider } from '../providers/webllm.js';
-import StringUtils from '../utils/string-utils.js';
+import { escapeHtml } from '../src/shared/html-escape.js';
 import { openDatabaseBrowser } from './database-browser.js';
 import { openContentVectorizer } from './content-vectorizer.js';
 import { openQueryTestModal } from './query-tester.js';
@@ -2014,7 +2014,7 @@ export async function refreshWIStatus() {
     }
 
     const names = activeIds.map(id => getCollectionMeta(id)?.sourceName || id);
-    const nameList = names.map(n => `<span style="font-style:italic;">${StringUtils.escapeHtml(n)}</span>`).join(', ');
+    const nameList = names.map(n => `<span style="font-style:italic;">${escapeHtml(n)}</span>`).join(', ');
     $status.html(
         `<i class="fa-solid fa-circle-check" style="color: var(--success-color, #27ae60);"></i> ` +
         `Active for this chat: ${nameList}`
@@ -2052,7 +2052,7 @@ async function _offerEventBaseFork(settings) {
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../src/sillytavern/popup.js');
     const choice = await callGenericPopup(
         `<div style="text-align:left">
-            <p><strong>This chat is a branch or checkpoint.</strong> Its first ${source.sharedPrefixLength} messages match the EventBase <em>${StringUtils.escapeHtml(source.collectionId)}</em>.</p>
+            <p><strong>This chat is a branch or checkpoint.</strong> Its first ${source.sharedPrefixLength} messages match the EventBase <em>${escapeHtml(source.collectionId)}</em>.</p>
             <p><strong>Fork from parent</strong> copies the events for those messages into this chat's own EventBase — no LLM calls, no re-embedding.${remainingText} If the parent's EventBase is locked to this chat, it is unlocked: its later events belong to the parent's story.</p>
             <p><strong>Vectorize from scratch</strong> extracts this chat's whole history again.</p>
         </div>`,
@@ -5042,10 +5042,10 @@ async function openSummarizerDebug(settings) {
         const reqNote = result.requested ? ` (requested up to ${result.requested})` : '';
         const offNote = enabled ? '' : ' — <em>feature is currently OFF; this previews what enabling it would inject</em>';
         body = `<p style="margin:0 0 6px;"><strong>${result.count}</strong> event(s) would be injected${reqNote}${offNote}.</p>`
-            + `<pre style="white-space:pre-wrap; word-break:break-word; max-height:55vh; overflow:auto; text-align:left; background:rgba(0,0,0,0.3); padding:10px; border-radius:6px; margin:0;">${StringUtils.escapeHtml(result.text)}</pre>`;
+            + `<pre style="white-space:pre-wrap; word-break:break-word; max-height:55vh; overflow:auto; text-align:left; background:rgba(0,0,0,0.3); padding:10px; border-radius:6px; margin:0;">${escapeHtml(result.text)}</pre>`;
     } else {
         body = `<p style="margin:0;">Nothing would be injected this turn.</p>`
-            + `<p style="margin:6px 0 0; opacity:0.85;">${StringUtils.escapeHtml(REASONS[result.reason] || result.reason || 'No events.')}</p>`;
+            + `<p style="margin:6px 0 0; opacity:0.85;">${escapeHtml(REASONS[result.reason] || result.reason || 'No events.')}</p>`;
     }
 
     const html = `<div style="text-align:left;">

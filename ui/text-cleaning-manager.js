@@ -23,7 +23,7 @@ import {
     importPatterns,
     testPattern,
 } from '../core/text-cleaning.js';
-import StringUtils from '../utils/string-utils.js';
+import { escapeHtml } from '../src/shared/html-escape.js';
 
 /**
  * Opens the Text Cleaning Manager modal
@@ -71,7 +71,7 @@ export function openTextCleaningManager() {
                                 </option>
                             </select>
                             <span class="vectfox-tcm-preset-desc" id="VectFox_tcm_preset_desc">
-                                ${StringUtils.escapeHtml(getPresetDescription(settings.selectedPreset))}
+                                ${escapeHtml(getPresetDescription(settings.selectedPreset))}
                             </span>
                         </div>
                     </div>
@@ -175,13 +175,13 @@ function renderBuiltinPatterns(settings) {
         : (CLEANING_PRESETS[preset]?.patterns || []);
 
     return Object.values(BUILTIN_PATTERNS).map(p => `
-        <label class="vectfox-tcm-pattern-item${isCustom ? '' : ' vectfox-tcm-pattern-locked'}" title="${StringUtils.escapeHtml(p.pattern)}">
+        <label class="vectfox-tcm-pattern-item${isCustom ? '' : ' vectfox-tcm-pattern-locked'}" title="${escapeHtml(p.pattern)}">
             <input type="checkbox" data-id="${p.id}"
                    ${activeIds.includes(p.id) ? 'checked' : ''}
                    ${isCustom ? '' : 'disabled'}>
             <div class="vectfox-tcm-pattern-info">
-                <span class="vectfox-tcm-pattern-name">${StringUtils.escapeHtml(p.name)}</span>
-                <code class="vectfox-tcm-pattern-regex">${StringUtils.escapeHtml(p.pattern.substring(0, 40))}${p.pattern.length > 40 ? '...' : ''}</code>
+                <span class="vectfox-tcm-pattern-name">${escapeHtml(p.name)}</span>
+                <code class="vectfox-tcm-pattern-regex">${escapeHtml(p.pattern.substring(0, 40))}${p.pattern.length > 40 ? '...' : ''}</code>
             </div>
         </label>
     `).join('');
@@ -205,9 +205,9 @@ function renderCustomPatterns(patterns) {
         return `
             <div class="vectfox-tcm-custom-item" data-id="${p.id}">
                 <input type="checkbox" class="vectfox-tcm-custom-enabled" ${p.enabled !== false ? 'checked' : ''} title="Enable/disable">
-                <input type="text" class="vectfox-tcm-custom-name" value="${StringUtils.escapeHtml(p.name)}" placeholder="Name">
-                <input type="text" class="vectfox-tcm-custom-pattern" value="${StringUtils.escapeHtml(displayPattern)}" placeholder="/pattern/gi">
-                <input type="text" class="vectfox-tcm-custom-replacement" value="${StringUtils.escapeHtml(p.replacement || '')}" placeholder="Replace with (empty = remove)">
+                <input type="text" class="vectfox-tcm-custom-name" value="${escapeHtml(p.name)}" placeholder="Name">
+                <input type="text" class="vectfox-tcm-custom-pattern" value="${escapeHtml(displayPattern)}" placeholder="/pattern/gi">
+                <input type="text" class="vectfox-tcm-custom-replacement" value="${escapeHtml(p.replacement || '')}" placeholder="Replace with (empty = remove)">
                 <button class="vectfox-btn-icon vectfox-btn-danger" data-action="delete" title="Delete">
                     <i class="fa-solid fa-trash"></i>
                 </button>
@@ -444,13 +444,13 @@ function bindEvents() {
             resultEl.html(`
                 <div class="vectfox-tcm-test-success">
                     <strong>Result:</strong>
-                    <pre>${StringUtils.escapeHtml(result.result)}</pre>
+                    <pre>${escapeHtml(result.result)}</pre>
                 </div>
             `);
         } else {
             resultEl.html(`
                 <div class="vectfox-tcm-test-error">
-                    <i class="fa-solid fa-times-circle"></i> ${StringUtils.escapeHtml(result.error)}
+                    <i class="fa-solid fa-times-circle"></i> ${escapeHtml(result.error)}
                 </div>
             `);
         }

@@ -13,18 +13,17 @@
  * an entity or a topic" branch, same trick as EVENT_TYPES), but nothing here
  * imports from EventBase — this feature must stand on its own so a bug or
  * schema change in chat's EventBase pipeline can never affect Document/Wiki/
- * URL reformatting, and vice versa. Generic, provider-agnostic helpers (the
- * string-array coercion) come from the neutral utils/string-utils.js that both
- * schemas already share — that's a leaf utility, not an EventBase dependency.
+ * URL reformatting, and vice versa. The string-list cleanup both schemas need
+ * comes from src/shared/string-list.js, which belongs to neither.
  *
- * No CJK-localized prompt variants yet (unlike EventBase's prompts-i18n.js
- * variants) — out of scope for this feature's first pass. buildReformatPrompt
- * still takes a `customPrompt` override so a user who needs non-English
- * extraction instructions can supply their own template today.
+ * The prompt is English only (EventBase has per-language variants in
+ * prompts-i18n.js); buildReformatPrompt takes a `customPrompt` override, so a
+ * user who needs non-English extraction instructions supplies their own
+ * template.
  * ============================================================================
  */
 
-import StringUtils from '../utils/string-utils.js';
+import { normalizeStringList } from '../src/shared/string-list.js';
 
 /**
  * Controlled vocabulary for entry_type field. LLM is instructed to map every
@@ -75,10 +74,46 @@ export class ReformatFatalError extends Error {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Dedupe + trim an array of strings; drop empties. Single implementation lives
-// in StringUtils (shared with eventbase-schema.js) — aliased here so the call
-// sites below stay terse.
-const ensureArray = StringUtils.ensureArray;
+/**
+ * Levenshtein edit distance: the fewest single-character insertions, deletions
+ * and substitutions that turn `a` into `b`. Case-sensitive.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function levenshteinDistance(a, b) {
+    const matrix = Array(a.length + 1).fill(null).map(() => Array(b.length + 1).fill(0));
+
+    for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+    for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            matrix[i][j] = Math.min(
+                matrix[i - 1][j] + 1,        // deletion
+                matrix[i][j - 1] + 1,        // insertion
+                matrix[i - 1][j - 1] + cost, // substitution
+            );
+        }
+    }
+
+    return matrix[a.length][b.length];
+}
+
+/**
+ * Similarity from 0 (nothing in common) to 1 (identical): one minus the edit
+ * distance over the longer length. Case-sensitive, so the caller passes text
+ * that went through normalizeForMatch().
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function levenshteinSimilarity(a, b) {
+    const maxLength = Math.max(a.length, b.length);
+    if (maxLength === 0) return 1.0;
+    return 1 - (levenshteinDistance(a, b) / maxLength);
+}
 
 // ---------------------------------------------------------------------------
 // Validator
@@ -123,11 +158,11 @@ export function validateReformattedChunk(raw) {
     const chunk = {
         entry_type,
         name,
-        aliases: ensureArray((/** @type {any} */ (raw)).aliases),
+        aliases: normalizeStringList((/** @type {any} */ (raw)).aliases),
         affiliation,
-        traits: ensureArray((/** @type {any} */ (raw)).traits),
-        relationships: ensureArray((/** @type {any} */ (raw)).relationships),
-        keywords: ensureArray((/** @type {any} */ (raw)).keywords),
+        traits: normalizeStringList((/** @type {any} */ (raw)).traits),
+        relationships: normalizeStringList((/** @type {any} */ (raw)).relationships),
+        keywords: normalizeStringList((/** @type {any} */ (raw)).keywords),
         body,
     };
 
@@ -185,7 +220,7 @@ function isNameGroundedInSource(name, sourceText, threshold) {
     let best = 0;
     for (let i = 0; i <= sourceWords.length - nameWords.length; i++) {
         const windowText = sourceWords.slice(i, i + nameWords.length).join(' ');
-        const score = StringUtils.similarity(normName, windowText);
+        const score = levenshteinSimilarity(normName, windowText);
         if (score > best) best = score;
         if (best >= threshold) break;
     }

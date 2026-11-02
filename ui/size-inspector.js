@@ -19,7 +19,7 @@ import { loadAllCollections } from "../core/collection-loader.js";
 import { buildRegistryKey } from "../core/collection-ids.js";
 import { listChunks } from "../core/core-vector-api.js";
 import { icons } from "./icons.js";
-import StringUtils from "../utils/string-utils.js";
+import { escapeHtml } from "../src/shared/html-escape.js";
 
 // Cache of last scan so the detail view can reuse already-fetched items
 // without re-hitting the backend.
@@ -263,14 +263,14 @@ function renderSummaryRows(rows) {
     for (const r of rows) {
         const cls = r.error ? "error" : (r.count > 0 ? "clickable" : "");
         $tbody.append(`
-            <tr class="${cls}" data-key="${StringUtils.escapeHtml(r.key)}">
-                <td class="collection-cell" title="${StringUtils.escapeHtml(r.collectionId)}">${StringUtils.escapeHtml(truncateMid(r.collectionId, 60))}</td>
-                <td>${StringUtils.escapeHtml(r.backend)}</td>
+            <tr class="${cls}" data-key="${escapeHtml(r.key)}">
+                <td class="collection-cell" title="${escapeHtml(r.collectionId)}">${escapeHtml(truncateMid(r.collectionId, 60))}</td>
+                <td>${escapeHtml(r.backend)}</td>
                 <td class="num">${r.count}</td>
                 <td class="num">${r.maxChars}</td>
                 <td class="num">${r.avgChars}</td>
                 <td class="num">${r.totalKB}</td>
-                <td class="preview-cell" title="${StringUtils.escapeHtml(r.worstPreview)}">${StringUtils.escapeHtml(r.worstPreview.slice(0, 60))}</td>
+                <td class="preview-cell" title="${escapeHtml(r.worstPreview)}">${escapeHtml(r.worstPreview.slice(0, 60))}</td>
             </tr>
         `);
     }
@@ -306,8 +306,8 @@ function showCollectionDetail(key) {
             <tr>
                 <td class="num">${i + 1}</td>
                 <td class="num">${r.chars}</td>
-                <td class="hash-cell">${StringUtils.escapeHtml(String(r.hash))}</td>
-                <td class="preview-cell" title="${StringUtils.escapeHtml(r.preview)}">${StringUtils.escapeHtml(r.preview.slice(0, 120))}</td>
+                <td class="hash-cell">${escapeHtml(String(r.hash))}</td>
+                <td class="preview-cell" title="${escapeHtml(r.preview)}">${escapeHtml(r.preview.slice(0, 120))}</td>
             </tr>
         `);
     }

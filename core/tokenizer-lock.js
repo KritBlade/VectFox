@@ -18,7 +18,7 @@
  * ============================================================================
  */
 
-import StringUtils from '../utils/string-utils.js';
+import { escapeHtml } from '../src/shared/html-escape.js';
 import { log } from '../src/sillytavern/log.js';
 
 const metadataCache = new Map();
@@ -97,16 +97,16 @@ export async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
 
     const html = `
         <h3>Tokenizer Mode Mismatch</h3>
-        <p>This Qdrant collection (<code>${StringUtils.escapeHtml(actualCollectionId)}</code>) was vectorized with the
-        <code>${StringUtils.escapeHtml(mismatch.saved)}</code> CJK tokenizer.</p>
-        <p>Your current setting is <code>${StringUtils.escapeHtml(mismatch.current)}</code>.</p>
+        <p>This Qdrant collection (<code>${escapeHtml(actualCollectionId)}</code>) was vectorized with the
+        <code>${escapeHtml(mismatch.saved)}</code> CJK tokenizer.</p>
+        <p>Your current setting is <code>${escapeHtml(mismatch.current)}</code>.</p>
         <p>Querying with a different tokenizer produces inaccurate BM25 results because
         sparse-vector indices are tokenizer-specific.</p>
         <p>To switch tokenizer modes for this collection you must
         <strong>delete the collection and re-vectorize from scratch.</strong></p>
         <p style="margin-top:1em;">Choose:</p>
         <ul>
-            <li><strong>Revert</strong> — switch CJK mode back to <code>${StringUtils.escapeHtml(mismatch.saved)}</code> and continue.</li>
+            <li><strong>Revert</strong> — switch CJK mode back to <code>${escapeHtml(mismatch.saved)}</code> and continue.</li>
             <li><strong>Open Settings</strong> — keep current mode; you will purge and re-vectorize this collection.</li>
             <li><strong>Cancel</strong> — abort this query.</li>
         </ul>

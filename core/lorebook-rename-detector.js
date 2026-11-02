@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import StringUtils from '../utils/string-utils.js';
+import { escapeHtml } from '../src/shared/html-escape.js';
 import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================
@@ -87,7 +87,7 @@ export async function showLorebookRenameModal(mismatches) {
     const { callGenericPopup, POPUP_TYPE } = await import('../src/sillytavern/popup.js');
 
     const list = mismatches
-        .map(m => `<li><code>${StringUtils.escapeHtml(m.sourceName)}</code></li>`)
+        .map(m => `<li><code>${escapeHtml(m.sourceName)}</code></li>`)
         .join('');
 
     const html = `

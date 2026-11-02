@@ -6,13 +6,13 @@
  * text into structured, entity-tagged reformatted chunks (see
  * core/reformat-schema.js for the record shape).
  *
- * Provider calling + LLM-output JSON parsing are shared with the other three
- * VectFox LLM features via core/llm-provider-call.js (postChatCompletion +
- * parseJsonArrayFromLlm) — this file no longer re-implements them, and still
- * imports nothing from EventBase. The reformat-specific policy stays here:
- * config resolution, per-batch retry (AsyncUtils.retry — transient failures on
- * a large single-shot batch cost more than one small EventBase chat window),
- * batching/chaining, validation, and the review-facing warnings.
+ * Provider calls and LLM-output JSON parsing come from core/llm-provider-call.js
+ * (postChatCompletion + parseJsonArrayFromLlm), shared with VectFox's other LLM
+ * features; nothing here imports EventBase. The reformat-specific policy stays
+ * here: config resolution, per-batch retry (retry() from src/shared/retry.js —
+ * a transient failure on a large single-shot batch costs more than one small
+ * EventBase chat window), batching into chains that run a few at a time,
+ * validation, and the review-facing warnings.
  *
  * Returns { chunks, warnings, batchesProcessed, batchesFailed, totalBatches }.
  * Throws ReformatFatalError for config/auth failures (aborts the whole run).
@@ -24,7 +24,7 @@
 import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
 import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { chunkText } from './chunking.js';
-import AsyncUtils from '../utils/async-utils.js';
+import { retry } from '../src/shared/retry.js';
 import {
     ReformatExtractionError,
     ReformatFatalError,
@@ -186,7 +186,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
 async function _callProviderWithRetry(prompt, settings, batchIndex) {
     const provider = _resolveProvider(settings);
     const callFn = provider === 'vllm' ? _callVLLM : _callOpenRouter;
-    return AsyncUtils.retry(() => callFn(prompt, settings, batchIndex), {
+    return retry(() => callFn(prompt, settings, batchIndex), {
         maxAttempts: 3,
         delay: 1500,
         maxDelay: 10000,
@@ -354,6 +354,38 @@ async function _processChain(chain, settings, chainIndex, warnings) {
     return { results, failedCount };
 }
 
+/**
+ * Runs the async `tasks` with at most `limit` of them in flight, starting the
+ * next one whenever one finishes, and resolves to their results in task order.
+ * A task that throws rejects the whole run at once; tasks already started keep
+ * running.
+ * @template T
+ * @param {Array<() => Promise<T>>} tasks
+ * @param {number} limit
+ * @returns {Promise<T[]>}
+ */
+async function _runWithConcurrencyLimit(tasks, limit) {
+    const results = [];
+    const inFlight = [];
+
+    for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i];
+        const promise = Promise.resolve().then(() => task());
+        results[i] = promise;
+
+        if (limit <= tasks.length) {
+            const slot = promise.then(() => inFlight.splice(inFlight.indexOf(slot), 1));
+            inFlight.push(slot);
+
+            if (inFlight.length >= limit) {
+                await Promise.race(inFlight);
+            }
+        }
+    }
+
+    return Promise.all(results);
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -391,7 +423,7 @@ export async function reformatDocument({ text, contentType, settings, onProgress
 
     log.lifecycle(`[Auto-Reformat] Starting: ${contentType}, ${totalBatches} batch(es) in ${chains.length} chain(s), concurrency=${concurrency}`);
 
-    const chainFns = chains.map((chain, chainIndex) => async () => {
+    const chainTasks = chains.map((chain, chainIndex) => async () => {
         if (abortSignal?.aborted) {
             const err = new Error('Auto-Reformat stopped by user');
             err.name = 'AbortError';
@@ -404,7 +436,7 @@ export async function reformatDocument({ text, contentType, settings, onProgress
         return results;
     });
 
-    const chainResultsArrays = await AsyncUtils.parallel(chainFns, concurrency);
+    const chainResultsArrays = await _runWithConcurrencyLimit(chainTasks, concurrency);
     const chunks = chainResultsArrays.flat();
 
     log.lifecycle(`[Auto-Reformat] Complete: ${chunks.length} entries extracted from ${totalBatches} batch(es), ${batchesFailed} batch failure(s), ${warnings.length} warning(s)`);

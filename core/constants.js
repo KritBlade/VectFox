@@ -42,16 +42,17 @@ export const VECTOR_LIST_LIMIT = 10000;
  * effective value. Always read the effective budget through
  * resolveRetrievalTimeoutMs() in core/retrieval-budget.js.
  *
- * Bounds the read/search path during generation (rearrangeChat -> EventBase
- * retrieval + chunk retrieval) so a hung embedding/query cannot freeze the whole
- * conversation. On timeout the turn proceeds WITHOUT memory injection -- soft
- * Promise.race via AsyncUtils.timeout; the orphaned fetch is reaped later by
- * ST's server-side timeout (read fetches carry no client AbortSignal). Matches
- * the write-side hedge threshold (vector_hedge_after_ms = 15000) for one
- * consistent "too slow" number. Unlike the write path, reads are NOT
- * hedged/retried -- a stalled retrieval fails soft (one turn without memory,
- * self-corrects next message), so a single bounded attempt is the right
- * tradeoff. See dev_helper.md sec 6.8.
+ * Bounds every retrieval during generation -- chunks, the summarizer and
+ * Lorebook WI; EventBase adds its Agent Mode budget on top -- so a hung
+ * embedding/query cannot freeze the whole conversation. On timeout the turn
+ * proceeds WITHOUT that memory: runBoundedRetrieval() (core/bounded-retrieval.js)
+ * races the retrieval softly, and the orphaned fetch is reaped later by ST's
+ * server-side timeout (read fetches carry no client AbortSignal). Matches the
+ * write-side hedge threshold (vector_hedge_after_ms = 15000) for one consistent
+ * "too slow" number. Unlike the write path, a stalled read is neither hedged
+ * nor retried -- it fails soft (one turn without memory, self-corrects next
+ * message), so a single bounded attempt is the right tradeoff. See
+ * Doc/dev_helper.md sec 6.8.
  */
 export const RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000;
 

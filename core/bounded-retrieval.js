@@ -7,20 +7,15 @@
  *   A retrieval must not freeze generation, must not break it when it fails,
  *   and must not fail SILENTLY.
  *
- * The first two were already honored everywhere — each call site wrapped itself
- * in AsyncUtils.timeout and caught its own errors. The third kept getting
- * missed, because "also surface it" lived only in five hand-maintained copies of
- * the same try/catch. It was missed for every EventBase/chunk path (fixed here)
- * and again for the Lorebook dry-run after a rebase. The failure mode is
- * invisible in review: the code looks complete, the message still sends, and the
- * user just watches the character forget things.
- *
- * Collapsing the pattern into one function makes the contract enforceable rather
- * than remembered. New retrieval paths get the surfacing for free.
+ * runBoundedRetrieval() keeps all three: it races the retrieval against the
+ * retrieval budget, catches the failure, and both logs it and toasts the user.
+ * A missing "also surface it" is invisible in review: the code looks complete,
+ * the message still sends, and the user just watches the character forget
+ * things. So every retrieval path goes through this one function rather than a
+ * try/catch of its own, and a new path gets the surfacing for free.
  * ============================================================================
  */
 
-import AsyncUtils from '../utils/async-utils.js';
 import { resolveRetrievalTimeoutMs } from './retrieval-budget.js';
 import { notifyRetrievalFailure } from './model-config-notifier.js';
 import { describeEmbeddingTimeoutCause } from './embedding-latency-warning.js';
@@ -28,6 +23,23 @@ import { log } from '../src/sillytavern/log.js';
 
 /** A retrieval that never returned, vs. one that returned an error. */
 const TIMEOUT_PATTERN = /timed out|timeout|aborted/i;
+
+/**
+ * Settles like `promise`, or rejects with Error(`message`) once `ms` pass first.
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @param {string} [message]
+ * @returns {Promise<T>}
+ */
+function raceWithTimeout(promise, ms, message = 'Operation timed out') {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(message)), ms)
+        ),
+    ]);
+}
 
 /**
  * Run a retrieval promise under the shared timeout, logging AND toasting on
@@ -59,7 +71,7 @@ export async function runBoundedRetrieval(promise, { contextLabel, sourceName, t
         ? timeoutMs
         : resolveRetrievalTimeoutMs(settings);
     try {
-        return await AsyncUtils.timeout(promise, budgetMs, timeoutMessage);
+        return await raceWithTimeout(promise, budgetMs, timeoutMessage);
     } catch (error) {
         // A bare "retrieval timed out" names nothing the user can change, so they
         // read it as "the extension is broken" (which is how it was reported). The

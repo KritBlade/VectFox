@@ -6,7 +6,7 @@
     // index.js is the manifest's "js" entry; core/bm25-scorer.js loads the vendored jieba glue by URL.
     "entry": ["index.js!", "core/vendor/jieba/jieba_rs_wasm.js!"],
     "project": [
-        "{backends,core,diagnostics,Migration,providers,src,ui,utils}/**/*.js!",
+        "{backends,core,diagnostics,Migration,providers,src,ui}/**/*.js!",
         "tests/**/*.{js,mjs}",
         "scripts/**/*.mjs",
         "tools/**/*.mjs"
