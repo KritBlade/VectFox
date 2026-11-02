@@ -37,7 +37,20 @@ import { getQdrantApiKey } from '../core/api-keys.js';
 import { log } from '../core/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
 import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
+import { buildRegistryKey } from '../core/collection-ids.js';
 import { fetchQueryEmbedding } from './query-embedding.js';
+
+// What a successful insert calls with the collection's registry key, so the collection
+// shows in the registry. The registry sits above the backends, so index.js sets it at startup.
+let insertedCollectionRegistrar = null;
+
+/**
+ * Sets what QdrantBackend.insertVectorItems() calls after a successful insert.
+ * @param {(registryKey: string) => void} registrar
+ */
+export function setInsertedCollectionRegistrar(registrar) {
+    insertedCollectionRegistrar = registrar;
+}
 
 const BACKEND_TYPE = 'qdrant';
 
@@ -398,16 +411,12 @@ export class QdrantBackend extends VectorBackend {
             log.verbose(`VectFox Qdrant: Batch ${batchNum}/${batches.length} completed (${batch.length} vectors)`);
         }
         try {
-            // Dynamic import to avoid circular dependency
-            const { registerCollection } = await import('../core/collection-loader.js');
-            const { buildRegistryKey } = await import('../core/collection-ids.js');
-            // Use the canonical registry-key form ("backend:id") — see
-            // Doc/collection_helper.md (storage-key convention). Passing the
-            // bare collectionId here previously left a
-            // duplicate registry entry (B4) that the DB Browser then displayed as
-            // a phantom "VECTRA"-badged 0-chunk orphan, because no prefix defaults
-            // to the standard backend in the badge logic.
-            registerCollection(buildRegistryKey(collectionId, settings));
+            if (!insertedCollectionRegistrar) throw new Error('no registrar set: index.js calls setInsertedCollectionRegistrar() at startup');
+            // The canonical registry-key form ("backend:id") — see Doc/collection_helper.md
+            // (storage-key convention). A bare collectionId would leave a duplicate registry
+            // entry that the DB Browser shows as a phantom "VECTRA"-badged 0-chunk orphan,
+            // because no prefix defaults to the standard backend in the badge logic.
+            insertedCollectionRegistrar(buildRegistryKey(collectionId, settings));
         } catch (e) {
             log.warn('VectFox: Failed to register collection after Qdrant insert:', e);
         }

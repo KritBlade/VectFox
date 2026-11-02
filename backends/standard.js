@@ -30,6 +30,7 @@ import { VectorBackend } from './backend-interface.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
 import { throwIfModelConfigError } from '../core/model-http-errors.js';
 import { INTERNAL_COLLECTION_IDS } from '../core/collection-ids.js';
+import { checkPluginAvailable } from '../core/similharity-plugin.js';
 import { extension_settings } from '../../../../extensions.js';
 import { oai_settings } from '../../../../openai.js';
 import { log } from '../core/log.js';
@@ -150,16 +151,11 @@ export class StandardBackend extends VectorBackend {
     }
 
     async initialize(_settings) {
-        // Check if plugin is available via the canonical, session-cached probe
-        // in core/collection-loader.js. Dynamic import breaks the otherwise
-        // circular static dependency (collection-loader → core-vector-api →
-        // (dynamic import) → standard.js), the same pattern corpus-stats.js
-        // uses. Routing through the shared cache means a no-plugin install
-        // issues exactly ONE /health request total (and thus at most one 404 in
-        // the browser console) instead of one per backend/UI consumer.
+        // Detect the plugin through the session-cached probe, so a no-plugin install
+        // sends one /health request in total (at most one 404 in the browser console),
+        // not one per backend or screen.
         log.lifecycle('VectFox DEBUG: Checking plugin availability...');
         try {
-            const { checkPluginAvailable } = await import('../core/collection-loader.js');
             this.pluginAvailable = await checkPluginAvailable();
             log.lifecycle('VectFox DEBUG: Plugin available:', this.pluginAvailable);
 

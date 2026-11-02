@@ -16,7 +16,7 @@ import { saveSettingsDebounced, getRequestHeaders, getCurrentChatId } from '../.
 import { extension_settings, getContext } from '../../../../extensions.js';
 import { getChatUUID, buildEventBaseCollectionId, getRegistryBackend, COLLECTION_PREFIXES, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from './collection-ids.js';
 import { registerCollection, getCollectionRegistry, getCollectionListing } from './collection-loader.js';
-import { getChatLockedCollections, isCollectionActiveForContextAnyKey } from './collection-metadata.js';
+import { getChatLockedCollections, isCollectionActiveForContextAnyKey, setCollectionAutoSync } from './collection-metadata.js';
 import { buildEmbedText } from './eventbase-schema.js';
 import { log } from './log.js';
 
@@ -101,15 +101,15 @@ const _ORPHANABLE_CHAT_MAPS = [
 /**
  * Prune orphaned per-chat entries from the EventBase maps above (+ the in-memory
  * tip cache). An entry is orphaned when its chat UUID is NOT in `liveUuids` — the
- * set of UUIDs that still have an EventBase/archive-event collection, supplied by
- * the caller (which owns the registry). All pruned values are regenerable: a live
- * chat that loses its marker/tip re-stamps/re-probes on the next ingestion, so an
- * over-eager prune self-heals rather than losing real data.
+ * set of UUIDs that still have an EventBase/archive-event collection, which
+ * pruneOrphanedEventBaseChatMaps reads from the collection registry. All pruned
+ * values are regenerable: a live chat that loses its marker/tip re-stamps/re-probes
+ * on the next ingestion, so an over-eager prune self-heals rather than losing real data.
  *
  * @param {Set<string>} liveUuids
  * @returns {number} entries removed across the persisted maps
  */
-export function pruneOrphanedChatMaps(liveUuids) {
+function pruneOrphanedChatMaps(liveUuids) {
     if (!(liveUuids instanceof Set)) return 0;
     const store = extension_settings?.vectfox;
     if (!store) return 0;
@@ -134,6 +134,39 @@ export function pruneOrphanedChatMaps(liveUuids) {
         log.lifecycle(`[EventBase] Pruned ${removed} orphaned per-chat entries (marker / last-window-size / tip)`);
     }
     return removed;
+}
+
+/**
+ * Prune orphaned per-chat EventBase settings (auto-sync marker, last-used window
+ * size, vectorization tip): entries whose chat UUID no longer has an EventBase or
+ * archive-event collection in the registry, because the chat or its collection was
+ * deleted, possibly outside the EventBase delete flow.
+ *
+ * SAFETY: run this only AFTER a successful discovery, so the registry reflects reality.
+ * It also bails when the registry is empty, so a transient discovery failure cannot
+ * read as "every chat is orphaned" and wipe live entries.
+ *
+ * @returns {number} entries removed
+ */
+export function pruneOrphanedEventBaseChatMaps() {
+    const registry = getCollectionRegistry();
+    if (!registry.length) return 0; // empty registry → don't risk a mass wipe
+
+    const liveUuids = new Set();
+    for (const registryKey of registry) {
+        const colId = parseRegistryKey(registryKey)?.collectionId || '';
+        let raw = null;
+        if (colId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) {
+            raw = colId.slice(COLLECTION_PREFIXES.VECTFOX_EVENTBASE.length);
+        } else if (colId.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) {
+            raw = colId.slice(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT.length);
+        }
+        if (raw) {
+            const uuid = raw.split('_').pop(); // uuid is the final underscore-free segment
+            if (uuid) liveUuids.add(uuid);
+        }
+    }
+    return pruneOrphanedChatMaps(liveUuids);
 }
 
 /**
@@ -610,7 +643,7 @@ export function clearWindowCacheForChat(chatUUID) {
  * past every window and extracted 0 events.
  *
  * Use this anywhere a chat's extraction state is invalidated wholesale:
- *   - the EventBase collection is deleted (collection-loader.js)
+ *   - the EventBase collection is deleted (clearCachesForDeletedCollection)
  *   - the backend is found empty but a local cache lingers (eventbase-workflow.js)
  *   - the user hits Vectorize for a fresh start (content-vectorizer.js)
  *
@@ -624,6 +657,23 @@ export function clearExtractionCachesForChat(chatUUID) {
     if (!uuid) return;
     clearWindowCacheForChat(uuid);
     clearVectorizationTip(uuid);
+}
+
+/**
+ * Clears the extraction caches of the chat whose EventBase collection was deleted; any
+ * other collection needs nothing. index.js hands it to collection-loader's
+ * setDeletedCollectionCleanup(), so deleteCollection() runs it.
+ *
+ * @param {string} collectionId - the deleted collection's bare ID
+ */
+export function clearCachesForDeletedCollection(collectionId) {
+    if (!collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) return;
+    // The chat UUID is always the last underscore-separated segment of the collection ID.
+    const chatUUID = collectionId.split('_').pop();
+    // Drop both window + tip caches together. Leaving the tip stale makes the
+    // next re-vectorize fast-forward past every window (tip says "already at
+    // message N") and extract 0 events.
+    if (chatUUID) clearExtractionCachesForChat(chatUUID);
 }
 
 /**
@@ -743,6 +793,26 @@ export function findEventBaseCollectionsForChat(uuid, preferredBackend) {
     const rank = (m) => (isLocked(m) ? 0 : 10) + backendRank(m);
     matches.sort((a, b) => rank(a) - rank(b));
     return matches.map(({ registryKey, collectionId }) => ({ registryKey, collectionId }));
+}
+
+/**
+ * Turn OFF auto-sync for the chat's EventBase collection(s) so a bad model
+ * stops silently re-failing on every message. The user re-enables it after fixing
+ * the model. Dispatches `vectfox:collections-updated` so the UI checkbox updates.
+ *
+ * @param {string} chatUUID
+ * @param {string} backend - registry backend, i.e. getRegistryBackend(settings.vector_backend)
+ */
+export function pauseAutoSyncForChat(chatUUID, backend) {
+    if (!chatUUID || !backend) return;
+    let paused = 0;
+    for (const { registryKey } of findEventBaseCollectionsForChat(chatUUID, backend)) {
+        setCollectionAutoSync(registryKey, false);
+        paused++;
+    }
+    if (paused > 0) {
+        globalThis.document?.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
+    }
 }
 
 /**

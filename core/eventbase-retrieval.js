@@ -17,7 +17,7 @@ import { queryCollection, getQueryVector } from './core-vector-api.js';
 import { getBackendForCollection, getBackend } from '../backends/backend-manager.js';
 import { parseRegistryKey } from './collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
-import { checkPluginAvailable } from './collection-loader.js';
+import { checkPluginAvailable } from './similharity-plugin.js';
 import { log } from './log.js';
 
 // ---------------------------------------------------------------------------

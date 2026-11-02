@@ -6,8 +6,9 @@
  * tagged with `code === 'invalid_model_config'` by core/model-http-errors.js.
  *
  * Every model path can hit this (EventBase extraction, summarizer, agent mode,
- * embedding), so the user-facing toast and the auto-sync pause live here once
- * instead of being re-implemented at each catch site.
+ * embedding), so the user-facing toast lives here once instead of being
+ * re-implemented at each catch site. Pausing EventBase auto-sync after such a
+ * failure is eventbase-store.js's pauseAutoSyncForChat.
  * ============================================================================
  */
 
@@ -245,27 +246,4 @@ export function notifyNoActiveCollections(contextLabel, scopeKey, reason) {
  */
 export function resetNoActiveCollectionsNotifications() {
     _noActiveSourceNotified.clear();
-}
-
-/**
- * Turn OFF auto-sync for the current chat's EventBase collection(s) so a bad model
- * stops silently re-failing on every message. The user re-enables it after fixing
- * the model. Dispatches `vectfox:collections-updated` so the UI checkbox updates.
- *
- * @param {string} chatUUID
- * @param {string} backend - registry backend, i.e. getRegistryBackend(settings.vector_backend)
- */
-export async function pauseAutoSyncForChat(chatUUID, backend) {
-    if (!chatUUID || !backend) return;
-    const { findEventBaseCollectionsForChat } = await import('./eventbase-store.js');
-    const { setCollectionAutoSync } = await import('./collection-metadata.js');
-
-    let paused = 0;
-    for (const { registryKey } of findEventBaseCollectionsForChat(chatUUID, backend)) {
-        setCollectionAutoSync(registryKey, false);
-        paused++;
-    }
-    if (paused > 0) {
-        globalThis.document?.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
-    }
 }

@@ -112,6 +112,7 @@ import { extension_settings } from '../../../../extensions.js';
 import { SECRET_KEYS, secret_state, writeSecret, readSecretState } from '../../../../secrets.js';
 import { saveSettings } from '../../../../../script.js';
 import { log } from './log.js';
+import { checkPluginAvailable } from './similharity-plugin.js';
 
 // ─── Internal helpers ───────────────────────────────────────────────────
 
@@ -220,8 +221,6 @@ export async function fetchQdrantApiKeyPresence() {
     try {
         // No plugin → no /qdrant/key-status endpoint. Skip the request so the
         // browser doesn't log a red 404 on plugin-less (fully supported) setups.
-        // Dynamic import to avoid a static cycle, matching the migration block.
-        const { checkPluginAvailable } = await import('./collection-loader.js');
         if (!(await checkPluginAvailable())) {
             return { set: false, masked: '' };
         }
@@ -445,11 +444,8 @@ export async function migrateLegacyApiKeys() {
         // probe). This cleanly separates "no plugin installed at all" from
         // "plugin installed but pre-2026-05-26 (no /qdrant/key-status yet)" —
         // the two cases that the /qdrant/key-status 404 alone can't tell apart.
-        // Dynamic import to avoid a static cycle (collection-loader →
-        // core-vector-api → … back here), matching corpus-stats.js.
         let pluginUp = false;
         try {
-            const { checkPluginAvailable } = await import('./collection-loader.js');
             pluginUp = await checkPluginAvailable();
         } catch (err) {
             log.warn(`[VectFox migrate] Plugin availability check failed; skipping Qdrant key migration this run. Plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);

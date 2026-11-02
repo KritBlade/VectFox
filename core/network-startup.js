@@ -39,12 +39,9 @@
  * ============================================================================
  */
 
-import {
-    discoverExistingCollections,
-    pruneOrphanedEventBaseChatMaps,
-    checkPluginAvailable,
-    getDetectedPluginVersion,
-} from './collection-loader.js';
+import { discoverExistingCollections } from './collection-loader.js';
+import { pruneOrphanedEventBaseChatMaps } from './eventbase-store.js';
+import { checkPluginAvailable, getDetectedPluginVersion } from './similharity-plugin.js';
 import AsyncUtils from '../utils/async-utils.js';
 import { log } from './log.js';
 
@@ -169,7 +166,7 @@ export function runNetworkStartup(startupSettings) {
                 // EventBase settings (marker / last-window-size / tip) for chats whose
                 // collection no longer exists. Skipped automatically on an empty registry.
                 try {
-                    await pruneOrphanedEventBaseChatMaps();
+                    pruneOrphanedEventBaseChatMaps();
                 } catch (pruneError) {
                     log.warn('VectFox: Orphan-sweep of per-chat EventBase settings failed (non-fatal):', pruneError?.message || pruneError);
                 }

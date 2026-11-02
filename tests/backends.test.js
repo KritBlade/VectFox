@@ -51,14 +51,11 @@ vi.mock('../../../../secrets.js', () => ({
     secret_state: {},
 }));
 
-// Mock collection-loader.js: StandardBackend.initialize() now detects the
-// plugin via the canonical checkPluginAvailable() (dynamically imported) instead
-// of its own /health probe. Stub it at the unit boundary so these tests drive
-// availability through the same fetchMock /health response they always have,
-// without loading the real collection-loader dependency graph. The stub keeps
-// the historical `response.ok` semantics and the single-arg /health call the
-// existing assertions expect.
-vi.mock('../core/collection-loader.js', () => ({
+// StandardBackend.initialize() detects the plugin through similharity-plugin.js's
+// checkPluginAvailable(). Stub it at the unit boundary so these tests drive
+// availability through the fetchMock /health response, with `response.ok`
+// semantics and the single-arg /health call the assertions expect.
+vi.mock('../core/similharity-plugin.js', () => ({
     checkPluginAvailable: vi.fn(async () => {
         try {
             const r = await fetch('/api/plugins/similharity/health');
@@ -102,7 +99,8 @@ vi.mock('../core/constants.js', () => ({
 
 // Import backends after mocks are set up
 import { StandardBackend } from '../backends/standard.js';
-import { QdrantBackend } from '../backends/qdrant.js';
+import { QdrantBackend, setInsertedCollectionRegistrar } from '../backends/qdrant.js';
+import { buildRegistryKey } from '../core/collection-ids.js';
 import { VectorBackend } from '../backends/backend-interface.js';
 
 // =============================================================================
@@ -558,11 +556,15 @@ describe('StandardBackend', () => {
 describe('QdrantBackend', () => {
     let backend;
     let fetchMock;
+    // Stands in for collection-loader's registerCollection, which index.js sets at startup.
+    const registrar = vi.fn();
 
     beforeEach(async () => {
         backend = new QdrantBackend();
         fetchMock = vi.fn();
         global.fetch = fetchMock;
+        registrar.mockClear();
+        setInsertedCollectionRegistrar(registrar);
         // tokenizer-lock caches sentinel metadata per-collection; clear between tests so
         // each hybridQuery test starts with a clean sentinel state.
         const { invalidateCollectionMetadata } = await import('../core/tokenizer-lock.js');
@@ -668,6 +670,14 @@ describe('QdrantBackend', () => {
     });
 
     describe('insertVectorItems', () => {
+        it('registers the collection under its registry key after a successful insert', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
+
+            await backend.insertVectorItems('vf_chat_abc123', sampleItems, defaultSettings);
+
+            expect(registrar).toHaveBeenCalledWith(buildRegistryKey('vf_chat_abc123', defaultSettings));
+        });
+
         it('should add content_type in multitenancy mode', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
 

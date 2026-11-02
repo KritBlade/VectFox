@@ -25,7 +25,9 @@ import { debounce_timeout } from '../../../constants.js';
 // VectFox modules - Core
 import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
 import { migrateOldEnabledKeys } from './core/collection-metadata.js';
-import { cleanupCorruptedCollections } from './core/collection-loader.js';
+import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './core/collection-loader.js';
+import { clearCachesForDeletedCollection } from './core/eventbase-store.js';
+import { setInsertedCollectionRegistrar } from './backends/qdrant.js';
 import { migrateLegacyApiKeys } from './core/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
@@ -47,6 +49,10 @@ import { initializeDatabaseBrowser } from './ui/database-browser.js';
 import { initializeWorldInfoIntegration } from './core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from './core/summarizer-injection.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './core/bm25-scorer.js';
+
+// Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
+setDeletedCollectionCleanup(clearCachesForDeletedCollection);
+setInsertedCollectionRegistrar(registerCollection);
 
 // Default settings
 const defaultSettings = {
@@ -729,6 +735,7 @@ jQuery(async () => {
         onPurge: onPurgeClick,
         onCleanupCorrupted: onCleanupCorruptedClick,
         onRunDiagnostics: onRunDiagnosticsClick,
+        runNetworkStartup,
     });
 
     // Initialize auto-sync checkbox state for current chat (if any)

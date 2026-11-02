@@ -35,19 +35,7 @@ import {
     sanitizeHandleId,
     sanitizeNameSegment,
 } from './collection-ids.js';
-
-// Plugin detection state. `pluginAvailable` is the settled result; `pluginProbeInFlight`
-// holds the promise for a probe that has started but not finished, so concurrent callers
-// share one /health request instead of each firing their own (which produced N duplicate
-// "Plugin detected" log lines and N redundant fetches at startup).
-let pluginAvailable = null;
-let pluginProbeInFlight = null;
-// Version string reported by the SAME /health probe. Kept because /health has
-// returned `version` since the plugin's initial commit (2025-11-21), while the
-// dedicated /version route only arrived 2026-05-14 — so this is the only source
-// that can identify a plugin old enough to be worth warning about. Null means
-// "no plugin, or it answered /health without a version field".
-let pluginVersion = null;
+import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from './similharity-plugin.js';
 
 /**
  * Detect collection IDs that VECTFOX should NOT register or query.
@@ -95,43 +83,6 @@ export function getCollectionRegistry() {
         extension_settings.vectfox.vectfox_collection_registry = [];
     }
     return extension_settings.vectfox.vectfox_collection_registry;
-}
-
-/**
- * Prune orphaned per-chat EventBase settings (auto-sync marker, last-used window
- * size, vectorization tip) — entries whose chat UUID no longer has an EventBase or
- * archive-event collection in the registry (chat or its collection deleted, possibly
- * outside the EventBase delete flow). Keeps the persist-the-tip benefit from leaving
- * stale per-chat junk in settings.json.
- *
- * SAFETY: run this only AFTER a successful discovery so the registry reflects reality.
- * It additionally bails when the registry is empty, so a transient discovery failure
- * can't be read as "every chat is orphaned" and wipe live entries. (Pruned values are
- * regenerable anyway — a live chat re-stamps/re-probes on next ingestion.)
- *
- * @returns {Promise<number>} entries removed
- */
-export async function pruneOrphanedEventBaseChatMaps() {
-    const registry = getCollectionRegistry();
-    if (!registry.length) return 0; // empty registry → don't risk a mass wipe
-
-    const liveUuids = new Set();
-    for (const registryKey of registry) {
-        const colId = parseRegistryKey(registryKey)?.collectionId || '';
-        let raw = null;
-        if (colId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) {
-            raw = colId.slice(COLLECTION_PREFIXES.VECTFOX_EVENTBASE.length);
-        } else if (colId.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) {
-            raw = colId.slice(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT.length);
-        }
-        if (raw) {
-            const uuid = raw.split('_').pop(); // uuid is the final underscore-free segment
-            if (uuid) liveUuids.add(uuid);
-        }
-    }
-
-    const { pruneOrphanedChatMaps } = await import('./eventbase-store.js');
-    return pruneOrphanedChatMaps(liveUuids);
 }
 
 /**
@@ -272,11 +223,24 @@ export function unregisterCollection(collectionId) {
     }
 }
 
+// What deleteCollection() runs last, to clear the per-chat state a feature above this
+// one keeps for the deleted collection. index.js sets it at startup.
+let deletedCollectionCleanup = null;
+
+/**
+ * Sets the cleanup deleteCollection() runs with the deleted collection's ID.
+ * @param {(collectionId: string) => void} cleanup
+ */
+export function setDeletedCollectionCleanup(cleanup) {
+    deletedCollectionCleanup = cleanup;
+}
+
 /**
  * COMPLETE collection deletion - removes from ALL THREE stores:
  * 1. Vector backend (actual embeddings)
  * 2. Registry (collection tracking)
  * 3. Metadata (display names, settings, chunk info)
+ * and then runs the cleanup set by setDeletedCollectionCleanup().
  *
  * This is the ONE function that should be called to fully delete a collection.
  * All other delete functions are partial and will leave ghosts.
@@ -336,20 +300,13 @@ export async function deleteCollection(collectionId, settings, registryKey = nul
         log.warn(`VectFox: ✗ Failed to delete metadata for ${collectionId}:`, error.message);
     }
 
-    // Step 4: Clear EventBase window fingerprint cache if this is an EventBase collection.
-    // The UUID is always the last underscore-separated segment of the collection ID.
-    if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) {
-        try {
-            const { clearExtractionCachesForChat } = await import('./eventbase-store.js');
-            const chatUUID = collectionId.split('_').pop();
-            // Drop both window + tip caches together. Leaving the tip stale makes the
-            // next re-vectorize fast-forward past every window (tip says "already at
-            // message N") and extract 0 events.
-            if (chatUUID) clearExtractionCachesForChat(chatUUID);
-        } catch (error) {
-            // Don't fail the whole delete over a cache clear.
-            log.warn(`VectFox: Failed to clear EventBase extraction caches for ${collectionId}:`, error);
-        }
+    // Step 4: Clear the per-chat state kept for this collection (EventBase's extraction caches).
+    try {
+        if (!deletedCollectionCleanup) throw new Error('no cleanup set: index.js calls setDeletedCollectionCleanup() at startup');
+        deletedCollectionCleanup(collectionId);
+    } catch (error) {
+        // Don't fail the whole delete over a cache clear.
+        log.warn(`VectFox: Failed to clear per-chat state for ${collectionId}:`, error);
     }
 
     const success = vectorsDeleted && registryDeleted && metadataDeleted;
@@ -539,89 +496,6 @@ function getCollectionDisplayName(collectionId, registryKey, metadata) {
         default:
             return collectionId;
     }
-}
-
-/**
- * Checks if the Similharity plugin is available.
- * This is the canonical implementation — shared with ui/database-browser.js via export.
- *
- * Single source of truth. backends/standard.js used to keep an independent copy
- * (it cannot import this module statically without a circular dependency) but now
- * reaches it via dynamic import in initialize(), so there is no second copy to
- * keep in sync — one /health request serves every consumer.
- *
- * @returns {Promise<boolean>} True if plugin is available
- */
-export async function checkPluginAvailable() {
-    if (pluginAvailable !== null) {
-        return pluginAvailable;
-    }
-    // A probe is already running — join it rather than starting a second one.
-    if (pluginProbeInFlight) {
-        return pluginProbeInFlight;
-    }
-
-    pluginProbeInFlight = (async () => {
-        try {
-            const response = await fetch('/api/plugins/similharity/health', {
-                method: 'GET',
-                headers: getRequestHeaders()
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                pluginAvailable = data.status === 'ok';
-                // Keep the version: it is the ONLY reliable way to spot a plugin
-                // too old to have the /version route (added 2026-05-14). See
-                // getDetectedPluginVersion().
-                pluginVersion = typeof data.version === 'string' && data.version ? data.version : null;
-                log.lifecycle(`VectFox: Plugin ${pluginAvailable ? 'detected' : 'not found'} (v${pluginVersion || 'unknown'})`);
-            } else {
-                pluginAvailable = false;
-            }
-        } catch (error) {
-            log.warn('VectFox: plugin availability probe failed:', error);
-            pluginAvailable = false;
-        } finally {
-            pluginProbeInFlight = null;
-        }
-
-        return pluginAvailable;
-    })();
-
-    return pluginProbeInFlight;
-}
-
-/**
- * Clears the session-cached plugin-availability result so the next
- * checkPluginAvailable() call re-probes /health.
- * @internal Resets module state between tests.
- */
-export function resetPluginAvailableCache() {
-    pluginAvailable = null;
-    pluginVersion = null;
-    // Drop the in-flight join point too, so a probe started before the reset can't
-    // hand its now-stale result to a caller that asked for a fresh detection.
-    pluginProbeInFlight = null;
-}
-
-/**
- * Version string the plugin reported on its LAST /health probe, or null when no
- * plugin is installed / it answered without a version field.
- *
- * Read this instead of requesting /api/plugins/similharity/version: /health has
- * carried `version` since the plugin's initial commit (2025-11-21), whereas the
- * /version route only landed 2026-05-14. A plugin predating that route 404s on
- * it — and a plugin that old is exactly the one worth warning about, so sourcing
- * the check from /version made it blind in the single case it existed for.
- *
- * Only meaningful after checkPluginAvailable() has settled; callers gate on that
- * first anyway, since a version is uninteresting when there is no plugin.
- *
- * @returns {string|null}
- */
-export function getDetectedPluginVersion() {
-    return pluginVersion;
 }
 
 // Cache for plugin collection data
@@ -914,8 +788,8 @@ export async function cleanupCorruptedCollections() {
             }
         }
 
-        // Reset plugin cache so a subsequent discovery sees the fresh state
-        pluginAvailable = null;
+        // Probe the plugin again on the next discovery.
+        resetPluginAvailableCache();
     } catch (error) {
         log.error('VECTFOX cleanup: failed', error);
         throw error;
@@ -1153,7 +1027,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
     log.trace(`VectFox: Registry contains ${registry.length} collection(s):`, registry);
 
     const collections = [];
-    const hasPlugin = pluginAvailable === true;
+    const hasPlugin = isPluginDetected();
 
     for (const registryKey of registry) {
         try {

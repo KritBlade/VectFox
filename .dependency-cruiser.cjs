@@ -1,10 +1,7 @@
 // .dependency-cruiser.cjs — the import rules `npm test` holds the shipped code to (dependency-cruiser).
 //
 // `npm run check:import-graph` walks the import graph from the manifest's entry, index.js, and checks two rules:
-// every in-repo import resolves, and no new import cycle appears. The cycles that exist today are recorded in
-// .dependency-cruiser-known-violations.json and pass until they are removed; any other cycle fails. After removing
-// cycles, refresh that file with `npm run check:import-graph -- --baseline --baseline-mode shrink-only`, which can
-// drop entries but never add one.
+// every in-repo import resolves, and no module imports itself back through a cycle.
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
     forbidden: [

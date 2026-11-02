@@ -30,6 +30,7 @@ import { getRequestHeaders } from '../../../../../script.js';
 import { tokenize } from './bm25-scorer.js';
 import { getModelFromSettings } from './providers.js';
 import { log } from './log.js';
+import { checkPluginAvailable } from './similharity-plugin.js';
 
 const _cache = new Map(); // collectionId -> { totalDocs, documentFrequencies, avgDocLength, builtAt }
 const _inflight = new Map(); // collectionId -> Promise (dedupe concurrent fetches)
@@ -89,11 +90,8 @@ async function _buildStats(collectionId, settings) {
     // `if (!corpusStats)` path is the same fallback it would have taken on
     // 404 anyway, minus the noise.
     //
-    // Uses the session-cached probe from collection-loader.js so we don't
-    // re-hit /health on every corpus-stats build. Dynamic import to avoid a
-    // static cycle (collection-loader → core-vector-api → corpus-stats).
+    // Uses the session-cached probe, so a corpus-stats build does not re-hit /health.
     try {
-        const { checkPluginAvailable } = await import('./collection-loader.js');
         if (!(await checkPluginAvailable())) {
             // Returning null is the documented "no corpus-IDF available" signal.
             // No throw → no "[CorpusStats] Build failed" WARN (that message was

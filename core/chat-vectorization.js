@@ -192,7 +192,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
     }
 
     // Find EventBase collections registered for this chat and check the per-collection auto-sync flag
-    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget } = await import('./eventbase-store.js');
+    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('./eventbase-store.js');
     const { isCollectionAutoSyncEnabled } = await import('./collection-metadata.js');
     const backend = getRegistryBackend(settings?.vector_backend);
     const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
@@ -260,10 +260,10 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         // A retired/unknown model (extraction OR embedding) would otherwise be
         // swallowed by ST's ModuleWorkerWrapper and silently re-fail every message.
         // Warn the user once and pause auto-sync so the loop stops until they fix it.
-        const { isInvalidModelConfigError, notifyInvalidModel, pauseAutoSyncForChat } = await import('./model-config-notifier.js');
+        const { isInvalidModelConfigError, notifyInvalidModel } = await import('./model-config-notifier.js');
         if (isInvalidModelConfigError(err)) {
             notifyInvalidModel(err.message);
-            await pauseAutoSyncForChat(uuid, backend);
+            pauseAutoSyncForChat(uuid, backend);
             return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
         }
         throw err;

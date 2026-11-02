@@ -1,17 +1,9 @@
 /**
  * checkSimilharityVersion — the cross-repo version floor warning.
  *
- * WHY THIS SUITE EXISTS: the check used to source the version from
- * `/api/plugins/similharity/version` and bail on `if (!response.ok) return;`.
- * That route only landed in the plugin on 2026-05-14, so every plugin older
- * than it 404'd and the check went SILENT — in exactly the case it was written
- * to catch. GitHub issue #11 burned hours on a plugin reporting v2.0.0-era
- * behaviour (well under the v3.3.1 floor) with nothing anywhere naming the
- * version.
- *
- * The version now comes from the /health probe checkPluginAvailable() already
- * makes, which has carried `version` since the plugin's first commit — so every
- * build ever shipped is covered, at no extra request. These tests pin that a
+ * The version comes from the /health probe checkPluginAvailable() already makes,
+ * which every plugin build answers with its version; the /version route is missing
+ * from older plugins, the very ones the warning is for. These tests pin that a
  * too-old plugin is always surfaced, and that "no plugin" stays silent.
  */
 
@@ -22,13 +14,17 @@ vi.mock('../core/log.js', () => ({
 }));
 vi.mock('../core/collection-loader.js', () => ({
     discoverExistingCollections: vi.fn(async () => []),
+}));
+vi.mock('../core/eventbase-store.js', () => ({
     pruneOrphanedEventBaseChatMaps: vi.fn(),
+}));
+vi.mock('../core/similharity-plugin.js', () => ({
     checkPluginAvailable: vi.fn(async () => true),
     getDetectedPluginVersion: vi.fn(() => null),
 }));
 
 import { checkSimilharityVersion } from '../core/network-startup.js';
-import { checkPluginAvailable, getDetectedPluginVersion } from '../core/collection-loader.js';
+import { checkPluginAvailable, getDetectedPluginVersion } from '../core/similharity-plugin.js';
 import { log } from '../core/log.js';
 
 /** Concatenated text of every toastr.warning call, for substring assertions. */

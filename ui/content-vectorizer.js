@@ -26,7 +26,6 @@ import { validateLLMConfig } from '../core/llm-config-validation.js';
 import { getOpenRouterApiKey } from '../core/api-keys.js';
 import StringUtils from '../utils/string-utils.js';
 import { resolveEffectiveSettings } from '../core/content-vectorization.js';
-import { renderCollections } from './database-browser.js';
 import { buildArchiveEventCollectionId } from '../core/collection-ids.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
@@ -125,7 +124,8 @@ export function openContentVectorizer(initialType = null) {
  * when a chat has no collection yet, and it must not resume enabling itself if the
  * user simply closed this panel. A successful run dispatches
  * `vectfox:eventbase-synced` BEFORE this, so the resume path wins on success and
- * this only clears an intent nobody acted on.
+ * this only clears an intent nobody acted on. An open Database Browser redraws its
+ * collection list on it, since a run may have changed them.
  */
 export function closeContentVectorizer() {
     $('#vectfox_content_vectorizer_modal').fadeOut(200, function() {
@@ -2935,8 +2935,7 @@ async function startContinueVectorization() {
         }
         closeContentVectorizer();
         if (currentContentType === 'lorebook') {
-            const { refreshWIStatus } = await import('./ui-manager.js');
-            await refreshWIStatus();
+            document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
         }
     } catch (e) {
         const isStopped = e?.name === 'AbortError' || String(e?.message || '').toLowerCase().includes('stopped by user');
@@ -3376,14 +3375,13 @@ async function startVectorization() {
         });
 
         toastr.success(`Vectorized ${result.chunkCount} chunks`, 'VectFox');
-        renderCollections();
         closeContentVectorizer();
 
-        // After lorebook vectorization, refresh the WI status so the checkbox
-        // auto-enables if the new collection is now active (global scope or chat-locked).
+        // After lorebook vectorization the settings panel refreshes the WI status on this
+        // event, so the checkbox auto-enables if the new collection is now active (global
+        // scope or chat-locked).
         if (currentContentType === 'lorebook') {
-            const { refreshWIStatus } = await import('./ui-manager.js');
-            await refreshWIStatus();
+            document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
         }
 
     } catch (e) {

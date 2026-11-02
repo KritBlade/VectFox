@@ -27,13 +27,13 @@ import { openQueryTestModal } from './query-tester.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { progressTracker } from './progress-tracker.js';
 import { resetBackendHealth } from '../backends/backend-manager.js';
-import { runNetworkStartup } from '../core/network-startup.js';
 import { isVectFoxEnabled } from '../core/feature-gate.js';
 import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
 import { clearLorebookPrompt } from '../core/world-info-integration.js';
 import { refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
-import { getCollectionRegistry, getCollectionListing, checkPluginAvailable } from '../core/collection-loader.js';
+import { getCollectionRegistry, getCollectionListing } from '../core/collection-loader.js';
+import { checkPluginAvailable } from '../core/similharity-plugin.js';
 import { getCollectionMeta } from '../core/collection-metadata.js';
 import { parseRegistryKey } from '../core/collection-ids.js';
 import { getModelField, resolveProviderApiUrl } from '../core/providers.js';
@@ -68,6 +68,8 @@ import { log } from '../core/log.js';
  * @param {Function} callbacks.onPurge - Called when "Purge" is clicked
  * @param {Function} callbacks.onCleanupCorrupted - Called when "Cleanup Corrupted" is clicked
  * @param {Function} callbacks.onRunDiagnostics - Called when "Run Diagnostics" is clicked
+ * @param {Function} callbacks.runNetworkStartup - Re-runs the off-box startup work (core/network-startup.js) when
+ *     the master switch turns back on
  */
 export function renderSettings(containerId, settings, callbacks) {
     log.lifecycle('VectFox UI: Rendering settings...');
@@ -2344,7 +2346,7 @@ function bindSettingsEvents(settings, callbacks) {
             // retrieval and the auto-sync status read. See core/network-startup.js for
             // the full rationale.
             try {
-                await runNetworkStartup(settings);
+                await callbacks.runNetworkStartup(settings);
             } catch (error) {
                 log.warn('VectFox: backend/network startup after re-enable failed:', error?.message || error);
             }

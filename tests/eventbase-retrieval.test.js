@@ -52,7 +52,7 @@ vi.mock('../core/eventbase-schema.js', () => ({
 }));
 
 const checkPluginAvailableMock = vi.fn(async () => true);
-vi.mock('../core/collection-loader.js', () => ({
+vi.mock('../core/similharity-plugin.js', () => ({
     checkPluginAvailable: (...a) => checkPluginAvailableMock(...a),
 }));
 

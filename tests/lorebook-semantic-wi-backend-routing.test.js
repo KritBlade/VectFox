@@ -80,8 +80,10 @@ vi.mock('../providers/webllm.js', () => ({
 vi.mock('../core/collection-loader.js', () => ({
     getCollectionListing: vi.fn(() => []),
     getCollectionRegistry: vi.fn(() => []),
+}));
+
+vi.mock('../core/similharity-plugin.js', () => ({
     checkPluginAvailable: vi.fn(async () => true),
-    resetPluginAvailableCache: vi.fn(),
 }));
 
 vi.mock('../core/collection-metadata.js', () => ({

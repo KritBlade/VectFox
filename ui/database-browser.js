@@ -16,8 +16,8 @@ import {
   deleteCollection,
   sanitizeHandleId,
   getCollectionListing,
-  checkPluginAvailable,
 } from "../core/collection-loader.js";
+import { checkPluginAvailable } from "../core/similharity-plugin.js";
 import { COLLECTION_PREFIXES } from "../core/collection-ids.js";
 import {
   queryMultipleCollections,
@@ -72,8 +72,6 @@ import {
 import { renderSizeInspectorTab } from "./size-inspector.js";
 
 // Browser state
-// checkPluginAvailable() is imported from ../core/collection-loader.js —
-// that is the canonical implementation shared across the UI layer.
 let browserState = {
   isOpen: false,
   pluginAvailable: null,
@@ -109,7 +107,13 @@ let bulkEventsBound = false;
  */
 export function initializeDatabaseBrowser(settings) {
   browserState.settings = settings;
+  // A content-vectorizer run may change the collections; redraw the list when it closes.
+  document.addEventListener("vectfox:content-vectorizer-closed", renderCollectionsWhileOpen);
   log.lifecycle("VectFox Database Browser: Initialized");
+}
+
+function renderCollectionsWhileOpen() {
+  if (browserState.isOpen) renderCollections();
 }
 
 /**
@@ -899,7 +903,7 @@ async function refreshCollections(withScan = false) {
 /**
  * Renders collections list based on current filters
  */
-export function renderCollections() {
+function renderCollections() {
   const container = $("#vectfox_collections_list");
 
   // Build lock-state lookup once — same canonical source of truth used by the
