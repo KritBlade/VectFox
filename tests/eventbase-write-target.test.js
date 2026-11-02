@@ -59,7 +59,7 @@ vi.mock('../core/collection-metadata.js', () => ({
     isCollectionActiveForContextAnyKey: vi.fn(keys => keys.some(k => lockedKeys.has(k))),
 }));
 vi.mock('../core/eventbase-schema.js', () => ({ buildEmbedText: vi.fn() }));
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: {
         lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(),
         warn: vi.fn(), error: vi.fn(), enabled: () => false,
@@ -68,7 +68,7 @@ vi.mock('../core/log.js', () => ({
 
 const { resolveActiveEventBaseCollection, resolveEventBaseWriteTarget } =
     await import('../core/eventbase-store.js');
-const { log } = await import('../core/log.js');
+const { log } = await import('../src/sillytavern/log.js');
 
 const row = (collectionId, registryKey) => ({
     collectionId, registryKey, backend: 'qdrant', meta: {}, isOwn: true, isActive: true,

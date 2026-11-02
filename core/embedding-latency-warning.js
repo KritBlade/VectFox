@@ -32,7 +32,7 @@
  * ============================================================================
  */
 
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 import { getModelFromSettings } from './providers.js';
 import { resolveRetrievalTimeoutMs } from './retrieval-budget.js';
 

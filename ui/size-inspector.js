@@ -14,7 +14,7 @@
  * ============================================================================
  */
 
-import { extension_settings } from "../../../../extensions.js";
+import { extension_settings } from "../src/sillytavern/settings.js";
 import { loadAllCollections } from "../core/collection-loader.js";
 import { buildRegistryKey } from "../core/collection-ids.js";
 import { listChunks } from "../core/core-vector-api.js";

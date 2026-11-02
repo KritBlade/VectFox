@@ -19,9 +19,8 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../../../extensions.js';
-import { saveSettingsDebounced } from '../../../../../script.js';
-import { log } from './log.js';
+import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/settings.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * @typedef {object} ReformatCacheEntry

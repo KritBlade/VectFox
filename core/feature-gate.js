@@ -21,7 +21,7 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../../../extensions.js';
+import { extension_settings } from '../src/sillytavern/settings.js';
 
 /**
  * @param {object} [settings] - extension_settings.vectfox (defaults to the live store)

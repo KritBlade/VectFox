@@ -21,7 +21,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // The real resolver (settings -> clamped ms, plus the Agent Mode addition) is
 // covered on its own in tests/retrieval-budget.test.js.
 vi.mock('../core/retrieval-budget.js', () => ({ resolveRetrievalTimeoutMs: () => 50 }));
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: { error: vi.fn(), warn: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
 vi.mock('../core/model-config-notifier.js', () => ({ notifyRetrievalFailure: vi.fn() }));
@@ -32,7 +32,7 @@ vi.mock('../core/embedding-latency-warning.js', () => ({
 
 import { runBoundedRetrieval } from '../core/bounded-retrieval.js';
 import { notifyRetrievalFailure } from '../core/model-config-notifier.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 const OPTIONS = {
     contextLabel: 'EventBase',

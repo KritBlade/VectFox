@@ -9,9 +9,9 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../../../extensions.js';
-import { getContext } from '../../../../extensions.js';
-import { characters, getRequestHeaders, saveSettingsDebounced, getCurrentChatId } from '../../../../../script.js';
+import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/settings.js';
+import { getContext, characters, getCurrentChatId } from '../src/sillytavern/chat.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { getSavedHashes } from './core-vector-api.js';
 import {
     isCollectionEnabled,
@@ -22,7 +22,7 @@ import {
     isCollectionActiveForContext,
 } from './collection-metadata.js';
 import { purgeVectorIndex } from './core-vector-api.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
     getChatUUID,

@@ -9,11 +9,11 @@
  * build differently.
  */
 
-import { getRequestHeaders } from '../../../../../script.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { getModelFromSettings } from '../core/providers.js';
 import { throwIfModelConfigError } from '../core/model-http-errors.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * @param {string} searchText - Query text to embed

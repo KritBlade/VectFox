@@ -17,8 +17,10 @@
  * ============================================================================
  */
 
-import { getContext } from '../../../../extensions.js';
-import { getRequestHeaders, saveSettingsDebounced } from '../../../../../script.js';
+import { getContext } from '../src/sillytavern/chat.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { saveSettingsDebounced } from '../src/sillytavern/settings.js';
+import { getStringHash } from '../src/sillytavern/identifiers.js';
 import { insertVectorItems, purgeVectorIndex } from './core-vector-api.js';
 import {
     getCollectionMeta,
@@ -35,8 +37,7 @@ import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, re
 import { getModelFromSettings } from './providers.js';
 import { encodeSparseVector } from './sparse-vector-encoder.js';
 import { progressTracker } from '../ui/progress-tracker.js';
-import { getStringHash } from '../../../../utils.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================
 // HELPERS

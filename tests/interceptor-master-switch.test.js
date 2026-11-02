@@ -59,7 +59,7 @@ vi.mock('../ui/progress-tracker.js', () => ({ progressTracker: {} }));
 vi.mock('../core/conditional-activation.js', () => ({ buildSearchContext: vi.fn(), filterChunksByConditions: vi.fn(), processChunkLinks: vi.fn() }));
 vi.mock('../core/bounded-retrieval.js', () => ({ runBoundedRetrieval: mocks.runBoundedRetrieval }));
 vi.mock('../core/retrieval-budget.js', () => ({ resolveEventBaseRetrievalTimeoutMs: vi.fn(() => 15000) }));
-vi.mock('../core/log.js', () => ({ log: mocks.log }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: mocks.log }));
 vi.mock('../core/collection-ids.js', () => ({
     getChatUUID: vi.fn(() => 'uuid-1'), COLLECTION_PREFIXES: {}, INTERNAL_COLLECTION_IDS: {},
     parseCollectionId: vi.fn(), parseRegistryKey: vi.fn(), getRegistryBackend: vi.fn(),

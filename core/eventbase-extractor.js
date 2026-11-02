@@ -24,7 +24,7 @@ import {
 import { cleanText } from './text-cleaning.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import StringUtils from '../utils/string-utils.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // Cap each message's reasoning (chain-of-thought) fed to the extractor as a
 // date/time/location fallback. Tunable — raise if a game places the scene recap
@@ -262,7 +262,7 @@ function _resolveWindowRealWorldDate(messages) {
  * @returns {Promise<object[]>} Array of full EventRecord objects (ingestion fields attached)
  */
 export async function extractEvents({ messages, windowStart, windowEnd, settings, windowIndex = 0 }) {
-    // Logging routes through core/log.js. Per-window flow → Verbose; per-item
+    // Logging routes through src/sillytavern/log.js. Per-window flow → Verbose; per-item
     // parse detail → Trace; raw LLM/parser dumps → 'raw_llm' domain deep-dive.
 
     // Compact message-range tag appended to every log line so chunks in the DB browser

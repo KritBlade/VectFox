@@ -37,14 +37,14 @@ vi.mock('../core/core-vector-api.js', () => ({
     purgeVectorIndex: vi.fn(),
 }));
 
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false },
 }));
 
 import { extension_settings } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
 import { getSavedHashes } from '../core/core-vector-api.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 import { discoverExistingCollections, getCollectionRegistry } from '../core/collection-loader.js';
 import { resetPluginAvailableCache } from '../core/similharity-plugin.js';
 import { cleanupOrphanedMeta } from '../core/collection-metadata.js';

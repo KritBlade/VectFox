@@ -39,7 +39,7 @@ vi.mock('../core/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn(
 vi.mock('../core/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
 vi.mock('../core/collection-metadata.js', () => ({ isCollectionEnabled: vi.fn(), isCollectionLockedToChat: vi.fn(), setCollectionLock: vi.fn(), setCollectionMeta: vi.fn() }));
 vi.mock('../ui/progress-tracker.js', () => ({ progressTracker: {} }));
-vi.mock('../core/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
 
 const { getCommitBoundary, getAutoSyncWindowSize } = await import('../core/eventbase-workflow.js');
 

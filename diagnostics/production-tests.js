@@ -9,8 +9,8 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../../../../../script.js';
-import { log } from '../core/log.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { log } from '../src/sillytavern/log.js';
 import { getSavedHashes, purgeVectorIndex } from '../core/core-vector-api.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
 import { unregisterCollection } from '../core/collection-loader.js';

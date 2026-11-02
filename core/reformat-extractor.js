@@ -32,7 +32,7 @@ import {
     buildReformatPrompt,
     computeNameVerification,
 } from './reformat-schema.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // ---------------------------------------------------------------------------
 // Constants

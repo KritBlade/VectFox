@@ -17,7 +17,7 @@
  */
 
 import { getBackendMetrics, probeBackendHealth } from '../backends/backend-manager.js';
-import { extension_settings } from '../../../../extensions.js';
+import { extension_settings } from '../src/sillytavern/settings.js';
 import { isVectFoxEnabled } from '../core/feature-gate.js';
 
 let refreshInterval = null;

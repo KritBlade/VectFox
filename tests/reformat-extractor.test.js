@@ -19,7 +19,7 @@ vi.mock('../core/api-keys.js', () => ({
     getCustomApiKey: () => 'mock-masked-key',
 }));
 
-// core/log.js reads extension_settings for verbosity/domain gating — mock the
+// src/sillytavern/log.js reads extension_settings for verbosity/domain gating — mock the
 // same way chunk-metadata-persistence.test.js mocks it for collection-metadata.js.
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },

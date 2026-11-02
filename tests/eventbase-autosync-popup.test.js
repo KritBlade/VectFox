@@ -51,7 +51,7 @@ vi.mock('../core/collection-metadata.js', () => ({
     setCollectionLock: vi.fn(), setCollectionMeta: vi.fn(), getChatLockedCollections: () => [],
 }));
 vi.mock('../ui/progress-tracker.js', () => ({ progressTracker: new Proxy({}, { get: () => () => {} }) }));
-vi.mock('../core/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
 
 const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../core/eventbase-workflow.js');
 

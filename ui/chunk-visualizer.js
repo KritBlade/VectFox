@@ -22,11 +22,11 @@ import {
     updateChunkText,
     updateChunkMetadata,
 } from '../core/core-vector-api.js';
-import { getStringHash } from '../../../../utils.js';
-import { getRequestHeaders } from '../../../../../script.js';
+import { getStringHash } from '../src/sillytavern/identifiers.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import StringUtils from '../utils/string-utils.js';
 import { packTimelineSortKey } from '../core/eventbase-schema.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================
 // STATE

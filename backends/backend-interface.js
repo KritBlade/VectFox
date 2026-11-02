@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * Base class for all vector backends.

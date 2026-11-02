@@ -19,7 +19,7 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../../../../../script.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
 // Embedding-side: no key helpers needed here. vLLM, Ollama, and other
 // "local-or-self-hosted" providers either resolve keys server-side via ST
 // (vLLM → SECRET_KEYS.VLLM) or send no auth at all (Ollama — ST has no
@@ -36,7 +36,7 @@ import { getOverfetchAmount } from './keyword-boost.js';
 import { applyBM25Scoring, porterStemmer } from './bm25-scorer.js';
 import { hybridSearch } from './hybrid-search.js';
 import { extractQueryKeywords, RETRIEVAL_KEYWORD_LEVELS, isCJKToken } from './query-keyword-extractor.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * Lazy + best-effort cache invalidation for the corpus-IDF stats.

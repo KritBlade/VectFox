@@ -10,9 +10,12 @@
  * ============================================================================
  */
 
-import { saveSettingsDebounced, getCurrentChatId, eventSource, event_types, getRequestHeaders } from '../../../../../script.js';
-import { extension_settings, openThirdPartyExtensionMenu, getContext } from '../../../../extensions.js';
-import { writeSecret, deleteSecret, SECRET_KEYS, readSecretState } from '../../../../secrets.js';
+import { saveSettingsDebounced, extension_settings } from '../src/sillytavern/settings.js';
+import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
+import { eventSource, event_types } from '../src/sillytavern/events.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { openThirdPartyExtensionMenu } from '../src/sillytavern/extension-runtime.js';
+import { writeSecret, deleteSecret, SECRET_KEYS, readSecretState } from '../src/sillytavern/secrets.js';
 import {
     getOpenRouterApiKey,
     getCustomApiKey,
@@ -57,7 +60,7 @@ import {
     resolveAgenticQueryTimeoutMs,
     resolveAgenticMaxTokens,
 } from '../core/retrieval-budget.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * Renders the VectFox settings UI
@@ -2046,9 +2049,7 @@ async function _offerEventBaseFork(settings) {
     const remainingText = remainingCount > 0
         ? ` The ${remainingCount} message${remainingCount === 1 ? '' : 's'} after them still need extraction.`
         : '';
-    const popup = await import('../../../../popup.js');
-    const { callGenericPopup, POPUP_TYPE } = popup;
-    const POPUP_RESULT = popup.POPUP_RESULT || { AFFIRMATIVE: 1, NEGATIVE: 0 };
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../src/sillytavern/popup.js');
     const choice = await callGenericPopup(
         `<div style="text-align:left">
             <p><strong>This chat is a branch or checkpoint.</strong> Its first ${source.sharedPrefixLength} messages match the EventBase <em>${StringUtils.escapeHtml(source.collectionId)}</em>.</p>
@@ -2482,9 +2483,7 @@ function bindSettingsEvents(settings, callbacks) {
                     const CATCHUP_PROMPT_THRESHOLD = 5; // windows (~5 LLM calls)
 
                     if (pendingWindows >= CATCHUP_PROMPT_THRESHOLD) {
-                        const popup = await import('../../../../popup.js');
-                        const { callGenericPopup, POPUP_TYPE } = popup;
-                        const POPUP_RESULT = popup.POPUP_RESULT || { AFFIRMATIVE: 1, NEGATIVE: 0 };
+                        const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../src/sillytavern/popup.js');
                         const choice = await callGenericPopup(
                             `<div style="text-align:left">
                                 <p><strong>${pendingMsgs} messages aren't vectorized yet</strong> (~${pendingWindows} extraction call${pendingWindows === 1 ? '' : 's'}).</p>
@@ -4173,7 +4172,7 @@ function bindSettingsEvents(settings, callbacks) {
         }
     });
 
-    // Apply first semantic hit to ST World Info (best-effort)
+    // Copy the first semantic hit's text to the clipboard, for pasting into SillyTavern's World Info editor
     $('#VectFox_wi_apply_first').on('click', async function() {
         try {
             const raw = $('#VectFox_wi_test_input').val() || '';
@@ -4192,60 +4191,14 @@ function bindSettingsEvents(settings, callbacks) {
             }
 
             const first = entries[0];
-            log.trace('VectFox: Applying semantic WI entry:', first);
+            log.trace('VectFox: First semantic WI entry:', first);
 
-            // Best-effort: try importing ST's world-info module and invoking common APIs
-            let applied = false;
-            try {
-                const worldInfo = await import('../../../../world-info.js');
-                // Try common function names
-                const candidates = ['applyWorldInfoEntries', 'activateEntries', 'setActiveEntries', 'activateWorldInfoEntries'];
-                for (const name of candidates) {
-                    if (worldInfo[name] && typeof worldInfo[name] === 'function') {
-                        await worldInfo[name]([first]);
-                        applied = true;
-                        log.trace(`VectFox: Applied via world-info.${name}`);
-                        break;
-                    }
-                }
-            } catch (e) {
-                log.trace('VectFox: world-info import failed or method not found', e);
-            }
-
-            // Try global window API fallbacks
-            if (!applied) {
-                const fallbackCandidates = [
-                    window.applyWorldInfoEntries,
-                    window.activateWorldInfoEntries,
-                    window.setActiveWorldInfoEntries
-                ];
-                for (const fn of fallbackCandidates) {
-                    if (fn && typeof fn === 'function') {
-                        try {
-                            await fn([first]);
-                            applied = true;
-                            log.trace('VectFox: Applied via global fallback function');
-                            break;
-                        } catch (e) {
-                            log.trace('VectFox: fallback apply failed', e);
-                        }
-                    }
-                }
-            }
-
-            if (applied) {
-                toastr.success('Semantic WI entry applied (best-effort)');
-                return;
-            }
-
-            // Final fallback: copy content to clipboard and instruct user
             const text = first.content || (Array.isArray(first.key) ? first.key.join(', ') : String(first.key));
             try {
                 await navigator.clipboard.writeText(text);
                 toastr.info('Semantic entry copied to clipboard. Paste into World Info editor to activate.');
             } catch (e) {
-                log.warn('VectFox: Clipboard write failed, showing content in console:', e);
-                log.trace('Semantic entry content:', text);
+                log.warn('VectFox: Clipboard write failed; semantic entry content:', text, e);
                 toastr.info('Semantic entry logged to console. Paste into World Info editor to activate.');
             }
 
@@ -4426,7 +4379,7 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // ─── Logging (core/log.js) ──────────────────────────────────────────
+    // ─── Logging (src/sillytavern/log.js) ───────────────────────────────
     // Verbosity dropdown — single noise floor, drives all gated log.* calls
     // (the 22 Phase-1 sites). Plus the raw_llm domain deep-dive, the one domain
     // whose read site is migrated (eventbase-extractor.js). No backward-compat
@@ -5064,7 +5017,7 @@ function bindSettingsEvents(settings, callbacks) {
  * @param {object} settings - extension_settings.vectfox
  */
 async function openSummarizerDebug(settings) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../../../../popup.js');
+    const { callGenericPopup, POPUP_TYPE } = await import('../src/sillytavern/popup.js');
 
     let result;
     try {

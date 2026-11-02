@@ -11,7 +11,7 @@
  * ============================================================================
  */
 
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * Opens the Query Tester modal. The user types a test message, clicks Run, and
@@ -90,12 +90,14 @@ export function openQueryTestModal() {
 
         try {
             const [
-                { extension_settings, getContext },
+                { extension_settings },
+                { getContext },
                 { runEventBaseRetrieval },
                 { rearrangeChat },
                 { runLorebookWIDryRun },
             ] = await Promise.all([
-                import('../../../../extensions.js'),
+                import('../src/sillytavern/settings.js'),
+                import('../src/sillytavern/chat.js'),
                 import('../core/eventbase-workflow.js'),
                 import('../core/chat-vectorization.js'),
                 import('../core/world-info-integration.js'),

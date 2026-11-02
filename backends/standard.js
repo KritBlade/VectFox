@@ -25,15 +25,15 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../../../../../script.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { extension_settings } from '../src/sillytavern/settings.js';
+import { oai_settings } from '../src/sillytavern/connection-settings.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
 import { throwIfModelConfigError } from '../core/model-http-errors.js';
 import { INTERNAL_COLLECTION_IDS } from '../core/collection-ids.js';
 import { checkPluginAvailable } from '../core/similharity-plugin.js';
-import { extension_settings } from '../../../../extensions.js';
-import { oai_settings } from '../../../../openai.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
 import { fetchQueryEmbedding } from './query-embedding.js';
 

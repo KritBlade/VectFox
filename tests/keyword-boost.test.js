@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-// keyword-boost.js → bm25-scorer.js → core/log.js → ../../../../extensions.js
+// keyword-boost.js → bm25-scorer.js → src/sillytavern/log.js → ../../../../extensions.js
 // (a SillyTavern host path that doesn't resolve under vitest). Mock it.
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },

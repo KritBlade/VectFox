@@ -22,7 +22,10 @@ import { COLLECTION_PREFIXES } from "../core/collection-ids.js";
 import {
   queryMultipleCollections,
 } from "../core/core-vector-api.js";
-import { getRequestHeaders, getCurrentChatId, eventSource, event_types } from "../../../../../script.js";
+import { getRequestHeaders } from "../src/sillytavern/requests.js";
+import { getCurrentChatId, getContext } from "../src/sillytavern/chat.js";
+import { eventSource, event_types } from "../src/sillytavern/events.js";
+import { world_names, loadWorldInfo } from "../src/sillytavern/world-info.js";
 import {
   cleanupOrphanedMeta,
   getCollectionConditions,
@@ -44,14 +47,12 @@ import {
   getCollectionCharacterLockCount,
   isCollectionActiveForContext,
 } from "../core/collection-metadata.js";
-import { getContext } from "../../../../extensions.js";
 import {
   VALID_GENERATION_TYPES,
 } from "../core/conditional-activation.js";
-import { world_names, loadWorldInfo } from "../../../../world-info.js";
 import { icons } from "./icons.js";
 import StringUtils from "../utils/string-utils.js";
-import { log } from "../core/log.js";
+import { log } from "../src/sillytavern/log.js";
 import { openVisualizer } from "./chunk-visualizer.js";
 import {
   exportCollection,
@@ -484,7 +485,7 @@ function bindBrowserEvents() {
         return;
       }
 
-      const { callGenericPopup, POPUP_TYPE } = await import("../../../../popup.js");
+      const { callGenericPopup, POPUP_TYPE } = await import("../src/sillytavern/popup.js");
       const confirmed = await callGenericPopup(
         `<div style="text-align:left;">
                     <p><strong>Clear retained Auto-Reformat originals?</strong></p>

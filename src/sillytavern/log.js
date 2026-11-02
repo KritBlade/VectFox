@@ -21,7 +21,7 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../../../extensions.js';
+import { extension_settings } from '../../../../../extensions.js';
 
 const VERBOSITY_LEVELS = { off: 0, lifecycle: 1, verbose: 2, trace: 3 };
 

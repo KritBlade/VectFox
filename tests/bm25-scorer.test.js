@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// bm25-scorer.js now imports core/log.js, which imports ../../../../extensions.js
+// bm25-scorer.js imports src/sillytavern/log.js, which imports ../../../../extensions.js
 // (a SillyTavern host path that doesn't resolve under vitest). Mock it so the
 // module graph loads. See tests/hybrid-search.test.js for the same pattern.
 vi.mock('../../../../extensions.js', () => ({

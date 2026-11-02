@@ -24,7 +24,7 @@ import AsyncUtils from '../utils/async-utils.js';
 import { resolveRetrievalTimeoutMs } from './retrieval-budget.js';
 import { notifyRetrievalFailure } from './model-config-notifier.js';
 import { describeEmbeddingTimeoutCause } from './embedding-latency-warning.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /** A retrieval that never returned, vs. one that returned an error. */
 const TIMEOUT_PATTERN = /timed out|timeout|aborted/i;

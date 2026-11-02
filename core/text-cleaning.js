@@ -10,9 +10,9 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../../../extensions.js';
-import { uuidv4 } from '../../../../utils.js';
-import { log } from './log.js';
+import { extension_settings } from '../src/sillytavern/settings.js';
+import { uuidv4 } from '../src/sillytavern/identifiers.js';
+import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================
 // BUILT-IN PRESETS

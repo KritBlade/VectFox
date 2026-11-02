@@ -43,7 +43,7 @@ import { discoverExistingCollections } from './collection-loader.js';
 import { pruneOrphanedEventBaseChatMaps } from './eventbase-store.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from './similharity-plugin.js';
 import AsyncUtils from '../utils/async-utils.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * D5: Cross-repo version floor — warn ONLY when the installed similharity is OLDER

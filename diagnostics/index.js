@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 import {
     checkVectorsExtension,
     checkBackendEndpoints,

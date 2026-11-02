@@ -15,7 +15,7 @@ vi.mock('../../../../../script.js', () => ({
     getCurrentChatId: vi.fn(() => null),
     chat_metadata: {},
 }));
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: () => () => {} }),
 }));
 

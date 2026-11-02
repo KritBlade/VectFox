@@ -29,7 +29,7 @@ vi.mock('../core/model-config-notifier.js', () => ({
     notifyUpstreamRejection: (...args) => mockNotifyUpstreamRejection(...args),
 }));
 
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: () => () => {} }),
 }));
 

@@ -11,7 +11,7 @@
  */
 
 import StringUtils from '../utils/string-utils.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================
 // INTERNALS
@@ -19,7 +19,7 @@ import { log } from './log.js';
 
 async function getWorldNames() {
     try {
-        const mod = await import('../../../../world-info.js');
+        const mod = await import('../src/sillytavern/world-info.js');
         return Array.isArray(mod.world_names) ? mod.world_names : [];
     } catch {
         return [];
@@ -40,7 +40,7 @@ async function waitForPopupsClosed(maxWaitMs = 1500) {
     }
     // Last-resort: force-complete any survivors, then strip from DOM.
     try {
-        const { Popup } = await import('../../../../../scripts/popup.js');
+        const { Popup } = await import('../src/sillytavern/popup.js');
         const survivors = (Popup?.util?.popups || []).slice();
         for (const p of survivors) {
             try { await p.completeCancelled(); } catch { /* tolerate */ }
@@ -84,7 +84,7 @@ export async function detectLorebookRenames(collections) {
  * @returns {Promise<'open_browser'|'continue'>}
  */
 export async function showLorebookRenameModal(mismatches) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../../../../popup.js');
+    const { callGenericPopup, POPUP_TYPE } = await import('../src/sillytavern/popup.js');
 
     const list = mismatches
         .map(m => `<li><code>${StringUtils.escapeHtml(m.sourceName)}</code></li>`)

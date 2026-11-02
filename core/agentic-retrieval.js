@@ -19,7 +19,7 @@
  * ============================================================================
  */
 
-import { getContext } from '../../../../extensions.js';
+import { getContext } from '../src/sillytavern/chat.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
 import { queryCollection } from './core-vector-api.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
@@ -28,7 +28,7 @@ import { getOpenRouterApiKey, getCustomApiKey } from './api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from './llm-provider-call.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from './retrieval-budget.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================
 // Public API

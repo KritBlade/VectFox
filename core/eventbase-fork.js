@@ -13,8 +13,8 @@
  * ============================================================================
  */
 
-import { getCurrentChatId } from '../../../../../script.js';
-import { extension_settings, getContext } from '../../../../extensions.js';
+import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
+import { extension_settings } from '../src/sillytavern/settings.js';
 import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from './collection-ids.js';
 import { registerCollection } from './collection-loader.js';
 import { getChatLockedCollections, removeCollectionLock, setCollectionLock, setCollectionMeta } from './collection-metadata.js';
@@ -33,7 +33,7 @@ import {
     summarizeCopiedWindows,
 } from './eventbase-fork-core.js';
 import { progressTracker } from '../ui/progress-tracker.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * @typedef {object} EventBaseForkSource

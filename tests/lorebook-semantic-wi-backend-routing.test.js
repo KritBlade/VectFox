@@ -800,7 +800,7 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
         // The whole point of the fix: a user who has changed nothing must still see
         // it. world_info_retrieval_popup defaults to false (index.js:202) and
         // debug_verbosity defaults to 'off', so neither may gate the failure path.
-        // log.error/log.warn are ungated by design (core/log.js:51-54); the toast is
+        // log.error/log.warn are ungated by design (src/sillytavern/log.js); the toast is
         // deliberately NOT behind world_info_retrieval_popup, which opts into the
         // success notice only.
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});

@@ -16,7 +16,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: { warn: vi.fn(), error: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
 vi.mock('../core/providers.js', () => ({
@@ -25,7 +25,7 @@ vi.mock('../core/providers.js', () => ({
 
 import { warnIfEmbeddingSlow, slowEmbeddingWarnMs } from '../core/embedding-latency-warning.js';
 import { RETRIEVAL_TIMEOUT_DEFAULT_MS } from '../core/constants.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 const settings = { embedding_provider: 'openrouter', embedding_openrouter_model: 'qwen/qwen3-embedding-8b' };
 

@@ -9,9 +9,10 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, is_send_press, setExtensionPrompt, substituteParams, extension_prompts } from '../../../../../script.js';
-import { getContext } from '../../../../extensions.js';
-import { getStringHash as calculateHash } from '../../../../utils.js';
+import { getCurrentChatId, substituteParams, getContext } from '../src/sillytavern/chat.js';
+import { is_send_press } from '../src/sillytavern/generation.js';
+import { setExtensionPrompt, extension_prompts } from '../src/sillytavern/prompt-injection.js';
+import { getStringHash as calculateHash } from '../src/sillytavern/identifiers.js';
 import { extractChatKeywords } from './keyword-boost.js';
 import {
     getSavedHashes,
@@ -28,7 +29,7 @@ import { LRUCache } from '../utils/data-structures.js';
 import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from './constants.js';
 import { runBoundedRetrieval } from './bounded-retrieval.js';
 import { resolveEventBaseRetrievalTimeoutMs } from './retrieval-budget.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 import { isVectFoxEnabled } from './feature-gate.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {

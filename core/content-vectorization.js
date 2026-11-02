@@ -32,10 +32,10 @@ import { prepareLorebookContent } from './lorebook-content-preparer.js';
 import { extractGlossary, injectGlossary } from './glossary-extractor.js';
 import { getReformatCache } from './reformat-store.js';
 import { progressTracker } from '../ui/progress-tracker.js';
-import { extension_settings, getContext } from '../../../../extensions.js';
-import { getCurrentChatId } from '../../../../../script.js';
-import { getStringHash } from '../../../../utils.js';
-import { log } from './log.js';
+import { extension_settings } from '../src/sillytavern/settings.js';
+import { getContext, getCurrentChatId } from '../src/sillytavern/chat.js';
+import { getStringHash } from '../src/sillytavern/identifiers.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * Merge per-call settings on top of the user's global VectFox settings.
@@ -508,7 +508,7 @@ async function loadSelectedSource(contentType, sourceId) {
 async function loadLorebookContent(lorebookName) {
     try {
         // Import ST's world-info module to load the lorebook
-        const worldInfoModule = await import('../../../../world-info.js');
+        const worldInfoModule = await import('../src/sillytavern/world-info.js');
         const loadWorldInfo = worldInfoModule.loadWorldInfo;
 
         if (!loadWorldInfo) {

@@ -31,7 +31,7 @@ export default [
 
     // ── extension source: runs in the SillyTavern page ──────────────────────────
     {
-        files: ['index.js', '{backends,core,diagnostics,Migration,providers,ui,utils}/**/*.js'],
+        files: ['index.js', '{backends,core,diagnostics,Migration,providers,src,ui,utils}/**/*.js'],
         languageOptions: {
             ecmaVersion: 2023,
             sourceType: 'module',

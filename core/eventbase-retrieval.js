@@ -18,7 +18,7 @@ import { getBackendForCollection, getBackend } from '../backends/backend-manager
 import { parseRegistryKey } from './collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
 import { checkPluginAvailable } from './similharity-plugin.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // ---------------------------------------------------------------------------
 // Default re-rank weights (tuned for long-form SillyTavern RP)

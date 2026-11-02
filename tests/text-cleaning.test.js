@@ -21,11 +21,13 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-// text-cleaning.js (and its log.js dependency) import the SillyTavern host path.
-// Mock it so the module graph loads under node.
+// text-cleaning.js reaches SillyTavern through src/sillytavern/: settings.js (extensions.js and
+// script.js), identifiers.js (utils.js) and log.js (extensions.js). Mock each host module so the
+// module graph loads under node; script.js is empty because text-cleaning.js calls nothing from it.
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },
 }));
+vi.mock('../../../../../script.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({
     uuidv4: () => 'test-uuid',
 }));

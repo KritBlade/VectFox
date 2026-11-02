@@ -1,9 +1,11 @@
-// tools/check-host-imports.mjs — every SillyTavern import must reach a file in SillyTavern, spelled exactly as on
-// disk, and every name it takes must be exported there.
+// tools/check-host-imports.mjs — every SillyTavern import must sit in src/sillytavern/, reach a file in SillyTavern
+// spelled exactly as on disk, and take only names exported there.
 //
-// VectFox imports SillyTavern by relative paths that leave this repo (`../../../../script.js`). No unit test loads
-// them and the in-repo checks skip them, so a wrong `../` count after a folder move, or a name SillyTavern does not
-// export, shows up only in the browser. Ported from mvu-helper's check of the same name, which checks paths only.
+// Only the facades in src/sillytavern/ import SillyTavern, by relative paths that leave this repo
+// (`../../../../../../script.js`); every other module imports the facade that re-exports the name, so a folder move
+// changes no SillyTavern path. No unit test loads SillyTavern and the in-repo checks skip it, so a wrong `../` count,
+// or a name SillyTavern does not export, shows up only in the browser. Ported from mvu-helper's check of the same
+// name, which checks paths only.
 //
 // The browser resolves each path from the URL SillyTavern serves this extension at,
 // /scripts/extensions/third-party/VectFox/, which lies in SillyTavern's public/ folder; this check does the same.
@@ -39,6 +41,8 @@ const publicFolder = join(sillyTavernFolder, 'public');
 const servedFolder = join(publicFolder, ...SERVED_AT);
 console.log(`[host-imports] resolving as served from ${servedFolder}`);
 
+const hostLayerFolder = join(repoRoot, 'src', 'sillytavern');
+const misplaced = [];
 const problems = [];
 const notes = [];
 let checkedCount = 0;
@@ -51,6 +55,7 @@ for (const file of shippedModules(repoRoot)) {
         if (isRelative && isInside(repoRoot, resolve(dirname(file), entry.specifier))) continue;
         checkedCount++;
         const where = `${shown(file)}:${entry.line}`;
+        if (!isInside(hostLayerFolder, file)) misplaced.push(`${where} ${entry.specifier}`);
         const target = isRelative
             ? resolve(join(servedFolder, relative(repoRoot, dirname(file))), entry.specifier)
             : join(publicFolder, entry.specifier);
@@ -84,10 +89,16 @@ for (const file of shippedModules(repoRoot)) {
 }
 
 notes.forEach((note) => console.log(`[host-imports] note: ${note}`));
+if (misplaced.length) {
+    misplaced.forEach((hostImport) => console.error(`[host-imports] ${hostImport}: imports SillyTavern outside src/sillytavern/`));
+    console.error(`[host-imports] FAIL: ${misplaced.length} SillyTavern import(s) outside src/sillytavern/. Import the `
+        + 'facade there that re-exports each name (add the name to the facade that fits it), so no folder move can '
+        + 'break the path.');
+}
 if (problems.length) {
     problems.forEach((problem) => console.error(`[host-imports] ${problem}`));
     console.error(`[host-imports] FAIL: ${problems.length} problem(s). Each one stops the extension loading in the `
         + 'browser, or leaves a dynamic name undefined where it is used.');
-    process.exit(1);
 }
-console.log(`[host-imports] OK: ${checkedCount} SillyTavern imports; every file and name found`);
+if (misplaced.length || problems.length) process.exit(1);
+console.log(`[host-imports] OK: ${checkedCount} SillyTavern imports, all in src/sillytavern/; every file and name found`);

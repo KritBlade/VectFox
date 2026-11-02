@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 import {
     deleteVectorItems,
     insertVectorItems,
@@ -23,7 +23,7 @@ import {
     deleteChunkMetadata,
 } from '../core/collection-metadata.js';
 import { unregisterCollection } from '../core/collection-loader.js';
-import { getStringHash } from '../../../../utils.js';
+import { getStringHash } from '../src/sillytavern/identifiers.js';
 
 // Test collection prefix using VectFox vf_ format
 // Format: vf_test_{type}_{sourceId}

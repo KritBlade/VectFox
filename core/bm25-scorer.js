@@ -20,7 +20,7 @@ import TinySegmenter from './vendor/tiny-segmenter-0.2.0.js';
 import { isStopWord } from './stop-words.js';
 import { CJK_SPAN_RE, KANA_RE, NON_WORD_RE, getSegmenter } from './script-segmentation.js';
 import { CJK_TOKENIZER_MODES, DEFAULT_CJK_TOKENIZER_MODE, stopLocalesForMode, tokenizerForMode } from './language-modes.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /**
  * Default BM25+ parameters

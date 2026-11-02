@@ -28,13 +28,13 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../../../../../script.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { VectorBackend } from './backend-interface.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../core/providers.js';
 import { throwIfModelConfigError } from '../core/model-http-errors.js';
 import { VECTOR_LIST_LIMIT } from '../core/constants.js';
 import { getQdrantApiKey } from '../core/api-keys.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 import { warnIfEmbeddingSlow } from '../core/embedding-latency-warning.js';
 import { invalidateCollectionMetadata } from '../core/tokenizer-lock.js';
 import { buildRegistryKey } from '../core/collection-ids.js';
@@ -896,7 +896,7 @@ export class QdrantBackend extends VectorBackend {
                     // a broken query. Without this the user has to hit ST's Stop
                     // button manually after dismissing the modal.
                     try {
-                        const { stopGeneration } = await import('../../../../../script.js');
+                        const { stopGeneration } = await import('../src/sillytavern/generation.js');
                         stopGeneration();
                     } catch (e) {
                         log.warn('[Qdrant] stopGeneration() failed:', e?.message);
@@ -1107,7 +1107,7 @@ export class QdrantBackend extends VectorBackend {
                     // a broken query. Without this the user has to hit ST's Stop
                     // button manually after dismissing the modal.
                     try {
-                        const { stopGeneration } = await import('../../../../../script.js');
+                        const { stopGeneration } = await import('../src/sillytavern/generation.js');
                         stopGeneration();
                     } catch (e) {
                         log.warn('[Qdrant] stopGeneration() failed:', e?.message);

@@ -19,15 +19,15 @@ import {
     hasFeature,
     CHARACTER_FIELDS,
 } from '../core/content-types.js';
-import { extension_settings, getContext } from '../../../../extensions.js';
-import { saveSettingsDebounced } from '../../../../../script.js';
+import { extension_settings, saveSettingsDebounced } from '../src/sillytavern/settings.js';
+import { getContext } from '../src/sillytavern/chat.js';
+import { callGenericPopup, POPUP_TYPE } from '../src/sillytavern/popup.js';
 import { getChatUUID, vectorizeAll } from '../core/chat-vectorization.js';
 import { validateLLMConfig } from '../core/llm-config-validation.js';
 import { getOpenRouterApiKey } from '../core/api-keys.js';
 import StringUtils from '../utils/string-utils.js';
 import { resolveEffectiveSettings } from '../core/content-vectorization.js';
 import { buildArchiveEventCollectionId } from '../core/collection-ids.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { openTextCleaningManager } from './text-cleaning-manager.js';
 import { getCleaningSettings, CLEANING_PRESETS } from '../core/text-cleaning.js';
 import { progressTracker } from './progress-tracker.js';
@@ -968,7 +968,7 @@ async function runAutoReformat() {
             return;
         }
 
-        const { getStringHash } = await import('../../../../utils.js');
+        const { getStringHash } = await import('../src/sillytavern/identifiers.js');
         const sourceHash = getStringHash(text);
         const mergedSettings = resolveEffectiveSettings(currentSettings);
 
@@ -1730,7 +1730,7 @@ async function loadSourceStats(contentType, sourceId) {
     try {
         if (contentType === 'lorebook') {
             // Load lorebook info
-            const worldInfoModule = await import('../../../../world-info.js');
+            const worldInfoModule = await import('../src/sillytavern/world-info.js');
             const loadWorldInfo = worldInfoModule.loadWorldInfo;
 
             if (loadWorldInfo) {
@@ -1800,9 +1800,9 @@ async function populateSourceSelect(type) {
 
     try {
         if (type.id === 'lorebook') {
-            // Import world_names from ST's world-info module (same as legacy)
+            // world_names from SillyTavern's world-info module
             try {
-                const worldInfoModule = await import('../../../../world-info.js');
+                const worldInfoModule = await import('../src/sillytavern/world-info.js');
                 const worldNames = worldInfoModule.world_names || [];
 
                 if (worldNames && worldNames.length > 0) {

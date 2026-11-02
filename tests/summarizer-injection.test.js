@@ -33,11 +33,11 @@ vi.mock('../backends/backend-manager.js', () => ({ getBackend: vi.fn(async () =>
 vi.mock('../core/collection-ids.js', () => ({ getChatUUID: mocks.getChatUUID }));
 vi.mock('../core/eventbase-store.js', () => ({ resolveActiveEventBaseCollection: mocks.resolveActive }));
 vi.mock('../core/constants.js', () => ({ SUMMARIZER_PROMPT_TAG: '3_vectfox_summarizer' }));
-vi.mock('../core/log.js', () => ({ log: { warn() {}, error() {}, domain() {}, trace() {}, verbose() {}, lifecycle() {}, enabled: () => false } }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: { warn() {}, error() {}, domain() {}, trace() {}, verbose() {}, lifecycle() {}, enabled: () => false } }));
 
 import { runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
 import { getSortedEntries } from '../../../../world-info.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 const SETTINGS = (over = {}) => ({
     summarizer_injection_enabled: true,

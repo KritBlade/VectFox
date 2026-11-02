@@ -31,7 +31,7 @@ vi.mock('../backends/backend-manager.js', () => ({
     recordQuery: vi.fn(), recordInsert: vi.fn(), recordDelete: vi.fn(), recordError: vi.fn(),
 }));
 const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: new Proxy({}, { get: (_target, level) => (level === 'warn' ? warnSpy : () => {}) }),
 }));
 

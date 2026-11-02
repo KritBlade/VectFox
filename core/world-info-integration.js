@@ -10,7 +10,10 @@
  * ============================================================================
  */
 
-import { extension_settings, getContext } from '../../../../extensions.js';
+import { extension_settings } from '../src/sillytavern/settings.js';
+import { getContext, substituteParams, getCurrentChatId } from '../src/sillytavern/chat.js';
+import { eventSource, event_types } from '../src/sillytavern/events.js';
+import { setExtensionPrompt } from '../src/sillytavern/prompt-injection.js';
 import { queryCollection } from './core-vector-api.js';
 import { resolveBackendForCollection, sanitizeNameSegment } from './collection-ids.js';
 import { getCollectionListing, getCollectionRegistry } from './collection-loader.js';
@@ -30,8 +33,7 @@ import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForR
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
 // the builder is intentionally not imported here because lookups can't reconstruct the
 // exact ID (backend + handle + timestamp segments are not known at lookup time).
-import { eventSource, event_types, setExtensionPrompt, substituteParams, getCurrentChatId } from '../../../../../script.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 import { isVectFoxEnabled } from './feature-gate.js';
 
 // ============================================================================
@@ -394,7 +396,7 @@ export async function resolveLiveEntries(semanticEntries, settings) {
 
     let loadWorldInfo = null;
     try {
-        ({ loadWorldInfo } = await import('../../../../world-info.js'));
+        ({ loadWorldInfo } = await import('../src/sillytavern/world-info.js'));
     } catch (_) { /* host module unavailable (tests/headless) — fall through */ }
     if (typeof loadWorldInfo !== 'function') return semanticEntries;
 
@@ -694,7 +696,7 @@ async function handleGenerationStarted(type, options, dryRun) {
             const choice = await showLorebookRenameModal(mismatches);
             if (choice === 'open_browser') {
                 try {
-                    const { stopGeneration } = await import('../../../../../script.js');
+                    const { stopGeneration } = await import('../src/sillytavern/generation.js');
                     stopGeneration();
                 } catch (e) {
                     log.warn('[LorebookRename] stopGeneration() failed:', e?.message);

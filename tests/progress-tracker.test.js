@@ -8,19 +8,19 @@
  * cannot reach: that suite runs a desktop viewport with no touch/mobile project,
  * so `matchMedia('(hover: none) and (pointer: coarse)')` is always false there.
  *
- * The tracker is self-contained DOM (its only import is core/log.js), so jsdom +
+ * The tracker is self-contained DOM (its only import is src/sillytavern/log.js), so jsdom +
  * a mocked matchMedia exercises the real createPanel/show/complete/hide logic.
  */
 /* global window, document -- this file runs under the jsdom environment */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// progress-tracker.js imports core/log.js, which imports ../../../../extensions.js
+// progress-tracker.js imports src/sillytavern/log.js, which imports ../../../../extensions.js
 // (a SillyTavern host path that doesn't resolve under vitest — and under the jsdom
 // environment vite's import-analysis errors on it rather than externalizing).
 // Mock log.js directly so its real source (and that import) is never transformed.
 // The tracker only calls log.verbose / log.trace.
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: { verbose: () => {}, trace: () => {}, error: () => {}, warn: () => {}, lifecycle: () => {}, log: () => {}, enabled: () => false },
 }));
 

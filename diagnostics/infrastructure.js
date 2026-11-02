@@ -9,8 +9,8 @@
  * ============================================================================
  */
 
-import { getRequestHeaders } from '../../../../../script.js';
-import { secret_state } from '../../../../secrets.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { secret_state } from '../src/sillytavern/secrets.js';
 import {
     isValidProvider,
     getProviderConfig,

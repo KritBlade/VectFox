@@ -52,7 +52,7 @@ const ALLOWLIST = new Set([
 ]);
 
 // Source roots to scan. Anything outside these is ignored (node_modules, etc).
-const SCAN_DIRS = ['core', 'ui', 'backends', 'utils', 'diagnostics'];
+const SCAN_DIRS = ['core', 'ui', 'backends', 'utils', 'diagnostics', 'src'];
 const SCAN_TOP_FILES = ['index.js'];
 
 // ============================================================================

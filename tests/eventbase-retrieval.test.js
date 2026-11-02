@@ -59,7 +59,7 @@ vi.mock('../core/similharity-plugin.js', () => ({
 // Permissive log stub: every level is a no-op, predicates return false so the
 // debug branches stay quiet. Mocking this avoids loading log.js -> extensions.js
 // while STILL requiring the `import { log }` line to exist in the source.
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: {
         enabled: () => false,
         domainEnabled: () => false,

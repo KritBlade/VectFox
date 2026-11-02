@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../core/log.js', () => ({
+vi.mock('../src/sillytavern/log.js', () => ({
     log: { warn: vi.fn(), error: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
 vi.mock('../core/collection-loader.js', () => ({
@@ -25,7 +25,7 @@ vi.mock('../core/similharity-plugin.js', () => ({
 
 import { checkSimilharityVersion } from '../core/network-startup.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from '../core/similharity-plugin.js';
-import { log } from '../core/log.js';
+import { log } from '../src/sillytavern/log.js';
 
 /** Concatenated text of every toastr.warning call, for substring assertions. */
 function toastText() {

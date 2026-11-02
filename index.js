@@ -10,17 +10,10 @@
  * ============================================================================
  */
 
-import {
-    eventSource,
-    event_types,
-    extension_prompt_types,
-} from '../../../../script.js';
-import {
-    ModuleWorkerWrapper,
-    extension_settings,
-} from '../../../extensions.js';
-import { debounce } from '../../../utils.js';
-import { debounce_timeout } from '../../../constants.js';
+import { eventSource, event_types } from './src/sillytavern/events.js';
+import { extension_prompt_types } from './src/sillytavern/prompt-injection.js';
+import { ModuleWorkerWrapper, debounce, debounce_timeout } from './src/sillytavern/extension-runtime.js';
+import { extension_settings } from './src/sillytavern/settings.js';
 
 // VectFox modules - Core
 import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
@@ -32,7 +25,7 @@ import { migrateLegacyApiKeys } from './core/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
 import { migration_embedding_source_key } from './Migration/mg_embedding_source_key.js';
 import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEFAULT } from './Migration/mg_world_info_threshold_rrf_workaround.js';
-import { log } from './core/log.js';
+import { log } from './src/sillytavern/log.js';
 import {
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
@@ -313,13 +306,13 @@ const defaultSettings = {
     eventbase_autosync_popup: true,               // Show popup toast when auto-sync extraction runs
     autosync_show_progress_modal: false,          // Show progress modal popup during auto-sync (default: silent)
     chat_lock_index: {},                          // Reverse index: chatId -> [collectionId, ...] for O(1) tab lookups
-    // ─── Logging (core/log.js) ──────────────────────────────────────────
+    // ─── Logging (src/sillytavern/log.js) ───────────────────────────────
     // Verbosity dropdown — single noise floor for the whole pipeline.
     // 'off' (default) | 'lifecycle' | 'verbose' | 'trace'. Errors/warnings
     // always fire regardless. See plans/executed/logging-levels-and-classification.md.
     debug_verbosity: 'off',
     // Orthogonal per-subsystem deep-dives, independent of debug_verbosity.
-    // Each key is a name that log.domain() in core/log.js takes. All default off.
+    // Each key is a name that log.domain() in src/sillytavern/log.js takes. All default off.
     debug_domain: {
         raw_llm: false,     // per-window raw LLM text + parser candidate dumps
         qdrant: false,      // native hybrid keyword/fusion diagnostics
@@ -331,7 +324,7 @@ const defaultSettings = {
     // Legacy debug flags below are KEPT as settings keys (some non-log code
     // still reads eventbase_compare_rerank etc.), but the pure log-gate flags
     // (eventbase_debug_logging, debug_vectorizing_log, *_debug, ...) are no
-    // longer consulted for logging — core/log.js ignores them. No migration
+    // longer consulted for logging — src/sillytavern/log.js ignores them. No migration
     // shim (user decision 2026-05-30).
     eventbase_debug_logging: false,
     eventbase_raw_llm_debug: false,              // Raw LLM reply + parser candidate logs (very noisy, per-window)
@@ -489,7 +482,7 @@ async function onPurgeClick() {
     }
 
     try {
-        const { getRequestHeaders } = await import('../../../../script.js');
+        const { getRequestHeaders } = await import('./src/sillytavern/requests.js');
 
         // 1. Delete entire vectors folder
         await fetch('/api/plugins/similharity/purge-all', {
@@ -505,7 +498,7 @@ async function onPurgeClick() {
         }
 
         // 3. Save settings
-        const { saveSettingsDebounced } = await import('../../../../script.js');
+        const { saveSettingsDebounced } = await import('./src/sillytavern/settings.js');
         saveSettingsDebounced();
 
         toastr.success('All vector data purged', 'Purge Complete');
@@ -537,7 +530,7 @@ async function onCleanupCorruptedClick() {
             return;
         }
 
-        const { saveSettingsDebounced } = await import('../../../../script.js');
+        const { saveSettingsDebounced } = await import('./src/sillytavern/settings.js');
         saveSettingsDebounced();
 
         const failed = result.purged.filter(p => !p.ok).length;
@@ -621,7 +614,7 @@ jQuery(async () => {
         // 2026-05-26 against a user whose summarize_openrouter_api_key /
         // summarize_vllm_api_key persisted on disk across multiple reloads
         // because the debounced save never fired before page close.
-        const { saveSettings } = await import('../../../../script.js');
+        const { saveSettings } = await import('./src/sillytavern/settings.js');
         await saveSettings();
     }
 
@@ -638,7 +631,7 @@ jQuery(async () => {
         log.lifecycle(`VectFox: Renamed ${_connRename.migrated} connection setting key(s): ${_connRename.keys.join(', ')}`);
         // Persist immediately (not debounced) — same reload-safety reason as the
         // eventbase block above (R5 in the plan's crash-safety checklist).
-        const { saveSettings } = await import('../../../../script.js');
+        const { saveSettings } = await import('./src/sillytavern/settings.js');
         await saveSettings();
     }
 
@@ -648,7 +641,7 @@ jQuery(async () => {
     const _srcRename = migration_embedding_source_key(extension_settings.vectfox);
     if (_srcRename.migrated > 0) {
         log.lifecycle('VectFox: Renamed embedding `source` → `embedding_provider`');
-        const { saveSettings } = await import('../../../../script.js');
+        const { saveSettings } = await import('./src/sillytavern/settings.js');
         await saveSettings();
     }
 
@@ -668,7 +661,7 @@ jQuery(async () => {
         } catch (_) { /* toastr unavailable (headless) — the log line stands alone */ }
     }
     if (_thresholdReset.stamped) {
-        const { saveSettings } = await import('../../../../script.js');
+        const { saveSettings } = await import('./src/sillytavern/settings.js');
         await saveSettings();
     }
 

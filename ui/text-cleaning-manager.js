@@ -10,7 +10,7 @@
  * ============================================================================
  */
 
-import { saveSettingsDebounced } from '../../../../../script.js';
+import { saveSettingsDebounced } from '../src/sillytavern/settings.js';
 import {
     BUILTIN_PATTERNS,
     CLEANING_PRESETS,

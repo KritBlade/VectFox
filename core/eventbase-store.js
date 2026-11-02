@@ -12,13 +12,14 @@ import {
     insertVectorItems,
     getAdditionalArgs,
 } from './core-vector-api.js';
-import { saveSettingsDebounced, getRequestHeaders, getCurrentChatId } from '../../../../../script.js';
-import { extension_settings, getContext } from '../../../../extensions.js';
+import { saveSettingsDebounced, extension_settings } from '../src/sillytavern/settings.js';
+import { getRequestHeaders } from '../src/sillytavern/requests.js';
+import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
 import { getChatUUID, buildEventBaseCollectionId, getRegistryBackend, COLLECTION_PREFIXES, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from './collection-ids.js';
 import { registerCollection, getCollectionRegistry, getCollectionListing } from './collection-loader.js';
 import { getChatLockedCollections, isCollectionActiveForContextAnyKey, setCollectionAutoSync } from './collection-metadata.js';
 import { buildEmbedText } from './eventbase-schema.js';
-import { log } from './log.js';
+import { log } from '../src/sillytavern/log.js';
 
 // Re-export so callers can import from here if needed
 export { buildEventBaseCollectionId };
