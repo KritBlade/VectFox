@@ -1,5 +1,5 @@
 /**
- * mg-setting-name-for-connection.test.js — Phase A connection-key rename migration.
+ * settings-migration-connection-setting-names.test.js — Phase A connection-key rename migration.
  *
  * Covers the crash-safety / idempotency contract from
  * plans/settings-naming-convention-migration.md §9 (R2–R4, R8):

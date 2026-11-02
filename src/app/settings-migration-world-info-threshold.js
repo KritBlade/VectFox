@@ -2,7 +2,7 @@
  * ============================================================================
  * VECTFOX MIGRATION — reset world_info_threshold values tuned against raw RRF
  * ============================================================================
- * (Folder conventions: see Migration/mg_setting_name_for_connection.js.)
+ * (Conventions: see settings-migration-connection-setting-names.js.)
  *
  * WHY: until 2026-07-31 the Qdrant native hybrid path returned raw RRF fused
  * scores (top hit ≈ 1/(rrfK+1) ≈ 0.016) while `world_info_threshold` — default
@@ -11,7 +11,7 @@
  * entries, always (GitHub issue #11). The only way users could make it work was
  * to lower the threshold to ≈0.0x, the correct value for the wrong scale.
  *
- * backends/qdrant.js::hybridQuery now attaches real cosine scores, so a saved
+ * src/features/vector-backend/qdrant.js::hybridQuery now attaches real cosine scores, so a saved
  * 0.0x threshold flips from "the workaround that makes Qdrant work" to "gate
  * open — inject everything", silently polluting every prompt. This migration
  * resets such values to the 0.3 default once. A threshold this low was also

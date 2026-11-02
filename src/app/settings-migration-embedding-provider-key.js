@@ -4,7 +4,7 @@
  * ============================================================================
  * Renames the single highest-churn connection key: `source` → `embedding_provider`.
  *
- * Isolated in its own file (separate from Phase A's mg_setting_name_for_connection.js)
+ * Isolated in its own file (separate from Phase A's settings-migration-connection-setting-names.js)
  * BECAUSE `source` is read across nearly every backend / query / UI / diagnostics
  * path. Keeping it standalone bounded its read-site sweep + tests and let Phase A
  * land and soak first. See plans/settings-naming-convention-migration.md §6a.
@@ -17,7 +17,7 @@
  *
  * Same crash-safety contract as Phase A (plans §9, R2–R4): copy-before-delete,
  * don't-clobber-new, idempotent, no I/O. Covered by
- * tests/mg-embedding-source-key.test.js.
+ * tests/settings-migration-embedding-provider-key.test.js.
  * ============================================================================
  */
 

@@ -1,5 +1,5 @@
 /**
- * mg-embedding-source-key.test.js — Phase B `source` → `embedding_provider` rename.
+ * settings-migration-embedding-provider-key.test.js — Phase B `source` → `embedding_provider` rename.
  *
  * Same crash-safety / idempotency contract as Phase A
  * (plans/settings-naming-convention-migration.md §9, R2–R4, R8):

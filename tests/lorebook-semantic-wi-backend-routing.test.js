@@ -25,9 +25,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // ============================================================================
 // HOST MODULE MOCKS
 // ============================================================================
-// vitest matches mocks by resolved module ID. `tests/` and `core/` are both one
-// level below the repo root, so "../../../../extensions.js" from here resolves
-// to the same module the core/ files import.
+// vitest.config.js maps every SillyTavern import to one module per served URL, so
+// "../../../../extensions.js" from here is the module src/sillytavern/ imports.
 
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },

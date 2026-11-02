@@ -7,10 +7,10 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// SillyTavern host modules — vitest matches mocks by resolved ID, so the path
-// "../../../../extensions.js" from /tests/ resolves to the same module that
-// /core/ files import via "../../../../extensions.js". The jsdom directive
-// was removed because it broke vite's import-analysis pre-pass for these mocks.
+// SillyTavern host modules: vitest.config.js maps every SillyTavern import to one
+// module per served URL, so "../../../../extensions.js" from here is the module
+// src/sillytavern/ imports. No jsdom directive: it breaks vite's import-analysis
+// pre-pass for these mocks.
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },
     getContext: vi.fn(() => ({

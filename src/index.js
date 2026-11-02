@@ -623,7 +623,7 @@ jQuery(async () => {
     // (embedding_* / chat_* / agent_*). Runs AFTER the eventbase→chat copy above
     // so any legacy summarize_* / agentic_retrieval_* / *_alt_endpoint_url +
     // *_model keys still on disk are renamed here. Idempotent, in-memory only,
-    // no I/O. See Migration/mg_setting_name_for_connection.js +
+    // no I/O. See src/app/settings-migration-connection-setting-names.js +
     // plans/settings-naming-convention-migration.md. (Phase B — `source` →
     // `embedding_provider` — is a separate migration, intentionally not here.)
     const _connRename = migration_setting_name_for_connection(extension_settings.vectfox);
@@ -637,7 +637,7 @@ jQuery(async () => {
 
     // Phase B: rename the highest-churn embedding key `source` → `embedding_provider`.
     // Separate migration from Phase A (its blast radius spans nearly every backend/
-    // query/UI path). Idempotent, in-memory only. See Migration/mg_embedding_source_key.js.
+    // query/UI path). Idempotent, in-memory only. See src/app/settings-migration-embedding-provider-key.js.
     const _srcRename = migration_embedding_source_key(extension_settings.vectfox);
     if (_srcRename.migrated > 0) {
         log.lifecycle('VectFox: Renamed embedding `source` → `embedding_provider`');
@@ -648,7 +648,7 @@ jQuery(async () => {
     // One-time reset of world_info_threshold values tuned against raw RRF scores
     // (the 0.0x workaround for issue #11). Qdrant hybrid now returns cosine, so a
     // 0.0x gate would flip from "makes Qdrant work" to "inject everything".
-    // Run-once via stamp — see Migration/mg_world_info_threshold_rrf_workaround.js.
+    // Run-once via stamp — see src/app/settings-migration-world-info-threshold.js.
     const _thresholdReset = migration_world_info_threshold_rrf_workaround(extension_settings.vectfox);
     if (_thresholdReset.migrated) {
         log.lifecycle(`VectFox: Reset world_info_threshold ${_thresholdReset.from} → ${WORLD_INFO_THRESHOLD_DEFAULT} (value was a workaround for the pre-cosine RRF score scale)`);

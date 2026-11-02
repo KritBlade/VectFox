@@ -1,36 +1,28 @@
 /**
  * ============================================================================
- * VECTFOX MIGRATION — connection setting names
+ * VECTFOX SETTINGS MIGRATION — connection setting names
  * ============================================================================
- * MIGRATION FOLDER CONVENTION (read before adding files here):
- *   - Every one-time, on-load settings migration lives under `Migration/`.
- *   - FILES are prefixed `mg_` (e.g. `mg_setting_name_for_connection.js`) so the
- *     folder's migrations group together at a glance.
+ * SETTINGS MIGRATION CONVENTION (read before adding one):
+ *   - Every one-time, on-load settings migration is a file in `src/app/` named
+ *     `settings-migration-<what it migrates>.js`, so they group together at a
+ *     glance; its test is `tests/settings-migration-<the same>.test.js`.
  *   - Each exported migration FUNCTION is prefixed `migration_` so that at the
- *     CALL SITE (in core init) it is OBVIOUS we are running a migration — e.g.
- *     `migration_setting_name_for_connection(settings)`.
- *   - Migrations MUST be idempotent: safe to run on every page load; a no-op
- *     once the data is already in the new shape.
+ *     CALL SITE (init in src/index.js) it is OBVIOUS we are running a migration —
+ *     e.g. `migration_setting_name_for_connection(settings)`.
+ *   - Migrations MUST be safe to run on every page load: a no-op once the data
+ *     is already in the new shape.
  *   - A migration only renames/moves keys on the passed `settings` object. It
  *     makes NO network calls and NEVER throws on already-migrated data.
  *   - One concern per file; the file name describes the migration.
  *
- * THIS MIGRATION renames the convention-less connection setting keys to a
- * consistent `<consumer>_<provider>_<field>` scheme. Old key → new key, then the
- * old key is deleted. Re-running does nothing.
- *
- * ⚠️ TWO HALVES: this file only moves the stored values. Landing the rename also
- * requires updating every READ SITE (llm-config-validation.js, eventbase-extractor.js,
- * agentic-retrieval.js, providers.js, core-vector-api.js, ui-manager.js) and the
- * `defaultSettings` keys in index.js to the new names. Do NOT wire this migration
- * into init until those read sites are switched, or reads will miss the renamed keys.
- *
- * STATUS: LANDED — Phase A, 2026-06-21. Convention confirmed (chat_ / embedding_ /
- * agent_; `url_override` field vocab). Wired into init in index.js (after the
- * eventbase→chat copy), with all read sites + defaultSettings converted in the
- * same change (two-halves rule satisfied). Covered by
- * tests/mg-setting-name-for-connection.test.js. Phase B (`source` →
- * `embedding_provider`) is a SEPARATE migration — intentionally NOT in this map.
+ * THIS MIGRATION renames the convention-less connection setting keys to the
+ * `<consumer>_<provider>_<field>` scheme (consumers embedding_, chat_ and agent_;
+ * `url_override` names the URL-override flag). Old key → new key, then the old
+ * key is deleted; re-running does nothing. Init runs it after the eventbase→chat
+ * copy, and every read site and `defaultSettings` use the new names. `source` →
+ * `embedding_provider` is a separate migration,
+ * settings-migration-embedding-provider-key.js. Covered by
+ * tests/settings-migration-connection-setting-names.test.js.
  * ============================================================================
  */
 
