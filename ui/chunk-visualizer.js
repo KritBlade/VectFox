@@ -25,7 +25,7 @@ import {
 import { getStringHash } from '../src/sillytavern/identifiers.js';
 import { getRequestHeaders } from '../src/sillytavern/requests.js';
 import { escapeHtml } from '../src/shared/html-escape.js';
-import { packTimelineSortKey } from '../core/eventbase-schema.js';
+import { packTimelineSortKey } from '../src/features/eventbase/eventbase-schema.js';
 import { log } from '../src/sillytavern/log.js';
 
 // ============================================================================

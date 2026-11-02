@@ -133,21 +133,21 @@ function grepSourcesWithLines(pattern) {
 describe('Live code remains intact (regression guard)', () => {
     describe('EventBase pipeline (the new chat path)', () => {
         it('core/eventbase-workflow.js exists', () => {
-            expect(existsRel('core/eventbase-workflow.js')).toBe(true);
+            expect(existsRel('src/features/eventbase/eventbase-workflow.js')).toBe(true);
         });
 
         it('runEventBaseIngestion is exported', () => {
-            expect(readRel('core/eventbase-workflow.js'))
+            expect(readRel('src/features/eventbase/eventbase-workflow.js'))
                 .toMatch(/export\s+(?:async\s+)?function\s+runEventBaseIngestion/);
         });
 
         it('getChatAutoSyncStatus is exported', () => {
-            expect(readRel('core/eventbase-workflow.js'))
+            expect(readRel('src/features/eventbase/eventbase-workflow.js'))
                 .toMatch(/export\s+(?:async\s+)?function\s+getChatAutoSyncStatus/);
         });
 
         it('eventbase retrieval module exists with retrieveEvents', () => {
-            const candidates = ['core/eventbase-retrieval.js', 'core/eventbase-query.js'];
+            const candidates = ['src/features/eventbase/eventbase-retrieval.js', 'core/eventbase-query.js'];
             const found = candidates.find(p => existsRel(p));
             expect(found, `expected one of ${candidates.join(', ')}`).toBeTruthy();
             expect(readRel(found)).toMatch(/retrieveEvents|hybridQueryWithRerank/);
@@ -196,7 +196,7 @@ describe('Live code remains intact (regression guard)', () => {
             // The EventBase path resolves its active collection via the centralized
             // listing inside resolveActiveEventBaseCollection (moved here from
             // eventbase-workflow.js when the per-call-site logic was unified).
-            expect(readRel('core/eventbase-store.js'))
+            expect(readRel('src/features/eventbase/eventbase-store.js'))
                 .toMatch(/getCollectionListing/);
         });
 

@@ -11,15 +11,15 @@
 import {
     insertVectorItems,
     getAdditionalArgs,
-} from '../src/features/vector-backend/vector-api.js';
-import { saveSettingsDebounced, extension_settings } from '../src/sillytavern/settings.js';
-import { getRequestHeaders } from '../src/sillytavern/requests.js';
-import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
-import { getChatUUID, buildEventBaseCollectionId, getRegistryBackend, COLLECTION_PREFIXES, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../src/shared/collection-ids.js';
-import { registerCollection, getCollectionRegistry, getCollectionListing } from '../src/features/collections/collection-loader.js';
-import { getChatLockedCollections, isCollectionActiveForContextAnyKey, setCollectionAutoSync } from '../src/features/collections/collection-metadata.js';
+} from '../vector-backend/vector-api.js';
+import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
+import { getChatUUID, buildEventBaseCollectionId, getRegistryBackend, COLLECTION_PREFIXES, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../../shared/collection-ids.js';
+import { registerCollection, getCollectionRegistry, getCollectionListing } from '../collections/collection-loader.js';
+import { getChatLockedCollections, isCollectionActiveForContextAnyKey, setCollectionAutoSync } from '../collections/collection-metadata.js';
 import { buildEmbedText } from './eventbase-schema.js';
-import { log } from '../src/sillytavern/log.js';
+import { log } from '../../sillytavern/log.js';
 
 // Re-export so callers can import from here if needed
 export { buildEventBaseCollectionId };
@@ -188,7 +188,7 @@ export async function ensureVectorizationTip(chatUUID, collectionId, settings) {
     if (typeof cached === 'number') return cached;
     if (!collectionId) return null;
     try {
-        const { getBackend } = await import('../src/features/vector-backend/backend-registry.js');
+        const { getBackend } = await import('../vector-backend/backend-registry.js');
         const backendInstance = await getBackend(settings);
         const result = await backendInstance.listChunks(collectionId, settings, { limit: 10000 });
         const items = Array.isArray(result?.items) ? result.items : [];
@@ -439,7 +439,7 @@ export async function stampAutoSyncMarker(chatUUID, settings, options = {}) {
     let maxEnd = -1;
     if (active) {
         try {
-            const { getBackend } = await import('../src/features/vector-backend/backend-registry.js');
+            const { getBackend } = await import('../vector-backend/backend-registry.js');
             const backendInstance = await getBackend(settings);
             // Overfetch generously; per-chat EventBase collections are typically
             // O(hundreds to low thousands) of events. listChunks is paged anyway.

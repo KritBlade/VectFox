@@ -11,25 +11,25 @@
  * ============================================================================
  */
 
-import { setExtensionPrompt, extension_prompts } from '../src/sillytavern/prompt-injection.js';
-import { getCurrentChatId, substituteParams, getContext } from '../src/sillytavern/chat.js';
-import { extension_settings } from '../src/sillytavern/settings.js';
-import { getChatUUID, parseRegistryKey, COLLECTION_PREFIXES, buildRegistryKey } from '../src/shared/collection-ids.js';
-import { getCollectionRegistry } from '../src/features/collections/collection-loader.js';
-import { queryCollection } from '../src/features/vector-backend/vector-api.js';
-import { EVENTBASE_PROMPT_TAG } from '../src/shared/constants.js';
+import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-injection.js';
+import { getCurrentChatId, substituteParams, getContext } from '../../sillytavern/chat.js';
+import { extension_settings } from '../../sillytavern/settings.js';
+import { getChatUUID, parseRegistryKey, COLLECTION_PREFIXES, buildRegistryKey } from '../../shared/collection-ids.js';
+import { getCollectionRegistry } from '../collections/collection-loader.js';
+import { queryCollection } from '../vector-backend/vector-api.js';
+import { EVENTBASE_PROMPT_TAG } from '../../shared/constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
 import { extractEvents } from './eventbase-extractor.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
-import { getSavedHashes } from '../src/features/vector-backend/vector-api.js';
+import { getSavedHashes } from '../vector-backend/vector-api.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
 import { retrieveEventsWithAgent } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed } from './eventbase-injection.js';
-import { isCollectionEnabled, isCollectionActiveForContextAnyKey, setCollectionLock, setCollectionMeta } from '../src/features/collections/collection-metadata.js';
-import { progressTracker } from '../src/shared/progress-tracker.js';
-import { log } from '../src/sillytavern/log.js';
+import { isCollectionEnabled, isCollectionActiveForContextAnyKey, setCollectionLock, setCollectionMeta } from '../collections/collection-metadata.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * Resolve the auto-sync extraction window size in MESSAGES from the per-user

@@ -15,7 +15,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 vi.mock('../src/features/collections/collection-loader.js', () => ({
     discoverExistingCollections: vi.fn(async () => []),
 }));
-vi.mock('../core/eventbase-store.js', () => ({
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     pruneOrphanedEventBaseChatMaps: vi.fn(),
 }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({

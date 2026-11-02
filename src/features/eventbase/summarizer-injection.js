@@ -17,15 +17,15 @@
  * ============================================================================
  */
 
-import { setExtensionPrompt } from '../src/sillytavern/prompt-injection.js';
-import { getContext } from '../src/sillytavern/chat.js';
-import { getWorldInfoSettings, getSortedEntries } from '../src/sillytavern/world-info.js';
-import { getBackend } from '../src/features/vector-backend/backend-registry.js';
-import { getChatUUID } from '../src/shared/collection-ids.js';
+import { setExtensionPrompt } from '../../sillytavern/prompt-injection.js';
+import { getContext } from '../../sillytavern/chat.js';
+import { getWorldInfoSettings, getSortedEntries } from '../../sillytavern/world-info.js';
+import { getBackend } from '../vector-backend/backend-registry.js';
+import { getChatUUID } from '../../shared/collection-ids.js';
 import { resolveActiveEventBaseCollection, getVectorizationTip } from './eventbase-store.js';
-import { SUMMARIZER_PROMPT_TAG } from '../src/shared/constants.js';
-import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
-import { log } from '../src/sillytavern/log.js';
+import { SUMMARIZER_PROMPT_TAG } from '../../shared/constants.js';
+import { isVectFoxEnabled } from '../../shared/feature-gate.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * Resolve recent events, format them, and inject (or clear) the summarizer slot.

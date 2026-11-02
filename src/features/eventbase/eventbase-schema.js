@@ -12,7 +12,7 @@
  * ============================================================================
  */
 import { getEventBaseExtractionPrompt } from './prompts-i18n.js';
-import { normalizeStringList } from '../src/shared/string-list.js';
+import { normalizeStringList } from '../../shared/string-list.js';
 
 /**
  * Controlled vocabulary for event_type field.

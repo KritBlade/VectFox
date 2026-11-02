@@ -19,7 +19,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { packTimelineSortKey, TIMELINE_SORT_KEY_WINDOW_STRIDE } from '../core/eventbase-schema.js';
+import { packTimelineSortKey, TIMELINE_SORT_KEY_WINDOW_STRIDE } from '../src/features/eventbase/eventbase-schema.js';
 
 // Mirror of ui/chunk-visualizer.js chunkTimelineSortValue().
 const sortValue = (meta) => {

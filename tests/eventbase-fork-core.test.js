@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { hashSourceMessage } from '../core/eventbase-message-hash.js';
+import { hashSourceMessage } from '../src/features/eventbase/eventbase-message-hash.js';
 import {
     measureSharedPrefix,
     rankForkSourcesFromWindowRecord,
@@ -17,7 +17,7 @@ import {
     toBranchChunk,
     findEmbeddingMismatch,
     summarizeCopiedWindows,
-} from '../core/eventbase-fork-core.js';
+} from '../src/features/eventbase/eventbase-fork-core.js';
 
 const message = (name, mes) => ({ name, mes });
 const fingerprint = (hashes) => hashes.map(String).sort().join(',');

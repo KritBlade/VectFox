@@ -636,7 +636,7 @@ test('TEST 002 — Qdrant EventBase: insert + field check', async () => {
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 002 [EventBaseQdrant]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { insertEvents } = await import(base + 'core/eventbase-store.js');
+        const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
@@ -779,7 +779,7 @@ test('TEST 003 — E2E qdrant: both locked, both return results', async () => {
         const TEST = 'TEST 003 [E2EQuery]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { insertEvents } = await import(base + 'core/eventbase-store.js');
+        const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
@@ -895,7 +895,7 @@ test('TEST 003 — E2E qdrant: both locked, both return results', async () => {
             console.log(`  preview: ${(lorebookResult.injectionText || '').slice(0, 200)}`);
 
             // ── Phase D: query EventBase via dry-run retrieval ──
-            const { runEventBaseRetrieval } = await import(base + 'core/eventbase-workflow.js').catch(() => ({}));
+            const { runEventBaseRetrieval } = await import(base + 'src/features/eventbase/eventbase-workflow.js').catch(() => ({}));
             if (typeof runEventBaseRetrieval !== 'function') { console.warn(`${TEST} [WARN] runEventBaseRetrieval not exported`); return; }
 
             let eventbaseResult;
@@ -1205,10 +1205,10 @@ test('TEST 006 — Standard EventBase: insert + parseEmbedText recovery', async 
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 006 [StdEventBase]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { insertEvents } = await import(base + 'core/eventbase-store.js');
+        const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
-        const { parseEmbedText } = await import(base + 'core/eventbase-schema.js');
+        const { parseEmbedText } = await import(base + 'src/features/eventbase/eventbase-schema.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;
@@ -1357,7 +1357,7 @@ test('TEST 007 — E2E standard: both locked, both return results', async () => 
         const TEST = 'TEST 007 [E2EStd]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { insertEvents } = await import(base + 'core/eventbase-store.js');
+        const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
@@ -1472,7 +1472,7 @@ test('TEST 007 — E2E standard: both locked, both return results', async () => 
             console.log(`  preview: ${(lorebookResult.injectionText || '').slice(0, 200)}`);
 
             // ── Phase D: query EventBase via dry-run retrieval ──
-            const { runEventBaseRetrieval } = await import(base + 'core/eventbase-workflow.js').catch(() => ({}));
+            const { runEventBaseRetrieval } = await import(base + 'src/features/eventbase/eventbase-workflow.js').catch(() => ({}));
             if (typeof runEventBaseRetrieval !== 'function') { console.warn(`${TEST} [WARN] runEventBaseRetrieval not exported`); return; }
 
             let eventbaseResult;
@@ -2475,7 +2475,7 @@ test('TEST 013 — Synthetic E2E qdrant: lorebook + EventBase round-trip', async
         const TEST = 'TEST 013 [SyntheticE2E]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { vectorizeContent, deleteContentCollection } = await import(base + 'core/content-vectorization.js');
-        const { insertEvents } = await import(base + 'core/eventbase-store.js');
+        const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { shouldCollectionActivate, deleteCollectionMeta, setCollectionLock, clearCollectionLock, getCollectionLocks } = await import(base + 'src/features/collections/collection-metadata.js');
         const { unregisterCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { runLorebookWIDryRun } = await import(base + 'core/world-info-integration.js');
@@ -2598,7 +2598,7 @@ test('TEST 013 — Synthetic E2E qdrant: lorebook + EventBase round-trip', async
             console.log(`${TEST} Lorebook ✓ — ${lbResult.entryCount} entry/entries, sentinel found`);
 
             // ── Phase D: query EventBase via dry-run retrieval ──
-            const { runEventBaseRetrieval } = await import(base + 'core/eventbase-workflow.js').catch(() => ({}));
+            const { runEventBaseRetrieval } = await import(base + 'src/features/eventbase/eventbase-workflow.js').catch(() => ({}));
             if (typeof runEventBaseRetrieval !== 'function') { console.warn(`${TEST} [WARN] runEventBaseRetrieval not exported — EventBase E2E half skipped`); return; }
 
             let ebResult;
@@ -2715,7 +2715,7 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
             isWindowAlreadyExtracted,
             isLastWindowExtracted,
             clearWindowCacheForChat,
-        } = await import(base + 'core/eventbase-store.js');
+        } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         // Synthetic test UUID — never collides with real chats. Marker prefix
@@ -2897,7 +2897,7 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
         const {
             getAutoSyncMarker,
             clearAutoSyncMarker,
-        } = await import(base + 'core/eventbase-store.js');
+        } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const testUUID = '__vf_playwright_test_015__autosync_marker';
@@ -3060,7 +3060,7 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             getAutoSyncMarker,
             clearAutoSyncMarker,
             findEventBaseCollectionsForChat,
-        } = await import(base + 'core/eventbase-store.js');
+        } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { deleteContentCollection } = await import(base + 'core/content-vectorization.js');
@@ -4105,8 +4105,8 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 023 [SettleLag]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { getCommitBoundary, getAutoSyncWindowSize } = await import(base + 'core/eventbase-workflow.js');
-        const { markWindowExtracted, isLastWindowExtracted, clearWindowCacheForChat } = await import(base + 'core/eventbase-store.js');
+        const { getCommitBoundary, getAutoSyncWindowSize } = await import(base + 'src/features/eventbase/eventbase-workflow.js');
+        const { markWindowExtracted, isLastWindowExtracted, clearWindowCacheForChat } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const testUUID = '__vf_playwright_test_023__settle_lag';
@@ -4206,7 +4206,7 @@ test('TEST 024 — EventBase LLM extraction: real provider round-trip (postChatC
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 024 [LLMExtract]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { extractEvents } = await import(base + 'core/eventbase-extractor.js');
+        const { extractEvents } = await import(base + 'src/features/eventbase/eventbase-extractor.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const vf = extension_settings?.vectfox;

@@ -58,7 +58,7 @@ async function _hasPriorExtractionState(chatUUID) {
     if (!chatUUID) return false;
     const arr = extension_settings?.vectfox?.eventbase_extracted_windows?.[chatUUID];
     if (Array.isArray(arr) && arr.length > 0) return true;
-    const { getVectorizationTip } = await import('../core/eventbase-store.js');
+    const { getVectorizationTip } = await import('../src/features/eventbase/eventbase-store.js');
     return typeof getVectorizationTip(chatUUID) === 'number';
 }
 
@@ -2984,7 +2984,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
     hideVectorizerForProgress();
 
     try {
-        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../core/eventbase-workflow.js');
+        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../src/features/eventbase/eventbase-workflow.js');
         const { chunkText } = await import('../core/chunking.js');
         const context = getContext();
         const settings = extension_settings.vectfox || {};
@@ -3003,7 +3003,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             // is also threaded into vectorizeAll / runEventBaseIngestion below via the
             // `resetCaches` truthiness — keeping both legs of the dual-mechanism fix
             // (clear caches + bypass Qdrant tip fallback) coordinated through one call.
-            const { prepareForFreshExtraction } = await import('../core/eventbase-store.js');
+            const { prepareForFreshExtraction } = await import('../src/features/eventbase/eventbase-store.js');
             await prepareForFreshExtraction(uuid);
         };
 
@@ -3085,7 +3085,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             // are the single source of truth for "did size change?" and "prep for fresh
             // re-extraction" — DO NOT inline these. Two bugs on 2026-05-30 came from
             // popups inlining incompatible versions of this logic.
-            const { checkWindowSizeChanged, prepareForFreshExtraction } = await import('../core/eventbase-store.js');
+            const { checkWindowSizeChanged, prepareForFreshExtraction } = await import('../src/features/eventbase/eventbase-store.js');
             const sizeCheck = checkWindowSizeChanged(chatUUID, Math.max(2, settings.eventbase_window_size || 6));
             let freshExtractionOpts = null;
             if (sizeCheck.changed) {
@@ -3124,7 +3124,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 // See 2026-05-30 bug report — user clicked Proceed multiple
                 // times because intermediate runs failed without updating the
                 // stamp.
-                const { setLastUsedWindowSize } = await import('../core/eventbase-store.js');
+                const { setLastUsedWindowSize } = await import('../src/features/eventbase/eventbase-store.js');
                 setLastUsedWindowSize(chatUUID, sizeCheck.newSize);
                 console.log(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
                 // Single shared entry point for "user said yes to fresh re-extraction".

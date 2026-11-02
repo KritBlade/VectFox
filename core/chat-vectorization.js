@@ -193,7 +193,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
     }
 
     // Find EventBase collections registered for this chat and check the per-collection auto-sync flag
-    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('./eventbase-store.js');
+    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('../src/features/eventbase/eventbase-store.js');
     const { isCollectionAutoSyncEnabled } = await import('../src/features/collections/collection-metadata.js');
     const backend = getRegistryBackend(settings?.vector_backend);
     const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
@@ -224,7 +224,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
-    const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('./eventbase-workflow.js');
+    const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../src/features/eventbase/eventbase-workflow.js');
     const messages = context.chat.filter(m => m.mes && m.mes.trim().length > 0);
     log.lifecycle(`[AutoSync] calling runEventBaseIngestion: messages=${messages.length}`);
     let result;
@@ -1042,7 +1042,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         if (!dryRun) {
             const queryText = buildSearchQuery(chat, settings);
             if (queryText) {
-                const { runEventBaseRetrieval } = await import('./eventbase-workflow.js');
+                const { runEventBaseRetrieval } = await import('../src/features/eventbase/eventbase-workflow.js');
                 // On timeout the message proceeds WITHOUT EventBase injection and
                 // the user is told why — see core/bounded-retrieval.js for the
                 // timeout/degrade/surface contract shared by every retrieval path.
@@ -1073,7 +1073,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             // when disabled (so a toggle-off mid-session doesn't leave a stale block).
             // Non-fatal + time-bounded so a slow listChunks can't freeze the turn.
             {
-                const { runSummarizerInjection } = await import('./summarizer-injection.js');
+                const { runSummarizerInjection } = await import('../src/features/eventbase/summarizer-injection.js');
                 await runBoundedRetrieval(runSummarizerInjection(settings), {
                     contextLabel: 'Summarizer',
                     sourceName: 'recent event summaries',
@@ -1088,7 +1088,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             // and the wiped span (old history, below the tip) sits below the ChunkBase
             // condition dedup tail — so query + conditions are unaffected.
             try {
-                const { applyGhosting } = await import('./summarizer-injection.js');
+                const { applyGhosting } = await import('../src/features/eventbase/summarizer-injection.js');
                 applyGhosting(chat, settings);
             } catch (error) {
                 log.error('VectFox Ghost: prompt wipe error (non-fatal):', error);
@@ -1345,7 +1345,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
             ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
             : allMessages;
 
-        const { runEventBaseIngestion, countUnfinishedWindows } = await import('./eventbase-workflow.js');
+        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../src/features/eventbase/eventbase-workflow.js');
         const result = await runEventBaseIngestion({
             messages,
             chatUUID: getChatUUID(),

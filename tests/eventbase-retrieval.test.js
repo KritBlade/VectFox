@@ -47,7 +47,7 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     parseRegistryKey: vi.fn((id) => ({ backend: null, collectionId: id })),
 }));
 
-vi.mock('../core/eventbase-schema.js', () => ({
+vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({
     parseEmbedText: vi.fn(() => ({})),
 }));
 
@@ -72,7 +72,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     },
 }));
 
-import { retrieveEvents } from '../core/eventbase-retrieval.js';
+import { retrieveEvents } from '../src/features/eventbase/eventbase-retrieval.js';
 
 const baseSettings = {
     vector_backend: 'standard',

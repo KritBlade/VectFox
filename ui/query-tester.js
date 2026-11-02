@@ -98,7 +98,7 @@ export function openQueryTestModal() {
             ] = await Promise.all([
                 import('../src/sillytavern/settings.js'),
                 import('../src/sillytavern/chat.js'),
-                import('../core/eventbase-workflow.js'),
+                import('../src/features/eventbase/eventbase-workflow.js'),
                 import('../core/chat-vectorization.js'),
                 import('../core/world-info-integration.js'),
             ]);

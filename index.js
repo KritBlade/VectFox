@@ -19,7 +19,7 @@ import { extension_settings } from './src/sillytavern/settings.js';
 import { synchronizeChat, rearrangeChat } from './core/chat-vectorization.js';
 import { migrateOldEnabledKeys } from './src/features/collections/collection-metadata.js';
 import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './src/features/collections/collection-loader.js';
-import { clearCachesForDeletedCollection } from './core/eventbase-store.js';
+import { clearCachesForDeletedCollection } from './src/features/eventbase/eventbase-store.js';
 import { setInsertedCollectionRegistrar } from './src/features/vector-backend/qdrant.js';
 import { migrateLegacyApiKeys } from './src/shared/api-keys.js';
 import { migration_setting_name_for_connection } from './Migration/mg_setting_name_for_connection.js';
@@ -40,7 +40,7 @@ import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmSta
 import { initializeVisualizer } from './ui/chunk-visualizer.js';
 import { initializeDatabaseBrowser } from './ui/database-browser.js';
 import { initializeWorldInfoIntegration } from './core/world-info-integration.js';
-import { refreshWorldInfoEntryDepthCache } from './core/summarizer-injection.js';
+import { refreshWorldInfoEntryDepthCache } from './src/features/eventbase/summarizer-injection.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './src/features/keyword-search/bm25-scorer.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.

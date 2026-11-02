@@ -31,11 +31,11 @@ vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [
 vi.mock('../../../../world-info.js', () => ({ getWorldInfoSettings: vi.fn(() => ({})), getSortedEntries: vi.fn(async () => []) }));
 vi.mock('../src/features/vector-backend/backend-registry.js', () => ({ getBackend: vi.fn(async () => ({ listChunks: mocks.listChunks })) }));
 vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: mocks.getChatUUID }));
-vi.mock('../core/eventbase-store.js', () => ({ resolveActiveEventBaseCollection: mocks.resolveActive }));
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ resolveActiveEventBaseCollection: mocks.resolveActive }));
 vi.mock('../src/shared/constants.js', () => ({ SUMMARIZER_PROMPT_TAG: '3_vectfox_summarizer' }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn() {}, error() {}, domain() {}, trace() {}, verbose() {}, lifecycle() {}, enabled: () => false } }));
 
-import { runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
+import { runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
 import { getSortedEntries } from '../../../../world-info.js';
 import { log } from '../src/sillytavern/log.js';
 

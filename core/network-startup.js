@@ -40,7 +40,7 @@
  */
 
 import { discoverExistingCollections } from '../src/features/collections/collection-loader.js';
-import { pruneOrphanedEventBaseChatMaps } from './eventbase-store.js';
+import { pruneOrphanedEventBaseChatMaps } from '../src/features/eventbase/eventbase-store.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';
 import { retry } from '../src/shared/retry.js';
 import { log } from '../src/sillytavern/log.js';
@@ -181,7 +181,7 @@ export function runNetworkStartup(startupSettings) {
 
             // Phase 1.5: backfill EventBase payload indexes on pre-existing Qdrant collections.
             if (startupSettings.vector_backend === 'qdrant') {
-                import('./eventbase-store.js').then(({ ensureEventBaseIndexes }) => {
+                import('../src/features/eventbase/eventbase-store.js').then(({ ensureEventBaseIndexes }) => {
                     ensureEventBaseIndexes(startupSettings).catch(error => {
                         log.warn('[VectFox] EventBase index backfill failed:', error);
                     });

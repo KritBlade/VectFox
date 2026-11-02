@@ -33,7 +33,7 @@ import { resetBackendHealth } from '../src/features/vector-backend/backend-regis
 import { isVectFoxEnabled } from '../src/shared/feature-gate.js';
 import { clearInterceptorPrompts } from '../core/chat-vectorization.js';
 import { clearLorebookPrompt } from '../core/world-info-integration.js';
-import { refreshWorldInfoEntryDepthCache } from '../core/summarizer-injection.js';
+import { refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator } from './health-dashboard.js';
 import { getCollectionRegistry, getCollectionListing } from '../src/features/collections/collection-loader.js';
 import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
@@ -2033,7 +2033,7 @@ export async function refreshWIStatus() {
  *   'cancel' — the user closed the popup, stopped the fork, or it failed.
  */
 async function _offerEventBaseFork(settings) {
-    const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../core/eventbase-fork.js');
+    const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../src/features/eventbase/eventbase-fork.js');
 
     let source;
     try {
@@ -2084,7 +2084,7 @@ export async function refreshAutoSyncCheckbox(settings) {
     const $status = $('#VectFox_autosync_status');
     const $hint = $('#VectFox_autosync_hint');
 
-    const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
+    const { getChatAutoSyncStatus } = await import('../src/features/eventbase/eventbase-workflow.js');
     const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../src/features/collections/collection-metadata.js');
 
     // While VectFox is disabled this refresh only reads cached state: no backend call,
@@ -2402,7 +2402,7 @@ function bindSettingsEvents(settings, callbacks) {
             const enabling = $(this).prop('checked');
             const $checkbox = $(this);
 
-            const { getChatAutoSyncStatus } = await import('../core/eventbase-workflow.js');
+            const { getChatAutoSyncStatus } = await import('../src/features/eventbase/eventbase-workflow.js');
             const { setCollectionAutoSync, setCollectionLock } = await import('../src/features/collections/collection-metadata.js');
             let status = await getChatAutoSyncStatus(settings);
             const chatId = getCurrentChatId();
@@ -2465,8 +2465,8 @@ function bindSettingsEvents(settings, callbacks) {
                 // See plans/autosync-backlog-catchup-on-enable.md.
                 let markerFloorOverride; // undefined → smart placement (catch up to tip)
                 try {
-                    const { getVectorizationTip } = await import('../core/eventbase-store.js');
-                    const { getAutoSyncWindowSize } = await import('../core/eventbase-workflow.js');
+                    const { getVectorizationTip } = await import('../src/features/eventbase/eventbase-store.js');
+                    const { getAutoSyncWindowSize } = await import('../src/features/eventbase/eventbase-workflow.js');
                     const { getChatUUID } = await import('../src/shared/collection-ids.js');
                     const uuid = getChatUUID();
                     const chatMsgCount = typeof status.chatMessageCount === 'number'
@@ -2527,7 +2527,7 @@ function bindSettingsEvents(settings, callbacks) {
                 // chat length when collection is empty. markerFloorOverride='chatLength'
                 // forces from-now-on when the user chose "just keep up from here".
                 try {
-                    const { stampAutoSyncMarker } = await import('../core/eventbase-store.js');
+                    const { stampAutoSyncMarker } = await import('../src/features/eventbase/eventbase-store.js');
                     const { getChatUUID } = await import('../src/shared/collection-ids.js');
                     const uuid = getChatUUID();
                     if (uuid) await stampAutoSyncMarker(uuid, settings, markerFloorOverride ? { floor: markerFloorOverride } : {});
@@ -2558,7 +2558,7 @@ function bindSettingsEvents(settings, callbacks) {
                     // Clear the marker so re-enabling later re-computes a fresh one
                     // against whatever collection state exists at that time.
                     try {
-                        const { clearAutoSyncMarker } = await import('../core/eventbase-store.js');
+                        const { clearAutoSyncMarker } = await import('../src/features/eventbase/eventbase-store.js');
                         const { getChatUUID } = await import('../src/shared/collection-ids.js');
                         const uuid = getChatUUID();
                         if (uuid) clearAutoSyncMarker(uuid);
@@ -3677,7 +3677,7 @@ function bindSettingsEvents(settings, callbacks) {
                 // storm. Guarded on real change (input fires on every drag tick).
                 if (prev !== val) {
                     try {
-                        const { stampAutoSyncMarker } = await import('../core/eventbase-store.js');
+                        const { stampAutoSyncMarker } = await import('../src/features/eventbase/eventbase-store.js');
                         const { getChatUUID } = await import('../src/shared/collection-ids.js');
                         const uuid = getChatUUID();
                         if (uuid) await stampAutoSyncMarker(uuid, extension_settings.vectfox);
@@ -4622,7 +4622,7 @@ function bindSettingsEvents(settings, callbacks) {
     // been saved, we show the localized built-in so the user sees the variant
     // that will actually be sent at extraction time.
     (async () => {
-        const { getEventBaseExtractionPrompt } = await import('../core/prompts-i18n.js');
+        const { getEventBaseExtractionPrompt } = await import('../src/features/eventbase/prompts-i18n.js');
         const saved = settings.eventbase_custom_prompt || '';
         const mode = settings.cjk_tokenizer_mode || 'intl';
         $('#VectFox_eventbase_custom_prompt').val(saved || getEventBaseExtractionPrompt(mode));
@@ -4636,7 +4636,7 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Reset prompt to built-in default for the current CJK Tokenizer Mode.
     $('#VectFox_eventbase_prompt_reset').on('click', async function() {
-        const { getEventBaseExtractionPrompt } = await import('../core/prompts-i18n.js');
+        const { getEventBaseExtractionPrompt } = await import('../src/features/eventbase/prompts-i18n.js');
         const mode = settings.cjk_tokenizer_mode || 'intl';
         settings.eventbase_custom_prompt = '';
         $('#VectFox_eventbase_custom_prompt').val(getEventBaseExtractionPrompt(mode));
@@ -4651,7 +4651,7 @@ function bindSettingsEvents(settings, callbacks) {
     // has a custom prompt, leave it alone — they explicitly customized it.
     $('#VectFox_cjk_tokenizer_mode').on('change.eventbasePromptSync', async function() {
         if (settings.eventbase_custom_prompt && settings.eventbase_custom_prompt.trim()) return;
-        const { getEventBaseExtractionPrompt } = await import('../core/prompts-i18n.js');
+        const { getEventBaseExtractionPrompt } = await import('../src/features/eventbase/prompts-i18n.js');
         const mode = $(this).val() || 'intl';
         $('#VectFox_eventbase_custom_prompt').val(getEventBaseExtractionPrompt(mode));
     });
@@ -5021,7 +5021,7 @@ async function openSummarizerDebug(settings) {
 
     let result;
     try {
-        const { buildSummarizerInjection } = await import('../core/summarizer-injection.js');
+        const { buildSummarizerInjection } = await import('../src/features/eventbase/summarizer-injection.js');
         result = await buildSummarizerInjection(settings);
     } catch (err) {
         result = { text: '', count: 0, reason: 'error', error: err?.message || String(err) };

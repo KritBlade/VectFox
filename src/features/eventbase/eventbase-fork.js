@@ -13,14 +13,14 @@
  * ============================================================================
  */
 
-import { getCurrentChatId, getContext } from '../src/sillytavern/chat.js';
-import { extension_settings } from '../src/sillytavern/settings.js';
-import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from '../src/shared/collection-ids.js';
-import { registerCollection } from '../src/features/collections/collection-loader.js';
-import { getChatLockedCollections, removeCollectionLock, setCollectionLock, setCollectionMeta } from '../src/features/collections/collection-metadata.js';
-import { fetchPortableChunks, insertChunksWithVectors } from '../src/features/collections/collection-export.js';
-import { purgeVectorIndex } from '../src/features/vector-backend/vector-api.js';
-import { getModelFromSettings } from '../src/features/embedding/providers.js';
+import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
+import { extension_settings } from '../../sillytavern/settings.js';
+import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from '../../shared/collection-ids.js';
+import { registerCollection } from '../collections/collection-loader.js';
+import { getChatLockedCollections, removeCollectionLock, setCollectionLock, setCollectionMeta } from '../collections/collection-metadata.js';
+import { fetchPortableChunks, insertChunksWithVectors } from '../collections/collection-export.js';
+import { purgeVectorIndex } from '../vector-backend/vector-api.js';
+import { getModelFromSettings } from '../embedding/providers.js';
 import { resolveActiveEventBaseCollection, markWindowExtracted, setVectorizationTip, getLastUsedWindowSize, setLastUsedWindowSize } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import {
@@ -32,8 +32,8 @@ import {
     findEmbeddingMismatch,
     summarizeCopiedWindows,
 } from './eventbase-fork-core.js';
-import { progressTracker } from '../src/shared/progress-tracker.js';
-import { log } from '../src/sillytavern/log.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
+import { log } from '../../sillytavern/log.js';
 
 /**
  * @typedef {object} EventBaseForkSource

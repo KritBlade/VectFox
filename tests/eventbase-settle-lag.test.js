@@ -25,23 +25,23 @@ vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: vi.fn(), parseR
 vi.mock('../src/features/collections/collection-loader.js', () => ({ getCollectionRegistry: vi.fn() }));
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({ queryCollection: vi.fn(), getSavedHashes: vi.fn() }));
 vi.mock('../src/shared/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));
-vi.mock('../core/eventbase-schema.js', () => ({ EventBaseFatalError: class {}, EventBaseExtractionError: class {} }));
-vi.mock('../core/eventbase-extractor.js', () => ({ extractEvents: vi.fn() }));
-vi.mock('../core/generation-rate-limiter.js', () => ({ generationRateLimiter: {}, generationRateLimitSettings: {} }));
-vi.mock('../core/eventbase-store.js', () => ({
+vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({ EventBaseFatalError: class {}, EventBaseExtractionError: class {} }));
+vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({ extractEvents: vi.fn() }));
+vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: {}, generationRateLimitSettings: {} }));
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(),
     clearExtractionCachesForChat: vi.fn(), buildEventBaseCollectionId: vi.fn(), isLastWindowExtracted: vi.fn(), getVectorizationTip: vi.fn(),
     setVectorizationTip: vi.fn(), ensureVectorizationTip: vi.fn(), shouldUseTipFallback: vi.fn(),
     resolveEventBaseWriteTarget: vi.fn(),
 }));
-vi.mock('../core/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
-vi.mock('../core/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
-vi.mock('../core/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
+vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
 vi.mock('../src/features/collections/collection-metadata.js', () => ({ isCollectionEnabled: vi.fn(), isCollectionLockedToChat: vi.fn(), setCollectionLock: vi.fn(), setCollectionMeta: vi.fn() }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: {} }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
 
-const { getCommitBoundary, getAutoSyncWindowSize } = await import('../core/eventbase-workflow.js');
+const { getCommitBoundary, getAutoSyncWindowSize } = await import('../src/features/eventbase/eventbase-workflow.js');
 
 const msgs = (n) => Array.from({ length: n }, (_, i) => ({ mes: `m${i}`, name: i % 2 ? 'AI' : 'User' }));
 

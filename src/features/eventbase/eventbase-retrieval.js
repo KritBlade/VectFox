@@ -13,12 +13,12 @@
  * ============================================================================
  */
 
-import { queryCollection, getQueryVector } from '../src/features/vector-backend/vector-api.js';
-import { getBackendForCollection, getBackend } from '../src/features/vector-backend/backend-registry.js';
-import { parseRegistryKey } from '../src/shared/collection-ids.js';
+import { queryCollection, getQueryVector } from '../vector-backend/vector-api.js';
+import { getBackendForCollection, getBackend } from '../vector-backend/backend-registry.js';
+import { parseRegistryKey } from '../../shared/collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
-import { checkPluginAvailable } from '../src/shared/similharity-plugin.js';
-import { log } from '../src/sillytavern/log.js';
+import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
+import { log } from '../../sillytavern/log.js';
 
 // ---------------------------------------------------------------------------
 // Default re-rank weights (tuned for long-form SillyTavern RP)

@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { formatEventsForInjectionDetailed } from '../core/eventbase-injection.js';
+import { formatEventsForInjectionDetailed } from '../src/features/eventbase/eventbase-injection.js';
 
 /** Minimal event factory. `text` drives the injected summary line. */
 const ev = (o) => ({

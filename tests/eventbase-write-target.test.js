@@ -58,7 +58,7 @@ vi.mock('../src/features/collections/collection-metadata.js', () => ({
     getChatLockedCollections: vi.fn(() => []),
     isCollectionActiveForContextAnyKey: vi.fn(keys => keys.some(k => lockedKeys.has(k))),
 }));
-vi.mock('../core/eventbase-schema.js', () => ({ buildEmbedText: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({ buildEmbedText: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({
     log: {
         lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(),
@@ -67,7 +67,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 const { resolveActiveEventBaseCollection, resolveEventBaseWriteTarget } =
-    await import('../core/eventbase-store.js');
+    await import('../src/features/eventbase/eventbase-store.js');
 const { log } = await import('../src/sillytavern/log.js');
 
 const row = (collectionId, registryKey) => ({

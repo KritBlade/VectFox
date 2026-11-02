@@ -27,25 +27,25 @@ vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     getSavedHashes: async () => state.points.map((_, i) => i),
 }));
 vi.mock('../src/shared/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));
-vi.mock('../core/eventbase-schema.js', () => ({
+vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({
     EventBaseFatalError: class extends Error {}, EventBaseExtractionError: class extends Error {}, buildEmbedText: (e) => e.summary,
 }));
-vi.mock('../core/eventbase-extractor.js', () => ({
+vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({
     extractEvents: vi.fn(async ({ messages, windowStart, windowEnd }) => [{
         importance: 5, summary: messages.map(m => m.mes).join(' | '), source_window_start: windowStart, source_window_end: windowEnd,
     }]),
 }));
-vi.mock('../core/generation-rate-limiter.js', () => ({ generationRateLimiter: { execute: (run) => run() }, generationRateLimitSettings: () => ({}) }));
-vi.mock('../core/eventbase-store.js', async (importOriginal) => ({
+vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: { execute: (run) => run() }, generationRateLimitSettings: () => ({}) }));
+vi.mock('../src/features/eventbase/eventbase-store.js', async (importOriginal) => ({
     ...(await importOriginal()),
     insertEvents: vi.fn(async (events) => { state.points.push(...events); }),
 }));
 vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackend: async () => ({ listChunks: async () => ({ items: state.points.map(p => ({ metadata: { source_window_end: p.source_window_end } })) }) }),
 }));
-vi.mock('../core/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
-vi.mock('../core/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
-vi.mock('../core/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
+vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
 vi.mock('../src/features/collections/collection-metadata.js', () => ({
     isCollectionEnabled: () => true, isCollectionActiveForContextAnyKey: () => true,
     setCollectionLock: vi.fn(), setCollectionMeta: vi.fn(), getChatLockedCollections: () => [],
@@ -53,7 +53,7 @@ vi.mock('../src/features/collections/collection-metadata.js', () => ({
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: new Proxy({}, { get: () => () => {} }) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
 
-const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../core/eventbase-workflow.js');
+const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../src/features/eventbase/eventbase-workflow.js');
 
 const SETTINGS = { eventbase_autosync_window_turns: 1, eventbase_min_importance_store: 1, eventbase_autosync_popup: true };
 const POPUP_TEXT = 'Auto-Sync: extracting events...';
