@@ -2,8 +2,9 @@
  * ============================================================================
  * VectFox CONDITIONAL ACTIVATION SYSTEM
  * ============================================================================
- * Evaluates conditions to determine if chunks should be activated
- * Ported from legacy VectFox with enhanced structure
+ * Evaluates the Advanced Conditions rules in a collection's settings, builds
+ * the search context those rules read, and applies chunk links to retrieval
+ * results.
  *
  * @author Kritblade
  * @version 3.3.1
@@ -13,11 +14,11 @@
 import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
-// COLLECTION & CHUNK CONDITION EVALUATORS (10 types)
+// CONDITION EVALUATORS (10 types)
 // ============================================================================
-// These can be used at both collection-level and chunk-level.
-// Collection-level: Determines if a collection should be queried
-// Chunk-level: Determines if a specific chunk should be included in results
+// Each evaluates one Advanced Conditions rule against the search context.
+// shouldCollectionActivate() applies a collection's rules once its lock and
+// triggers have passed.
 // ============================================================================
 
 /**
@@ -138,185 +139,6 @@ function evaluateMessageCountCondition(rule, context) {
         default:
             return context.messageCount >= count;
     }
-}
-
-// ============================================================================
-// CHUNK-ONLY CONDITION EVALUATORS (4 types)
-// ============================================================================
-// These only make sense at chunk-level, not collection-level.
-// They depend on information about other chunks in the current result set.
-//
-// Types:
-// - chunkLinks: Force/soft links to other chunks ({ targetHash, mode: 'force'|'soft' })
-// - scoreThreshold: Per-chunk minimum similarity score override
-// - recency: Message age filter
-// - frequency: Activation limits/cooldown
-// ============================================================================
-
-/**
- * Processes chunk links and returns chunks that need to be included/boosted
- *
- * Link modes:
- * - force: Target chunk MUST be included if source chunk is in results
- * - soft:  Target chunk gets a score boost if source chunk is in results
- *
- * Each chunk defines its own links independently. For two-way linking,
- * add links on both chunks. For one-way, only add on the source chunk.
- *
- * @param {object[]} chunks Array of chunks from search results
- * @param {object} chunkMetadataMap Plain object of hash -> chunk metadata (includes chunkLinks)
- * @param {number} softBoost Score boost for soft links (default 0.15)
- * @returns {object} { chunks: processedChunks, hardLinkedHashes: Set }
- */
-export function processChunkLinks(chunks, chunkMetadataMap, softBoost = 0.15) {
-    const resultHashes = new Set(chunks.map(c => c.hash));
-    const hardLinkedHashes = new Set();
-    const softBoosts = new Map(); // hash -> total boost
-
-    // First pass: collect all force links and soft boosts.
-    // Links use the visualizer's shape: chunkLinks: [{ targetHash, mode: 'force'|'soft' }]
-    // (the link editor radio writes exactly these values — see ui/chunk-visualizer.js).
-    for (const chunk of chunks) {
-        const meta = chunkMetadataMap[chunk.hash];
-        if (!meta?.chunkLinks || meta.chunkLinks.length === 0) continue;
-
-        for (const link of meta.chunkLinks) {
-            const targetHash = parseInt(link.targetHash);
-
-            if (link.mode === 'force') {
-                // Force link: target MUST be included
-                hardLinkedHashes.add(targetHash);
-            } else if (link.mode === 'soft') {
-                // Soft link: accumulate boost for target
-                const currentBoost = softBoosts.get(targetHash) || 0;
-                softBoosts.set(targetHash, currentBoost + softBoost);
-            }
-        }
-    }
-
-    // Second pass: apply soft boosts to existing chunks
-    const processedChunks = chunks.map(chunk => {
-        const boost = softBoosts.get(chunk.hash) || 0;
-        if (boost > 0) {
-            return {
-                ...chunk,
-                score: Math.min(1.0, (chunk.score || 0) + boost),
-                softLinked: true,
-                linkBoost: boost
-            };
-        }
-        return chunk;
-    });
-
-    // Hard-linked chunks that aren't in results need to be fetched separately
-    // Return the hashes so caller can fetch them
-    const missingHardLinks = [...hardLinkedHashes].filter(h => !resultHashes.has(h));
-
-    return {
-        chunks: processedChunks,
-        hardLinkedHashes: hardLinkedHashes,
-        missingHardLinks: missingHardLinks
-    };
-}
-
-/**
- * Evaluates a score threshold condition (per-chunk override)
- * Allows individual chunks to require a higher/lower score than global threshold
- * @param {object} rule Condition rule
- * @param {object} context Search context (chunk must have .score)
- * @returns {boolean} Whether condition is met
- */
-function evaluateScoreThresholdCondition(rule, context) {
-    const settings = rule.settings || { threshold: parseFloat(rule.value) || 0.5 };
-    const threshold = settings.threshold || 0.5;
-    const chunkScore = context.currentChunkScore || 0;
-
-    const passes = chunkScore >= threshold;
-
-    if (!passes) {
-        log.trace(`VectFox: Chunk ${context.currentChunkHash} score ${chunkScore.toFixed(3)} below threshold ${threshold}`);
-    }
-
-    return passes;
-}
-
-
-/**
- * Evaluates a recency condition
- * Activates chunk based on how old the source message is
- * @param {object} rule Condition rule
- * @param {object} context Search context (chunk must have messageIndex or timestamp)
- * @returns {boolean} Whether condition is met
- */
-function evaluateRecencyCondition(rule, context) {
-    const settings = rule.settings || {
-        messagesAgo: parseInt(rule.value) || 50,
-        operator: 'gte' // 'gte' = older than X messages ago, 'lte' = newer than X
-    };
-    const targetAge = settings.messagesAgo || 50;
-    const operator = settings.operator || 'gte';
-
-    // Calculate how many messages ago this chunk's source is
-    const chunkMessageIndex = context.currentChunkMessageIndex || 0;
-    const currentMessageCount = context.messageCount || 0;
-    const messagesAgo = currentMessageCount - chunkMessageIndex;
-
-    switch (operator) {
-        case 'eq':
-            return messagesAgo === targetAge;
-        case 'gte':
-            // Chunk is at least X messages old
-            return messagesAgo >= targetAge;
-        case 'lte':
-            // Chunk is at most X messages old (recent)
-            return messagesAgo <= targetAge;
-        case 'between': {
-            const upperBound = settings.upperBound || 100;
-            return messagesAgo >= targetAge && messagesAgo <= upperBound;
-        }
-        default:
-            return messagesAgo >= targetAge;
-    }
-}
-
-/**
- * Evaluates a frequency/cooldown condition
- * Limits how often a chunk can activate
- * @param {object} rule Condition rule
- * @param {object} context Search context (must include activationHistory)
- * @returns {boolean} Whether condition is met
- */
-function evaluateFrequencyCondition(rule, context) {
-    const settings = rule.settings || {
-        maxActivations: parseInt(rule.value) || 1,
-        cooldownMessages: 0,
-        scope: 'conversation' // 'conversation' or 'session'
-    };
-
-    const maxActivations = settings.maxActivations || 1;
-    const cooldownMessages = settings.cooldownMessages || 0;
-
-    // Get activation history for this chunk
-    const chunkHash = context.currentChunkHash;
-    const history = context.activationHistory || {};
-    const chunkHistory = history[chunkHash] || { count: 0, lastActivation: null };
-
-    // Check max activations
-    if (chunkHistory.count >= maxActivations) {
-        log.trace(`VectFox Conditions: Chunk ${chunkHash} reached max activations (${maxActivations})`);
-        return false;
-    }
-
-    // Check cooldown
-    if (cooldownMessages > 0 && chunkHistory.lastActivation !== null) {
-        const messagesSinceLastActivation = context.messageCount - chunkHistory.lastActivation;
-        if (messagesSinceLastActivation < cooldownMessages) {
-            log.trace(`VectFox Conditions: Chunk ${chunkHash} on cooldown (${messagesSinceLastActivation}/${cooldownMessages} messages)`);
-            return false;
-        }
-    }
-
-    return true;
 }
 
 /**
@@ -499,9 +321,6 @@ export function evaluateConditionRule(rule, context) {
     let result = false;
 
     switch (rule.type) {
-        // =================================================================
-        // COLLECTION & CHUNK CONDITIONS (11 types)
-        // =================================================================
         case 'pattern':
             result = evaluatePatternCondition(rule, context);
             break;
@@ -546,23 +365,6 @@ export function evaluateConditionRule(rule, context) {
             result = evaluateIsGroupChatCondition(rule, context);
             break;
 
-        // =================================================================
-        // CHUNK-ONLY CONDITIONS (4 types)
-        // Note: Links are processed separately via processChunkLinks()
-        // =================================================================
-        case 'scoreThreshold':
-            result = evaluateScoreThresholdCondition(rule, context);
-            break;
-
-        case 'recency':
-            result = evaluateRecencyCondition(rule, context);
-            break;
-
-        case 'frequency':
-            result = evaluateFrequencyCondition(rule, context);
-            break;
-
-
         default:
             log.warn(`VectFox Conditions: Unknown condition type: ${rule.type}`);
             result = false;
@@ -573,68 +375,13 @@ export function evaluateConditionRule(rule, context) {
 }
 
 /**
- * Evaluates all conditions for a chunk
- * @param {object} chunk Chunk with conditions
- * @param {object} context Search context
- * @returns {boolean} Whether all conditions are satisfied
- */
-export function evaluateConditions(chunk, context) {
-    // If no conditions or conditions disabled, always activate
-    if (!chunk.conditions || !chunk.conditions.enabled) {
-        return true;
-    }
-
-    const rules = chunk.conditions.rules || [];
-    if (rules.length === 0) {
-        return true; // Enabled but no rules = active
-    }
-
-    // Evaluate each rule
-    const results = rules.map(rule => evaluateConditionRule(rule, context));
-
-    // Apply AND/OR logic (use 'logic' field, fallback to 'mode' for compatibility)
-    const logic = chunk.conditions.logic || chunk.conditions.mode || 'AND';
-    if (logic === 'AND') {
-        return results.every(r => r);
-    } else {
-        return results.some(r => r);
-    }
-}
-
-/**
- * Filters chunks based on their conditions
- * Uses chunk-specific context for chunk-only conditions (similarity, recency, frequency)
- * @param {Array} chunks Array of chunks
- * @param {object} baseContext Base search context
- * @returns {Array} Chunks that meet their conditions
- */
-export function filterChunksByConditions(chunks, baseContext) {
-    const filtered = chunks.filter(chunk => {
-        // Build chunk-specific context for chunk-only conditions
-        const chunkContext = {
-            ...baseContext,
-            currentChunkScore: chunk.score || chunk.similarity || 0,
-            currentChunkMessageIndex: chunk.metadata?.messageIndex || chunk.index || 0,
-            currentChunkHash: chunk.hash,
-            activeChunks: chunks // Pass all chunks for dependency checking
-        };
-        return evaluateConditions(chunk, chunkContext);
-    });
-
-    log.verbose(`VectFox Conditions: Filtered ${chunks.length} chunks to ${filtered.length} based on conditions`);
-
-    return filtered;
-}
-
-/**
- * Builds search context from current chat state
+ * Builds the search context that activation triggers and condition rules read
  * @param {Array} chat Chat messages
  * @param {number} contextWindow How many recent messages to consider
- * @param {Array} activeChunks Chunks currently in results (for chunkActive conditions)
  * @param {object} metadata Additional metadata
  * @returns {object} Search context
  */
-export function buildSearchContext(chat, contextWindow = 10, activeChunks = [], metadata = {}) {
+export function buildSearchContext(chat, contextWindow = 10, metadata = {}) {
     const recentMessages = chat.slice(-contextWindow).map(m => m.mes || '');
     const lastMessage = chat[chat.length - 1] || {};
 
@@ -653,11 +400,10 @@ export function buildSearchContext(chat, contextWindow = 10, activeChunks = [], 
         recentMessages,
         lastSpeaker: lastMessage.name || (lastMessage.is_user ? 'User' : 'Character'),
         messageCount: chat.length,
-        activeChunks,
         messageSpeakers,           // Array of speaker names for characterPresent
         timestamp: new Date(),     // Current timestamp for timeOfDay
 
-        // Context for collection & general conditionals
+        // Generation, chat and character context
         generationType: metadata.generationType || 'normal',         // Generation type (normal, swipe, regenerate, continue, impersonate)
         swipeCount: swipeCount,                                      // Number of swipes on last message
         activeLorebookEntries: metadata.activeLorebookEntries || [], // Active lorebook entries
@@ -665,54 +411,80 @@ export function buildSearchContext(chat, contextWindow = 10, activeChunks = [], 
         currentCharacter: metadata.currentCharacter || null,         // Current character name (for expressions extension)
         currentChatId: metadata.currentChatId || null,               // Current chat ID (for lock checks)
         currentCharacterId: metadata.currentCharacterId || null,     // Current character ID (for character locks)
-
-        // Context for chunk-only conditionals (set per-chunk during evaluation)
-        currentChunkScore: metadata.currentChunkScore || 0,          // For similarity condition
-        currentChunkMessageIndex: metadata.currentChunkMessageIndex || 0, // For recency condition
-        currentChunkHash: metadata.currentChunkHash || null,         // For frequency condition
-        activationHistory: metadata.activationHistory || {}          // Chunk activation history for frequency
     };
 }
 
-/**
- * Creates a chunk-specific context by extending base context
- * @param {object} baseContext Base search context
- * @param {object} chunk Chunk being evaluated
- * @returns {object} Context with chunk-specific fields
- */
-export function buildChunkContext(baseContext, chunk) {
-    return {
-        ...baseContext,
-        currentChunkScore: chunk.score || chunk.similarity || 0,
-        currentChunkMessageIndex: chunk.metadata?.messageIndex || chunk.index || 0,
-        currentChunkHash: chunk.hash
-    };
-}
+// ============================================================================
+// CHUNK LINKS
+// ============================================================================
+// A chunk's links, set in the chunk viewer, pull related chunks into the
+// retrieval results: a force link adds its target, a soft link boosts it.
+// ============================================================================
 
 /**
- * Gets chunks grouped by their condition status
- * @param {Array} chunks Array of chunks
- * @param {object} context Search context
- * @returns {object} Chunks grouped by status
+ * Processes chunk links and returns chunks that need to be included/boosted
+ *
+ * Link modes:
+ * - force: Target chunk MUST be included if source chunk is in results
+ * - soft:  Target chunk gets a score boost if source chunk is in results
+ *
+ * Each chunk defines its own links independently. For two-way linking,
+ * add links on both chunks. For one-way, only add on the source chunk.
+ *
+ * @param {object[]} chunks Array of chunks from search results
+ * @param {object} chunkMetadataMap Plain object of hash -> chunk metadata (includes chunkLinks)
+ * @param {number} softBoost Score boost for soft links (default 0.15)
+ * @returns {object} { chunks: processedChunks, hardLinkedHashes: Set }
  */
-export function groupChunksByConditionStatus(chunks, context) {
-    const groups = {
-        noConditions: [],
-        conditionsMet: [],
-        conditionsNotMet: []
-    };
+export function processChunkLinks(chunks, chunkMetadataMap, softBoost = 0.15) {
+    const resultHashes = new Set(chunks.map(c => c.hash));
+    const hardLinkedHashes = new Set();
+    const softBoosts = new Map(); // hash -> total boost
 
-    chunks.forEach(chunk => {
-        if (!chunk.conditions || !chunk.conditions.enabled) {
-            groups.noConditions.push(chunk);
-        } else if (evaluateConditions(chunk, context)) {
-            groups.conditionsMet.push(chunk);
-        } else {
-            groups.conditionsNotMet.push(chunk);
+    // First pass: collect all force links and soft boosts.
+    // Links use the visualizer's shape: chunkLinks: [{ targetHash, mode: 'force'|'soft' }]
+    // (the link editor radio writes exactly these values — see chunk-visualizer.js).
+    for (const chunk of chunks) {
+        const meta = chunkMetadataMap[chunk.hash];
+        if (!meta?.chunkLinks || meta.chunkLinks.length === 0) continue;
+
+        for (const link of meta.chunkLinks) {
+            const targetHash = parseInt(link.targetHash);
+
+            if (link.mode === 'force') {
+                // Force link: target MUST be included
+                hardLinkedHashes.add(targetHash);
+            } else if (link.mode === 'soft') {
+                // Soft link: accumulate boost for target
+                const currentBoost = softBoosts.get(targetHash) || 0;
+                softBoosts.set(targetHash, currentBoost + softBoost);
+            }
         }
+    }
+
+    // Second pass: apply soft boosts to existing chunks
+    const processedChunks = chunks.map(chunk => {
+        const boost = softBoosts.get(chunk.hash) || 0;
+        if (boost > 0) {
+            return {
+                ...chunk,
+                score: Math.min(1.0, (chunk.score || 0) + boost),
+                softLinked: true,
+                linkBoost: boost
+            };
+        }
+        return chunk;
     });
 
-    return groups;
+    // Hard-linked chunks that aren't in results need to be fetched separately
+    // Return the hashes so caller can fetch them
+    const missingHardLinks = [...hardLinkedHashes].filter(h => !resultHashes.has(h));
+
+    return {
+        chunks: processedChunks,
+        hardLinkedHashes: hardLinkedHashes,
+        missingHardLinks: missingHardLinks
+    };
 }
 
 // ============================================================================
@@ -750,15 +522,6 @@ export function validateConditionRule(rule) {
             }
             break;
         }
-
-        case 'chunkActive':
-            if (rule.settings?.matchBy === 'hash' || !rule.settings) {
-                const hash = parseInt(rule.settings?.values?.[0] ?? rule.value);
-                if (isNaN(hash)) {
-                    errors.push('Chunk hash must be a number');
-                }
-            }
-            break;
 
         case 'timeOfDay': {
             const todSettings = rule.settings || {};
@@ -834,45 +597,6 @@ export function validateConditionRule(rule) {
             }
             break;
         }
-
-        // =================================================================
-        // CHUNK-ONLY CONDITIONS VALIDATION
-        // =================================================================
-        case 'dependency': {
-            const depValues = rule.settings?.values || [rule.value];
-            if (depValues.length === 0 || depValues.every(v => !v || String(v).trim() === '')) {
-                errors.push('Dependency target (hash, section, or tag) cannot be empty');
-            }
-            break;
-        }
-
-        case 'similarity': {
-            const simThreshold = rule.settings?.threshold ?? parseFloat(rule.value);
-            if (isNaN(simThreshold) || simThreshold < 0 || simThreshold > 1) {
-                errors.push('Similarity threshold must be between 0 and 1');
-            }
-            break;
-        }
-
-        case 'recency': {
-            const recAge = rule.settings?.messagesAgo ?? parseInt(rule.value);
-            if (isNaN(recAge) || recAge < 0) {
-                errors.push('Recency (messages ago) must be a positive number');
-            }
-            break;
-        }
-
-        case 'frequency': {
-            const freqMax = rule.settings?.maxActivations ?? parseInt(rule.value);
-            if (isNaN(freqMax) || freqMax < 1) {
-                errors.push('Max activations must be at least 1');
-            }
-            const freqCooldown = rule.settings?.cooldownMessages ?? 0;
-            if (isNaN(freqCooldown) || freqCooldown < 0) {
-                errors.push('Cooldown messages must be 0 or positive');
-            }
-            break;
-        }
     }
 
     return {
@@ -880,98 +604,3 @@ export function validateConditionRule(rule) {
         errors
     };
 }
-
-/**
- * Validates all conditions for a chunk
- * @param {object} conditions Chunk conditions object
- * @returns {object} Validation result { valid: boolean, errors: string[] }
- */
-export function validateConditions(conditions) {
-    const errors = [];
-
-    if (!conditions) {
-        return { valid: true, errors: [] };
-    }
-
-    if (conditions.enabled) {
-        const rules = conditions.rules || [];
-
-        if (rules.length === 0) {
-            errors.push('At least one condition rule is required when conditions are enabled');
-        }
-
-        rules.forEach((rule, idx) => {
-            const validation = validateConditionRule(rule);
-            if (!validation.valid) {
-                errors.push(`Rule ${idx + 1}: ${validation.errors.join(', ')}`);
-            }
-        });
-    }
-
-    return {
-        valid: errors.length === 0,
-        errors
-    };
-}
-
-// ============================================================================
-// STATISTICS FUNCTIONS
-// ============================================================================
-
-/**
- * Gets statistics about condition usage in a chunk collection
- * @param {Array} chunks Array of chunks
- * @returns {object} Statistics
- */
-export function getConditionStats(chunks) {
-    const stats = {
-        total: chunks.length,
-        withConditions: 0,
-        conditionsEnabled: 0,
-        byType: {},
-        byMode: { AND: 0, OR: 0 }
-    };
-
-    chunks.forEach(chunk => {
-        if (chunk.conditions && chunk.conditions.rules && chunk.conditions.rules.length > 0) {
-            stats.withConditions++;
-
-            if (chunk.conditions.enabled) {
-                stats.conditionsEnabled++;
-
-                const mode = chunk.conditions.logic || chunk.conditions.mode || 'AND';
-                stats.byMode[mode] = (stats.byMode[mode] || 0) + 1;
-
-                chunk.conditions.rules.forEach(rule => {
-                    stats.byType[rule.type] = (stats.byType[rule.type] || 0) + 1;
-                });
-            }
-        }
-    });
-
-    return stats;
-}
-
-// ============================================================================
-// DEFAULT EXPORT
-// ============================================================================
-
-export default {
-    // Core evaluation
-    evaluateConditionRule,
-    evaluateConditions,
-    filterChunksByConditions,
-    buildSearchContext,
-    buildChunkContext,
-    groupChunksByConditionStatus,
-
-    // Validation
-    validateConditionRule,
-    validateConditions,
-
-    // Statistics
-    getConditionStats,
-
-    // Constants
-    VALID_GENERATION_TYPES
-};

@@ -3788,7 +3788,7 @@ test('TEST 019 — WI / AutoSync refresh smoke: refresh paths do not mutate lock
 // ═══════════════════════════════════════════════════════════════════
 //
 // Validates the read-source refactor (plans/chunk-metadata-read-source-fix.md):
-// per-chunk user overrides (context/xmlTag/keywords/conditions/...) are served
+// per-chunk user overrides (context/xmlTag/keywords/...) are served
 // from the vector backend payload, NOT from extension_settings. This is the one
 // behavior the rest of the suite never checked — it asserts result COUNTS and the
 // chunk TEXT in injectionText, but never that a per-chunk OVERRIDE flows from the
@@ -3921,7 +3921,7 @@ test('TEST 021 — Standard+plugin: per-chunk override is backend-first (survive
 
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST 022 — Injection path: per-chunk wrapping (R4) + condition filtering (R2),
+// TEST 022 — Injection path: per-chunk wrapping (R4) + force links (R3),
 //            read backend-first, observed in the actual rearrangeChat dry-run output
 // ═══════════════════════════════════════════════════════════════════
 //
@@ -3932,23 +3932,22 @@ test('TEST 021 — Standard+plugin: per-chunk override is backend-first (survive
 // Why a 'document' collection: rearrangeChat queries ChunkBase collections via
 // gatherCollectionsToQuery, which EXCLUDES vf_lorebook_/vf_eventbase_/vf_archiveevent_.
 // A 'document' (vf_document_) collection is a non-excluded ChunkBase collection, so it
-// flows through the conditions (R2) → links (R3) → wrapping (R4) stages and the dry-run
-// returns the formatted injectionText.
+// flows through the links (R3) → wrapping (R4) stages and the dry-run returns the
+// formatted injectionText.
 //
 // Phases:
 //   1. R4 — set {context, xmlTag} on the backend → injectionText wraps the chunk.
 //   2. backend-first — wipe ext_settings → wrapping persists (came from the backend).
 //   3. R3 force link — A force-links to an off-query chunk B → B is pulled into the injection.
-//   4. R2 — set a guaranteed-FAIL per-chunk condition → chunk is excluded from injection.
 //
-// Standard+plugin only: the injection readers (R2/R3/R4) are backend-agnostic — they read
+// Standard+plugin only: the injection readers (R3/R4) are backend-agnostic — they read
 // chunk.metadata regardless of backend — and TEST 020/021 already cover that both backends
 // serve the payload. So one backend exercises the reader logic fully.
 //
 // Not covered here: position/depth (R5) placement — buildNestedInjectionText doesn't encode
 // position/depth (applied later by injectChunksIntoPrompt, non-dry-run only); R5's resolution
 // logic is covered by the vitest cascade test.
-test('TEST 022 — Standard+plugin: context/xmlTag wrapping + condition filter through retrieval (backend-first)', async () => {
+test('TEST 022 — Standard+plugin: context/xmlTag wrapping + force link through retrieval (backend-first)', async () => {
     await skipIfNoPlugin();
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 022 [InjectionWrap]';
@@ -4090,19 +4089,7 @@ test('TEST 022 — Standard+plugin: context/xmlTag wrapping + condition filter t
             }
             console.log(`${TEST} Phase 3 ✓ R3 force link pulled in the off-query target chunk`);
 
-            // ── Phase 4: R2 per-chunk condition — a guaranteed-FAIL condition must EXCLUDE the
-            //    chunk (and, since A is gone, its force link no longer fires for B either). ──
-            await updateChunkMetadata(collectionId, hash, {
-                conditions: { enabled: true, logic: 'AND', rules: [{ type: 'messageCount', settings: { count: 999999, operator: 'gte' } }] },
-            }, rcSettings);
-            inj = await dryInject();
-            if (inj.includes(SENTINEL)) {
-                console.error(`${TEST} [FAIL] Phase 4: chunk still injected despite a failing per-chunk condition (R2 not filtering from backend payload). Preview: ${inj.slice(0, 300)}`);
-                return;
-            }
-            console.log(`${TEST} Phase 4 ✓ R2 per-chunk condition filtered the chunk out of injection`);
-
-            console.log(`${TEST} [PASS] Injection path: R4 wrapping + backend-first + R3 force link + R2 condition filter all driven by the backend payload`);
+            console.log(`${TEST} [PASS] Injection path: R4 wrapping + backend-first + R3 force link all driven by the backend payload`);
         } finally {
             try {
                 if (collectionId) {

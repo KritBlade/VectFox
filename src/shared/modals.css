@@ -1168,13 +1168,19 @@
 
 .vectfox-conditions-toggle {
     margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
 }
 
 .vectfox-conditions-logic {
     margin-bottom: 16px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
 
 .vectfox-conditions-notice {

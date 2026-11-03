@@ -56,7 +56,7 @@ vi.mock('../src/features/collections/collection-metadata.js', () => ({
     getChunkMetadata: vi.fn(), getCollectionMeta: vi.fn(),
 }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: {} }));
-vi.mock('../src/features/collections/conditional-activation.js', () => ({ buildSearchContext: vi.fn(), filterChunksByConditions: vi.fn(), processChunkLinks: vi.fn() }));
+vi.mock('../src/features/collections/conditional-activation.js', () => ({ buildSearchContext: vi.fn(), processChunkLinks: vi.fn() }));
 vi.mock('../src/features/vector-backend/bounded-retrieval.js', () => ({ runBoundedRetrieval: mocks.runBoundedRetrieval }));
 vi.mock('../src/shared/retrieval-budget.js', () => ({ resolveEventBaseRetrievalTimeoutMs: vi.fn(() => 15000) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: mocks.log }));

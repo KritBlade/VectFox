@@ -45,13 +45,13 @@ let displayLimit = 50;
 let chunkFetchLimit = 0; // 0 = no limit (fetch all)
 let onReloadCallback = null;
 let sortBy = 'index'; // 'index', 'length-desc', 'length-asc', 'keywords', 'modified'
-let filterBy = 'all'; // 'all', 'enabled', 'disabled', 'conditions', 'blind'
+let filterBy = 'all'; // 'all', 'enabled', 'disabled', 'keywords'
 let searchQuery = '';
 let bulkSelectMode = false;
 let selectedChunksSet = new Set(); // uniqueIds checked in bulk mode
 let selectedHashes = new Set();
 let hasUnsavedChanges = false;
-let pendingChanges = new Map(); // hash -> {keywords, enabled, conditions, etc.}
+let pendingChanges = new Map(); // hash -> {keywords, enabled, chunkLinks, etc.}
 let plaintextKeywordMode = false; // Toggle for plaintext keyword editing
 
 // ============================================================================
@@ -74,7 +74,7 @@ function getCollectionIcon() {
 /**
  * EventBase collections store ingested events from chat history. They use a
  * dedicated retrieval pipeline (importance/persist/recency re-rank) that
- * ignores per-chunk metadata like enabled/keywords/conditions/links.
+ * ignores per-chunk metadata like enabled/keywords/links.
  * Catches both the new `vf_eventbase_*` prefix and legacy `vecthare_eventbase_*`.
  */
 function isEventBaseCollection() {
@@ -138,7 +138,6 @@ function getChunkData(chunk) {
         // enabled defaults true; an explicit false (from either store) must survive
         enabled: pick(dbMeta.enabled, stored.enabled) !== false,
         keywords: normalizeKeywords(keywords),
-        conditions: dbMeta.conditions || stored.conditions || { enabled: false, logic: 'AND', rules: [] },
         chunkLinks: dbMeta.chunkLinks || stored.chunkLinks || [],
         summaries: stored.summaries || [], // client-only (dual-vector summaries), unchanged
         name: pickStr(dbMeta.name, stored.name) ?? null,
@@ -215,8 +214,8 @@ async function saveAllChanges() {
             }
 
             // Phase B (no dual write): the vector backend is the source of truth for
-            // per-chunk fields (name/context/xmlTag/position/depth/keywords/conditions/
-            // enabled/chunkLinks). Only genuinely client-only state — dual-vector
+            // per-chunk fields (name/context/xmlTag/position/depth/keywords/enabled/
+            // chunkLinks). Only genuinely client-only state — dual-vector
             // `summaries`, which has no backend payload field — is persisted to
             // extension_settings. See plans/chunk-metadata-read-source-fix.md (W1).
             const clientOnly = {};
@@ -235,7 +234,7 @@ async function saveAllChanges() {
             delete metadataUpdates._deletedSummaries;
 
             if (Object.keys(metadataUpdates).length > 0 ) {
-                // Send metadata updates (keywords, conditions, etc.) to backend
+                // Send metadata updates (keywords, links, etc.) to backend
                 try {
                     await updateChunkMetadata(currentCollectionId, hash, metadataUpdates, currentSettings);
                     // Keep the in-memory backend payload fresh so backend-first reads
@@ -415,9 +414,6 @@ function applyFilters() {
         case 'disabled':
             chunks = chunks.filter(c => !c.data.enabled);
             break;
-        case 'conditions':
-            chunks = chunks.filter(c => c.data.conditions?.enabled && c.data.conditions?.rules?.length > 0);
-            break;
         case 'keywords':
             chunks = chunks.filter(c => c.data.keywords?.length > 0);
             break;
@@ -435,10 +431,10 @@ function applyFilters() {
             chunks.sort((a, b) => (b.data.keywords?.length || 0) - (a.data.keywords?.length || 0));
             break;
         case 'modified':
-            // Sort by whether chunk has customizations (keywords, conditions, name)
+            // Sort by whether chunk has customizations (keywords, name)
             chunks.sort((a, b) => {
-                const aModified = (a.data.keywords?.length || 0) + (a.data.conditions?.rules?.length || 0) + (a.data.name ? 1 : 0);
-                const bModified = (b.data.keywords?.length || 0) + (b.data.conditions?.rules?.length || 0) + (b.data.name ? 1 : 0);
+                const aModified = (a.data.keywords?.length || 0) + (a.data.name ? 1 : 0);
+                const bModified = (b.data.keywords?.length || 0) + (b.data.name ? 1 : 0);
                 return bModified - aModified;
             });
             break;
@@ -507,7 +503,6 @@ function createModal() {
                                     <option value="enabled">Enabled</option>
                                     <option value="disabled">Disabled</option>
                                     <option value="keywords">Has Keywords</option>
-                                    <option value="conditions">Has Conditions</option>
                                 </select>
                             </div>
                                 <div class="vectfox-fetch-limit-control">
@@ -568,7 +563,6 @@ function renderChunkList() {
 function renderChunkItem(chunk, listIndex) {
     const data = chunk.data;
     const isSelected = chunk.uniqueId === selectedChunkId;
-    const hasConditions = data.conditions?.enabled && data.conditions?.rules?.length > 0;
     const hasKeywords = data.keywords?.length > 0;
 
     // Use the display position in the filtered/sorted list (1-based)
@@ -616,7 +610,6 @@ function renderChunkItem(chunk, listIndex) {
 
     // Build feature badges
     const featureBadges = [];
-    if (hasConditions) featureBadges.push(`<span class="vectfox-chunk-item-badge conditions" title="Has ${data.conditions.rules.length} condition(s)">⚡${data.conditions.rules.length}</span>`);
     if (hasKeywords) featureBadges.push(`<span class="vectfox-chunk-item-badge keywords" title="Has ${data.keywords.length} keyword(s)">🏷️${data.keywords.length}</span>`);
 
     const bulkCheckbox = bulkSelectMode
@@ -643,17 +636,14 @@ function renderChunkItem(chunk, listIndex) {
 
 function updateStatusBar() {
     const shown = filteredChunks.length;
-    let withConditions = 0;
     let withKeywords = 0;
     for (const c of allChunks) {
-        if (c.data.conditions?.enabled && c.data.conditions?.rules?.length > 0) withConditions++;
         if (c.data.keywords?.length > 0) withKeywords++;
     }
 
     $('#VectFox_list_status').html(`
         <span>${shown} chunks</span>
         ${withKeywords > 0 ? `<span>• 🏷️${withKeywords}</span>` : ''}
-        ${withConditions > 0 ? `<span>• ⚡${withConditions}</span>` : ''}
     `);
 }
 
@@ -685,13 +675,12 @@ function renderDetailPanel() {
     const listPosition = filteredChunksMap.get(selectedChunkId);
     const displayNumber = listPosition !== undefined ? listPosition + 1 : '?';
 
-    // Feature gating — EventBase chat ignores per-chunk enabled/keywords/conditions/links
+    // Feature gating — EventBase chat ignores per-chunk enabled/keywords/links
     // (its retrieval re-ranks by importance/persist/recency). XML tag and injection
     // position still apply because they're consumed at the post-retrieval injection stage.
     const isEventBase = isEventBaseCollection();
     const showEnabledToggle = !isEventBase;
     const showKeywords = !isEventBase;
-    const showConditions = !isEventBase;
     const showChunkLinks = !isEventBase;
 
     panel.html(`
@@ -868,35 +857,6 @@ function renderDetailPanel() {
             </div>
             ` : ''}
 
-            <!-- Conditions Section -->
-            ${showConditions ? `
-            <div class="vectfox-detail-section">
-                <div class="vectfox-detail-section-title">Conditions</div>
-                <div class="vectfox-detail-conditions">
-                    <div class="vectfox-conditions-header">
-                        <label class="vectfox-conditions-toggle">
-                            <input type="checkbox" id="VectFox_conditions_enabled" ${data.conditions?.enabled ? 'checked' : ''}>
-                            <span>Enable conditional activation</span>
-                        </label>
-                        <div class="vectfox-conditions-logic">
-                            <button class="vectfox-logic-btn ${data.conditions?.logic === 'AND' ? 'active' : ''}" data-logic="AND">AND</button>
-                            <button class="vectfox-logic-btn ${data.conditions?.logic === 'OR' ? 'active' : ''}" data-logic="OR">OR</button>
-                        </div>
-                    </div>
-                    <div class="vectfox-conditions-list" id="VectFox_conditions_list">
-                        ${(data.conditions?.rules || []).map((rule, i) => `
-                            <div class="vectfox-condition-item" data-index="${i}">
-                                <span class="vectfox-condition-item-num">${i + 1}.</span>
-                                <span class="vectfox-condition-item-text">${escapeHtml(formatConditionRule(rule))}</span>
-                                <i class="fa-solid fa-xmark vectfox-condition-item-remove"></i>
-                            </div>
-                        `).join('')}
-                    </div>
-                    <button class="vectfox-add-condition-btn" id="VectFox_add_condition">+ Add Condition Rule</button>
-                </div>
-            </div>
-            ` : ''}
-
             <!-- Chunk Links Section -->
             ${showChunkLinks ? `
             <div class="vectfox-detail-section">
@@ -950,43 +910,6 @@ function renderDetailPanel() {
     `);
 
     bindDetailEvents();
-}
-
-function formatConditionRule(rule) {
-    if (!rule || !rule.type) return 'Unknown condition';
-
-    const negation = rule.negated ? 'NOT ' : '';
-    const value = rule.settings?.value || rule.value || '';  // Support both formats
-
-    switch (rule.type) {
-        case 'pattern':
-            return `${negation}Pattern: "${value}"`;
-        case 'speaker':
-            return `${negation}Speaker: ${value || 'undefined'}`;
-        case 'messageCount': {
-            // Extract operator and number if value is like ">=100" or just "100"
-            const match = value.match(/^([><=!]+)?(\d+)$/);
-            if (match) {
-                const operator = match[1] || '>=';
-                const count = match[2];
-                return `${negation}Message Count ${operator} ${count}`;
-            }
-            return `${negation}Message Count: ${value}`;
-        }
-        case 'isGroupChat':
-            return `${negation}Is Group Chat`;
-        case 'timeOfDay':
-            // Handle different time formats
-            if (!value) return `${negation}Time of Day: (no time set)`;
-            return `${negation}Time of Day: ${value}`;
-        case 'randomChance': {
-            // Value should be a percentage
-            const percent = value || rule.settings?.percent || '50';
-            return `${negation}Random Chance: ${percent}%`;
-        }
-        default:
-            return `${negation}${rule.type}: ${value || '(empty)'}`;
-    }
 }
 
 // ============================================================================
@@ -1281,33 +1204,6 @@ function bindDetailEvents() {
         renderDetailPanel();
     });
 
-    // Conditions
-    $('#VectFox_conditions_enabled').on('change', function() {
-        chunk.data.conditions.enabled = $(this).is(':checked');
-        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
-    });
-
-    $('.vectfox-logic-btn').on('click', function() {
-        const logic = $(this).data('logic');
-        chunk.data.conditions.logic = logic;
-        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
-        $('.vectfox-logic-btn').removeClass('active');
-        $(this).addClass('active');
-    });
-
-    $('.vectfox-condition-item-remove').on('click', function() {
-        const index = $(this).closest('.vectfox-condition-item').data('index');
-        chunk.data.conditions.rules.splice(index, 1);
-        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
-        renderDetailPanel();
-        renderChunkList();
-    });
-
-    // Add condition rule
-    $('#VectFox_add_condition').on('click', function() {
-        openConditionEditor(chunk);
-    });
-
     // Chunk links
     $('#VectFox_add_link').on('click', function() {
         openLinkEditor(chunk);
@@ -1370,93 +1266,6 @@ function parsePlaintextKeywords(text) {
         // No weight specified, default to 1.5x
         return { text: trimmed, weight: 1.5 };
     }).filter(Boolean);
-}
-
-// ============================================================================
-// TEXT EDITOR
-// ============================================================================
-
-// ============================================================================
-// CONDITION EDITOR
-// ============================================================================
-
-const CONDITION_TYPES = [
-    { value: 'pattern', label: 'Pattern Match', icon: '🔍' },
-    { value: 'speaker', label: 'Speaker', icon: '💬' },
-    { value: 'messageCount', label: 'Message Count', icon: '📊' },
-    { value: 'isGroupChat', label: 'Group Chat', icon: '👥' },
-    { value: 'timeOfDay', label: 'Time of Day', icon: '🕐' },
-    { value: 'randomChance', label: 'Random Chance', icon: '🎲' },
-];
-
-function openConditionEditor(chunk) {
-    const overlay = $(`
-        <div class="vectfox-editor-overlay" id="VectFox_condition_editor">
-            <div class="vectfox-editor-modal">
-                <div class="vectfox-editor-header">
-                    <h4><i class="fa-solid fa-bolt"></i> Add Condition Rule</h4>
-                    <button class="vectfox-editor-close" id="VectFox_condition_close">×</button>
-                </div>
-                <div class="vectfox-editor-body">
-                    <div class="vectfox-editor-field">
-                        <label>Condition Type</label>
-                        <select id="VectFox_condition_type" class="vectfox-editor-select">
-                            ${CONDITION_TYPES.map(t => `<option value="${t.value}">${t.icon} ${t.label}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div class="vectfox-editor-field" id="VectFox_condition_settings">
-                        <label>Pattern</label>
-                        <input type="text" id="VectFox_condition_value" class="vectfox-editor-input" placeholder="Enter pattern or value...">
-                    </div>
-                    <div class="vectfox-editor-field">
-                        <label class="vectfox-editor-checkbox">
-                            <input type="checkbox" id="VectFox_condition_negate">
-                            <span>Negate (NOT)</span>
-                        </label>
-                    </div>
-                </div>
-                <div class="vectfox-editor-footer">
-                    <button class="vectfox-editor-btn cancel" id="VectFox_condition_cancel">Cancel</button>
-                    <button class="vectfox-editor-btn primary" id="VectFox_condition_add">Add Condition</button>
-                </div>
-            </div>
-        </div>
-    `);
-
-    $('.vectfox-visualizer-container').append(overlay);
-
-    $('#VectFox_condition_close, #VectFox_condition_cancel').on('click', () => overlay.remove());
-    overlay.on('click', function(e) {
-        if (e.target === this) overlay.remove();
-    });
-
-    $('#VectFox_condition_add').on('click', function() {
-        const type = $('#VectFox_condition_type').val();
-        const value = $('#VectFox_condition_value').val().trim();
-        const negated = $('#VectFox_condition_negate').is(':checked');
-
-        if (!value && type !== 'isGroupChat' && type !== 'randomChance') {
-            toastr.warning('Please enter a value', 'VectFox');
-            return;
-        }
-
-        const rule = {
-            type,
-            negated,
-            settings: { value }
-        };
-
-        if (!chunk.data.conditions.rules) {
-            chunk.data.conditions.rules = [];
-        }
-        chunk.data.conditions.rules.push(rule);
-        updateChunkData(chunk.hash, { conditions: chunk.data.conditions });
-
-        overlay.remove();
-        renderDetailPanel();
-        renderChunkList();
-        toastr.success('Condition added', 'VectFox');
-    });
 }
 
 // ============================================================================

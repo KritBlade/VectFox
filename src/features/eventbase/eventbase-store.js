@@ -274,7 +274,6 @@ export async function insertEvents(events, settings, abortSignal = null, collect
             // own defaults (importance=100).
             importance: event.importance,
             keywords: event.keywords || [],
-            conditions: null,
             isSummaryChunk: false,
             parentHash: null,
             metadata: {

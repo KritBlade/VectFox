@@ -159,11 +159,6 @@ describe('Live code remains intact (regression guard)', () => {
                 .toMatch(/export\s+(?:async\s+)?function\s+rearrangeChat/);
         });
 
-        it('Stage 8 conditions stage is still wired into the pipeline', () => {
-            expect(readRel('src/features/chunkbase/chat-vectorization.js'))
-                .toMatch(/applyChunkConditions\s*\(/);
-        });
-
         it('Stage 8.5 chunk groups and links stage is still wired', () => {
             expect(readRel('src/features/chunkbase/chat-vectorization.js'))
                 .toMatch(/applyGroupsAndLinksStage\s*\(/);
@@ -211,7 +206,6 @@ describe('Live code remains intact (regression guard)', () => {
             const src = readRel('src/features/database-browser/chunk-visualizer.js');
             expect(src).toContain('showEnabledToggle');
             expect(src).toContain('showKeywords');
-            expect(src).toContain('showConditions');
             expect(src).toContain('showChunkLinks');
         });
 

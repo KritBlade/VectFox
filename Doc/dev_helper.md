@@ -710,7 +710,7 @@ Activation Triggers and Advanced Conditions (Collection Settings → Activation 
 
 **Triggers** and the text-matching conditions (`pattern` / `speaker` / `characterPresent` / `lorebookActive`) match against recent messages with JavaScript `String.includes()` — see `checkTriggers()` in `core/collection-metadata.js` and `evaluatePatternCondition()` in `core/conditional-activation.js`. Substring matching is inherently language-neutral: `"贖身".includes("贖身")` is `true` regardless of script or whitespace. There is no tokenization or word-boundary assumption in the plain-string path.
 
-**Numeric / structural conditions** — Message Count, Swipe Count, Time of Day, Generation Type, Group Chat, Random Chance, plus the chunk-only Recency / Frequency / Score Threshold — never inspect text and are trivially language-independent.
+**Numeric / structural conditions** — Message Count, Swipe Count, Time of Day, Generation Type, Group Chat, Random Chance — never inspect text and are trivially language-independent.
 
 **Manual always-on** — "Active for current chat" and Character lock have no language dependency.
 
@@ -898,7 +898,7 @@ Documented 2026-05-24 in response to external code review (jotbird audit, item H
 
 | Feature                       | Without plugin             | With plugin                                                               |
 | ----------------------------- | -------------------------- | ------------------------------------------------------------------------- |
-| Insert / write                | Native`/api/vector/insert` | Plugin`/chunks/insert` — adds metadata (keywords, importance, conditions) |
+| Insert / write                | Native`/api/vector/insert` | Plugin`/chunks/insert` — adds metadata (keywords, importance)             |
 | Query / read                  | Native`/api/vector/query`  | Plugin`/chunks/query` — returns metadata alongside results                |
 | Chunk listing (View Chunks)   | Not possible               | Plugin`/chunks/list` — full text + metadata                               |
 | Chunk editing (text/metadata) | Not possible               | Plugin`/chunks/{hash}/text` + `/metadata`                                 |

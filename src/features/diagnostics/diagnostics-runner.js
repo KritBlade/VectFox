@@ -36,7 +36,6 @@ import {
     checkCollectionIdFormat,
     checkHashCollisionRate,
     checkChatMetadataIntegrity,
-    checkConditionRuleValidity,
     checkCollectionRegistryStatus,
     checkPromptContextConfig,
     checkPNGExportCapability
@@ -173,9 +172,6 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
 
     // Chat metadata integrity (UUID-based collection tracking)
     categories.configuration.push(checkChatMetadataIntegrity());
-
-    // Condition rule validity (validates chunk condition rules)
-    categories.configuration.push(await checkConditionRuleValidity(settings));
 
     // Collection registry status (verifies collections are discoverable)
     categories.configuration.push(await checkCollectionRegistryStatus(settings));

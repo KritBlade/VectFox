@@ -2,16 +2,16 @@
  * Tests: backend-first read of per-chunk metadata (plugin / Qdrant paths).
  *
  * Design: the vector backend (Vectra-via-plugin / Qdrant) is the source of truth for
- * per-chunk fields (name, context, xmlTag, position, depth, keywords, conditions,
- * enabled, chunkLinks). extension_settings is a legacy read-time fallback only.
+ * per-chunk fields (name, context, xmlTag, position, depth, keywords, enabled,
+ * chunkLinks). extension_settings is a legacy read-time fallback only.
  * See plans/chunk-metadata-read-source-fix.md.
  *
  * Coverage:
- *  - getChunkData merge precedence (replicated from ui/chunk-visualizer.js — that module
- *    can't be imported under vitest due to heavy UI deps; the merge logic is mirrored here
- *    1:1 and must be kept in sync).
+ *  - getChunkData merge precedence (replicated from database-browser/chunk-visualizer.js —
+ *    that module can't be imported under vitest due to heavy UI deps; the merge logic is
+ *    mirrored here 1:1 and must be kept in sync).
  *  - processChunkLinks with the unified visualizer shape (chunkLinks / { targetHash, mode })
- *    — imported REAL from core/conditional-activation.js.
+ *    — imported REAL from collections/conditional-activation.js.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -23,7 +23,7 @@ vi.mock('../../../../../script.js', () => ({ saveSettingsDebounced: vi.fn() }));
 import { processChunkLinks } from '../src/features/collections/conditional-activation.js';
 
 // ---------------------------------------------------------------------------
-// Mirror of getChunkData()'s field merge (ui/chunk-visualizer.js). Keep in sync.
+// Mirror of getChunkData()'s field merge (database-browser/chunk-visualizer.js). Keep in sync.
 // pick: first non-null wins. pickStr: also treats '' as absent.
 // ---------------------------------------------------------------------------
 const pick = (a, b) => (a !== undefined && a !== null ? a : b);
@@ -38,7 +38,6 @@ function mergeChunkRead(chunk) {
     return {
         enabled: pick(dbMeta.enabled, stored.enabled) !== false,
         keywords,
-        conditions: dbMeta.conditions || stored.conditions || { enabled: false, logic: 'AND', rules: [] },
         chunkLinks: dbMeta.chunkLinks || stored.chunkLinks || [],
         name: pickStr(dbMeta.name, stored.name) ?? null,
         context: pickStr(dbMeta.context, stored.context) ?? '',
@@ -105,15 +104,12 @@ describe('getChunkData merge — backend-first with ext_settings fallback', () =
         expect(r.keywords).toEqual([{ text: 'e' }]);
     });
 
-    it('conditions/chunkLinks fall back to ext_settings then to defaults', () => {
-        const cond = { enabled: true, logic: 'AND', rules: [] };
+    it('chunkLinks fall back to ext_settings then to defaults', () => {
         const links = [{ targetHash: '1', mode: 'soft' }];
-        const r = mergeChunkRead({ metadata: {}, _stored: { conditions: cond, chunkLinks: links } });
-        expect(r.conditions).toBe(cond);
+        const r = mergeChunkRead({ metadata: {}, _stored: { chunkLinks: links } });
         expect(r.chunkLinks).toBe(links);
 
         const empty = mergeChunkRead({ metadata: {}, _stored: {} });
-        expect(empty.conditions).toEqual({ enabled: false, logic: 'AND', rules: [] });
         expect(empty.chunkLinks).toEqual([]);
     });
 

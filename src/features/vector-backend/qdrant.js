@@ -348,7 +348,6 @@ export class QdrantBackend extends VectorBackend {
                             // Pass through VectFox-specific fields
                             importance: item.importance,
                             keywords: item.keywords,
-                            conditions: item.conditions,
                             isSummaryChunk: item.isSummaryChunk,
                             parentHash: item.parentHash,
                         };

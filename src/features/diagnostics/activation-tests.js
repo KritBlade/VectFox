@@ -2,9 +2,8 @@
  * ============================================================================
  * VectFox DIAGNOSTICS - ACTIVATION TESTS
  * ============================================================================
- * Comprehensive tests for conditional activation system
- * Tests all 10 condition types + activation triggers + chunk-only features
- * Returns individual test results for each condition type
+ * Checks each Advanced Conditions type, negation and rule validation against a
+ * mock chat, plus chunk links. Returns one result per check.
  *
  * @author Kritblade
  * @version 3.3.1
@@ -20,10 +19,8 @@ export async function testConditionalActivation() {
 
     try {
         const {
-            evaluateConditions,
             evaluateConditionRule,
             buildSearchContext,
-            filterChunksByConditions,
             validateConditionRule,
             processChunkLinks
         } = await import('../collections/conditional-activation.js');
@@ -37,7 +34,7 @@ export async function testConditionalActivation() {
             { mes: 'Do you want to go on an adventure?', name: 'User', is_user: true }
         ];
 
-        const context = buildSearchContext(mockChat, 10, [], {
+        const context = buildSearchContext(mockChat, 10, {
             generationType: 'normal',
             isGroupChat: false,
             currentCharacter: 'Luna',
@@ -56,10 +53,6 @@ export async function testConditionalActivation() {
 
         // Test: Context building
         addTest('Context Build', context.recentMessages?.length === 5, `Built context with ${context.recentMessages?.length || 0} messages`);
-
-        // Test: No conditions (should always pass)
-        const chunkNoConditions = { text: 'test', hash: 12345 };
-        addTest('No Conditions', evaluateConditions(chunkNoConditions, context) === true, 'Chunks without conditions pass');
 
         // Test: Pattern condition
         const patternRule = { type: 'pattern', settings: { patterns: ['happy', 'excited'], matchMode: 'any', caseSensitive: false } };
@@ -106,35 +99,6 @@ export async function testConditionalActivation() {
         const swipeRule = { type: 'swipeCount', settings: { count: 1, operator: 'gte' } };
         addTest('Swipe Count', evaluateConditionRule(swipeRule, swipeContext) === true, 'Swipe count >= 1');
 
-        // Test: Score threshold
-        const scoreContext = { ...context, currentChunkScore: 0.75, currentChunkHash: 12345 };
-        const scoreRule = { type: 'scoreThreshold', settings: { threshold: 0.5 } };
-        addTest('Score Threshold', evaluateConditionRule(scoreRule, scoreContext) === true, '0.75 >= 0.5 threshold');
-
-        // Test: Recency
-        const recencyContext = { ...context, messageCount: 100, currentChunkMessageIndex: 20 };
-        const recencyRule = { type: 'recency', settings: { messagesAgo: 50, operator: 'gte' } };
-        addTest('Recency', evaluateConditionRule(recencyRule, recencyContext) === true, 'Chunk is >= 50 msgs old');
-
-        // Test: Frequency
-        const frequencyContext = { ...context, currentChunkHash: 99999, activationHistory: { 99999: { count: 1, lastActivation: 90 } }, messageCount: 100 };
-        const frequencyRule = { type: 'frequency', settings: { maxActivations: 3, cooldownMessages: 5 } };
-        addTest('Frequency', evaluateConditionRule(frequencyRule, frequencyContext) === true, 'Under max activations');
-
-        // Test: AND logic
-        const chunkWithAndLogic = { text: 'test', hash: 55555, conditions: { enabled: true, logic: 'AND', rules: [
-            { type: 'messageCount', settings: { count: 3, operator: 'gte' } },
-            { type: 'isGroupChat', settings: { isGroup: false } }
-        ]}};
-        addTest('AND Logic', evaluateConditions(chunkWithAndLogic, context) === true, 'Both conditions passed');
-
-        // Test: OR logic
-        const chunkWithOrLogic = { text: 'test', hash: 66666, conditions: { enabled: true, logic: 'OR', rules: [
-            { type: 'messageCount', settings: { count: 1000, operator: 'gte' } },
-            { type: 'isGroupChat', settings: { isGroup: false } }
-        ]}};
-        addTest('OR Logic', evaluateConditions(chunkWithOrLogic, context) === true, 'One condition passed');
-
         // Test: Negation
         const negatedRule = { type: 'isGroupChat', settings: { isGroup: true }, negate: true };
         addTest('Negation', evaluateConditionRule(negatedRule, context) === true, 'NOT isGroupChat worked');
@@ -151,15 +115,6 @@ export async function testConditionalActivation() {
         const chunkMetadataMap2 = { 2001: { chunkLinks: [{ targetHash: '2002', mode: 'force' }] } };
         const linkResult2 = processChunkLinks(chunks2, chunkMetadataMap2, 0.15);
         addTest('Hard Links', linkResult2.missingHardLinks?.includes(2002), 'Missing hard link detected');
-
-        // Test: Filter chunks
-        const chunksToFilter = [
-            { hash: 1, text: 'A', score: 0.8 },
-            { hash: 2, text: 'B', score: 0.7, conditions: { enabled: true, logic: 'AND', rules: [{ type: 'messageCount', settings: { count: 3, operator: 'gte' } }] } },
-            { hash: 3, text: 'C', score: 0.6, conditions: { enabled: true, logic: 'AND', rules: [{ type: 'messageCount', settings: { count: 1000, operator: 'gte' } }] } }
-        ];
-        const filtered = filterChunksByConditions(chunksToFilter, context);
-        addTest('Filter Chunks', filtered.length === 2, `Filtered to ${filtered.length} chunks (expected 2)`);
 
         // Test: Validation (valid rule)
         const validRule = { type: 'pattern', settings: { patterns: ['test'] } };

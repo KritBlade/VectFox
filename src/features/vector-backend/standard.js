@@ -396,7 +396,6 @@ export class StandardBackend extends VectorBackend {
                             ...item.metadata,
                             keywords: item.keywords || [],
                             importance: item.importance,
-                            conditions: item.conditions,
                             isSummaryChunk: item.isSummaryChunk,
                             parentHash: item.parentHash,
                         },

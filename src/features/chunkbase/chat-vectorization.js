@@ -22,7 +22,7 @@ import { isBackendAvailable } from '../vector-backend/backend-registry.js';
 import { getCollectionRegistry, isCollectionEmpty } from '../collections/collection-loader.js';
 import { isCollectionEnabled, filterActiveCollections } from '../collections/collection-metadata.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
-import { buildSearchContext, filterChunksByConditions, processChunkLinks } from '../collections/conditional-activation.js';
+import { buildSearchContext, processChunkLinks } from '../collections/conditional-activation.js';
 import { getChunkMetadata, getCollectionMeta } from '../collections/collection-metadata.js';
 
 import { LRUCache } from './lru-cache.js';
@@ -91,72 +91,6 @@ function getTextWithoutAttachments(message) {
 // *** will be remove in future version because no longer used by eventbased path ***
 // EventBase-enabled chat sync no longer depends on these chat chunk grouping modes, but
 // they are kept temporarily for backward compatibility and non-EventBase legacy flows.
-
-/**
- * Applies chunk-level conditions to filter results
- * @param {object[]} chunks Chunks with metadata
- * @param {object[]} chat Chat messages for context
- * @param {object} settings VECTFOX settings
- * @returns {Promise<object[]>} Filtered chunks
- */
-async function applyChunkConditions(chunks, chat, settings) {
-    let filtered = chunks;
-
-    // Check if any chunks have conditions (from chunk metadata)
-    const chunksWithConditions = filtered.map(chunk => {
-        // Backend payload is source of truth; ext_settings is the legacy fallback.
-        const conditions = chunk.metadata?.conditions || getChunkMetadata(chunk.hash)?.conditions;
-        if (conditions?.enabled) {
-            return { ...chunk, conditions };
-        }
-        return chunk;
-    });
-
-    // If no chunks have conditions, return filtered
-    const hasAnyConditions = chunksWithConditions.some(c => c.conditions?.enabled);
-    if (!hasAnyConditions) {
-        return filtered;
-    }
-
-    // Build search context for condition evaluation
-    const context = buildSearchContext(chat, settings.query || 10, chunksWithConditions, {
-        generationType: settings.generationType || 'normal',
-        isGroupChat: settings.isGroupChat || false,
-        currentCharacter: settings.currentCharacter || null,
-        activeLorebookEntries: settings.activeLorebookEntries || [],
-        activationHistory: window.VectFox_ActivationHistory || {}
-    });
-
-    // Filter chunks by their conditions
-    const conditionFilteredChunks = filterChunksByConditions(chunksWithConditions, context);
-
-    // Track activation for frequency conditions
-    conditionFilteredChunks.forEach(chunk => {
-        if (chunk.conditions?.enabled) {
-            trackChunkActivation(chunk.hash, chat.length);
-        }
-    });
-
-    log.verbose(`VectFox: Chunk conditions filtered ${filtered.length} → ${conditionFilteredChunks.length}`);
-    return conditionFilteredChunks;
-}
-
-/**
- * Tracks chunk activation for frequency/cooldown conditions
- * @param {number} hash Chunk hash
- * @param {number} messageCount Current message count
- */
-function trackChunkActivation(hash, messageCount) {
-    if (!window.VectFox_ActivationHistory) {
-        window.VectFox_ActivationHistory = {};
-    }
-
-    const history = window.VectFox_ActivationHistory[hash] || { count: 0, lastActivation: null };
-    window.VectFox_ActivationHistory[hash] = {
-        count: history.count + 1,
-        lastActivation: messageCount
-    };
-}
 
 /**
  * Synchronizes chat with vector index using simple FIFO queue
@@ -574,7 +508,7 @@ async function applyGroupsAndLinksStage(chunks, activeCollections, settings) {
 
         // Force links: pull in any force-linked targets that weren't already retrieved, so
         // "target MUST appear when this chunk appears" actually holds. These bypass the
-        // query/threshold/conditions stages by design (they ran earlier); dedup may still
+        // query and threshold stages by design (they ran earlier); dedup may still
         // skip ones already present in the chat context.
         if (linkResult.missingHardLinks?.length > 0) {
             const fetched = await fetchForceLinkedChunks(linkResult.missingHardLinks, forceTargetCollection, settings);
@@ -1129,7 +1063,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         // === STAGE 3: Filter by activation conditions ===
         let activeCollections = [];
         if (hasCollections) {
-            const searchContext = buildSearchContext(chat, settings.query || 10, [], {
+            const searchContext = buildSearchContext(chat, settings.query || 10, {
                 generationType: type || 'normal',
                 isGroupChat: getContext().groupId != null,
                 currentCharacter: getContext().name2 || null,
@@ -1240,9 +1174,6 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         // === STAGE 6: Threshold filter ===
         const threshold = settings.score_threshold || 0;
         chunks = applyThresholdFilter(chunks, threshold);
-
-        // === STAGE 8: Chunk conditions ===
-        chunks = await applyChunkConditions(chunks, chat, settings);
 
         // === STAGE 8.5: Chunk Groups and Links ===
         chunks = await applyGroupsAndLinksStage(chunks, activeCollections, settings);

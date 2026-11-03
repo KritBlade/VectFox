@@ -261,19 +261,6 @@ export function checkChatMetadataIntegrity() {
 }
 
 /**
- * Check: Condition Rule Validity
- * Verifies all chunk conditions in the current chat collection use valid operators and values.
- */
-export async function checkConditionRuleValidity() {
-    return {
-        name: 'Condition Rules',
-        status: 'pass',
-        message: CHAT_NOT_APPLICABLE_MESSAGE,
-        category: 'configuration'
-    };
-}
-
-/**
  * Check: Collection Registry Status
  * Verifies collections are discoverable and the registry is populated.
  * Empty registry with available backend = discovery issue.
