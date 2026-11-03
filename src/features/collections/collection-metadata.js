@@ -23,15 +23,7 @@ import { log } from '../../sillytavern/log.js';
 const defaultCollectionMeta = {
     enabled: true,
     autoSync: false,  // Per-collection auto-sync for chat vectorization
-    // `null` (not the string 'unknown'). Truthy-string defaults break the
-    // `storedMeta.scope || parsedMeta.scope` fall-through pattern used by
-    // the collection loader (line ~1007) — with `'unknown'` as the default,
-    // the OR short-circuits and the correctly-parsed scope from the ID
-    // structure is ignored, leaving collections un-lockable via the UI.
-    // Surfaced 2026-05-24 by a no-plugin user whose fallback-discovered
-    // EventBase collection couldn't be activated — the checkbox flipped
-    // visually but `saveActivation` had no branch for scope='unknown' and
-    // silently wrote nothing. See Doc/collection_helper.md.
+    // null = not set: getEffectiveScope() derives the scope from the collection ID.
     scope: null,
     displayName: null,
     description: '',
@@ -42,25 +34,21 @@ const defaultCollectionMeta = {
     queryCount: 0,
 
     // =========================================================================
-    // ACTIVATION TRIGGERS (PRIMARY METHOD - Like Lorebook)
+    // ACTIVATION TRIGGERS
     // =========================================================================
-    // Simple keyword-based activation. If ANY trigger matches recent messages,
-    // the collection activates. This is the primary, user-friendly method.
-    //
-    // Priority order:
-    // 1. triggers[] not empty → Match keywords in recent messages
-    // 2. conditions.enabled=true → Advanced rules (secondary method)
-    // 3. No triggers + no conditions → Auto-activates
-    triggers: [],                  // Array of trigger keywords (case-insensitive)
+    // Keywords that narrow a locked collection to turns whose recent messages
+    // contain one (or all, in 'all' mode). They cannot activate an unlocked
+    // collection; shouldCollectionActivate() holds the full gate chain.
+    triggers: [],                  // Trigger keywords: plain text, or /pattern/flags for a regex
     triggerMatchMode: 'any',       // 'any' = OR logic, 'all' = AND logic
     triggerCaseSensitive: false,   // Case sensitivity for trigger matching
     triggerScanDepth: 5,           // How many recent messages to scan for triggers
 
     // =========================================================================
-    // CONDITIONAL ACTIVATION (ADVANCED METHOD - Secondary)
+    // ADVANCED CONDITIONS
     // =========================================================================
-    // Complex rule-based activation. Only evaluated if triggers don't match
-    // or if no triggers are set. Use for sophisticated activation logic.
+    // Rules that narrow a locked collection further. When triggers are also
+    // set, the triggers and the conditions must both pass on the same turn.
     conditions: {
         enabled: false,
         logic: 'AND', // 'AND' = all rules must pass, 'OR' = any rule passes
@@ -140,7 +128,6 @@ function createDefaultCollectionMeta() {
  * Ensures the collections object exists in extension_settings
  */
 function ensureCollectionsObject() {
-    // VEC-26: Add proper null checks to prevent crashes
     if (!extension_settings) {
         log.error('VectFox: extension_settings is null/undefined - cannot access collections');
         return false;
@@ -160,11 +147,9 @@ function ensureCollectionsObject() {
  * always 'chat' or 'character', never null/undefined/'unknown'.
  *
  * Use this anywhere you need to branch on scope. Never branch on bare
- * `meta.scope === 'chat'` (or compare to 'character'), because `meta.scope`
- * can be `null` (post-2026-05-24 default) or the legacy string `'unknown'`
- * (collections created before the default fix landed). Both cases would
- * silently miss every branch and write nothing — exactly the 2026-05-24
- * "lock checkbox doesn't stick" no-plugin regression.
+ * `meta.scope === 'chat'` (or compare to 'character'): `meta.scope` can be
+ * `null` (the default) or the legacy stored string `'unknown'`, and either
+ * would silently miss every branch and write nothing.
  *
  * Resolution order:
  *   1. Stored `meta.scope` if it's a valid value ('chat' or 'character').
@@ -207,7 +192,7 @@ export function getEffectiveScope(collectionIdOrRegistryKey, meta = null) {
  * @returns {object} Collection metadata (with defaults applied + scope resolved)
  */
 export function getCollectionMeta(collectionId) {
-    // VEC-26: Add comprehensive null checks
+    // No extension_settings to read: return the defaults without storing anything.
     if (!ensureCollectionsObject()) {
         const fresh = createDefaultCollectionMeta();
         fresh.scope = getEffectiveScope(collectionId, fresh);
@@ -808,7 +793,7 @@ export function ensureCollectionMeta(collectionId, initialData = {}) {
 }
 
 // ============================================================================
-// ACTIVATION TRIGGERS (Primary Method)
+// ACTIVATION TRIGGERS
 // ============================================================================
 
 /**
@@ -870,7 +855,7 @@ function checkTriggers(triggers, context, options = {}) {
 }
 
 // ============================================================================
-// CONDITIONAL ACTIVATION (Advanced Method - Secondary)
+// ADVANCED CONDITIONS
 // ============================================================================
 
 // Import condition evaluator (lazy loaded to avoid circular deps)
@@ -1055,7 +1040,7 @@ export function getCollectionActivationSummary(collectionId) {
     const triggers = meta.triggers || [];
     const hasConditions = meta.conditions?.enabled && meta.conditions?.rules?.length > 0;
 
-    let mode = 'auto'; // No triggers, no conditions = auto-activate
+    let mode = 'auto'; // No triggers and no enabled conditions: active whenever locked
     if (triggers.length > 0) {
         mode = 'triggers';
     } else if (hasConditions) {

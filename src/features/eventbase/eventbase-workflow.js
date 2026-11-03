@@ -985,8 +985,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
  * Scan the registry for archive event collections (VectFox_archiveevent_*) that are
  * enabled and locked to the current chat. These are included in Phase A retrieval.
  *
- * Uses direct enabled + lock checks (not shouldCollectionActivate) because archive
- * collections have no triggers/conditions and would be BLOCKED by the activation filter.
+ * Uses direct enabled + lock checks instead of shouldCollectionActivate, which reads a
+ * single key and also accepts character locks: here pause and lock state may sit under
+ * either key form (see below), and only a lock to this chat counts.
  *
  * @param {string} currentChatId
  * @returns {{ collectionId: string, registryKey: string }[]}
@@ -1000,9 +1001,8 @@ function _gatherArchiveEventCollections(currentChatId) {
         const colId = parsed.collectionId;
         if (!colId?.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) continue;
 
-        // Pause and lock metadata can live under either the registry key (backend:collectionId)
-        // or the bare collectionId — the DB Browser pause toggle uses registry key while the
-        // "Active for current chat" checkbox uses bare collectionId. Check both for safety.
+        // Pause and lock metadata are written under the registry key (backend:collectionId),
+        // but entries from before that keying can sit under the bare collectionId; check both.
         const candidateKeys = [registryKey, colId].filter(Boolean);
 
         const pausedKey = candidateKeys.find(key => !isCollectionEnabled(key));

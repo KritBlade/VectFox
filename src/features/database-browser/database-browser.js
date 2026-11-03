@@ -2016,9 +2016,9 @@ function closeActivationEditor() {
 }
 
 /**
- * Creates the activation editor modal
- * Primary: Triggers (like lorebook)
- * Secondary: Advanced conditions
+ * Creates the collection settings modal: the lock (required), activation
+ * triggers and advanced conditions (filters on a locked collection), then
+ * prompt context and injection position.
  */
 function createActivationEditorModal() {
   const modalHtml = `
@@ -2095,12 +2095,14 @@ function createActivationEditorModal() {
                     </div>
 
                     <!-- ========================================== -->
-                    <!-- SECONDARY: ADVANCED CONDITIONS -->
+                    <!-- FILTER: ADVANCED CONDITIONS                  -->
+                    <!-- Narrows a locked collection further; with    -->
+                    <!-- triggers set too, both must pass.            -->
                     <!-- ========================================== -->
                     <div class="vectfox-activation-section vectfox-conditions-section">
                         <div class="vectfox-section-header">
-                            <h4>⚡ Advanced Conditions <span class="vectfox-badge-secondary">Secondary</span></h4>
-                            <small>Complex rule-based activation (evaluated if triggers don't match or are empty)</small>
+                            <h4>⚡ Advanced Conditions <span class="vectfox-badge-secondary">Filter</span></h4>
+                            <small>Rules that narrow a locked collection further. When triggers are also set, both must pass this turn.</small>
                         </div>
 
                         <!-- Enable toggle -->
@@ -2173,7 +2175,7 @@ function createActivationEditorModal() {
                         </div>
                     </div>
 
-                    <!-- Activation Priority Info -->
+                    <!-- Activation chain summary -->
                     <div class="vectfox-activation-info">
                         <strong>Activation Chain — every step that applies must pass:</strong>
                         <ol>
@@ -2284,15 +2286,13 @@ function bindActivationEditorEvents() {
  * Points the master-switch checkbox at the lock it actually writes.
  *
  * saveActivation() branches on the collection's scope: scope='chat' writes a chat
- * lock, scope='character' writes a character lock. The checkbox used to say
- * "Active for current chat" in both cases, so a character-scoped collection (the
- * default for lorebooks) claimed to affect one chat while switching itself on for
- * every chat with that character.
+ * lock, scope='character' writes a character lock, so the label names the lock this
+ * checkbox changes. A character lock (the default scope for lorebooks) makes the
+ * collection active in every chat with that character.
  *
- * It also went dead without saying so: a character-scoped collection in a group
- * chat has no characterId, so ticking it saved nothing. Group chats DO have a chat
- * id, so the 🔒 Manage Locks dialog can still lock them - point the user there
- * rather than leaving a checkbox that silently does nothing.
+ * Without a lock target the checkbox is disabled and the hint points to the
+ * 🔒 Manage Locks dialog instead: a character-scoped collection in a group chat has
+ * no characterId, but the group chat still has a chat ID that dialog can lock.
  */
 function syncLockCheckboxToScope(collectionId) {
   const scope = getCollectionMeta(collectionId)?.scope || "character";
