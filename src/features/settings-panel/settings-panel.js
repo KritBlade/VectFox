@@ -5,7 +5,6 @@
  * Renders the extension settings panel and binds its controls and action buttons
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -76,7 +75,7 @@ import { log } from '../../sillytavern/log.js';
  * @param {Function} callbacks.onPurge - Called when "Purge" is clicked
  * @param {Function} callbacks.onCleanupCorrupted - Called when "Cleanup Corrupted" is clicked
  * @param {Function} callbacks.onRunDiagnostics - Called when "Run Diagnostics" is clicked
- * @param {Function} callbacks.runNetworkStartup - Re-runs the off-box startup work (core/network-startup.js) when
+ * @param {Function} callbacks.runNetworkStartup - Re-runs the off-box startup work (src/app/network-startup.js) when
  *     the master switch turns back on
  */
 export function renderSettings(containerId, settings, callbacks) {
@@ -149,37 +148,6 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <label for="VectFox_vector_backend">
                                     <small>Vector Backend</small>
                                 </label>
-                                <!--
-                                    MAINTAINERS: the "standard" backend (ST's Vectra via similharity plugin)
-                                    has a concurrency problem on the PLUGIN side — concurrent POSTs to
-                                    /api/plugins/similharity/chunks/insert corrupt the Vectra index file
-                                    (the plugin doesn't synchronize per-collection writes). Observed
-                                    2026-05-30 under parallel-split + hedge: variable-position
-                                    truncated-JSON 500s back to the client.
-
-                                    SOLUTION (shipped 2026-05-30): serialize per-collection writes on the
-                                    CLIENT side inside backends/standard.js#_vectraWriteQueues. The Map
-                                    keys are collectionId; each new insertVectorItems call chains onto the
-                                    previous one for the same collection. Result: the plugin only ever
-                                    sees one in-flight insert per collection, no matter how many concurrent
-                                    callers (parallel-split, hedge duplicates, pipelined batches) we have.
-
-                                    Effect on the new features:
-                                      - hedge: STILL ENABLED, but duplicates queue instead of racing →
-                                        only useful when primary FAILS (then hedge runs after primary
-                                        clears), not when primary is slow
-                                      - parallel-split: STILL ENABLED, but writes serialize → behaves like
-                                        a per-event retry budget rather than true parallelism
-                                      - pipelined: STILL ENABLED, extract can still run while previous
-                                        batch's insert is being serialized through the queue
-
-                                    Trade-off accepted because the alternative (force-disable all three on
-                                    standard) is worse than serial-queue with all three enabled — see the
-                                    "Vector backend selection" change handler below.
-
-                                    Qdrant backend uses a different plugin endpoint (/qdrant/...) with
-                                    different code paths and does NOT need the queue.
-                                -->
                                 <select id="VectFox_vector_backend" class="vectfox-select">
                                     <option value="standard">Standard (ST's Vectra - file-based)</option>
                                     <option value="qdrant">Qdrant (production vector search)</option>
@@ -539,7 +507,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                         <input id="VectFox_eventbase_native_rerank" type="checkbox" />
                                         <span>Push EventBase re-rank to Qdrant</span>
                                     </label>
-                                    <small class="VectFox_hint">A3 (Qdrant) only. Computes importance/persist/recency weighted scoring inside Qdrant via a formula query, in the same /query call as the dense+sparse hybrid. Anchor boost and pairwise dedup still run locally. Requires Qdrant 1.13+; falls back gracefully when unavailable. Re-tune the cosine weight if recall changes — see plans/qdrant-native-eventbase-rerank-formula.md.</small>
+                                    <small class="VectFox_hint">A3 (Qdrant) only. Computes importance/persist/recency weighted scoring inside Qdrant via a formula query, in the same /query call as the dense+sparse hybrid. Anchor boost and pairwise dedup still run locally. Requires Qdrant 1.13+; falls back gracefully when unavailable. Re-tune the cosine weight if recall changes.</small>
                                 </div>
 
                                 <label for="VectFox_retrieval_timeout_ms" style="margin-top: 12px;">
@@ -1823,8 +1791,8 @@ function initializeCollapsibleCards() {
         });
     }
 
-// Use shared WebLLM provider singleton from providers/webllm.js
-// This ensures the same engine instance is shared with core-vector-api.js
+// One shared WebLLM provider (getWebLlmProvider in src/features/embedding/webllm-provider.js): the engine
+// and its loaded model are reused by every caller.
 const getWebLlmProvider = getSharedWebLlmProvider;
 
 /**
@@ -2145,7 +2113,7 @@ export async function refreshAutoSyncCheckbox(settings) {
     // Settle/commit lag: when fully synced, the active last turn is intentionally
     // held back (it's already in live context), so "vectorization" can sit one
     // turn behind "chat" without being a backlog. Label that gap so green + a
-    // small delta reads as intentional, not "behind". See plans/executed/autosync-settle-lag.md.
+    // small delta reads as intentional, not "behind". See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const settleGap = (typeof status.chatMessageCount === 'number' && vectorizedCount !== null)
         ? status.chatMessageCount - vectorizedCount
         : 0;
@@ -2311,7 +2279,7 @@ function bindSettingsEvents(settings, callbacks) {
     // Injection group on standard+no-plugin (its listChunks returns no metadata).
     let _refreshSummarizerInjectionAvailability = null;
 
-    // Master switch — global enable/disable. Reads core/feature-gate.js::isVectFoxEnabled
+    // Master switch — global enable/disable. Reads src/shared/feature-gate.js::isVectFoxEnabled
     // so the UI and the runtime gates agree. Dims the rest of the panel when off as a
     // visual cue.
     const $masterSwitch = $('#VectFox_master_enabled');
@@ -2348,7 +2316,7 @@ function bindSettingsEvents(settings, callbacks) {
             // Off-box startup work. Two of its steps don't self-heal on demand — the
             // EventBase payload-index backfill is one-shot-per-install, and collection
             // discovery refreshes the registry that the Database Browser, cross-chat
-            // retrieval and the auto-sync status read. See core/network-startup.js for
+            // retrieval and the auto-sync status read. See src/app/network-startup.js for
             // the full rationale.
             try {
                 await callbacks.runNetworkStartup(settings);
@@ -2466,7 +2434,7 @@ function bindSettingsEvents(settings, callbacks) {
                 // for a large gap that's a surprise burst of LLM calls. So for a big
                 // gap, confirm first: run the catch-up now (with progress) or skip it
                 // ("just keep up from here"). Small gaps catch up silently as before.
-                // See plans/autosync-backlog-catchup-on-enable.md.
+                // See InternalProject/Vectfox/plans/executed/autosync-backlog-catchup-on-enable.md.
                 let markerFloorOverride; // undefined → smart placement (catch up to tip)
                 try {
                     const { getVectorizationTip } = await import('../eventbase/index.js');
@@ -2480,7 +2448,7 @@ function bindSettingsEvents(settings, callbacks) {
                     const windowSize = Math.max(1, getAutoSyncWindowSize(settings));
                     // Clamp the backlog to the commit boundary — the active last turn is
                     // held back by the settle-lag and settles on its own, so it isn't
-                    // "pending backlog". See plans/executed/autosync-settle-lag.md.
+                    // "pending backlog". See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
                     const boundary = typeof status.commitBoundary === 'number' ? status.commitBoundary : chatMsgCount;
                     const pendingMsgs = Math.max(0, boundary - tip);
                     const pendingWindows = Math.floor(pendingMsgs / windowSize);
@@ -2525,7 +2493,7 @@ function bindSettingsEvents(settings, callbacks) {
                 // Stamp the auto-sync start marker for this chat. Prevents the
                 // window-fingerprint dedup cache from triggering a full chat
                 // re-extraction when the user changed window_size before enabling
-                // auto-sync. See plans/autosync-independent-window-and-last-n-injection.md §9.
+                // auto-sync. See InternalProject/Vectfox/plans/executed/autosync-independent-window-and-last-n-injection.md §9.
                 // Smart placement: stamps at max(source_window_end)+1 when events
                 // exist (backfills the gap at the new window size), or at current
                 // chat length when collection is empty. markerFloorOverride='chatLength'
@@ -2615,7 +2583,7 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Request-shape switches for reasoning models. Global on purpose — they
     // describe the chat endpoint, not one feature, and every LLM path reads them
-    // through resolveModelParameterStyle(). See core/llm-provider-call.js.
+    // through resolveModelParameterStyle(). See src/features/llm-provider/llm-provider-call.js.
     $('#VectFox_should_send_temperature')
         .prop('checked', settings.should_send_temperature !== false)
         .on('change', function() {
@@ -2761,25 +2729,14 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // vLLM API key (summarize input) — writes to SECRET_KEYS.CUSTOM
-    // 2026-05-26 architecture pivot: ONE vLLM key shared across
-    // summarize/agentic chat paths, stored in ST's well-known
-    // SECRET_KEYS.CUSTOM slot (same slot ST's own Chat Completion →
-    // Custom (OpenAI-compatible) source uses). Real key lives server-side;
-    // client only sees a masked placeholder. Chat-side calls route through
-    // ST's /api/backends/chat-completions/generate proxy with
-    // `chat_completion_source: 'custom'` — see core/api-keys.js for the
-    // full rationale and the migration history.
+    // vLLM API key (summarize input). One key serves chat and embedding: it is written to
+    // SECRET_KEYS.CUSTOM, the slot SillyTavern's Custom (OpenAI-compatible) chat source uses, for the
+    // summarize and Agent Mode calls that go through /api/backends/chat-completions/generate with
+    // `chat_completion_source: 'custom'`, and to SECRET_KEYS.VLLM for embedding. The key stays
+    // server-side; the input shows a masked placeholder. See src/shared/api-keys.js.
     //
-    // Embedding side reads SECRET_KEYS.VLLM (separate ST slot) — user
-    // configures that key in ST's Text Completion → vLLM UI directly,
-    // not through VectFox. The two slots are intentionally separate so
-    // chat and embedding endpoints can use different credentials if the
-    // user wants.
-    //
-    // Cross-input refresh: each display function also listens for the
-    // `vectfox:vllm-key-changed` custom event, so saving the key in any
-    // of the three inputs updates all three placeholders.
+    // Each display function also listens for the `vectfox:vllm-key-changed` event, so saving the key in
+    // any of the three inputs updates all three placeholders.
     const updateSummarizeVllmKeyDisplay = () => {
         const savedKey = getCustomApiKey();
         if (savedKey) {
@@ -2827,17 +2784,14 @@ function bindSettingsEvents(settings, callbacks) {
         }
     });
 
-    // OpenRouter API key (summarize input) — writes to SECRET_KEYS.OPENROUTER
-    // 2026-05-25: ONE OpenRouter key shared across embedding/summarize/agentic,
-    // stored in ST's well-known SECRET_KEYS.OPENROUTER slot (same slot ST's own
-    // Connection Profile uses). The real key value lives server-side; the client
-    // only ever sees a masked placeholder. Chat-completion calls are routed
-    // through ST's /api/backends/chat-completions/generate proxy so the server
-    // can read the real key — see core/api-keys.js for the full rationale.
+    // OpenRouter API key (summarize input). One key serves embedding, summarize and Agent Mode: it is
+    // written to SECRET_KEYS.OPENROUTER, the slot SillyTavern's own connection profiles use. The key
+    // stays server-side; the input shows a masked placeholder, and chat-completion calls go through
+    // SillyTavern's /api/backends/chat-completions/generate proxy, which reads it. See
+    // src/shared/api-keys.js.
     //
-    // Cross-input refresh: each display function also listens for the
-    // `vectfox:openrouter-key-changed` custom event, so saving the key in any
-    // of the three inputs updates all three placeholders immediately.
+    // Each display function also listens for the `vectfox:openrouter-key-changed` event, so saving the
+    // key in any of the three inputs updates all three placeholders.
     const updateSummarizeORKeyDisplay = () => {
         const savedKey = getOpenRouterApiKey();
         if (savedKey) {
@@ -3272,19 +3226,10 @@ function bindSettingsEvents(settings, callbacks) {
             // one the user briefly clicked.
             await _refreshQdrantPluginAvailability();
 
-            // NOTE: standard backend is now safe to use with hedge, parallel-split,
-            // and pipelined mode all enabled. The per-collection write queue in
-            // backends/standard.js#_vectraWriteQueues serializes concurrent POSTs
-            // to the same Vectra collection at the client side, so the plugin only
-            // ever sees one in-flight insert per collection. Earlier versions of
-            // this handler force-disabled those features on standard backend; that
-            // enforcement was removed once the queue shipped (2026-05-30) because
-            // users can now keep all three features on. The trade-off is that the
-            // queue's serialization caps in-flight inserts to 1 per collection —
-            // hedge duplicates queue rather than race, so they help less on standard
-            // than on Qdrant. But the run no longer crashes, and total wall time
-            // is still much better than the legacy batched-POST behavior under
-            // OpenRouter timeouts.
+            // No feature is switched off on the standard backend: _vectraWriteQueues in
+            // src/features/vector-backend/standard.js serializes inserts per collection, so hedge,
+            // parallel-split and pipelined mode stay on. Hedge duplicates queue behind the primary instead
+            // of racing it, so a hedge helps less here than on Qdrant.
             applyBackendHybridDefaults(settings.vector_backend);
             updateNativeHybridUI();
             log.lifecycle(`VectFox: Vector backend changed to ${settings.vector_backend}`);
@@ -4384,14 +4329,9 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // ─── Logging (src/sillytavern/log.js) ───────────────────────────────
-    // Verbosity dropdown — single noise floor, drives all gated log.* calls
-    // (the 22 Phase-1 sites). Plus the raw_llm domain deep-dive, the one domain
-    // whose read site is migrated (eventbase-extractor.js). No backward-compat
-    // shim: the old verbosity gate flags are not read (user decision 2026-05-30).
-    // The remaining domain deep-dives (qdrant / standard / injection / rerank)
-    // ship in Phase 2 when their read sites migrate — until then their old
-    // checkboxes below (Injection / Qdrant / Compare re-rank) stay on the old
-    // flags so they keep working. See plans/executed/logging-levels-and-classification.md.
+    // The verbosity dropdown sets the noise floor for every gated log.* call. A domain checkbox turns on
+    // one log.domain() deep-dive in settings.debug_domain (raw_llm, injection, rerank); the logger reads
+    // no other debug flag. See InternalProject/Vectfox/plans/executed/logging-levels-and-classification.md.
     const _ensureDebugDomain = () => {
         if (!settings.debug_domain || typeof settings.debug_domain !== 'object') {
             settings.debug_domain = {};
@@ -4456,9 +4396,9 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Hedge toggle — boolean UI maps to a millisecond threshold so power users can tune
     // via devtools without code changes. Checked → 15000ms (vetted default). Unchecked → 0
-    // (off). The actual hedge logic lives in core-vector-api.js callWithHedge(); the gating
-    // in insertVectorItems skips local providers regardless of this checkbox.
-    // See plans/embedding-resilience-hedge-and-diagnostics.md §6 for the full design.
+    // (off). The hedge itself is callWithHedge() in src/features/vector-backend/vector-api.js; the
+    // gating in insertVectorItems skips local providers regardless of this checkbox. Design:
+    // InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
     const HEDGE_DEFAULT_THRESHOLD_MS = 15000;
     $('#VectFox_vector_hedge_enabled')
         .prop('checked', (Number(settings.vector_hedge_after_ms) || 0) > 0)
@@ -4524,8 +4464,8 @@ function bindSettingsEvents(settings, callbacks) {
         if (labelId) $(`#VectFox_eventbase_${labelId}_val`).text(settings[settingKey] ?? $el.val());
     };
 
-    // window_size / window_overlap bindings moved to the Vectorize Content panel
-    // (ui/content-vectorizer.js) — see Feature A re-home.
+    // window_size / window_overlap are bound in the Vectorize Content panel
+    // (src/features/chunkbase/content-vectorizer.js).
     _bindEventBaseRange('min_importance_store', 'eventbase_min_importance_store', 'min_importance_store');
     _bindEventBaseRange('max_events_per_window', 'eventbase_max_events_per_window', 'max_events_per_window');
     _bindEventBaseRange('retrieval_top_k', 'eventbase_retrieval_top_k', 'retrieval_top_k');
@@ -4588,7 +4528,8 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Grey out the Cosine weight input when vector scoring is unavailable
     // (Standard backend without the Similharity plugin always returns score=0
-    // from the native /api/vector/query path — see backends/standard.js:438).
+    // from the native /api/vector/query path — see StandardBackend.queryCollection in
+    // src/features/vector-backend/standard.js).
     // The saved value is preserved so it takes effect again when the plugin
     // is installed or the user switches to a backend with real vector scores.
     // The retrieval pipeline coerces cosine→0 in the same condition so the
@@ -4701,7 +4642,7 @@ function bindSettingsEvents(settings, callbacks) {
     // vLLM API key (embedding input) — dual-write to SECRET_KEYS.CUSTOM
     // (chat-side proxy) + SECRET_KEYS.VLLM (embedding-side proxy). Same
     // pattern as the Summarize and AgentMode inputs above. One shared key,
-    // both ST slots. See core/api-keys.js header for the full rationale.
+    // both ST slots. See src/shared/api-keys.js header for the full rationale.
     const updateVllmKeyDisplay = () => {
         const savedKey = getCustomApiKey();
         if (savedKey) {
@@ -4778,7 +4719,7 @@ function bindSettingsEvents(settings, callbacks) {
             if (!_openrouterModelCache) {
                 // OpenRouter's /models endpoint is public — auth only personalizes
                 // the response. getOpenRouterApiKey() returns a MASKED value
-                // (see core/api-keys.js docstring), which would 401 if sent as
+                // (see src/shared/api-keys.js docstring), which would 401 if sent as
                 // Bearer. Fetch unauthenticated; the global model list is fine
                 // for the picker UI.
                 const headers = { 'Content-Type': 'application/json' };
@@ -4860,7 +4801,7 @@ function bindSettingsEvents(settings, callbacks) {
 
     // OpenRouter API key (embedding input) — writes to SECRET_KEYS.OPENROUTER,
     // the shared slot used by ST's own Connection Profile and by VectFox's
-    // Summarize + AgentMode inputs. See core/api-keys.js for the rationale.
+    // Summarize + AgentMode inputs. See src/shared/api-keys.js for the rationale.
     const updateOpenRouterKeyDisplay = () => {
         const savedKey = getOpenRouterApiKey();
         if (savedKey) {
@@ -4956,7 +4897,7 @@ function bindSettingsEvents(settings, callbacks) {
         });
     $('#VectFox_insert_batch_size_value').text(settings.insert_batch_size || 50);
 
-    // Acronym glossary injection (Documents) — see core/glossary-extractor.js
+    // Acronym glossary injection (Documents) — see src/features/chunkbase/glossary-extractor.js
     $('#VectFox_document_glossary_injection')
         .prop('checked', settings.document_glossary_injection !== false)
         .on('change', function() {

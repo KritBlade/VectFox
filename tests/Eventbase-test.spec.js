@@ -1610,7 +1610,7 @@ test('TEST 007 — E2E standard: both locked, both return results', async () => 
 //      ─ insert/list/delete go through ST's native /api/vector/*
 //      ─ DEGRADED mode: only hash + text + index are stored; listChunks
 //        is hashes-only ({ hash, text: '', metadata: {} })
-//      ─ DB Browser shows just hashes — by design, per backends/standard.js
+//      ─ DB Browser shows just hashes — by design, per src/features/vector-backend/standard.js
 //        top comment ("Plugin dependency rule"). The standard backend MUST
 //        remain fully functional without the plugin installed.
 //
@@ -1754,7 +1754,7 @@ test('TEST 008 — DB Browser standard + plugin: listing + delete', async () => 
 // This test verifies graceful degradation: when the Similharity plugin
 // is unavailable, the standard backend must still support the basic
 // vectorize → list → delete cycle through ST's native /api/vector/*.
-// The top comment in backends/standard.js mandates this contract.
+// The top comment in src/features/vector-backend/standard.js mandates this contract.
 //
 // We can't uninstall the plugin from a test, so we simulate it by
 // forcing `pluginAvailable = false` on the SHARED cached backend
@@ -2321,11 +2321,8 @@ test('TEST 011 — Cross-persona activation isolation', async () => {
 //   `vf_*_qdrant_*` — polluting storage and confusing every parser that
 //   reads the backend from the ID.
 //
-//   The remap logic lives in `core/collection-ids.js::remapCollectionIdToBackend`
-//   (formerly duplicated as a private helper in collection-export.js and
-//   MISSING entirely from `importCollectionSilent`). Surfaced 2026-05-23 by
-//   inspecting the standard backend storage tree and finding `_qdrant_`
-//   folders sitting in vectra.
+//   The remap logic lives in `src/shared/collection-ids.js::remapCollectionIdToBackend`;
+//   both import functions must call it.
 //
 // What this test proves:
 //   - Pure helper checks first (remap both directions + detection round-trip)
@@ -3086,7 +3083,7 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
 //  TEST 015 covered the marker get/clear contract and the workflow filter
 //  using simulated data. TEST 016 exercises the *production* function that
 //  actually computes the marker — `stampAutoSyncMarker(chatUUID, settings)`
-//  in core/eventbase-store.js — across its decision branches:
+//  in src/features/eventbase/eventbase-store.js — across its decision branches:
 //
 //    Branch A: no chatUUID                        → returns 0, no persistence
 //    Branch B: no candidates in registry          → marker = chatLength
@@ -3787,7 +3784,7 @@ test('TEST 019 — WI / AutoSync refresh smoke: refresh paths do not mutate lock
 // TEST 020 / 021 — per-chunk override is BACKEND-FIRST (survives ext_settings wipe)
 // ═══════════════════════════════════════════════════════════════════
 //
-// Validates the read-source refactor (plans/chunk-metadata-read-source-fix.md):
+// Validates the read-source refactor (InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md):
 // per-chunk user overrides (context/xmlTag/keywords/...) are served
 // from the vector backend payload, NOT from extension_settings. This is the one
 // behavior the rest of the suite never checked — it asserts result COUNTS and the
@@ -4126,7 +4123,7 @@ test('TEST 022 — Standard+plugin: context/xmlTag wrapping + force link through
 //   the active turn changes only messages beyond the boundary → the committed
 //   slice is unchanged → no re-extraction. Once the user sends a newer turn,
 //   the previously-active turn falls inside the boundary and extracts exactly
-//   once. See plans/executed/autosync-settle-lag.md.
+//   once. See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
 //
 // What it proves (using the SAME real functions the ingestion loop uses):
 //   - getCommitBoundary holds back exactly one turn by default, none when off.
@@ -4222,7 +4219,7 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
 // TESTS 001–023 use SYNTHETIC inserts — they never touch the chat-completions
 // wire path. These three exercise the real path introduced when the four LLM
 // features (summarizer / EventBase / agentic / Auto-Reformat) were unified onto
-// core/llm-provider-call.js (postChatCompletion + parseJsonArrayFromLlm):
+// src/features/llm-provider/llm-provider-call.js (postChatCompletion + parseJsonArrayFromLlm):
 //
 //   024  EventBase LLM extraction — real provider round-trip + parse/validate
 //   025  Auto-Reformat            — real provider, multi-entity split

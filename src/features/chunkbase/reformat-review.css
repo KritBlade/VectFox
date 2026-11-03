@@ -3,7 +3,7 @@
  * ============================================================================
  * Wide two-column layout: read-only source text alongside editable record
  * cards. Builds on the shared .vectfox-modal/.vectfox-btn base styles from
- * styles/modals.css and styles/buttons.css — only the review-specific layout
+ * src/shared/modals.css and src/shared/buttons.css — only the review-specific layout
  * lives here.
  * ============================================================================ */
 

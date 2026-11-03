@@ -10,7 +10,6 @@
  * injections) by finding bloated metadata or oversized event payloads.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 

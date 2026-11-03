@@ -5,7 +5,6 @@
  * Integration tests for embedding, storage, and retrieval
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 

@@ -5,7 +5,6 @@
  * Settings validation and configuration checks
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 

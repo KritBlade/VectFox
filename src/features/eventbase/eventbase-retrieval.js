@@ -378,7 +378,7 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     // preference + opt-in flag (default off). When on, the per-collection call
     // returns events with their formula score already in `score`, and the rest
     // of this pipeline (anchor boost, pairwise dedup, final trim) runs on top.
-    // See plans/qdrant-native-eventbase-rerank-formula.md.
+    // See InternalProject/Vectfox/plans/executed/qdrant-native-eventbase-rerank-formula.md.
     const useNativeRerank = (
         settings.vector_backend === 'qdrant'
         && settings.hybrid_native_prefer !== false
@@ -388,9 +388,10 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
 
     // Detect "no vector scoring" state — Standard backend without the Similharity
     // plugin returns score=0 from the native /api/vector/query path (see
-    // backends/standard.js:438). Coerce cosine to 0 so _normalizeWeights
-    // redistributes its share onto importance/persist/recency, instead of
-    // leaving it as dead weight that silently caps the effective scoring budget.
+    // StandardBackend.queryCollection in src/features/vector-backend/standard.js).
+    // Coerce cosine to 0 so _normalizeWeights redistributes its share onto
+    // importance/persist/recency, instead of leaving it as dead weight that
+    // silently caps the effective scoring budget.
     // The user's saved cosine value is preserved and takes effect again the
     // moment the plugin is installed or they switch to a backend with real
     // vector scores. The UI mirrors this state by greying out the cosine input.

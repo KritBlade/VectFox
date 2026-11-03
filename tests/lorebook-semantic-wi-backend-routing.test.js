@@ -7,7 +7,7 @@
  * the chunks — is invisible to it. A routing or transport bug cannot fail it.
  *
  * This suite mocks ONLY `fetch`. Everything from getSemanticWorldInfoEntries
- * down through core-vector-api.js → hybrid-search.js → QdrantBackend /
+ * down through vector-api.js → hybrid-search.js → QdrantBackend /
  * StandardBackend is the real code, so it pins:
  *   - which HTTP endpoint a lorebook query actually reaches, per backend
  *   - that the BARE collection ID survives registry-key → backend resolution
@@ -157,7 +157,7 @@ function perEntryChunk(overrides = {}) {
  * A CHUNKED lorebook chunk — the configuration in issue #11.
  *
  * prepareLorebookContent() only returns `entries` for the per_entry strategy
- * (core/lorebook-content-preparer.js:44-54), so enrichChunks() never takes the
+ * (src/features/chunkbase/lorebook-content-preparer.js), so enrichChunks() never takes the
  * lorebook branch for chunked books: entryName and entryUid are null and the
  * entry's WI trigger keys are absent. Only frequency-extracted keywords remain.
  */
@@ -657,7 +657,7 @@ describe('Nothing-activated surfacing (GENERATION_STARTED path)', () => {
 
     it('tells an unlocked book to tick the box — the lock is the master switch', async () => {
         // Trigger keywords on an UNLOCKED book cannot activate it: the lock gates
-        // everything (core/collection-metadata.js shouldCollectionActivate). So the
+        // everything (src/features/collections/collection-metadata.js shouldCollectionActivate). So the
         // actionable advice is "switch it on", not "your keyword missed".
         const { shouldCollectionActivate, getCollectionMeta,
             getCollectionLockCount, getCollectionCharacterLockCount } = await import('../src/features/collections/collection-metadata.js');

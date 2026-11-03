@@ -8,12 +8,9 @@
  *
  * WHY THIS IS A MODULE AND NOT INLINE IN index.js
  *
- * The master switch (core/feature-gate.js) used to gate only the generation-time
- * paths, so a switched-off VectFox still probed the plugin, initialized Qdrant,
- * pushed config to Similharity and discovered collections on every page load —
- * plenty of console noise and network traffic for an extension the user had
- * turned off. Pulling this work into one named function lets index.js skip it
- * wholesale when disabled.
+ * It is one named function so index.js can skip all of it while the master
+ * switch (src/shared/feature-gate.js) is off: a switched-off VectFox makes no
+ * plugin probes, Qdrant calls or collection discovery on page load.
  *
  * It has to be RE-RUNNABLE, not merely skippable, because flipping the switch
  * back ON must give a working VectFox without a page reload. Two of these steps
@@ -32,10 +29,11 @@
  * QdrantBackend.initialize() via getBackend(), and plugin detection is cached by
  * checkPluginAvailable() on first call.
  *
- * It lives in core/ rather than index.js so ui/ui-manager.js can import it
- * directly. Importing index.js from a module index.js itself imports would be
- * circular, and dynamically importing the extension entry point risks
- * re-executing it under a different module URL.
+ * It lives in its own module rather than in index.js so
+ * src/features/settings-panel/settings-panel.js can import it directly. Importing
+ * index.js from a module index.js itself imports would be circular, and
+ * dynamically importing the extension entry point risks re-executing it under a
+ * different module URL.
  * ============================================================================
  */
 
@@ -131,7 +129,7 @@ let networkStartupInFlight = null;
 /**
  * Run (or join) VectFox's off-box startup work.
  *
- * Callers: index.js on load when the master switch is ON, and ui/ui-manager.js when
+ * Callers: index.js on load when the master switch is ON, and src/features/settings-panel/settings-panel.js when
  * the user turns the switch back ON.
  *
  * @param {object} startupSettings the live VectFox settings object

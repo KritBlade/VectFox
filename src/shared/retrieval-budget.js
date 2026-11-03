@@ -16,8 +16,8 @@
  *
  * It lives in its own module for two reasons:
  *
- * 1. TWO CONSUMERS THAT CANNOT IMPORT EACH OTHER. core/bounded-retrieval.js
- *    enforces the budget; core/embedding-latency-warning.js warns while
+ * 1. TWO CONSUMERS THAT CANNOT IMPORT EACH OTHER. src/features/vector-backend/bounded-retrieval.js
+ *    enforces the budget; src/features/embedding/embedding-latency-warning.js warns while
  *    APPROACHING it (its threshold is two thirds of the budget) — and
  *    bounded-retrieval already imports the warning module for its "why did this
  *    time out?" sentence. Putting the resolver in either one makes a cycle.

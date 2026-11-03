@@ -104,7 +104,6 @@
  *     are non-fatal and don't lock users out of their keys.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -159,7 +158,7 @@ function _readSecretValue(slot) {
  * route OpenRouter requests through ST's `/api/backends/chat-completions/generate`
  * proxy with `chat_completion_source: 'openrouter'`; the server reads the
  * real key via `readSecret(SECRET_KEYS.OPENROUTER)` and forwards correctly.
- * `postChatCompletion` in `core/llm-provider-call.js` is that call.
+ * `postChatCompletion` in `src/features/llm-provider/llm-provider-call.js` is that call.
  *
  * @returns {string} masked value (presence indicator) or empty string
  */
@@ -412,27 +411,16 @@ export async function migrateLegacyApiKeys() {
     }
 
     // ─── Qdrant API key → 'api_key_qdrant' (custom slot) drain ───
-    // Pre-2026-05-26: VectFox stored the Qdrant Cloud API key plaintext in
-    // settings.qdrant_api_key. The backends/qdrant.js init flow sent the raw
-    // value to the Similharity plugin which then auth'd to Qdrant Cloud.
-    // Post-refactor: client sends `apiKey: null` to the plugin, which reads
-    // the real value server-side from ST's secret_state slot 'api_key_qdrant'
-    // via readSecret. The slot is a custom name (not in ST's SECRET_KEYS enum)
-    // because no enum slot exists for Qdrant. writeSecret accepts any string
-    // slot name; readSecret reads it correctly server-side; client-side
-    // secret_state filters non-enum slots, so the UI presence indicator goes
-    // through the plugin's /qdrant/key-status endpoint instead (see
-    // fetchQdrantApiKeyPresence above).
+    // The Qdrant Cloud key belongs in SillyTavern's secret_state slot 'api_key_qdrant': the client sends
+    // `apiKey: null` to the Similharity plugin, which reads the slot server-side with readSecret. The
+    // slot name is custom because SECRET_KEYS has no Qdrant entry; writeSecret accepts any name, but the
+    // client-side secret_state hides non-enum slots, so the UI checks presence through the plugin's
+    // /qdrant/key-status endpoint (fetchQdrantApiKeyPresence above).
     //
-    // ⚠️ Capability probe BEFORE migration: if the user is on a pre-2026-05-26
-    // Similharity plugin, the /qdrant/key-status endpoint doesn't exist yet.
-    // Migrating in that state would write to secret_state but leave the
-    // plugin unable to read it back — silently breaking Qdrant Cloud auth
-    // while deleting the user's only working key from settings.json. The
-    // probe gates BOTH the write and the delete: if the plugin doesn't yet
-    // support secret_state lookup, we no-op and retry on next reload. The
-    // migration is idempotent — once the plugin updates, the next ST start
-    // probes successfully and the drain runs cleanly.
+    // ⚠️ The drain probes /qdrant/key-status first. A Similharity plugin without that endpoint cannot
+    // read the slot, so writing the key there and deleting settings.qdrant_api_key would break Qdrant
+    // Cloud auth. The probe gates both the write and the delete; without the endpoint the drain does
+    // nothing and runs again on the next load.
     const QDRANT_SLOT = 'api_key_qdrant';
     let pluginSupportsQdrantSecretSlot = false;
     // Only probe the plugin if there's actually a legacy plaintext field to

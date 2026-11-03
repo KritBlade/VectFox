@@ -3,13 +3,13 @@
  * GENERATION (chat-completions) RATE LIMITER
  * ============================================================================
  * Shared sliding-window throttle for non-embedding LLM calls:
- *   - EventBase summarization extraction (core/eventbase-workflow.js)
- *   - Agent Mode planner             (core/agentic-retrieval.js)
+ *   - EventBase summarization extraction (src/features/eventbase/eventbase-workflow.js)
+ *   - Agent Mode planner             (src/features/eventbase/agentic-retrieval.js)
  *
  * Both POST to /api/backends/chat-completions/generate, and Agent Mode's model
  * defaults to the summarizer's model — so they typically hit the SAME provider
  * quota. They therefore draw from ONE shared rate budget here, distinct from the
- * embedding limiter (`dynamicRateLimiter` in core/core-vector-api.js) which
+ * embedding limiter (`dynamicRateLimiter` in src/features/vector-backend/vector-api.js) which
  * throttles the embedding endpoint on its own separate budget.
  *
  * Throttled by settings.generation_rate_limit_calls / _interval (0 = disabled,

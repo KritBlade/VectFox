@@ -8,7 +8,6 @@
  * Supports both native backend hybrid search (Qdrant) and client-side
  * fusion for backends without native support (Standard).
  *
- * @version 1.0.0
  * ============================================================================
  */
 
@@ -166,8 +165,8 @@ async function clientSideHybridSearch(backend, collectionId, searchText, topK, s
         // like a collection with no matching chunks, which is how a Qdrant-side
         // failure could silently zero semantic lorebook activation with no log, no
         // toast, and no error (GitHub issue #11). Every caller of queryCollection
-        // already catches — see core/eventbase-retrieval.js, core/chat-vectorization.js,
-        // core/agentic-retrieval.js, core/world-info-integration.js.
+        // already catches — see src/features/eventbase/eventbase-retrieval.js, src/features/chunkbase/chat-vectorization.js,
+        // src/features/eventbase/agentic-retrieval.js, src/features/world-info/world-info-integration.js.
         log.error(`[HybridSearch] Vector query failed for ${collectionId}:`, error);
         throw error;
     }
@@ -218,7 +217,7 @@ async function clientSideHybridSearch(backend, collectionId, searchText, topK, s
     const bm25Results = performBM25Search(resultsWithText, searchText, {
         k1: settings.bm25_k1 || 1.5,
         b: settings.bm25_b || 0.75,
-        fieldBoosting: true,  // Enable title (4x) and tags (4x) boosting (see bm25-scorer.js:534, 541)
+        fieldBoosting: true,  // Enable title (4x) and tags (4x) boosting (see the fieldBoosting branch in bm25-scorer.js)
         corpusStats,
         settings,
     });

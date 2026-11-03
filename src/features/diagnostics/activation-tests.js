@@ -6,7 +6,6 @@
  * mock chat, plus chunk links. Returns one result per check.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 

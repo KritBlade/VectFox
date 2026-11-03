@@ -5,7 +5,6 @@
  * Data access layer for managing vector collections and chunks
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -91,7 +90,7 @@ export function getCollectionRegistry() {
 // sanitizeHandleId is canonicalized in collection-ids.js (single source of truth for
 // the persona-handle form shared by the ID builders, the creatorHandle stamp below,
 // and remapCollectionIdToHandle). Re-exported here so existing importers
-// (ui/database-browser.js) keep resolving it from collection-loader.
+// (src/features/database-browser/database-browser.js) keep resolving it from collection-loader.
 export { sanitizeHandleId };
 
 function _sanitizeHandleId(name) { return sanitizeHandleId(name); }

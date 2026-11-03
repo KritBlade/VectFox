@@ -12,7 +12,6 @@
  * - Auto-refresh with configurable interval
  *
  * @author VectFox
- * @version 2.2.0-alpha
  * ============================================================================
  */
 

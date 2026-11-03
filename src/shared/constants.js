@@ -6,7 +6,6 @@
  * Change these values here instead of hunting through the codebase.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -40,12 +39,12 @@ export const VECTOR_LIST_LIMIT = 10000;
  * DEFAULT per-turn retrieval timeout in ms (15 seconds) -- the fallback for the
  * user-facing `retrieval_timeout_ms` setting (Core tab -> Retrieval), not the
  * effective value. Always read the effective budget through
- * resolveRetrievalTimeoutMs() in core/retrieval-budget.js.
+ * resolveRetrievalTimeoutMs() in src/shared/retrieval-budget.js.
  *
  * Bounds every retrieval during generation -- chunks, the summarizer and
  * Lorebook WI; EventBase adds its Agent Mode budget on top -- so a hung
  * embedding/query cannot freeze the whole conversation. On timeout the turn
- * proceeds WITHOUT that memory: runBoundedRetrieval() (core/bounded-retrieval.js)
+ * proceeds WITHOUT that memory: runBoundedRetrieval() (src/features/vector-backend/bounded-retrieval.js)
  * races the retrieval softly, and the orphaned fetch is reaped later by ST's
  * server-side timeout (read fetches carry no client AbortSignal). Matches the
  * write-side hedge threshold (vector_hedge_after_ms = 15000) for one consistent
@@ -61,15 +60,15 @@ export const RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000;
  * disabling retrieval outright; the ceiling keeps a mistyped 1500000 from
  * hanging a generation for half an hour. Agent Mode legitimately needs more than
  * this ceiling and gets it by ADDING its own planner/fanout budget on top --
- * see agenticRetrievalExtraBudgetMs() in core/retrieval-budget.js.
+ * see agenticRetrievalExtraBudgetMs() in src/shared/retrieval-budget.js.
  */
 export const RETRIEVAL_TIMEOUT_MIN_MS = 3000;
 export const RETRIEVAL_TIMEOUT_MAX_MS = 120000;
 
 /**
  * Agent Mode planner/fanout timeout defaults and clamp range. Shared by the
- * resolvers in core/retrieval-budget.js, the settings defaults in index.js, and
- * the input bindings in ui/ui-manager.js.
+ * resolvers in src/shared/retrieval-budget.js, the settings defaults in index.js, and
+ * the input bindings in src/features/settings-panel/settings-panel.js.
  *
  * These were three hand-kept copies of the same numbers, which is how the
  * planner default (30s) came to exceed the retrieval budget it runs inside (15s)

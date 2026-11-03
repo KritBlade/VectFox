@@ -4,7 +4,7 @@
  * Design: the vector backend (Vectra-via-plugin / Qdrant) is the source of truth for
  * per-chunk fields (name, context, xmlTag, position, depth, keywords, enabled,
  * chunkLinks). extension_settings is a legacy read-time fallback only.
- * See plans/chunk-metadata-read-source-fix.md.
+ * See InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md.
  *
  * Coverage:
  *  - getChunkData merge precedence (replicated from database-browser/chunk-visualizer.js —

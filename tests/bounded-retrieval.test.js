@@ -25,7 +25,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: { error: vi.fn(), warn: vi.fn(), verbose: vi.fn(), trace: vi.fn(), lifecycle: vi.fn(), enabled: () => false },
 }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyRetrievalFailure: vi.fn() }));
-// Real module reaches core/providers.js, which imports SillyTavern host modules.
+// Real module reaches src/features/embedding/providers.js, which imports SillyTavern host modules.
 vi.mock('../src/features/embedding/embedding-latency-warning.js', () => ({
     describeEmbeddingTimeoutCause: (s) => `Almost always the embedding provider — ${s?.embedding_provider || 'transformers'}.`,
 }));

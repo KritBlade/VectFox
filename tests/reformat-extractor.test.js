@@ -1,5 +1,5 @@
 /**
- * Unit tests for core/reformat-extractor.js
+ * Unit tests for src/features/chunkbase/reformat-extractor.js
  *
  * Covers the parts that are risky to get wrong and aren't exercised by
  * reformat-schema.test.js: the oversized-section batching/continuation

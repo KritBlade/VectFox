@@ -6,7 +6,6 @@
  * Provides semantic activation of WI entries based on vector similarity
  *
  * @author VectFox Team
- * @version 1.0.0
  * ============================================================================
  */
 
@@ -90,7 +89,7 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
     const semanticEntries = [];
     // Scores are 0-1 similarities on EVERY path: Vectra returns cosine, the
     // Qdrant native hybrid attaches cosine via its dense-lookup gate (see
-    // backends/qdrant.js::hybridQuery — raw RRF fused scores are ≈0.016 and
+    // src/features/vector-backend/qdrant.js::hybridQuery — raw RRF fused scores are ≈0.016 and
     // made this threshold drop everything), and client-side hybrid returns the
     // 0-1 blend from hybrid-search.js. The 0.8 discount below compensates for
     // the mild depression hybrid blending applies relative to pure cosine.
@@ -232,7 +231,7 @@ export async function getSemanticWorldInfoEntries(recentMessages, activeEntries,
  *
  * Read-only re-derivation from the same metadata the activation chain reads —
  * shouldCollectionActivate returns a bare boolean and this deliberately does not
- * change that contract. Kept in sync with core/collection-metadata.js's GATE
+ * change that contract. Kept in sync with src/features/collections/collection-metadata.js's GATE
  * order: lock (master switch) → triggers → conditions.
  *
  * @param {string} registryKey
@@ -701,7 +700,7 @@ async function handleGenerationStarted(type, options, dryRun) {
         }
 
         // Same contract as the sibling ChunkBase/EventBase pipelines — see
-        // core/bounded-retrieval.js. Timeout or an unexpected throw above the
+        // src/features/vector-backend/bounded-retrieval.js. Timeout or an unexpected throw above the
         // per-collection catches means the
         // whole turn loses lorebook memory — runBoundedRetrieval logs and toasts it
         // and hands back the fallback, so a failure and a genuinely empty corpus

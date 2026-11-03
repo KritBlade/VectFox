@@ -13,7 +13,6 @@
  * imported directly. Otherwise, user is warned to switch settings.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -42,9 +41,8 @@ import { log } from '../../sillytavern/log.js';
 // HELPERS
 // ============================================================================
 
-// Scope resolution lives in core/collection-metadata.js as `getEffectiveScope`
-// (formerly duplicated here as a private `_inferScope`). Single source of truth
-// — see Doc/collection_helper.md (scope handling).
+// Scope resolution: getEffectiveScope in src/features/collections/collection-metadata.js, the single
+// source of truth — see Doc/collection_helper.md (scope handling).
 
 // ============================================================================
 // CONSTANTS
@@ -56,10 +54,9 @@ const EXPORT_VERSION = '1.0.0';
 /** File extension for VectFox exports */
 export const EXPORT_FILE_EXTENSION = '.vectfox.json';
 
-// Backend-name helpers (normalize / remap) used to live here as private copies;
-// they're now canonicalized in core/collection-ids.js (`normalizeBackendForId`,
-// `remapCollectionIdToBackend`). Importing from there keeps a single source of
-// truth — see Doc/collection_helper.md (single-source-of-truth rule).
+// Backend-name helpers (normalizeBackendForId, remapCollectionIdToBackend) come from
+// src/shared/collection-ids.js, the single source of truth — see Doc/collection_helper.md
+// (single-source-of-truth rule).
 
 // ============================================================================
 // EXPORT FUNCTIONS
@@ -399,7 +396,7 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
     const model = getModelFromSettings(settings);
 
     // Batch to avoid 413. Qdrant accepts up to 32 MB per request; live ingestion uses 100
-    // (backends/qdrant.js). Per-batch overhead (collection metadata GETs + wait=true index)
+    // (src/features/vector-backend/qdrant.js). Per-batch overhead (collection metadata GETs + wait=true index)
     // dominates total time, so larger batches roughly amortize that cost. 100 chunks ≈ 5 MB
     // for 4096-dim vectors — well under the limit.
     const BATCH_SIZE = 100;
@@ -412,7 +409,7 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
             metadata: c.metadata || {},
         };
         // Qdrant's A3 hybrid path needs a sparse vector per point (text_sparse named slot).
-        // Mirror backends/qdrant.js:insertVectorItems: tokenize text + the keyword suffix
+        // Mirror src/features/vector-backend/qdrant.js:insertVectorItems: tokenize text + the keyword suffix
         // so BM25 hits match what live ingestion would produce. Live Qdrant ingestion
         // stores `text` WITH that suffix already, so text read back from a Qdrant
         // collection is tokenized as-is; the suffix is appended only when missing. The
@@ -487,7 +484,7 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
         }
     }
 
-    // Stale-stats fix: this writer bypasses core-vector-api.js's insertVectorItems
+    // This writer bypasses vector-api.js's insertVectorItems
     // (it hits /chunks/insert directly with pre-computed vectors), so the cache
     // invalidation in that path doesn't fire here. Clear corpus-IDF cache so the
     // next BM25 query rebuilds with the just-inserted chunks counted in df.

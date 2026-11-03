@@ -77,7 +77,7 @@ export async function runBoundedRetrieval(promise, { contextLabel, sourceName, t
         // read it as "the extension is broken" (which is how it was reported). The
         // timeout carries no timings — the request is still in flight — so the
         // attribution has to come from configuration. See
-        // core/embedding-latency-warning.js for the measurements behind it.
+        // src/features/embedding/embedding-latency-warning.js for the measurements behind it.
         //
         // Name the budget too: until it became a setting, users hitting this had
         // nothing to change even once they believed the diagnosis (issue #16).

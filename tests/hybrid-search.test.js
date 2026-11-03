@@ -5,8 +5,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// SillyTavern host modules transitively pulled in via core/hybrid-search.js
-// → core/collection-ids.js → ../../../../extensions.js, etc. Without these
+// SillyTavern host modules transitively pulled in via src/features/vector-backend/hybrid-search.js
+// → src/shared/collection-ids.js → ../../../../extensions.js, etc. Without these
 // mocks vite's import-analysis fails and the whole file refuses to load.
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },

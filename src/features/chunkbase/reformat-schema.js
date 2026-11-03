@@ -8,7 +8,7 @@
  * Pure, no ST dependencies — same convention as glossary-extractor.js — so
  * this can be unit-tested without mocking SillyTavern globals.
  *
- * DELIBERATELY INDEPENDENT from core/eventbase-schema.js: the record shape is
+ * DELIBERATELY INDEPENDENT from src/features/eventbase/eventbase-schema.js: the record shape is
  * EventBase-*inspired* (a single self-tagged enum field carries the "is this
  * an entity or a topic" branch, same trick as EVENT_TYPES), but nothing here
  * imports from EventBase — this feature must stand on its own so a bug or

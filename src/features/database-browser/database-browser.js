@@ -6,7 +6,6 @@
  * Main entry point for browsing, managing, and editing all vector collections
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -612,7 +611,7 @@ function bindBrowserEvents() {
 
     // H-3 mitigation: reject oversized files at the picker before any read
     // commitment. Cap (MAX_IMPORT_FILE_BYTES) is defined once in
-    // core/collection-export.js and shared between this PNG picker and the
+    // src/features/collections/collection-export.js and shared between this PNG picker and the
     // JSON file-reader path — keeps the two import paths in sync if the
     // cap is ever retuned.
     if (file.size > MAX_IMPORT_FILE_BYTES) {

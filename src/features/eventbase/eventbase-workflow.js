@@ -64,7 +64,7 @@ export function getAutoSyncWindowSize(settings) {
  * Returns `messages.length` (no lag) when the feature is off. This is the SINGLE
  * source of truth shared by the window-builder, the quick-exit, and the LED /
  * counter so "fully synced" means "all committed windows done", not "the active
- * turn done". See plans/executed/autosync-settle-lag.md.
+ * turn done". See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
  *
  * @param {object[]} messages - filtered chat messages
  * @param {object}   settings - VectFox settings
@@ -236,7 +236,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Content / backfill (isAutoSync=false) covers the whole chat. The boundary is
     // the SINGLE source of truth for "what is eligible", reused by the LED/counter
     // (see getChatAutoSyncStatus) so "fully synced" tracks committed windows, not
-    // the active turn. See plans/executed/autosync-settle-lag.md.
+    // the active turn. See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const commitBoundary = isAutoSync ? getCommitBoundary(messages, settings) : messages.length;
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
 
@@ -260,7 +260,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // the user changes window_size before enabling auto-sync (the fingerprints
     // are window-size-dependent and silently miss after a size change).
     //
-    // Marker is stamped by ui-manager.js when auto-sync is enabled. See
+    // Marker is stamped by settings-panel.js when auto-sync is enabled. See
     // stampAutoSyncMarker in eventbase-store.js for the placement logic.
     // Only applies to auto-sync runs; manual Vectorize Content / backfill
     // intentionally ignores the marker so the user can refill historical gaps.
@@ -399,7 +399,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     if (isAutoSync) log.lifecycle(`[VectFox AutoSync] running — messages=${messages.length}, windowsToExtract=${windowsToExtract}, popupShown=${popupAllowed}`);
 
     // -----------------------------------------------------------------------
-    // Pipelined extract/insert loop (see plans/eventbase-extract-insert-pipeline.md).
+    // Pipelined extract/insert loop (see InternalProject/Vectfox/plans/executed/eventbase-extract-insert-pipeline.md).
     //
     // Today's serial barrier was: dispatch 8 extracts → await all → await insert
     // → next 8. The slow tail of the extract phase + the insert phase were
@@ -604,7 +604,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 // attempts in parallel. Outer retry would just trigger another 60s of identical
                 // hedging — same upstream, same routing pool, no new information. Throw up to
                 // the coordinator so user can press Continue later when conditions improve.
-                // See plans/embedding-resilience-hedge-and-diagnostics.md §6.5.
+                // See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.5.
                 if (err?.isHedgeFatal === true) throw err;
                 lastErr = err;
                 log.warn(`[EventBase] Insert batch starting at window ${batchFirstIdx} attempt ${attempt}/3 failed: ${err?.message || err}`);
@@ -1397,7 +1397,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     // actually extracts. Without this, the deliberately-unextracted active turn
     // would pin the LED on "partial" forever. After a manual full vectorize the
     // committed slice's last window is also extracted, so the LED is still green —
-    // both modes stay consistent. See plans/executed/autosync-settle-lag.md.
+    // both modes stay consistent. See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const commitBoundary = getCommitBoundary(messages, settings);
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
     const fullyVectorized = isChatFullyVectorized(committedMessages, settings, uuid, getAutoSyncWindowSize(settings), 0);

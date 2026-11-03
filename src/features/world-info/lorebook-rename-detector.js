@@ -6,7 +6,7 @@
  * no longer matches any lorebook in ST (renamed or deleted). Shows a blocking
  * popup so the user can re-vectorize before stale content is injected.
  *
- * Popup close + generation-stop pattern mirrors core/tokenizer-lock.js.
+ * Popup close + generation-stop pattern mirrors src/features/vector-backend/tokenizer-lock.js.
  * ============================================================================
  */
 
@@ -28,7 +28,7 @@ async function getWorldNames() {
 
 /**
  * Wait for ST's dialog.popup fade-out before opening anything behind it.
- * Mirrors the same function in core/tokenizer-lock.js — the popup resolves
+ * Mirrors the same function in src/features/vector-backend/tokenizer-lock.js — the popup resolves
  * immediately on button click but the CSS close animation runs for ~300ms.
  */
 async function waitForPopupsClosed(maxWaitMs = 1500) {

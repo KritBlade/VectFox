@@ -2,7 +2,7 @@
  * settings-migration-embedding-provider-key.test.js — Phase B `source` → `embedding_provider` rename.
  *
  * Same crash-safety / idempotency contract as Phase A
- * (plans/settings-naming-convention-migration.md §9, R2–R4, R8):
+ * (InternalProject/Vectfox/plans/executed/settings-naming-convention-migration.md §9, R2–R4, R8):
  *   - old → new (copy-before-delete)
  *   - already-new → no-op
  *   - both-present → keep new, drop old (don't-clobber)

@@ -16,7 +16,7 @@
  *   - Built lazily on the first getCorpusStats(collectionId) call after page
  *     load OR after the entry is invalidated.
  *   - Cached in module-level Map for the rest of the session.
- *   - Auto-invalidated by core-vector-api.js's insert / delete / purge paths
+ *   - Auto-invalidated by vector-api.js's insert / delete / purge paths
  *     and by collection-export.js's import path. Manual clear is also
  *     available via clearCorpusStatsCache(collectionId|undefined).
  *
@@ -39,7 +39,7 @@ const FETCH_LIMIT = 10000;
 
 /**
  * Resolve the plugin's `backend` field from the user's vector_backend setting.
- * Matches what core-vector-api.js sends for chunks/list.
+ * Matches what vector-api.js sends for chunks/list.
  */
 function _pluginBackendName(settings) {
     const b = String(settings?.vector_backend || 'standard').toLowerCase();

@@ -1,5 +1,5 @@
 /**
- * Tests for core/retrieval-budget.js — how many ms one turn may spend looking
+ * Tests for src/shared/retrieval-budget.js — how many ms one turn may spend looking
  * things up.
  *
  * The bug these pin (GitHub issue #16): Agent Mode's planner timeout defaulted

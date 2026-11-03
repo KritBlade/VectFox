@@ -4,9 +4,9 @@
  * ============================================================================
  * Calls an LLM (OpenRouter or vLLM) to restructure Document/URL/Wiki source
  * text into structured, entity-tagged reformatted chunks (see
- * core/reformat-schema.js for the record shape).
+ * src/features/chunkbase/reformat-schema.js for the record shape).
  *
- * Provider calls and LLM-output JSON parsing come from core/llm-provider-call.js
+ * Provider calls and LLM-output JSON parsing come from src/features/llm-provider/llm-provider-call.js
  * (postChatCompletion + parseJsonArrayFromLlm), shared with VectFox's other LLM
  * features; nothing here imports EventBase. The reformat-specific policy stays
  * here: config resolution, per-batch retry (retry() from src/shared/retry.js —
@@ -445,7 +445,7 @@ export async function reformatDocument({ text, contentType, settings, onProgress
 }
 
 // ---------------------------------------------------------------------------
-// Oversized-entity fallback (used at Accept time by ui/reformat-review.js)
+// Oversized-entity fallback (used at Accept time by src/features/chunkbase/reformat-review.js)
 // ---------------------------------------------------------------------------
 
 /**

@@ -1,8 +1,8 @@
 /**
- * Unit tests for prepareLorebookContent (core/lorebook-content-preparer.js)
+ * Unit tests for prepareLorebookContent (src/features/chunkbase/lorebook-content-preparer.js)
  *
  * Focus: per_entry title inclusion (PR #2 fix). Tests the four minimum cases
- * from plans/semantic-wi-activation-pr1-followups.md §Follow-up 4, plus
+ * from InternalProject/Vectfox/plans/executed/semantic-wi-activation-pr1-followups.md §Follow-up 4, plus
  * combined-strategy regression guards.
  *
  * The function is tested directly from its extracted module (no ST globals

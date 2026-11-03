@@ -5,7 +5,6 @@
  * Core logic for vectorizing chat messages and retrieving relevant context
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -133,7 +132,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
     const backend = getRegistryBackend(settings?.vector_backend);
     const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
     // Metadata is keyed by the registry-key form ("backend:id"), matching the
-    // write paths (eventbase-workflow.js, content-vectorization.js, ui-manager.js).
+    // write paths (eventbase-workflow.js, content-vectorization.js, settings-panel.js).
     if (log.enabled('lifecycle')) {
         const flagPerCollection = eventbaseCollections.map(({ registryKey }) => `${registryKey}=${isCollectionAutoSyncEnabled(registryKey)}`);
         log.lifecycle(`[AutoSync] uuid=${uuid}, backend=${backend}, eventbaseCollections=${eventbaseCollections.length}, autoSyncFlags=[${flagPerCollection.join(', ')}]`);
@@ -979,7 +978,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             if (queryText) {
                 const { runEventBaseRetrieval } = await import('../eventbase/index.js');
                 // On timeout the message proceeds WITHOUT EventBase injection and
-                // the user is told why — see core/bounded-retrieval.js for the
+                // the user is told why — see src/features/vector-backend/bounded-retrieval.js for the
                 // timeout/degrade/surface contract shared by every retrieval path.
                 //
                 // This is the ONE path that can route through Agent Mode, whose
@@ -1110,7 +1109,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             toastr.info(`Retrieving context from ${activeCollections.length} collection(s)...`, 'VectFox Retrieval');
         }
 
-        // Same contract as EventBase above (core/bounded-retrieval.js): on failure
+        // Same contract as EventBase above (src/features/vector-backend/bounded-retrieval.js): on failure
         // we proceed with no chunks this turn and say so.
         let chunks = await runBoundedRetrieval(
             queryAndMergeCollections(activeCollections, queryText, settings, chat),

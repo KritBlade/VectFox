@@ -918,13 +918,6 @@ async function evaluateAdvancedConditions(meta, context, collectionId) {
  * lock is inert by design — the user has described what should activate it but
  * has not switched it on.
  *
- * This replaced an OR chain in which a trigger match returned true "regardless
- * of lock state". That inverted the intended model twice over: an unlocked
- * collection could activate on a keyword (the leak the isOwn guard in
- * core/world-info-integration.js was added to contain), and — because a
- * non-matching trigger fell THROUGH to the lock check — a trigger on a locked
- * collection was a no-op that could never gate anything. Both are fixed here.
- *
  * @param {string} collectionId Collection identifier
  * @param {object} context Search context (from buildSearchContext) — must carry
  *   recentMessages for trigger matching, plus currentChatId / currentCharacterId

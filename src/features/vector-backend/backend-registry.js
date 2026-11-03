@@ -6,7 +6,6 @@
  * their query, insert, delete and error metrics.
  *
  * @author VectFox
- * @version 2.2.0-alpha
  * ============================================================================
  */
 

@@ -6,7 +6,6 @@
  * Keeps backends small, focused, and swappable.
  *
  * @author VectFox
- * @version 2.2.0-alpha
  * ============================================================================
  */
 
@@ -69,7 +68,7 @@ export class VectorBackend {
      * Embed a query text once, so every request of the query (its routes and
      * fallbacks) reuses the vector instead of re-embedding the text. The default
      * returns null: the backend can only embed per request, server-side.
-     * See core/core-vector-api.js getQueryVector.
+     * See src/features/vector-backend/vector-api.js getQueryVector.
      * @param {string} searchText
      * @param {object} settings
      * @returns {Promise<number[]|null>}
@@ -101,7 +100,7 @@ export class VectorBackend {
      * @param {object} settings
      * @param {number[]|null} [queryVector] Optional pre-computed embedding;
      *   when provided, implementations should query by vector instead of
-     *   re-embedding searchText. Callers (core-vector-api.js:1071) pass this
+     *   re-embedding searchText. queryMultipleCollections() in vector-api.js passes it
      *   on the vector-first retrieval path; null on the text-first path.
      * @returns {Promise<object[]>}
      */

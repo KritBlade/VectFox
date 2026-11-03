@@ -6,7 +6,6 @@
  * Import this anywhere you need provider information.
  *
  * @author VectFox
- * @version 2.0.0
  * ============================================================================
  */
 
@@ -101,7 +100,7 @@ export function getModelField(providerId) {
  * model-bucket mismatches (chunks land under model='' while queries look up
  * the real name → 0-result silent failures).
  *
- * The query path in backends/standard.js + backends/qdrant.js already routes
+ * The query path in src/features/vector-backend/standard.js + src/features/vector-backend/qdrant.js already routes
  * through this — keep insert/list/import paths in sync by calling it here.
  *
  * @param {object} settings - VectFox settings

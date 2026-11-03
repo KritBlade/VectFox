@@ -6,7 +6,6 @@
  * Strips HTML, metadata blocks, and custom tags before chunking.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 

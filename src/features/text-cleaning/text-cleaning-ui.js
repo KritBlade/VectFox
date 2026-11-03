@@ -6,7 +6,6 @@
  * Actions panel and from the content vectorizer.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -346,7 +345,7 @@ function bindEvents() {
 
                     // Surface ReDoS-guard / length-cap skips so the user knows
                     // not every pattern in the file landed (see importPatterns
-                    // in core/text-cleaning.js for the skip rules).
+                    // in src/features/text-cleaning/text-cleaning.js for the skip rules).
                     if (Array.isArray(result.warnings) && result.warnings.length > 0) {
                         for (const w of result.warnings) {
                             toastr.warning(w, 'VectFox: Pattern skipped', { timeOut: 8000 });

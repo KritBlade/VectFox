@@ -17,7 +17,6 @@
  * Falls back to storing as tEXt (base64, uncompressed) if compression unavailable.
  *
  * @author VectFox
- * @version 1.0.0
  * ============================================================================
  */
 

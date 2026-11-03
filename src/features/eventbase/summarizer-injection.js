@@ -287,7 +287,7 @@ export async function buildSummarizerInjection(settings) {
         // random vs recency) BEFORE the plugin sorts the page by index — so any limit
         // SMALLER than the collection returns an arbitrary sample and "sort + top-N"
         // misses recent events (the database browser sidesteps this by fetching with
-        // NO limit, see ui/database-browser.js doLoad(null)). 50000 is a ceiling that
+        // NO limit, see src/features/database-browser/database-browser.js doLoad(null)). 50000 is a ceiling that
         // never truncates a realistic per-chat EventBase collection (O(hundreds–low
         // thousands)). Cost scales with ACTUAL collection size, not this ceiling.
         // Without the Similharity plugin the Standard backend returns hashes only

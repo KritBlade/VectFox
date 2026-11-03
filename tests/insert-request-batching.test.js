@@ -1,5 +1,5 @@
 /**
- * Unit tests for how insertVectorItems (core/core-vector-api.js) splits items
+ * Unit tests for how insertVectorItems (src/features/vector-backend/vector-api.js) splits items
  * into insert requests.
  *
  * Local GPU sources send one item per request whatever insert_batch_size says,
@@ -8,7 +8,7 @@
  * with the settings a fresh install has, because insert_batch_size is always
  * set there.
  *
- * Isolation: core-vector-api.js reaches ST modules that don't resolve under
+ * Isolation: vector-api.js reaches ST modules that don't resolve under
  * vitest, so the whole import graph is stubbed. The rate limiter's execute is
  * replaced by a pass-through spy so a test asserts routing, never waits.
  */

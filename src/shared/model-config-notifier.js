@@ -3,7 +3,7 @@
  * MODEL-CONFIG ERROR NOTIFIER
  * ============================================================================
  * Shared UX for "the configured model is no longer valid" failures — the errors
- * tagged with `code === 'invalid_model_config'` by core/model-http-errors.js.
+ * tagged with `code === 'invalid_model_config'` by src/shared/model-http-errors.js.
  *
  * Every model path can hit this (EventBase extraction, summarizer, agent mode,
  * embedding), so the user-facing toast lives here once instead of being
@@ -184,7 +184,7 @@ export function notifyRetrievalFailure(contextLabel, sourceName, detail) {
         toastr.error(
             `Couldn't search "${sourceName}" this turn, so none of its content was injected. `
             // 320, not 200: a timeout now carries an explanation of the likely
-            // cause (see core/bounded-retrieval.js) and 200 clipped it mid-sentence.
+            // cause (see src/features/vector-backend/bounded-retrieval.js) and 200 clipped it mid-sentence.
             + `The message still sent. Details: ${message.slice(0, 320)}`,
             `VectFox — ${contextLabel} retrieval failed`,
             { timeOut: 12000, extendedTimeOut: 4000 },

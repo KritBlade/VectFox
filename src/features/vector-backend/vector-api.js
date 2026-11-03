@@ -164,20 +164,20 @@ function chunkArray(array, size) {
  * Why it works: routing affinity at OpenRouter and similar gateways is per-HTTP-connection.
  * Once your traffic lands on a stuck upstream, the SAME request stays stuck until ST's
  * 120s timeout fires. A NEW connection at t=15s gets a fresh routing decision and often
- * lands on a healthy upstream — confirmed 2026-05-30 (attempt 1 hung 120s, identical
- * payload on attempt 2 succeeded in 1.1s).
+ * lands on a healthy upstream: an attempt that hung for 120s has succeeded in 1.1s when
+ * the identical payload was resent.
  *
  * Safety: same input → deterministic embedding → same hash → Qdrant upsert idempotent on
  * point ID. Whichever attempt wins, the data is correct. Late-arriving losers harmlessly
  * upsert the same point with identical data.
  *
  * Two triggers, one ordered sequence of hedges:
- *   - the fixed schedule (t = i × thresholdMs) covers the case this was built for, an
- *     attempt that hangs rather than returning;
+ *   - the fixed schedule (t = i × thresholdMs) covers an attempt that hangs rather than
+ *     returning;
  *   - an attempt that FAILS brings the next hedge forward immediately, because the
  *     schedule measures slowness and a failure is not slowness. Without this a fast
- *     failure just idles until its slot (measured 2026-08-04: a 0.7s insert failure
- *     waited 14.3s for t=15s).
+ *     failure just idles until its slot (a 0.7s insert failure would wait 14.3s for
+ *     t=15s).
  * Attempts still cap at maxHedges + 1 either way.
  *
  * Hedge-fatal: if all (maxHedges + 1) attempts fail, throw an error with
@@ -185,7 +185,7 @@ function chunkArray(array, size) {
  * one fails, or at the hard cutoff at (maxHedges + 1) × thresholdMs if attempts are
  * still in flight. The shouldRetry filter in RETRY_CONFIG checks this flag and skips
  * retrying — the user can resume manually via Continue button. See
- * plans/embedding-resilience-hedge-and-diagnostics.md §6.
+ * InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
  *
  * @param {Function} fn - Async function to call (each invocation must be safe to repeat)
  * @param {number} thresholdMs - Time between attempts (e.g., 15000)
@@ -349,7 +349,7 @@ const RETRY_CONFIG = {
         // immediate outer retry would just trigger another 60s of hedge —
         // upstream is genuinely broken for our payload. Throw straight up to
         // the coordinator so the user can press Continue later. See
-        // plans/embedding-resilience-hedge-and-diagnostics.md §6.5.
+        // InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.5.
         if (error?.isHedgeFatal === true) return false;
         // Catch AbortSignal.timeout()'s DOMException ("TimeoutError" / message
         // "signal timed out") before the keyword fallback. The string "timed
@@ -479,7 +479,7 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
             const configuredBatchSize = settings.insert_batch_size || 50;
             const hasRateLimit = !isLocalGpuSource && settings.rate_limit_calls > 0;
 
-            // Parallel-split insert — see plans/executed/embedding-resilience-hedge-and-diagnostics.md §5.
+            // Parallel-split insert — see InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §5.
             // Runs only when `vector_group_embedding_call` (default checked) is unchecked, the
             // provider is not local, and the embedding API rate limit is off — the rate limit
             // needs serial execution through dynamicRateLimiter. Each item then becomes its own
@@ -508,7 +508,7 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
             // Skipped for local providers where opening a new HTTP connection wouldn't
             // change routing (Ollama / transformers / llama.cpp / KoboldCpp all land on
             // the same single endpoint regardless of connection identity).
-            // See plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
+            // See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
             const rawHedgeAfterMs = Number(settings?.vector_hedge_after_ms) || 0;
             const HEDGE_MAX_COUNT = 3;
             const hedgeEnabled = (
@@ -985,10 +985,10 @@ async function scoreResults(resultsForBoost, searchText, topK, settings, collect
     // Hardening: this is an *enhancement* on top of valid vector results. Any
     // failure — module load error, network blip, plugin 5xx, tokenizer crash —
     // must NOT discard the ANN results. We catch every failure mode, log it
-    // clearly, and continue with corpusStats=null (= local-IDF BM25, the
-    // pre-toggle default). Without this, a single ./corpus-stats.js import
-    // error bubbles up through scoreResults → queryCollection →
-    // eventbase-retrieval.js:400 catch, which discards every match.
+    // clearly, and continue with corpusStats=null (= local-IDF BM25). Without
+    // this, a single ./corpus-stats.js import error bubbles up through
+    // scoreResults → queryCollection → the per-query catch in retrieveEvents
+    // (eventbase-retrieval.js), which discards every match.
     let corpusStats = null;
     if (settings?.bm25_use_corpus_idf === true && collectionId) {
         try {

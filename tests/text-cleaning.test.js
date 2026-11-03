@@ -1,5 +1,5 @@
 /**
- * Tests for core/text-cleaning.js.
+ * Tests for src/features/text-cleaning/text-cleaning.js.
  *
  * stripReasoningBlocks / stripGameSystemBlocks: the agentic-planner contract —
  * reasoning, planning and engine blocks are removed so the planner reads

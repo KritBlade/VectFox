@@ -10,7 +10,6 @@
  * - "text" strategies (adaptive, paragraph, section, sentence) = show size controls where applicable
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -159,24 +158,18 @@ export const CONTENT_TYPES = {
             autoSync: true,
         },
 
-        // 2026-05-24 cleanup: chunkingStrategies / defaultStrategy / the populated
-        // defaults object are all GONE. Chat history is exclusively processed by
-        // EventBase (LLM event extraction) — no chunking strategy, no chunk size,
-        // no batch size applies. The production gates in ui/content-vectorizer.js
-        // (startVectorization / continueVectorization / previewChunks) intercept
-        // chat → EventBase before any chunking-config reader could fire.
+        // Chat has no chunking config: chat history goes only through EventBase (LLM event
+        // extraction), so no chunking strategy, chunk size or batch size applies. The gates in
+        // src/features/chunkbase/content-vectorizer.js (startVectorization / continueVectorization /
+        // previewChunks) send chat to EventBase before any chunking-config reader runs.
         //
-        // `defaults: {}` is kept INTENTIONALLY as a defensive shim. Some readers
-        // (e.g. content-vectorization.js:98 / content-vectorizer.js:2280) access
-        // `type.defaults.chunkSize` without optional chaining. The empty object
-        // ensures `undefined` is returned instead of TypeError IF someone ever
-        // manually modifies code to bypass the production gates and route chat
-        // through the chunk pipeline. Same spirit as the `case 'chat': throw`
-        // tripwire in generateCollectionId() — defense in depth.
+        // `defaults: {}` stays on purpose: some readers access `type.defaults.chunkSize` without
+        // optional chaining, so a caller that bypassed the gates and routed chat through the chunk
+        // pipeline gets `undefined` instead of a TypeError. Same idea as the `case 'chat': throw`
+        // tripwire in generateCollectionId().
         //
-        // Do NOT re-add chunkSize / batchSize / chunkingStrategies here. If you
-        // need chat-specific tuning, it belongs in EventBase's own settings
-        // (eventbase_window_size, eventbase_window_overlap, etc.).
+        // Do NOT add chunkSize / batchSize / chunkingStrategies here. Chat-specific tuning belongs in
+        // EventBase's own settings (eventbase_window_size, eventbase_window_overlap, etc.).
         defaults: {},
 
         sourceType: 'chat',

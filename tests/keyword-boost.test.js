@@ -262,7 +262,7 @@ describe('extractTextKeywords', () => {
 
     it('should filter out stopwords', () => {
         // Use words that are actually in the project stopword set
-        // (core/stop-words.js). 'will' is NOT a stopword here, so asserting it
+        // (src/features/keyword-search/stop-words.js). 'will' is NOT a stopword here, so asserting it
         // gets filtered was always wrong; 'within' is.
         const text = 'The wizard is going to the castle within the dragon lair.';
         const keywords = extractTextKeywords(text);
@@ -509,7 +509,7 @@ describe('extractBM25Keywords', () => {
     });
 
     it('should filter out stopwords', () => {
-        // 'will' is NOT in the project stopword set (core/stop-words.js); 'within'
+        // 'will' is NOT in the project stopword set (src/features/keyword-search/stop-words.js); 'within'
         // is. Assert on words that are actually treated as stopwords.
         const text = 'The wizard is going to the castle within the dragon lair and tower.';
         const keywords = extractBM25Keywords(text, { level: 'aggressive' });

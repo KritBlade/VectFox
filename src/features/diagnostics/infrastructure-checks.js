@@ -5,7 +5,6 @@
  * Backend, provider, and plugin availability checks
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -316,11 +315,9 @@ export async function checkQdrantBackend(settings) {
             host: settings.qdrant_host || '127.0.0.1',
             port: settings.qdrant_port || 6333,
             url: isCloud ? settings.qdrant_url : null,
-            // Plugin resolves the key server-side from secret_state slot
-            // 'api_key_qdrant' (post-2026-05-26 migration). The transition-
-            // fallback for users still on plaintext is handled in
-            // backends/qdrant.js's normal init path, not here — diagnostics
-            // run independently and shouldn't drag the legacy reader along.
+            // The plugin reads the key server-side from the secret_state slot 'api_key_qdrant'.
+            // A plaintext key not yet moved there is handled by QdrantBackend's normal init, not
+            // here — diagnostics run on their own and do not read the plaintext key.
             apiKey: null,
         };
 

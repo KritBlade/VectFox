@@ -4,7 +4,7 @@
  * ProgressTracker — mobile full-screen vs desktop floating panel.
  *
  * Covers the mobile path exercised by the auto-sync "Catch up now" backfill
- * (ui-manager.js → backfillCurrentChatWithProgress), which the Playwright e2e
+ * (settings-panel.js → backfillCurrentChatWithProgress), which the Playwright e2e
  * cannot reach: that suite runs a desktop viewport with no touch/mobile project,
  * so `matchMedia('(hover: none) and (pointer: coarse)')` is always false there.
  *

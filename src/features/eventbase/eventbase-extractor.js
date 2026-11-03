@@ -28,12 +28,11 @@ import { log } from '../../sillytavern/log.js';
 
 // Cap each message's reasoning (chain-of-thought) fed to the extractor as a
 // date/time/location fallback. Tunable — raise if a game places the scene recap
-// deeper in the reasoning. 100 was too small for the observed format, which
-// leads with an "INPUT" section and only states Time/Location in section 2
-// ("STORY") around char ~95-165 (see Doc/log.txt diagnosis 2026-06-20); 600
-// clears that with margin while still bounding pathologically long reasoning.
+// deeper in the reasoning. One observed format leads with an "INPUT" section and
+// states Time/Location only in section 2 ("STORY"), around char ~95-165; 600 clears
+// that with margin while still bounding pathologically long reasoning.
 // Cost is a few hundred input tokens per reasoning-bearing message.
-// See plans/eventbase-scene-context-from-reasoning.md.
+// See InternalProject/Vectfox/plans/executed/eventbase-scene-context-from-reasoning.md.
 const REASONING_FEED_CHAR_CAP = 600;
 
 // ---------------------------------------------------------------------------
@@ -55,7 +54,7 @@ const DEFAULT_TIMEOUT_MS = 60000;
  */
 // _getOpenRouterApiKey lived inline here pre-H-1; now an alias for the
 // canonical single-key helper. ONE OpenRouter key shared across
-// embedding/summarize/agentic — see core/api-keys.js docstring.
+// embedding/summarize/agentic — see src/shared/api-keys.js docstring.
 const _getOpenRouterApiKey = getOpenRouterApiKey;
 
 // ---------------------------------------------------------------------------
@@ -90,7 +89,7 @@ function _mapEventBaseError(e, windowIndex) {
 // and suppress valid array responses) — we simply omit responseFormat below.
 
 // (Reply extraction, empty-reply classification, and JSON-array parsing now
-// live in core/llm-provider-call.js — postChatCompletion + parseJsonArrayFromLlm.)
+// live in src/features/llm-provider/llm-provider-call.js — postChatCompletion + parseJsonArrayFromLlm.)
 
 // ---------------------------------------------------------------------------
 // Script detection (lightweight)

@@ -1,5 +1,5 @@
 /**
- * Tests for warnIfEmbeddingSlow (core/embedding-latency-warning.js).
+ * Tests for warnIfEmbeddingSlow (src/features/embedding/embedding-latency-warning.js).
  *
  * Guards the contract that lets this be called unconditionally on every query:
  *   - absent timings (older Similharity plugin) are a silent no-op, NOT a crash,
@@ -9,7 +9,7 @@
  *
  * The no-toast rule is load-bearing (GitHub issue #12). A slow-but-successful
  * embed costs the user nothing — the results arrive. The case that actually
- * costs them memory is the retrieval timing out, and core/bounded-retrieval.js
+ * costs them memory is the retrieval timing out, and src/features/vector-backend/bounded-retrieval.js
  * already raises a red error toast for that, naming this same provider. An
  * earlier orange toast on the success path just trained users to dismiss popups.
  */

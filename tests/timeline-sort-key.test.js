@@ -13,7 +13,7 @@
  * older chunks that predate the field, so a database holding a MIX of old and
  * new chunks stays one coherent sequence instead of splitting into two blocks.
  * That fallback selector is mirrored here (chunkTimelineSortValue lives in
- * ui/chunk-visualizer.js, which pulls SillyTavern host modules and can't be
+ * src/features/database-browser/chunk-visualizer.js, which pulls SillyTavern host modules and can't be
  * imported under vitest) — it uses the SAME exported packTimelineSortKey, so the
  * packing math itself is covered directly.
  */
@@ -21,7 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import { packTimelineSortKey, TIMELINE_SORT_KEY_WINDOW_STRIDE } from '../src/features/eventbase/eventbase-schema.js';
 
-// Mirror of ui/chunk-visualizer.js chunkTimelineSortValue().
+// Mirror of src/features/database-browser/chunk-visualizer.js chunkTimelineSortValue().
 const sortValue = (meta) => {
     if (typeof meta.timeline_sort_key === 'number') return meta.timeline_sort_key;
     const messageNumber = meta.source_window_start ?? meta.source_window_end ?? meta.index ?? 0;

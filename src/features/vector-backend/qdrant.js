@@ -24,7 +24,6 @@
  * Requires either a local Qdrant instance or Qdrant Cloud account.
  *
  * @author VectFox
- * @version 3.2.0
  * ============================================================================
  */
 
@@ -83,7 +82,7 @@ function _embedTimeoutHint(settings) {
 }
 
 // NOTE: `vectfox_main` is kept verbatim for on-disk compatibility
-// with existing user Qdrant data. Do not rebrand. See plans/vectfox-rename-plan.md §1.5.
+// with existing user Qdrant data. Do not rebrand. See InternalProject/Vectfox/plans/executed/vectfox-rename-plan.md §1.5.
 const MULTITENANCY_COLLECTION = 'vectfox_main';
 
 
@@ -105,7 +104,7 @@ function getPluginProviderParams(settings) {
                 .replace(/\/embeddings$/, '');
             // No apiKey passed: ST's vLLM embedding handler reads
             // SECRET_KEYS.VLLM server-side via setAdditionalHeadersByType.
-            // Same rationale as backends/standard.js — see comment there.
+            // Same rationale as src/features/vector-backend/standard.js — see comment there.
             break;
         // case 'llamacpp': params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.LLAMACPP]; break;
         // case 'koboldcpp': params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.KOBOLDCPP]; break;
@@ -551,16 +550,10 @@ export class QdrantBackend extends VectorBackend {
      * Multi-collection query.
      *
      * `queryVector = null` matches StandardBackend.queryMultipleCollections's
-     * signature. Without this parameter, the `if (queryVector)` reference
-     * below threw a ReferenceError (caught by the per-collection try/catch
-     * and silently swallowed as empty results) — see plans/review-fix.md C-1
-     * for the 2026-05 audit that surfaced this. The bug was qdrant-only;
-     * standard backend always had the param.
-     *
-     * Caller at core/core-vector-api.js:1071 passes queryVector as the 6th
-     * positional arg when the upstream path generated an embedding —
-     * without the parameter, the embedding was effectively ignored and
-     * every collection returned 0 results.
+     * signature. queryMultipleCollections() in src/features/vector-backend/vector-api.js
+     * passes queryVector as the 6th positional arg when the upstream path generated an
+     * embedding; each collection is then queried by that vector instead of re-embedding
+     * searchText.
      */
     async queryMultipleCollections(collectionIds, searchText, topK, threshold, settings, queryVector = null) {
         const results = {};
@@ -829,7 +822,7 @@ export class QdrantBackend extends VectorBackend {
 
     /**
      * Embed a query text once so every request of the query can reuse the vector
-     * (see core/core-vector-api.js getQueryVector).
+     * (see src/features/vector-backend/vector-api.js getQueryVector).
      * @param {string} searchText
      * @param {object} settings - VectFox settings
      * @returns {Promise<number[]>}
@@ -849,7 +842,7 @@ export class QdrantBackend extends VectorBackend {
      * fusion order; the raw fused score is kept as `fusionScore`.
      *
      * Throws on failure — it does NOT degrade to vector-only itself. Fallback for
-     * the hybrid path is owned solely by core/hybrid-search.js::hybridSearch.
+     * the hybrid path is owned solely by src/features/vector-backend/hybrid-search.js::hybridSearch.
      * The one exception is a vector-dimension mismatch, which returns an empty
      * result because no other path could succeed either.
      *
@@ -875,7 +868,7 @@ export class QdrantBackend extends VectorBackend {
         const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
 
         // Native sparse vectors + Qdrant-server-side RRF. Single path for Qdrant.
-        // (See plans/qdrant-native-sparse-hybrid-rrf.md — winner of the A/B/C, others removed.)
+        // (See InternalProject/Vectfox/plans/executed/qdrant-native-sparse-hybrid-rrf.md — winner of the A/B/C, others removed.)
         //
         // Tokenizer-mode lock: indexed sparse vectors carry the CJK tokenizer mode that was
         // active at upsert. A mode change between upsert and query silently breaks BM25
@@ -911,14 +904,14 @@ export class QdrantBackend extends VectorBackend {
             sparseQueryVector = encodeSparseQuery(searchText);
         } catch (error) {
             // Throw rather than falling back here. Fallback for the whole hybrid
-            // path is owned by core/hybrid-search.js — see the "single fallback
+            // path is owned by src/features/vector-backend/hybrid-search.js — see the "single fallback
             // owner" note on the catch at the end of this method.
             log.warn('[Qdrant] sparse query setup failed:', error?.message);
             throw new Error(`[Qdrant] Sparse query setup failed for ${collectionId}: ${error?.message || error}`, { cause: error });
         }
 
         // One vector serves both requests below. Retrieval callers pass the vector
-        // core/core-vector-api.js getQueryVector embedded once for the whole query;
+        // src/features/vector-backend/vector-api.js getQueryVector embedded once for the whole query;
         // embed here only for a caller that has none. Letting each request re-embed
         // server-side was the dominant cost of a retrieval (measured 2.9s-16s via
         // OpenRouter vs 18-23ms for the Qdrant query itself).
@@ -988,14 +981,11 @@ export class QdrantBackend extends VectorBackend {
 
         const tNetStart = performance.now();
 
-        // Single fallback owner: this method no longer degrades to vector-only on
-        // its own. core/hybrid-search.js::hybridSearch catches whatever we throw and
-        // runs the client-side fusion path, which issues ONE vector query and adds
-        // BM25 re-ranking on top — strictly better than the raw vector-only retry
-        // this used to do, and one HTTP round-trip cheaper. Two independent fallback
-        // layers previously fired in sequence, so a single failing query cost three
-        // requests (hybrid-query, our retry, then hybrid-search's) and the caller
-        // still received an empty result it could not distinguish from "no match".
+        // Single fallback owner: this method does not degrade to vector-only. hybridSearch in
+        // src/features/vector-backend/hybrid-search.js catches whatever this throws and runs the
+        // client-side fusion path: ONE vector query with BM25 re-ranking on top. A second fallback
+        // here would cost an extra request per failing query and hand the caller an empty result
+        // it could not tell from "no match".
         let response;
         try {
             response = await fetch('/api/plugins/similharity/chunks/hybrid-query', {

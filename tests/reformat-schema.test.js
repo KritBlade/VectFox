@@ -1,5 +1,5 @@
 /**
- * Unit tests for core/reformat-schema.js
+ * Unit tests for src/features/chunkbase/reformat-schema.js
  *
  * Covers the Auto-Reformat schema validator, hallucination guardrail
  * (computeNameVerification), and prompt builder. Pure module, no ST globals

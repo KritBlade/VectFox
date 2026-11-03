@@ -763,12 +763,10 @@ describe('QdrantBackend', () => {
         });
 
         it('should throw on hybrid failure instead of retrying vector-only itself', async () => {
-            // Degradation for the hybrid path belongs to core/hybrid-search.js and
-            // lives there ONCE. This method used to retry vector-only on its own
-            // before that catch ran, so a single failure cost three HTTP calls
-            // (hybrid-query → this retry → hybrid-search's client-side query) and
-            // still handed the caller an empty set it could not tell apart from
-            // "no match". See GitHub issue #11.
+            // Degradation for the hybrid path belongs to hybridSearch in
+            // src/features/vector-backend/hybrid-search.js and lives there ONCE: a
+            // retry here would cost an extra HTTP call per failure and hand the caller
+            // an empty set it could not tell apart from "no match". See GitHub issue #11.
             fetchMock
                 .mockResolvedValueOnce(mockFetchResponse({ payload: null, supported: true }))      // sentinel
                 .mockResolvedValueOnce(mockFetchResponse({ embedding: [0.1, 0.2, 0.3] }))          // get-embedding

@@ -5,7 +5,7 @@
  * Full before/after review for Auto-Reformat output. Runs BEFORE any
  * collection/hash/backend exists for the content being vectorized, so this
  * is its own fixed modal — not injected into content-vectorizer.js's DOM and
- * not wired to a live collection (unlike ui/chunk-visualizer.js, whose state
+ * not wired to a live collection (unlike src/features/database-browser/chunk-visualizer.js, whose state
  * is keyed to an already-inserted collection's hashes).
  *
  * Reuses chunk-visualizer.js's dirty-tracking idiom (capture the original

@@ -9,7 +9,7 @@
  * re-cost money/time and could drift from what the user actually reviewed).
  *
  * Genuinely new — nothing like this exists for non-chat content today. Chat's
- * fingerprint/dedup cache (core/eventbase-store.js) is chat-UUID-keyed and
+ * fingerprint/dedup cache (src/features/eventbase/eventbase-store.js) is chat-UUID-keyed and
  * unrelated. Kept as its OWN top-level bucket
  * (extension_settings.vectfox.reformat_cache), separate from
  * collection-metadata.js's per-collection object — that store is framed as a

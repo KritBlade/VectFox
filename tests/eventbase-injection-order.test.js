@@ -1,6 +1,6 @@
 /**
  * Tests for chronological presentation ordering in
- * formatEventsForInjectionDetailed() (core/eventbase-injection.js).
+ * formatEventsForInjectionDetailed() (src/features/eventbase/eventbase-injection.js).
  *
  * Retrieval decides WHICH events are injected (relevance/score); the injector
  * decides DISPLAY order. These guard that:

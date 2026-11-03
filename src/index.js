@@ -6,7 +6,6 @@
  * All logic is in separate modules - see project guidelines
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -53,7 +52,7 @@ setInsertedCollectionRegistrar(registerCollection);
 const defaultSettings = {
     // Master switch — when false, VectFox does no automatic runtime work
     // (retrieval injection, auto-sync, lorebook WI injection). Default ON.
-    // Single source of truth for reads: core/feature-gate.js::isVectFoxEnabled.
+    // Single source of truth for reads: src/shared/feature-gate.js::isVectFoxEnabled.
     enabled: true,
 
     // Core vector settings
@@ -62,56 +61,48 @@ const defaultSettings = {
     qdrant_host: '127.0.0.1',
     qdrant_port: 6333,
     qdrant_url: '',
-    // Qdrant API key: stored in ST's secret_state custom slot 'api_key_qdrant'
-    // post-2026-05-26 migration. NOT in defaults — keeping it here would cause
-    // the Object.assign re-introduction loop documented on the vLLM keys. The
-    // Similharity plugin reads the slot server-side; the UI presence indicator
-    // round-trips via /api/plugins/similharity/qdrant/key-status. Migration
-    // drains any legacy settings.qdrant_api_key plaintext on first load.
-    // Reader: core/api-keys.js::getQdrantApiKey (transition-fallback only),
-    // core/api-keys.js::fetchQdrantApiKeyPresence (canonical presence check).
+    // Qdrant API key: not a setting. It lives in SillyTavern's secret_state slot 'api_key_qdrant', which
+    // the Similharity plugin reads server-side; the UI learns whether it is set from
+    // /api/plugins/similharity/qdrant/key-status. migrateLegacyApiKeys() moves a plaintext
+    // settings.qdrant_api_key into the slot on load, and a default here would bring the field back (see
+    // the OpenRouter key below). Readers: getQdrantApiKey (the plaintext value while it is not yet moved)
+    // and fetchQdrantApiKeyPresence in src/shared/api-keys.js.
     qdrant_use_cloud: false,
     qdrant_multitenancy: false, // Use single collection with content_type field instead of separate collections
     embedding_ollama_url: '',
     embedding_ollama_url_override: false,
-    // ollama_api_key removed 2026-05-26: ST has no SECRET_KEYS.OLLAMA and no
-    // ollama auth path in additional-headers.js — the field was dead code on
-    // both sides. Migration in core/api-keys.js drains-and-deletes any
-    // leftover plaintext from settings.json on first load post-upgrade.
+    // No Ollama key: SillyTavern has no Ollama secret and sends no Ollama auth header.
+    // migrateLegacyApiKeys() deletes a leftover settings.ollama_api_key.
     embedding_vllm_url: '',
     embedding_vllm_url_override: false,
     rate_limit_calls: 60,
     rate_limit_interval: 60, // seconds
     // Summarizer (EventBase extraction) + Agent Mode planner share ONE
     // chat-completions rate budget, independent of the embedding limit above.
-    // 0 = disabled (no throttle, today's behavior). See core/generation-rate-limiter.js.
+    // 0 = no throttle. See src/features/eventbase/generation-rate-limiter.js.
     generation_rate_limit_calls: 0,
     generation_rate_limit_interval: 60, // seconds
 
     // VEC-6: Batch insert optimization
     insert_batch_size: 50, // Chunks per insert batch (50-100 recommended)
-    document_glossary_injection: true, // Document content type only: prepend "Full Name (ACRONYM)" definitions to chunks that reference a bare acronym without it. See core/glossary-extractor.js.
+    document_glossary_injection: true, // Document content type only: prepend "Full Name (ACRONYM)" definitions to chunks that reference a bare acronym without it. See src/features/chunkbase/glossary-extractor.js.
     togetherai_model: 'togethercomputer/m2-bert-80M-32k-retrieval',
     openai_model: 'text-embedding-ada-002',
     electronhub_model: 'text-embedding-3-small',
     embedding_openrouter_model: 'openai/text-embedding-3-large',
-    // OpenRouter key: stored in SECRET_KEYS.OPENROUTER (ST's shared slot, not in
-    // defaults). Reader: core/api-keys.js::getOpenRouterApiKey. The legacy
-    // plaintext slot used to live here as `openrouter_api_key: ''` but kept
-    // re-appearing in settings.json — every UI handler does
-    // Object.assign(extension_settings.vectfox, settings) which would re-add
-    // any default-declared empty field after migrateLegacyApiKeys() deleted it.
+    // OpenRouter key: SillyTavern's shared SECRET_KEYS.OPENROUTER slot, not a setting. Reader:
+    // getOpenRouterApiKey in src/shared/api-keys.js. No key field may be declared in these defaults:
+    // every UI handler runs Object.assign(extension_settings.vectfox, settings), which would write a
+    // declared empty field back after migrateLegacyApiKeys() deletes it.
     cohere_model: 'embed-english-v3.0',
     embedding_ollama_model: 'mxbai-embed-large',
     ollama_keep: false,
     embedding_vllm_model: '',
-    // vLLM key: stored in ST's SECRET_KEYS.CUSTOM (chat-side, via
-    // chat_completion_source: 'custom' proxy) AND SECRET_KEYS.VLLM
-    // (embedding-side, via ST's vector handler). Dual-write from VectFox UI
-    // preserves the "one shared key" UX. NO plaintext field in settings.json
-    // post-2026-05-26. Migration drains any legacy `vllm_api_key` plaintext
-    // into both slots on first load. Reader: core/api-keys.js::getCustomApiKey
-    // (presence/masked-value indicator only; real key lives server-side).
+    // vLLM key: written to two SillyTavern slots so one key serves both sides: SECRET_KEYS.CUSTOM (chat,
+    // through chat_completion_source 'custom') and SECRET_KEYS.VLLM (embedding, through SillyTavern's
+    // vector handler). Not a setting; migrateLegacyApiKeys() moves a plaintext vllm_api_key into both
+    // slots. Reader: getCustomApiKey in src/shared/api-keys.js (presence and masked value only; the key
+    // stays server-side).
     webllm_model: '',
     google_model: 'text-embedding-005',
 
@@ -133,7 +124,7 @@ const defaultSettings = {
     // How long one turn may spend on any single retrieval (EventBase, chunk,
     // lorebook, summarizer injection) before it proceeds without that memory.
     // Agent Mode ADDS its own planner + fanout timeouts on top of this for the
-    // EventBase path — see core/retrieval-budget.js. UI: Core tab → Retrieval.
+    // EventBase path — see src/shared/retrieval-budget.js. UI: Core tab → Retrieval.
     retrieval_timeout_ms: RETRIEVAL_TIMEOUT_DEFAULT_MS,
     query: 2,
     chunk_size: 500, // For adaptive strategy only
@@ -173,13 +164,10 @@ const defaultSettings = {
 
     // Summarization before vectorization
     chat_provider: 'openrouter', // 'openrouter', 'vllm'
-    // summarize_openrouter_api_key and summarize_vllm_api_key are NOT in
-    // defaults — they're legacy plaintext fields drained by
-    // migrateLegacyApiKeys() into SECRET_KEYS.OPENROUTER and
-    // SECRET_KEYS.CUSTOM (chat-side) + SECRET_KEYS.VLLM (embedding-side)
-    // respectively. Keeping them here would cause the same Object.assign
-    // re-introduction loop documented above on the embedding-side keys.
-    // Readers: core/api-keys.js helpers.
+    // summarize_openrouter_api_key and summarize_vllm_api_key are not in defaults: migrateLegacyApiKeys()
+    // moves them into SECRET_KEYS.OPENROUTER and into SECRET_KEYS.CUSTOM (chat side) + SECRET_KEYS.VLLM
+    // (embedding side), and a default here would bring them back (see the OpenRouter key above).
+    // Readers: src/shared/api-keys.js.
     chat_model: '',              // Model ID for summarization (e.g. 'google/gemini-flash-1.5-8b')
     chat_vllm_url: '',           // vLLM base URL for summarization (e.g. 'http://127.0.0.1:8000')
     summarize_prompt: '',             // Custom prompt template (empty = use built-in default)
@@ -190,7 +178,7 @@ const defaultSettings = {
     // to one chat endpoint family. Reasoning models (gpt-5.x, o1/o3/o4 and hosted
     // builds on them) reject `temperature` and `max_tokens` outright; these two
     // switches reshape the body for them. Reader: resolveModelParameterStyle()
-    // in core/llm-provider-call.js. Defaults keep the classic OpenAI shape.
+    // in src/features/llm-provider/llm-provider-call.js. Defaults keep the classic OpenAI shape.
     should_send_temperature: true,            // false = omit `temperature` from the request entirely
     should_use_max_completion_tokens: false,  // true = send `max_completion_tokens` instead of `max_tokens`
     should_disable_thinking: true,            // false = let the model think; true sends `reasoning_effort: 'none'`
@@ -251,7 +239,7 @@ const defaultSettings = {
     // the held-back turn is always the newest message, so it is always inside ST's
     // live context window already — retrieval never needs it. Manual Vectorize
     // Content ignores this and still covers the whole chat. See
-    // plans/executed/autosync-settle-lag.md.
+    // InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     eventbase_autosync_settle_lag: true,
     // Summarizer Injection (Feature B): when enabled, inject the most recent N
     // EventBase events (by source_window_end desc) into the prompt every turn,
@@ -297,7 +285,7 @@ const defaultSettings = {
     // Per-chat persisted vectorization tip (= max(source_window_end)+1, the first
     // uncovered message). Persisted so the "N msgs vectorized" display is correct
     // immediately after a reload WITHOUT a backend probe — benefits standard+plugin
-    // and qdrant+plugin users. Keyed by chat UUID. See core/eventbase-store.js.
+    // and qdrant+plugin users. Keyed by chat UUID. See src/features/eventbase/eventbase-store.js.
     eventbase_vectorization_tip: {},
     eventbase_min_importance_store: 3,            // Drop events below this importance before storing
     eventbase_max_events_per_window: 3,           // Hard cap on events returned per LLM call
@@ -311,7 +299,7 @@ const defaultSettings = {
     // ─── Logging (src/sillytavern/log.js) ───────────────────────────────
     // Verbosity dropdown — single noise floor for the whole pipeline.
     // 'off' (default) | 'lifecycle' | 'verbose' | 'trace'. Errors/warnings
-    // always fire regardless. See plans/executed/logging-levels-and-classification.md.
+    // always fire regardless. See InternalProject/Vectfox/plans/executed/logging-levels-and-classification.md.
     debug_verbosity: 'off',
     // Orthogonal per-subsystem deep-dives, independent of debug_verbosity.
     // Each key is a name that log.domain() in src/sillytavern/log.js takes. All default off.
@@ -331,7 +319,7 @@ const defaultSettings = {
     eventbase_debug_logging: false,
     eventbase_raw_llm_debug: false,              // Raw LLM reply + parser candidate logs (very noisy, per-window)
     vector_group_embedding_call: true,           // Path-agnostic insert toggle. true = legacy batched POST (1 POST per batch, cheaper, default — proven safe in production wire conditions when paired with hedge). false = parallel-split (1 POST per item, failure-contained, but N× the connection surface area which can amplify upstream routing stalls). Affects every call to insertVectorItems (EventBase ingestion AND content/document vectorization).
-    vector_hedge_after_ms: 15000,                // 0 = hedge disabled. Default 15000 (15s) fires a duplicate request when an embedding POST hasn't returned by the threshold; race-first-wins. Helps multi-upstream gateways (OpenRouter, SiliconFlow via vllm slot) recover from connection-level routing stalls in seconds instead of 120s. Skipped for local providers (ollama/transformers/llamacpp/koboldcpp). See plans/embedding-resilience-hedge-and-diagnostics.md §6.
+    vector_hedge_after_ms: 15000,                // 0 = hedge disabled. Default 15000 (15s) fires a duplicate request when an embedding POST hasn't returned by the threshold; race-first-wins. Helps multi-upstream gateways (OpenRouter, SiliconFlow via vllm slot) recover from connection-level routing stalls in seconds instead of 120s. Skipped for local providers (ollama/transformers/llamacpp/koboldcpp). See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
     eventbase_disable_pipeline: false,           // false = pipelined extract↔insert (default, ~35% faster). true = serial (each batch finishes embedding before the next starts extracting; safer on slower vector DB backends). Read-site (eventbase-workflow.js) treats anything except explicit true as pipelined.
     eventbase_debug_qdrant_backend: false,
     debug_vectorizing_log: false,                // Verbose vectorization progress logs in console
@@ -345,7 +333,7 @@ const defaultSettings = {
     // Anchor boost: flat additive bonus when an event's keyword appears verbatim
     // in the user's last message. Rescues historically-distant events the user
     // explicitly asks about. Slider 0.00-0.50, default 0.20 (selected from
-    // 4-run grid benchmarking — see plans/agentic-retrieval-plan.md notes).
+    // 4-run grid benchmarking — see InternalProject/Vectfox/plans/executed/agentic-retrieval-plan.md notes).
     // 0 = disabled.
     eventbase_anchor_boost: 0.20,
     // Dedup temporal proximity: events N or more messages apart are treated as
@@ -359,7 +347,7 @@ const defaultSettings = {
     // dense+sparse RRF hybrid. A3 (Qdrant) only — Standard backend ignores this.
     // Default off until eval window passes. Requires Qdrant 1.13+; falls back
     // gracefully to the JS re-rank pipeline when the route returns an error.
-    // See plans/qdrant-native-eventbase-rerank-formula.md.
+    // See InternalProject/Vectfox/plans/executed/qdrant-native-eventbase-rerank-formula.md.
     eventbase_native_rerank: true,
     // Compare mode: when native rerank is on, also run the JS pipeline in
     // parallel and log per-(collection,queryText) rank correlation + overlap.
@@ -374,7 +362,7 @@ const defaultSettings = {
     // Optional LLM planner step that consumes pre-search candidates plus
     // recent chat context and emits 1-4 follow-up queries which fan out in
     // parallel against Qdrant. Purely additive — never replaces the existing
-    // flow. A3 (Qdrant) only. See plans/agentic-retrieval-plan.md.
+    // flow. A3 (Qdrant) only. See InternalProject/Vectfox/plans/executed/agentic-retrieval-plan.md.
     agentic_retrieval_enabled: false,                  // Master toggle (default OFF)
     agent_provider: '',                    // '' → inherit chat_provider
     agent_model: '',                       // '' → inherit chat_model
@@ -388,7 +376,7 @@ const defaultSettings = {
     agentic_retrieval_candidates_to_show: 12,          // Pre-search slice shown to planner (slider 5-20)
     agentic_retrieval_max_queries: 6,                  // Hard ceiling on planner output (slider 1-6)
     // Both timeouts run INSIDE the EventBase retrieval bound and are ADDED to it
-    // (core/retrieval-budget.js), so raising either really does buy the planner
+    // (src/shared/retrieval-budget.js), so raising either really does buy the planner
     // more time instead of being silently capped by the outer budget.
     agentic_retrieval_timeout_ms: AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,       // Planner LLM call timeout (matches summarize default; some models need >5s)
     agentic_retrieval_query_timeout_ms: AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,   // Per-query fanout timeout — drop a straggling Qdrant call so one slow embed/search doesn't stall retrieval
@@ -404,7 +392,7 @@ const defaultSettings = {
     // named-entity vs. topic/lore records via a self-tagged schema, and
     // emits the final chunks directly (bypassing the mechanical strategy
     // picker for that run) once the user reviews and accepts a full
-    // before/after diff. See core/reformat-schema.js / reformat-extractor.js
+    // before/after diff. See src/features/chunkbase/reformat-schema.js / reformat-extractor.js
     // / reformat-store.js. Independent from EventBase (chat's LLM pipeline)
     // by design — no shared pipeline code, only generic utilities.
     reformat_provider: '',              // '' → inherit chat_provider (Core → LLM Summarization)
@@ -620,14 +608,12 @@ jQuery(async () => {
         await saveSettings();
     }
 
-    // Connection-setting naming convention (Phase A) — rename the convention-less
-    // LLM/embedding keys to the `<consumer>_<provider>_<field>` scheme
-    // (embedding_* / chat_* / agent_*). Runs AFTER the eventbase→chat copy above
-    // so any legacy summarize_* / agentic_retrieval_* / *_alt_endpoint_url +
-    // *_model keys still on disk are renamed here. Idempotent, in-memory only,
-    // no I/O. See src/app/settings-migration-connection-setting-names.js +
-    // plans/settings-naming-convention-migration.md. (Phase B — `source` →
-    // `embedding_provider` — is a separate migration, intentionally not here.)
+    // Rename the connection keys that predate the `<consumer>_<provider>_<field>` scheme (embedding_* /
+    // chat_* / agent_*): summarize_*, agentic_retrieval_*, *_alt_endpoint_url and *_model. Runs after the
+    // eventbase → chat copy above, so the keys that copy leaves are renamed too. Idempotent, in-memory
+    // only. See src/app/settings-migration-connection-setting-names.js and
+    // InternalProject/Vectfox/plans/executed/settings-naming-convention-migration.md. The `source` →
+    // `embedding_provider` rename is its own migration, below.
     const _connRename = migration_setting_name_for_connection(extension_settings.vectfox);
     if (_connRename.migrated > 0) {
         log.lifecycle(`VectFox: Renamed ${_connRename.migrated} connection setting key(s): ${_connRename.keys.join(', ')}`);
@@ -637,9 +623,8 @@ jQuery(async () => {
         await saveSettings();
     }
 
-    // Phase B: rename the highest-churn embedding key `source` → `embedding_provider`.
-    // Separate migration from Phase A (its blast radius spans nearly every backend/
-    // query/UI path). Idempotent, in-memory only. See src/app/settings-migration-embedding-provider-key.js.
+    // Rename the embedding key `source` → `embedding_provider`. Idempotent, in-memory only.
+    // See src/app/settings-migration-embedding-provider-key.js.
     const _srcRename = migration_embedding_source_key(extension_settings.vectfox);
     if (_srcRename.migrated > 0) {
         log.lifecycle('VectFox: Renamed embedding `source` → `embedding_provider`');
@@ -667,11 +652,10 @@ jQuery(async () => {
         await saveSettings();
     }
 
-    // H-1 one-shot migration (2026-05-24): move plaintext *_api_key values
-    // from settings.json to ST secret_state. Runs AFTER the eventbase →
-    // summarize copy above so any user who only had eventbase_* set gets
-    // the value migrated correctly. Idempotent: empty fields = no-op.
-    // See plans/review-fix.md §H-1 and core/api-keys.js for the full design.
+    // Move plaintext *_api_key values from settings.json into SillyTavern's secret_state. Runs after the
+    // eventbase → summarize copy above, so a key set only as eventbase_* is moved too. Idempotent: an
+    // empty field is a no-op. Design: src/shared/api-keys.js and §H-1 of
+    // InternalProject/Vectfox/plans/executed/review-fix.md.
     try {
         await migrateLegacyApiKeys();
     } catch (err) {

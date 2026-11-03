@@ -7,7 +7,7 @@
  * Isolated in its own file (separate from Phase A's settings-migration-connection-setting-names.js)
  * BECAUSE `source` is read across nearly every backend / query / UI / diagnostics
  * path. Keeping it standalone bounded its read-site sweep + tests and let Phase A
- * land and soak first. See plans/settings-naming-convention-migration.md §6a.
+ * land and soak first. See InternalProject/Vectfox/plans/executed/settings-naming-convention-migration.md §6a.
  *
  * ⚠️ COLLISION NOTE for maintainers: `source` is a very generic token. The
  * read-site conversion was done BY READ SITE (only `settings.source` /

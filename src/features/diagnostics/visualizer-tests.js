@@ -6,7 +6,6 @@
  * Tests: delete, edit/re-vectorize, summary vectors, metadata operations
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 

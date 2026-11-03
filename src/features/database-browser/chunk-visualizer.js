@@ -7,7 +7,6 @@
  * Right panel: full details of selected chunk
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -89,7 +88,7 @@ function isEventBaseCollection() {
 // Phase B (read-source refactor): the vector backend payload is the source of truth for
 // per-chunk fields. These are the ONLY fields still persisted to extension_settings on save
 // — genuinely client-only state with no backend payload representation. Everything else goes
-// to the backend via updateChunkMetadata. See plans/chunk-metadata-read-source-fix.md.
+// to the backend via updateChunkMetadata. See InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md.
 const CLIENT_ONLY_CHUNK_FIELDS = ['summaries'];
 
 /**
@@ -118,7 +117,7 @@ function getChunkData(chunk) {
 
     // Backend (Vectra/Qdrant payload) is the source of truth; extension_settings is a legacy
     // fallback for entries the backend lacks (e.g. pre-fix text-edited chunks — see
-    // plans/chunk-metadata-read-source-fix.md). pick: first non-null wins. pickStr: also
+    // InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md). pick: first non-null wins. pickStr: also
     // treats '' as absent so an empty string means "use fallback", not "explicitly blank".
     const pick = (a, b) => (a !== undefined && a !== null ? a : b);
     const pickStr = (a, b) => (a !== undefined && a !== null && a !== '' ? a : b);
@@ -217,7 +216,7 @@ async function saveAllChanges() {
             // per-chunk fields (name/context/xmlTag/position/depth/keywords/enabled/
             // chunkLinks). Only genuinely client-only state — dual-vector
             // `summaries`, which has no backend payload field — is persisted to
-            // extension_settings. See plans/chunk-metadata-read-source-fix.md (W1).
+            // extension_settings. See InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md (W1).
             const clientOnly = {};
             for (const k of CLIENT_ONLY_CHUNK_FIELDS) {
                 if (k in updates) clientOnly[k] = updates[k];
@@ -1074,7 +1073,7 @@ function bindDetailEvents() {
             // fresh point with a new hash; the backend is the source of truth, so the
             // payload must be carried over — merge the backend payload over any legacy
             // ext_settings entry. Without this, text-editing wipes name/context/keywords
-            // etc. See plans/chunk-metadata-read-source-fix.md (R8).
+            // etc. See InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md (R8).
             const oldStored = getChunkMetadata(String(chunk.hash)) || {};
             const carriedMeta = { ...oldStored, ...(chunk.metadata || {}) };
             delete carriedMeta.hash;

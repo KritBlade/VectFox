@@ -125,7 +125,7 @@ describe('Tokenize', () => {
     describe('basic tokenization', () => {
         it('should split text into tokens', () => {
             // Note: avoid stopwords here — 'world' is in the English stopword set
-            // (core/stop-words.js) and would be filtered out by tokenize(). Use
+            // (src/features/keyword-search/stop-words.js) and would be filtered out by tokenize(). Use
             // content words so the split itself is what's under test.
             const tokens = tokenize('hello dragon test');
             expect(tokens).toContain('hello');

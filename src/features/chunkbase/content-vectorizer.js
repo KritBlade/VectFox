@@ -6,7 +6,6 @@
  * settings that adapt based on selected content type.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -2482,7 +2481,7 @@ async function handleChatFileUpload(e) {
                         send_date: parsed.send_date,
                         // Preserved for EventBase: reasoning carries date/time/location
                         // for older chats whose `mes` has no inline date (see
-                        // plans/eventbase-scene-context-from-reasoning.md).
+                        // InternalProject/Vectfox/plans/executed/eventbase-scene-context-from-reasoning.md).
                         reasoning: parsed.extra?.reasoning || '',
                     });
                 }
@@ -3177,7 +3176,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
         // popup so the user can see WHY (rate-limit / disk full / collection
         // schema mismatch / etc). A toast is too short for the multi-line errors
         // Qdrant tends to return; a popup gives the user something to copy and
-        // share when reporting the problem. See plans/eventbase-extract-insert-pipeline.md §3.4.
+        // share when reporting the problem. See InternalProject/Vectfox/plans/executed/eventbase-extract-insert-pipeline.md §3.4.
         if (e?.code === 'insert_failed_max_retries') {
             log.error('[EventBase] Insert failed after 3 retries:', e);
             await callGenericPopup(
@@ -3228,7 +3227,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
 /**
  * Headless backfill of the CURRENT chat, reusing the Continue path — but invokable
  * WITHOUT the vectorizer modal being open. Used by the auto-sync "Catch up now"
- * flow (ui-manager.js): when the user enables auto-sync on a chat with a large
+ * flow (settings-panel.js): when the user enables auto-sync on a chat with a large
  * unvectorized gap, this runs the backfill with the standard progress tracker
  * (full-screen on mobile, corner panel on desktop) and resolves when extraction
  * completes, so the caller can then enable auto-sync.
@@ -3237,7 +3236,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
  * caches, fill only the gap via tip/fingerprint dedup). Its modal-DOM touches
  * (hideVectorizerForProgress / updateVectorizeButtonState / closeContentVectorizer)
  * are jQuery no-ops when the modal is closed, and messages come from getContext(),
- * so it works headless. See plans/autosync-backlog-catchup-on-enable.md.
+ * so it works headless. See InternalProject/Vectfox/plans/executed/autosync-backlog-catchup-on-enable.md.
  *
  * @returns {Promise<{ ran: boolean, reason?: string }>}
  */

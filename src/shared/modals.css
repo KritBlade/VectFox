@@ -4,7 +4,6 @@
  * Modal system, collapsibles, model switcher, collection settings
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================ */
 
 /* ============================================================================
@@ -114,7 +113,7 @@
 
 /* Optional group of header buttons sitting between the title and the close
    button. The close button stays a direct child of the header so it can never
-   be pushed off-screen by these — see the wrap rules in styles/mobile.css. */
+   be pushed off-screen by these — see the wrap rules in src/shared/mobile.css. */
 .vectfox-modal-header-actions {
     display: flex;
     align-items: center;

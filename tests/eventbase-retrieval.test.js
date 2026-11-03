@@ -26,7 +26,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// --- mock every DIRECT dependency of core/eventbase-retrieval.js ---
+// --- mock every DIRECT dependency of src/features/eventbase/eventbase-retrieval.js ---
 const queryCollectionMock = vi.fn();
 const getQueryVectorMock = vi.fn();
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({

@@ -4,7 +4,6 @@
  * Diagnostics modal, test categories, results display
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================ */
 
 /* ============================================================================
@@ -443,7 +442,7 @@
     margin-left: auto;
 }
 
-/* Danger button. Loaded after styles/buttons.css and styles/modals.css, so this
+/* Danger button. Loaded after src/shared/buttons.css and src/shared/modals.css, so this
    definition is the one every .vectfox-btn-danger gets. */
 .vectfox-btn-danger {
     padding: 10px 20px;

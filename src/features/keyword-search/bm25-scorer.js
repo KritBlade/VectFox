@@ -12,7 +12,6 @@
  *
  * Based on research showing BM25+ outperforms standard BM25 for long documents.
  *
- * @version 2.0.0
  * ============================================================================
  */
 
@@ -35,7 +34,7 @@ const DEFAULT_DELTA = 0.5;
 // CJK_TOKENIZER_MODES and DEFAULT_CJK_TOKENIZER_MODE are imported from language-modes.js
 // and re-exported below for back-compat with existing importers.
 const JIEBA_WASM_MODULE_URL = 'https://cdn.jsdelivr.net/gh/cxumol/jieba-wasm-html@gh-pages/jieba_rs_wasm.js';
-// Jieba TW (Traditional Chinese) assets — fully vendored under core/vendor/jieba/ so
+// Jieba TW (Traditional Chinese) assets — fully vendored under src/vendor/jieba/ so
 // the loader has zero network dependencies once the user picks `jieba_tw` mode.
 // These files are still lazy-loaded: nothing fetches until cjk_tokenizer_mode='jieba_tw'.
 //   - jieba_rs_wasm.js     (~14 KB, WASM module wrapper, from jieba-wasm@2.4.0)
@@ -182,10 +181,10 @@ async function ensureJiebaTwLoaded() {
             const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError' || /aborted|timeout|timed out/i.test(msg);
             const elapsed = _ms(tStart);
             if (isTimeout) {
-                // All Jieba TW assets are vendored under core/vendor/jieba/ — the
+                // All Jieba TW assets are vendored under src/vendor/jieba/ — the
                 // loader never hits a CDN. A timeout here means the SillyTavern
                 // static file server stalled the request, not a network issue.
-                log.warn(`[VectFox CJK] Jieba TW: TIMED OUT during stage "${stage}" after ${elapsed}ms total. Falling back to Intl.Segmenter. All TW assets are served locally from core/vendor/jieba/ — a timeout here means the SillyTavern server stalled. Likely causes: (1) the Node event loop is choked by a long-running plugin request (e.g. a large chunk import or corpus-stats scan); (2) browser cache / Service Worker interference — try a hard reload (Ctrl+Shift+R); (3) endpoint security software intercepting the file read.`);
+                log.warn(`[VectFox CJK] Jieba TW: TIMED OUT during stage "${stage}" after ${elapsed}ms total. Falling back to Intl.Segmenter. All TW assets are served locally from src/vendor/jieba/ — a timeout here means the SillyTavern server stalled. Likely causes: (1) the Node event loop is choked by a long-running plugin request (e.g. a large chunk import or corpus-stats scan); (2) browser cache / Service Worker interference — try a hard reload (Ctrl+Shift+R); (3) endpoint security software intercepting the file read.`);
             } else {
                 log.warn(`[VectFox CJK] Jieba TW: failed during stage "${stage}" after ${elapsed}ms total: ${msg}`);
             }
@@ -490,7 +489,7 @@ export class BM25Scorer {
      * @param {{totalDocs: number, documentFrequencies: Map<string, number>, avgDocLength?: number}} [opts.corpusStats]
      *   When supplied, IDF and avgDocLength are computed from these external stats
      *   (full-corpus mode) instead of from the candidate set. Used by the A1/A2
-     *   bm25_use_corpus_idf path — see core/corpus-stats.js.
+     *   bm25_use_corpus_idf path — see src/features/vector-backend/corpus-stats.js.
      */
     indexDocuments(documents, opts = {}) {
         const corpusStats = opts.corpusStats || null;
@@ -705,7 +704,7 @@ export function applyBM25Scoring(results, query, options = {}) {
         alpha = 0.5,  // Weight for vector similarity
         beta = 0.5,   // Weight for BM25 score
         queryTokens: preTokenized = null,  // Pre-computed tokens (CJK-aware); bypasses internal tokenize()
-        corpusStats = null  // When provided, IDF uses full-corpus N + df (see core/corpus-stats.js)
+        corpusStats = null  // When provided, IDF uses full-corpus N + df (see src/features/vector-backend/corpus-stats.js)
     } = options;
 
     const idfMode = corpusStats ? 'corpus' : 'local';

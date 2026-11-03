@@ -9,23 +9,23 @@
  * seconds the embedding provider is effectively the entire cost.
  *
  * Existing code already blames the embedding provider when a query FAILS
- * (see backends/qdrant.js::_embedTimeoutHint). The gap this module closes is the
+ * (see src/features/vector-backend/qdrant.js::_embedTimeoutHint). The gap this module closes is the
  * slow-but-successful case: the request returns 200, nothing is logged above
  * `verbose`, and the only user-visible effect is that semantic retrieval
  * silently produces nothing whenever the embed happens to exceed the retrieval
  * budget. That reads to the user as "the extension randomly stopped working"
  * (GitHub issue #11).
  *
- * Measured on a real setup (2026-07-30) — identical query, same collection:
+ * Measured on one setup, identical query and collection:
  *   - Qdrant hybrid search with a pre-computed vector: 18-23ms
  *   - Same request letting the server embed via OpenRouter
  *     `qwen/qwen3-embedding-8b`: 2,895ms - 16,003ms
- * The default 15s retrieval budget sits inside that spread, so retrieval became
- * a coin flip with no feedback. Hence: log it, and name the provider + model.
+ * The default 15s retrieval budget sits inside that spread, so without a log line
+ * retrieval is a coin flip with no feedback. Hence: log it, and name the provider + model.
  *
  * LOG ONLY — no toast. A slow-but-SUCCESSFUL embed costs the user nothing: the
  * results arrive. The case that actually costs them memory is the retrieval
- * timing out, and core/bounded-retrieval.js already raises a red error toast for
+ * timing out, and src/features/vector-backend/bounded-retrieval.js already raises a red error toast for
  * exactly that, naming this same provider via describeEmbeddingTimeoutCause().
  * A second, earlier, orange toast on the success path only taught users to
  * dismiss popups (GitHub issue #12).

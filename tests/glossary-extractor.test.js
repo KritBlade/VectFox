@@ -1,5 +1,5 @@
 /**
- * Unit tests for core/glossary-extractor.js
+ * Unit tests for src/features/chunkbase/glossary-extractor.js
  *
  * Covers the acronym-grounding fix: a document typically spells out a named
  * entity once ("Federal Hero Oversight Bureau (FHOB)") and refers to it by

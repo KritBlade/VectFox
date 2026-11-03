@@ -137,8 +137,8 @@ export async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
  * tokenizer not loaded. From the user's perspective the language never
  * actually changed.
  *
- * Mirrors the work the dropdown change handler does
- * (ui/ui-manager.js:2929-2952): persist via saveSettingsDebounced, update
+ * Mirrors the work the #VectFox_cjk_tokenizer_mode change handler in
+ * src/features/settings-panel/settings-panel.js does: persist via saveSettingsDebounced, update
  * the dropdown, fire the namespaced eventbasePromptSync handler so the
  * EventBase extraction prompt matches the reverted language, and await
  * WASM loading for jieba / jieba_tw so the imminent sparse encoding step

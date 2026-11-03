@@ -6,7 +6,6 @@
  * Shows detailed status, progress bars, and live updates
  *
  * @author VectFox
- * @version 2.2.0-alpha
  * ============================================================================
  */
 

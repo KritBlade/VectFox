@@ -1,5 +1,5 @@
 /**
- * Tests for remapCollectionIdToHandle + sanitizeHandleId (core/collection-ids.js).
+ * Tests for remapCollectionIdToHandle + sanitizeHandleId (src/shared/collection-ids.js).
  *
  * These exercise the REAL implementation, so the SillyTavern host modules that
  * collection-ids.js imports must be stubbed. The deep relative specifiers below

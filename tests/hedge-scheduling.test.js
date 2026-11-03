@@ -1,19 +1,18 @@
 /**
  * Unit tests for callWithHedge — the embedding/insert retry race in
- * core/core-vector-api.js.
+ * src/features/vector-backend/vector-api.js.
  *
- * The hedge was built for attempts that HANG (connection-level routing stalls on
+ * The hedge targets attempts that HANG (connection-level routing stalls on
  * multi-upstream providers), so it fires duplicates on a fixed clock. A fast
- * FAILURE is a different animal, and the clock was the wrong instrument for it:
- * observed 2026-08-04, an insert that 500'd after 0.7s left the batch idle for
- * 14.3s waiting for its t=15s slot, while the log claimed "primary still slow"
- * about an attempt that had already died.
+ * FAILURE is different: on the clock alone, an insert that 500'd after 0.7s would
+ * leave the batch idle for 14.3s waiting for its t=15s slot, while the log called an
+ * attempt that had already died "primary still slow".
  *
  * These tests pin both behaviours at once — the schedule still governs slowness,
  * failures short-circuit it — plus the invariants that keeps: no slot fires twice,
  * and the attempt count stays at maxHedges + 1.
  *
- * Isolation: core-vector-api.js reaches ST modules that don't resolve under
+ * Isolation: vector-api.js reaches ST modules that don't resolve under
  * vitest, so the whole import graph is stubbed. callWithHedge touches none of it.
  */
 

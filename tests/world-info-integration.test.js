@@ -617,9 +617,8 @@ describe('getLorebookVectorStats', () => {
 
         expect(result.chunkCount).toBe(0);
         expect(result.strategy).toBe('per_entry');
-        // Source defaults scope to 'character' when meta.scope is missing
-        // (see core/world-info-integration.js:339). Test originally expected
-        // 'global' — source semantic changed and test was not updated.
+        // getLorebookVectorStats defaults scope to 'character' when meta.scope is missing
+        // (src/features/world-info/world-info-integration.js).
         expect(result.scope).toBe('character');
         expect(result.enabled).toBe(false);
     });

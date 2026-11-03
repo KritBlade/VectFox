@@ -5,7 +5,7 @@
  * Canonical schema constants, validator, and embed-text builder for EventBase.
  * All extraction, storage, and retrieval depend on this single module.
  *
- * The LLM extraction prompt itself lives in core/prompts-i18n.js
+ * The LLM extraction prompt itself lives in src/features/eventbase/prompts-i18n.js
  * (`getEventBaseExtractionPrompt(mode)`), which has per-language variants
  * driven by the CJK Tokenizer Mode setting. buildExtractionPrompt() below
  * just selects the right variant and substitutes {{text}} / {{maxCount}}.

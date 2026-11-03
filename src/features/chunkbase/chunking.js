@@ -22,7 +22,6 @@
  * - combined: Merge then chunk with adaptive
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 

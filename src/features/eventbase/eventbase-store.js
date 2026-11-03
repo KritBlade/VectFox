@@ -363,7 +363,7 @@ export async function insertEvents(events, settings, abortSignal = null, collect
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// AutoSync start-marker (per-chat) — see plans/autosync-independent-window-and-last-n-injection.md §9
+// AutoSync start-marker (per-chat) — see InternalProject/Vectfox/plans/executed/autosync-independent-window-and-last-n-injection.md §9
 // ---------------------------------------------------------------------------
 //
 // The window fingerprint dedup below is window-size-dependent: changing window

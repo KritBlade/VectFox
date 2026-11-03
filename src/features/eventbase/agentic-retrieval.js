@@ -15,7 +15,7 @@
  * (the default). Disable via settings to run unfiltered for A/B comparison.
  *   - OpenRouter only. vLLM support is Phase 2.
  *
- * @see plans/agentic-retrieval-plan.md
+ * @see InternalProject/Vectfox/plans/executed/agentic-retrieval-plan.md
  * ============================================================================
  */
 
@@ -105,8 +105,8 @@ export async function retrieveEventsWithAgent(params) {
     if (agenticDebug) {
         // Prompt size only — the full prompt is intentionally NOT dumped to keep
         // the log readable. The narrative-context preview above already shows
-        // what the planner sees per turn; the static system prompt lives in
-        // core/agentic-prompt.js for inspection.
+        // what the planner sees per turn; the static system prompt is
+        // getAgenticPlannerPrompt() in src/features/eventbase/prompts-i18n.js.
         const systemPromptText = getAgenticPlannerPrompt(settings?.cjk_tokenizer_mode);
         const approxTokens = Math.round((systemPromptText.length + userMessage.length) / 4);
         log.domain('agent', 'lifecycle', `[VectFox-Agentic] LLM prompt size: system+user approx ${approxTokens} tokens (${systemPromptText.length}+${userMessage.length} chars)`);
@@ -315,13 +315,9 @@ export function _resolveAgenticLLMConfig(settings = {}) {
     }
 
     if (provider === 'openrouter') {
-        // Single shared OpenRouter key (SECRET_KEYS.OPENROUTER). The
-        // AgentMode-specific "override" slot was removed when the
-        // architecture pivoted to one key per provider — see
-        // core/api-keys.js docstring for rationale. The UI's
-        // "(empty → inherit summarize key)" placeholder is now a
-        // no-op visual hint; all three inputs (embedding/summarize/
-        // agentic) write the same SECRET_KEYS.OPENROUTER slot.
+        // One shared OpenRouter key (SECRET_KEYS.OPENROUTER): the embedding, summarize and
+        // Agent Mode inputs all write that slot, so the UI's "(empty → inherit summarize key)"
+        // placeholder is only a hint. See src/shared/api-keys.js.
         const apiKey = getOpenRouterApiKey();
         if (!apiKey) {
             return { ok: false, reason: 'missing_openrouter_api_key' };

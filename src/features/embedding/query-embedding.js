@@ -2,7 +2,7 @@
  * Embeds a retrieval query's text through the Similharity plugin's /get-embedding
  * route.
  *
- * A query embeds its text ONCE (core/core-vector-api.js getQueryVector) and hands
+ * A query embeds its text ONCE (src/features/vector-backend/vector-api.js getQueryVector) and hands
  * the vector to every route and fallback it tries, so no request re-embeds the
  * same text server-side. Both backends call this from embedQuery(); each passes
  * its own provider params (apiUrl for URL-based sources), which the two backends

@@ -1,23 +1,16 @@
 /**
  * shouldCollectionActivate — the activation gate contract.
  *
- * THE MODEL (owner's design, implemented 2026-07-29):
+ * THE MODEL:
  *   The LOCK is the master switch. A collection that is not locked to the current
  *   chat or character never activates, whatever else is configured. Activation
  *   Triggers and Advanced Conditions only NARROW an already-locked collection —
  *   they cannot switch one on by themselves, and when both are set both must pass.
  *
- * This replaced an OR chain where a trigger match returned true "regardless of
- * lock state", which inverted the model twice over:
- *   - an UNLOCKED collection could activate on a keyword (the cross-persona leak
- *     that the isOwn guard in core/world-info-integration.js was added to contain)
- *   - a non-matching trigger fell THROUGH to the lock check, so a trigger on a
- *     LOCKED collection was a no-op that could never gate anything
- *
- * The gate is shared: documents/files/URLs/characters reach it via
- * filterActiveCollections (core/chat-vectorization.js, core/core-vector-api.js),
- * lorebooks via core/world-info-integration.js. These tests are the contract for
- * all of them.
+ * The gate is shared: src/features/chunkbase/chat-vectorization.js (documents,
+ * files, URLs, characters) and src/features/world-info/world-info-integration.js
+ * (lorebooks) both reach it through filterActiveCollections. These tests are the
+ * contract for all of them.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

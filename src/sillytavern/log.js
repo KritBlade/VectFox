@@ -2,11 +2,9 @@
  * ============================================================================
  * VectFox CENTRAL LOG HELPER
  * ============================================================================
- * One verbosity dimension + orthogonal per-domain deep-dives. Replaces the
- * old ad-hoc mix of `console.log` + scattered debug-flag checks
- * (`eventbase_debug_logging`, `debug_vectorizing_log`, etc.).
+ * One verbosity dimension + orthogonal per-domain deep-dives.
  *
- * Spec: plans/executed/logging-levels-and-classification.md
+ * Spec: InternalProject/Vectfox/plans/executed/logging-levels-and-classification.md
  *
  * Levels are chosen by CALL FREQUENCY, not by topic:
  *   error / warn          — always on, never gated
@@ -15,9 +13,9 @@
  *   trace                 — per-item detail                (verbosity >= 3)
  *   domain(name, level)   — subsystem deep-dive, independent of verbosity
  *
- * NO backward-compat migration shim (user decision 2026-05-30): defaults are
- * static. The old gate flags are NOT read here — flipping them does nothing.
- * Use the Diagnostics UI (verbosity dropdown + domain checkboxes) instead.
+ * Defaults are static, and the per-feature debug flags in the settings (`eventbase_debug_logging`,
+ * `debug_vectorizing_log`, ...) are not read here. Use the Diagnostics UI (verbosity dropdown + domain
+ * checkboxes) instead.
  * ============================================================================
  */
 

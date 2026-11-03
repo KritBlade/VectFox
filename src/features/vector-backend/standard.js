@@ -21,7 +21,6 @@
  * !! DO NOT add any unconditional plugin calls here !!
  *
  * @author VectFox
- * @version 3.1.0
  * ============================================================================
  */
 
@@ -569,7 +568,7 @@ export class StandardBackend extends VectorBackend {
 
     /**
      * Embed a query text once so every request of the query can reuse the vector
-     * (see core/core-vector-api.js getQueryVector). Returns null without the
+     * (see src/features/vector-backend/vector-api.js getQueryVector). Returns null without the
      * Similharity plugin: ST's native /api/vector/query then embeds the text
      * itself, per request.
      * @param {string} searchText

@@ -8,7 +8,7 @@
  * the messages after the split point.
  *
  * Offered from the auto-sync checkbox when the chat has no collection of its
- * own (ui-manager.js). Matching and selection rules live in
+ * own (settings-panel.js). Matching and selection rules live in
  * eventbase-fork-core.js.
  * ============================================================================
  */

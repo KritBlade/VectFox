@@ -6,7 +6,6 @@
  * Uses the same pipeline infrastructure, just with type-appropriate settings.
  *
  * @author Kritblade
- * @version 3.3.1
  * ============================================================================
  */
 
@@ -107,8 +106,8 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
         // pointer {accepted, sourceHash} threaded through resolveEffectiveSettings,
         // never persisted to saved global settings), reuse the frozen chunks and
         // skip chunkText() + the LLM entirely — the accepted result IS the final
-        // chunk set. See core/reformat-store.js for the freeze mechanism and
-        // ui/reformat-review.js for how chunks get into the cache in the first
+        // chunk set. See src/features/chunkbase/reformat-store.js for the freeze mechanism and
+        // src/features/chunkbase/reformat-review.js for how chunks get into the cache in the first
         // place (already {text, metadata} shaped, ready for enrichChunks() below).
         const REFORMAT_SUPPORTED_TYPES = ['document', 'url', 'wiki'];
         let chunks;
@@ -121,7 +120,7 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
             // OLD content — applying it here would silently vectorize the wrong
             // chunks under the new source's name. Re-hash the CURRENT prepared text
             // (normalized the same way the reformat flow hashed it — see
-            // ui/content-vectorizer.js's _resolveReformatSourceText) and only trust
+            // src/features/chunkbase/content-vectorizer.js's _resolveReformatSourceText) and only trust
             // the cache if it still matches.
             const normalizedText = typeof preparedContent.text === 'string'
                 ? preparedContent.text
@@ -161,7 +160,7 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
         // acronym everywhere else. If the chunk containing the definition never gets
         // retrieved alongside a chunk that only uses the bare acronym, the model has
         // no grounding for what it means. Prepend the definition to any chunk that
-        // references an acronym without it. See core/glossary-extractor.js.
+        // references an acronym without it. See src/features/chunkbase/glossary-extractor.js.
         if (contentType === 'document' && settings.document_glossary_injection !== false) {
             const glossary = extractGlossary(preparedContent.text || '');
             if (glossary.length > 0) {
@@ -244,8 +243,8 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
         //
         // REVIVAL NOTE — the block calls `summarizeText` and `isSummarizationFatalError`, which
         // do not exist. Re-enabling it means making the LLM call through `postChatCompletion`
-        // (core/llm-provider-call.js) and routing errors through the shared helpers in
-        // core/model-config-notifier.js, as EventBase extraction, agent mode and embedding do:
+        // (src/features/llm-provider/llm-provider-call.js) and routing errors through the shared helpers in
+        // src/shared/model-config-notifier.js, as EventBase extraction, agent mode and embedding do:
         //   - `isInvalidModelConfigError` / `notifyInvalidModel`  → config/auth/model failures
         //   - `isConnectionError` / `notifyConnectionError`       → wrong / unreachable URLs
         /* ----- BEGIN: summarize-before-store pipeline (DISABLED, kept for future use) -----
@@ -571,12 +570,10 @@ async function prepareContent(contentType, rawContent, settings) {
         case 'character':
             return prepareCharacterContent(rawContent, settings);
 
-        // 'chat' case removed 2026-05-24 — chat history is exclusively
-        // processed by EventBase (LLM event extraction), not chunked.
-        // The production gates in ui/content-vectorizer.js intercept chat
-        // before any code path can reach this dispatcher with that type.
-        // The defensive tripwire in generateCollectionId() below still
-        // throws if someone bypasses both gates manually.
+        // No 'chat' case: chat history goes only through EventBase (LLM event extraction), never
+        // chunked. The gates in src/features/chunkbase/content-vectorizer.js stop chat before it
+        // reaches this dispatcher, and the tripwire in generateCollectionId() below throws if both
+        // gates are bypassed.
 
         case 'url':
             return prepareUrlContent(rawContent, settings);

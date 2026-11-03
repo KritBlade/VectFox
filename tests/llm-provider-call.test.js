@@ -1,5 +1,5 @@
 /**
- * Unit tests for core/llm-provider-call.js — the shared chat-completions wire
+ * Unit tests for src/features/llm-provider/llm-provider-call.js — the shared chat-completions wire
  * path + LLM JSON-array parser now used by the summarizer, EventBase extractor,
  * agentic planner, and Auto-Reformat. None of those four had wire-level fetch
  * coverage before this module consolidated them; this is that coverage.
