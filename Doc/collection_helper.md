@@ -2,7 +2,7 @@
 
 Single document covering everything related to collections: lock state, listing, registry-key construction, **backend routing for queries**, and the UI checkboxes that mirror lock state. Every piece reads from the same in-memory source of truth and writes back through a small, scope-aware set of helpers.
 
-**Why this document is long:** collection routing has historically been the #1 source of silent-wrong-answer bugs in VectFox. Locks land in the wrong storage bucket. Queries hit the wrong backend. Persona ownership stamps don't match. Every bug had the same root cause: someone reimplemented a helper inline instead of importing it. This doc is the *one* place that lists the canonical entry points so future authors (human or AI) stop reinventing them.
+**Why this document is long:** collection routing is where VectFox's silent wrong-answer bugs come from: locks land in the wrong storage bucket, queries hit the wrong backend, persona ownership stamps don't match. Each comes from reimplementing a helper inline instead of importing it. This doc lists the canonical entry points so authors (human or AI) import them instead.
 
 Read `Doc/collection_helper.md` before touching collection routing. It states the CURRENT contract only — git holds every earlier revision.
 
@@ -10,21 +10,23 @@ Read `Doc/collection_helper.md` before touching collection routing. It states th
 
 **Read this before writing any code that touches a collection.** These functions are the *only* entry points new code should call for collection listing, lock state, registry-key construction, and **per-collection backend routing**. They bundle backend disambiguation, persona/handle ownership, superadmin checks, and storage-key normalization. Re-implementing the logic inline gets it wrong almost every time — the failure mode is silent: locks land in the wrong storage bucket, queries hit the wrong backend, the UI shows nothing changed.
 
+Code outside a feature imports these through the feature's `index.js` (`src/features/collections/index.js`, `src/features/eventbase/index.js`), adding a name there when outside code first needs it; `src/shared/collection-ids.js` is imported directly. `npm test` (`check:import-graph`) rejects a deep import into another feature's files.
+
 | Function | File | Use when |
 |---|---|---|
-| **`getCollectionListing(settings)`** | [collection-loader.js](../core/collection-loader.js) | You need to iterate every collection (rendering a list, finding matches by pattern, computing aggregate state). |
-| **`resolveActiveEventBaseCollection(settings, chatUUID?)`** | [eventbase-store.js](../core/eventbase-store.js) | You need *the one* active EventBase collection to READ for a chat (ownership-filtered + lock-aware). Use this instead of taking `[0]` from `findEventBaseCollectionsForChat`. |
-| **`resolveEventBaseWriteTarget(settings, chatUUID?)`** | [eventbase-store.js](../core/eventbase-store.js) | You are about to INGEST events, stamp the auto-sync marker, or report sync status. Same resolution, but the collection's embedded chat UUID must match and it must be registered on the current `vector_backend` — a foreign lock can widen ownership, never redirect writes. |
-| **`getCollectionLocks(key)`** / **`getCollectionCharacterLocks(key)`** | [collection-metadata.js](../core/collection-metadata.js) | You need the chats / characters *one* collection is locked to (lock dialog, badge, tooltip). |
-| **`isCollectionActiveForContext(key, { chatId, characterId })`** | [collection-metadata.js](../core/collection-metadata.js) | You need "is *one* collection locked to the current chat / character?" (badge, checkbox state). Activation itself goes through `shouldCollectionActivate`, which also weighs triggers and conditions. |
-| **`setCollectionLock`** / **`removeCollectionLock`** / **`clearCollectionLock`**, and **`setCollectionCharacterLock`** / **`removeCollectionCharacterLock`** | [collection-metadata.js](../core/collection-metadata.js) | You need to *change* one collection's locks (user clicks lock / unlock / clear). |
-| **`buildRegistryKey(collectionId, settings)`** | [collection-ids.js](../core/collection-ids.js) | You only have a bare collection ID and need to convert it to the canonical `"backend:id"` storage key (for any metadata read/write). Never hand-roll `` `${backend}:${collectionId}` `` — use this instead. |
-| **`resolveBackendForCollection(input)`** | [collection-ids.js](../core/collection-ids.js) | You have an ID (either registry-key or bare) and need to pick the right backend instance for it (query, delete, list, etc.). Returns `{ backend, collectionId }` where `collectionId` is the bare form. Replaces hand-rolled `parseRegistryKey(...).backend ?? settings.vector_backend` chains. |
+| **`getCollectionListing(settings)`** | [collection-loader.js](../src/features/collections/collection-loader.js) | You need to iterate every collection (rendering a list, finding matches by pattern, computing aggregate state). |
+| **`resolveActiveEventBaseCollection(settings, chatUUID?)`** | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | You need *the one* active EventBase collection to READ for a chat (ownership-filtered + lock-aware). Use this instead of taking `[0]` from `findEventBaseCollectionsForChat`. |
+| **`resolveEventBaseWriteTarget(settings, chatUUID?)`** | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | You are about to INGEST events, stamp the auto-sync marker, or report sync status. Same resolution, but the collection's embedded chat UUID must match and it must be registered on the current `vector_backend` — a foreign lock can widen ownership, never redirect writes. |
+| **`getCollectionLocks(key)`** / **`getCollectionCharacterLocks(key)`** | [collection-metadata.js](../src/features/collections/collection-metadata.js) | You need the chats / characters *one* collection is locked to (lock dialog, badge, tooltip). |
+| **`isCollectionActiveForContext(key, { chatId, characterId })`** | [collection-metadata.js](../src/features/collections/collection-metadata.js) | You need "is *one* collection locked to the current chat / character?" (badge, checkbox state). Activation itself goes through `shouldCollectionActivate`, which also weighs triggers and conditions. |
+| **`setCollectionLock`** / **`removeCollectionLock`** / **`clearCollectionLock`**, and **`setCollectionCharacterLock`** / **`removeCollectionCharacterLock`** | [collection-metadata.js](../src/features/collections/collection-metadata.js) | You need to *change* one collection's locks (user clicks lock / unlock / clear). |
+| **`buildRegistryKey(collectionId, settings)`** | [collection-ids.js](../src/shared/collection-ids.js) | You only have a bare collection ID and need to convert it to the canonical `"backend:id"` storage key (for any metadata read/write). Never hand-roll `` `${backend}:${collectionId}` `` — use this instead. |
+| **`resolveBackendForCollection(input)`** | [collection-ids.js](../src/shared/collection-ids.js) | You have an ID (either registry-key or bare) and need to pick the right backend instance for it (query, delete, list, etc.). Returns `{ backend, collectionId }` where `collectionId` is the bare form. Replaces hand-rolled `parseRegistryKey(...).backend ?? settings.vector_backend` chains. |
 
 ### `resolveBackendForCollection(input)` — pick the right backend for a collection
 
 ```js
-import { resolveBackendForCollection } from './collection-ids.js';
+import { resolveBackendForCollection } from '../../shared/collection-ids.js';
 
 const { backend, collectionId } = resolveBackendForCollection('qdrant:vf_lorebook_qdrant_rabbit_artificrealm_1779...');
 // → { backend: 'qdrant', collectionId: 'vf_lorebook_qdrant_rabbit_artificrealm_1779...' }
@@ -35,13 +37,13 @@ const { backend: b2, collectionId: c2 } = resolveBackendForCollection('vf_eventb
 ```
 
 Resolution order:
-1. **Registry-key prefix wins** (`qdrant:` / `vectra:` / `standard:`). Canonical post-2026-05-23 form. Most call sites have this.
-2. **Detect from ID structure** (`vf_<kind>_<backend>_…`). Catches legacy bare entries from before the registry-key convention and any place that still passes bare IDs.
+1. **Registry-key prefix wins** (`qdrant:` / `vectra:` / `standard:`) — the canonical form, which most call sites pass.
+2. **Detect from ID structure** (`vf_<kind>_<backend>_…`) — for bare IDs: entries registered before registry keys existed, and callers that pass bare IDs.
 3. **`{ backend: null, collectionId: bareForm }`** when both fail. Caller chooses whether to fall through to `settings.vector_backend`, throw, or warn.
 
 **Always use this for routing.** The returned `collectionId` is the BARE form — backend methods (`StandardBackend.queryCollection`, `QdrantBackend.deleteVectorItems`, plugin REST endpoints) expect bare IDs and route on the `backend` field returned here.
 
-**Why this matters:** before this helper landed, `queryCollection` in `core-vector-api.js` used `parseRegistryKey(id).backend ?? settings.vector_backend`. For mixed-backend users (rabbit had a standard EventBase locked + a qdrant EventBase locked at the same time, common after persona switches or cross-backend imports) this silently queried *all* collections through the user's default backend. Standard collections got queried through Qdrant → wrong physical location → 0 results. Qdrant collections got queried through Standard → wrong API path → 0 results. The retrieval pipeline returned other collections' content because *those* happened to be on the default backend. This is the bug that TEST 013 finally caught.
+**Why this matters:** routing by `parseRegistryKey(id).backend ?? settings.vector_backend` sends every bare ID to the user's default backend. With collections on two backends (a standard and a qdrant EventBase locked at once, common after persona switches or cross-backend imports), standard collections get queried through Qdrant → wrong physical location → 0 results, and qdrant collections through Standard → wrong API path → 0 results; the injected memory then comes only from collections that happen to sit on the default backend. TEST 013 covers this.
 
 ### `getCollectionListing(settings)` — listing iterator
 
@@ -52,7 +54,7 @@ const entries = getCollectionListing(settings);
 
 Built-in checks:
 - Reads the registry, parses each `backend:id` key.
-- `isOwn`: superadmin override OR `meta.creatorHandle` matches current persona handle OR (legacy) bare-ID substring contains current handle.
+- `isOwn`: superadmin override OR `meta.creatorHandle` matches current persona handle OR, for an entry with no `creatorHandle` stamp, the bare ID contains `_<handle>_`.
 - `isActive`: calls `isCollectionActiveForContext(registryKey, …)` internally — already keyed correctly.
 - Call this **once** per render and reuse the array. Do not call `isCollectionActiveForContext` in a per-card loop.
 
@@ -88,12 +90,12 @@ These patterns will look correct but produce broken state:
 | `setCollectionLock(collection.id, chatId)` | `setCollectionLock(collection.registryKey \|\| collection.id, chatId)` |
 | Iterating the registry + checking `creatorHandle.toLowerCase() === handle` inline | `getCollectionListing(settings).filter(e => e.isOwn)` |
 | Iterating collections + calling `isCollectionActiveForContext` per card | `getCollectionListing` once → use `entry.isActive` |
-| Reading `extension_settings.vectfox.collections[bare_id]` directly | `getCollectionMeta(registryKey)` (storage now keyed by `backend:id`) |
-| Auto-resolving bare ID → registry-key by scanning the registry | Caller passes the canonical form; the auto-resolve scan was removed deliberately because it masked wrong-form callers |
-| `isCollectionAutoSyncEnabled(collectionId)` — bare ID — silently returns `false` even when the UI shows checked (UI writes via registryKey, this reads from a *different bucket*) — root cause of the 2026-05-17 auto-sync regression | `isCollectionAutoSyncEnabled(registryKey)` — same form the UI + every write path uses |
+| Reading `extension_settings.vectfox.collections[bare_id]` directly | `getCollectionMeta(registryKey)` (storage is keyed by `backend:id`) |
+| Auto-resolving bare ID → registry-key by scanning the registry | Caller passes the canonical form; there is no auto-resolve scan, because one would mask wrong-form callers |
+| `isCollectionAutoSyncEnabled(collectionId)` — bare ID — silently returns `false` even when the UI shows checked (UI writes via registryKey, this reads from a *different bucket*) | `isCollectionAutoSyncEnabled(registryKey)` — same form the UI + every write path uses |
 | `` `${getRegistryBackend(settings.vector_backend)}:${collectionId}` `` hand-rolled at every call site (drift bait — one site forgets and the bug above surfaces) | `buildRegistryKey(collectionId, settings)` |
-| `shouldCollectionActivate(collectionId, context)` with bare `collectionId` — its internal `getCollectionMeta` and `isCollectionLockedToChat` calls both read from `extension_settings.vectfox.collections[id]`, which is keyed by `backend:id` form. Passing bare ID returns empty defaults; lock checks always return `false`, so every collection looks unlocked and nothing activates correctly. Root cause of the 2026-05-20 semantic WI lorebook scope bug. | `shouldCollectionActivate(entry.registryKey, context)` where `entry` comes from `getCollectionListing(settings)` |
-| `queryCollection(collection.collectionId, ...)` — passing the bare ID. `queryCollection`'s `parseRegistryKey` returns `backend=null`, then it falls back to `settings.vector_backend` (the user's *default* backend). On mixed-backend setups this silently queries the wrong backend → 0 results, or worse, returns content from a *different* collection that happens to be on the default backend. Root cause of the 2026-05-23 EventBase cross-backend retrieval bug (TEST 013). | `queryCollection(collection.registryKey, ...)` — the registry-key form lets `resolveBackendForCollection` pick the right backend per-collection. |
+| `shouldCollectionActivate(collectionId, context)` with bare `collectionId` — its internal `getCollectionMeta` and `isCollectionLockedToChat` calls both read from `extension_settings.vectfox.collections[id]`, which is keyed by `backend:id` form. Passing bare ID returns empty defaults; lock checks always return `false`, so every collection looks unlocked and nothing activates correctly. | `shouldCollectionActivate(entry.registryKey, context)` where `entry` comes from `getCollectionListing(settings)` |
+| `queryCollection(collection.collectionId, ...)` — passing the bare ID. `queryCollection`'s `parseRegistryKey` returns `backend=null`, then it falls back to `settings.vector_backend` (the user's *default* backend). On mixed-backend setups this silently queries the wrong backend → 0 results, or worse, returns content from a *different* collection that happens to be on the default backend. TEST 013 covers this. | `queryCollection(collection.registryKey, ...)` — the registry-key form lets `resolveBackendForCollection` pick the right backend per-collection. |
 | `liveCollectionIds: lockedLiveCollections.map(c => c.collectionId)` — destructuring `.collectionId` off a `_gatherLockedEventBaseCollections` result. The object has BOTH `.collectionId` (bare) and `.registryKey` (canonical) — picking the wrong one cascades the bare-ID bug down to every consumer (retrieveEvents, retrieveEventsWithAgent). | `liveCollectionIds: lockedLiveCollections.map(c => c.registryKey)` — same pattern, right field. |
 | `parseRegistryKey(id).backend ?? 'qdrant'` (or `?? settings.vector_backend`) hand-rolled — silently misroutes bare IDs that *do* have a detectable backend in the ID structure. | `resolveBackendForCollection(id)` — tries registry-key prefix first, then ID-structure detection, then returns `null` so the caller knows resolution failed. |
 
@@ -101,11 +103,11 @@ These patterns will look correct but produce broken state:
 
 Separate concern from locks. It's a per-collection hard kill switch — when `false`, that one collection is blocked from any activation regardless of locks, triggers, or scope.
 
-> **Do not confuse with the global master switch.** This pause flag is **per-collection**, stored at `extension_settings.vectfox.collections[registryKey].enabled` and read via `isCollectionEnabled(registryKey)`. The VectFox master switch is a **different key** — top-level `extension_settings.vectfox.enabled`, read via `isVectFoxEnabled()` ([feature-gate.js](../core/feature-gate.js)) — and gates *all* runtime work (retrieval injection, auto-sync, lorebook WI) globally. Same word, different scope and different storage path.
+> **Do not confuse with the global master switch.** This pause flag is **per-collection**, stored at `extension_settings.vectfox.collections[registryKey].enabled` and read via `isCollectionEnabled(registryKey)`. The VectFox master switch is a **different key** — top-level `extension_settings.vectfox.enabled`, read via `isVectFoxEnabled()` ([feature-gate.js](../src/shared/feature-gate.js)) — and gates *all* runtime work (retrieval injection, auto-sync, lorebook WI) globally. Same word, different scope and different storage path.
 
 - **UI:** Play/pause icon on each collection card in the Database Browser
 - **Write:** `setCollectionEnabled(collection.registryKey || collection.id, false)` → stores `{ enabled: false }` under `extension_settings.vectfox.collections[registryKey]`
-- **Read:** `isCollectionEnabled(registryKey)` in `core/collection-metadata.js` — pass the registry-key form, not bare ID
+- **Read:** `isCollectionEnabled(registryKey)` in `src/features/collections/collection-metadata.js` — pass the registry-key form, not bare ID
 - **Default:** `true` (enabled) when no metadata exists
 - **All collections use the same key form** — `backend:id`. EventBase collections are registered as `${registryBackend}:${collectionId}` in `eventbase-store.js`, not as plain IDs. The `data-collection-key` attribute on every card is always `collection.registryKey || collection.id`.
 
@@ -118,8 +120,7 @@ Used by any code path that must decide at runtime whether a collection is curren
 **Canonical pattern:**
 
 ```js
-import { getCollectionListing } from './collection-loader.js';
-import { shouldCollectionActivate } from './collection-metadata.js';
+import { getCollectionListing, shouldCollectionActivate } from '../collections/index.js';
 
 const listing = getCollectionListing(settings);
 const currentChatId = getCurrentChatId() ? String(getCurrentChatId()) : null;
@@ -150,12 +151,12 @@ Gate chain inside `shouldCollectionActivate` — every gate that applies must pa
 
 Sibling principle to the canonical APIs above — same "use the one helper, never reimplement inline" rule, different domain. Lives in this doc because the model is part of the **storage-key contract** for every collection: vectra partitions chunks by model on disk, so insert and query must agree on the model value or the read silently misses.
 
-The settings object stores the embedding model under **provider-specific** field names: `embedding_openrouter_model`, `embedding_ollama_model`, `embedding_vllm_model`, `cohere_model`, etc. (the active providers were renamed to the `embedding_*` convention; the embedding-provider selection itself is `settings.embedding_provider`, formerly `settings.source`). There is **no flat `settings.model`** — that key is always empty/undefined. Code that reads `settings.model` directly silently produces the wrong value (empty string) without throwing.
+The settings object stores the embedding model under **provider-specific** field names: `embedding_openrouter_model`, `embedding_ollama_model`, `embedding_vllm_model`, `cohere_model`, etc. (the provider selection itself is `settings.embedding_provider`). There is **no flat `settings.model`** — that key is always empty/undefined. Code that reads `settings.model` directly silently produces the wrong value (empty string) without throwing.
 
-**Always use** [`getModelFromSettings(settings, fallback?)`](../core/providers.js) from `core/providers.js`:
+**Always use** [`getModelFromSettings(settings, fallback?)`](../src/features/embedding/providers.js) from `src/features/embedding/providers.js`:
 
 ```js
-import { getModelFromSettings } from './providers.js';
+import { getModelFromSettings } from '../embedding/index.js';
 
 const model = getModelFromSettings(settings);              // → 'qwen/qwen3-embedding-8b' for openrouter
 const modelOrNull = getModelFromSettings(settings, null);  // null when provider has no model field
@@ -165,7 +166,7 @@ It internally calls `getModelField(settings.embedding_provider)` to look up the 
 
 ### Why this matters
 
-Every site that sends a `model` to the plugin API (`chunks/insert`, `chunks/list`, `chunks/query`, `get-embedding`) is part of the **storage-key contract**. Inserts under `model='qwen/qwen3-embedding-8b'` must be queried under the same `model` value or the plugin's per-model partitioning silently returns 0 results. This bug surfaced as "vectra returns 0 results while qdrant works" — qdrant doesn't partition by model field, so it masked the bug; vectra exposed it.
+Every site that sends a `model` to the plugin API (`chunks/insert`, `chunks/list`, `chunks/query`, `get-embedding`) is part of the **storage-key contract**. Inserts under `model='qwen/qwen3-embedding-8b'` must be queried under the same `model` value or the plugin's per-model partitioning silently returns 0 results. The symptom is "vectra returns 0 results while qdrant works": qdrant does not partition by model, vectra does.
 
 ### What NOT to do
 
@@ -175,7 +176,7 @@ Every site that sends a `model` to the plugin API (`chunks/insert`, `chunks/list
 | `settings.model \|\| ''` | `getModelFromSettings(settings)` |
 | `settings[getModelField(settings.embedding_provider)] \|\| null` (one-liner with manual fallback) | `getModelFromSettings(settings, null)` |
 | `const modelField = getModelField(s.embedding_provider); s[modelField] \|\| ''` (4-line inline expansion) | `getModelFromSettings(settings)` |
-| Defining a local `getModelFromSettings` private helper (this happened 3 times before consolidation) | Import the canonical one |
+| Defining a local `getModelFromSettings` private helper | Import the canonical one |
 
 ### When to use `getModelField` directly instead
 
@@ -205,15 +206,16 @@ Call the highest tier that covers your use case:
 `isCollectionActiveForContext` returns `true` based on the collection's scope:
 - `scope='chat'` → `chatId` is in `lockedToChatIds`
 - `scope='character'` → `characterId` is in `lockedToCharacterIds`
-- anything else → `false` (no global scope; legacy `global` was migrated to `character` — see below)
+- anything else → `false` (there is no global scope; a stored `global` is rewritten to `character` on load — see below)
 
 ## Scope handling — `getEffectiveScope` is the canonical resolver
 
-The scope of a collection (`'chat'` vs `'character'`) controls which lock kind `saveActivation` writes, which list `isCollectionActiveForContext` reads, and which UI elements appear in the activation editor. Get it wrong and locks silently fail to persist — exactly the 2026-05-24 no-plugin regression.
+The scope of a collection (`'chat'` vs `'character'`) controls which lock kind `saveActivation` writes, which list `isCollectionActiveForContext` reads, and which UI elements appear in the activation editor. Get it wrong and locks silently fail to persist.
 
 **Use the canonical resolver, never branch on bare `meta.scope`:**
 
 ```js
+// Inside the collections feature; code outside it imports through '../collections/index.js'.
 import { getEffectiveScope, getCollectionMeta } from './collection-metadata.js';
 
 // Read path — getCollectionMeta auto-resolves scope, so .scope is always valid:
@@ -233,65 +235,58 @@ const scope = getEffectiveScope(collectionId, importPayload);
    - `vf_character_*` / `vf_lorebook_*` / `vf_document_*` → `'character'`
 3. **Default `'character'`** (matches `content-vectorization.js` insert default — the safer wider-scope option).
 
-Returns `'chat'` or `'character'` only — never `null`, `undefined`, or the legacy `'unknown'`.
+Returns `'chat'` or `'character'` only — never `null`, `undefined`, or `'unknown'`.
 
 ### Why `getCollectionMeta` auto-resolves scope
 
-`getCollectionMeta` runs `getEffectiveScope` on every read so downstream callers don't have to remember the defensive pattern. Cheap when stored scope is already valid (single string compare); only parses the ID on the no-plugin / legacy code paths. This eliminates the entire class of "bare `meta.scope === 'chat'` silently misses null/unknown" bugs.
+`getCollectionMeta` runs `getEffectiveScope` on every read so downstream callers don't have to remember the defensive pattern. Cheap when stored scope is already valid (single string compare); it parses the ID only when no valid scope is stored. That removes the class of "bare `meta.scope === 'chat'` silently misses null/unknown" bugs.
 
 ### Rules for new code
 
 - ✅ **Use `getCollectionMeta()`** to read scope — its result is always valid.
 - ✅ **Use `getEffectiveScope(id, payload)`** explicitly when the meta comes from an untrusted source (export file, network response).
-- ❌ **Don't write `defaultCollectionMeta.scope = 'unknown'`** again. Default is `null`; the resolver fills it in.
+- ❌ **Don't set `defaultCollectionMeta.scope` to `'unknown'`.** The default is `null`; the resolver fills it in.
 - ❌ **Don't write `'unknown'` to `meta.scope`** anywhere on disk. If scope can't be determined, leave the field absent and let the resolver derive it from the ID.
-- ❌ **Don't write a new "scope helper"** with `if (meta.scope === ...) return ... else parseFromId ... else default`. That's `getEffectiveScope` — import it. The 2026-05-24 incident was caused by exactly this: a private `_inferScope` lived in `collection-export.js` for months while every other caller wrote its own variant. Discoverable via SigMap; see CLAUDE.md for the workflow.
+- ❌ **Don't write a new "scope helper"** with `if (meta.scope === ...) return ... else parseFromId ... else default`. That's `getEffectiveScope` — import it; a private variant drifts from it. SigMap finds it (see CLAUDE.md for the workflow).
 
-### Legacy collections (auto-corrected at read time)
+### Collections with a stored `'unknown'` scope (corrected at read time)
 
-Users who created collections before 2026-05-24 may have `scope: 'unknown'` saved on disk. They keep working transparently:
+Collections saved by older versions may have `scope: 'unknown'` on disk. They keep working:
 - `getCollectionMeta` runs the merged value through `getEffectiveScope` before returning, so `meta.scope` reads as `'chat'` or `'character'`.
-- No data migration needed — the read path silently corrects every access.
+- No data migration needed — the read path corrects every access.
 - The stored `'unknown'` string stays on disk until the next `setCollectionMeta` call overwrites it. Harmless.
 
-### History
+TEST 005/006/007 cover the standard-backend no-plugin path, including the lock checkbox flow.
 
-The 2026-05-24 no-plugin lock-activation regression was caused by `defaultCollectionMeta.scope = 'unknown'` (truthy string) breaking the `storedMeta.scope || parsedMeta.scope` fall-through pattern. Fix landed same day:
-1. Default changed to `null`.
-2. `getEffectiveScope` extracted as canonical helper, `_inferScope` (duplicate) deleted.
-3. `getCollectionMeta` wired to auto-resolve via the helper.
+## No global scope
 
-TEST 005/006/007 are the regression coverage — they exercise the standard-backend no-plugin path including the lock checkbox flow.
+`scope='global'` is not a valid value. The Vectorize Content modal offers only `Character` (default) and `This Chat`.
 
-## Scope migration — global is gone
-
-`scope='global'` is no longer a valid value anywhere in the codebase. The Vectorize Content modal exposes only `Character` (default) and `This Chat`. Both the runtime path and the parser were cleaned up 2026-05-24:
-
-1. **`COLLECTION_SCOPES.GLOBAL` was deleted** from `core/collection-ids.js`. Only `CHARACTER`, `CHAT`, and `UNKNOWN` (the unparseable-input sentinel) remain.
-2. **`parseCollectionId` no longer returns `'global'`.** Before the cleanup it emitted `'global'` for `vf_lorebook_*`, `vf_document_*`, and `vf_archiveevent_*`. `getEffectiveScope` rejected those values and fell through to its `'character'` default — which happened to be correct for lorebook/document but **silently wrong for archive events** (should be `'chat'`). The parser now returns the canonical value directly:
+1. **`COLLECTION_SCOPES`** in `src/shared/collection-ids.js` holds `CHARACTER`, `CHAT` and `UNKNOWN` (the unparseable-input sentinel).
+2. **`parseCollectionId` returns the canonical scope:**
    - `vf_lorebook_*` / `vf_document_*` / `vf_character_*` → `'character'`
    - `vf_eventbase_*` / `vf_archiveevent_*` → `'chat'`
-3. **Legacy on-disk `scope: 'global'` entries are auto-migrated** on first read by `loadAllCollections`:
+3. **A stored `scope: 'global'` is rewritten on load** by `loadAllCollections`:
    ```
    storedMeta.scope === 'global'  →  setCollectionMeta(writeKey, { scope: 'character' })
    ```
-   This is the *only* remaining string-literal `'global'` reference in the codebase — it's needed to clean up user data that pre-dates the cleanup. Do not remove it.
+   It is the only `'global'` check in the code, kept for user data that still holds the value. Do not remove it.
 
-A migrated collection has no character lock by default — it stops auto-activating until the user re-checks "Active for current chat" in Collection Settings (which then calls `setCollectionCharacterLock(currentCharacterId)`).
+A rewritten collection has no character lock — it stops activating until the user re-checks "Active for current chat" in Collection Settings (which then calls `setCollectionCharacterLock(currentCharacterId)`).
 
 **Rule for new code:** never reintroduce `scope === 'global'` branches anywhere. If you need to handle stored data that *might* contain `'global'`, route it through `getEffectiveScope` — the canonical resolver folds every invalid value into `'character'` or `'chat'`.
 
 ## DB Browser — lock badge in the listing
 
-In `ui/database-browser.js`, the main render loop calls `getCollectionListing(settings)` once and iterates its entries. Each entry carries `entry.isActive` (pre-computed by `getCollectionListing` via `isCollectionActiveForContext(registryKey, ...)` internally). The badge renderer receives the entry and reads `entry.isActive` — there is no per-card `isCollectionActiveForContext` call in the loop. The badge displays a scope-appropriate tooltip:
+In `src/features/database-browser/database-browser.js`, the main render loop calls `getCollectionListing(settings)` once and iterates its entries. Each entry carries `entry.isActive` (pre-computed by `getCollectionListing` via `isCollectionActiveForContext(registryKey, ...)` internally). The badge renderer receives the entry and reads `entry.isActive` — there is no per-card `isCollectionActiveForContext` call in the loop. The badge displays a scope-appropriate tooltip:
 - `scope='chat'` → "Active for current chat" (with chat-count suffix if locked to multiple chats)
 - `scope='character'` → "Active for current chat (locked to current character)"
 
-A fallback `isCollectionActiveForContext` call survives in the badge helper for callers that pass a raw collection ID instead of an entry — this is internal plumbing, not the intended pattern.
+The badge helper keeps one direct `isCollectionActiveForContext` call for callers that pass a raw collection ID instead of an entry; it is internal plumbing, not the pattern to copy.
 
 ## DB Browser → Collection Settings → "Active for current chat" checkbox
 
-In `ui/database-browser.js`:
+In `src/features/database-browser/database-browser.js`:
 
 | Function | Role |
 |---|---|
@@ -315,7 +310,7 @@ Each call only touches the lock for the **current** chat/character. Other chats 
 
 ## WI Panel — "Enable Semantic WI Activation" checkbox
 
-In `ui/ui-manager.js`.
+In `src/features/settings-panel/settings-panel.js`.
 
 **`refreshWIStatus`** (auto-sync from events) fires on:
 - WorldInfo tab click
@@ -349,7 +344,7 @@ It computes `activeIds` by filtering own-persona lorebooks (creatorHandle stamp)
 
 Before reading the rest of this section, internalize this: **the window fingerprint cache is what prevents auto-sync from re-extracting the entire chat on every trigger**. Without it, the cost of running auto-sync would grow linearly with chat length on every single message — every trigger would re-process every window from the top. The fingerprint cache is the "smart marker" that lets auto-sync only do the *new* work.
 
-The cache lives in [`core/eventbase-store.js`](../core/eventbase-store.js). Three functions form the contract:
+The cache lives in [`src/features/eventbase/eventbase-store.js`](../src/features/eventbase/eventbase-store.js). Three functions form the contract:
 
 | Function | Role in auto-sync |
 |---|---|
@@ -372,7 +367,7 @@ User scenario the cache makes safe:
 
 The fingerprint cache above is **window-size-dependent**: a window's fingerprint includes the message hashes it covers, so the fingerprint for `[0-1]` at `windowSize=2` does NOT match `[0-3]` at `windowSize=4`. If a user vectorized a long chat at one window size and then changes the setting before enabling auto-sync, every fingerprint silently misses and the cache devolves into "extract everything from message 0 again" — exactly the failure mode the cache exists to prevent.
 
-The **auto-sync start marker** is the second gate that catches this case. It's a message-index threshold per chat that says "auto-sync should only process windows whose `start >= marker`." Three functions in [`core/eventbase-store.js`](../core/eventbase-store.js):
+The **auto-sync start marker** is the second gate that catches this case. It's a message-index threshold per chat that says "auto-sync should only process windows whose `start >= marker`." Three functions in [`src/features/eventbase/eventbase-store.js`](../src/features/eventbase/eventbase-store.js):
 
 | Function | Role |
 |---|---|
@@ -380,7 +375,7 @@ The **auto-sync start marker** is the second gate that catches this case. It's a
 | `getAutoSyncMarker(chatUUID)` | Read by `runEventBaseIngestion` to gate the window list. Returns `undefined` when no marker is stamped (manual runs and pre-auto-sync chats). |
 | `clearAutoSyncMarker(chatUUID)` | Called when auto-sync is disabled so re-enabling later re-computes a fresh marker against the current chat state. |
 
-The filter is at [`core/eventbase-workflow.js`](../core/eventbase-workflow.js):
+The filter is at [`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js):
 
 ```js
 if (isAutoSync) {
@@ -395,13 +390,13 @@ if (isAutoSync) {
 
 ### Enable-time backlog catch-up (confirm, then run)
 
-Auto-sync **catches up the whole gap** (tip → now) on its next trigger — it does *not* "start from now" by default. For a large gap that next trigger is a surprise burst of LLM calls, so the enable handler ([ui-manager.js](../ui/ui-manager.js) → `#VectFox_autosync_enabled` `input`) gates it:
+Auto-sync **catches up the whole gap** (tip → now) on its next trigger — it does *not* "start from now" by default. For a large gap that next trigger is a surprise burst of LLM calls, so the enable handler ([settings-panel.js](../src/features/settings-panel/settings-panel.js) → `#VectFox_autosync_enabled` `input`) gates it:
 
 1. Compute pending windows: `floor(max(0, commitBoundary − getVectorizationTip(uuid)) / getAutoSyncWindowSize(settings))`, where `commitBoundary` is `status.commitBoundary` (chat length minus the held-back active turn — see the settle/commit lag layer). Clamping the backlog to the committed boundary keeps the deliberately-unextracted active turn from being counted as backfill.
 2. If `>= 5` windows, `callGenericPopup(CONFIRM, …)` — **Catch up now** vs **Just keep up from here** (X/Esc reverts):
-   - *Catch up now* → `backfillCurrentChatWithProgress()` ([content-vectorizer.js](../ui/content-vectorizer.js)) runs the Continue path with the standard progress UI (full-screen on mobile), then the marker lands at the freshly-advanced tip (smart placement).
+   - *Catch up now* → `backfillCurrentChatWithProgress()` ([content-vectorizer.js](../src/features/chunkbase/content-vectorizer.js)) runs the Continue path with the standard progress UI (full-screen on mobile), then the marker lands at the freshly-advanced tip (smart placement).
    - *Just keep up from here* → `stampAutoSyncMarker(uuid, settings, { floor: 'chatLength' })` skips the backlog.
-3. Below threshold → enable silently (small gap catches up on the next trigger, as before).
+3. Below threshold → enable silently (a small gap catches up on the next trigger).
 
 The catch-up backfill runs at `eventbase_window_size` while auto-sync runs at `getAutoSyncWindowSize` — **safe** because the marker/tip gate is index-based: catch-up advances the tip, the marker is stamped there, and auto-sync only processes windows *above* it at its own size. No fingerprint collision, no duplicate coverage. Floor-override behavior is asserted by TEST 016 Phase 5.
 
@@ -424,7 +419,7 @@ Auto-sync fires on `MESSAGE_SWIPED`. Without a lag, every swipe of the latest AI
 The **settle/commit lag** holds the *active* (still-swipeable) last turn back from extraction until a newer message supersedes it. One helper is the single source of truth:
 
 ```js
-// core/eventbase-workflow.js
+// src/features/eventbase/eventbase-workflow.js
 getCommitBoundary(messages, settings)
 //  → settings.eventbase_autosync_settle_lag === false ? messages.length
 //  : max(0, messages.length - getAutoSyncWindowSize(settings))   // hold back one turn
@@ -434,7 +429,7 @@ getCommitBoundary(messages, settings)
 
 Because un-kept swipes only ever live on the active turn (which is past the boundary), they never reach the window-builder → **zero embeddings for discarded generations**. When the user sends the next turn, the previously-active turn falls inside the boundary and extracts exactly once.
 
-- **On by default, no migration, no practical downside:** the held-back turn is always the newest message, hence always inside ST's live context window — retrieval never needs it. Existing fully-synced chats show no gap at upgrade (their tail was already extracted; the monotonic tip already covers it). See [plans/executed/autosync-settle-lag.md](../plans/executed/autosync-settle-lag.md).
+- **On by default, no downside in practice:** the held-back turn is always the newest message, hence always inside ST's live context window — retrieval never needs it. A chat whose tail was already extracted shows no gap (the monotonic tip covers it). Design: `InternalProject/Vectfox/plans/executed/autosync-settle-lag.md`.
 - **UI:** when fully synced with `vectorization < chat`, the counter appends `· latest turn pending settle` so green + a one-turn gap reads as intentional, not a backlog. The enable-time backlog estimate clamps pending to `status.commitBoundary` so the held turn isn't counted as backfill.
 - **The one inherent property:** the final turn of a chat that is never continued is never auto-extracted (nothing supersedes it) — it's still in live context, and manual Vectorize Content force-covers it if ever wanted.
 
@@ -450,23 +445,24 @@ Because un-kept swipes only ever live on the active turn (which is past the boun
 
 ### Vectorization tip cache — honest "vectorization: N msgs" display
 
-The auto-sync start marker is stamped *once* at enable time and never advances as new windows extract. Using it for the UI count produces a frozen, misleading number. The vectorization tip is the live truth source. Not persisted — `setVectorizationTip` keeps it current during the session (backend-agnostic). On a cold cache after page reload, `ensureVectorizationTip` probes the backend via `listChunks` to backfill it; this works for Qdrant and Standard+plugin. For Standard without the similharity plugin the probe returns `null` (native fallback only returns hashes, no metadata), so the UI falls back to `markerValue` until the next ingestion run refreshes the in-memory cache.
+The auto-sync start marker is stamped *once* at enable time and never advances as new windows extract, so it cannot serve as the UI count. The vectorization tip (`max(source_window_end) + 1` for the chat) is the live value: `setVectorizationTip` keeps it in memory and persists it to `extension_settings.vectfox.eventbase_vectorization_tip[chatUUID]` (backend-agnostic), and `getVectorizationTip` warms the in-memory cache from that map after a reload. Only when neither holds a value does `ensureVectorizationTip` probe the backend via `listChunks`; the probe works for Qdrant and Standard+plugin. For Standard without the similharity plugin it returns `null` (the native fallback returns hashes, no metadata), so the UI falls back to `markerValue` until the next ingestion run sets the tip.
 
 | Function | File | Notes |
 |---|---|---|
-| `getVectorizationTip(chatUUID)` | [eventbase-store.js](../core/eventbase-store.js) | Sync; returns cached tip or `undefined`. UI falls back to `markerValue` when undefined. |
-| `setVectorizationTip(chatUUID, tip)` | [eventbase-store.js](../core/eventbase-store.js) | Sync, monotonic max — out-of-order calls won't regress. Called by `runEventBaseIngestion` after every successful window via `setVectorizationTip(uuid, win.end + 1)`. |
-| `clearVectorizationTip(chatUUID)` | [eventbase-store.js](../core/eventbase-store.js) | Call when deleting or clearing EventBase for a chat (parity with `clearAutoSyncMarker`). |
-| `ensureVectorizationTip(chatUUID, collectionId, settings)` | [eventbase-store.js](../core/eventbase-store.js) | Async. Returns cached tip immediately on hit; probes backend once on session-cold miss, populates cache, returns value. Returns `null` when collection has no events. Called by `getChatAutoSyncStatus`. |
+| `getVectorizationTip(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Sync; returns the in-memory tip, else the persisted one (warming the cache), else `undefined`. UI falls back to `markerValue` when undefined. |
+| `setVectorizationTip(chatUUID, tip)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Sync, monotonic max in memory and in the persisted map — out-of-order calls won't regress. Called by `runEventBaseIngestion` after every successful window via `setVectorizationTip(uuid, win.end + 1)`. |
+| `clearVectorizationTip(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Clears the in-memory and persisted tip. Call when deleting or clearing EventBase for a chat (parity with `clearAutoSyncMarker`). |
+| `ensureVectorizationTip(chatUUID, collectionId, settings)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Async. Returns the known tip at once (in-memory or persisted); otherwise probes the backend once, caches the result in memory only, and returns it. Returns `null` when the collection has no events. Called by `getChatAutoSyncStatus`. |
 
 ### Last-used window size — window-size-change detection for Continue
 
-Persists the `windowSize` that was in effect when auto-sync last ran successfully. Used by the Continue modal to detect a window-size change since the last extraction (the modal is planned for deletion by §10 / C4 of the autosync plan, but `getLastUsedWindowSize` will remain as a diagnostic).
+Persists the `windowSize` of the last ingestion run that extracted windows. Vectorize Content → Continue checks it through `checkWindowSizeChanged` to warn before a window-size change re-extracts, and the branch fork carries it over to the new collection.
 
 | Function | File | Notes |
 |---|---|---|
-| `getLastUsedWindowSize(chatUUID)` | [eventbase-store.js](../core/eventbase-store.js) | Reads from `extension_settings.vectfox.eventbase_last_used_window_size[chatUUID]`. Returns `undefined` when no prior run. |
-| `setLastUsedWindowSize(chatUUID, windowSize)` | [eventbase-store.js](../core/eventbase-store.js) | Stamped by `runEventBaseIngestion` after a successful run with `windowsProcessed > 0`. Do not call from application code. |
+| `getLastUsedWindowSize(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Reads from `extension_settings.vectfox.eventbase_last_used_window_size[chatUUID]`. Returns `undefined` when no prior run. |
+| `setLastUsedWindowSize(chatUUID, windowSize)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Stamped by `runEventBaseIngestion` after a successful run with `windowsProcessed > 0`. Do not call from application code. |
+| `checkWindowSizeChanged(chatUUID, currentSize)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Compares the current window size with the last-used one. Use it instead of comparing `getLastUsedWindowSize(…)` inline. |
 
 ### Collection resolver — find the EventBase collection for a chat
 
@@ -477,23 +473,22 @@ Persists the `windowSize` that was in effect when auto-sync last ran successfull
 > Pick the verb that matches the contract so callers don't have to read this doc.
 
 **A chat UUID can map to MULTIPLE EventBase collections** — one per persona/handle
-(`name1`), plus imported archives registered under a different name. The earlier
-"at most one collection per backend" assumption was wrong and caused the auto-sync
-marker to read a stale import instead of the active collection. Use the **lock** to
-disambiguate which one is active.
+(`name1`), plus imported archives registered under a different name. Code that
+assumes one collection per backend reads a stale import instead of the active
+collection; the **lock** says which one is active.
 
 | Function | File | Use when |
 |---|---|---|
-| `resolveActiveEventBaseCollection(settings, chatUUID?, { requireUuidMatch?, shouldLogResolution? })` | [eventbase-store.js](../core/eventbase-store.js) | **Default choice for READS.** Returns `{ collectionId, registryKey }` for the single **active** collection — ownership-filtered (via `getCollectionListing`) and lock-aware (matches the DB Browser's "Active here only"). Returns `null` when none. Logs `[EventBase][resolve]` lifecycle diagnostics (candidates + pick) unless `shouldLogResolution: false`. Used by `buildSummarizerInjection`. |
-| `resolveEventBaseWriteTarget(settings, chatUUID?, { shouldLogResolution? })` | [eventbase-store.js](../core/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `runEventBaseIngestion`, `synchronizeChat`, `stampAutoSyncMarker`, and `getChatAutoSyncStatus`. Returns `null` on a chat's first ingestion on the current backend — callers fall through to `buildEventBaseCollectionId`. |
-| `findEventBaseCollectionsForChat(uuid, preferredBackend)` | [eventbase-store.js](../core/eventbase-store.js) | Only when you genuinely need **every** candidate (e.g. pausing auto-sync on all of a chat's collections, or a has-data fallback probe). Returns `Array<{ collectionId, registryKey }>`, lock-ranked first. Pass `getRegistryBackend(settings.vector_backend)` as `preferredBackend`. **Do not** take `[0]` to mean "the active one" — call `resolveActiveEventBaseCollection` for that. Returns `[]` when no collection exists yet. |
+| `resolveActiveEventBaseCollection(settings, chatUUID?, { requireUuidMatch?, shouldLogResolution? })` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | **Default choice for READS.** Returns `{ collectionId, registryKey }` for the single **active** collection — ownership-filtered (via `getCollectionListing`) and lock-aware (matches the DB Browser's "Active here only"). Returns `null` when none. Logs `[EventBase][resolve]` lifecycle diagnostics (candidates + pick) unless `shouldLogResolution: false`. Used by `buildSummarizerInjection`. |
+| `resolveEventBaseWriteTarget(settings, chatUUID?, { shouldLogResolution? })` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `runEventBaseIngestion`, `synchronizeChat`, `stampAutoSyncMarker`, and `getChatAutoSyncStatus`. Returns `null` on a chat's first ingestion on the current backend — callers fall through to `buildEventBaseCollectionId`. |
+| `findEventBaseCollectionsForChat(uuid, preferredBackend)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Only when you genuinely need **every** candidate (e.g. pausing auto-sync on all of a chat's collections, or a has-data fallback probe). Returns `Array<{ collectionId, registryKey }>`, lock-ranked first. Pass `getRegistryBackend(settings.vector_backend)` as `preferredBackend`. **Do not** take `[0]` to mean "the active one" — call `resolveActiveEventBaseCollection` for that. Returns `[]` when no collection exists yet. |
 
 #### Eligibility rules inside `resolveActiveEventBaseCollection` — on READS an explicit lock is a FULL override
 
-A collection qualifies as the chat's active EventBase collection in **one of two** ways. Do not collapse these into a single "lock AND uuid" gate — that was the 2026-06-21 bug.
+A collection qualifies as the chat's active EventBase collection in **one of two** ways. Do not collapse these into a single "lock AND uuid" gate: retrieval would then ignore a locked collection whose embedded UUID has drifted (see below).
 
 1. **Explicit per-chat lock → eligible unconditionally.** If the collection is locked to the current chat (`isCollectionActiveForContextAnyKey([registryKey, collectionId], { chatId })`), it is the active collection **regardless of ownership and regardless of whether its embedded UUID still matches this chat.** A lock is a deliberate user override.
-2. **Auto-association (no lock) → must be owned AND UUID-matching.** Only when there is no lock does the resolver require `isOwn` *and* `matchesPatterns(id, uuidPatterns)`.
+2. **Auto-association (no lock) → must be owned AND UUID-matching.** Only when there is no lock does the resolver require `isOwn` *and* a match against the chat's UUID patterns (`matchesPatterns`).
 
 **Why the lock must bypass the UUID match on reads (not just ownership):** the collection ID bakes in the chat UUID at creation time, but the live chat UUID can **drift** away from it — e.g. after a delete + re-vectorize cycle, or when the user intentionally binds another chat's EventBase here (branch/duplicate sharing). The lock survives that drift; the UUID embedded in the ID does not. Requiring a UUID match on the read path would make the collection show **ACTIVE** in the DB Browser (lock-only badge) while retrieval ignored it.
 
@@ -516,25 +511,25 @@ Group chats are unaffected: all speakers share one chat UUID, so their collectio
 
 ### Low-level fingerprint cache management
 
-Called internally by the ingestion loop. Do not call from application code — reimplementing these inline is the historical source of dedup bugs.
+Called internally by the ingestion loop. Do not call from application code; reimplementing them inline breaks dedup.
 
 | Function | File | Notes |
 |---|---|---|
-| `windowFingerprint(sourceHashes)` | [eventbase-store.js](../core/eventbase-store.js) | Deterministic sorted-join of message hashes. **Window-size dependent** — a fingerprint from `windowSize=2` never collides with one from `windowSize=4`, which is why the start marker is needed as a second safety layer. |
-| `clearWindowCacheForChat(chatUUID)` | [eventbase-store.js](../core/eventbase-store.js) | Evicts the in-memory fingerprint Set for a chat. Use when a collection is deleted. Do NOT call on window-size change — that would force full re-extraction; use `stampAutoSyncMarker` instead. |
+| `windowFingerprint(sourceHashes)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Deterministic sorted-join of message hashes. **Window-size dependent** — a fingerprint from `windowSize=2` never collides with one from `windowSize=4`, which is why the start marker is needed as a second safety layer. |
+| `clearWindowCacheForChat(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Evicts the in-memory fingerprint Set for a chat. Use when a collection is deleted. Do NOT call on window-size change — that would force full re-extraction; use `stampAutoSyncMarker` instead. |
 
 ### Auto-sync entry points
 
 | Function | File | Role |
 |---|---|---|
-| `synchronizeChat(settings, batchSize, triggerEvent)` | [chat-vectorization.js](../core/chat-vectorization.js) | The auto-sync coordinator. Gates on **the write target only** — `resolveEventBaseWriteTarget(settings, uuid)` then `isCollectionAutoSyncEnabled(active.registryKey)` — NOT a `.some()` across every collection (a leftover `autoSync=true` on a non-active sibling used to fire even with the toggle visibly off). Then calls `runEventBaseIngestion({ isAutoSync: true, collectionIdOverride: active.collectionId })`. **The override is load-bearing** (commit `5d8a6dd`): it pins the write target to the resolved active collection so a group chat doesn't manufacture a new per-speaker collection each turn. Called from ST event hooks (MESSAGE_SENT, MESSAGE_RECEIVED, etc.) in [index.js](../index.js), which schedule nothing while the VectFox master switch is off; it also bails on its own master-switch check (`isVectFoxEnabled` — see [feature-gate.js](../core/feature-gate.js)) when the switch goes off inside the debounce window. Pass `triggerEvent` so it can suppress the popup on MESSAGE_SENT mid-generation. |
-| `rearrangeChat(chat, settings, type, { dryRun, testMessage })` | [chat-vectorization.js](../core/chat-vectorization.js) | ST generation interceptor (manifest `generate_interceptor`, runs before the prompt is built). Handles semantic retrieval and prompt injection. **Separate concern from `synchronizeChat`** — retrieval does not trigger auto-sync extraction. Every live (non-quiet) generation first empties every block it owns via `clearInterceptorPrompts` (chunk block, per-position variants, EventBase, Summarizer), so a turn that injects nothing never resends last turn's memory; then it early-returns when the master switch is off (`isVectFoxEnabled`). The lorebook block is cleared by its own GENERATION_STARTED handler ([world-info-integration.js](../core/world-info-integration.js)). The `dryRun` / `testMessage` params support the debug query tester, which is exempt from the master switch so debugging still works. |
+| `synchronizeChat(settings, batchSize, triggerEvent)` | [chat-vectorization.js](../src/features/chunkbase/chat-vectorization.js) | The auto-sync coordinator. Gates on **the write target only** — `resolveEventBaseWriteTarget(settings, uuid)` then `isCollectionAutoSyncEnabled(active.registryKey)` — NOT a `.some()` across every collection (a leftover `autoSync=true` on a non-active sibling would fire while the toggle shows off). Then calls `runEventBaseIngestion({ isAutoSync: true, collectionIdOverride: active.collectionId })`. **The override is load-bearing**: it pins the write target to the resolved active collection so a group chat doesn't manufacture a new per-speaker collection each turn. Called from ST event hooks (MESSAGE_SENT, MESSAGE_RECEIVED, etc.) in [src/index.js](../src/index.js), which schedule nothing while the VectFox master switch is off; it also bails on its own master-switch check (`isVectFoxEnabled` — see [feature-gate.js](../src/shared/feature-gate.js)) when the switch goes off inside the debounce window. Pass `triggerEvent` so it can suppress the popup on MESSAGE_SENT mid-generation. |
+| `rearrangeChat(chat, settings, type, { dryRun, testMessage })` | [chat-vectorization.js](../src/features/chunkbase/chat-vectorization.js) | ST generation interceptor (manifest `generate_interceptor`, runs before the prompt is built). Handles semantic retrieval and prompt injection. **Separate concern from `synchronizeChat`** — retrieval does not trigger auto-sync extraction. Every live (non-quiet) generation first empties every block it owns via `clearInterceptorPrompts` (chunk block, per-position variants, EventBase, Summarizer), so a turn that injects nothing never resends last turn's memory; then it early-returns when the master switch is off (`isVectFoxEnabled`). The lorebook block is cleared by its own GENERATION_STARTED handler ([world-info-integration.js](../src/features/world-info/world-info-integration.js)). The `dryRun` / `testMessage` params support the debug query tester, which is exempt from the master switch so debugging still works. |
 
 ### Key-form parity
 
-**Key-form parity is load-bearing.** Four sites read or write the per-collection autoSync flag: `refreshAutoSyncCheckbox` (UI mirror), `getChatAutoSyncStatus` (state evaluator), the change handler (writer), and `synchronizeChat` (the engine that actually fires extraction). All four must use the **registry-key form** (`backend:id`) — built via `buildRegistryKey(collectionId, settings)` or pulled from `entry.registryKey`. The 2026-05-17 regression where the popup never fired and extraction never ran was a single site (`synchronizeChat`) reading with the bare collection ID while everyone else wrote with the registry key. The flag was saved correctly; the reader looked in the wrong bucket and saw `undefined`.
+**Key-form parity is load-bearing.** Four sites read or write the per-collection autoSync flag: `refreshAutoSyncCheckbox` (UI mirror), `getChatAutoSyncStatus` (state evaluator), the change handler (writer), and `synchronizeChat` (the engine that actually fires extraction). All four must use the **registry-key form** (`backend:id`) — built via `buildRegistryKey(collectionId, settings)` or pulled from `entry.registryKey`. One site reading with the bare collection ID while the others write with the registry key looks in the wrong bucket and sees `undefined`: the flag is saved, yet the popup never fires and extraction never runs.
 
-State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend = true, shouldLogResolution = true })`** in `core/eventbase-workflow.js`. Mostly in-memory; performs at most ONE backend probe per (chat, session) for the vectorization-tip cache (see below). `shouldProbeBackend: false` skips that probe and reports only the cached tip; `shouldLogResolution: false` silences the write-target resolver's diagnostics. `refreshAutoSyncCheckbox` passes both while the master switch is off, so a passive panel refresh never calls the backend and logs nothing. Returns one of:
+State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend = true, shouldLogResolution = true })`** in `src/features/eventbase/eventbase-workflow.js`. Mostly in-memory; performs at most ONE backend probe per (chat, session) for the vectorization-tip cache (see below). `shouldProbeBackend: false` skips that probe and reports only the cached tip; `shouldLogResolution: false` silences the write-target resolver's diagnostics. `refreshAutoSyncCheckbox` passes both while the master switch is off, so a passive panel refresh never calls the backend and logs nothing. Returns one of:
 
 ```
 { state: 'no-chat' }
@@ -544,13 +539,13 @@ State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend =
 { state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, markerValue?, vectorizationTip? }
 ```
 
-Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does NOT do its own UUID walk anymore; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; ticking the checkbox then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
+Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does no UUID walk of its own; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; ticking the checkbox then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
 
 "Fully vectorized" is determined by `isChatFullyVectorized(messages, settings, chatUUID)`, which checks whether the last possible window for the current message count is already in `eventbase_extracted_windows[uuid]`. No DB query, just an O(1) Set lookup.
 
-**Vectorization tip cache (`vectorizationTip`)** — added 2026-05-26 to fix a UI lie. The auto-sync **start marker** (`eventbase_autosync_start_marker[uuid]`) is stamped ONCE when auto-sync is enabled and never updated as new windows extract. The UI used to display the marker as "vectorization: N msgs," which froze at enable-time and drifted from reality. The tip cache lives in `core/eventbase-store.js` as `_vectorizationTipByUuid: Map<uuid, number>` and represents `max(source_window_end) + 1` for the chat. The ingestion loop calls `setVectorizationTip(uuid, win.end + 1)` after every successful `markWindowExtracted`, keeping the cache current with zero per-tick cost. On cache miss (first read after page reload), `ensureVectorizationTip()` fires one `listChunks` probe to backfill from Qdrant. UI prefers `vectorizationTip` over `markerValue` for the "vectorization: N msgs" display.
+**`vectorizationTip`** is the tip from "Vectorization tip cache" above. The UI prefers it over `markerValue` for the "vectorization: N msgs" count, because the start marker (`eventbase_autosync_start_marker[uuid]`) is stamped once at enable time and never moves.
 
-**`vectorization-ahead` state** — distinct branch (added 2026-05-24) covering the case where the per-chat auto-sync marker (`extension_settings.vectfox.eventbase_autosync_start_marker[uuid]`) is past the current chat's message count. Usual cause: user bound a chat vectorization that was extracted from a longer version of the same chat (or deleted messages after vectorizing). The marker filter inside `runEventBaseIngestion` rejects every window in that case — extraction is frozen until the chat catches up to the marker. The UI surfaces this as a distinct, informative state instead of the misleading "Locked — will sync on next trigger" message that previously fired and never produced any work. **Intentional non-fix**: no marker clamp / re-stamp / clear. The chat-shrinkage case is rare and user-induced; auto-correcting silently would hide a likely user error (binding the wrong vectorization). UI clarity beats silent recovery.
+**`vectorization-ahead` state** covers the per-chat auto-sync marker (`extension_settings.vectfox.eventbase_autosync_start_marker[uuid]`) being past the current chat's message count. Usual cause: the user bound a chat vectorization extracted from a longer version of the same chat (or deleted messages after vectorizing). The marker filter inside `runEventBaseIngestion` then rejects every window — extraction waits until the chat reaches the marker — and the UI says so instead of reporting a sync that never happens. **No auto-correction on purpose**: no marker clamp / re-stamp / clear. The chat-shrinkage case is rare and user-induced; auto-correcting silently would hide a likely user error (binding the wrong vectorization). UI clarity beats silent recovery.
 
 **`refreshAutoSyncCheckbox(settings)`** fires on:
 - AutoSync tab click
@@ -605,11 +600,11 @@ SillyTavern gives every new branch and checkpoint its own `chat_metadata.integri
 
 | Function | File | Role |
 |---|---|---|
-| `findEventBaseForkSource(settings)` | [eventbase-fork.js](../core/eventbase-fork.js) | Parent collection + split point, or `null` |
-| `forkEventBaseFromSource(settings, source)` | [eventbase-fork.js](../core/eventbase-fork.js) | Copy + activation, with progress panel |
-| `rankForkSourcesFromWindowRecord`, `measureSharedPrefix`, `selectChunksBeforeSplit`, … | [eventbase-fork-core.js](../core/eventbase-fork-core.js) | Pure matching/selection rules |
-| `hashSourceMessage(message)` | [eventbase-message-hash.js](../core/eventbase-message-hash.js) | The one message hash behind `source_message_hashes`, window fingerprints and fork matching |
-| `fetchPortableChunks`, `insertChunksWithVectors` | [collection-export.js](../core/collection-export.js) | The export/import read and write, shared with the fork |
+| `findEventBaseForkSource(settings)` | [eventbase-fork.js](../src/features/eventbase/eventbase-fork.js) | Parent collection + split point, or `null` |
+| `forkEventBaseFromSource(settings, source)` | [eventbase-fork.js](../src/features/eventbase/eventbase-fork.js) | Copy + activation, with progress panel |
+| `rankForkSourcesFromWindowRecord`, `measureSharedPrefix`, `selectChunksBeforeSplit`, … | [eventbase-fork-core.js](../src/features/eventbase/eventbase-fork-core.js) | Pure matching/selection rules |
+| `hashSourceMessage(message)` | [eventbase-message-hash.js](../src/features/eventbase/eventbase-message-hash.js) | The one message hash behind `source_message_hashes`, window fingerprints and fork matching |
+| `fetchPortableChunks`, `insertChunksWithVectors` | [collection-export.js](../src/features/collections/collection-export.js) | The export/import read and write, shared with the fork |
 
 ## Manual vs auto-sync paths
 
@@ -653,22 +648,22 @@ Triggers and conditions narrow a locked collection; neither can activate an unlo
 
 | File | Role |
 |---|---|
-| `core/collection-ids.js` | `buildRegistryKey`, `parseRegistryKey`, `resolveBackendForCollection`, `getBackendFromCollectionId`, `remapCollectionIdToBackend`, `normalizeBackendForId`, `KNOWN_BACKEND_LABELS` |
-| `core/collection-metadata.js` | `isCollectionActiveForContext`, `getCollectionLocks`, `getCollectionCharacterLocks`, `setCollectionLock`, `removeCollectionLock`, `setCollectionCharacterLock`, `removeCollectionCharacterLock`, `setCollectionAutoSync`, `shouldCollectionActivate` |
-| `core/collection-loader.js` | Migration (`scope='global'` → `'character'`), `loadAllCollections`, `getCollectionListing` |
-| `core/core-vector-api.js` | `queryCollection` — the canonical per-collection-backend routing entry point |
-| `core/eventbase-workflow.js` | `getChatAutoSyncStatus`, `isChatFullyVectorized`, dispatches `vectfox:eventbase-synced` |
-| `core/content-vectorization.js` | Default `scope='character'`, no `'global'` fallback |
-| `ui/database-browser.js` | Listing lock badge, `openActivationEditor`, `renderActivationEditor`, `refreshActivationLockButton`, `saveActivation` |
-| `ui/ui-manager.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, WI checkbox handler, Auto-Sync checkbox handler, event listeners |
-| `ui/content-vectorizer.js` | Scope picker without global, post-vectorization `refreshWIStatus` call |
+| `src/shared/collection-ids.js` | `buildRegistryKey`, `parseRegistryKey`, `resolveBackendForCollection`, `getBackendFromCollectionId`, `remapCollectionIdToBackend`, `normalizeBackendForId`, `KNOWN_BACKEND_LABELS` |
+| `src/features/collections/collection-metadata.js` | `isCollectionActiveForContext`, `getCollectionLocks`, `getCollectionCharacterLocks`, `setCollectionLock`, `removeCollectionLock`, `setCollectionCharacterLock`, `removeCollectionCharacterLock`, `setCollectionAutoSync`, `shouldCollectionActivate` |
+| `src/features/collections/collection-loader.js` | Migration (`scope='global'` → `'character'`), `loadAllCollections`, `getCollectionListing` |
+| `src/features/vector-backend/vector-api.js` | `queryCollection` — the canonical per-collection-backend routing entry point |
+| `src/features/eventbase/eventbase-workflow.js` | `getChatAutoSyncStatus`, `isChatFullyVectorized`, dispatches `vectfox:eventbase-synced` |
+| `src/features/chunkbase/content-vectorization.js` | Default `scope='character'`, no `'global'` fallback |
+| `src/features/database-browser/database-browser.js` | Listing lock badge, `openActivationEditor`, `renderActivationEditor`, `refreshActivationLockButton`, `saveActivation` |
+| `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, WI checkbox handler, Auto-Sync checkbox handler, event listeners |
+| `src/features/chunkbase/content-vectorizer.js` | Scope picker without global, post-vectorization `refreshWIStatus` call |
 
 ## Things you should NOT do
 
 - Don't call `.trigger('change')` from any refresh/auto-sync path. Use `prop('checked', x)` directly and persist settings inline.
 - Don't add backend probes to checkbox-state evaluators. `isCollectionActiveForContext` uses in-memory data only; `getChatAutoSyncStatus`'s only backend call is the one-time vectorization-tip probe, which `shouldProbeBackend: false` skips.
-- Don't add `scope === 'global'` checks. The only legitimate reference is the one-time migration block in `loadAllCollections`.
+- Don't add `scope === 'global'` checks. The only legitimate one is the rewrite block in `loadAllCollections`.
 - Don't duplicate `isCollectionActiveForContext` logic inline. If you need it in a new place, import it.
 - Don't write directly to `lockedToChatIds` / `lockedToCharacterIds`. Use the `setCollectionLock` / `removeCollectionLock` / `setCollectionCharacterLock` / `removeCollectionCharacterLock` helpers — they maintain the `chat_lock_index` reverse map too.
-- Don't pass bare collection IDs to `queryCollection` (in `core/core-vector-api.js`). The function routes by backend prefix internally via `resolveBackendForCollection`. Bare IDs work *only* when the backend can be detected from the ID structure — registry-key form is the canonical input.
+- Don't pass bare collection IDs to `queryCollection` (in `src/features/vector-backend/vector-api.js`). The function routes by backend prefix internally via `resolveBackendForCollection`. Bare IDs work *only* when the backend can be detected from the ID structure — registry-key form is the canonical input.
 - Don't hand-roll backend detection (`id.includes('_qdrant_') ? 'qdrant' : 'standard'`). Use `resolveBackendForCollection(id)` — it returns the bare collectionId you'll need for the backend call anyway.
