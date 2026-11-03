@@ -1456,6 +1456,10 @@ function bindCollectionCardEvents() {
         // Re-render
         renderCollections();
 
+        // The settings panel re-checks its Semantic WI and auto-sync checkboxes on
+        // this event; the deleted collection may have been what kept either one on.
+        document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
+
         if (result.success) {
           toastr.success(`Deleted collection "${collection.name}"`, "VectFox");
         } else {
@@ -2707,7 +2711,7 @@ function renderConditionSettings(rule, index) {
     case "randomChance":
       return `
                 <input type="number" placeholder="Probability %" min="0" max="100"
-                       value="${settings.probability || 50}"
+                       value="${settings.probability ?? 50}"
                        data-field="probability" data-rule-index="${index}">
                 <span>%</span>
             `;
@@ -3691,6 +3695,8 @@ function bindBulkEvents() {
       browserState.bulkSelected.clear();
       await refreshCollections();
       renderBulkList();
+      // Same settings-panel refresh as the single delete above.
+      document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
 
       if (partialCount > 0) {
         toastr.warning(

@@ -376,15 +376,17 @@ function evaluateCharacterPresentCondition(rule, context) {
 }
 
 /**
- * Evaluates a random chance condition
+ * Evaluates a random chance condition: passes with the configured probability
+ * (0 never, 100 always), or 50% when no probability is set.
  * @param {object} rule Condition rule
  * @returns {boolean} Whether condition is met
  */
 function evaluateRandomChanceCondition(rule) {
-    const settings = rule.settings || { probability: parseInt(rule.value) || 50 };
-    const chance = settings.probability || 50;
+    const configured = rule.settings?.probability ?? parseInt(rule.value);
+    const chance = Number.isFinite(configured) ? configured : 50;
+    // roll is in [0, 100), so `<` passes exactly `chance` percent of the time.
     const roll = Math.random() * 100;
-    return roll <= chance;
+    return roll < chance;
 }
 
 /**
