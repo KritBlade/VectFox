@@ -4,7 +4,8 @@
 migrate-logging.py — byte-safe console.* -> log.* migrator for VectFox.
 
 WHY THIS EXISTS
-  The logging standard (plans/logging-levels-and-classification.md + core/log.js)
+  The logging standard (InternalProject/Vectfox/plans/executed/logging-levels-and-classification.md
+  + src/sillytavern/log.js)
   requires every console.* call to route through the `log` helper, with levels
   chosen BY CALL FREQUENCY, not topic. Doing this by hand is error-prone, and on
   CRLF + multibyte (Chinese) files an editor/Read layer can garble the bytes.
@@ -13,14 +14,14 @@ WHY THIS EXISTS
 
 WORKFLOW (two steps, human keeps the judgment calls)
   1) DRY RUN  ->  writes a review plan you edit:
-         python tools/migrate-logging.py backends/standard.js
+         python tools/migrate-logging.py src/features/vector-backend/standard.js
      Mechanical swaps (error/warn/info/debug, import, idempotency) need no
      decision and are summarised in the plan header. JUDGMENT rows --
      console.log level, dead-flag gate level, and SECRET-looking args -- are
      listed for you to set.
 
   2) APPLY  ->  consumes the (edited) plan, transforms, self-verifies:
-         python tools/migrate-logging.py backends/standard.js --apply
+         python tools/migrate-logging.py src/features/vector-backend/standard.js --apply
      Builds the new file in memory and writes ONLY if 0 console.* remain AND
      `node --check` passes. A bad run rolls back; the file is left untouched.
 
@@ -76,7 +77,7 @@ PLAN_DIR = os.path.join(REPO_ROOT, "tools", "logmig-plans")
 # Files/dirs that must NEVER be migrated.
 SKIP_RE = re.compile(
     r"(^|/)(node_modules|tests|dist|tools|scripts|vendor)/"
-    r"|(^|/)core/log\.js$"
+    r"|(^|/)src/sillytavern/log\.js$"
     r"|\.min\.js$"
 )
 
@@ -131,7 +132,7 @@ def newline_of(text):
 
 def import_line_for(rel_file):
     d = os.path.dirname(rel_file)
-    rel = os.path.relpath(os.path.join("core", "log.js"), d if d else ".")
+    rel = os.path.relpath(os.path.join("src", "sillytavern", "log.js"), d if d else ".")
     rel = rel.replace(os.sep, "/")
     if not rel.startswith("."):
         rel = "./" + rel
