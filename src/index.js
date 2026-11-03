@@ -639,13 +639,11 @@ jQuery(async () => {
     const _thresholdReset = migration_world_info_threshold_rrf_workaround(extension_settings.vectfox);
     if (_thresholdReset.migrated) {
         log.lifecycle(`VectFox: Reset world_info_threshold ${_thresholdReset.from} → ${WORLD_INFO_THRESHOLD_DEFAULT} (value was a workaround for the pre-cosine RRF score scale)`);
-        try {
-            toastr.info(
-                `Your Lorebook similarity threshold (${_thresholdReset.from}) was a workaround for a scoring bug that is now fixed — scores are real 0-1 similarities on every backend. It has been reset to the default ${WORLD_INFO_THRESHOLD_DEFAULT}.`,
-                'VectFox — setting updated',
-                { timeOut: 15000 },
-            );
-        } catch (_) { /* toastr unavailable (headless) — the log line stands alone */ }
+        globalThis.toastr?.info(
+            `Your Lorebook similarity threshold (${_thresholdReset.from}) was a workaround for a scoring bug that is now fixed — scores are real 0-1 similarities on every backend. It has been reset to the default ${WORLD_INFO_THRESHOLD_DEFAULT}.`,
+            'VectFox — setting updated',
+            { timeOut: 15000 },
+        );
     }
     if (_thresholdReset.stamped) {
         const { saveSettings } = await import('./sillytavern/settings.js');
