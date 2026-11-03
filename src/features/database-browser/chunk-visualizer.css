@@ -900,6 +900,20 @@
     color: var(--vectfox-primary);
 }
 
+/* Prompt Context Section: the textarea and select take SillyTavern's global
+   control styles; the XML tag input matches them. */
+.vectfox-chunk-xmltag-input {
+    padding: 3px 5px;
+    background-color: var(--black30a);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 5px;
+}
+
+.vectfox-context-hint {
+    font-size: 0.75em;
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 60%, transparent);
+}
+
 /* Keywords Section */
 .vectfox-detail-keywords {
     display: flex;
