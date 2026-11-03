@@ -2531,7 +2531,7 @@ function renderConditionRules() {
 
   if (rules.length === 0) {
     container.html(
-      '<div class="vectfox-empty-rules">No conditions yet. Click "+ Add Condition" to add one.</div>',
+      '<div class="vectfox-empty-rules">No conditions yet. Click "+ Add" to add one.</div>',
     );
     return;
   }
