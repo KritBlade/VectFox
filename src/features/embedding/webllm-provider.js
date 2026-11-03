@@ -1,9 +1,9 @@
 /**
- * WebLLM Vector Provider - Singleton Pattern
+ * WebLLM embedding provider
  *
- * This provider manages the WebLLM engine for embedding generation.
- * Uses singleton pattern to ensure only one engine instance exists across
- * the entire application (both core-vector-api and ui-manager).
+ * Wraps SillyTavern's WebLLM engine for embedding generation.
+ * getWebLlmProvider() returns one shared instance, so the engine and its
+ * loaded model are reused by every caller.
  */
 class WebLlmVectorProvider {
     /** @type {object?} WebLLM engine */

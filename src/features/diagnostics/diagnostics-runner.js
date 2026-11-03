@@ -1,9 +1,10 @@
 /**
  * ============================================================================
- * VectFox DIAGNOSTICS - INDEX
+ * VectFox DIAGNOSTICS RUNNER
  * ============================================================================
- * Main entry point for diagnostics system
- * Every potential failure point needs a check and fix here
+ * Runs the infrastructure, configuration and visualizer checks, plus the
+ * production tests when asked, and returns the results with the extension
+ * and plugin versions
  *
  * @author Kritblade
  * @version 3.3.1
@@ -70,7 +71,7 @@ import { cleanupTestCollections } from '../collections/collection-loader.js';
  * @returns {Promise<object>} Diagnostics results
  */
 export async function runDiagnostics(settings, includeProductionTests = false) {
-    console.log('VectFox Diagnostics: Running health checks...');
+    log.lifecycle('VectFox Diagnostics: Running health checks...');
 
     // Get version information
     let extensionVersion = 'Unknown';
@@ -78,22 +79,22 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
 
     // Try to get extension version from manifest.json
     try {
-        // Derive manifest URL from this module's location so it works regardless of
-        // the folder name the user installs the extension under (e.g. VectFox vs VectFox).
+        // Derive the manifest URL from this module's location so it works whatever
+        // folder name the extension is installed under.
         const manifestUrl = new URL('../../../manifest.json', import.meta.url).href + `?_=${Date.now()}`;
-        console.log('VectFox Diagnostics: Fetching manifest from:', manifestUrl);
+        log.verbose('VectFox Diagnostics: Fetching manifest from:', manifestUrl);
         const manifestResponse = await fetch(manifestUrl);
-        console.log('VectFox Diagnostics: Manifest response status:', manifestResponse.status);
+        log.verbose('VectFox Diagnostics: Manifest response status:', manifestResponse.status);
         if (manifestResponse.ok) {
             const manifest = await manifestResponse.json();
-            console.log('VectFox Diagnostics: Manifest data:', manifest);
+            log.trace('VectFox Diagnostics: Manifest data:', manifest);
             extensionVersion = manifest.version || 'Unknown';
-            console.log('VectFox Diagnostics: Extension version:', extensionVersion);
+            log.verbose('VectFox Diagnostics: Extension version:', extensionVersion);
         } else {
-            console.warn('VectFox Diagnostics: Manifest fetch failed with status:', manifestResponse.status);
+            log.warn('VectFox Diagnostics: Manifest fetch failed with status:', manifestResponse.status);
         }
     } catch (error) {
-        console.error('VectFox Diagnostics: Could not fetch manifest.json', error);
+        log.error('VectFox Diagnostics: Could not fetch manifest.json', error);
     }
 
     // Try to get plugin version from health endpoint
@@ -113,7 +114,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     // Auto-clean any ghost test collections from the registry
     const testCollectionsCleaned = cleanupTestCollections();
     if (testCollectionsCleaned > 0) {
-        console.log(`VectFox Diagnostics: Cleaned ${testCollectionsCleaned} ghost test collections from registry`);
+        log.lifecycle(`VectFox Diagnostics: Cleaned ${testCollectionsCleaned} ghost test collections from registry`);
     }
 
     const categories = {
@@ -248,10 +249,10 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         timestamp: new Date().toISOString()
     };
 
-    console.log('VectFox Diagnostics: Complete', results);
-    console.log('VectFox Diagnostics: Version object:', results.version);
-    console.log('VectFox Diagnostics: Extension version in results:', results.version.extension);
-    console.log('VectFox Diagnostics: Plugin version in results:', results.version.plugin);
+    log.lifecycle('VectFox Diagnostics: Complete', results);
+    log.trace('VectFox Diagnostics: Version object:', results.version);
+    log.trace('VectFox Diagnostics: Extension version in results:', results.version.extension);
+    log.trace('VectFox Diagnostics: Plugin version in results:', results.version.plugin);
 
     return results;
 }

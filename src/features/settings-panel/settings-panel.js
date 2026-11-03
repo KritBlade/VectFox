@@ -1,9 +1,8 @@
 /**
  * ============================================================================
- * VectFox UI MANAGER
+ * VectFox SETTINGS PANEL
  * ============================================================================
- * Handles ALL UI rendering and event binding
- * Keeps index.js clean and lean
+ * Renders the extension settings panel and binds its controls and action buttons
  *
  * @author Kritblade
  * @version 3.3.1
@@ -27,7 +26,7 @@ import { escapeHtml } from '../../shared/html-escape.js';
 import { openDatabaseBrowser } from '../database-browser/database-browser.js';
 import { openContentVectorizer } from '../chunkbase/content-vectorizer.js';
 import { openQueryTestModal } from '../query-tester/query-tester.js';
-import { openTextCleaningManager } from '../text-cleaning/text-cleaning-ui.js';
+import { openTextCleaningModal } from '../text-cleaning/text-cleaning-ui.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { resetBackendHealth } from '../vector-backend/backend-registry.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
@@ -4997,7 +4996,7 @@ function bindSettingsEvents(settings, callbacks) {
         openSummarizerDebug(settings);
     });
     $('#VectFox_text_cleaning').on('click', () => {
-        openTextCleaningManager();
+        openTextCleaningModal();
     });
     $('#VectFox_reopen_progress').on('click', () => {
         if (!progressTracker.reopen()) {

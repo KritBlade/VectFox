@@ -32,10 +32,10 @@ SAFETY
   * Idempotent: re-running on a migrated file is a no-op.
 
 completed migrated file
-backend-manager.js
+backend-registry.js
 qdrant.js
-bm25-score.js
-ui-manager.js
+bm25-scorer.js
+settings-panel.js
 eventbase-workflow.js
 eventbase-retrieval.js
 eventbase-store.js
@@ -49,16 +49,16 @@ collection-export.js
 collection-metadata.js
 conditional-activation.js
 content-vectorization.js
-core-vector-api.js
+vector-api.js
 corpus-stats.js
 png-export.js
 world-info-integration.js
 collection-ids.js
 lorebook-rename-detector.js
 query-keyword-extractor.js
-summarizer.js
 text-cleaning.js
 tokenizer-lock.js
+diagnostics-runner.js
 
 
 """

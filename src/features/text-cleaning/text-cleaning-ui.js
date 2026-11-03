@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * VectFox TEXT CLEANING MANAGER
+ * VectFox TEXT CLEANING UI
  * ============================================================================
- * Standalone UI for managing text cleaning regex patterns.
- * Accessible from the Actions panel.
+ * Modal for managing the text cleaning regex patterns. Opened from the
+ * Actions panel and from the content vectorizer.
  *
  * @author Kritblade
  * @version 3.3.1
@@ -28,7 +28,7 @@ import { escapeHtml } from '../../shared/html-escape.js';
 /**
  * Opens the Text Cleaning Manager modal
  */
-export function openTextCleaningManager() {
+export function openTextCleaningModal() {
     // Remove existing modal if present
     $('#VectFox_text_cleaning_modal').remove();
 
@@ -251,9 +251,9 @@ function validateRegex(pattern, flags) {
 }
 
 /**
- * Rebinds delete handlers for custom patterns (scoped to modal, not document)
+ * Binds the delete buttons of the custom patterns (scoped to the modal, not the document)
  */
-function rebindDeleteHandlers() {
+function bindDeleteButtons() {
     // Remove old handlers and bind new ones scoped to the modal
     $('#VectFox_tcm_custom_patterns [data-action="delete"]').off('click').on('click', function() {
         const id = $(this).closest('.vectfox-tcm-custom-item').data('id');
@@ -262,7 +262,7 @@ function rebindDeleteHandlers() {
         // Refresh the list
         const settings = getCleaningSettings();
         $('#VectFox_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
-        rebindDeleteHandlers();
+        bindDeleteButtons();
         saveSettingsDebounced();
     });
 }
@@ -305,12 +305,12 @@ function bindEvents() {
         // Refresh the list
         const settings = getCleaningSettings();
         $('#VectFox_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
-        rebindDeleteHandlers();
+        bindDeleteButtons();
         saveSettingsDebounced();
     });
 
     // Initial bind for delete handlers
-    rebindDeleteHandlers();
+    bindDeleteButtons();
 
     // Import patterns
     $('#VectFox_tcm_import').on('click', () => {
@@ -355,7 +355,7 @@ function bindEvents() {
 
                     // Update custom patterns list
                     $('#VectFox_tcm_custom_patterns').html(renderCustomPatterns(settings.customPatterns));
-                    rebindDeleteHandlers();
+                    bindDeleteButtons();
                 }
                 saveSettingsDebounced();
             } else {

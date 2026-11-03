@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * BACKEND MANAGER
+ * BACKEND REGISTRY
  * ============================================================================
- * Tiny dispatcher that routes vector operations to the selected backend.
- * Keeps the abstraction layer clean and focused.
+ * Selects, initializes and health-tracks the vector backends, and records
+ * their query, insert, delete and error metrics.
  *
  * @author VectFox
  * @version 2.2.0-alpha

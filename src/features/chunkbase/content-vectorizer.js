@@ -22,13 +22,14 @@ import {
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getContext } from '../../sillytavern/chat.js';
 import { callGenericPopup, POPUP_TYPE } from '../../sillytavern/popup.js';
+import { log } from '../../sillytavern/log.js';
 import { getChatUUID, vectorizeAll } from './chat-vectorization.js';
 import { validateLLMConfig } from '../llm-provider/llm-config-validation.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { escapeHtml } from '../../shared/html-escape.js';
 import { resolveEffectiveSettings } from './content-vectorization.js';
 import { buildArchiveEventCollectionId } from '../../shared/collection-ids.js';
-import { openTextCleaningManager } from '../text-cleaning/text-cleaning-ui.js';
+import { openTextCleaningModal } from '../text-cleaning/text-cleaning-ui.js';
 import { getCleaningSettings, CLEANING_PRESETS } from '../text-cleaning/text-cleaning.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 
@@ -1580,7 +1581,7 @@ function bindEvents() {
     // Uses modal-scoped delegation since modal has stopPropagation on all clicks
     $('#vectfox_content_vectorizer_modal').on('click', '#vectfox_cv_manage_cleaning', function(e) {
         e.preventDefault();
-        openTextCleaningManager();
+        openTextCleaningModal();
     });
 
     // Preview button
@@ -3379,7 +3380,7 @@ async function startVectorization() {
 
         // After lorebook vectorization the settings panel refreshes the WI status on this
         // event, so the checkbox auto-enables if the new collection is now active (global
-        // scope or chat-locked).
+        // scope, or locked to this chat or character).
         if (currentContentType === 'lorebook') {
             document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
         }
@@ -3392,7 +3393,7 @@ async function startVectorization() {
             return;
         }
 
-        console.error('VectFox: Vectorization failed:', e);
+        log.error('VectFox: Vectorization failed:', e);
 
         // Check for dimension mismatch error and provide helpful guidance
         if (e.message.includes('dimension mismatch') || e.message.includes('Vector dimension error')) {
@@ -3428,8 +3429,4 @@ async function saveCleaningPresetToSettings(presetId) {
     saveCleaningSettings(settings);
     saveSettingsDebounced();
 }
-
-// Note: Text cleaning management is now handled by the standalone Text Cleaning Manager
-// accessible from the Actions panel. The openTextCleaningManager() function is imported
-// from './text-cleaning-manager.js' and used by the gear button in the Content Vectorizer.
 
