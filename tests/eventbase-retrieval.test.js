@@ -72,6 +72,14 @@ vi.mock('../src/sillytavern/log.js', () => ({
     },
 }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
+// read when embedding/providers.js loads.
+vi.mock('../../../../extensions.js', () => ({}));
+vi.mock('../../../../../script.js', () => ({}));
+vi.mock('../../../../openai.js', () => ({}));
+vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
+vi.mock('../../../../textgen-settings.js', () => ({}));
+
 import { retrieveEvents } from '../src/features/eventbase/eventbase-retrieval.js';
 
 const baseSettings = {

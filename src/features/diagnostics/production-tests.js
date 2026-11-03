@@ -11,11 +11,15 @@
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
-import { getSavedHashes, purgeVectorIndex } from '../vector-backend/vector-api.js';
-import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/providers.js';
-import { unregisterCollection } from '../collections/collection-loader.js';
-import { reciprocalRankFusion, weightedCombination } from '../vector-backend/hybrid-search.js';
-import { applyKeywordBoost, extractTextKeywords, extractLorebookKeywords } from '../keyword-search/keyword-boost.js';
+import {
+    getSavedHashes,
+    purgeVectorIndex,
+    reciprocalRankFusion,
+    weightedCombination,
+} from '../vector-backend/index.js';
+import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/index.js';
+import { unregisterCollection } from '../collections/index.js';
+import { applyKeywordBoost, extractTextKeywords, extractLorebookKeywords } from '../keyword-search/index.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
 
@@ -337,7 +341,7 @@ export async function testChunkServerSync(settings, collectionId) {
     }
 
     try {
-        const { getAllChunkMetadata } = await import('../collections/collection-metadata.js');
+        const { getAllChunkMetadata } = await import('../collections/index.js');
 
         // Get server-side hashes
         const serverHashes = await getSavedHashes(collectionId, settings);

@@ -40,6 +40,13 @@ vi.mock('../src/features/collections/collection-metadata.js', () => ({ isCollect
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: {} }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
+// read when embedding/providers.js loads.
+vi.mock('../../../../openai.js', () => ({}));
+vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
+vi.mock('../../../../textgen-settings.js', () => ({}));
+vi.mock('../../../../utils.js', () => ({}));
+
 const { countUnfinishedWindows } = await import('../src/features/eventbase/eventbase-workflow.js');
 
 describe('countUnfinishedWindows', () => {

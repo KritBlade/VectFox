@@ -14,10 +14,11 @@ import { extension_settings } from '../../sillytavern/settings.js';
 import { getContext, substituteParams, getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { setExtensionPrompt } from '../../sillytavern/prompt-injection.js';
-import { queryCollection } from '../vector-backend/vector-api.js';
+import { queryCollection, runBoundedRetrieval } from '../vector-backend/index.js';
 import { resolveBackendForCollection, sanitizeNameSegment } from '../../shared/collection-ids.js';
-import { getCollectionListing, getCollectionRegistry } from '../collections/collection-loader.js';
 import {
+    getCollectionListing,
+    getCollectionRegistry,
     getCollectionMeta,
     isCollectionEnabled,
     shouldCollectionActivate,
@@ -25,10 +26,9 @@ import {
     getCollectionCharacterLockCount,
     isCollectionLockedToChat,
     isCollectionLockedToCharacter,
-} from '../collections/collection-metadata.js';
+} from '../collections/index.js';
 import { LOREBOOK_PROMPT_TAG } from '../../shared/constants.js';
 import { notifyRetrievalFailure, notifyNoActiveCollections } from '../../shared/model-config-notifier.js';
-import { runBoundedRetrieval } from '../vector-backend/bounded-retrieval.js';
 import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
 // the builder is intentionally not imported here because lookups can't reconstruct the

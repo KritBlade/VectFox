@@ -15,9 +15,9 @@
  */
 
 import { extension_settings } from "../../sillytavern/settings.js";
-import { loadAllCollections } from "../collections/collection-loader.js";
+import { loadAllCollections } from "../collections/index.js";
 import { buildRegistryKey } from "../../shared/collection-ids.js";
-import { listChunks } from "../vector-backend/vector-api.js";
+import { listChunks } from "../vector-backend/index.js";
 import { icons } from "./icons.js";
 import { escapeHtml } from "../../shared/html-escape.js";
 import { log } from '../../sillytavern/log.js';

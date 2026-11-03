@@ -4,7 +4,7 @@
  * without mocking SillyTavern globals.
  */
 
-import { cleanContentOrNull } from '../text-cleaning/text-cleaning.js';
+import { cleanContentOrNull } from '../text-cleaning/index.js';
 
 /**
  * Prepare lorebook entries for chunking.

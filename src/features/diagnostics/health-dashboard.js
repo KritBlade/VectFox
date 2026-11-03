@@ -16,7 +16,7 @@
  * ============================================================================
  */
 
-import { getBackendMetrics, probeBackendHealth } from '../vector-backend/backend-registry.js';
+import { getBackendMetrics, probeBackendHealth } from '../vector-backend/index.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 

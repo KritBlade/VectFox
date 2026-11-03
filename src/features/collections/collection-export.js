@@ -21,7 +21,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
-import { insertVectorItems, purgeVectorIndex } from '../vector-backend/vector-api.js';
+import { insertVectorItems, purgeVectorIndex, encodeSparseVector } from '../vector-backend/index.js';
 import {
     getCollectionMeta,
     setCollectionMeta,
@@ -34,8 +34,7 @@ import {
     registerCollection,
 } from './collection-loader.js';
 import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from '../../shared/collection-ids.js';
-import { getModelFromSettings } from '../embedding/providers.js';
-import { encodeSparseVector } from '../vector-backend/sparse-vector-encoder.js';
+import { getModelFromSettings } from '../embedding/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -495,7 +494,7 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
     // Best-effort + dynamic import — failure must not break the import flow.
     if (chunks.length > 0) {
         try {
-            const mod = await import('../vector-backend/corpus-stats.js');
+            const mod = await import('../vector-backend/index.js');
             mod.clearCorpusStatsCache(collectionId);
         } catch (err) {
             log.warn(`VectFox Import: corpus-stats cache clear failed for ${collectionId} (BM25 stats stay stale until the next rebuild):`, err);

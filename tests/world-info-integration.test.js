@@ -125,6 +125,13 @@ vi.mock('../src/features/collections/conditional-activation.js', () => ({
     })),
 }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
+// read when embedding/providers.js loads.
+vi.mock('../../../../openai.js', () => ({}));
+vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
+vi.mock('../../../../textgen-settings.js', () => ({}));
+vi.mock('../../../../utils.js', () => ({}));
+
 import { getContext, extension_settings } from '../../../../extensions.js';
 import { setExtensionPrompt, eventSource } from '../../../../../script.js';
 import { queryCollection } from '../src/features/vector-backend/vector-api.js';

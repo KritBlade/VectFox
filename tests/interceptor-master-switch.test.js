@@ -65,6 +65,12 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     parseCollectionId: vi.fn(), parseRegistryKey: vi.fn(), getRegistryBackend: vi.fn(),
 }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
+// read when embedding/providers.js loads.
+vi.mock('../../../../openai.js', () => ({}));
+vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
+vi.mock('../../../../textgen-settings.js', () => ({}));
+
 import { clearInterceptorPrompts, rearrangeChat } from '../src/features/chunkbase/chat-vectorization.js';
 
 /** Blocks left over from a previous generation, plus two the interceptor must not touch. */

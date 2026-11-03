@@ -9,8 +9,8 @@
  * refresh must not load lorebooks while VectFox is disabled, and must warn
  * instead of failing silently.
  *
- * All host/sibling modules are mocked (same pattern as backend-manager.test.js),
- * except feature-gate.js, which stays real.
+ * summarizer-injection.js's imports are mocked (same pattern as backend-manager.test.js),
+ * except feature-gate.js and constants.js, which stay real.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -32,8 +32,13 @@ vi.mock('../../../../world-info.js', () => ({ getWorldInfoSettings: vi.fn(() => 
 vi.mock('../src/features/vector-backend/backend-registry.js', () => ({ getBackend: vi.fn(async () => ({ listChunks: mocks.listChunks })) }));
 vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: mocks.getChatUUID }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ resolveActiveEventBaseCollection: mocks.resolveActive }));
-vi.mock('../src/shared/constants.js', () => ({ SUMMARIZER_PROMPT_TAG: '3_vectfox_summarizer' }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn() {}, error() {}, domain() {}, trace() {}, verbose() {}, lifecycle() {}, enabled: () => false } }));
+
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
+// read when embedding/providers.js loads.
+vi.mock('../../../../openai.js', () => ({}));
+vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
+vi.mock('../../../../textgen-settings.js', () => ({}));
 
 import { runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
 import { getSortedEntries } from '../../../../world-info.js';

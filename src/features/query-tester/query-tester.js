@@ -98,9 +98,9 @@ export function openQueryTestModal() {
             ] = await Promise.all([
                 import('../../sillytavern/settings.js'),
                 import('../../sillytavern/chat.js'),
-                import('../eventbase/eventbase-workflow.js'),
-                import('../chunkbase/chat-vectorization.js'),
-                import('../world-info/world-info-integration.js'),
+                import('../eventbase/index.js'),
+                import('../chunkbase/index.js'),
+                import('../world-info/index.js'),
             ]);
 
             const settings = extension_settings.vectfox;

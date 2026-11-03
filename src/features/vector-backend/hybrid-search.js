@@ -14,8 +14,13 @@
 
 import { getBackend, getBackendForCollection } from './backend-registry.js';
 import { parseRegistryKey, COLLECTION_PREFIXES } from '../../shared/collection-ids.js';
-import { createBM25Scorer, porterStemmer } from '../keyword-search/bm25-scorer.js';
-import { extractQueryKeywords, RETRIEVAL_KEYWORD_LEVELS, isCJKToken } from '../keyword-search/query-keyword-extractor.js';
+import {
+    createBM25Scorer,
+    porterStemmer,
+    extractQueryKeywords,
+    RETRIEVAL_KEYWORD_LEVELS,
+    isCJKToken,
+} from '../keyword-search/index.js';
 import { log } from '../../sillytavern/log.js';
 
 const KNOWN_BACKENDS = ['standard', 'vectra', 'qdrant'];

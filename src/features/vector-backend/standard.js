@@ -29,13 +29,16 @@ import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { oai_settings } from '../../sillytavern/connection-settings.js';
 import { VectorBackend } from './backend-interface.js';
-import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/providers.js';
+import {
+    getModelFromSettings,
+    resolveProviderApiUrl,
+    warnIfEmbeddingSlow,
+    fetchQueryEmbedding,
+} from '../embedding/index.js';
 import { throwIfModelConfigError } from '../../shared/model-http-errors.js';
 import { INTERNAL_COLLECTION_IDS } from '../../shared/collection-ids.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { log } from '../../sillytavern/log.js';
-import { warnIfEmbeddingSlow } from '../embedding/embedding-latency-warning.js';
-import { fetchQueryEmbedding } from '../embedding/query-embedding.js';
 
 
 /**

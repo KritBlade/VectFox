@@ -30,6 +30,13 @@ vi.mock('../src/features/embedding/embedding-latency-warning.js', () => ({
     describeEmbeddingTimeoutCause: (s) => `Almost always the embedding provider — ${s?.embedding_provider || 'transformers'}.`,
 }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
+// read when embedding/providers.js loads.
+vi.mock('../../../../../script.js', () => ({}));
+vi.mock('../../../../openai.js', () => ({}));
+vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
+vi.mock('../../../../textgen-settings.js', () => ({}));
+
 import { runBoundedRetrieval } from '../src/features/vector-backend/bounded-retrieval.js';
 import { notifyRetrievalFailure } from '../src/shared/model-config-notifier.js';
 import { log } from '../src/sillytavern/log.js';

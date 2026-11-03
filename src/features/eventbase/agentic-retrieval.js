@@ -21,11 +21,11 @@
 
 import { getContext } from '../../sillytavern/chat.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
-import { queryCollection } from '../vector-backend/vector-api.js';
+import { queryCollection } from '../vector-backend/index.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
-import { stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/text-cleaning.js';
+import { stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
-import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/llm-provider-call.js';
+import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
 import { log } from '../../sillytavern/log.js';

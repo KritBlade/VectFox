@@ -125,7 +125,7 @@ export async function openDatabaseBrowserForRename() {
     await waitForPopupsClosed();
 
     try {
-        const { openDatabaseBrowser } = await import('../database-browser/database-browser.js');
+        const { openDatabaseBrowser } = await import('../database-browser/index.js');
         openDatabaseBrowser();
     } catch (e) {
         log.warn('[LorebookRename] Could not open Database Browser:', e?.message);

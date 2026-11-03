@@ -23,7 +23,7 @@ export async function testConditionalActivation() {
             buildSearchContext,
             validateConditionRule,
             processChunkLinks
-        } = await import('../collections/conditional-activation.js');
+        } = await import('../collections/index.js');
 
         // Build mock context for all tests
         const mockChat = [

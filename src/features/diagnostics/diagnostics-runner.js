@@ -60,7 +60,7 @@ import {
 import { testConditionalActivation } from './activation-tests.js';
 
 import { runVisualizerTests } from './visualizer-tests.js';
-import { cleanupTestCollections } from '../collections/collection-loader.js';
+import { cleanupTestCollections } from '../collections/index.js';
 
 /**
  * Runs all diagnostic checks

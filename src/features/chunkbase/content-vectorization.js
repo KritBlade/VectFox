@@ -12,11 +12,15 @@
 
 import { getContentType, getContentTypeDefaults } from './content-types.js';
 import { chunkText } from './chunking.js';
-import { insertVectorItems, purgeVectorIndex, getSavedHashes } from '../vector-backend/vector-api.js';
+import { insertVectorItems, purgeVectorIndex, getSavedHashes, getBackend } from '../vector-backend/index.js';
 import { isConnectionError } from '../../shared/model-config-notifier.js';
-import { setCollectionMeta, setCollectionLock, setCollectionCharacterLock, saveChunkMetadata } from '../collections/collection-metadata.js';
-import { registerCollection } from '../collections/collection-loader.js';
-import { getBackend } from '../vector-backend/backend-registry.js';
+import {
+    setCollectionMeta,
+    setCollectionLock,
+    setCollectionCharacterLock,
+    saveChunkMetadata,
+    registerCollection,
+} from '../collections/index.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
     buildLorebookCollectionId,
@@ -26,8 +30,8 @@ import {
     getBackendFromCollectionId,
     sanitizeNameSegment,
 } from '../../shared/collection-ids.js';
-import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from '../keyword-search/keyword-boost.js';
-import { cleanContentOrNull } from '../text-cleaning/text-cleaning.js';
+import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from '../keyword-search/index.js';
+import { cleanContentOrNull } from '../text-cleaning/index.js';
 import { prepareLorebookContent } from './lorebook-content-preparer.js';
 import { extractGlossary, injectGlossary } from './glossary-extractor.js';
 import { getReformatCache } from './reformat-store.js';

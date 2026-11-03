@@ -22,7 +22,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
-import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../llm-provider/llm-provider-call.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { chunkText } from './chunking.js';
 import { retry } from '../../shared/retry.js';
 import {

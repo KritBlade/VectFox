@@ -101,6 +101,9 @@ vi.mock('../src/features/world-info/lorebook-rename-detector.js', () => ({
     openDatabaseBrowserForRename: vi.fn(),
 }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them.
+vi.mock('../../../../utils.js', () => ({}));
+
 import { getSemanticWorldInfoEntries } from '../src/features/world-info/world-info-integration.js';
 import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';
 import { invalidateCollectionMetadata } from '../src/features/vector-backend/tokenizer-lock.js';

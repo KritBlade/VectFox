@@ -15,17 +15,17 @@ import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
-} from '../collections/collection-metadata.js';
+} from '../collections/index.js';
 import {
     deleteVectorItems,
     insertVectorItems,
     updateChunkText,
     updateChunkMetadata,
-} from '../vector-backend/vector-api.js';
+} from '../vector-backend/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { escapeHtml } from '../../shared/html-escape.js';
-import { packTimelineSortKey } from '../eventbase/eventbase-schema.js';
+import { packTimelineSortKey } from '../eventbase/index.js';
 import { log } from '../../sillytavern/log.js';
 
 // ============================================================================

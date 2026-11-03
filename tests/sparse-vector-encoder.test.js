@@ -12,6 +12,9 @@ vi.mock('../../../../extensions.js', () => ({
     getContext: vi.fn(() => ({ chat: [], characterId: null })),
 }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them.
+vi.mock('../../../../../script.js', () => ({}));
+
 import {
     encodeSparseVector,
     encodeSparseQuery,

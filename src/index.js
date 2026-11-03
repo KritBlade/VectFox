@@ -16,11 +16,15 @@ import { ModuleWorkerWrapper, debounce, debounce_timeout } from './sillytavern/e
 import { extension_settings } from './sillytavern/settings.js';
 
 // VectFox modules - Core
-import { synchronizeChat, rearrangeChat } from './features/chunkbase/chat-vectorization.js';
-import { migrateOldEnabledKeys } from './features/collections/collection-metadata.js';
-import { cleanupCorruptedCollections, registerCollection, setDeletedCollectionCleanup } from './features/collections/collection-loader.js';
-import { clearCachesForDeletedCollection } from './features/eventbase/eventbase-store.js';
-import { setInsertedCollectionRegistrar } from './features/vector-backend/qdrant.js';
+import { synchronizeChat, rearrangeChat } from './features/chunkbase/index.js';
+import {
+    migrateOldEnabledKeys,
+    cleanupCorruptedCollections,
+    registerCollection,
+    setDeletedCollectionCleanup,
+} from './features/collections/index.js';
+import { clearCachesForDeletedCollection, refreshWorldInfoEntryDepthCache } from './features/eventbase/index.js';
+import { setInsertedCollectionRegistrar } from './features/vector-backend/index.js';
 import { migrateLegacyApiKeys } from './shared/api-keys.js';
 import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
 import { migration_embedding_source_key } from './app/settings-migration-embedding-provider-key.js';
@@ -36,12 +40,10 @@ import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
-import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/settings-panel.js';
-import { initializeVisualizer } from './features/database-browser/chunk-visualizer.js';
-import { initializeDatabaseBrowser } from './features/database-browser/database-browser.js';
-import { initializeWorldInfoIntegration } from './features/world-info/world-info-integration.js';
-import { refreshWorldInfoEntryDepthCache } from './features/eventbase/summarizer-injection.js';
-import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/bm25-scorer.js';
+import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
+import { initializeVisualizer, initializeDatabaseBrowser } from './features/database-browser/index.js';
+import { initializeWorldInfoIntegration } from './features/world-info/index.js';
+import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
 setDeletedCollectionCleanup(clearCachesForDeletedCollection);
@@ -463,7 +465,7 @@ window['vectfox_rearrangeChat'] = vectfox_rearrangeChat;
  * screen — instead of its own code — removes the risk of the two drifting.
  */
 async function onVectorizeAllClick() {
-    const { openContentVectorizer } = await import('./features/chunkbase/content-vectorizer.js');
+    const { openContentVectorizer } = await import('./features/chunkbase/index.js');
     openContentVectorizer('chat');
 }
 

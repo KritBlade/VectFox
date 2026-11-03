@@ -16,17 +16,6 @@ import {
   deleteCollection,
   sanitizeHandleId,
   getCollectionListing,
-} from "../collections/collection-loader.js";
-import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
-import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
-import {
-  queryMultipleCollections,
-} from "../vector-backend/vector-api.js";
-import { getRequestHeaders } from "../../sillytavern/requests.js";
-import { getCurrentChatId, getContext } from "../../sillytavern/chat.js";
-import { eventSource, event_types } from "../../sillytavern/events.js";
-import { world_names, loadWorldInfo } from "../../sillytavern/world-info.js";
-import {
   cleanupOrphanedMeta,
   getCollectionConditions,
   setCollectionConditions,
@@ -46,15 +35,7 @@ import {
   isCollectionLockedToCharacter,
   getCollectionCharacterLockCount,
   isCollectionActiveForContext,
-} from "../collections/collection-metadata.js";
-import {
   VALID_GENERATION_TYPES,
-} from "../collections/conditional-activation.js";
-import { icons } from "./icons.js";
-import { escapeHtml } from "../../shared/html-escape.js";
-import { log } from "../../sillytavern/log.js";
-import { openVisualizer } from "./chunk-visualizer.js";
-import {
   exportCollection,
   importCollection,
   downloadExport,
@@ -62,14 +43,25 @@ import {
   validateImportData,
   getExportInfo,
   MAX_IMPORT_FILE_BYTES,
-} from "../collections/collection-export.js";
-import {
   embedDataInPNG,
   extractDataFromPNG,
   downloadPNG,
   readPNGFile,
   convertToPNG,
-} from "../collections/png-export.js";
+} from "../collections/index.js";
+import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
+import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
+import {
+  queryMultipleCollections,
+} from "../vector-backend/index.js";
+import { getRequestHeaders } from "../../sillytavern/requests.js";
+import { getCurrentChatId, getContext } from "../../sillytavern/chat.js";
+import { eventSource, event_types } from "../../sillytavern/events.js";
+import { world_names, loadWorldInfo } from "../../sillytavern/world-info.js";
+import { icons } from "./icons.js";
+import { escapeHtml } from "../../shared/html-escape.js";
+import { log } from "../../sillytavern/log.js";
+import { openVisualizer } from "./chunk-visualizer.js";
 import { renderSizeInspectorTab } from "./size-inspector.js";
 
 // Browser state
@@ -476,7 +468,7 @@ function bindBrowserEvents() {
     e.stopPropagation();
     e.preventDefault();
     try {
-      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../chunkbase/reformat-store.js");
+      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../chunkbase/index.js");
       const entries = listReformatCacheEntries();
       const totalBytes = entries.reduce((sum, entry) => sum + entry.originalTextBytes, 0);
 

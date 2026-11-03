@@ -17,7 +17,7 @@
  * ============================================================================
  */
 
-import { DynamicRateLimiter } from '../vector-backend/vector-api.js';
+import { DynamicRateLimiter } from '../vector-backend/index.js';
 
 /** Single shared instance — one sliding window across summarizer + agent mode. */
 export const generationRateLimiter = new DynamicRateLimiter();

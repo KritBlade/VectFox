@@ -13,8 +13,7 @@
  * ============================================================================
  */
 
-import { queryCollection, getQueryVector } from '../vector-backend/vector-api.js';
-import { getBackendForCollection, getBackend } from '../vector-backend/backend-registry.js';
+import { queryCollection, getQueryVector, getBackendForCollection, getBackend } from '../vector-backend/index.js';
 import { parseRegistryKey } from '../../shared/collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';

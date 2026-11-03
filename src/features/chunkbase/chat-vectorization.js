@@ -13,21 +13,22 @@ import { getCurrentChatId, substituteParams, getContext } from '../../sillytaver
 import { is_send_press } from '../../sillytavern/generation.js';
 import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-injection.js';
 import { getStringHash as calculateHash } from '../../sillytavern/identifiers.js';
-import { extractChatKeywords } from '../keyword-search/keyword-boost.js';
+import { extractChatKeywords } from '../keyword-search/index.js';
+import { getSavedHashes, queryCollection, isBackendAvailable, runBoundedRetrieval } from '../vector-backend/index.js';
 import {
-    getSavedHashes,
-    queryCollection,
-} from '../vector-backend/vector-api.js';
-import { isBackendAvailable } from '../vector-backend/backend-registry.js';
-import { getCollectionRegistry, isCollectionEmpty } from '../collections/collection-loader.js';
-import { isCollectionEnabled, filterActiveCollections } from '../collections/collection-metadata.js';
+    getCollectionRegistry,
+    isCollectionEmpty,
+    isCollectionEnabled,
+    filterActiveCollections,
+    buildSearchContext,
+    processChunkLinks,
+    getChunkMetadata,
+    getCollectionMeta,
+} from '../collections/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
-import { buildSearchContext, processChunkLinks } from '../collections/conditional-activation.js';
-import { getChunkMetadata, getCollectionMeta } from '../collections/collection-metadata.js';
 
 import { LRUCache } from './lru-cache.js';
 import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from '../../shared/constants.js';
-import { runBoundedRetrieval } from '../vector-backend/bounded-retrieval.js';
 import { resolveEventBaseRetrievalTimeoutMs } from '../../shared/retrieval-budget.js';
 import { log } from '../../sillytavern/log.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
@@ -127,8 +128,8 @@ export async function synchronizeChat(settings, triggerEvent = null) {
     }
 
     // Find EventBase collections registered for this chat and check the per-collection auto-sync flag
-    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('../eventbase/eventbase-store.js');
-    const { isCollectionAutoSyncEnabled } = await import('../collections/collection-metadata.js');
+    const { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, pauseAutoSyncForChat } = await import('../eventbase/index.js');
+    const { isCollectionAutoSyncEnabled } = await import('../collections/index.js');
     const backend = getRegistryBackend(settings?.vector_backend);
     const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
     // Metadata is keyed by the registry-key form ("backend:id"), matching the
@@ -158,7 +159,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
-    const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../eventbase/eventbase-workflow.js');
+    const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../eventbase/index.js');
     const messages = context.chat.filter(m => m.mes && m.mes.trim().length > 0);
     log.lifecycle(`[AutoSync] calling runEventBaseIngestion: messages=${messages.length}`);
     let result;
@@ -976,7 +977,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         if (!dryRun) {
             const queryText = buildSearchQuery(chat, settings);
             if (queryText) {
-                const { runEventBaseRetrieval } = await import('../eventbase/eventbase-workflow.js');
+                const { runEventBaseRetrieval } = await import('../eventbase/index.js');
                 // On timeout the message proceeds WITHOUT EventBase injection and
                 // the user is told why — see core/bounded-retrieval.js for the
                 // timeout/degrade/surface contract shared by every retrieval path.
@@ -1007,7 +1008,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             // when disabled (so a toggle-off mid-session doesn't leave a stale block).
             // Non-fatal + time-bounded so a slow listChunks can't freeze the turn.
             {
-                const { runSummarizerInjection } = await import('../eventbase/summarizer-injection.js');
+                const { runSummarizerInjection } = await import('../eventbase/index.js');
                 await runBoundedRetrieval(runSummarizerInjection(settings), {
                     contextLabel: 'Summarizer',
                     sourceName: 'recent event summaries',
@@ -1022,7 +1023,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             // and the wiped span (old history, below the tip) sits below the ChunkBase
             // condition dedup tail — so query + conditions are unaffected.
             try {
-                const { applyGhosting } = await import('../eventbase/summarizer-injection.js');
+                const { applyGhosting } = await import('../eventbase/index.js');
                 applyGhosting(chat, settings);
             } catch (error) {
                 log.error('VectFox Ghost: prompt wipe error (non-fatal):', error);
@@ -1276,7 +1277,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
             ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
             : allMessages;
 
-        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../eventbase/eventbase-workflow.js');
+        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../eventbase/index.js');
         const result = await runEventBaseIngestion({
             messages,
             chatUUID: getChatUUID(),

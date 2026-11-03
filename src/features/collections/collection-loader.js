@@ -12,7 +12,7 @@
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getContext, characters, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
-import { getSavedHashes } from '../vector-backend/vector-api.js';
+import { getSavedHashes, purgeVectorIndex } from '../vector-backend/index.js';
 import {
     isCollectionEnabled,
     deleteCollectionMeta,
@@ -21,7 +21,6 @@ import {
     setCollectionMeta,
     isCollectionActiveForContext,
 } from './collection-metadata.js';
-import { purgeVectorIndex } from '../vector-backend/vector-api.js';
 import { log } from '../../sillytavern/log.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {

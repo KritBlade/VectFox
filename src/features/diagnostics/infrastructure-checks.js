@@ -19,7 +19,7 @@ import {
     requiresApiKey,
     requiresUrl,
     resolveProviderApiUrl
-} from '../embedding/providers.js';
+} from '../embedding/index.js';
 
 /**
  * Check: ST Vectra backend (standard file-based vector storage)

@@ -23,6 +23,16 @@ vi.mock('../src/shared/similharity-plugin.js', () => ({
     getDetectedPluginVersion: vi.fn(() => null),
 }));
 
+// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
+// read when embedding/providers.js loads.
+vi.mock('../../../../extensions.js', () => ({}));
+vi.mock('../../../../../script.js', () => ({}));
+vi.mock('../../../../openai.js', () => ({}));
+vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
+vi.mock('../../../../textgen-settings.js', () => ({}));
+vi.mock('../../../../utils.js', () => ({}));
+vi.mock('../../../../world-info.js', () => ({}));
+
 import { checkSimilharityVersion } from '../src/app/network-startup.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';
 import { log } from '../src/sillytavern/log.js';

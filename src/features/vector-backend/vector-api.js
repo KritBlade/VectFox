@@ -30,12 +30,17 @@ import { resolveBackendForCollection } from '../../shared/collection-ids.js';
 import {
     getModelFromSettings,
     resolveProviderApiUrl
-} from '../embedding/providers.js';
+} from '../embedding/index.js';
 import { isConnectionError, notifyConnectionError } from '../../shared/model-config-notifier.js';
-import { getOverfetchAmount } from '../keyword-search/keyword-boost.js';
-import { applyBM25Scoring, porterStemmer } from '../keyword-search/bm25-scorer.js';
+import {
+    getOverfetchAmount,
+    applyBM25Scoring,
+    porterStemmer,
+    extractQueryKeywords,
+    RETRIEVAL_KEYWORD_LEVELS,
+    isCJKToken,
+} from '../keyword-search/index.js';
 import { hybridSearch } from './hybrid-search.js';
-import { extractQueryKeywords, RETRIEVAL_KEYWORD_LEVELS, isCJKToken } from '../keyword-search/query-keyword-extractor.js';
 import { log } from '../../sillytavern/log.js';
 
 /**
