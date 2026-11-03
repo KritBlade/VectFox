@@ -59,6 +59,7 @@ query-keyword-extractor.js
 text-cleaning.js
 tokenizer-lock.js
 diagnostics-runner.js
+chunk-visualizer.js
 
 
 """

@@ -248,7 +248,7 @@ async function saveAllChanges() {
                 } catch (e) {
                     // Backend is now the only store for these fields, so a failure means the
                     // change did NOT persist — surface it instead of swallowing it.
-                    console.error('VectFox: Failed to save chunk metadata to backend:', e);
+                    log.error('VectFox: Failed to save chunk metadata to backend:', e);
                     toastr.error(`Failed to save chunk metadata to the backend — change not persisted: ${e.message}`, 'VectFox');
                     throw e;
                 }
@@ -259,7 +259,7 @@ async function saveAllChanges() {
         hasUnsavedChanges = false;
         toastr.success(`Saved changes to ${count} chunk(s)`, 'VectFox');
     } catch (error) {
-        console.error('VectFox: Failed to save changes', error);
+        log.error('VectFox: Failed to save changes', error);
         toastr.error(`Failed to save changes: ${error.message}`, 'VectFox');
     }
 }
@@ -307,7 +307,7 @@ export function openVisualizer(results, collectionId, settings, onReload = null)
     // Async fetch collection-level metadata (sentinel point) and render in footer.
     // Read-only — surfaces internal lock state without making it look editable.
     _loadAndRenderCollectionMetaFooter(collectionId, settings).catch(err => {
-        console.debug('[VectFox] Collection metadata footer load skipped:', err?.message);
+        log.trace('[VectFox] Collection metadata footer load skipped:', err?.message);
     });
 }
 
@@ -672,7 +672,7 @@ function renderDetailPanel() {
     // PERF: Use Map for O(1) lookup instead of O(n) find()
     const chunk = allChunksMap.get(selectedChunkId);
     if (!chunk) {
-        console.error('VectFox: Chunk not found for uniqueId:', selectedChunkId);
+        log.error('VectFox: Chunk not found for uniqueId:', selectedChunkId);
         panel.html('<div class="vectfox-detail-empty">Chunk not found</div>');
         return;
     }
@@ -1048,9 +1048,9 @@ function bindEvents() {
         e.preventDefault();
         e.stopPropagation();
         const uid = $(this).attr('data-uid');
-        if (currentSettings?.eventbase_debug_logging) console.log('VectFox: Clicked chunk with uniqueId:', uid);
+        log.trace('VectFox: Clicked chunk with uniqueId:', uid);
         if (!uid) {
-            console.error('VectFox: No uniqueId found on clicked element');
+            log.error('VectFox: No uniqueId found on clicked element');
             return;
         }
         // Warn if switching chunks with unsaved changes
@@ -1185,7 +1185,7 @@ function bindDetailEvents() {
             renderDetailPanel();
             toastr.success('Chunk updated successfully', 'VectFox');
         } catch (error) {
-            console.error('Failed to update chunk:', error);
+            log.error('Failed to update chunk:', error);
             toastr.error('Failed to update chunk', 'VectFox');
             $(this).prop('disabled', false).html('<i class="fa-solid fa-save"></i> Save & Re-embed');
         }
@@ -1567,7 +1567,7 @@ async function deleteChunk(chunk) {
         renderDetailPanel();
         toastr.success('Chunk deleted', 'VectFox');
     } catch (error) {
-        console.error('Failed to delete chunk:', error);
+        log.error('Failed to delete chunk:', error);
         toastr.error('Failed to delete chunk', 'VectFox');
     }
 }
@@ -1602,7 +1602,7 @@ async function bulkDelete() {
         renderDetailPanel();
         toastr.success(`Deleted ${targets.length} chunk${targets.length !== 1 ? 's' : ''}`, 'VectFox');
     } catch (error) {
-        console.error('Failed to bulk delete chunks:', error);
+        log.error('Failed to bulk delete chunks:', error);
         toastr.error('Failed to delete chunks', 'VectFox');
     }
 }
