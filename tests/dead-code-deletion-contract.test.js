@@ -3,29 +3,13 @@
  * VectFox DEAD CODE DELETION — REGRESSION CONTRACT TEST
  * ============================================================================
  *
- * This test asserts the *post-deletion* state for the cleanup described in
- * `plans/delete-dead-chunk-chat-and-temporal-decay.md`.
+ * Pins the state after the dead-code cleanups in InternalProject/Vectfox/plans/executed/
+ * (delete-dead-chunk-chat-and-temporal-decay.md, unwire-dead-chat-vectorize-options.md,
+ * centralize-collection-listing.md): the removed code stays deleted, and the live code
+ * beside it stays in place.
  *
- * USAGE:
- *   - BEFORE the deletion runs:
- *       The "Live code remains intact" describe block MUST pass — this is the
- *       baseline that confirms we haven't already broken anything.
- *       The "Dead code is removed" describe block WILL FAIL — that's expected.
- *       Each failing assertion tells you exactly what still needs to be deleted.
- *
- *   - AFTER each deletion phase:
- *       Re-run the suite. The number of failing "Dead code" assertions should
- *       monotonically decrease. The "Live code" assertions must continue to pass.
- *
- *   - WHEN deletion is complete:
- *       Both describe blocks pass. The cleanup is verified.
- *
- * DESIGN:
- *   This is a static-analysis test — no module imports of the code under audit.
- *   That keeps it free of the SillyTavern global mocking dance and means it
- *   stays green even if a deletion accidentally breaks ESM resolution
- *   somewhere; the syntactic contract is checked, not runtime behavior.
- *   For runtime verification, see the Definition of Done checklist in the plan.
+ * Static analysis only: it reads source files and imports none of them, so it needs no
+ * SillyTavern mocks and still runs when a module fails to resolve.
  *
  * @author Kritblade
  * ============================================================================
@@ -39,17 +23,6 @@ import { describe, it, expect } from 'vitest';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
-
-// Files this test file itself contains the strings we're hunting for; never
-// flag them as live-code regressions. Likewise the deletion plan must be
-// allowed to mention removed symbols by name.
-const ALLOWLIST = new Set([
-    'tests/dead-code-deletion-contract.test.js',
-    'plans/delete-dead-chunk-chat-and-temporal-decay.md',
-    'plans/unwire-dead-chat-vectorize-options.md',
-    'plans/centralize-collection-listing.md',
-    'Doc/dev_helper.md',
-]);
 
 // Source roots to scan. Anything outside these is ignored (node_modules, etc).
 const SCAN_DIRS = ['src'];
@@ -88,31 +61,14 @@ function* walkDir(absDir) {
 }
 
 /**
- * Search every source file for `pattern` and return the matching files
- * (relative paths), excluding the allowlist.
- */
-function grepSources(pattern) {
-    const re = pattern instanceof RegExp ? pattern : new RegExp(pattern);
-    const offenders = [];
-    for (const abs of walkSourceFiles()) {
-        const rel = path.relative(ROOT, abs).replace(/\\/g, '/');
-        if (ALLOWLIST.has(rel)) continue;
-        const src = fs.readFileSync(abs, 'utf-8');
-        if (re.test(src)) offenders.push(rel);
-    }
-    return offenders;
-}
-
-/**
- * Same as grepSources but also returns line numbers for each hit, so failure
- * messages tell you exactly where the dead code is hiding.
+ * Search every source file under SCAN_DIRS for `pattern` and return `file:line: text`
+ * for each hit, so failure messages tell you exactly where the dead code is hiding.
  */
 function grepSourcesWithLines(pattern) {
     const re = pattern instanceof RegExp ? pattern : new RegExp(pattern);
     const hits = [];
     for (const abs of walkSourceFiles()) {
         const rel = path.relative(ROOT, abs).replace(/\\/g, '/');
-        if (ALLOWLIST.has(rel)) continue;
         const lines = fs.readFileSync(abs, 'utf-8').split('\n');
         lines.forEach((line, i) => {
             if (re.test(line)) hits.push(`${rel}:${i + 1}: ${line.trim()}`);
@@ -126,8 +82,8 @@ function grepSourcesWithLines(pattern) {
 // ============================================================================
 
 describe('Live code remains intact (regression guard)', () => {
-    describe('EventBase pipeline (the new chat path)', () => {
-        it('core/eventbase-workflow.js exists', () => {
+    describe('EventBase pipeline (the chat path)', () => {
+        it('src/features/eventbase/eventbase-workflow.js exists', () => {
             expect(existsRel('src/features/eventbase/eventbase-workflow.js')).toBe(true);
         });
 
@@ -142,15 +98,14 @@ describe('Live code remains intact (regression guard)', () => {
         });
 
         it('eventbase retrieval module exists with retrieveEvents', () => {
-            const candidates = ['src/features/eventbase/eventbase-retrieval.js', 'core/eventbase-query.js'];
-            const found = candidates.find(p => existsRel(p));
-            expect(found, `expected one of ${candidates.join(', ')}`).toBeTruthy();
-            expect(readRel(found)).toMatch(/retrieveEvents|hybridQueryWithRerank/);
+            const retrievalModule = 'src/features/eventbase/eventbase-retrieval.js';
+            expect(existsRel(retrievalModule)).toBe(true);
+            expect(readRel(retrievalModule)).toMatch(/retrieveEvents|hybridQueryWithRerank/);
         });
     });
 
     describe('ChunkBase pipeline (lorebook / document / character / url / wiki / youtube)', () => {
-        it('core/chat-vectorization.js exists', () => {
+        it('src/features/chunkbase/chat-vectorization.js exists', () => {
             expect(existsRel('src/features/chunkbase/chat-vectorization.js')).toBe(true);
         });
 
@@ -171,7 +126,7 @@ describe('Live code remains intact (regression guard)', () => {
         });
     });
 
-    describe('Centralized collection listing (recent refactor)', () => {
+    describe('Centralized collection listing', () => {
         it('getCollectionListing is exported from collection-loader.js', () => {
             expect(readRel('src/features/collections/collection-loader.js'))
                 .toMatch(/export\s+function\s+getCollectionListing/);
@@ -183,14 +138,13 @@ describe('Live code remains intact (regression guard)', () => {
         });
 
         it('eventbase-store.js consumes getCollectionListing', () => {
-            // The EventBase path resolves its active collection via the centralized
-            // listing inside resolveActiveEventBaseCollection (moved here from
-            // eventbase-workflow.js when the per-call-site logic was unified).
+            // The EventBase path resolves its active collection through the listing,
+            // inside resolveActiveEventBaseCollection.
             expect(readRel('src/features/eventbase/eventbase-store.js'))
                 .toMatch(/getCollectionListing/);
         });
 
-        it('ui-manager.js consumes getCollectionListing', () => {
+        it('settings-panel.js consumes getCollectionListing', () => {
             expect(readRel('src/features/settings-panel/settings-panel.js'))
                 .toMatch(/getCollectionListing/);
         });
@@ -223,7 +177,7 @@ describe('Live code remains intact (regression guard)', () => {
     });
 
     describe('Critical settings defaults', () => {
-        it('keyword_scoring_method default is "hybrid" (recent flip)', () => {
+        it('keyword_scoring_method default is "hybrid"', () => {
             expect(readRel('src/index.js'))
                 .toMatch(/keyword_scoring_method:\s*['"]hybrid['"]/);
         });
@@ -311,8 +265,9 @@ describe('Dead code is removed (cleanup contract)', () => {
     });
 
     describe('Phase C — Temporal decay subsystem', () => {
-        it('core/temporal-decay.js file is deleted', () => {
-            expect(existsRel('core/temporal-decay.js')).toBe(false);
+        it('no temporal-decay.js remains under src/', () => {
+            const remaining = [...walkSourceFiles()].filter(file => path.basename(file) === 'temporal-decay.js');
+            expect(remaining).toEqual([]);
         });
 
         it('tests/temporal-decay.test.js file is deleted', () => {
@@ -387,7 +342,7 @@ describe('Dead code is removed (cleanup contract)', () => {
             expect(src).not.toMatch(/nostalgia_\w+\s*:/);
         });
 
-        it('UI bindings for temporal_decay are removed from ui-manager.js', () => {
+        it('UI bindings for temporal_decay are removed from settings-panel.js', () => {
             const src = readRel('src/features/settings-panel/settings-panel.js');
             // Allow incidental string mentions but no live `settings.temporal_decay.X = ...`
             expect(src).not.toMatch(/settings\.temporal_decay\./);
@@ -421,13 +376,13 @@ describe('Dead code is removed (cleanup contract)', () => {
     });
 
     describe('Phase B + C — diagnostics cleanup', () => {
-        it('diagnostics/configuration.js has no DEAD-CHUNK-CHAT branches', () => {
+        it('src/features/diagnostics/configuration-checks.js has no DEAD-CHUNK-CHAT branches', () => {
             if (!existsRel('src/features/diagnostics/configuration-checks.js')) return; // file may be deleted
             const src = readRel('src/features/diagnostics/configuration-checks.js');
             expect(src).not.toMatch(/DEAD-CHUNK-CHAT/);
         });
 
-        it('diagnostics/production-tests.js has no temporal-decay test blocks', () => {
+        it('src/features/diagnostics/production-tests.js has no temporal-decay test blocks', () => {
             if (!existsRel('src/features/diagnostics/production-tests.js')) return;
             const src = readRel('src/features/diagnostics/production-tests.js');
             expect(src).not.toMatch(/applyTemporalDecay/);
@@ -436,17 +391,10 @@ describe('Dead code is removed (cleanup contract)', () => {
     });
 
     // ──────────────────────────────────────────────────────────────────────
-    // Phase D — Preview-only chunk-chat zombie layer (cleanup 2026-05-24)
-    //
-    // Earlier cleanup (Phase B above) removed the chat-vectorization
-    // create-side machinery (ID builders, source stamping, temporal decay).
-    // What remained was a "preview-only" layer reachable from
-    // previewChunks() in ui/content-vectorizer.js: prepareChatContent in
-    // content-vectorization.js, the dispatcher case that called it, and
-    // cleanMessages in text-cleaning.js (only consumer was prepareChatContent).
-    // CONTENT_TYPES.chat also carried legacy chunkingStrategies /
-    // defaultStrategy / defaults fields from before EventBase took over,
-    // never read for chat now. All cleaned up together.
+    // Phase D — the preview-only chunk-chat layer: prepareChatContent in
+    // content-vectorization.js, the dispatcher case that called it, cleanMessages
+    // in text-cleaning.js, and the chunkingStrategies / defaultStrategy / defaults
+    // fields of CONTENT_TYPES.chat.
     //
     // The defensive `case 'chat':` tripwire in generateCollectionId() is
     // INTENTIONALLY kept — it throws if anyone tampers with source to
@@ -541,12 +489,6 @@ describe('Test infrastructure self-check', () => {
     it('walkSourceFiles finds at least 50 source files', () => {
         const files = [...walkSourceFiles()];
         expect(files.length).toBeGreaterThan(50);
-    });
-
-    it('grepSources excludes the allowlist', () => {
-        // This test file itself contains "DEAD-CHUNK-CHAT" — confirm the allowlist works.
-        const offenders = grepSources(/DEAD-CHUNK-CHAT/);
-        expect(offenders).not.toContain('tests/dead-code-deletion-contract.test.js');
     });
 
     it('repo root resolves correctly', () => {
