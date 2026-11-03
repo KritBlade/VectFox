@@ -1021,7 +1021,7 @@ async function runAutoReformat() {
             onRerun: () => runAutoReformat(),
         });
     } catch (e) {
-        console.error('VectFox: Auto-Reformat failed:', e);
+        log.error('VectFox: Auto-Reformat failed:', e);
         container.html(`<div class="vectfox-cv-error">Auto-Reformat failed: ${e.message}</div>`);
     }
 }
@@ -1106,7 +1106,7 @@ async function _finalizeReformatAccept({ acceptedRecords, sourceHash, text, sour
         renderReformatSection();
         updateChunkingSection(getContentType(currentContentType));
     } catch (e) {
-        console.error('VectFox: Failed to finalize Auto-Reformat accept:', e);
+        log.error('VectFox: Failed to finalize Auto-Reformat accept:', e);
         toastr.error('Failed to save Auto-Reformat result: ' + e.message, 'VectFox');
     }
 }
@@ -1787,7 +1787,7 @@ async function loadSourceStats(contentType, sourceId) {
             }
         }
     } catch (e) {
-        console.error('VectFox: Failed to load source stats:', e);
+        log.error('VectFox: Failed to load source stats:', e);
         statsContainer.html('<div class="vectfox-cv-stats-info">Selected</div>');
     }
 }
@@ -1814,7 +1814,7 @@ async function populateSourceSelect(type) {
                     select.append('<option value="" disabled>No lorebooks found</option>');
                 }
             } catch (importError) {
-                console.warn('VectFox: Could not import world-info module:', importError);
+                log.warn('VectFox: Could not import world-info module:', importError);
                 select.append('<option value="" disabled>Could not load lorebooks</option>');
             }
 
@@ -1843,7 +1843,7 @@ async function populateSourceSelect(type) {
             }
         }
     } catch (e) {
-        console.error('VectFox: Failed to populate source select:', e);
+        log.error('VectFox: Failed to populate source select:', e);
         select.append('<option value="" disabled>Error loading sources</option>');
     }
 }
@@ -1988,7 +1988,7 @@ async function handleCharacterPngUpload(file) {
         toastr.success(`Loaded character: ${characterData.name} (${filledFields.length} fields, ${(totalChars/1000).toFixed(1)}k chars)`, 'VectFox');
 
     } catch (err) {
-        console.error('VectFox: PNG parse error:', err);
+        log.error('VectFox: PNG parse error:', err);
         toastr.error(`Failed to parse character PNG: ${err.message}`);
     }
 }
@@ -2051,7 +2051,7 @@ function extractCharaFromPng(bytes) {
 
                     return charData;
                 } catch (e) {
-                    console.error('VectFox: Failed to decode character data:', e);
+                    log.error('VectFox: Failed to decode character data:', e);
                     throw new Error('Invalid character data in PNG');
                 }
             }
@@ -2136,7 +2136,7 @@ async function fetchUrl() {
         toastr.success(`Fetched ${content.length.toLocaleString()} characters`, 'VectFox');
 
     } catch (e) {
-        console.error('VectFox: URL fetch failed:', e);
+        log.error('VectFox: URL fetch failed:', e);
         status.html(`<i class="fa-solid fa-times" style="color: var(--vectfox-danger);"></i> ${e.message}`);
         toastr.error('Failed to fetch URL: ' + e.message);
     }
@@ -2195,7 +2195,7 @@ async function isWikiPluginAvailable(wikiType) {
 
         return response.ok;
     } catch (error) {
-        console.debug('VectFox: Wiki plugin probe failed:', error);
+        log.trace('VectFox: Wiki plugin probe failed:', error);
         return false;
     }
 }
@@ -2280,7 +2280,7 @@ async function scrapeWiki() {
         toastr.success(`Scraped ${pages.length} page(s), ${combinedContent.length.toLocaleString()} chars`, 'VectFox');
 
     } catch (e) {
-        console.error('VectFox: Wiki scrape failed:', e);
+        log.error('VectFox: Wiki scrape failed:', e);
         status.html(`<i class="fa-solid fa-times" style="color: var(--vectfox-danger);"></i> ${e.message}`);
         scrapeBtn.prop('disabled', false);
         toastr.error('Failed to scrape wiki: ' + e.message);
@@ -2386,7 +2386,7 @@ async function fetchYouTubeTranscript() {
         toastr.success(`Fetched transcript: ${transcript.length.toLocaleString()} characters`, 'VectFox');
 
     } catch (e) {
-        console.error('VectFox: YouTube fetch failed:', e);
+        log.error('VectFox: YouTube fetch failed:', e);
         status.html(`<i class="fa-solid fa-times" style="color: var(--vectfox-danger);"></i> ${e.message}`);
         fetchBtn.prop('disabled', false);
         toastr.error('Failed to fetch transcript: ' + e.message);
@@ -2547,7 +2547,7 @@ async function handleChatFileUpload(e) {
             }
         } catch (err) {
             parseError = err;
-            console.error('VectFox: Chat file parse error:', err);
+            log.error('VectFox: Chat file parse error:', err);
         }
 
         if (parseError || messages.length === 0) {
@@ -2567,7 +2567,7 @@ async function handleChatFileUpload(e) {
         const integrity = metadata?.chat_metadata?.integrity;
         const archiveUUID = integrity || await sha1Hex(content);
         if (!integrity) {
-            console.warn(`[VectFox] Archive "${file.name}" has no chat_metadata.integrity — using SHA-1 hash as UUID`);
+            log.warn(`[VectFox] Archive "${file.name}" has no chat_metadata.integrity — using SHA-1 hash as UUID`);
         }
 
         const filenameCharName = extractCharNameFromArchiveFilename(file.name)
@@ -2696,7 +2696,7 @@ async function previewChunks() {
                 </div>
             `);
         } catch (e) {
-            console.error('VectFox: Auto-Reformat preview failed:', e);
+            log.error('VectFox: Auto-Reformat preview failed:', e);
             reformatContainer.html(`<div class="vectfox-cv-error">Preview failed: ${e.message}</div>`);
         }
         return;
@@ -2760,7 +2760,7 @@ async function previewChunks() {
         `);
 
     } catch (e) {
-        console.error('VectFox: Preview failed:', e);
+        log.error('VectFox: Preview failed:', e);
         container.html(`<div class="vectfox-cv-error">Preview failed: ${e.message}</div>`);
     }
 }
@@ -2888,7 +2888,7 @@ async function startContinueVectorization() {
     // currentSettings only carries content-type defaults — merge global VECTFOX settings
     // so the user's chat_model / API key (set in Core → LLM Summarization) is visible.
     const mergedSettings = resolveEffectiveSettings(currentSettings);
-    console.log('[VectFox] LLM config check (vectorize-content):', {
+    log.verbose('[VectFox] LLM config check (vectorize-content):', {
         provider: mergedSettings.chat_provider,
         model: mergedSettings.chat_model,
         hasOpenRouterKey: !!getOpenRouterApiKey(),
@@ -2944,7 +2944,7 @@ async function startContinueVectorization() {
             toastr.info('Vectorization stopped', 'VectFox');
             return;
         }
-        console.error('VectFox: Continue vectorization failed:', e);
+        log.error('VectFox: Continue vectorization failed:', e);
         toastr.error('Vectorization failed: ' + e.message, 'VectFox');
     } finally {
         progressTracker.clearCancelHandler();
@@ -2963,7 +2963,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
 
     syncStartFromMessageFromUI();
 
-    console.log(`[EventBase] _runEventBaseBackfill: starting... (resetCaches=${resetCaches})`);
+    log.lifecycle(`[EventBase] _runEventBaseBackfill: starting... (resetCaches=${resetCaches})`);
 
     isVectorizing = true;
     activeVectorizeAbortController = new AbortController();
@@ -3020,7 +3020,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             messages = allMessages;
             if (startFromMessage > 1) {
                 const sliceIdx = Math.min(startFromMessage - 1, allMessages.length);
-                console.log(`[EventBase] Archive start-from message ${startFromMessage} — skipping first ${sliceIdx} messages, ${allMessages.length - sliceIdx} remaining`);
+                log.lifecycle(`[EventBase] Archive start-from message ${startFromMessage} — skipping first ${sliceIdx} messages, ${allMessages.length - sliceIdx} remaining`);
                 messages = allMessages.slice(sliceIdx);
             }
             chatUUID = source.archiveUUID;
@@ -3030,7 +3030,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 backend: settings.vector_backend,
             });
             await maybeResetCaches(chatUUID);
-            console.log(`[EventBase] Archive upload route — collection: ${collectionIdOverride}, messages: ${messages.length}`);
+            log.lifecycle(`[EventBase] Archive upload route — collection: ${collectionIdOverride}, messages: ${messages.length}`);
 
             const parallelWindows = parseInt($('#vectfox_cv_parallel_windows').val()) || 1;
             const result = await runEventBaseIngestion({
@@ -3067,7 +3067,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             }
         } else {
             // Live chat route — delegate entirely to vectorizeAll (same path as Sync Chat button)
-            console.log('[EventBase] Context chat length:', context.chat?.length);
+            log.verbose('[EventBase] Context chat length:', context.chat?.length);
             if (!Array.isArray(context.chat) || context.chat.length === 0) {
                 toastr.warning('No chat messages to process', 'EventBase');
                 return;
@@ -3127,7 +3127,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 // stamp.
                 const { setLastUsedWindowSize } = await import('../eventbase/eventbase-store.js');
                 setLastUsedWindowSize(chatUUID, sizeCheck.newSize);
-                console.log(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
+                log.lifecycle(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
                 // Single shared entry point for "user said yes to fresh re-extraction".
                 // Clears local caches + returns { skipTipFallback: true } to propagate.
                 freshExtractionOpts = await prepareForFreshExtraction(chatUUID);
@@ -3171,7 +3171,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
         const isStopped = e?.name === 'AbortError' || String(e?.message || '').toLowerCase().includes('stopped by user');
         if (isStopped) {
             toastr.info('EventBase ingestion stopped', 'VectFox');
-            console.log('[EventBase] Ingestion stopped by user');
+            log.lifecycle('[EventBase] Ingestion stopped by user');
             return;
         }
         // Insert failed after 3 retries — surface the underlying Qdrant error in a
@@ -3180,7 +3180,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
         // Qdrant tends to return; a popup gives the user something to copy and
         // share when reporting the problem. See plans/eventbase-extract-insert-pipeline.md §3.4.
         if (e?.code === 'insert_failed_max_retries') {
-            console.error('[EventBase] Insert failed after 3 retries:', e);
+            log.error('[EventBase] Insert failed after 3 retries:', e);
             await callGenericPopup(
                 `<div style="text-align: left;">
                     <p><strong>Vectorization stopped — database insert failed</strong></p>
@@ -3200,7 +3200,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
         // (hash collisions, plugin-side rejection, etc). Show the user the
         // counts so they know to investigate before relying on the collection.
         if (e?.code === 'insert_verification_failed') {
-            console.error('[EventBase] Insert verification failed:', e);
+            log.error('[EventBase] Insert verification failed:', e);
             await callGenericPopup(
                 `<div style="text-align: left;">
                     <p><strong>Vectorization stopped — silent data loss detected</strong></p>
@@ -3216,7 +3216,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             );
             return;
         }
-        console.error('[EventBase] Backfill failed:', e);
+        log.error('[EventBase] Backfill failed:', e);
         toastr.error('EventBase ingestion failed: ' + e.message, 'VectFox');
     } finally {
         progressTracker.clearCancelHandler();
@@ -3276,7 +3276,7 @@ async function startVectorization() {
     // rather than letting it blow up mid-ingest. Merge global settings so the user's
     // chat_model / API key set in Core → LLM Summarization is visible here.
     const mergedSettings = resolveEffectiveSettings(currentSettings);
-    console.log('[VectFox] LLM config check (start-vectorization):', {
+    log.verbose('[VectFox] LLM config check (start-vectorization):', {
         provider: mergedSettings.chat_provider,
         model: mergedSettings.chat_model,
         hasOpenRouterKey: !!getOpenRouterApiKey(),
@@ -3350,7 +3350,7 @@ async function startVectorization() {
                 toastr.info('Cleared existing vectors', 'VectFox');
             }
         } catch (e) {
-            console.warn('VectFox: Could not check for existing vectors:', e);
+            log.warn('VectFox: Could not check for existing vectors:', e);
             // Continue anyway
         }
     }

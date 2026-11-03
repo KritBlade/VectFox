@@ -20,6 +20,7 @@ import { buildRegistryKey } from "../../shared/collection-ids.js";
 import { listChunks } from "../vector-backend/vector-api.js";
 import { icons } from "./icons.js";
 import { escapeHtml } from "../../shared/html-escape.js";
+import { log } from '../../sillytavern/log.js';
 
 // Cache of last scan so the detail view can reuse already-fetched items
 // without re-hitting the backend.
@@ -218,7 +219,7 @@ async function runScan() {
         $wrap.show();
         $status.text(`Done. ${summaries.length} collections scanned. Click a row to see its largest entries.`);
     } catch (err) {
-        console.error("[VectFox SizeInspector] scan failed", err);
+        log.error("[VectFox SizeInspector] scan failed", err);
         $status.addClass("error").text(`Scan failed: ${err.message}`);
     } finally {
         $btn.prop("disabled", false);
