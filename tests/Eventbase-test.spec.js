@@ -71,7 +71,8 @@ let sharedContext;
 const AUTH_FILE = '.playwright-auth.json';
 
 // The folder SillyTavern serves VectFox from, and every VectFox file the page requested but could not load
-// (HTTP 400 and up, or a network failure), recorded from the first navigation on. TEST 000 asserts it is empty.
+// (HTTP 400 and up, or a network failure other than a cancelled request), recorded from the first navigation on.
+// TEST 000 asserts it is empty.
 const VECTFOX_SERVED_PATH = '/scripts/extensions/third-party/VectFox/';
 const vectfoxLoadFailures = [];
 
@@ -82,8 +83,11 @@ function watchVectFoxLoads(page) {
         }
     });
     page.on('requestfailed', (request) => {
-        if (request.url().includes(VECTFOX_SERVED_PATH)) {
-            vectfoxLoadFailures.push(`${request.failure()?.errorText ?? 'request failed'} ${request.url()}`);
+        const errorText = request.failure()?.errorText ?? 'request failed';
+        // EXPECTED: net::ERR_ABORTED is a request the browser cancelled, such as one still loading when setup
+        // reloads the page. A missing file arrives as an HTTP status, which the response handler records.
+        if (request.url().includes(VECTFOX_SERVED_PATH) && errorText !== 'net::ERR_ABORTED') {
+            vectfoxLoadFailures.push(`${errorText} ${request.url()}`);
         }
     });
 }
@@ -532,6 +536,8 @@ test('TEST 000 — every VectFox file loads from the deployed copy', async () =>
         const found = [];
         for (const file of files) {
             const response = await fetch(base + file, { method: 'HEAD', cache: 'no-store' });
+            // Read the empty body: Chrome cancels a request whose response the page never reads.
+            await response.arrayBuffer();
             if (!response.ok) found.push(`${response.status} ${file}`);
         }
         for (const module of modules) {
@@ -2140,16 +2146,10 @@ test('TEST 010 — Cross-collection isolation: lock controls lorebook visibility
 //
 // Why this test exists:
 //   TEST 010 verified LOCK-based isolation — explicit unlock removes a
-//   collection from activation. But the prod symptom we observed
-//   (2026-05-23) was different: rabbit's "Your Wives" lorebook leaking
-//   into critblade's ArtificRealm chat WITHOUT either persona ever
-//   locking that collection to that chat. The leak mechanism is
-//   activation TRIGGERS (keyword matches in chat content) firing on a
-//   collection owned by a DIFFERENT persona.
-//
-//   Per Doc/collection_helper.md activation priority chain, triggers (step 2)
-//   activate BEFORE the lock check (steps 4-5). Ownership (`isOwn`) was
-//   NOT checked anywhere in the chain — that's the gap B7 closes.
+//   collection from activation. This test covers OWNERSHIP: semantic WI
+//   only searches lorebooks the current persona created (`isOwn`), so a
+//   lorebook owned by a DIFFERENT persona never reaches this persona's
+//   chat, even while it is locked here and its triggers match.
 //
 // What this test proves:
 //   Phase 1: a test lorebook owned by the current persona appears in WI
@@ -3280,12 +3280,10 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
 //  TEST 017 — Pause button (enabled=false) blocks activation
 // ═══════════════════════════════════════════════════════════════════
 //
-//  `isCollectionEnabled` / `setCollectionEnabled` are documented in
-//  Doc/collection_helper.md as the hard kill switch — priority 1 of
-//  `shouldCollectionActivate`. Even when a collection is locked to the
-//  current chat (priority 4), `enabled=false` MUST override and block
-//  activation. Easy to break during a future activation-priority refactor;
-//  no existing test asserts this invariant.
+//  `isCollectionEnabled` / `setCollectionEnabled` are the pause button, the
+//  first gate of `shouldCollectionActivate`. Even when a collection is locked
+//  to the current chat (the second gate), `enabled=false` MUST block
+//  activation.
 //
 //  This test runs in every environment because it's pure metadata —
 //  no backend insert, no chunk listing, no LLM call.
@@ -3294,10 +3292,10 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
 //    1. Default state: a fresh registered collection (no `enabled` meta
 //       written) reports `isCollectionEnabled === true`.
 //    2. Baseline: with a chat lock pinned, `shouldCollectionActivate`
-//       returns true (priority-4 path).
+//       returns true (the lock alone activates it).
 //    3. Pause: `setCollectionEnabled(key, false)` ⇒ `isCollectionEnabled`
 //       flips to false AND `shouldCollectionActivate` returns false even
-//       though the lock is still in place. Priority 1 overrides priority 4.
+//       though the lock is still in place. The pause gate comes first.
 //    4. Re-enable: `setCollectionEnabled(key, true)` restores activation —
 //       lock state was never touched by the pause path.
 
@@ -3348,7 +3346,7 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
             console.log(`${TEST} Phase 1 ✓ default enabled=true`);
 
             // ═══ Phase 2 — baseline: lock pinned, activation should return true ═══
-            console.log(`${TEST} Phase 2: pinning chat lock for chatId=${currentChatId} → shouldCollectionActivate must return true (priority-4 path)`);
+            console.log(`${TEST} Phase 2: pinning chat lock for chatId=${currentChatId} → shouldCollectionActivate must return true (the lock alone activates it)`);
             setCollectionLock(registryKey, currentChatId);
             if (!isCollectionLockedToChat(registryKey, currentChatId)) {
                 console.error(`${TEST} [FAIL] Phase 2: setCollectionLock didn't take — isCollectionLockedToChat reads false. Baseline can't be established.`);
@@ -3356,7 +3354,7 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
             }
             const activeBaseline = await shouldCollectionActivate(registryKey, searchContext);
             if (activeBaseline !== true) {
-                console.error(`${TEST} [FAIL] Phase 2: shouldCollectionActivate returned ${activeBaseline} with lock pinned — expected true. Lock priority-4 path may be broken.`);
+                console.error(`${TEST} [FAIL] Phase 2: shouldCollectionActivate returned ${activeBaseline} with lock pinned — expected true. The lock gate may be broken.`);
                 return;
             }
             console.log(`${TEST} Phase 2 ✓ baseline active with lock`);
@@ -3376,7 +3374,7 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
             }
             const activeAfterPause = await shouldCollectionActivate(registryKey, searchContext);
             if (activeAfterPause !== false) {
-                console.error(`${TEST} [FAIL] Phase 3: shouldCollectionActivate returned ${activeAfterPause} after pause — priority 1 (enabled=false) should override priority 4 (chat lock). Activation priority chain is broken.`);
+                console.error(`${TEST} [FAIL] Phase 3: shouldCollectionActivate returned ${activeAfterPause} after pause — the pause gate (enabled=false) must block a chat-locked collection. Activation gate chain is broken.`);
                 return;
             }
             console.log(`${TEST} Phase 3 ✓ pause overrides lock: enabled=false → activation=false even with lock still in place`);
@@ -3391,12 +3389,12 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
             }
             const activeAfterResume = await shouldCollectionActivate(registryKey, searchContext);
             if (activeAfterResume !== true) {
-                console.error(`${TEST} [FAIL] Phase 4: shouldCollectionActivate returned ${activeAfterResume} after resume — re-enabling should restore the priority-4 lock path. Lock state may have been silently lost during the pause cycle.`);
+                console.error(`${TEST} [FAIL] Phase 4: shouldCollectionActivate returned ${activeAfterResume} after resume — re-enabling should let the lock activate it again. Lock state may have been silently lost during the pause cycle.`);
                 return;
             }
             console.log(`${TEST} Phase 4 ✓ resume restores activation`);
 
-            console.log(`${TEST} [PASS] Pause button (enabled=false) correctly overrides chat lock — priority 1 wins over priority 4, lock state survives the pause cycle, default isCollectionEnabled is true`);
+            console.log(`${TEST} [PASS] Pause button (enabled=false) correctly overrides chat lock — the pause gate blocks a locked collection, lock state survives the pause cycle, default isCollectionEnabled is true`);
         } finally {
             try {
                 try { removeCollectionLock(registryKey, currentChatId); } catch (cleanupError) { console.warn('[e2e cleanup] removeCollectionLock failed:', cleanupError); }
@@ -3413,46 +3411,42 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  TEST 018 — shouldCollectionActivate priority chain
+//  TEST 018 — shouldCollectionActivate gate chain
 // ═══════════════════════════════════════════════════════════════════
 //
-//  The activation priority chain is documented in Doc/collection_helper.md
-//  → "Runtime activation chain". Five priorities, in order:
+//  Activation is a chain of gates; every gate that applies must pass
+//  (src/features/collections/collection-metadata.js → shouldCollectionActivate):
 //
-//    1. enabled=false        → BLOCKED   (covered by TEST 017)
-//    2. Activation Triggers  → ACTIVE    (this test)
-//    3. Advanced Conditions  → ACTIVE    (this test)
-//    4. Chat lock match      → ACTIVE    (covered by TEST 017 baseline)
-//    5. Character lock match → ACTIVE    (this test)
-//    Nothing matched         → BLOCKED   (this test)
+//    1. Pause button (enabled=false)   → never active   (covered by TEST 017)
+//    2. Lock to this chat or character → required; unlocked is never active
+//    3. Activation Triggers, if set    → a keyword must match this turn
+//    4. Advanced Conditions, if set    → the rules must also pass this turn
+//    5. Locked, nothing else set       → active every turn
 //
-//  Each priority is what's drawing real users into VectFox: lorebook
-//  authors who set keyword triggers, power users who write advanced
-//  conditions, lorebook-per-character setups. If priority 2 or 3 silently
-//  break during a refactor, semantic WI stops activating for everyone who
-//  relies on keyword/condition-driven scope.
+//  Triggers and conditions only narrow a locked collection; neither can
+//  switch one on. tests/collection-activation-gate.test.js pins the same
+//  chain with a mocked conditions engine; this test runs the deployed module
+//  in a real SillyTavern with real condition rules.
 //
-//  Pure-metadata test, runs in every environment. Phases:
-//    1. Priority 2 — meta.triggers matches a synthetic recentMessages
-//       token → active, with NO lock present (proves triggers fire
-//       independent of lock state).
-//    2. Priority 3 — meta.conditions with a guaranteed-pass randomChance
-//       rule (probability: 100) → active, no triggers / no locks.
-//    3. Priority 5 — character lock match → active, no triggers / no
-//       conditions / no chat lock.
-//    4. Nothing matched — fresh meta, empty context locks → blocked.
+//  Pure-metadata test, runs in every environment. One synthetic collection,
+//  locked (in the phases that lock it) to a synthetic character ID. Phases:
+//    1. Gate 2 — unlocked stays inactive: bare, with a matching trigger, and
+//       with a passing condition.
+//    2. Gate 3 — locked with a trigger: active when the trigger matches,
+//       inactive when the messages miss it.
+//    3. Gate 4 — locked with a matching trigger and a pattern condition:
+//       active when the condition passes too, inactive when it fails.
+//    4. Gate 5 — locked with nothing else set: active for the locked
+//       character, inactive for another character.
 //
-//  Per-phase, the production `[VECTFOX Activation Filter] Collection X: …`
-//  debug log will print which priority gate fired (✓ TRIGGERS_MATCHED, ✓
-//  CONDITIONS_PASS, ✓ LOCKED_TO_CURRENT_CHARACTER, ✗ NOT_ACTIVATED) — that's
-//  the false-positive defense: a Phase 1 PASS with the wrong gate log
-//  would mean the trigger-evaluator is broken but lock state is leaking
-//  through. The test gates on the boolean return; the production log
-//  gives independent evidence of *why*.
+//  Each call also prints a `[VECTFOX Activation Filter] Collection X: …`
+//  trace line naming the gate that decided (✗ NOT_LOCKED, ✓ TRIGGERS_MATCHED,
+//  ✗ TRIGGERS_UNMATCHED, ✓ CONDITIONS_PASS, ✗ CONDITIONS_FAIL, ✓ ACTIVE); the
+//  test gates on the boolean return.
 
-test('TEST 018 — shouldCollectionActivate priority chain (triggers / conditions / character lock / nothing)', async () => {
+test('TEST 018 — shouldCollectionActivate gate chain (lock required; triggers and conditions narrow)', async () => {
     const logs = await runTestInPage(async () => {
-        const TEST = 'TEST 018 [PriorityChain]';
+        const TEST = 'TEST 018 [GateChain]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const {
             setCollectionMeta,
@@ -3473,19 +3467,21 @@ test('TEST 018 — shouldCollectionActivate priority chain (triggers / condition
             console.error(`${TEST} [FAIL] No active chat — open a chat first`);
             return;
         }
-        // Use a synthetic character ID — Phase 3 only needs the lock value
-        // to match the context's currentCharacterId. Decoupling from the
-        // real character keeps Phase 3 deterministic regardless of which
+        // Use a synthetic character ID — the locked phases only need the lock
+        // value to match the context's currentCharacterId. Decoupling from the
+        // real character keeps them deterministic regardless of which
         // character the chat is paired with (or even none — group chats).
         const syntheticCharacterId = '__vf_pw_test_018_character__';
 
         // One synthetic collection, meta reset between phases.
-        const collectionId = `vf_lorebook_${(settings.vector_backend || 'standard').toLowerCase()}_playwright_test_018_priority_chain_${Date.now()}`;
+        const collectionId = `vf_lorebook_${(settings.vector_backend || 'standard').toLowerCase()}_playwright_test_018_gate_chain_${Date.now()}`;
         const registryKey  = buildRegistryKey(collectionId, settings);
 
-        // Unique token Phase 1 plants in recentMessages + triggers. The
-        // playwright_test prefix matches the beforeAll cleanup pattern.
+        // Unique tokens the phases plant in recentMessages, the triggers and the
+        // pattern condition. The playwright_test part of collectionId matches the
+        // beforeAll cleanup pattern.
         const TRIGGER_TOKEN = 'PW_TEST_018_TRIGGER_TOKEN_e3f1';
+        const CONDITION_TOKEN = 'PW_TEST_018_CONDITION_TOKEN_7b2c';
 
         // Reset meta to a baseline empty state between phases so the
         // previous phase's triggers/conditions/locks don't leak. Each
@@ -3497,104 +3493,93 @@ test('TEST 018 — shouldCollectionActivate priority chain (triggers / condition
             try { removeCollectionCharacterLock(registryKey, syntheticCharacterId); } catch (cleanupError) { console.warn('[e2e cleanup] removeCollectionCharacterLock failed:', cleanupError); }
         };
 
+        // Locks the collection to the synthetic character; false when the lock did not take.
+        const lockToCharacter = () => {
+            setCollectionCharacterLock(registryKey, syntheticCharacterId);
+            return isCollectionLockedToCharacter(registryKey, syntheticCharacterId);
+        };
+        const triggerMeta = {
+            triggers: [TRIGGER_TOKEN.toLowerCase()],   // lowercased — checkTriggers lowercases search text
+            triggerMatchMode: 'any',
+            triggerCaseSensitive: false,
+            triggerScanDepth: 5,
+        };
+        const contextWith = (recentMessages) => ({ currentChatId, currentCharacterId: syntheticCharacterId, recentMessages });
+        const triggerMessage = `some message containing ${TRIGGER_TOKEN} embedded inline`;
+        const plainMessage = 'nothing trigger-like here';
+
         try {
             registerCollection(registryKey);
 
-            // ═══ Phase 1 — Priority 2: triggers match → active (no lock) ═══
-            console.log(`${TEST} Phase 1: Priority 2 — meta.triggers matches recentMessages token → active without any lock`);
+            // ═══ Phase 1 — Gate 2: an unlocked collection never activates ═══
+            console.log(`${TEST} Phase 1: Gate 2 — unlocked stays inactive (bare, with a matching trigger, with a passing condition)`);
+            resetMeta();
+            const bareUnlocked = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
+            resetMeta();
+            setCollectionMeta(registryKey, triggerMeta);
+            const triggerUnlocked = await shouldCollectionActivate(registryKey, contextWith([triggerMessage]));
             resetMeta();
             setCollectionMeta(registryKey, {
-                triggers: [TRIGGER_TOKEN.toLowerCase()],   // lowercased — checkTriggers lowercases search text
-                triggerMatchMode: 'any',
-                triggerCaseSensitive: false,
-                triggerScanDepth: 5,
+                conditions: { enabled: true, logic: 'AND', rules: [{ type: 'randomChance', settings: { probability: 100 } }] },
             });
-            const triggerContext = {
-                currentChatId,
-                currentCharacterId: syntheticCharacterId,   // no lock matches this — proves triggers fire alone
-                recentMessages: [`some message containing ${TRIGGER_TOKEN} embedded inline`],
-            };
-            const triggerActive = await shouldCollectionActivate(registryKey, triggerContext);
-            if (triggerActive !== true) {
-                console.error(`${TEST} [FAIL] Phase 1: triggers should have matched and returned true, got ${triggerActive}. Priority-2 path broken.`);
+            const conditionUnlocked = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
+            if (bareUnlocked !== false || triggerUnlocked !== false || conditionUnlocked !== false) {
+                console.error(`${TEST} [FAIL] Phase 1: an unlocked collection activated (bare=${bareUnlocked}, matching trigger=${triggerUnlocked}, passing condition=${conditionUnlocked}). The lock gate is not enforced.`);
                 return;
             }
-            // Sanity: empty recentMessages should yield false (proves the
-            // boolean wasn't a leak from some other priority).
-            const triggerNegative = await shouldCollectionActivate(registryKey, { ...triggerContext, recentMessages: [] });
-            if (triggerNegative !== false) {
-                console.error(`${TEST} [FAIL] Phase 1 negative: triggers should have NOT matched with empty recentMessages, got ${triggerNegative}. Priority-2 may be returning true unconditionally.`);
-                return;
-            }
-            console.log(`${TEST} Phase 1 ✓ Priority 2: triggers match → active; same meta with empty recentMessages → blocked`);
+            console.log(`${TEST} Phase 1 ✓ unlocked → inactive, even with a matching trigger or a passing condition`);
 
-            // ═══ Phase 2 — Priority 3: conditions pass → active (no triggers, no lock) ═══
-            console.log(`${TEST} Phase 2: Priority 3 — randomChance probability=100 condition → active`);
+            // ═══ Phase 2 — Gate 3: a trigger narrows a locked collection ═══
+            console.log(`${TEST} Phase 2: Gate 3 — locked with a trigger: active when it matches, inactive when the messages miss it`);
+            resetMeta();
+            setCollectionMeta(registryKey, triggerMeta);
+            if (!lockToCharacter()) {
+                console.error(`${TEST} [FAIL] Phase 2 pre-condition: setCollectionCharacterLock didn't take.`);
+                return;
+            }
+            const triggerMatched = await shouldCollectionActivate(registryKey, contextWith([triggerMessage]));
+            const triggerMissed = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
+            if (triggerMatched !== true || triggerMissed !== false) {
+                console.error(`${TEST} [FAIL] Phase 2: locked + trigger should be active on a match and inactive on a miss, got match=${triggerMatched}, miss=${triggerMissed}. The trigger gate is broken.`);
+                return;
+            }
+            console.log(`${TEST} Phase 2 ✓ locked + trigger match → active; locked + trigger miss → inactive`);
+
+            // ═══ Phase 3 — Gate 4: a condition narrows further; both must pass ═══
+            console.log(`${TEST} Phase 3: Gate 4 — locked, trigger matching, plus a pattern condition: active only when the condition passes too`);
             resetMeta();
             setCollectionMeta(registryKey, {
-                conditions: {
-                    enabled: true,
-                    logic: 'AND',
-                    rules: [{ type: 'randomChance', settings: { probability: 100 } }],
-                },
+                ...triggerMeta,
+                conditions: { enabled: true, logic: 'AND', rules: [{ type: 'pattern', settings: { patterns: [CONDITION_TOKEN] } }] },
             });
-            const conditionContext = {
-                currentChatId,
-                currentCharacterId: syntheticCharacterId,   // no lock for this — proves conditions fire alone
-                recentMessages: ['nothing trigger-like here'],
-            };
-            const conditionActive = await shouldCollectionActivate(registryKey, conditionContext);
-            if (conditionActive !== true) {
-                console.error(`${TEST} [FAIL] Phase 2: conditions should have passed and returned true, got ${conditionActive}. Priority-3 path broken (or conditional-activation.js regressed).`);
-                return;
-            }
-            console.log(`${TEST} Phase 2 ✓ Priority 3: randomChance(100) condition pass → active`);
-
-            // ═══ Phase 3 — Priority 5: character lock match → active ═══
-            console.log(`${TEST} Phase 3: Priority 5 — character lock match → active (no triggers, no conditions, no chat lock)`);
-            resetMeta();
-            setCollectionCharacterLock(registryKey, syntheticCharacterId);
-            if (!isCollectionLockedToCharacter(registryKey, syntheticCharacterId)) {
+            if (!lockToCharacter()) {
                 console.error(`${TEST} [FAIL] Phase 3 pre-condition: setCollectionCharacterLock didn't take.`);
                 return;
             }
-            const characterLockContext = {
-                currentChatId,                                  // chat lock not pinned — only character lock pinned
-                currentCharacterId: syntheticCharacterId,
-                recentMessages: ['nothing trigger-like here'],
-            };
-            const characterLockActive = await shouldCollectionActivate(registryKey, characterLockContext);
-            if (characterLockActive !== true) {
-                console.error(`${TEST} [FAIL] Phase 3: character lock should have activated, got ${characterLockActive}. Priority-5 path broken.`);
+            const conditionPassed = await shouldCollectionActivate(registryKey, contextWith([`${triggerMessage} next to ${CONDITION_TOKEN}`]));
+            const conditionFailed = await shouldCollectionActivate(registryKey, contextWith([triggerMessage]));
+            if (conditionPassed !== true || conditionFailed !== false) {
+                console.error(`${TEST} [FAIL] Phase 3: locked + trigger match should be active only when the condition passes too, got condition pass=${conditionPassed}, condition fail=${conditionFailed}. The condition gate is broken.`);
                 return;
             }
-            // Sanity: change the context's character ID to a non-matching value
-            // and the same setup should now block (priority 5 didn't actually
-            // match — proves the lock is keyed on character ID, not always-on).
-            const characterLockMissContext = { ...characterLockContext, currentCharacterId: 'wrong_character_xyz' };
-            const characterLockMiss = await shouldCollectionActivate(registryKey, characterLockMissContext);
-            if (characterLockMiss !== false) {
-                console.error(`${TEST} [FAIL] Phase 3 negative: character lock should NOT have matched a different character ID, got ${characterLockMiss}. Lock match is leaking.`);
-                return;
-            }
-            console.log(`${TEST} Phase 3 ✓ Priority 5: character lock matches → active; non-matching character ID → blocked`);
+            console.log(`${TEST} Phase 3 ✓ trigger and condition pass → active; trigger passes, condition fails → inactive`);
 
-            // ═══ Phase 4 — Nothing matched → blocked ═══
-            console.log(`${TEST} Phase 4: no triggers, no conditions, no locks → blocked`);
+            // ═══ Phase 4 — Gate 5: a lock alone keeps the collection active ═══
+            console.log(`${TEST} Phase 4: Gate 5 — locked with nothing else set: active for the locked character, inactive for another`);
             resetMeta();
-            const emptyContext = {
-                currentChatId,
-                currentCharacterId: syntheticCharacterId,
-                recentMessages: ['nothing trigger-like here'],
-            };
-            const nothingActive = await shouldCollectionActivate(registryKey, emptyContext);
-            if (nothingActive !== false) {
-                console.error(`${TEST} [FAIL] Phase 4: bare collection with no priorities should have been blocked, got ${nothingActive}. Activation defaults are leaking somewhere.`);
+            if (!lockToCharacter()) {
+                console.error(`${TEST} [FAIL] Phase 4 pre-condition: setCollectionCharacterLock didn't take.`);
                 return;
             }
-            console.log(`${TEST} Phase 4 ✓ no priority matched → blocked`);
+            const lockedCharacter = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
+            const otherCharacter = await shouldCollectionActivate(registryKey, { ...contextWith([plainMessage]), currentCharacterId: 'wrong_character_xyz' });
+            if (lockedCharacter !== true || otherCharacter !== false) {
+                console.error(`${TEST} [FAIL] Phase 4: a character lock alone should activate for that character only, got locked character=${lockedCharacter}, other character=${otherCharacter}. Lock match is leaking.`);
+                return;
+            }
+            console.log(`${TEST} Phase 4 ✓ lock alone → active; another character → inactive`);
 
-            console.log(`${TEST} [PASS] Priority chain intact — triggers (P2), conditions (P3), character lock (P5), and "nothing matched" all behave per Doc/collection_helper.md. Each phase's [VECTFOX Activation Filter] log independently confirms which priority gate fired.`);
+            console.log(`${TEST} [PASS] Gate chain intact — the lock is required, a trigger and a condition each narrow a locked collection and must both pass, and a lock alone keeps it active.`);
         } finally {
             try {
                 resetMeta();
