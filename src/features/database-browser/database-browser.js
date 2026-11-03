@@ -1037,8 +1037,9 @@ function renderCollectionCard(collection, isActiveById = null) {
     ? '<span class="vectfox-badge vectfox-badge-success">Active</span>'
     : '<span class="vectfox-badge vectfox-badge-muted">Paused</span>';
 
-  // Drives the Settings button's highlight when activation is not on auto
-  const activationSummary = getCollectionActivationSummary(collection.id);
+  // Drives the Settings button's highlight when triggers or conditions are set. Read the
+  // registry-key (backend:id) metadata the Settings editor writes.
+  const activationSummary = getCollectionActivationSummary(collection.registryKey || collection.id);
 
   // Backend badge - shows vector database (Standard, Qdrant)
   const backendDisplayName =
@@ -1959,7 +1960,9 @@ let activationEditorState = {
 function openActivationEditor(collectionId, collectionName) {
   const meta = getCollectionMeta(collectionId);
   const triggerSettings = getCollectionTriggers(collectionId);
-  const conditions = getCollectionConditions(collectionId);
+  // The rule controls edit these conditions in place: work on a copy, so Save
+  // writes it back and Cancel discards it.
+  const conditions = structuredClone(getCollectionConditions(collectionId));
 
   const collectionType =
     meta.scope === "chat" ? "chat" : meta.type || "unknown";

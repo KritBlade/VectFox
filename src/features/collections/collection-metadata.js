@@ -78,6 +78,15 @@ const defaultCollectionMeta = {
 };
 
 /**
+ * Returns a deep copy of the defaults. Each collection gets its own triggers,
+ * tags and conditions, so editing one collection's metadata in place never
+ * reaches another collection or the defaults themselves.
+ */
+function createDefaultCollectionMeta() {
+    return structuredClone(defaultCollectionMeta);
+}
+
+/**
  * ============================================================================
  * CONDITION TYPES
  * ============================================================================
@@ -200,15 +209,15 @@ export function getEffectiveScope(collectionIdOrRegistryKey, meta = null) {
 export function getCollectionMeta(collectionId) {
     // VEC-26: Add comprehensive null checks
     if (!ensureCollectionsObject()) {
-        const fresh = { ...defaultCollectionMeta };
+        const fresh = createDefaultCollectionMeta();
         fresh.scope = getEffectiveScope(collectionId, fresh);
         return fresh;
     }
 
     const stored = extension_settings.vectfox.collections[collectionId];
     const merged = stored
-        ? { ...defaultCollectionMeta, ...stored }
-        : { ...defaultCollectionMeta };
+        ? { ...createDefaultCollectionMeta(), ...stored }
+        : createDefaultCollectionMeta();
 
     // Always return a usable scope. Cheap when stored is already valid
     // (single string comparison); only parses the ID when stored is null/
@@ -237,7 +246,7 @@ export function setCollectionMeta(collectionId, data) {
     const existing = extension_settings.vectfox.collections[collectionId] || {};
 
     extension_settings.vectfox.collections[collectionId] = {
-        ...defaultCollectionMeta,
+        ...createDefaultCollectionMeta(),
         ...existing,
         ...data,
     };
@@ -421,7 +430,7 @@ export function migrateOldEnabledKeys() {
             // Only migrate if we don't already have metadata for this collection
             if (!extension_settings.vectfox.collections[collectionId]) {
                 extension_settings.vectfox.collections[collectionId] = {
-                    ...defaultCollectionMeta,
+                    ...createDefaultCollectionMeta(),
                     enabled: enabled !== false,
                 };
                 log.lifecycle(`VectFox: Migrated enabled key for ${collectionId}`);
@@ -789,7 +798,7 @@ export function ensureCollectionMeta(collectionId, initialData = {}) {
 
     if (!extension_settings.vectfox.collections[collectionId]) {
         extension_settings.vectfox.collections[collectionId] = {
-            ...defaultCollectionMeta,
+            ...createDefaultCollectionMeta(),
             createdAt: Date.now(),
             ...initialData,
         };
