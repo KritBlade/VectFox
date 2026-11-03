@@ -1,12 +1,12 @@
 {
-  "_comment": "SigMap config for VectFox. Tuned 2026-07-30 to fix coverage grade D (38%).",
+  "_comment": "SigMap config for VectFox.",
 
   "output": ".github/copilot-instructions.md",
 
   "_outputs_comment": "ONLY copilot. The 'claude' adapter targets CLAUDE.md, which is hand-maintained project instructions loaded every session — SigMap must never write signatures into it. codex/gemini are unused here.",
   "outputs": ["copilot"],
 
-  "_exclude_comment": "'tests' is excluded from SIGNATURE EXTRACTION only: 35 test files yielded 41 signatures total (most yield 0) while consuming 35 of 123 file slots, which is what starved real source files out of the budget. Test-coverage detection uses testDirs below and is unaffected.",
+  "_exclude_comment": "'tests' is excluded from SIGNATURE EXTRACTION only: test files yield almost no signatures, yet each takes a file slot a source file needs. Test-coverage detection uses testDirs below and is unaffected.",
   "exclude": [
     "node_modules", ".git", "dist", "build", "out",
     "__pycache__", ".next", "coverage", "target", "vendor",
@@ -19,10 +19,10 @@
 
   "maxDepth": 6,
 
-  "_maxSigsPerFile_comment": "Raised from 25: collection-metadata.js, core-vector-api.js, eventbase-store.js and collection-loader.js all sat at exactly 25, i.e. capped. Net gain was modest (+8 symbols repo-wide) but it removes an arbitrary ceiling on this repo's largest modules at negligible token cost.",
+  "_maxSigsPerFile_comment": "Above SigMap's default of 25 so the largest modules are not cut off at the cap; the extra tokens are negligible.",
   "maxSigsPerFile": 60,
 
-  "_budget_comment": "effective = clamp(totalSigTokens x coverageTarget, 4000, modelContextLimit x maxTokensHeadroom). Was 0.80 target against a 128k assumption -> 18,333 budget vs 22,707 of content -> 48 files dropped.",
+  "_budget_comment": "effective = clamp(totalSigTokens x coverageTarget, 4000, modelContextLimit x maxTokensHeadroom).",
   "autoMaxTokens": true,
   "coverageTarget": 0.95,
   "modelContextLimit": 200000,

@@ -182,22 +182,14 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     const CONCURRENCY = Math.min(8, Math.max(1, parallelWindows));
 
-    // Coordinator mode: pipelined (default) vs serial (opt-in via "Serial
+    // Coordinator mode: pipelined (default) vs serial (opt-in via the "Serial
     // extract→insert" checkbox in the EventBase tab).
     //
-    // - DEFAULT: pipelined — batch N's insert overlaps batch N+1's extract.
-    //   ~35% faster wall time. An earlier 2026-05-30 A/B showed pipelined
-    //   producing ~44% fewer events/window than serial (0.98 vs 1.74) and
-    //   the gap was originally blamed on per-key concurrency contention,
-    //   but it was actually a hedge bug: hedge timers fired during
-    //   in-flight inserts that were still progressing, wiping events out
-    //   of the queue. Bug fixed; pipelined is the safe default now.
-    //
-    // - SERIAL opt-in (checkbox): each batch finishes embedding before
-    //   the next batch starts extracting. Safer if a future regression
-    //   reintroduces the queue-wipe class of bug. Anything except explicit
-    //   `false` is treated as the new pipelined default; only an explicit
-    //   `true` enables serial mode.
+    // - DEFAULT: pipelined — batch N's insert overlaps batch N+1's extract,
+    //   ~35% faster wall time.
+    // - SERIAL opt-in: each batch finishes embedding before the next batch
+    //   starts extracting — a diagnostic fallback if a pipelined run loses
+    //   events. Only an explicit `true` enables it.
     const disablePipeline = settings?.eventbase_disable_pipeline === true;
 
     if (!messages?.length) return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
@@ -346,10 +338,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // fingerprint cache was lost (page reload after re-importing an exported Qdrant
     // collection).
     //
-    // The decision rule lives in shouldUseTipFallback() — DO NOT inline the condition
-    // here. Two bugs on 2026-05-30 (Reset & Vectorize, window-size-change popups) came
-    // from callers inlining incompatible "should I bypass the fallback?" logic. Now
-    // there's one source of truth in eventbase-store.js.
+    // The decision rule lives in shouldUseTipFallback() in eventbase-store.js,
+    // shared with the UI popups — do not inline the condition here.
     const useTipFallback = shouldUseTipFallback({
         skipTipFallback,
         fastForwardSkipped,
@@ -609,13 +599,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 lastErr = err;
                 log.warn(`[EventBase] Insert batch starting at window ${batchFirstIdx} attempt ${attempt}/3 failed: ${err?.message || err}`);
                 if (attempt < 3) {
-                    // Backoff bumped from 500/1000ms to 5s/10s. The shorter delays
-                    // were too aggressive for the common failure mode we hit in
-                    // practice: Qdrant under transient load returning truncated
-                    // JSON. 5-10s gives the server time to settle instead of
-                    // pounding it again immediately. See Doc/log.txt 2026-05-30
-                    // 01:18:34 incident — Similharity threw "Unexpected end of
-                    // JSON input" which is a truncated-response symptom.
+                    // 5s then 10s: the common failure here is Qdrant under transient
+                    // load returning truncated JSON (Similharity throws "Unexpected
+                    // end of JSON input"), and the server needs seconds to settle
+                    // before a retry can succeed.
                     const backoffMs = attempt === 1 ? 5000 : 10000;
                     // Visibility: tell the user this is a retry, not a hang.
                     // Without this signal, retry attempts look identical to a
@@ -799,12 +786,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         //                                 lost. Symptoms: ~50% recall vs serial
         //                                 mode, no errors logged, pipeline
         //                                 dispatches batches unboundedly while
-        //                                 inserts stack up. See 2026-05-30
-        //                                 investigation in conversation logs.
+        //                                 inserts stack up.
         //   (c) !insertBarrier         — pipelined opt-out (serial mode)
         //                                 additionally blocks on in-flight
-        //                                 insert. Used purely as a diagnostic
-        //                                 fallback now that (b) is correct.
+        //                                 insert, as a diagnostic fallback.
         // The first if (insert-start) above will consume queuedResult if it can.
         // So if queuedResult is still non-null here, it means insert IS in
         // flight — we MUST NOT start a new extract because there's nowhere to
@@ -892,14 +877,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // eventbase-store.js insertEvents() catches intra-batch collisions; this
     // catches CROSS-batch collisions or any other loss mechanism in the layers
     // beneath us (Similharity plugin silently dropping items, payload validation
-    // rejecting fields, Qdrant accepting but not persisting, etc.).
-    //
-    // History: in May 2026 we discovered a 32-bit djb2 hash collision bug that
-    // silently dropped ~40% of events from a 2382-message backfill. The plugin
-    // logged "Inserted N", Qdrant returned 200, the events were just gone.
-    // The hash was widened to 53 bits — but a "rare" silent-loss bug is worse
-    // than a loud one, so we now actively verify what landed at the end of
-    // every run.
+    // rejecting fields, Qdrant accepting but not persisting, etc.). Such a loss
+    // shows no error anywhere — the plugin logs "Inserted N" and Qdrant returns
+    // 200 — so what landed is counted at the end of every run.
     //
     // Cost: one extra HTTP round-trip per ingestion run (not per batch). For a
     // 25-minute backfill, +0.5s is irrelevant. Skipped on the Standard backend

@@ -85,7 +85,7 @@ function isEventBaseCollection() {
 // CHUNK DATA HELPERS
 // ============================================================================
 
-// Phase B (read-source refactor): the vector backend payload is the source of truth for
+// The vector backend payload is the source of truth for
 // per-chunk fields. These are the ONLY fields still persisted to extension_settings on save
 // — genuinely client-only state with no backend payload representation. Everything else goes
 // to the backend via updateChunkMetadata. See InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md.
@@ -212,7 +212,7 @@ async function saveAllChanges() {
                 await deleteVectorItems(currentCollectionId, hashesToDelete, currentSettings);
             }
 
-            // Phase B (no dual write): the vector backend is the source of truth for
+            // The vector backend is the source of truth for
             // per-chunk fields (name/context/xmlTag/position/depth/keywords/enabled/
             // chunkLinks). Only genuinely client-only state — dual-vector
             // `summaries`, which has no backend payload field — is persisted to
@@ -1085,7 +1085,7 @@ function bindDetailEvents() {
                 metadata: carriedMeta,
             }], currentSettings);
 
-            // Backend fields were carried onto the new point above (Phase B: backend is the
+            // Backend fields were carried onto the new point above (the backend is the
             // source of truth). In ext_settings, only migrate client-only state (summaries)
             // to the new hash and drop the old entry.
             deleteChunkMetadata(String(chunk.hash));

@@ -56,7 +56,7 @@ const defaultSettings = {
     enabled: true,
 
     // Core vector settings
-    embedding_provider: 'transformers', // embedding provider selection (was `source` pre-Phase-B)
+    embedding_provider: 'transformers', // embedding provider selection
     vector_backend: 'qdrant', // Backend: 'standard' (ST Vectra) | 'qdrant'
     qdrant_host: '127.0.0.1',
     qdrant_port: 6333,
@@ -311,18 +311,16 @@ const defaultSettings = {
         agent: false,       // agent-mode planner / per-query hits
         rerank: false,      // native vs JS re-rank comparison
     },
-    // Legacy debug flags below are KEPT as settings keys (some non-log code
-    // still reads eventbase_compare_rerank etc.), but the pure log-gate flags
-    // (eventbase_debug_logging, debug_vectorizing_log, *_debug, ...) are no
-    // longer consulted for logging — src/sillytavern/log.js ignores them. No migration
-    // shim (user decision 2026-05-30).
+    // eventbase_debug_logging, eventbase_raw_llm_debug and debug_vectorizing_log
+    // are read by nothing: src/sillytavern/log.js gates on debug_verbosity and
+    // debug_domain only.
     eventbase_debug_logging: false,
-    eventbase_raw_llm_debug: false,              // Raw LLM reply + parser candidate logs (very noisy, per-window)
+    eventbase_raw_llm_debug: false,
     vector_group_embedding_call: true,           // Path-agnostic insert toggle. true = legacy batched POST (1 POST per batch, cheaper, default — proven safe in production wire conditions when paired with hedge). false = parallel-split (1 POST per item, failure-contained, but N× the connection surface area which can amplify upstream routing stalls). Affects every call to insertVectorItems (EventBase ingestion AND content/document vectorization).
     vector_hedge_after_ms: 15000,                // 0 = hedge disabled. Default 15000 (15s) fires a duplicate request when an embedding POST hasn't returned by the threshold; race-first-wins. Helps multi-upstream gateways (OpenRouter, SiliconFlow via vllm slot) recover from connection-level routing stalls in seconds instead of 120s. Skipped for local providers (ollama/transformers/llamacpp/koboldcpp). See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
     eventbase_disable_pipeline: false,           // false = pipelined extract↔insert (default, ~35% faster). true = serial (each batch finishes embedding before the next starts extracting; safer on slower vector DB backends). Read-site (eventbase-workflow.js) treats anything except explicit true as pipelined.
     eventbase_debug_qdrant_backend: false,
-    debug_vectorizing_log: false,                // Verbose vectorization progress logs in console
+    debug_vectorizing_log: false,
     eventbase_custom_prompt: '',                  // Custom extraction prompt (empty = use built-in default)
     // Re-rank weights (sum is normalized to 1.0 at runtime)
     eventbase_rerank_w_cosine: 0.55,
@@ -597,13 +595,10 @@ jQuery(async () => {
         _ebMutated = true;
     }
     if (_ebMutated) {
-        // Persist deletions synchronously (NOT debounced). Migrations are
-        // one-shot at init and the user may reload before a debounced save
-        // would flush — leaving settings.json with stale legacy fields even
-        // though extension_settings.vectfox is clean in memory. Confirmed
-        // 2026-05-26 against a user whose summarize_openrouter_api_key /
-        // summarize_vllm_api_key persisted on disk across multiple reloads
-        // because the debounced save never fired before page close.
+        // Persist deletions synchronously, not debounced: migrations run once at
+        // init, and a reload before a debounced save flushes would leave the
+        // deleted legacy fields in settings.json although extension_settings.vectfox
+        // is clean in memory.
         const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }

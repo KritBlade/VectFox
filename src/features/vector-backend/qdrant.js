@@ -135,14 +135,12 @@ export class QdrantBackend extends VectorBackend {
         let config;
 
         if (settings.qdrant_use_cloud) {
-            // Cloud mode: use URL. The API key is resolved server-side by the
-            // Similharity plugin from ST's secret_state slot 'api_key_qdrant'
-            // (post-2026-05-26 migration). Client sends apiKey:null and the
-            // plugin's /backend/init/qdrant handler reads the real key via
-            // readSecret() before passing config to qdrantBackend.initialize.
-            // For pre-migration users still on plaintext, getQdrantApiKey()
-            // returns the transition-fallback value — keep checking it so
-            // that flow doesn't break during the upgrade window.
+            // Cloud mode: use URL. The Similharity plugin resolves the API key
+            // server-side from ST's secret slot 'api_key_qdrant': with apiKey
+            // null, its /backend/init/qdrant handler reads the key via readSecret()
+            // before passing config to qdrantBackend.initialize. A plaintext
+            // settings.qdrant_api_key that the migration has not drained yet
+            // (getQdrantApiKey) is sent instead.
             const legacyPlaintext = getQdrantApiKey(settings);
             config = {
                 url: settings.qdrant_url || null,
@@ -930,7 +928,7 @@ export class QdrantBackend extends VectorBackend {
         // membership via the hybrid query itself. A sparse-leg hit that ranks
         // outside the dense lookup window has no cosine → scores 0 → gated: a
         // keyword match with no semantic similarity does not clear a similarity
-        // threshold (deliberate, decided 2026-07-31).
+        // threshold (deliberate).
         const cosineLookupPromise = this.queryCollection(collectionId, searchText, prefetchLimit, settings, vector)
             .catch(error => ({ __cosineLookupError: error }));
 

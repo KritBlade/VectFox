@@ -47,15 +47,11 @@ export const COLLECTION_TYPES = {
     UNKNOWN: 'unknown',
 };
 
-/** Collection scopes.
- *
- * `'global'` was retired 2026-05-24 — the Vectorize Content modal exposes only
- * `Character` and `This Chat`. Legacy on-disk `scope: 'global'` entries are
- * auto-migrated to `'character'` on first read by `loadAllCollections`
- * (see collection-loader.js). Do NOT reintroduce a GLOBAL constant — every
- * scope value flowing through the codebase must be `'chat'` or `'character'`
- * (or `UNKNOWN` for unparseable IDs, which `getEffectiveScope` then defaults
- * to `'character'`).
+/** Collection scopes: `'chat'` or `'character'`, the two the Vectorize Content
+ * modal offers (`UNKNOWN` marks unparseable IDs, which `getEffectiveScope` then
+ * defaults to `'character'`). There is no global scope: `loadAllCollections`
+ * (collection-loader.js) rewrites a stored `scope: 'global'` to `'character'`
+ * on first read, so do not add a GLOBAL constant.
  */
 export const COLLECTION_SCOPES = {
     CHARACTER: 'character',
@@ -233,21 +229,20 @@ export function buildRegistryKey(collectionId, settingsOrBackend) {
  * Canonical resolver: given either a registry-key ("backend:collectionId")
  * or a bare collection ID, return the backend label + the bare collection ID.
  *
- * Use this anywhere routing must pick the right backend for a collection.
- * Replaces three previously-scattered patterns:
- *   1. `parseRegistryKey(id).backend ?? settings.vector_backend`  (silent wrong
- *       backend for mixed-backend users; root cause of the 2026-05-23 EventBase
- *       cross-backend retrieval bug)
- *   2. `getBackendFromCollectionId(bareId)` alone (works for bare, but doesn't
- *       handle the case where the caller already has a registry-key form)
+ * Use this anywhere routing must pick the right backend for a collection,
+ * instead of:
+ *   1. `parseRegistryKey(id).backend ?? settings.vector_backend` (picks the
+ *       wrong backend for a collection that lives on the other one)
+ *   2. `getBackendFromCollectionId(bareId)` alone (misses input already in
+ *       registry-key form)
  *   3. Hand-rolled `id.includes('qdrant') ? 'qdrant' : 'standard'` (drift bait)
  *
  * Resolution order:
  *   1. If the input has a known backend prefix (`qdrant:` / `vectra:` /
- *      `standard:`), use that. This is the canonical post-2026-05-23 form.
+ *      `standard:`), use that — the canonical form.
  *   2. Otherwise, try to detect the backend from the ID's structure
- *      (`vf_<kind>_<backend>_…`). Handles legacy bare entries from before
- *      the registry-key convention.
+ *      (`vf_<kind>_<backend>_…`), for bare entries without a registry-key
+ *      prefix.
  *   3. If both fail, return `{ backend: null }`. Caller decides whether to
  *      throw, warn, or fall through to a settings-level default.
  *
@@ -547,9 +542,6 @@ export function parseCollectionId(collectionId) {
     // VectFox archive event format: vf_archiveevent_*
     // Scope is 'chat' to match getEffectiveScope's documented behavior — archive
     // event collections hold chat-shaped events and belong to the chat scope.
-    // Returning 'global' here (the pre-2026-05-24 value) silently produced
-    // 'character' downstream after getEffectiveScope's reject-and-default,
-    // which was the actual scope bug for archive events.
     if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) {
         return {
             type: COLLECTION_TYPES.ARCHIVE_EVENT,

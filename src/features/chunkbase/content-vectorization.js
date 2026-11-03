@@ -648,14 +648,6 @@ function prepareCharacterContent(rawContent, settings) {
     return { text: combined, type: 'combined', character: character };
 }
 
-// prepareChatContent removed 2026-05-24 — chat history is exclusively
-// processed by EventBase (see eventbase-workflow.js::runEventBaseIngestion).
-// All previous chunking strategies (per_message / conversation_turns /
-// message_batch / adaptive) are unreachable from production code paths.
-// The dispatcher case above is gone; the defensive tripwire in
-// generateCollectionId() further down still throws if anyone bypasses
-// both gates by modifying source manually.
-
 /**
  * Prepares URL/webpage content
  */
@@ -985,9 +977,6 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
 }
 
 /**
- * Deletes a content collection
- */
-/**
  * Delete the underlying vector data for a content collection.
  *
  * The backend the data physically lives in is encoded in the collection ID
@@ -995,14 +984,9 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
  * helper auto-detects this from the ID when the caller doesn't pass a
  * `vector_backend` override, so cleanup ALWAYS targets the backend that
  * actually holds the data — never the user's currently-selected global.
- *
- * Without this auto-detection, the previous code routed every cleanup
- * through `extension_settings.vectfox.vector_backend`. If the user's global
- * was `standard` while the data lived in qdrant (e.g. tests overriding
- * `vector_backend: 'qdrant'` for one call), the purge silently no-op'd
- * against vectra and the qdrant folder leaked on disk. Accumulated orphans
- * eventually stalled Qdrant startup → plugin timeout → "Plugin shutting
- * down" crash. Surfaced 2026-05-23 via 31 qdrant orphans on the NAS.
+ * Purging through the global backend would no-op against the wrong store and
+ * leave the data behind; orphaned Qdrant collections pile up until Qdrant's
+ * startup outlasts the plugin's timeout.
  *
  * @param {string} collectionId - bare collection ID (no `backend:` prefix)
  * @param {object} [callerSettings] - per-call overrides; if omitted, the

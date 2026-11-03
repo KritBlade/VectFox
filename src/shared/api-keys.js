@@ -7,18 +7,12 @@
  * one-shot migration that consolidates legacy per-feature key fields
  * into a single key per provider.
  *
- * ARCHITECTURE (post-2026-05-25 simplification):
- *
- * The original H-1 fix tried to use VectFox-specific `secret_state` slots
- * (e.g. `'summarize_openrouter_api_key'`) to keep summarize/embedding/
- * agentic OpenRouter keys separate. That failed in practice: ST's
- * `writeSecret(customSlot, value)` accepts the write but `readSecretState`
- * doesn't surface custom slots back into the in-memory `secret_state`
- * object — so the keys were write-only and the migration effectively
- * destroyed them; we re-learned it the hard way.
- *
- * Current model — reuse whatever ST already round-trips, and proxy when
- * the real key value is needed:
+ * Keys live in slots SillyTavern already round-trips, and every call that
+ * needs the real key goes through a SillyTavern proxy that reads it
+ * server-side. VectFox-specific slots (e.g. `'summarize_openrouter_api_key'`)
+ * do not work: ST's `writeSecret(customSlot, value)` accepts the write, but
+ * `readSecretState` never surfaces custom slots in the client's
+ * `secret_state`, so such a key is write-only. Per provider:
  *
  *   - OpenRouter (one key for embedding + summarize + agent):
  *     Stored in ST's well-known `SECRET_KEYS.OPENROUTER` slot. ST's
@@ -43,27 +37,17 @@
  *
  *   - vLLM-style "Custom OpenAI-compatible" (one key for embedding +
  *     summarize + agent):
- *     Stored in ST's `SECRET_KEYS.CUSTOM` slot (`api_key_custom`). Same
- *     masking behavior as OpenRouter — getCustomApiKey() returns the
- *     masked string for presence-check only. Chat-side requests route
- *     through `/api/backends/chat-completions/generate` with
+ *     VectFox's vLLM key inputs write two slots. Chat-side requests read
+ *     `SECRET_KEYS.CUSTOM` (`api_key_custom`): they route through
+ *     `/api/backends/chat-completions/generate` with
  *     `chat_completion_source: 'custom'` and `custom_url:
- *     settings.vllm_url` in the body — ST's server reads the real key
+ *     settings.vllm_url` in the body, and ST's server reads the real key
  *     via `readSecret(SECRET_KEYS.CUSTOM)` and forwards to the
- *     user-specified endpoint. Embedding side relies on
- *     `SECRET_KEYS.VLLM` (ST's dedicated vLLM Text Completion slot) via
- *     ST's `/api/vector/insert` server-side header injection; the user
- *     configures that key via ST's Text Completion → vLLM UI, NOT
- *     through VectFox.
- *
- *     Pre-2026-05-26 the key lived in plaintext `settings.vllm_api_key`.
- *     The header comment in this file used to claim no ST vLLM slot
- *     existed and plaintext was justified by LAN scope — both wrong.
- *     `SECRET_KEYS.VLLM` (`'api_key_vllm'`) exists at ST:secrets.js:22
- *     but is non-EXPORTABLE (masked client-side), so we use the proxy
- *     pattern same as OpenRouter. The migration drains the legacy
- *     plaintext value into `SECRET_KEYS.CUSTOM` (don't-clobber) on
- *     first load post-upgrade.
+ *     user-specified endpoint. Embedding reads `SECRET_KEYS.VLLM`
+ *     (`api_key_vllm`, ST's vLLM Text Completion slot) through ST's
+ *     `/api/vector/insert` server-side header injection. Both slots are
+ *     masked client-side like OpenRouter's: getCustomApiKey() returns the
+ *     masked string for presence checks only.
  *
  *   - Qdrant API key (Cloud auth):
  *     Stored in ST's secret_state under the CUSTOM slot name `api_key_qdrant`
@@ -75,33 +59,15 @@
  *     `secret_state.api_key_qdrant` is undefined (enum filter), so the UI
  *     presence indicator round-trips via the plugin's
  *     `/qdrant/key-status` endpoint instead (see `fetchQdrantApiKeyPresence`).
- *     Migration drains any legacy `settings.qdrant_api_key` plaintext into
- *     the slot on first load and deletes the plaintext field.
  *
  *   - Ollama:
- *     No API key field, period. ST itself has no SECRET_KEYS.OLLAMA and
- *     no getOllamaHeaders — ST's ollama vector path never sends an
- *     Authorization header. VectFox previously had an ollama_api_key
- *     plaintext field, but it was dead code (ST silently ignored anything
- *     passed through it). Field removed 2026-05-26; migration drains any
- *     leftover plaintext from settings.json on first reload post-upgrade.
- *     Users who need authed Ollama (rare — Ollama is typically LAN
- *     no-auth) should configure auth at their reverse proxy layer.
+ *     No API key field. ST has no SECRET_KEYS.OLLAMA and no
+ *     getOllamaHeaders, so its Ollama vector path never sends an
+ *     Authorization header. Users who need authed Ollama (rare — Ollama is
+ *     typically LAN no-auth) configure auth at their reverse proxy.
  *
- * Migration (`migrateLegacyApiKeys`) runs once at init:
- *   - Consolidates the three legacy OpenRouter slots
- *     (`summarize_openrouter_api_key`, `agentic_retrieval_openrouter_api_key`,
- *     `openrouter_api_key`) into `SECRET_KEYS.OPENROUTER` IF that slot is
- *     currently empty (won't clobber a value the user already set in ST's
- *     UI). Always deletes the three legacy fields from settings.json.
- *   - Consolidates the three legacy vLLM slots
- *     (`summarize_vllm_api_key`, `agentic_retrieval_vllm_api_key`,
- *     `vllm_api_key`) by draining the first non-empty value into
- *     `SECRET_KEYS.CUSTOM` (don't-clobber) and deleting all three legacy
- *     plaintext fields. After migration, the chat-side code paths read
- *     the key server-side via ST's chat-completions proxy.
- *   - Idempotent: empty fields = no-op. Wrapped in try/catch — failures
- *     are non-fatal and don't lock users out of their keys.
+ * migrateLegacyApiKeys() documents what the one-shot migration moves and
+ * deletes.
  *
  * @author Kritblade
  * ============================================================================
@@ -167,8 +133,8 @@ export function getOpenRouterApiKey() {
 }
 
 /**
- * Resolve the Custom OpenAI-compatible API key — the slot VectFox uses
- * for vLLM-style endpoints post-2026-05-26. RETURNS A MASKED VALUE,
+ * Resolve the Custom OpenAI-compatible API key — the slot VectFox's
+ * vLLM-style chat calls read. RETURNS A MASKED VALUE,
  * not the real key — same as `getOpenRouterApiKey`. Use for presence
  * checks and placeholder masking only; chat-side calls route through
  * ST's `/api/backends/chat-completions/generate` proxy with
@@ -182,26 +148,24 @@ export function getCustomApiKey() {
 }
 
 /**
- * Resolve the Qdrant API key presence indicator.
+ * Read a plaintext Qdrant API key left in settings (`settings.qdrant_api_key`).
  *
- * Post-2026-05-26: the key lives in ST's secret_state under the custom slot
- * `api_key_qdrant`. That slot is NOT in ST's `SECRET_KEYS` enum, so
- * `getSecretState` (and therefore client-side `secret_state.api_key_qdrant`)
- * does NOT surface it. Server-side `readSecret(directories, 'api_key_qdrant')`
- * DOES read it correctly — that's how the Similharity plugin auth-flows the
- * real key value into Qdrant.
+ * The key lives in ST's secret_state under the custom slot `api_key_qdrant`.
+ * That slot is NOT in ST's `SECRET_KEYS` enum, so `getSecretState` (and
+ * therefore client-side `secret_state.api_key_qdrant`) does NOT surface it.
+ * Server-side `readSecret(directories, 'api_key_qdrant')` DOES read it — that's
+ * how the Similharity plugin auth-flows the real key value into Qdrant.
  *
  * For client-side presence checks (UI placeholder, "is the key set"), call
  * `fetchQdrantApiKeyPresence()` below — it round-trips to the plugin's
- * `/qdrant/key-status` endpoint which returns `{set, masked}`.
+ * `/qdrant/key-status` endpoint, which returns `{set, masked}`.
  *
- * This synchronous reader is kept ONLY as a transition fallback for the
- * pre-migration plaintext field. After migration drains it, this returns ''
- * and the UI/backends rely on the async presence fetch + server-side
- * resolution respectively.
+ * This reader returns the plaintext field until migrateLegacyApiKeys() drains
+ * it into the slot, and '' after; the UI and the backends then rely on the
+ * async presence fetch and the server-side read respectively.
  *
  * @param {object} [settings] - extension_settings.vectfox
- * @returns {string} pre-migration plaintext value, or '' once migrated
+ * @returns {string} the plaintext value, or '' once migrated
  */
 export function getQdrantApiKey(settings) {
     const v = settings?.qdrant_api_key;
@@ -241,40 +205,27 @@ export async function fetchQdrantApiKeyPresence() {
     }
 }
 
-// getOllamaApiKey was removed 2026-05-26: ST has no SECRET_KEYS.OLLAMA slot
-// and no getOllamaHeaders branch in additional-headers.js. ST's vector handler
-// calls setAdditionalHeadersByType(headers, TEXTGEN_TYPES.OLLAMA, ...) which is
-// a silent no-op for ollama — no Authorization header is ever sent. VectFox's
-// ollama_api_key field was dead code on both sides. The plaintext field is
-// drained-and-deleted by migrateLegacyApiKeys() below (no destination —
-// nothing to migrate to since ST itself doesn't authenticate ollama). If a
-// user needs auth for a proxied ollama endpoint, configure it at the proxy.
-
 // ─── One-shot legacy field migration ────────────────────────────────────
 
 /**
- * Consolidate legacy per-feature key fields into the new one-key-per-provider
- * shape. Runs once at init from `index.js`.
+ * Move legacy plaintext key fields out of `extension_settings.vectfox` into
+ * SillyTavern's secret store. Runs once at init from `index.js`.
  *
- * For OpenRouter:
- *   - Legacy fields: `summarize_openrouter_api_key`,
- *     `agentic_retrieval_openrouter_api_key`, `openrouter_api_key`
- *   - Picks the first non-empty value as the canonical key.
- *   - Writes to `SECRET_KEYS.OPENROUTER` ONLY IF that slot is currently
- *     empty (don't clobber a value the user set through ST's own UI).
- *   - Deletes all three legacy fields from `extension_settings.vectfox`.
+ * OpenRouter — legacy fields `summarize_openrouter_api_key`,
+ * `agentic_retrieval_openrouter_api_key` and `openrouter_api_key`: the first
+ * non-empty value goes to `SECRET_KEYS.OPENROUTER` ONLY IF that slot is empty
+ * (a value the user set through ST's own UI is kept); all three fields are
+ * deleted.
  *
- * For vLLM:
- *   - Legacy fields: `summarize_vllm_api_key`,
- *     `agentic_retrieval_vllm_api_key`, `vllm_api_key`
- *   - Picks the first non-empty value, stores it in `vllm_api_key` plaintext.
- *   - Deletes the other two from `extension_settings.vectfox`.
+ * vLLM — legacy fields `summarize_vllm_api_key`,
+ * `agentic_retrieval_vllm_api_key` and `vllm_api_key`: the first non-empty
+ * value goes to `SECRET_KEYS.CUSTOM` (chat side) and `SECRET_KEYS.VLLM`
+ * (embedding side), each only if empty; all three fields are deleted.
  *
  * qdrant_api_key: drained to secret_state custom slot 'api_key_qdrant'
  * (gated on Similharity plugin probe — see Qdrant drain block below).
  *
- * ollama_api_key: drained-and-deleted from settings.json (no destination —
- * ST itself doesn't authenticate ollama; field was dead code on both sides).
+ * ollama_api_key: deleted (no destination — ST does not authenticate Ollama).
  *
  * Idempotent: on subsequent runs the legacy fields are already absent
  * and the function is a no-op.
@@ -344,18 +295,15 @@ export async function migrateLegacyApiKeys() {
         }
     }
 
-    // ─── vLLM → SECRET_KEYS.CUSTOM drain ───
-    // Pre-2026-05-26: VectFox stored the vLLM-style key plaintext in
-    // `settings.vllm_api_key` and 2 sibling legacy fields. The chat-side
-    // code did direct fetches with `Authorization: Bearer ${key}`.
-    // Post-refactor: chat-side routes through ST's chat-completions proxy
-    // with `chat_completion_source: 'custom'`, which reads the key from
-    // `SECRET_KEYS.CUSTOM` server-side. Drain the legacy plaintext value
-    // into that slot (first non-empty wins) and delete all three legacy
-    // plaintext fields. Don't-clobber rule: if the slot is already non-
-    // empty, leave it alone — user may have configured their main chat to
-    // use Custom OpenAI-compatible with a different value and we'd silently
-    // hijack it.
+    // ─── vLLM → SECRET_KEYS.CUSTOM + SECRET_KEYS.VLLM drain ───
+    // Chat-side vLLM calls route through ST's chat-completions proxy with
+    // `chat_completion_source: 'custom'`, which reads `SECRET_KEYS.CUSTOM`
+    // server-side; embedding reads `SECRET_KEYS.VLLM`. Drain a plaintext key
+    // from `settings.vllm_api_key` or its two sibling legacy fields (first
+    // non-empty wins) into both slots and delete all three fields.
+    // Don't-clobber rule: a slot that already holds a value keeps it — the
+    // user's main chat may use Custom OpenAI-compatible with a different key,
+    // which a write would hijack.
     const vllmLegacy = [
         'summarize_vllm_api_key',
         'agentic_retrieval_vllm_api_key',
@@ -373,12 +321,10 @@ export async function migrateLegacyApiKeys() {
         mutated = true;
     }
     if (vllmValue) {
-        // Dual-write: chat-side proxy reads SECRET_KEYS.CUSTOM; embedding-side
-        // proxy reads SECRET_KEYS.VLLM. Writing to both preserves the "one
-        // shared key" UX promise from pre-2026-05-26 while moving storage out
-        // of plaintext. Each write is don't-clobber so existing ST main-chat
-        // configs (Custom source) or existing ST vLLM Text Completion configs
-        // are left alone — users with intentional per-slot values keep them.
+        // Dual-write: the chat-side proxy reads SECRET_KEYS.CUSTOM and the
+        // embedding-side proxy reads SECRET_KEYS.VLLM, so one key serves both.
+        // Each write is don't-clobber, so an existing ST main-chat config (Custom
+        // source) or ST vLLM Text Completion config keeps its own value.
         const existingCustom = _readSecretValue(SECRET_KEYS.CUSTOM);
         if (!existingCustom) {
             try {
@@ -428,9 +374,9 @@ export async function migrateLegacyApiKeys() {
     // pinging /qdrant/key-status just produces a misleading 404 warning.
     if (Object.prototype.hasOwnProperty.call(vf, 'qdrant_api_key')) {
         // First, the canonical plugin-presence check (session-cached /health
-        // probe). This cleanly separates "no plugin installed at all" from
-        // "plugin installed but pre-2026-05-26 (no /qdrant/key-status yet)" —
-        // the two cases that the /qdrant/key-status 404 alone can't tell apart.
+        // probe). This separates "no plugin installed at all" from "plugin
+        // installed but without /qdrant/key-status" — the two cases that the
+        // /qdrant/key-status 404 alone can't tell apart.
         let pluginUp = false;
         try {
             pluginUp = await checkPluginAvailable();
@@ -455,10 +401,10 @@ export async function migrateLegacyApiKeys() {
                 });
                 pluginSupportsQdrantSecretSlot = probe.ok;
                 if (!probe.ok) {
-                    log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe returned ${probe.status} — Similharity plugin is pre-2026-05-26. Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Update the Similharity plugin (cd plugins/similharity && git pull && restart ST) to enable secret_state storage.`);
+                    log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe returned ${probe.status} — the Similharity plugin predates that endpoint. Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Update the Similharity plugin (cd plugins/similharity && git pull && restart ST) to enable secret_state storage.`);
                 }
             } catch (err) {
-                log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe failed (plugin unreachable or pre-2026-05-26). Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);
+                log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe failed (plugin unreachable or without that endpoint). Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);
             }
         }
     }
@@ -517,11 +463,9 @@ export async function migrateLegacyApiKeys() {
 
     if (mutated) {
         log.lifecycle(`[VectFox migrate] mutated=true → calling await saveSettings() (synchronous)`);
-        // Synchronous save (NOT debounced) — see index.js eventbase migration
-        // comment for the full rationale. Short version: if user reloads
-        // before the debounce flushes, settings.json keeps the stale legacy
-        // fields even though extension_settings.vectfox is clean in memory.
-        // Confirmed scenario 2026-05-26.
+        // Synchronous save, not debounced: a reload before a debounced save
+        // flushes would leave the deleted legacy fields in settings.json
+        // although extension_settings.vectfox is clean in memory.
         await saveSettings();
         log.lifecycle(`[VectFox migrate] saveSettings() returned. Disk should be in sync with memory now.`);
     } else {

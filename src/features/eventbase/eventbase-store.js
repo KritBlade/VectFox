@@ -293,8 +293,8 @@ export async function insertEvents(events, settings, abortSignal = null, collect
     // Defensive hash-uniqueness check. Qdrant treats same-ID upserts as
     // overwrites — silently. If two events in this batch produce the same hash,
     // one of them disappears with no error from any layer (plugin logs "Inserted
-    // N", Qdrant returns 200, we'd never know). The hash widening to 53 bits
-    // makes this collision statistically rare (~birthday-bound at 1.3M points),
+    // N", Qdrant returns 200, we'd never know). The 53-bit _eventHash makes a
+    // collision statistically rare (expected first collision near 134M points),
     // but "rare" silent-loss bugs are worse than "occasional" loud ones — so we
     // assert it explicitly here, throw if it ever happens, and surface the
     // colliding event_ids to the user instead of dropping their data.
@@ -499,20 +499,15 @@ export function setLastUsedWindowSize(chatUUID, windowSize) {
 // ---------------------------------------------------------------------------
 // Re-extraction coordination helpers
 // ---------------------------------------------------------------------------
-// Two bugs on 2026-05-30 (Reset & Vectorize popup, window-size-change popup)
-// came from the same root cause: callers inlined their own "should I re-extract?"
-// and "should the workflow fall back to Qdrant?" logic, and they got the
-// combination subtly wrong — local cache cleared but the Qdrant-side tip fallback
-// still fired → silent "0 events, X skipped" runs.
-//
 // These three helpers are the single source of truth for:
 //   1. "Did the window size change since last extraction?"        → checkWindowSizeChanged()
 //   2. "Should the workflow apply its Qdrant-side tip fallback?"  → shouldUseTipFallback()
 //   3. "User asked for fresh extraction — prep the chat state"    → prepareForFreshExtraction()
 //
-// Any new code that touches these concerns MUST use these helpers — do not
-// inline the logic. If a check needs new behavior, extend the helper, don't
-// fork it at a call site.
+// Code that touches these concerns must use these helpers, not inline the logic: a
+// caller that clears the local cache while the Qdrant-side tip fallback still fires
+// gets a silent "0 events, X skipped" run. If a check needs new behavior, extend the
+// helper, don't fork it at a call site.
 
 /**
  * UI helper. Detect whether the current window size differs from the last
@@ -540,10 +535,8 @@ export function checkWindowSizeChanged(chatUUID, currentSize) {
  *   - The local cache gave zero skips (fastForwardSkipped === 0)
  *   - A collection exists to probe (hasCollection === true)
  *
- * Centralizing this rule was the structural fix for the two 2026-05-30 bugs:
- * before, the rule was inlined at the workflow site and the two UI popups
- * couldn't see it, so they forgot to set skipTipFallback. Now any future
- * change to the condition lives here in one place.
+ * The workflow and the UI popups that request fresh extraction share this
+ * rule, so a change to the condition is made here only.
  *
  * @param {{ skipTipFallback: boolean, fastForwardSkipped: number, hasCollection: boolean }} state
  * @returns {boolean}
@@ -1067,26 +1060,21 @@ export async function ensureEventBaseIndexes(settings) {
 // ---------------------------------------------------------------------------
 
 /**
- * Deterministic numeric hash for an event_id string.
- * Uses the same djb2 algorithm as bm25-scorer.js / chat-vectorization.js.
+ * Deterministic numeric hash for an event_id string: two-seed djb2 packed into
+ * a 53-bit-safe integer. Qdrant accepts uint64 point IDs, but JS only
+ * round-trips uint53 without loss, so the value stays at or below
+ * MAX_SAFE_INTEGER (2^53 - 1) and survives JSON.stringify / parseInt on every
+ * hop.
+ *
+ * Qdrant treats a same-ID upsert as an overwrite, so a collision silently
+ * destroys one event. At 53 bits the expected first collision comes near 134M
+ * points (2^27), against ~93k for a 32-bit hash. Two checks surface any loss:
+ * the per-batch uniqueness assertion in insertEvents() and the end-of-run count
+ * check in runEventBaseIngestion (eventbase-workflow.js).
+ *
  * @param {string} id
  * @returns {number}
  */
-// Two-seed djb2 packed into a 53-bit-safe integer (JavaScript's safe-integer
-// range). Qdrant accepts uint64 point IDs, but JS only round-trips uint53 without
-// loss — we deliberately stay below MAX_SAFE_INTEGER (2^53 - 1) so the value
-// survives JSON.stringify / parseInt on every hop.
-//
-// History: this used to be single-seed djb2 returning a 32-bit unsigned int.
-// In Qdrant's point-ID space (uint64), the 32-bit collisions were rare in theory
-// but devastating in practice — Qdrant treats same-ID upserts as overwrites, so
-// every collision silently destroys one event. A 2026-05-30 backfill of a 2382-
-// message chat sent 524 events to the plugin and only 315 unique IDs landed in
-// Qdrant — a 40% silent data loss rate. Widening to 53 bits eliminates this
-// class of bug for any realistically-sized collection (birthday-bound collision
-// at ~1.3M points vs ~93k for 32-bit). Combined with the post-insert count
-// verification in eventbase-workflow.js _finalizeBatch, any future silent loss
-// surfaces as a fatal popup instead of accumulating quietly.
 function _eventHash(id) {
     let h1 = 5381;
     let h2 = 0xABCDEF;

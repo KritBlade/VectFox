@@ -293,11 +293,10 @@ export async function checkQdrantBackend(settings) {
                 category: 'infrastructure'
             };
         }
-        // Post-2026-05-26: the Qdrant API key lives in ST's secret_state slot
-        // 'api_key_qdrant' (custom slot, not surfaced in client-side
-        // secret_state). We can't presence-check it from JS — let the plugin's
-        // /backend/init/qdrant handler surface "auth failed" or similar if
-        // the key is genuinely missing. Skipping the explicit check here.
+        // The Qdrant API key lives in ST's secret slot 'api_key_qdrant', a custom
+        // slot that client-side secret_state does not surface, so it cannot be
+        // presence-checked here; a missing key surfaces as an auth failure from
+        // the plugin's /backend/init/qdrant handler.
     } else {
         if (!settings.qdrant_host || !settings.qdrant_port) {
             return {

@@ -34,8 +34,7 @@ export function prepareLorebookContent(rawContent, settings) {
     // post-clean drops entries whose content was entirely stripped by
     // user regex. The post-clean drop is load-bearing: without it the
     // entry's `comment` header + auto-appended `[KEYWORDS: ...]` survives
-    // as a "valid-looking" chunk with no real payload. See cleanContentOrNull
-    // docstring for the 2026-05-24 regression that motivated this.
+    // as a "valid-looking" chunk with no real payload (see cleanContentOrNull).
     const validEntries = entries
         .filter(e => e && e.content)
         .map(e => ({ ...e, content: cleanContentOrNull(e.content) }))

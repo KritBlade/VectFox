@@ -3041,7 +3041,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 // When the caller cleared the caches (Reset & Vectorize popup), also
                 // bypass the tip-based fallback in the workflow — otherwise the workflow
                 // re-derives the tip from Qdrant contents and silently fast-forwards past
-                // everything we wanted re-extracted. See 2026-05-30 bug report.
+                // everything we wanted re-extracted.
                 skipTipFallback: resetCaches,
             });
 
@@ -3080,10 +3080,10 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             // and triggers full re-extraction with duplicate-coverage events.
             // Warn the user before they unknowingly pay that cost.
             //
-            // The two checks below (`checkWindowSizeChanged` and `prepareForFreshExtraction`)
-            // are the single source of truth for "did size change?" and "prep for fresh
-            // re-extraction" — DO NOT inline these. Two bugs on 2026-05-30 came from
-            // popups inlining incompatible versions of this logic.
+            // `checkWindowSizeChanged` and `prepareForFreshExtraction` below are the
+            // single source of truth for "did size change?" and "prep for fresh
+            // re-extraction" — do not inline them: an inlined copy drifts from the
+            // workflow's rule and silently skips the windows the user asked for.
             const { checkWindowSizeChanged, prepareForFreshExtraction } = await import('../eventbase/index.js');
             const sizeCheck = checkWindowSizeChanged(chatUUID, Math.max(2, settings.eventbase_window_size || 6));
             let freshExtractionOpts = null;
@@ -3120,9 +3120,6 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 // mark to user intent, not to run success. The workflow's
                 // end-of-run stamp is still useful for non-popup paths (no-op
                 // here since it'd just write the same value).
-                // See 2026-05-30 bug report — user clicked Proceed multiple
-                // times because intermediate runs failed without updating the
-                // stamp.
                 const { setLastUsedWindowSize } = await import('../eventbase/index.js');
                 setLastUsedWindowSize(chatUUID, sizeCheck.newSize);
                 log.lifecycle(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
@@ -3156,8 +3153,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 // (b) the user proceeded through the window-size-change popup above
                 //     (prepareForFreshExtraction returned { skipTipFallback: true }).
                 // In both cases the user explicitly asked for re-extraction and the
-                // Qdrant-side tip would silently fast-forward past everything. See
-                // 2026-05-30 bug reports.
+                // Qdrant-side tip would silently fast-forward past everything.
                 skipTipFallback: resetCaches || !!freshExtractionOpts?.skipTipFallback,
             });
 

@@ -237,7 +237,7 @@ async function _runOneLiveQuery({
  * can surface the same stored event. Those duplicates must be merged by identity
  * BEFORE the similarity-dedup stage — otherwise its score-override escape hatch
  * (high-score candidates survive dedup) lets identical events straight through,
- * so the "final 10" can be just 2 unique events repeated (observed 2026-06-02).
+ * so the "final 10" can be just 2 unique events repeated.
  *
  * @param {object[]} events
  * @returns {object[]} one entry per identity, highest .score retained

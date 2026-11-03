@@ -74,10 +74,9 @@ function getProviderSpecificParams(settings, isQuery = false) {
             params.apiUrl = resolveProviderApiUrl(settings, 'vllm');
             // No apiKey passed: ST's vLLM embedding handler
             // (src/vectors/vllm-vectors.js) reads SECRET_KEYS.VLLM server-side
-            // via setAdditionalHeadersByType — anything we set on params.apiKey
-            // is silently ignored. User configures the embedding key via ST's
-            // Text Completion → vLLM UI; chat key (separate slot) lives in
-            // SECRET_KEYS.CUSTOM after the 2026-05-26 migration.
+            // via setAdditionalHeadersByType — anything set on params.apiKey is
+            // ignored. VectFox's vLLM key inputs write that slot (and
+            // SECRET_KEYS.CUSTOM for the chat side).
             break;
 
         case 'palm':
@@ -102,43 +101,34 @@ function getProviderSpecificParams(settings, isQuery = false) {
 // Per-collection coalesce + queue for plugin safety
 // ----------------------------------------------------------------------------
 // The similharity plugin's standard/Vectra path does NOT synchronize concurrent
-// writes to the same collection. Multiple in-flight POSTs to /chunks/insert each
-// load → mutate → write the same JSON-backed index file, and they race. The
-// outcome under load (observed 2026-05-30) is variable-position truncated-JSON
-// 500s back to the client (`Unexpected non-whitespace character after JSON at
-// position X` where X varies because it depends on file size at corruption time)
-// and a corrupted Vectra index on disk.
+// writes to the same collection. Concurrent POSTs to /chunks/insert each load →
+// mutate → write the same JSON-backed index file, and they race. Under load the
+// client gets truncated-JSON 500s (`Unexpected non-whitespace character after
+// JSON at position X`, X varying with the file size at corruption time) and the
+// Vectra index on disk is corrupted. Parallel-split insert
+// (vector_group_embedding_call unchecked) fires N concurrent single-item POSTs
+// per batch — failure containment on Qdrant, fatal for Vectra.
 //
-// VectFox's parallel-split insert (default since 2026-05-30) fires N concurrent
-// single-item POSTs per batch — great for failure containment on Qdrant, fatal
-// for Vectra.
-//
-// Fix has two layers working together:
+// Two layers working together prevent it:
 //
 //   1. COALESCE — single-item calls arriving for the same collection within a
-//      tiny window (COALESCE_DELAY_MS) get merged back into one batched POST.
-//      This restores the production-like "1 POST per concurrency window" wire
-//      shape on this backend without the user having to enable
-//      `vector_group_embedding_call` manually. Faster healthy-case throughput
-//      than queue (~5s vs ~27s/wave), zero log noise from hedge fires that
-//      can't help anyway. Matches Qdrant's wire shape so we have one mental
-//      model for both backends.
+//      tiny window (COALESCE_DELAY_MS) get merged back into one batched POST,
+//      the wire shape vector_group_embedding_call produces, without the user
+//      having to enable it. Faster healthy-case throughput than queueing
+//      single items (~5s vs ~27s/wave), and no log noise from hedge fires
+//      that can't help anyway.
 //
 //   2. QUEUE — serializes the resulting batched POSTs per collection. Needed
 //      to handle:
 //        - Hedge duplicates (15s later they'd fire a 2nd coalesced POST that
 //          would race the primary if not serialized)
 //        - Multi-item calls (group_embedding_call=true) that bypass coalesce
-//        - Any future code path that calls insertVectorItems concurrently
+//        - Any other code path that calls insertVectorItems concurrently
 //      Plugin only ever sees 1 in-flight write per collection.
 //
 // Different collections still run in parallel — both maps are keyed by
-// collectionId so unrelated work doesn't bottleneck.
-//
-// Public API (insertVectorItems) is unchanged; coalesce + queue are transparent
-// to callers. Existing standard backend users see zero behavioral difference on
-// the wire from this dev branch — coalesce reproduces the production POST
-// shape exactly.
+// collectionId so unrelated work doesn't bottleneck. Coalesce + queue are
+// transparent to callers of insertVectorItems.
 const _pendingCoalesce = new Map();   // collectionId → { items, resolvers, settings, abortSignal, timer }
 const _vectraWriteQueues = new Map(); // collectionId → Promise (latest tail)
 const COALESCE_DELAY_MS = 5;          // Wave debounce. Parallel-split fires N
@@ -523,9 +513,8 @@ export class StandardBackend extends VectorBackend {
         // Storage path is vectors/{source}/{collectionId}/{model}/. Both the plugin
         // and ST's native /api/vector/delete honor `model` when it's in the body —
         // mirror the insertVectorItems/getSavedHashes payload shape so delete lands
-        // in the same partition the insert wrote to.
-        // This fix exists on `main` (commit bcc4302) but was lost in Dev during
-        // merge `e9ed4c5`. TEST 009 catches the regression — re-applied 2026-05-23.
+        // in the same partition the insert wrote to (e2e TEST 009 covers the
+        // native path).
         if (this.pluginAvailable) {
             const response = await fetch('/api/plugins/similharity/chunks/delete', {
                 method: 'POST',

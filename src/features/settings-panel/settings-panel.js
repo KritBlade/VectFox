@@ -2643,9 +2643,9 @@ function bindSettingsEvents(settings, callbacks) {
                 }
                 // Route through ST's chat-completions /status endpoint, which
                 // fetches ${apiUrl}/models server-side using SECRET_KEYS.CUSTOM.
-                // Direct browser fetch with Bearer would 401 here because the
-                // key now lives in a masked secret slot (post-2026-05-26
-                // migration). Same proxy pattern as _callVLLM.
+                // The browser only sees the key masked, so a direct fetch with a
+                // Bearer header would 401. Same proxy pattern as the extractors'
+                // _callVLLM.
                 const resp = await fetch('/api/backends/chat-completions/status', {
                     method: 'POST',
                     headers: getRequestHeaders(),
@@ -2858,10 +2858,8 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // AgentMode OpenRouter input — writes to SECRET_KEYS.OPENROUTER
-    // (same shared slot as Embedding + Summarize inputs). Per the 2026-05-25
-    // architecture pivot, the "override" semantics are gone — there's now
-    // ONE OpenRouter key everywhere.
+    // Agent Mode OpenRouter input — writes SECRET_KEYS.OPENROUTER, the slot the
+    // Embedding and Summarize inputs share: one OpenRouter key everywhere.
     const updateAgenticORKeyDisplay = () => {
         const savedKey = getOpenRouterApiKey();
         if (savedKey) {
@@ -2900,11 +2898,9 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // AgentMode vLLM input — writes to SECRET_KEYS.CUSTOM (shared with
-    // Summarize input). Same architecture as the Summarize input above:
-    // chat-side routes through ST's chat-completions proxy with
-    // `chat_completion_source: 'custom'`; embedding-side reads
-    // SECRET_KEYS.VLLM (ST's Text Completion vLLM slot) separately.
+    // Agent Mode vLLM input — writes SECRET_KEYS.CUSTOM (read by the chat-side
+    // proxy, `chat_completion_source: 'custom'`) and SECRET_KEYS.VLLM (read by
+    // embedding), the same two slots the Embedding and Summarize vLLM inputs write.
     const updateAgenticVllmKeyDisplay = () => {
         const savedKey = getCustomApiKey();
         if (savedKey) {
@@ -3314,12 +3310,11 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // Qdrant API key — stored in ST's secret_state under custom slot
-    // 'api_key_qdrant' (post-2026-05-26 migration). Client-side
-    // secret_state filters non-enum slots, so the masked placeholder
-    // comes from the plugin's /qdrant/key-status endpoint asynchronously.
-    // Pre-migration users still on plaintext see their value masked from
-    // settings.qdrant_api_key during the transition window.
+    // Qdrant API key — stored in ST's secret_state under the custom slot
+    // 'api_key_qdrant'. Client-side secret_state filters non-enum slots, so
+    // the masked placeholder comes from the plugin's /qdrant/key-status
+    // endpoint, asynchronously. A plaintext settings.qdrant_api_key that the
+    // migration has not drained yet is shown masked instead.
     const updateQdrantKeyDisplay = async () => {
         const legacyPlaintext = getQdrantApiKey(settings);
         if (legacyPlaintext) {
@@ -4234,15 +4229,8 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // Ollama API key input removed 2026-05-26: ST itself has no SECRET_KEYS.OLLAMA
-    // slot and no getOllamaHeaders function in additional-headers.js. Calls to
-    // setAdditionalHeadersByType(headers, TEXTGEN_TYPES.OLLAMA, ...) inside
-    // ST's ollama-vectors.js are silent no-ops — ST never sends an Authorization
-    // header to Ollama. VectFox's old plaintext settings.ollama_api_key was
-    // therefore dead code on both sides. Field is dropped entirely; migration
-    // deletes any leftover plaintext from settings.json (see api-keys.js).
-    // Users who need authed Ollama (rare — Ollama is typically LAN no-auth)
-    // should configure auth at their reverse proxy.
+    // No Ollama API key input: SillyTavern sends no auth header to Ollama (see
+    // the Ollama note in src/shared/api-keys.js).
 
     // vLLM alternative endpoint
     $('#VectFox_vllm_use_alt_endpoint')

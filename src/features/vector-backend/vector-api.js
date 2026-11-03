@@ -288,18 +288,15 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                     // with defaults). Settle the whole race as failed immediately so
                     // the scheduled hedge timers' `!settled` check turns them into no-ops.
                     // Same applies to any abort propagated from the caller's signal.
-                    // See 2026-05-30 bug: hedge kept firing for 60s after Stop.
                     if (e?.name === 'AbortError') {
                         settle('err', e);
                         return;
                     }
                     // Don't settle on other individual failures — later hedges may still
-                    // succeed. But don't idle either. The schedule below measures "this
-                    // attempt is slow", and a failure is not slowness: leaving the batch
-                    // dead until the next slot comes round wastes the whole threshold.
-                    // Measured 2026-08-04: an insert that 500'd after 0.7s sat idle for
-                    // 14.3s waiting for t=15s, and the log claimed "primary still slow"
-                    // about an attempt that had already failed.
+                    // succeed. But don't idle either: the schedule below measures "this
+                    // attempt is slow", and a failure is not slowness. Waiting for the
+                    // next slot would leave an insert that failed at 0.7s idle until
+                    // t=15s, so a failure starts the next hedge at once.
                     if (settled) return;
                     if (hedgesFired < maxHedges) {
                         startHedge(hedgesFired + 1, true);
@@ -352,11 +349,9 @@ const RETRY_CONFIG = {
         // InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.5.
         if (error?.isHedgeFatal === true) return false;
         // Catch AbortSignal.timeout()'s DOMException ("TimeoutError" / message
-        // "signal timed out") before the keyword fallback. The string "timed
-        // out" is a separate word form from "timeout" and the keyword list
-        // missed it, so OpenRouter embedding stalls that tripped ST's HTTP
-        // timeout silently bypassed retry and killed the backfill mid-run.
-        // See production failure 2026-05-30 10:26:26 — Doc/log.txt.
+        // "signal timed out") before the keyword fallback: "timed out" does not
+        // contain "timeout", so the keyword list alone would not retry a request
+        // that hit its timeout.
         if (error?.name === 'TimeoutError') return true;
         const message = error?.message?.toLowerCase() || '';
         const isRetryable =
@@ -595,12 +590,10 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
                         // Hedge-fatal propagation: if ANY of the wave's failures hit hedge-fatal
                         // (4 fresh-connection attempts in 60s with no success), the upstream is
                         // genuinely broken for our payload. Propagating isHedgeFatal lets the
-                        // OUTER _insertWithRetry short-circuit and avoid burning 12+ minutes
-                        // per retry × N retries on a wave that's certain to fail again the
-                        // same way. Without this, the composite Error would hide the flag and
-                        // the outer retry would re-run the whole 12-batch hedged wave 3 times
-                        // (~36 minutes). Observed 2026-05-30 with similharity plugin 2.1MB
-                        // truncated-JSON 500s under parallel-split + hedge concurrent load.
+                        // outer _insertWithRetry (eventbase-workflow.js) stop instead of re-running
+                        // a wave that is certain to fail the same way: without it, the composite
+                        // Error would hide the flag and the outer retry would run the whole
+                        // hedged wave 3 times, ~36 minutes in all.
                         const anyHedgeFatal = failed.some(f => f.reason?.isHedgeFatal === true);
                         const composite = new Error(
                             `VectFox: ${failed.length}/${slice.length} parallel inserts in wave failed — first failure: ${sample?.name || 'Error'}: ${sample?.message || sample}`,

@@ -4,19 +4,18 @@
  * ============================================================================
  * (Conventions: see settings-migration-connection-setting-names.js.)
  *
- * WHY: until 2026-07-31 the Qdrant native hybrid path returned raw RRF fused
- * scores (top hit ≈ 1/(rrfK+1) ≈ 0.016) while `world_info_threshold` — default
- * 0.3, designed for 0-1 cosine similarities — was applied to them directly. At
- * defaults, semantic lorebook activation on Qdrant therefore returned ZERO
- * entries, always (GitHub issue #11). The only way users could make it work was
- * to lower the threshold to ≈0.0x, the correct value for the wrong scale.
+ * WHY: the Qdrant native hybrid path once returned raw RRF fused scores (top
+ * hit ≈ 1/(rrfK+1) ≈ 0.016) and applied `world_info_threshold` — default 0.3,
+ * designed for 0-1 cosine similarities — to them directly, so semantic lorebook
+ * activation on Qdrant returned nothing at defaults (GitHub issue #11), and the
+ * only working setting was a threshold of ≈0.0x, the right value for the wrong
+ * scale.
  *
- * src/features/vector-backend/qdrant.js::hybridQuery now attaches real cosine scores, so a saved
- * 0.0x threshold flips from "the workaround that makes Qdrant work" to "gate
- * open — inject everything", silently polluting every prompt. This migration
- * resets such values to the 0.3 default once. A threshold this low was also
- * already misconfigured on Vectra (cosine there all along, so 0.0x admitted
- * near-everything) — the reset repairs that too.
+ * hybridQuery in src/features/vector-backend/qdrant.js attaches real cosine
+ * scores, so a saved 0.0x threshold opens the gate and injects everything into
+ * every prompt. This migration resets such values to the 0.3 default once. A
+ * threshold this low was equally wrong on Vectra (cosine there all along, so
+ * 0.0x admitted near-everything) — the reset repairs that too.
  *
  * RUN-ONCE, not value-idempotent, on purpose: the stamp below guarantees a user
  * who deliberately re-lowers the threshold AFTER the migration keeps their
