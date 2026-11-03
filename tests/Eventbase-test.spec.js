@@ -3452,7 +3452,6 @@ test('TEST 018 — shouldCollectionActivate gate chain (lock required; triggers 
             setCollectionMeta,
             deleteCollectionMeta,
             setCollectionCharacterLock,
-            removeCollectionCharacterLock,
             isCollectionLockedToCharacter,
             shouldCollectionActivate,
         } = await import(base + 'src/features/collections/collection-metadata.js');
@@ -3485,12 +3484,10 @@ test('TEST 018 — shouldCollectionActivate gate chain (lock required; triggers 
 
         // Reset meta to a baseline empty state between phases so the
         // previous phase's triggers/conditions/locks don't leak. Each
-        // phase then sets only what it needs.
+        // phase then sets only what it needs. The character lock lives in
+        // the meta entry, so deleting the entry clears it too.
         const resetMeta = () => {
             try { deleteCollectionMeta(registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollectionMeta failed:', cleanupError); }
-            // Locks live in meta too — explicit clear in case meta was
-            // touched without going through setCollectionMeta defaults.
-            try { removeCollectionCharacterLock(registryKey, syntheticCharacterId); } catch (cleanupError) { console.warn('[e2e cleanup] removeCollectionCharacterLock failed:', cleanupError); }
         };
 
         // Locks the collection to the synthetic character; false when the lock did not take.
