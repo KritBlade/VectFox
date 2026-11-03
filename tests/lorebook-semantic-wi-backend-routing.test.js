@@ -569,12 +569,9 @@ describe('Collection discovery gate', () => {
     });
 
     it('passes recentMessages into the activation context so triggers can match', async () => {
-        // Without this, checkTriggers() sees context.recentMessages === [], joins to
-        // '' and returns false on the spot (core/collection-metadata.js:1003-1010) —
-        // making Priority 2 (Activation Triggers) unreachable for EVERY lorebook.
-        // A trigger-keyword lorebook with no chat/character lock could then never
-        // activate, no matter what the user typed. The document/ChunkBase path was
-        // unaffected because it passes a full buildSearchContext().
+        // Without recentMessages, checkTriggers() joins an empty list to '' and
+        // returns false, so a locked lorebook with Activation Triggers could never
+        // match. The document/ChunkBase path passes a full buildSearchContext().
         const { shouldCollectionActivate } = await import('../src/features/collections/collection-metadata.js');
         shouldCollectionActivate.mockResolvedValue(true);
         hybridQueryResponder = () => jsonResponse({ success: true, results: [chunkedChunk()] });

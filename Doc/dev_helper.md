@@ -600,7 +600,7 @@ Stop-word filtering is **driven by the CJK Tokenizer Mode dropdown**, not a sing
 
 ### Scope boundary ⚠️
 
-This applies to **retrieval/tokenization only**. Activation **Triggers and Advanced Conditions are still English-only and will be demised in future version** — see [§12](#12-trigger--condition-activation--english-only). Dense/vector search has always been language-neutral (embeddings are external).
+This applies to **retrieval/tokenization only**. Activation **Triggers and Advanced Conditions** are language-neutral as well — see [§12](#12-trigger--condition-activation--language-neutral). Dense/vector search has always been language-neutral (embeddings are external).
 
 **Note:** the old `similharity/index.js` copy of `extractQueryKeywords` was deleted (it was dead code — sparse vectors are computed client-side and passed to the server as `sparseQueryVector`). `core/query-keyword-extractor.js` is now the single source of truth; there is no longer a function to keep in sync.
 
@@ -953,8 +953,8 @@ Marker key: ✅ runs, ⏭️ soft-skips, — n/a.
 | **014**    | Auto-sync backfill: fingerprint cache prevents duplicate windows                                     | ✅                       | ✅                                | ✅                                |
 | **015**    | Auto-sync window-size change: start marker filters obsolete windows                                  | ✅                       | ✅                                | ✅                                |
 | **016**    | `stampAutoSyncMarker` smart placement (Branch A early-exit, B no-candidate, C empty-candidate, re-stamp overwrites) | ✅                       | ✅                                | ✅                                |
-| **017**    | Pause button (`enabled=false`) blocks activation even when locked — priority 1 overrides priority 4  | ✅                       | ✅                                | ✅                                |
-| **018**    | `shouldCollectionActivate` priority chain: triggers (P2) / conditions (P3) / character lock (P5) / nothing | ✅                       | ✅                                | ✅                                |
+| **017**    | Pause button (`enabled=false`) blocks activation even when locked — the pause gate comes before the lock gate  | ✅                       | ✅                                | ✅                                |
+| **018**    | `shouldCollectionActivate` gate chain: lock required / trigger narrows / trigger and condition both pass / lock alone | ✅                       | ✅                                | ✅                                |
 | **019**    | WI / AutoSync refresh smoke: refresh paths are pure UI mirrors (locks/autoSync/enabled unchanged after 3× idempotent calls) | ✅                       | ✅                                | ✅                                |
 | **020**    | Qdrant: per-chunk override is backend-first (survives ext_settings wipe)                             | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **021**    | Standard+plugin: per-chunk override is backend-first (survives ext_settings wipe)                   | ⏭️ no plugin            | ✅                                | ✅                                |
@@ -967,7 +967,7 @@ Marker key: ✅ runs, ⏭️ soft-skips, — n/a.
 | --------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `skipIfQdrantUnavailable()` | TEST 001-004, 010-013, 020 | (a) Plugin probe fails, **or** (b) `qdrant_url`/`qdrant_host` not set in `extension_settings.vectfox`, **or** (c) qdrant config is set but qdrant is unreachable (emits a **WARNING** in the skip reason). |
 | `skipIfNoPlugin()`          | TEST 008, 021, 022         | Plugin probe fails.                                                                                  |
-| (none)                      | TEST 005-007, 009, 014-019 | These run in every environment. Split by what they exercise: **005-007** = real backend round-trips (standard backend embedding + chat retrieval); **009** = forces `pluginAvailable=false` to exercise no-plugin native path; **014-016** = pure-function auto-sync contracts (fingerprint cache, start marker, `stampAutoSyncMarker`); **017-019** = pure in-memory collection-metadata contracts (pause button overrides lock, priority chain, refresh-path purity). 014-019 don't need the plugin nor any backend — they operate directly on `extension_settings.vectfox` state and the registry. See [collection_helper.md → Chat Auto-Sync](collection_helper.md) for the 014/015/016 contract, and the same doc's "Pause/Resume" + "Manual vs auto-sync paths" sections for the 017/019 contract. |
+| (none)                      | TEST 005-007, 009, 014-019 | These run in every environment. Split by what they exercise: **005-007** = real backend round-trips (standard backend embedding + chat retrieval); **009** = forces `pluginAvailable=false` to exercise no-plugin native path; **014-016** = pure-function auto-sync contracts (fingerprint cache, start marker, `stampAutoSyncMarker`); **017-019** = pure in-memory collection-metadata contracts (pause button overrides lock, gate chain, refresh-path purity). 014-019 don't need the plugin nor any backend — they operate directly on `extension_settings.vectfox` state and the registry. See [collection_helper.md → Chat Auto-Sync](collection_helper.md) for the 014/015/016 contract, and the same doc's "Pause/Resume" + "Manual vs auto-sync paths" sections for the 017/019 contract. |
 
 **The unreachable-qdrant case** (config present but server down) is a soft skip with a WARNING-flavored reason, NOT a hard failure. The reasoning:
 
@@ -1017,13 +1017,13 @@ Fix landed 2026-05-24: default changed to `null`, with a defensive `!== 'unknown
 `rearrangeChat` ([core/chat-vectorization.js:1299](../core/chat-vectorization.js#L1299)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (It also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that master-switch gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
 
 1. **Early (cheap)** at [line 1394-1401](../core/chat-vectorization.js#L1394): `hasCollections = gatherCollectionsToQuery(settings).length > 0` — passes if *any* non-EventBase collection has `enabled=true`. No lock/scope/activation check.
-2. **Post-activation (expensive)** at [line 1435](../core/chat-vectorization.js#L1435): `filterActiveCollections` runs the full [`shouldCollectionActivate`](../core/collection-metadata.js#L1133) priority chain (triggers → conditions → chat lock → character lock).
+2. **Post-activation (expensive)** at [line 1435](../core/chat-vectorization.js#L1435): `filterActiveCollections` runs the full `shouldCollectionActivate` gate chain (pause → lock → triggers → conditions).
 
 EventBase-only users (the typical case) hit gate 1 and short-circuit — debug log `[VECTFOX ChunkBase] No enabled ChunkBase collections ...` fires once per generation to confirm.
 
-**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1415-1422](../core/chat-vectorization.js#L1415-L1422) when a user has enabled lorebooks that aren't locked/triggered for the current chat.
+**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1415-1422](../core/chat-vectorization.js#L1415-L1422) when a user has enabled lorebooks that aren't locked to the current chat or character.
 
-**Why deferred**: A naïve `isLocked`-only gate would break users who rely on **Activation Triggers** or **Advanced Conditions** for activation without ever locking a collection (priorities 2-3 of `shouldCollectionActivate`). The safe shape is `enabled AND (chat-locked OR character-locked OR has triggers OR has conditions)` — a cheap pre-check that matches every activation path. Not worth doing in isolation; revisit if/when we touch Phase B for another reason.
+**Why deferred**: activation requires a lock (gate 2 of `shouldCollectionActivate`), so a cheap `enabled AND (chat-locked OR character-locked)` pre-check matches every activation path. The saving is about 20ms per generation — not worth doing in isolation; revisit if/when we touch Phase B for another reason.
 
 **Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([index.js:458](../index.js#L458) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
 

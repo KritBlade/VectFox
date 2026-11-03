@@ -294,15 +294,10 @@ async function selectActiveLorebookCollections(settings, recentMessages = []) {
 
     const currentChatId = getCurrentChatId() ? String(getCurrentChatId()) : null;
     const currentCharacterId = getContext().characterId != null ? String(getContext().characterId) : null;
-    // recentMessages is REQUIRED for trigger matching: checkTriggers() reads
-    // context.recentMessages and returns false immediately when the joined text is
-    // empty (core/collection-metadata.js:1003-1010). Omitting it — as this function
-    // did — made Priority 2 (Activation Triggers) unreachable for every lorebook
-    // collection, so a trigger-keyword lorebook with no chat/character lock could
-    // never activate no matter what the user typed. Only the lock priorities worked,
-    // because currentChatId/currentCharacterId were the only fields supplied.
-    // The document/ChunkBase path never hit this: it passes a full
-    // buildSearchContext() (core/conditional-activation.js:637).
+    // recentMessages is REQUIRED for trigger matching: checkTriggers() returns false
+    // when context.recentMessages joins to an empty string, so without it a locked
+    // lorebook with Activation Triggers could never match. The document/ChunkBase
+    // path passes a full buildSearchContext() instead.
     //
     // Newest-first ordering matches checkTriggers' `slice(0, scanDepth)`. Depth is
     // bounded by world_info_query_depth, so a collection's triggerScanDepth is
@@ -318,16 +313,14 @@ async function selectActiveLorebookCollections(settings, recentMessages = []) {
             skipped.disabled++;
             continue;
         }
-        // Respect persona ownership before checking activation. The activation
-        // chain (Doc/collection_helper.md) lets trigger keywords activate a
-        // collection regardless of who owns it — which leaks another persona's
-        // lorebooks into the current persona's chat when keywords coincide.
-        // `isOwn` (from getCollectionListing) is true when the current persona
-        // owns the collection OR superadmin mode is on, so single-persona and
-        // superadmin users see no behavior change; only multi-persona users
-        // stop seeing cross-persona content. Surfaced by prod symptom on
-        // 2026-05-23 (rabbit's Your Wives lorebook leaking into critblade's
-        // ArtificRealm chat) — TEST 011 covers this gate.
+        // Respect persona ownership before checking activation. A character lock
+        // matches every persona that chats with that character, and a chat lock
+        // every persona in that chat, so without this check another persona's
+        // lorebook would reach the current persona's chat. `isOwn` (from
+        // getCollectionListing) is true when the current persona owns the
+        // collection OR superadmin mode is on, so single-persona and superadmin
+        // users see no behavior change; only multi-persona users stop seeing
+        // cross-persona content. TEST 011 covers this gate.
         if (!entry.isOwn) {
             skipped.foreignPersona++;
             continue;

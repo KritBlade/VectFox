@@ -124,7 +124,7 @@ import { shouldCollectionActivate } from './collection-metadata.js';
 const listing = getCollectionListing(settings);
 const currentChatId = getCurrentChatId() ? String(getCurrentChatId()) : null;
 const currentCharacterId = getContext().characterId != null ? String(getContext().characterId) : null;
-const context = { currentChatId, currentCharacterId };
+const context = { currentChatId, currentCharacterId, recentMessages };   // recentMessages (newest first) lets triggers match
 
 for (const entry of listing) {
     if (!entry.collectionId.startsWith('vf_lorebook_')) continue;
@@ -134,17 +134,17 @@ for (const entry of listing) {
 }
 ```
 
-Priority chain inside `shouldCollectionActivate`:
+Gate chain inside `shouldCollectionActivate` — every gate that applies must pass:
 ```
-1. enabled=false          → BLOCKED (pause button)
-2. Activation Triggers    → ACTIVE if any keyword matches recent messages
-3. Advanced Conditions    → ACTIVE if condition passes
-4. Chat lock match        → ACTIVE if currentChatId is in lockedToChatIds
-5. Character lock match   → ACTIVE if currentCharacterId is in lockedToCharacterIds
-6. Nothing matched        → BLOCKED
+1. enabled=false                → BLOCKED (pause button)
+2. Lock                         → BLOCKED unless currentChatId is in lockedToChatIds
+                                  or currentCharacterId is in lockedToCharacterIds
+3. Activation Triggers, if set  → BLOCKED unless a keyword matches recentMessages
+4. Advanced Conditions, if set  → BLOCKED unless the rules pass
+5. Every gate above passed      → ACTIVE
 ```
 
-**Important:** trigger/condition gates are intentional for semantic WI — a lorebook with keyword triggers should activate even without a manual chat lock. A lorebook with no triggers and no lock is out of scope and will not be searched.
+**Important:** the lock is the master switch, for semantic WI as for every other collection. Triggers and conditions only narrow a locked lorebook; an unlocked lorebook is out of scope and will not be searched, whatever its triggers.
 
 ## ⚠️ Embedding model resolution — `getModelFromSettings`
 
@@ -637,18 +637,17 @@ Plus ST's `CHAT_CHANGED` — same two refresh handlers re-run.
 
 ## Runtime activation chain (`shouldCollectionActivate`)
 
-The runtime priority list in `core/collection-metadata.js`:
+The gate chain in `src/features/collections/collection-metadata.js`; every gate that applies must pass:
 
 ```
-1. Pause button (enabled=false)          → BLOCKED
-2. Activation Triggers match             → ACTIVE
-3. Advanced Conditions pass              → ACTIVE
-4. Chat lock match (currentChatId)       → ACTIVE
-4. Character lock match (currentCharId)  → ACTIVE
-5. Nothing matched                       → BLOCKED
+1. Pause button (enabled=false)               → BLOCKED
+2. Lock: chat (currentChatId) or character    → required; unlocked → BLOCKED
+3. Activation Triggers, if set                → a keyword must match this turn
+4. Advanced Conditions, if set                → the rules must pass this turn
+5. Locked, every configured filter passed     → ACTIVE
 ```
 
-There is **no global-scope priority**. That branch (formerly "priority 1.5") was removed when global was unwired. If you find yourself adding a `meta.scope === 'global'` check anywhere, stop — the migration handles legacy data, and there is no path that should produce a new `'global'` value.
+Triggers and conditions narrow a locked collection; neither can activate an unlocked one. There is **no global scope**: stored `scope: 'global'` values are rewritten to `'character'` on load, no path should produce a new `'global'` value, and no code should check `meta.scope === 'global'`.
 
 ## Key files
 

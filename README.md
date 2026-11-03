@@ -431,17 +431,19 @@ Numerous bug fixes around mixed-backend search, handle ID filtering, and other e
 
 ## 🎭 Activation Rules
 
-Each collection card has an Activation panel. The priority chain is:
+Each collection card has an Activation panel. Activation is a chain of gates; every gate that applies must pass:
 
 1. **Disabled** (pause button) → never queries
-2. **Triggers** → keywords match recent messages → activates
-3. **Advanced Conditions** → if triggers empty/no match, evaluate condition rules → activates
-4. **Active for current chat / Character lock** → manual always-on fallback
-5. **Nothing matched** → does not activate
+2. **Active for current chat / Character lock** → required; a collection not locked to this chat or character never queries
+3. **Triggers**, if set → a keyword must match recent messages this turn
+4. **Advanced Conditions**, if set → the condition rules must also pass this turn
+5. **Locked, nothing else set** → queries every turn
+
+Triggers and conditions only narrow a locked collection; neither can switch one on.
 
 Conditions support keywords/patterns, speaker, character-present, message/turn count, time of day, and combined AND/OR rules.
 
-> ⚠️ **Legacy feature note:** Triggers and condition-based activation are **inherited from VectHare** and kept here for backward compatibility only. Due to major architectural changes in VectFox, **users should always make collections "Active for current chat" or use Character lock** instead of relying on triggers/conditions. The whole point of vector search is to let the search engine search everything — selective activation based on keyword triggers defeats that purpose.
+> ⚠️ **Legacy feature note:** Triggers and condition-based activation are **inherited from VectHare** and kept here for backward compatibility only. **Always make collections "Active for current chat" or use Character lock**: that is what switches a collection on, and triggers/conditions can only narrow it further. The whole point of vector search is to let the search engine search everything — narrowing it with keyword triggers defeats that purpose.
 >
 > **CJK note:** Triggers and condition-based activation are **language-neutral** — keyword/pattern matching uses plain substring search, which works for Chinese/Japanese/Korean the same as English. (Only user-written regex with ASCII `\b` boundaries won't fire across CJK — use plain substrings or `\p{L}` + the `u` flag.)
 
