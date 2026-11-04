@@ -1290,7 +1290,7 @@ export function renderSettings(containerId, settings, callbacks) {
                             </div>
 
                             <div class="vectfox-form-group">
-                                <button type="button" id="VectFox_story_arc_regenerate_links" class="menu_button">
+                                <button type="button" id="VectFox_story_arc_regenerate_links" class="menu_button" style="width:auto; white-space:nowrap;">
                                     <i class="fa-solid fa-link"></i> Regenerate links for this chat
                                 </button>
                                 <small class="VectFox_hint" id="VectFox_story_arc_link_status" style="display:block; margin-top:6px;"></small>

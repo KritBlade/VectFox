@@ -526,7 +526,7 @@ export async function callLlmForJson({ systemPrompt, userMessage, llmCfg, timeou
     try {
         parsed = JSON.parse(cleaned);
     } catch (err) {
-        throw new Error(`Planner output is not valid JSON: ${err.message}. Got: ${cleaned.slice(0, 200)}`);
+        throw new Error(`${contextLabel} reply is not valid JSON: ${err.message}. Got: ${cleaned.slice(0, 200)}`);
     }
 
     // Attach usage as a non-enumerable property so callers can read it without

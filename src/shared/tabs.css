@@ -20,6 +20,11 @@
     margin-bottom: 3px;
 }
 
+/* A long tab name takes the room a short one leaves, so a full row never cuts a name. */
+.vectfox-tab-nav-row .vectfox-tab-btn {
+    flex: 1 1 auto;
+}
+
 .vectfox-tab-btn {
     flex: 1;
     padding: 5px 3px;

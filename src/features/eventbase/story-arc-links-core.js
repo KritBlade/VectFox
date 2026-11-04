@@ -52,12 +52,12 @@ const LINK_RECENT_COUNT = 3;
 /** Below this share of decided events, walks would stop at undecided events, so recipes do not use links. */
 const USABLE_DECIDED_SHARE = 0.9;
 
-/** Parallel LLM calls in a link pass, the same as EventBase's own import at its highest. */
+/** Parallel LLM calls in a link pass, the same as EventBase's own import at its highest. A browser on plain HTTP sends at most 6 to one server at a time. */
 export const LINK_PARALLEL_CALLS = 8;
-/** Per event, measured on a 1,437-event pass with GPT-6 Luna at medium reasoning. */
+/** Per event, measured on a 1,437-event pass with GPT-6 Luna at medium reasoning, from a browser on plain HTTP. */
 const LINK_INPUT_TOKENS_PER_EVENT = 1810;
 const LINK_OUTPUT_TOKENS_PER_EVENT = 320;
-const LINK_SECONDS_PER_EVENT = 5.1;
+const LINK_PASS_SECONDS_PER_EVENT = 0.78;
 
 /**
  * What a link pass would likely cost. Other models think more or less, so this is a guide.
@@ -73,7 +73,7 @@ export function estimateStoryLinkPass(eventCount, pricePerToken) {
         eventCount,
         inputTokens,
         outputTokens,
-        minutes: Math.ceil(eventCount * LINK_SECONDS_PER_EVENT / LINK_PARALLEL_CALLS / 60),
+        minutes: Math.ceil(eventCount * LINK_PASS_SECONDS_PER_EVENT / 60),
         costUsd: pricePerToken ? inputTokens * pricePerToken.input + outputTokens * pricePerToken.output : null,
     };
 }

@@ -59,7 +59,7 @@ const progressMock = vi.hoisted(() => ({
     setCancelHandler: vi.fn(),
     clearCancelHandler: vi.fn(),
     updateProgress: vi.fn(),
-    updateCurrentItem: vi.fn(),
+    updateEmbeddingProgress: vi.fn(),
     addError: vi.fn(),
     complete: vi.fn(),
 }));
@@ -120,6 +120,19 @@ describe('runStoryLinkPass', () => {
         expect(updateChunkMetadataMock.mock.calls[0][0]).toBe(COLLECTION);
         expect(result).toEqual({ decidedCount: 2, failedCount: 0, isStopped: false });
         expect(progressMock.complete.mock.calls[0][0]).toBe(true);
+    });
+
+    // The panel's speed and remaining count come from one call, which also replaces the status.
+    it('tells the panel how far the pass has got, and sets the status last', async () => {
+        fetchPortableChunksMock.mockResolvedValue([chunk(1, 10), chunk(2, 20)]);
+        callLlmForJsonMock.mockResolvedValue({ links: [{ id: 'E1', type: 'continues', thread: 'The blockade' }] });
+        await runStoryLinkPass({ collectionId: COLLECTION, settings, shouldRelinkDecided: true });
+
+        expect(progressMock.updateEmbeddingProgress).toHaveBeenLastCalledWith(2, 2);
+        expect(progressMock.updateProgress).toHaveBeenLastCalledWith(2, '1 events linked, 0 failed');
+        const lastCountCall = progressMock.updateEmbeddingProgress.mock.invocationCallOrder.at(-1);
+        const lastStatusCall = progressMock.updateProgress.mock.invocationCallOrder.at(-1);
+        expect(lastStatusCall).toBeGreaterThan(lastCountCall);
     });
 
     // A link needs thought, so the settings that switch thinking off for other features must not apply.
@@ -260,6 +273,17 @@ describe('describeStoryLinkPass', () => {
         expect(pass.allEstimate.costUsd).toBeGreaterThan(pass.undecidedEstimate.costUsd);
         expect(pass.model).toBe('openai/gpt-6-luna');
         expect(pass.collectionId).toBe(COLLECTION);
+    });
+
+    // On GPT-6 Luna, a whole pass cost what this price gives, within 0.1%.
+    it('prices input at the cache-write rate when the model has one', async () => {
+        listStoryEventsMock.mockResolvedValue([stored(1, 10)]);
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true,
+            json: async () => ({ data: [{ id: 'openai/gpt-6-luna', pricing: { prompt: '0.0000001', completion: '0.0000005', input_cache_write: '0.000000125' } }] }),
+        })));
+        const pass = await describeStoryLinkPass(settings);
+        expect(pass.allEstimate.costUsd).toBeCloseTo(1810 * 0.000000125 + 320 * 0.0000005, 9);
     });
 
     it('shows tokens without a price when the price cannot be read, and warns', async () => {

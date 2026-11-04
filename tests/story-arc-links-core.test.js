@@ -205,7 +205,7 @@ describe('buildStoryLinkGraph and walkStoryLinks', () => {
 describe('estimateStoryLinkPass', () => {
     it('gives tokens, minutes and cost', () => {
         const estimate = estimateStoryLinkPass(1437, { input: 0.0000001, output: 0.0000005 });
-        expect(estimate.minutes).toBe(16);
+        expect(estimate.minutes).toBe(19);
         expect(estimate.costUsd).toBeCloseTo(0.49, 2);
     });
 

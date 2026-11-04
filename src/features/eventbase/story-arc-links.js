@@ -167,7 +167,8 @@ async function _readLinkModelPrice(settings) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const { data } = await response.json();
         const pricing = (data ?? []).find(model => model.id === settings.story_arc_link_model)?.pricing;
-        const input = Number(pricing?.prompt);
+        // A link prompt is billed at the cache-write price where a model has one, as a whole pass on GPT-6 Luna showed.
+        const input = Number(pricing?.input_cache_write ?? pricing?.prompt);
         const output = Number(pricing?.completion);
         return Number.isFinite(input) && Number.isFinite(output) ? { input, output } : null;
     } catch (err) {
@@ -257,7 +258,6 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
 
         progressTracker.show('Linking story events', toLink.length, 'Events');
         progressTracker.setCancelHandler(() => { isStopRequested = true; });
-        progressTracker.updateCurrentItem(collectionId);
 
         const { finishedCount, linkedCount, failedCount, droppedLinkCount, stopReason } = await _linkEvents({
             events: toLink,
@@ -273,7 +273,11 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
             settings,
             shouldStop: () => isStopRequested,
             onEventFailed: (event, err) => progressTracker.addError(`Message ${event.source_window_start}: ${err?.message || err}`),
-            onEventFinished: tally => progressTracker.updateProgress(tally.finishedCount, `${tally.linkedCount} events linked, ${tally.failedCount} failed`),
+            onEventFinished: (tally) => {
+                // The panel works out its speed and what is left from this count. Status goes last, since this call replaces it.
+                progressTracker.updateEmbeddingProgress(tally.finishedCount, toLink.length);
+                progressTracker.updateProgress(tally.finishedCount, `${tally.linkedCount} events linked, ${tally.failedCount} failed`);
+            },
         });
 
         const decidedCount = finishedCount - failedCount;
