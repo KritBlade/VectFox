@@ -92,8 +92,8 @@ const defaultSettings = {
     embedding_openrouter_model: 'openai/text-embedding-3-large',
     // OpenRouter key: SillyTavern's shared SECRET_KEYS.OPENROUTER slot, not a setting. Reader:
     // getOpenRouterApiKey in src/shared/api-keys.js. No key field may be declared in these defaults:
-    // every UI handler runs Object.assign(extension_settings.vectfox, settings), which would write a
-    // declared empty field back after migrateLegacyApiKeys() deletes it.
+    // start-up merges them into the store after migrateLegacyApiKeys() runs, which would write a
+    // declared empty field back after that deletes it.
     cohere_model: 'embed-english-v3.0',
     embedding_ollama_model: 'mxbai-embed-large',
     ollama_keep: false,
@@ -419,7 +419,7 @@ const defaultSettings = {
     superadmin: false,
 };
 
-// Runtime settings (merged with saved settings)
+// Runtime settings: the defaults until start-up makes this extension_settings.vectfox itself.
 let settings = { ...defaultSettings };
 
 // Module worker for automatic syncing
@@ -556,16 +556,6 @@ jQuery(async () => {
         extension_settings.vectfox = defaultSettings;
     }
 
-    // Merge saved settings with defaults
-    settings = {
-        ...defaultSettings,
-        ...extension_settings.vectfox,
-        collections: {
-            ...defaultSettings.collections,
-            ...extension_settings.vectfox.collections
-        }
-    };
-
     // Migrate old scattered enabled keys to new collections structure
     const migrationResult = migrateOldEnabledKeys();
     if (migrationResult.migrated > 0) {
@@ -659,28 +649,16 @@ jQuery(async () => {
         // Non-fatal — readers fall back to legacy plaintext slots if migration didn't complete.
     }
 
-    // CRITICAL: re-sync the local `settings` from the now-cleaned
-    // extension_settings.vectfox. The spread at line 412 captured the PRE-
-    // migration state including any legacy *_api_key empty strings the user
-    // had on disk. Every UI handler does Object.assign(extension_settings.vectfox,
-    // settings) — without this re-sync, the first UI interaction copies the
-    // legacy fields back into extension_settings.vectfox and they get saved
-    // again, defeating the migration. Tracked symptom: settings.json kept the
-    // empty summarize_openrouter_api_key / summarize_vllm_api_key fields even
-    // after migration logged success on every reload.
-    settings = {
-        ...defaultSettings,
-        ...extension_settings.vectfox,
-        collections: {
-            ...defaultSettings.collections,
-            ...extension_settings.vectfox.collections,
-        },
-    };
+    // `settings` IS the store, never a copy of it. Collection locks, the collection registry and
+    // other values are written straight to extension_settings.vectfox, and every panel handler runs
+    // Object.assign(extension_settings.vectfox, settings), so a copy would undo them with its
+    // page-load values. The defaults go in only now because the migrations above decide by which
+    // keys are missing.
+    settings = Object.assign(extension_settings.vectfox, { ...defaultSettings, ...extension_settings.vectfox });
 
     // Migrate empty rag_xml_tag to default value
     if (!settings.rag_xml_tag) {
         settings.rag_xml_tag = 'VectFoxMemory';
-        extension_settings.vectfox.rag_xml_tag = 'VectFoxMemory';
     }
 
     // Initialize CJK tokenizer mode before any extraction happens.
