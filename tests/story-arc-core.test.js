@@ -206,13 +206,12 @@ describe('selectStoryRecipeEvents with links', () => {
         expect(events.map(item => item.text)).toEqual(['closer', 'next step']);
     });
 
-    // A missing link should not hide an event the search found close to the question.
-    it('considers a chain\'s closest hits even when no link reaches them', () => {
+    it('keeps a chain\'s top hits and what links reach from them, and no other hit', () => {
         const hits = Array.from({ length: 30 }, (_, i) => event(2000 + i, `hit ${i}`, { story_links: [] }));
         const { events } = select('chain', '', [...thread, ...hits], hits);
-        expect(events).toHaveLength(25);
-        expect(starts(events)).toContain(2024);
-        expect(starts(events)).not.toContain(2025);
+        expect(events).toHaveLength(10);
+        expect(starts(events)).toContain(2009);
+        expect(starts(events)).not.toContain(2010);
     });
 
     it('cuts a long walk to 50, keeping the closest, then those nearest the seeds', () => {

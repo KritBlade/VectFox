@@ -70,8 +70,6 @@ const BLOCK_EVENT_LIMIT = 50;
 export const STORY_POOL_SIZE = 200;
 /** The closest hits a walk starts from. */
 const WALK_SEED_COUNT = 10;
-/** Closest hits a chain block considers even when no link reaches them, since a missing link should not hide a close event. */
-const CHAIN_CLOSEST_HIT_COUNT = 25;
 const FIRST_TIME_EARLIEST_COUNT = 5;
 const FIRST_TIME_CLOSEST_COUNT = 20;
 /** The newest events of a thread a current-state block keeps. */
@@ -260,7 +258,6 @@ export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEven
         // Top hits can sit mid-thread, so later steps need the walk forward.
         walked = walkStoryLinks(seedHashes, graph.parents, ALL_STORY_LINK_TYPES);
         addWalk(walked, walkStoryLinks(seedHashes, graph.children, [STORY_LINK_TYPE.CONTINUES]));
-        addWalk(walked, poolEvents.slice(0, CHAIN_CLOSEST_HIT_COUNT).map(event => [event._hash, 0]));
     }
     return { events: inTimelineOrder(keepClosestSteps(walked, eventByHash, poolRankByHash)), blockShape: shape, ruleName: STORY_ROUTE_RULE.SHAPE_RECIPE };
 }
