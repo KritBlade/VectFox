@@ -31,6 +31,7 @@ export {
     runEventBaseRetrieval,
 } from './eventbase-workflow.js';
 export { getEventBaseExtractionPrompt } from './prompts-i18n.js';
+export { describeStoryLinkPass, readStoryLinkCoverage, runStoryLinkPass } from './story-arc-links.js';
 export {
     applyGhosting,
     buildSummarizerInjection,

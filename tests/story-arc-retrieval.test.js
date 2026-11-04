@@ -5,7 +5,9 @@
  * Guards that:
  *   - a thread question gets a wide pool in chat order, past the top-K trim,
  *   - a first-time question gets the subject's earliest events and closest hits,
- *   - ordinary turns, router failures and empty recipes keep today's path,
+ *   - stored links are walked once a chat has them,
+ *   - ordinary turns, router failures, a failed listing and empty recipes keep today's path,
+ *   - every StoryArc turn reports the Route rule that decided it,
  *   - StoryArc mode does nothing unless Agent Mode and its own switch are on.
  */
 
@@ -111,11 +113,46 @@ describe('retrieveStoryRecipeEvents', () => {
         const hits = Array.from({ length: 50 }, (_, i) => event(1000 - i));
         queryReturns(hits);
         const { events, blockShape } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: 'Nora' }, { ...baseParams, settings: { ...baseParams.settings, eventbase_retrieval_top_k: 10 } });
-        expect(queryCollectionMock.mock.calls[0].slice(0, 3)).toEqual([COLLECTION, 'How did Nora get here?', 50]);
+        expect(queryCollectionMock.mock.calls[0].slice(0, 3)).toEqual([COLLECTION, 'How did Nora get here?', 200]);
         expect(events).toHaveLength(50);
         expect(starts(events)).toEqual(starts(hits).reverse());
         expect(blockShape).toBe('chain');
-        expect(listChunksMock).not.toHaveBeenCalled();
+    });
+
+    // A hit's score is cosine, while its place is the fusion order, which also weighs the keyword match.
+    it('keeps the search\'s own order, whatever the scores say', async () => {
+        const hits = Array.from({ length: 60 }, (_, i) => event(1000 + i, `hit ${i}`, { score: i / 100 }));
+        queryReturns(hits);
+        const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, baseParams);
+        expect(starts(events)).toContain(1000);
+        expect(starts(events)).not.toContain(1059);
+    });
+
+    it('takes turns between searches, so no collection crowds out another', async () => {
+        const first = Array.from({ length: 60 }, (_, i) => event(1000 + i, `first ${i}`));
+        const second = Array.from({ length: 60 }, (_, i) => event(5000 + i, `second ${i}`));
+        queryCollectionMock.mockResolvedValueOnce({ hashes: starts(first), metadata: first });
+        queryCollectionMock.mockResolvedValueOnce({ hashes: starts(second), metadata: second });
+        const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, { ...baseParams, liveCollectionIds: [COLLECTION, 'qdrant:vf_eventbase_other'] });
+        expect(starts(events).filter(start => start >= 5000)).toHaveLength(25);
+    });
+
+    it('walks stored links once the chat has them, reaching events the search did not find', async () => {
+        const steps = [100, 200, 300].map((start, i, all) => event(start, `step ${start}`, { story_links: i ? [{ hash: all[i - 1], type: 'continues', thread: 't' }] : [] }));
+        listReturns(steps);
+        queryReturns([steps[2]]);
+        const { events, blockShape, ruleName } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: 'Nora' }, baseParams);
+        expect(starts(events)).toEqual([100, 200, 300]);
+        expect(blockShape).toBe('chain');
+        expect(ruleName).toBe('shape-recipe');
+    });
+
+    it('matches a hit to its listed event when one reports its hash as text', async () => {
+        const steps = [100, 200].map((start, i, all) => event(start, `step ${start}`, { story_links: i ? [{ hash: all[i - 1], type: 'continues', thread: 't' }] : [] }));
+        listReturns(steps);
+        queryCollectionMock.mockResolvedValue({ hashes: ['200'], metadata: [steps[1]] });
+        const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, baseParams);
+        expect(starts(events)).toEqual([100, 200]);
     });
 
     it('gives a first-time question the earliest events naming the subject plus its closest hits, without repeats', async () => {
@@ -123,7 +160,7 @@ describe('retrieveStoryRecipeEvents', () => {
         listReturns(stored);
         queryReturns([event(900, 'Nora later'), event(800, 'Bo at the docks'), event(700, 'Nora at the docks')]);
         const { events, blockShape } = await retrieveStoryRecipeEvents({ shape: 'first_time', subject: 'Nora' }, baseParams);
-        expect(queryCollectionMock.mock.calls[0][2]).toBe(100);
+        expect(queryCollectionMock.mock.calls[0][2]).toBe(200);
         expect(listChunksMock.mock.calls[0][2]).toEqual({ limit: 50000 });
         expect(starts(events)).toEqual([10, 20, 700, 900]);
         expect(blockShape).toBe('first_time');
@@ -152,19 +189,31 @@ describe('retrieveStoryRecipeEvents', () => {
         }
     });
 
-    it('still uses the closest hits when the listing fails, and warns', async () => {
+    // Without the listing, a first-time block could not say which events are earliest, and would say so anyway.
+    it('finds nothing when the listing fails, and warns, so the turn keeps today\'s path', async () => {
         listChunksMock.mockRejectedValue(new Error('list failed'));
         queryReturns([event(400, 'Nora at the gate')]);
-        const { events } = await retrieveStoryRecipeEvents({ shape: 'first_time', subject: 'Nora' }, baseParams);
-        expect(starts(events)).toEqual([400]);
+        for (const shape of ['first_time', 'chain', 'current']) {
+            const { events, ruleName } = await retrieveStoryRecipeEvents({ shape, subject: 'Nora' }, baseParams);
+            expect(events, shape).toEqual([]);
+            expect(ruleName, shape).toBe('listing-failed');
+        }
         expect(logWarnMock).toHaveBeenCalled();
     });
 
     it('returns nothing when the query fails, and warns', async () => {
         queryCollectionMock.mockRejectedValue(new Error('query failed'));
-        const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, baseParams);
+        const { events, ruleName } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, baseParams);
         expect(events).toEqual([]);
+        expect(ruleName).toBe('recipe-found-nothing');
         expect(logWarnMock).toHaveBeenCalled();
+    });
+
+    it('leaves a current-state question to today\'s path until the chat has links', async () => {
+        queryReturns([event(100)]);
+        const { events, ruleName } = await retrieveStoryRecipeEvents({ shape: 'current', subject: '' }, baseParams);
+        expect(events).toEqual([]);
+        expect(ruleName).toBe('links-not-generated');
     });
 
     it('keeps the same rules as normal retrieval: minimum importance and events still in context', async () => {
@@ -195,7 +244,6 @@ describe('retrieveStoryRecipeEvents', () => {
     it('does nothing without a recipe, a collection or a query', async () => {
         for (const [route, params] of [
             [{ shape: 'scene', subject: '' }, baseParams],
-            [{ shape: 'current', subject: '' }, baseParams],
             [{ shape: 'chain', subject: '' }, { ...baseParams, liveCollectionIds: [] }],
             [{ shape: 'chain', subject: '' }, { ...baseParams, skipLiveQuery: true }],
             [{ shape: 'chain', subject: '' }, { ...baseParams, keywordQuery: '', searchText: '' }],
@@ -235,6 +283,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         const result = await callAgent(storyArcOn);
         expect(starts(result.events)).toEqual([100, 200]);
         expect(result.storyArcShape).toBe('chain');
+        expect(result.debug.storyArc).toEqual({ ruleName: 'links-not-generated', shape: 'chain', subject: 'Nora', finalCount: 2 });
         expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
         expect(retrieveEventsMock).toHaveBeenCalledTimes(1);
     });
@@ -251,27 +300,35 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
     it('sends an ordinary turn down the existing planner path', async () => {
         llmReplies({ shape: 'scene', subject: '' }, { queries: [] });
         const result = await callAgent(storyArcOn);
-        expect(result).toBe(preSearch);
+        expect(result.events).toBe(preSearch.events);
+        expect(result.debug.storyArc.ruleName).toBe('ordinary-turn');
         expect(postChatCompletionMock).toHaveBeenCalledTimes(2);
         expect(queryCollectionMock).not.toHaveBeenCalled();
     });
 
-    it('keeps today\'s path for a current-state question', async () => {
+    it('routes a current-state question to its recipe, which keeps today\'s path until the chat has links', async () => {
         llmReplies({ shape: 'current', subject: 'Nora' }, { queries: [] });
-        expect(await callAgent(storyArcOn)).toBe(preSearch);
-        expect(queryCollectionMock).not.toHaveBeenCalled();
+        queryReturns([event(100)]);
+        const result = await callAgent(storyArcOn);
+        expect(result.events).toBe(preSearch.events);
+        expect(result.storyArcShape).toBeUndefined();
+        expect(result.debug.storyArc.ruleName).toBe('links-not-generated');
     });
 
     it('keeps today\'s path and warns when the router fails', async () => {
         postChatCompletionMock.mockRejectedValueOnce(new Error('router down'));
         llmReplies({ queries: [] });
-        expect(await callAgent(storyArcOn)).toBe(preSearch);
+        const result = await callAgent(storyArcOn);
+        expect(result.events).toBe(preSearch.events);
+        expect(result.debug.storyArc.ruleName).toBe('router-unusable');
         expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('StoryArc router'))).toBe(true);
     });
 
     it('keeps today\'s path and warns on an unknown shape', async () => {
         llmReplies({ shape: 'history', subject: '' }, { queries: [] });
-        expect(await callAgent(storyArcOn)).toBe(preSearch);
+        const result = await callAgent(storyArcOn);
+        expect(result.events).toBe(preSearch.events);
+        expect(result.debug.storyArc.ruleName).toBe('router-unusable');
         expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('unknown shape'))).toBe(true);
     });
 
@@ -279,8 +336,18 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         llmReplies({ shape: 'chain', subject: 'Nora' }, { queries: [] });
         queryReturns([]);
         const result = await callAgent(storyArcOn);
-        expect(result).toBe(preSearch);
+        expect(result.events).toBe(preSearch.events);
         expect(result.storyArcShape).toBeUndefined();
+        expect(result.debug.storyArc.ruleName).toBe('recipe-found-nothing');
+    });
+
+    it('keeps today\'s path when the listing fails, and names the rule', async () => {
+        llmReplies({ shape: 'first_time', subject: 'Nora' }, { queries: [] });
+        queryReturns([event(100, 'Nora')]);
+        listChunksMock.mockRejectedValue(new Error('list failed'));
+        const result = await callAgent(storyArcOn);
+        expect(result.events).toBe(preSearch.events);
+        expect(result.debug.storyArc.ruleName).toBe('listing-failed');
     });
 
     it('does not run the router when StoryArc mode is off', async () => {
@@ -298,7 +365,8 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
 
     it('skips the router and warns when no Agent Mode model is set', async () => {
         const result = await callAgent({ ...storyArcOn, agent_model: '', chat_model: '' });
-        expect(result).toBe(preSearch);
+        expect(result.events).toBe(preSearch.events);
+        expect(result.debug.storyArc.ruleName).toBe('router-unusable');
         expect(postChatCompletionMock).not.toHaveBeenCalled();
         expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('Router skipped'))).toBe(true);
     });

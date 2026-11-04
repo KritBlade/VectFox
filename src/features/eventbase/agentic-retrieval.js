@@ -8,8 +8,9 @@
  * and re-flow through the existing 4-weight re-ranker untouched.
  *
  * StoryArc mode adds a router alongside the pre-search. When the player asks
- * about the story's past, a recipe (story-arc-retrieval.js) replaces everything
- * below with events in time order. Any other turn continues here as usual.
+ * about the story's past, a recipe (story-arc-retrieval.js) replaces the planner
+ * with events in time order. Any other turn continues as usual, and a StoryArc
+ * turn reports the Route rule that decided it in `debug.storyArc`.
  *
  * Every failure path falls back cleanly to the pre-search output. Qdrant (A3) only.
  *
@@ -31,7 +32,7 @@ import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
-import { STORY_ROUTER_PROMPT, buildStoryRouterMessage, readStoryRoute, recipeForShape } from './story-arc-core.js';
+import { STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, buildStoryRouterMessage, hasRecipe, isStoryArcActive, readStoryRoute } from './story-arc-core.js';
 import { retrieveStoryRecipeEvents } from './story-arc-retrieval.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -58,7 +59,8 @@ export async function retrieveEventsWithAgent(params) {
     const tAgentStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
     // The router runs alongside the pre-search, so an ordinary turn waits only for the slower of the two.
-    const storyRoutePromise = _isStoryArcActive(settings) ? _routeStoryQuestion(params) : null;
+    const isStoryArcOn = isStoryArcActive(settings);
+    const storyRoutePromise = isStoryArcOn ? _routeStoryQuestion(params) : null;
 
     // STAGE 1 — existing pre-search runs unconditionally.
     const preSearch = await retrieveEvents(params);
@@ -74,24 +76,52 @@ export async function retrieveEventsWithAgent(params) {
         return preSearch;
     }
 
+    if (!isStoryArcOn) {
+        return _retrieveWithPlanner(params, preSearch, tAgentStart);
+    }
+
     // A question about the story's past is answered by its recipe, which skips the planner and the rerank.
     const storyRoute = await storyRoutePromise;
-    if (storyRoute && recipeForShape(storyRoute.shape)) {
+    const storyArc = {
+        ruleName: storyRoute?.isKnownShape ? STORY_ROUTE_RULE.ORDINARY_TURN : STORY_ROUTE_RULE.ROUTER_UNUSABLE,
+        shape: storyRoute?.shape ?? '',
+        subject: storyRoute?.subject ?? '',
+        finalCount: 0,
+    };
+    if (storyRoute && hasRecipe(storyRoute.shape)) {
         const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
         const recalled = await retrieveStoryRecipeEvents(storyRoute, { ...params, boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs) });
-        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] shape=${storyRoute.shape} subject="${storyRoute.subject}" block=${recalled.blockShape} events=${recalled.events.length}`);
+        storyArc.ruleName = recalled.ruleName;
+        storyArc.finalCount = recalled.events.length;
+        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} events=${recalled.events.length}`);
         if (recalled.events.length) {
             return {
                 events: recalled.events,
                 storyArcShape: recalled.blockShape,
-                debug: { ...(preSearch.debug || {}), storyArc: { shape: storyRoute.shape, subject: storyRoute.subject, finalCount: recalled.events.length } },
+                debug: { ...(preSearch.debug || {}), storyArc },
             };
         }
-        log.domain('agent', 'lifecycle', '[VectFox-StoryArc] The recipe found nothing, keeping the normal path');
+    } else {
+        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape}`);
     }
 
+    const planned = await _retrieveWithPlanner(params, preSearch, tAgentStart);
+    return { ...planned, debug: { ...(planned.debug || {}), storyArc } };
+}
+
+/**
+ * Stages 3 to 5: the planner's queries, merged with the pre-search and re-ranked.
+ *
+ * @param {object} params - The retrieval params
+ * @param {{events: object[], debug: object}} preSearch
+ * @param {number} tAgentStart - When this retrieval started
+ * @returns {Promise<{events: object[], debug: object}>}
+ */
+async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
+    const { settings, liveCollectionIds, keywordQuery, additionalCandidates } = params;
+    const agenticDebug = log.domainEnabled('agent');
+
     // STAGE 3 — gather context for planner and call LLM.
-    const { liveCollectionIds, keywordQuery, additionalCandidates } = params;
     const llmCfg = _resolveAgenticLLMConfig(settings);
     if (!llmCfg.ok) {
         if (agenticDebug) {
@@ -142,10 +172,10 @@ export async function retrieveEventsWithAgent(params) {
     try {
         // Throttle the planner LLM call. Shares one budget with EventBase
         // extraction via generationRateLimiter (same chat-completions provider).
-        // 0 = off. The gate sleeps BEFORE _callPlanner runs, so the per-request
-        // AbortSignal.timeout (created inside _callPlanner) is unaffected.
+        // 0 = off. The gate sleeps BEFORE callLlmForJson runs, so the per-request
+        // AbortSignal.timeout (created inside callLlmForJson) is unaffected.
         plan = await generationRateLimiter.execute(
-            () => _callPlanner({
+            () => callLlmForJson({
                 systemPrompt: getAgenticPlannerPrompt(settings?.cjk_tokenizer_mode),
                 userMessage,
                 llmCfg,
@@ -304,17 +334,12 @@ export async function retrieveEventsWithAgent(params) {
 // StoryArc router
 // ============================================================================
 
-/** StoryArc mode's switch, plus the same gate as STAGE 2 of retrieveEventsWithAgent. */
-function _isStoryArcActive(settings) {
-    return !!(settings?.story_arc_mode_enabled && settings.agentic_retrieval_enabled && settings.vector_backend === 'qdrant');
-}
-
 /**
  * Ask the router for the question's shape and subject. Never throws: a failure
  * is reported and returns null, so the turn keeps the normal path.
  *
  * @param {object} params - The retrieval params
- * @returns {Promise<{shape: string, subject: string}|null>}
+ * @returns {Promise<{shape: string, subject: string, isKnownShape: boolean}|null>}
  */
 async function _routeStoryQuestion({ settings, keywordQuery }) {
     const llmCfg = _resolveAgenticLLMConfig(settings);
@@ -322,13 +347,13 @@ async function _routeStoryQuestion({ settings, keywordQuery }) {
         log.warn(`[VectFox-StoryArc] Router skipped: ${llmCfg.reason}`);
         return null;
     }
-    if (!keywordQuery?.trim()) return null;
+    if (!keywordQuery?.trim()) return { shape: 'scene', subject: '', isKnownShape: true };
 
     const timeoutMs = resolveAgenticPlannerTimeoutMs(settings);
     const tStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     try {
         const reply = await generationRateLimiter.execute(
-            () => _callPlanner({
+            () => callLlmForJson({
                 systemPrompt: STORY_ROUTER_PROMPT,
                 userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatForPlanner(settings), userMessage: keywordQuery }),
                 llmCfg,
@@ -392,8 +417,26 @@ async function _reportAgentLlmFailure(err, label, tStart, timeoutMs) {
  * { ok: false, reason } when a required value is missing.
  */
 export function _resolveAgenticLLMConfig(settings = {}) {
-    const provider = (settings.agent_provider || settings.chat_provider || 'openrouter').toLowerCase();
-    const model = (settings.agent_model || settings.chat_model || '').trim();
+    const connection = resolveLlmConnection({
+        provider: settings.agent_provider || settings.chat_provider || 'openrouter',
+        model: settings.agent_model || settings.chat_model,
+        vllmUrl: settings.agent_vllm_url || settings.chat_vllm_url,
+    });
+    return connection.ok ? { ...connection, parameterStyle: resolveModelParameterStyle(settings) } : connection;
+}
+
+/**
+ * Check that an LLM connection is filled in, and return what a call needs.
+ *
+ * @param {object} params
+ * @param {string} params.provider
+ * @param {string} [params.model]
+ * @param {string} [params.vllmUrl]
+ * @returns {{ok: true, provider: string, model: string, apiKey: string, vllmUrl?: string}|{ok: false, reason: string}}
+ */
+export function resolveLlmConnection({ provider: providerName, model: modelName, vllmUrl: rawVllmUrl }) {
+    const provider = providerName.toLowerCase();
+    const model = (modelName || '').trim();
 
     if (!model) {
         return { ok: false, reason: 'missing_model' };
@@ -407,11 +450,11 @@ export function _resolveAgenticLLMConfig(settings = {}) {
         if (!apiKey) {
             return { ok: false, reason: 'missing_openrouter_api_key' };
         }
-        return { ok: true, provider, model, apiKey, parameterStyle: resolveModelParameterStyle(settings) };
+        return { ok: true, provider, model, apiKey };
     }
 
     if (provider === 'vllm') {
-        const vllmUrl = (settings.agent_vllm_url || settings.chat_vllm_url || '').trim();
+        const vllmUrl = (rawVllmUrl || '').trim();
         if (!vllmUrl) {
             return { ok: false, reason: 'missing_vllm_url' };
         }
@@ -422,17 +465,18 @@ export function _resolveAgenticLLMConfig(settings = {}) {
         if (!apiKey) {
             return { ok: false, reason: 'missing_vllm_api_key' };
         }
-        return { ok: true, provider, model, vllmUrl, apiKey, parameterStyle: resolveModelParameterStyle(settings) };
+        return { ok: true, provider, model, vllmUrl, apiKey };
     }
 
     return { ok: false, reason: `unknown_provider_${provider}` };
 }
 
 /**
- * Call the planner LLM and return parsed JSON output.
- * Throws on network/auth failure, empty response, or unparseable JSON.
+ * Call an LLM for a JSON reply and return it parsed: the planner, the StoryArc
+ * router and StoryArc links. Throws on network/auth failure, empty response, or
+ * unparseable JSON.
  */
-async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs, maxTokens }) {
+export async function callLlmForJson({ systemPrompt, userMessage, llmCfg, timeoutMs, maxTokens, contextLabel = 'Agent Mode' }) {
     // Shared HTTP + response classification (llm-provider-call.js). The planner
     // is a two-message, json_object call. authBranch:false preserves the prior
     // behavior of folding 401/403 into the model-config / generic paths (Agent
@@ -451,7 +495,7 @@ async function _callPlanner({ systemPrompt, userMessage, llmCfg, timeoutMs, maxT
             temperature: 0.2,
             timeoutMs,
             responseFormat: { type: 'json_object' },
-            contextLabel: 'Agent Mode',
+            contextLabel,
             authBranch: false,
             ...(llmCfg.parameterStyle || {}),
         }));

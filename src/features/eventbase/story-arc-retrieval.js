@@ -7,21 +7,14 @@
  * size work against a thread that spans the whole chat.
  *
  * Needs no plugin support beyond what VectFox already uses: a wide pool is a
- * larger query, and a subject's earliest events come from listing the collection.
+ * larger query, and the links to walk come from listing the collection.
  * ============================================================================
  */
 
 import { listChunks, queryCollection } from '../vector-backend/index.js';
 import { dedupeEventsByIdentity, removeEventsVisibleInContext } from './eventbase-retrieval.js';
-import {
-    FIRST_TIME_POOL_SIZE,
-    FIRST_TIME_RECIPE,
-    THREAD_SHAPE,
-    TIME_ORDERED_EVENT_LIMIT,
-    inTimelineOrder,
-    recipeForShape,
-    selectFirstTimeEvents,
-} from './story-arc-core.js';
+import { STORY_POOL_SIZE, STORY_ROUTE_RULE, hasRecipe, selectStoryRecipeEvents } from './story-arc-core.js';
+import { inTimelineOrder } from './story-arc-links-core.js';
 import { log } from '../../sillytavern/log.js';
 
 /** Lists the whole collection: a limit below its size would return an arbitrary sample. */
@@ -34,63 +27,81 @@ const LIST_WHOLE_COLLECTION = { limit: 50000 };
 async function _queryPool(collectionId, queryText, poolSize, settings, boundQuery) {
     try {
         const { hashes, metadata } = await boundQuery(queryCollection(collectionId, queryText, poolSize, settings, {}));
-        return (hashes || []).map((hash, i) => ({ ...(metadata?.[i] || {}), _hash: hash, _sortFrame: collectionId }));
+        return (hashes || []).map((hash, i) => ({ ...(metadata?.[i] || {}), _hash: Number(hash), _sortFrame: collectionId }));
     } catch (err) {
         log.warn(`[VectFox-StoryArc] Query failed (${collectionId}):`, err);
         return [];
     }
 }
 
-/** Every event stored in one collection, in the same shape as a query hit. */
-async function _listStoredEvents(collectionId, settings, boundQuery) {
+/**
+ * Every event stored in one collection, in the same shape as a query hit.
+ *
+ * @param {string} collectionId
+ * @param {object} settings
+ * @param {(promise: Promise) => Promise} [boundQuery] - Limits how long the call may take
+ * @returns {Promise<object[]|null>} null when the collection could not be read, which is reported
+ */
+export async function listStoryEvents(collectionId, settings, boundQuery = promise => promise) {
     try {
         const result = await boundQuery(listChunks(collectionId, settings, LIST_WHOLE_COLLECTION));
         const items = Array.isArray(result?.items) ? result.items : [];
         return items
             .filter(item => item?.metadata?.eventbase === true)
-            .map(item => ({ ...item.metadata, text: item.text ?? item.metadata.text, _hash: item.hash, _sortFrame: collectionId }));
+            .map(item => ({ ...item.metadata, text: item.text ?? item.metadata.text, _hash: Number(item.hash), _sortFrame: collectionId }));
     } catch (err) {
         log.warn(`[VectFox-StoryArc] Could not list events (${collectionId}):`, err);
-        return [];
+        return null;
     }
 }
 
 /**
- * Fetch a recipe's events, in time order. Returns no events when the shape has
- * no recipe or nothing was found, and the caller then keeps today's path.
+ * Hits from several searches, closest first: each search's first hits, then their
+ * second, and so on. A hit's place is its search's fusion order, which says more
+ * than its `score`, a cosine that leaves out the keyword match.
+ */
+function _mergeHitsByPlace(hitLists) {
+    return hitLists
+        .flatMap(hits => hits.map((hit, place) => ({ hit, place })))
+        .sort((a, b) => a.place - b.place)
+        .map(({ hit }) => hit);
+}
+
+/**
+ * Fetch a recipe's events, in time order. Returns no events when the turn should
+ * keep today's path, and `ruleName` says which Route rule decided that.
  *
  * @param {{shape: string, subject: string}} route
  * @param {object} params - The retrieval params (see retrieveEvents)
  * @param {(promise: Promise) => Promise} params.boundQuery - Limits how long one Qdrant call may take
- * @returns {Promise<{events: object[], blockShape: string}>} blockShape says which block the events suit
+ * @returns {Promise<{events: object[], blockShape: string, ruleName: string}>} blockShape says which block the events suit
  */
 export async function retrieveStoryRecipeEvents(route, params) {
     const { keywordQuery, searchText, chatLength, settings, liveCollectionIds, additionalCandidates, skipLiveQuery, skipContextDedup, boundQuery } = params;
-    const recipe = recipeForShape(route.shape);
     const queryText = keywordQuery || searchText;
-    if (!recipe || skipLiveQuery || !liveCollectionIds?.length || !queryText) {
-        return { events: [], blockShape: route.shape };
+    if (!hasRecipe(route.shape) || skipLiveQuery || !liveCollectionIds?.length || !queryText) {
+        return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING };
     }
 
     const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
-    const usesFirstTimeRecipe = recipe === FIRST_TIME_RECIPE;
-    const poolSize = usesFirstTimeRecipe ? FIRST_TIME_POOL_SIZE : TIME_ORDERED_EVENT_LIMIT;
-    const pools = await Promise.all(liveCollectionIds.map(collectionId => _queryPool(collectionId, queryText, poolSize, ebSettings, boundQuery)));
-    const poolEvents = [...pools.flat(), ...(additionalCandidates || [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-
-    let chosen = [];
-    if (usesFirstTimeRecipe && route.subject) {
-        const stored = await Promise.all(liveCollectionIds.map(collectionId => _listStoredEvents(collectionId, ebSettings, boundQuery)));
-        chosen = selectFirstTimeEvents({ storedEvents: stored.flat(), poolEvents, subject: route.subject });
+    const [pools, stored] = await Promise.all([
+        Promise.all(liveCollectionIds.map(collectionId => _queryPool(collectionId, queryText, STORY_POOL_SIZE, ebSettings, boundQuery))),
+        Promise.all(liveCollectionIds.map(collectionId => listStoryEvents(collectionId, ebSettings, boundQuery))),
+    ]);
+    if (stored.includes(null)) {
+        return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.LISTING_FAILED };
     }
-    // A first-time question whose subject is empty or named nowhere still gets the closest events in time order.
-    const blockShape = usesFirstTimeRecipe && !chosen.length ? THREAD_SHAPE : route.shape;
-    if (!chosen.length) {
-        chosen = poolEvents.slice(0, TIME_ORDERED_EVENT_LIMIT);
-    }
+    const poolEvents = _mergeHitsByPlace([...pools, additionalCandidates || []]);
+    const selection = selectStoryRecipeEvents({ shape: route.shape, subject: route.subject, storedEvents: stored.flat(), poolEvents });
 
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
-    const important = dedupeEventsByIdentity(chosen).filter(event => event.importance == null || event.importance >= minImportance);
-    const notInContext = removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup });
-    return { events: inTimelineOrder(notInContext), blockShape };
+    const important = dedupeEventsByIdentity(selection.events).filter(event => event.importance == null || event.importance >= minImportance);
+    const events = inTimelineOrder(removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup }));
+    // A current-state question has no recipe without links, which is a different reason from finding nothing.
+    const isWaitingForLinks = route.shape === 'current' && selection.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED;
+    return {
+        events,
+        blockShape: selection.blockShape,
+        ruleName: events.length || isWaitingForLinks ? selection.ruleName : STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING,
+    };
 }

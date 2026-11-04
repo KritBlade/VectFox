@@ -115,7 +115,9 @@ export function openQueryTestModal() {
 
             // --- EventBase ---
             if (ebResult?.injectionText) {
-                $('#VectFox_qtester_meta_eb').text(`— ${ebResult.eventCount ?? '?'} event(s) retrieved`);
+                const storyArc = ebResult.storyArc;
+                const storyArcNote = storyArc ? ` · StoryArc rule ${storyArc.ruleName}${storyArc.shape ? ` (${storyArc.shape}${storyArc.subject ? `, subject ${storyArc.subject}` : ''})` : ''}` : '';
+                $('#VectFox_qtester_meta_eb').text(`— ${ebResult.eventCount ?? '?'} event(s) retrieved${storyArcNote}`);
                 $('#VectFox_qtester_output_eb').val(ebResult.injectionText);
             } else {
                 const locked = (ebResult?.lockedCollectionsCount ?? 0) + (ebResult?.archiveCollectionsCount ?? 0);

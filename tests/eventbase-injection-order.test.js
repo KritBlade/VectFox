@@ -153,6 +153,15 @@ describe('formatStoryArcForInjection', () => {
         expect(first).toBeLessThan(second);
     });
 
+    it('reads a current-state block newest first', () => {
+        const { text } = formatStoryArcForInjection([
+            line({ summary: 'older', source_window_end: 51 }),
+            line({ summary: 'newer', source_window_end: 101 }),
+        ], 'current');
+        const [older, newer] = order(text, 'older', 'newer');
+        expect(newer).toBeLessThan(older);
+    });
+
     it('keeps each conversation together', () => {
         const { text } = formatStoryArcForInjection([
             line({ summary: 'live_old', source_window_end: 11, _sortFrame: 'live', real_world_date: '2026-06-01T00:00:00Z' }),
@@ -164,10 +173,10 @@ describe('formatStoryArcForInjection', () => {
 
     it('says what the block is for each shape, and tells the reader how to read it', () => {
         const events = [line({ summary: 'a', source_window_end: 2 })];
-        const headers = ['first_time', 'chain', 'why', 'bigger_plot'].map(shape => formatStoryArcForInjection(events, shape).text.split('\n')[0]);
-        expect(new Set(headers).size).toBe(4);
+        const headers = ['first_time', 'chain', 'why', 'bigger_plot', 'current'].map(shape => formatStoryArcForInjection(events, shape).text.split('\n')[0]);
+        expect(new Set(headers).size).toBe(5);
         for (const header of headers) {
-            expect(header).toContain('oldest → newest');
+            expect(header).toContain(header === headers[4] ? 'newest → oldest' : 'oldest → newest');
             expect(header).toContain('smaller # happened earlier');
         }
         expect(headers[0]).toContain('earliest');

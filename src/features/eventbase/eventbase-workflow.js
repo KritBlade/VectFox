@@ -294,6 +294,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     let eventsExtracted = 0;
+    const insertedEventIds = [];
     let windowsProcessed = 0;
     let windowsSkipped = 0;
     let windowsTimedOut = 0;
@@ -641,6 +642,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
         if (!abortSignal?.aborted && allEvents.length > 0) {
             await _insertWithRetry(allEvents, batchFirstIdx);
+            insertedEventIds.push(...allEvents.map(event => event.event_id));
         }
         // Mark windows only after insert succeeded (or there was nothing to
         // insert — in which case we still mark zero-event windows so we don't
@@ -950,6 +952,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         setLastUsedWindowSize(uuid, windowSize);
     }
 
+    // New events get their StoryArc links in the background, so this run ends now.
+    if (settings?.story_arc_mode_enabled && insertedEventIds.length > 0 && !abortSignal?.aborted) {
+        const { linkNewStoryEvents } = await import('./story-arc-links.js');
+        void linkNewStoryEvents({ collectionId, newEventIds: insertedEventIds, settings });
+    }
+
     // Notify the UI so the Chat Auto-Sync LED can flip from yellow → green.
     // Cheap signal; listeners just re-evaluate state, they don't read this payload.
     if (typeof document !== 'undefined' && typeof CustomEvent === 'function') {
@@ -1209,7 +1217,7 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
 
     // Dry-run: return text without touching the extension prompt slot
     if (dryRun) {
-        return { injectionText, eventCount: injectedCount, lockedCollectionsCount: lockedLiveCollections.length, archiveCollectionsCount: archiveCollections.length };
+        return { injectionText, eventCount: injectedCount, lockedCollectionsCount: lockedLiveCollections.length, archiveCollectionsCount: archiveCollections.length, storyArc: debug?.storyArc ?? null };
     }
 
     // Clear any previous EventBase injection

@@ -79,7 +79,7 @@ describe('agent mode timeouts', () => {
         expect(resolveAgenticQueryTimeoutMs({ agentic_retrieval_query_timeout_ms: 999_999 })).toBe(AGENTIC_TIMEOUT_MAX_MS);
     });
 
-    // Issue #18: this was a hardcoded 2000 inside _callPlanner with no setting
+    // Issue #18: this was a hardcoded 2000 inside callLlmForJson with no setting
     // and no UI, so a thinking planner — which spends the cap on reasoning before
     // emitting any JSON — could not be given more room.
     it('expose the planner token cap, defaulting to the literal it replaced', () => {

@@ -231,13 +231,14 @@ const STORY_ARC_HEADER_BY_SHAPE = {
     chain: `The events of this thread, oldest → newest. ${STORY_LINE_NOTE}`,
     why: `The events leading up to this, oldest → newest, each with its cause. ${STORY_LINE_NOTE}`,
     bigger_plot: `Events connected to this matter, oldest → newest. ${STORY_LINE_NOTE}`,
+    current: `The latest events of this thread, newest → oldest. ${STORY_LINE_NOTE}`,
 };
 
 /**
  * Format a StoryArc recipe's events as one short line each, under a header that
  * says what the block is. Short lines let a thread of 50 events fit where 10
  * full events fit. Events are expected in time order; each conversation frame
- * stays together, as in the normal block.
+ * stays together, as in the normal block. A current-state block reads newest first.
  *
  * @param {object[]} events - In time order
  * @param {string} shape - The question shape the router chose
@@ -247,7 +248,8 @@ export function formatStoryArcForInjection(events, shape) {
     if (!events?.length) {
         return { text: '', includedCount: 0, requestedCount: 0 };
     }
-    const lines = _orderEventsForPresentation(events).map(_formatAsStoryLine);
+    const ordered = _orderEventsForPresentation(events);
+    const lines = (shape === 'current' ? ordered.reverse() : ordered).map(_formatAsStoryLine);
     return {
         text: `${STORY_ARC_HEADER_BY_SHAPE[shape] ?? STORY_ARC_HEADER_BY_SHAPE.chain}\n${lines.join('\n')}`,
         includedCount: lines.length,

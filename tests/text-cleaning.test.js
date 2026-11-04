@@ -116,7 +116,7 @@ describe('stripReasoningBlocks', () => {
 
     // GitHub issue #18. The Agent Mode planner asks for `response_format:
     // json_object`, which does NOT stop a thinking model emitting its reasoning
-    // first. _callPlanner runs this strip before JSON.parse; without it the
+    // first. callLlmForJson runs this strip before JSON.parse; without it the
     // leading block throws and Agent Mode drops to pre-search with only a log
     // line, reading to the user as "agent mode does nothing".
     it('leaves a thinking model’s JSON reply parseable (the Agent Mode planner shape)', () => {
@@ -130,7 +130,7 @@ describe('stripReasoningBlocks', () => {
     });
 
     it('same, when the model also fences the JSON', () => {
-        // _callPlanner strips reasoning FIRST, then the ``` fence — the fence is
+        // callLlmForJson strips reasoning FIRST, then the ``` fence — the fence is
         // only findable at the string edges once the reasoning ahead of it is gone.
         const raw = '<think>planning</think>\n```json\n{"queries":["a"]}\n```';
 

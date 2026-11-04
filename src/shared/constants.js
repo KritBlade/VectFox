@@ -89,7 +89,7 @@ export const AGENTIC_TIMEOUT_MAX_MS = 60000;
  * truncated or empty content -- which then fails JSON.parse and drops Agent Mode
  * back to pre-search with only a log line. That is GitHub issue #18, and it is
  * why this became a user-visible setting instead of the literal 2000 that used
- * to sit in _callPlanner.
+ * to sit in callLlmForJson.
  *
  * Default is unchanged from that literal on purpose: exposing the knob must not
  * silently move anyone's behavior. Raise it if your planner model thinks.

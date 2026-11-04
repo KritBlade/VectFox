@@ -34,7 +34,7 @@ import { progressTracker } from '../../shared/progress-tracker.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { clearLorebookPrompt } from '../world-info/index.js';
-import { refreshWorldInfoEntryDepthCache } from '../eventbase/index.js';
+import { describeStoryLinkPass, readStoryLinkCoverage, refreshWorldInfoEntryDepthCache, runStoryLinkPass } from '../eventbase/index.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator, runDiagnostics } from '../diagnostics/index.js';
 import { getCollectionRegistry, getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
@@ -1272,6 +1272,29 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <b>AgentMode is off, so StoryArc mode does nothing.</b> Turn it on in the AgentMode tab.
                                 </small>
                             </div>
+
+                            <div class="vectfox-form-group">
+                                <label for="VectFox_story_arc_link_provider"><small>Link provider</small></label>
+                                <select id="VectFox_story_arc_link_provider" class="vectfox-select">
+                                    <option value="openrouter">OpenRouter</option>
+                                    <option value="vllm">vLLM</option>
+                                </select>
+                            </div>
+
+                            <div class="vectfox-form-group">
+                                <label for="VectFox_story_arc_link_model"><small>Link model</small></label>
+                                <input type="text" id="VectFox_story_arc_link_model" class="vectfox-input" placeholder="openai/gpt-6-luna" />
+                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
+                                    Links record which earlier events each event builds on, so StoryArc can follow a thread. Use a model that thinks: a cheap one links too loosely to help. Uses that provider's key from the AgentMode tab. Each new event then adds one call to this model.
+                                </small>
+                            </div>
+
+                            <div class="vectfox-form-group">
+                                <button type="button" id="VectFox_story_arc_regenerate_links" class="menu_button">
+                                    <i class="fa-solid fa-link"></i> Regenerate links for this chat
+                                </button>
+                                <small class="VectFox_hint" id="VectFox_story_arc_link_status" style="display:block; margin-top:6px;"></small>
+                            </div>
                         </div>
                     </div>
 
@@ -1814,6 +1837,7 @@ function initializeCollapsibleCards() {
             if (tab === 'action') refreshHealthIndicator();
             if (tab === 'worldinfo') refreshWIStatus();
             if (tab === 'autosync') refreshAutoSyncCheckbox(extension_settings.vectfox);
+            if (tab === 'storyarc') refreshStoryLinkStatus(extension_settings.vectfox);
         });
     }
 
@@ -2030,6 +2054,66 @@ export async function refreshWIStatus() {
  *   'vectorize' — no parent to fork from, or the user chose to start over.
  *   'cancel' — the user closed the popup, stopped the fork, or it failed.
  */
+/** Show how far this chat's link pass has got, in the StoryArc tab. */
+async function refreshStoryLinkStatus(settings) {
+    const $status = $('#VectFox_story_arc_link_status');
+    let coverage;
+    try {
+        coverage = await readStoryLinkCoverage(settings);
+    } catch (err) {
+        log.warn('VectFox StoryArc: could not read link status:', err);
+        $status.text('Could not read this chat\'s links. See the console.');
+        return;
+    }
+    if (coverage.problem) {
+        $status.text(coverage.problem);
+        return;
+    }
+    const usability = coverage.hasUsableLinks
+        ? 'StoryArc follows threads through these links.'
+        : 'StoryArc searches without links until this pass is mostly done.';
+    $status.text(`${coverage.decidedCount} of ${coverage.totalCount} events decided, ${coverage.linkedCount} with links. ${usability}`);
+}
+
+/** One line of what a link pass would likely cost. */
+function _describeLinkEstimate({ eventCount, inputTokens, outputTokens, minutes, costUsd }) {
+    const cost = costUsd === null ? 'price unknown' : `about $${costUsd.toFixed(2)}`;
+    return `${eventCount} events: ${cost}, about ${minutes} minutes, about ${Math.round(inputTokens / 1000)}k input and ${Math.round(outputTokens / 1000)}k output tokens`;
+}
+
+/** Show a link pass's cost, and run it if the player accepts. */
+async function _runStoryLinkButton(settings) {
+    const pass = await describeStoryLinkPass(settings);
+    if (pass.problem) {
+        toastr.warning(pass.problem, 'VectFox StoryArc');
+        return;
+    }
+    const { collectionId, coverage, allEstimate, undecidedEstimate, model } = pass;
+    const hasUndecided = undecidedEstimate.eventCount > 0;
+    const hasDecided = coverage.decidedCount > 0;
+    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
+    const choice = await callGenericPopup(
+        `<h3>Regenerate StoryArc links</h3>
+        <p>Each event's text goes to <code>${escapeHtml(model)}</code>, once per event, along with up to 13 earlier events.</p>
+        <ul style="text-align:left;">
+            ${hasUndecided ? `<li>Events with no decision yet. ${escapeHtml(_describeLinkEstimate(undecidedEstimate))}</li>` : ''}
+            ${hasDecided ? `<li>All events, replacing their links. ${escapeHtml(_describeLinkEstimate(allEstimate))}</li>` : ''}
+        </ul>
+        <p><small>Estimated from one chat on GPT-6 Luna, and a model that thinks more costs more. You can stop at any time, and finished events keep their links.</small></p>`,
+        POPUP_TYPE.TEXT,
+        '',
+        {
+            okButton: hasUndecided ? `Link ${undecidedEstimate.eventCount} events` : `Relink all ${allEstimate.eventCount} events`,
+            cancelButton: 'Cancel',
+            customButtons: hasUndecided && hasDecided ? [`Relink all ${allEstimate.eventCount} events`] : [],
+        },
+    );
+    // callGenericPopup returns true or 1 for the OK button, and 2 for the first custom button.
+    const isOkButton = choice === true || choice === 1;
+    if (!isOkButton && choice !== 2) return;
+    await runStoryLinkPass({ collectionId, settings, shouldRelinkDecided: choice === 2 || !hasUndecided });
+}
+
 async function _offerEventBaseFork(settings) {
     const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../eventbase/index.js');
 
@@ -2879,6 +2963,35 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
     updateStoryArcNotice();
+
+    $('#VectFox_story_arc_link_provider')
+        .val(settings.story_arc_link_provider)
+        .on('change', function() {
+            settings.story_arc_link_provider = String($(this).val());
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_story_arc_link_model')
+        .val(settings.story_arc_link_model)
+        .on('input change', function() {
+            settings.story_arc_link_model = String($(this).val()).trim();
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_story_arc_regenerate_links').on('click', async function() {
+        const $button = $(this).prop('disabled', true);
+        try {
+            await _runStoryLinkButton(settings);
+        } catch (err) {
+            log.error('VectFox StoryArc: link pass failed:', err);
+            toastr.error(`Link pass failed: ${err.message}`, 'VectFox StoryArc');
+        } finally {
+            $button.prop('disabled', false);
+            refreshStoryLinkStatus(settings);
+        }
+    });
 
     $('#VectFox_agentic_provider')
         .val(settings.agent_provider || '')

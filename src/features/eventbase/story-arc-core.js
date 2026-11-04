@@ -7,14 +7,23 @@
  * the guild?" or "do you remember when we first met?".
  *
  * A small LLM call, the router, reads the player's message and returns the
- * question's shape and subject. The shape picks a recipe: which events to fetch
- * and how many. Ordinary turns have no recipe and keep today's retrieval path.
+ * question's shape and subject. The shape picks a recipe: which events to fetch,
+ * which links to walk, and how many to keep. Ordinary turns have no recipe and
+ * keep today's retrieval path. StoryArc Route rules decide the route for each
+ * situation, and every turn reports the rule that decided it.
  *
  * @see InternalProject/Vectfox/plans/story-arc.md
  * ============================================================================
  */
 
-import { packTimelineSortKey } from './eventbase-schema.js';
+import {
+    ALL_STORY_LINK_TYPES,
+    STORY_LINK_TYPE,
+    buildStoryLinkGraph,
+    inTimelineOrder,
+    measureStoryLinkCoverage,
+    walkStoryLinks,
+} from './story-arc-links-core.js';
 
 /** What each question shape means, as the router reads it. */
 const STORY_SHAPES = {
@@ -28,26 +37,56 @@ const STORY_SHAPES = {
 
 const SCENE_SHAPE = 'scene';
 
-/** The hybrid search's closest events, shown in time order. */
-const TIME_ORDERED_RECIPE = 'time_ordered';
-/** A subject's earliest events, plus the closest events that name it. */
-export const FIRST_TIME_RECIPE = 'first_time';
+/** The shapes a recipe answers. Any other shape keeps today's path. */
+const RECIPE_SHAPES = new Set(['first_time', 'chain', 'why', 'current', 'bigger_plot']);
+
 /** The shape whose block suits any events in time order. */
-export const THREAD_SHAPE = 'chain';
+const THREAD_SHAPE = 'chain';
 
-const RECIPE_BY_SHAPE = {
-    first_time: FIRST_TIME_RECIPE,
-    chain: TIME_ORDERED_RECIPE,
-    why: TIME_ORDERED_RECIPE,
-    bigger_plot: TIME_ORDERED_RECIPE,
-};
+/** Names of the StoryArc Route rules, as logs and Debug Query show them. */
+export const STORY_ROUTE_RULE = Object.freeze({
+    /** The question's shape chose its recipe, and the recipe found events. */
+    SHAPE_RECIPE: 'shape-recipe',
+    /** The router called the message an ordinary turn, so it keeps today's path. */
+    ORDINARY_TURN: 'ordinary-turn',
+    /** The router failed, has no model, or returned an unknown shape, so the turn keeps today's path. */
+    ROUTER_UNUSABLE: 'router-unusable',
+    /** The collection could not be listed, so the turn keeps today's path. */
+    LISTING_FAILED: 'listing-failed',
+    /** Too few events are decided to walk, so a recipe searches without links. */
+    LINKS_NOT_GENERATED: 'links-not-generated',
+    /** A recipe ended with no events, so the turn keeps today's path. */
+    RECIPE_FOUND_NOTHING: 'recipe-found-nothing',
+    /** A first-time question whose subject is empty or named in no stored event starts from the closest events. */
+    FIRST_TIME_SUBJECT_NOT_FOUND: 'first-time-subject-not-found',
+});
 
-/** Events in a time-ordered block. 50 short lines fit where today's 10 full events do. */
-export const TIME_ORDERED_EVENT_LIMIT = 50;
-/** The first-time recipe's closest events are picked from this many hybrid hits, since the search cannot be limited to chosen events. */
-export const FIRST_TIME_POOL_SIZE = 100;
+/** Events in a block. 50 short lines fit where today's 10 full events do. */
+const BLOCK_EVENT_LIMIT = 50;
+/**
+ * Hybrid hits a recipe asks for. The search cannot be limited to chosen events, so
+ * this pool is how a recipe tells which events are closest to the question.
+ */
+export const STORY_POOL_SIZE = 200;
+/** The closest hits a walk starts from. */
+const WALK_SEED_COUNT = 10;
+/** Closest hits a chain block considers even when no link reaches them, since a missing link should not hide a close event. */
+const CHAIN_CLOSEST_HIT_COUNT = 25;
 const FIRST_TIME_EARLIEST_COUNT = 5;
 const FIRST_TIME_CLOSEST_COUNT = 20;
+/** The newest events of a thread a current-state block keeps. */
+const CURRENT_NEWEST_COUNT = 10;
+/** A link this short stays inside a scene or the one next to it, so it joins steps without drifting across the story. */
+const SCENE_LINK_GAP = 20;
+
+/**
+ * StoryArc mode's switch, plus what it needs: Agent Mode for the router, and Qdrant.
+ * @param {object} settings
+ * @returns {boolean}
+ */
+export function isStoryArcActive(settings) {
+    return !!(settings?.story_arc_mode_enabled && settings.agentic_retrieval_enabled && settings.vector_backend === 'qdrant');
+}
 
 /** How much recent chat the router sees: enough to work out who "you" or a kinship word means. */
 const ROUTER_RECENT_TURNS = 2;
@@ -93,12 +132,12 @@ export function readStoryRoute(reply) {
 }
 
 /**
- * The recipe for a question shape, or null when the turn keeps today's path.
+ * Whether a question shape has a recipe. Any other shape keeps today's path.
  * @param {string} shape
- * @returns {string|null}
+ * @returns {boolean}
  */
-export function recipeForShape(shape) {
-    return RECIPE_BY_SHAPE[shape] ?? null;
+export function hasRecipe(shape) {
+    return RECIPE_SHAPES.has(shape);
 }
 
 /**
@@ -115,32 +154,113 @@ function eventNamesSubject(event, subject) {
 }
 
 /**
- * Events in true chat order. Older events without a `timeline_sort_key` use their
- * window start on the same scale, so a mixed set still sorts as one sequence.
- *
- * @param {object[]} events
- * @returns {object[]} a new array
+ * Limit a walk to a block: the events closest to the question, at most one per
+ * chat window. A window is one step of a thread, and a block wants steps rather
+ * than the detail of one scene. An event outside the pool ranks after every hit,
+ * nearest to the seeds first.
  */
-export function inTimelineOrder(events) {
-    const timelineValue = (event) => (typeof event.timeline_sort_key === 'number'
-        ? event.timeline_sort_key
-        : packTimelineSortKey(event.source_window_start ?? event.source_window_end, event.window_event_order));
-    return [...events].sort((a, b) => timelineValue(a) - timelineValue(b));
+function keepClosestSteps(hopsByHash, eventByHash, poolRankByHash) {
+    const closenessOf = (hash) => poolRankByHash.get(hash) ?? Number.MAX_SAFE_INTEGER;
+    const ranked = [...hopsByHash.keys()]
+        .filter(hash => eventByHash.has(hash))
+        .sort((a, b) => (closenessOf(a) - closenessOf(b)) || (hopsByHash.get(a) - hopsByHash.get(b)));
+    const seenWindows = new Set();
+    const kept = [];
+    for (const hash of ranked) {
+        const event = eventByHash.get(hash);
+        if (seenWindows.has(event.source_window_start)) continue;
+        seenWindows.add(event.source_window_start);
+        kept.push(event);
+        if (kept.length === BLOCK_EVENT_LIMIT) break;
+    }
+    return kept;
+}
+
+/** Steps of one thread: the strongest link, and any short enough to stay in the scene. */
+const isSceneLink = (position, messageGap) => position === 0 || messageGap <= SCENE_LINK_GAP;
+
+/** Add a walk's events to another's, keeping the distance each already has. */
+function addWalk(hopsByHash, moreHopsByHash) {
+    for (const [hash, hops] of moreHopsByHash) {
+        if (!hopsByHash.has(hash)) hopsByHash.set(hash, hops);
+    }
+}
+
+/** Events without repeats, each kept at its first place. */
+function withoutRepeats(events) {
+    return [...new Map(events.map(event => [event._hash, event])).values()];
+}
+
+/** A recipe's events when too few events are decided to walk. */
+function selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents }) {
+    if (shape === 'current') return { events: [], blockShape: shape, ruleName: STORY_ROUTE_RULE.LINKS_NOT_GENERATED };
+    if (shape === 'first_time' && !namedEvents.length) {
+        return { events: inTimelineOrder(poolEvents.slice(0, BLOCK_EVENT_LIMIT)), blockShape: THREAD_SHAPE, ruleName: STORY_ROUTE_RULE.FIRST_TIME_SUBJECT_NOT_FOUND };
+    }
+    const events = shape === 'first_time'
+        ? withoutRepeats([...inTimelineOrder(namedEvents).slice(0, FIRST_TIME_EARLIEST_COUNT), ...closestNaming.slice(0, FIRST_TIME_CLOSEST_COUNT)])
+        : poolEvents.slice(0, BLOCK_EVENT_LIMIT);
+    return { events: inTimelineOrder(events), blockShape: shape, ruleName: STORY_ROUTE_RULE.LINKS_NOT_GENERATED };
 }
 
 /**
- * The first-time recipe's events: the subject's earliest events, and the hybrid
- * hits closest to the question that also name the subject.
+ * A recipe's events, before the filters every retrieval applies. Pure, so the
+ * benchmark can run the same selection on real data.
  *
  * @param {object} params
- * @param {object[]} params.storedEvents - Every event in the collection
- * @param {object[]} params.poolEvents - Hybrid hits, closest first
+ * @param {string} params.shape
  * @param {string} params.subject
- * @returns {object[]} may repeat an event; empty when nothing names the subject
+ * @param {object[]} params.storedEvents - Every event in the collection, each with `_hash`
+ * @param {object[]} params.poolEvents - Hybrid hits, closest first, each with `_hash`
+ * @returns {{events: object[], blockShape: string, ruleName: string}} events in time order; none when the turn should keep today's path
  */
-export function selectFirstTimeEvents({ storedEvents, poolEvents, subject }) {
-    if (!subject) return [];
-    const earliest = inTimelineOrder(storedEvents.filter(event => eventNamesSubject(event, subject))).slice(0, FIRST_TIME_EARLIEST_COUNT);
-    const closest = poolEvents.filter(event => eventNamesSubject(event, subject)).slice(0, FIRST_TIME_CLOSEST_COUNT);
-    return [...earliest, ...closest];
+export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents }) {
+    const namedEvents = subject ? storedEvents.filter(event => eventNamesSubject(event, subject)) : [];
+    const closestNaming = namedEvents.length ? poolEvents.filter(event => eventNamesSubject(event, subject)) : [];
+    if (!measureStoryLinkCoverage(storedEvents).hasUsableLinks) {
+        return selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents });
+    }
+
+    const eventByHash = new Map([...poolEvents, ...storedEvents].map(event => [event._hash, event]));
+    const eventsOf = (hashes) => [...hashes].map(hash => eventByHash.get(hash)).filter(Boolean);
+    const poolRankByHash = new Map(poolEvents.map((event, rank) => [event._hash, rank]));
+    const seedHashes = poolEvents.slice(0, WALK_SEED_COUNT).map(event => event._hash);
+    const graph = buildStoryLinkGraph(storedEvents);
+
+    if (shape === 'first_time') {
+        // The walk from the earliest events can reach a spelling the question did not use.
+        const earliestHashes = namedEvents.length
+            ? inTimelineOrder(namedEvents).slice(0, FIRST_TIME_EARLIEST_COUNT).map(event => event._hash)
+            : seedHashes;
+        const sceneGraph = buildStoryLinkGraph(storedEvents, isSceneLink);
+        const walked = walkStoryLinks(earliestHashes, sceneGraph.parents, [STORY_LINK_TYPE.CONTINUES]);
+        const closest = (namedEvents.length ? closestNaming : poolEvents).slice(0, FIRST_TIME_CLOSEST_COUNT);
+        const events = withoutRepeats([...closest, ...inTimelineOrder(eventsOf(walked.keys()))]).slice(0, BLOCK_EVENT_LIMIT);
+        return {
+            events: inTimelineOrder(events),
+            // Without the subject these are not its earliest events, so the block must not say they are.
+            blockShape: namedEvents.length ? shape : THREAD_SHAPE,
+            ruleName: namedEvents.length ? STORY_ROUTE_RULE.SHAPE_RECIPE : STORY_ROUTE_RULE.FIRST_TIME_SUBJECT_NOT_FOUND,
+        };
+    }
+
+    if (shape === 'current') {
+        const later = walkStoryLinks(seedHashes, graph.children, [STORY_LINK_TYPE.CONTINUES]);
+        const latest = inTimelineOrder(eventsOf(later.keys())).slice(-CURRENT_NEWEST_COUNT);
+        return { events: inTimelineOrder(withoutRepeats([...latest, ...eventsOf(seedHashes)])), blockShape: shape, ruleName: STORY_ROUTE_RULE.SHAPE_RECIPE };
+    }
+
+    let walked;
+    if (shape === 'why') {
+        walked = walkStoryLinks(seedHashes, graph.parents, [STORY_LINK_TYPE.CAUSED_BY, STORY_LINK_TYPE.CONTINUES]);
+    } else if (shape === 'bigger_plot') {
+        const namedSeedHashes = closestNaming.slice(0, WALK_SEED_COUNT).map(event => event._hash);
+        walked = walkStoryLinks([...seedHashes, ...namedSeedHashes], graph.parents, ALL_STORY_LINK_TYPES);
+    } else {
+        // Top hits can sit mid-thread, so later steps need the walk forward.
+        walked = walkStoryLinks(seedHashes, graph.parents, ALL_STORY_LINK_TYPES);
+        addWalk(walked, walkStoryLinks(seedHashes, graph.children, [STORY_LINK_TYPE.CONTINUES]));
+        addWalk(walked, poolEvents.slice(0, CHAIN_CLOSEST_HIT_COUNT).map(event => [event._hash, 0]));
+    }
+    return { events: inTimelineOrder(keepClosestSteps(walked, eventByHash, poolRankByHash)), blockShape: shape, ruleName: STORY_ROUTE_RULE.SHAPE_RECIPE };
 }
