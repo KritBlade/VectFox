@@ -31,7 +31,7 @@ import { generationRateLimiter, generationRateLimitSettings } from './generation
 import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
 import { retrieveEventsWithAgent } from './agentic-retrieval.js';
-import { formatEventsForInjectionDetailed } from './eventbase-injection.js';
+import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -1143,7 +1143,7 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     // canonical re-ranker. Otherwise it returns the pre-search output unchanged,
     // making it a safe drop-in replacement.
     const retrieveFn = settings.agentic_retrieval_enabled ? retrieveEventsWithAgent : retrieveEvents;
-    const { events, debug } = await retrieveFn({
+    const { events, debug, storyArcShape } = await retrieveFn({
         searchText: effectiveSearchText,
         keywordQuery,
         chatLength: getContext().chat?.length || chat?.length || 0,
@@ -1178,7 +1178,9 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
         return;
     }
 
-    const injectionResult = formatEventsForInjectionDetailed(events, settings);
+    const injectionResult = storyArcShape
+        ? formatStoryArcForInjection(events, storyArcShape)
+        : formatEventsForInjectionDetailed(events, settings);
     let injectionText = injectionResult.text;
     const injectedCount = injectionResult.includedCount;
     if (!injectionText) {

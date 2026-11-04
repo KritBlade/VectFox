@@ -145,7 +145,9 @@ export function resolveAgenticMaxTokens(settings) {
  * pre-search, then the planner LLM call, then the query fanout. The base budget
  * already covers the pre-search (it IS an ordinary retrieval), so the extra is
  * planner + fanout. The fanout runs in parallel, so it costs one per-query
- * timeout regardless of how many queries the planner emitted.
+ * timeout regardless of how many queries the planner emitted. StoryArc mode's
+ * router runs alongside the pre-search and can outlast it, so it adds one more
+ * planner timeout.
  *
  * Returns 0 unless the agent path can actually run — same gate as STAGE 2 of
  * retrieveEventsWithAgent(). A user who leaves the agent timeouts cranked up but
@@ -158,7 +160,8 @@ export function resolveAgenticMaxTokens(settings) {
 export function agenticRetrievalExtraBudgetMs(settings) {
     if (!settings?.agentic_retrieval_enabled) return 0;
     if (settings.vector_backend !== 'qdrant') return 0;
-    return resolveAgenticPlannerTimeoutMs(settings) + resolveAgenticQueryTimeoutMs(settings);
+    const routerMs = settings.story_arc_mode_enabled ? resolveAgenticPlannerTimeoutMs(settings) : 0;
+    return routerMs + resolveAgenticPlannerTimeoutMs(settings) + resolveAgenticQueryTimeoutMs(settings);
 }
 
 /**

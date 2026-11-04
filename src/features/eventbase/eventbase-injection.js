@@ -114,6 +114,16 @@ function _formatAsDenseText(events) {
 }
 
 /**
+ * One event as a single line: its position in the conversation, then cause, summary and result.
+ * @param {object} event
+ * @returns {string}
+ */
+function _formatAsStoryLine(event) {
+    const parts = [event.cause, _summaryFromText(event.text), event.result].filter(Boolean);
+    return `- #${event.source_window_start ?? event.source_window_end ?? '?'}: ${parts.join(' ')}`;
+}
+
+/**
  * Format events as summary + DateTime only — minimal prompt footprint.
  * @param {object[]} events
  * @returns {string}
@@ -208,6 +218,41 @@ function _orderEventsForPresentation(events) {
         .map(list => ({ list: [...list].sort(byWindow), anchor: frameAnchor(list) }))
         .sort((a, b) => a.anchor - b.anchor)
         .flatMap(g => g.list);
+}
+
+// ---------------------------------------------------------------------------
+// StoryArc block
+// ---------------------------------------------------------------------------
+
+const STORY_LINE_NOTE = 'Each line starts with its position in the conversation: a smaller # happened earlier. Do not quote these numbers.';
+
+const STORY_ARC_HEADER_BY_SHAPE = {
+    first_time: `The earliest recorded events about this, oldest → newest, with the events closest to what is being asked. ${STORY_LINE_NOTE}`,
+    chain: `The events of this thread, oldest → newest. ${STORY_LINE_NOTE}`,
+    why: `The events leading up to this, oldest → newest, each with its cause. ${STORY_LINE_NOTE}`,
+    bigger_plot: `Events connected to this matter, oldest → newest. ${STORY_LINE_NOTE}`,
+};
+
+/**
+ * Format a StoryArc recipe's events as one short line each, under a header that
+ * says what the block is. Short lines let a thread of 50 events fit where 10
+ * full events fit. Events are expected in time order; each conversation frame
+ * stays together, as in the normal block.
+ *
+ * @param {object[]} events - In time order
+ * @param {string} shape - The question shape the router chose
+ * @returns {{text: string, includedCount: number, requestedCount: number}}
+ */
+export function formatStoryArcForInjection(events, shape) {
+    if (!events?.length) {
+        return { text: '', includedCount: 0, requestedCount: 0 };
+    }
+    const lines = _orderEventsForPresentation(events).map(_formatAsStoryLine);
+    return {
+        text: `${STORY_ARC_HEADER_BY_SHAPE[shape] ?? STORY_ARC_HEADER_BY_SHAPE.chain}\n${lines.join('\n')}`,
+        includedCount: lines.length,
+        requestedCount: events.length,
+    };
 }
 
 // ---------------------------------------------------------------------------

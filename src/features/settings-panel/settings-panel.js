@@ -117,6 +117,7 @@ export function renderSettings(containerId, settings, callbacks) {
                             <button class="vectfox-tab-btn" data-tab="worldinfo">WorldInfo</button>
                             <button class="vectfox-tab-btn" data-tab="rag">RAG</button>
                             <button class="vectfox-tab-btn" data-tab="agentmode">AgentMode</button>
+                            <button class="vectfox-tab-btn" data-tab="storyarc">StoryArc</button>
                         </div>
                     </div>
 
@@ -1246,6 +1247,31 @@ export function renderSettings(containerId, settings, callbacks) {
                                     placeholder="Leave empty to use the built-in default prompt…"></textarea>
                             </div>
 
+                        </div>
+                    </div>
+
+                    <!-- StoryArc Card -->
+                    <div class="vectfox-card" data-vectfox-tab="storyarc">
+                        <div class="vectfox-card-header">
+                            <h3 class="vectfox-card-title">
+                                <span class="vectfox-icon"><i class="fa-solid fa-timeline"></i></span>
+                                StoryArc
+                            </h3>
+                            <p class="vectfox-card-subtitle">Helps with questions about the story's past, such as how someone came to be where they are, why something keeps happening, or the first time two characters met. A small LLM call reads each message, and these questions get events in story order instead of the usual top matches. Other messages are handled as usual.</p>
+                        </div>
+                        <div class="vectfox-card-body">
+                            <div class="vectfox-form-group">
+                                <label class="checkbox_label" for="VectFox_story_arc_mode_enabled">
+                                    <input id="VectFox_story_arc_mode_enabled" type="checkbox" />
+                                    <span><b>Enable StoryArc mode</b></span>
+                                </label>
+                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
+                                    Uses the AgentMode model, and a cheap one works well. Adds one small LLM call per message. Requires Qdrant backend (A3).
+                                </small>
+                                <small class="VectFox_hint" id="VectFox_story_arc_needs_agent_mode" style="display:block; margin-top:6px;">
+                                    <b>AgentMode is off, so StoryArc mode does nothing.</b> Turn it on in the AgentMode tab.
+                                </small>
+                            </div>
                         </div>
                     </div>
 
@@ -2832,13 +2858,27 @@ function bindSettingsEvents(settings, callbacks) {
         $('#VectFox_agentic_vllm_row').toggle(resolved === 'vllm');
     };
 
+    const updateStoryArcNotice = () => {
+        $('#VectFox_story_arc_needs_agent_mode').toggle(!settings.agentic_retrieval_enabled);
+    };
+
     $('#VectFox_agentic_retrieval_enabled')
         .prop('checked', !!settings.agentic_retrieval_enabled)
         .on('change', function() {
             settings.agentic_retrieval_enabled = $(this).prop('checked');
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
+            updateStoryArcNotice();
         });
+
+    $('#VectFox_story_arc_mode_enabled')
+        .prop('checked', !!settings.story_arc_mode_enabled)
+        .on('change', function() {
+            settings.story_arc_mode_enabled = $(this).prop('checked');
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+    updateStoryArcNotice();
 
     $('#VectFox_agentic_provider')
         .val(settings.agent_provider || '')

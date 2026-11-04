@@ -362,6 +362,7 @@ const defaultSettings = {
     // parallel against Qdrant. Purely additive — never replaces the existing
     // flow. A3 (Qdrant) only. See InternalProject/Vectfox/plans/executed/agentic-retrieval-plan.md.
     agentic_retrieval_enabled: false,                  // Master toggle (default OFF)
+    story_arc_mode_enabled: false,                     // StoryArc mode: routes questions about the story's past to time-ordered searches (needs AgentMode)
     agent_provider: '',                    // '' → inherit chat_provider
     agent_model: '',                       // '' → inherit chat_model
     // agentic_retrieval_openrouter_api_key and agentic_retrieval_vllm_api_key

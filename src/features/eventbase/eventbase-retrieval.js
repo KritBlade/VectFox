@@ -242,7 +242,7 @@ async function _runOneLiveQuery({
  * @param {object[]} events
  * @returns {object[]} one entry per identity, highest .score retained
  */
-function _dedupeByIdentity(events) {
+export function dedupeEventsByIdentity(events) {
     const map = new Map();
     for (const event of events) {
         const key = event.event_id ?? event._hash ?? JSON.stringify(event);
@@ -252,6 +252,38 @@ function _dedupeByIdentity(events) {
         }
     }
     return [...map.values()];
+}
+
+/**
+ * Drop events whose source window is already visible in recent context: if
+ * source_window_end falls within the last deduplication_depth messages, the LLM
+ * can see that content directly, so injecting the event adds nothing. Skipped
+ * when cross-chat locked, where source_window_end belongs to a different
+ * conversation and means nothing against the current chat length.
+ *
+ * @param {object[]} events
+ * @param {object} params
+ * @param {number} params.chatLength
+ * @param {object} params.settings
+ * @param {boolean} [params.skipContextDedup]
+ * @returns {object[]}
+ */
+export function removeEventsVisibleInContext(events, { chatLength, settings, skipContextDedup }) {
+    const dedupDepth = settings.deduplication_depth ?? 0;
+    if (skipContextDedup || dedupDepth <= 0) return events;
+    const visibleThreshold = chatLength - dedupDepth;
+    return events.filter(e => {
+        // _rerankApplied events were already filtered server-side by the outer
+        // range filter in the formula query (when applyContextDedupFilter was
+        // true). Don't re-filter them or we'd double-apply.
+        if (e._rerankApplied) return true;
+        const windowEnd = e.source_window_end ?? -1;
+        const inRecentContext = windowEnd >= visibleThreshold;
+        if (inRecentContext) {
+            log.trace(`[EventBase] Dedup-depth skip: event "${e.event_type}" source_window_end=${windowEnd} is within last ${dedupDepth} messages (threshold=${visibleThreshold})`);
+        }
+        return !inRecentContext;
+    });
 }
 
 /**
@@ -494,7 +526,7 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
 
         // Merge by event_id (or hash fallback) — keep the copy with the highest
         // cosine score so the re-ranker sees the best similarity signal per event.
-        rawCandidates = _dedupeByIdentity(allResults.flat());
+        rawCandidates = dedupeEventsByIdentity(allResults.flat());
 
         log.verbose(`[EventBase] Live query: ${liveCollectionIds.length} collection(s) × ${queryTexts.length} query/queries → ${rawCandidates.length} unique events`);
     }
@@ -507,7 +539,7 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     let allCandidates;
     if (additionalCandidates?.length) {
         const combinedLen = rawCandidates.length + additionalCandidates.length;
-        allCandidates = _dedupeByIdentity([...rawCandidates, ...additionalCandidates]);
+        allCandidates = dedupeEventsByIdentity([...rawCandidates, ...additionalCandidates]);
         log.verbose(`[EventBase] Merged ${additionalCandidates.length} additional candidate(s) with ${rawCandidates.length} live → ${allCandidates.length} unique by identity (from ${combinedLen})`);
     } else {
         allCandidates = rawCandidates;
@@ -692,30 +724,10 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     }
 
     // 6. Dedup depth — skip events whose source window is already visible in recent context.
-    // If source_window_end falls within the last deduplication_depth messages, the LLM can
-    // already see that content directly; injecting the event adds redundant information.
-    // Skipped when cross-chat locked: source_window_end belongs to a different conversation
-    // and is meaningless relative to the current chat length.
-    const dedupDepth = settings.deduplication_depth ?? 0;
-    const visibleThreshold = dedupDepth > 0 ? chatLength - dedupDepth : -1;
-
-    const contextDedupedEvents = (skipContextDedup || dedupDepth <= 0)
-        ? dedupedEvents
-        : dedupedEvents.filter(e => {
-            // _rerankApplied events were already filtered server-side by the
-            // outer range filter in the formula query (when applyContextDedupFilter
-            // was true). Don't re-filter them or we'd double-apply.
-            if (e._rerankApplied) return true;
-            const windowEnd = e.source_window_end ?? -1;
-            const inRecentContext = windowEnd >= visibleThreshold;
-            if (inRecentContext) {
-                log.trace(`[EventBase] Dedup-depth skip: event "${e.event_type}" source_window_end=${windowEnd} is within last ${dedupDepth} messages (threshold=${visibleThreshold})`);
-            }
-            return !inRecentContext;
-        });
+    const contextDedupedEvents = removeEventsVisibleInContext(dedupedEvents, { chatLength, settings, skipContextDedup });
 
     if (contextDedupedEvents.length < dedupedEvents.length) {
-        log.verbose(`[EventBase] Dedup depth (${dedupDepth}) removed ${dedupedEvents.length - contextDedupedEvents.length} event(s) already visible in context`);
+        log.verbose(`[EventBase] Dedup depth (${settings.deduplication_depth}) removed ${dedupedEvents.length - contextDedupedEvents.length} event(s) already visible in context`);
     }
 
     // 7. Trim to requested top-K

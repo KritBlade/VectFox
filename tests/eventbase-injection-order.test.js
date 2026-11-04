@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { formatEventsForInjectionDetailed } from '../src/features/eventbase/eventbase-injection.js';
+import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from '../src/features/eventbase/eventbase-injection.js';
 
 /** Minimal event factory. `text` drives the injected summary line. */
 const ev = (o) => ({
@@ -123,5 +123,64 @@ describe('formatEventsForInjectionDetailed — presentation ordering', () => {
         expect(b).toBeGreaterThan(-1);
         expect(b).toBeLessThan(c);
         expect(c).toBeLessThan(a);
+    });
+});
+
+describe('formatStoryArcForInjection', () => {
+    const line = (o) => ev({ source_window_start: o.source_window_end - 1, ...o });
+
+    it('writes one line per event: position, cause, summary, result', () => {
+        const { text, includedCount } = formatStoryArcForInjection([
+            line({ summary: 'the blockade', cause: 'the church moved', result: 'refugees fled', source_window_end: 459 }),
+        ], 'chain');
+        expect(text.split('\n')[1]).toBe('- #458: the church moved the blockade refugees fled');
+        expect(includedCount).toBe(1);
+    });
+
+    it('leaves out a missing cause or result without stray spaces', () => {
+        const { text } = formatStoryArcForInjection([line({ summary: 'alone', source_window_end: 11 })], 'chain');
+        expect(text.split('\n')[1]).toBe('- #10: alone');
+    });
+
+    it('keeps one window\'s events in the order they are given, and sorts windows oldest → newest', () => {
+        const { text } = formatStoryArcForInjection([
+            line({ summary: 'first_of_window', source_window_end: 101 }),
+            line({ summary: 'second_of_window', source_window_end: 101 }),
+            line({ summary: 'older', source_window_end: 51 }),
+        ], 'chain');
+        const [older, first, second] = order(text, 'older', 'first_of_window', 'second_of_window');
+        expect(older).toBeLessThan(first);
+        expect(first).toBeLessThan(second);
+    });
+
+    it('keeps each conversation together', () => {
+        const { text } = formatStoryArcForInjection([
+            line({ summary: 'live_old', source_window_end: 11, _sortFrame: 'live', real_world_date: '2026-06-01T00:00:00Z' }),
+            line({ summary: 'archive_late', source_window_end: 901, _sortFrame: 'archive', real_world_date: '2025-01-01T00:00:00Z' }),
+        ], 'chain');
+        const [archive, live] = order(text, 'archive_late', 'live_old');
+        expect(archive).toBeLessThan(live);
+    });
+
+    it('says what the block is for each shape, and tells the reader how to read it', () => {
+        const events = [line({ summary: 'a', source_window_end: 2 })];
+        const headers = ['first_time', 'chain', 'why', 'bigger_plot'].map(shape => formatStoryArcForInjection(events, shape).text.split('\n')[0]);
+        expect(new Set(headers).size).toBe(4);
+        for (const header of headers) {
+            expect(header).toContain('oldest → newest');
+            expect(header).toContain('smaller # happened earlier');
+        }
+        expect(headers[0]).toContain('earliest');
+    });
+
+    it('stays near the size of the normal block at 50 events', () => {
+        const summary = '一'.repeat(90);
+        const events = Array.from({ length: 50 }, (_, i) => line({ summary, cause: '因'.repeat(20), result: '果'.repeat(20), source_window_end: i * 2 + 1 }));
+        expect(formatStoryArcForInjection(events, 'chain').text.length).toBeLessThan(8000);
+    });
+
+    it('returns an empty block for no events', () => {
+        expect(formatStoryArcForInjection([], 'chain')).toEqual({ text: '', includedCount: 0, requestedCount: 0 });
+        expect(formatStoryArcForInjection(null, 'chain').text).toBe('');
     });
 });

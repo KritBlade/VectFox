@@ -7,8 +7,11 @@
  * which run in parallel against Qdrant. Results merge with the pre-search output
  * and re-flow through the existing 4-weight re-ranker untouched.
  *
- * Purely additive — never replaces the existing flow. Every failure path falls
- * back cleanly to the pre-search output. Qdrant (A3) only.
+ * StoryArc mode adds a router alongside the pre-search. When the player asks
+ * about the story's past, a recipe (story-arc-retrieval.js) replaces everything
+ * below with events in time order. Any other turn continues here as usual.
+ *
+ * Every failure path falls back cleanly to the pre-search output. Qdrant (A3) only.
  *
  * Phase 1.5: planner-emitted *_any / importance_gte filters are validated and
  * threaded into each queryCollection call when agentic_filters_enabled is true
@@ -28,6 +31,8 @@ import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
+import { STORY_ROUTER_PROMPT, buildStoryRouterMessage, readStoryRoute, recipeForShape } from './story-arc-core.js';
+import { retrieveStoryRecipeEvents } from './story-arc-retrieval.js';
 import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
@@ -52,6 +57,9 @@ export async function retrieveEventsWithAgent(params) {
     const agenticDebug = log.domainEnabled('agent');
     const tAgentStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+    // The router runs alongside the pre-search, so an ordinary turn waits only for the slower of the two.
+    const storyRoutePromise = _isStoryArcActive(settings) ? _routeStoryQuestion(params) : null;
+
     // STAGE 1 — existing pre-search runs unconditionally.
     const preSearch = await retrieveEvents(params);
 
@@ -64,6 +72,22 @@ export async function retrieveEventsWithAgent(params) {
             log.domain('agent', 'lifecycle', '[VectFox-Agentic] mode=SKIPPED reason=requires_qdrant_backend');
         }
         return preSearch;
+    }
+
+    // A question about the story's past is answered by its recipe, which skips the planner and the rerank.
+    const storyRoute = await storyRoutePromise;
+    if (storyRoute && recipeForShape(storyRoute.shape)) {
+        const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
+        const recalled = await retrieveStoryRecipeEvents(storyRoute, { ...params, boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs) });
+        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] shape=${storyRoute.shape} subject="${storyRoute.subject}" block=${recalled.blockShape} events=${recalled.events.length}`);
+        if (recalled.events.length) {
+            return {
+                events: recalled.events,
+                storyArcShape: recalled.blockShape,
+                debug: { ...(preSearch.debug || {}), storyArc: { shape: storyRoute.shape, subject: storyRoute.subject, finalCount: recalled.events.length } },
+            };
+        }
+        log.domain('agent', 'lifecycle', '[VectFox-StoryArc] The recipe found nothing, keeping the normal path');
     }
 
     // STAGE 3 — gather context for planner and call LLM.
@@ -132,26 +156,7 @@ export async function retrieveEventsWithAgent(params) {
             'agent',
         );
     } catch (err) {
-        const tLlmMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tLlmStart));
-        // A retired/unknown Agent Mode model would otherwise silently degrade to
-        // pre-search forever. Warn the user (once) so they know to fix it; we still
-        // fall back to pre-search below so retrieval keeps working in the meantime.
-        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../../shared/model-config-notifier.js');
-        if (isInvalidModelConfigError(err)) {
-            notifyInvalidModel(err.message);
-        }
-        // AbortSignal.timeout() throws either a TimeoutError or a generic
-        // "user aborted a request" message depending on the runtime. Detect both
-        // and surface a clearer log line so timeout vs. real error is obvious.
-        const isTimeout =
-            err?.name === 'TimeoutError' ||
-            err?.name === 'AbortError' ||
-            /aborted|timeout|timed out/i.test(err?.message || '');
-        if (isTimeout) {
-            log.warn(`[VectFox-Agentic] Planner LLM call TIMED OUT after ${tLlmMs}ms (configured limit: ${timeoutMs}ms). Falling back to pre-search only. Bump "Planner LLM Timeout" in the AgentMode tab if your model needs longer.`);
-        } else {
-            log.warn(`[VectFox-Agentic] Planner LLM call failed after ${tLlmMs}ms, using pre-search only: ${err?.message || err}`);
-        }
+        await _reportAgentLlmFailure(err, 'Planner', tLlmStart, timeoutMs);
         return preSearch;
     }
     const tLlmMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tLlmStart));
@@ -296,8 +301,88 @@ export async function retrieveEventsWithAgent(params) {
 }
 
 // ============================================================================
+// StoryArc router
+// ============================================================================
+
+/** StoryArc mode's switch, plus the same gate as STAGE 2 of retrieveEventsWithAgent. */
+function _isStoryArcActive(settings) {
+    return !!(settings?.story_arc_mode_enabled && settings.agentic_retrieval_enabled && settings.vector_backend === 'qdrant');
+}
+
+/**
+ * Ask the router for the question's shape and subject. Never throws: a failure
+ * is reported and returns null, so the turn keeps the normal path.
+ *
+ * @param {object} params - The retrieval params
+ * @returns {Promise<{shape: string, subject: string}|null>}
+ */
+async function _routeStoryQuestion({ settings, keywordQuery }) {
+    const llmCfg = _resolveAgenticLLMConfig(settings);
+    if (!llmCfg.ok) {
+        log.warn(`[VectFox-StoryArc] Router skipped: ${llmCfg.reason}`);
+        return null;
+    }
+    if (!keywordQuery?.trim()) return null;
+
+    const timeoutMs = resolveAgenticPlannerTimeoutMs(settings);
+    const tStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    try {
+        const reply = await generationRateLimiter.execute(
+            () => _callPlanner({
+                systemPrompt: STORY_ROUTER_PROMPT,
+                userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatForPlanner(settings), userMessage: keywordQuery }),
+                llmCfg,
+                timeoutMs,
+                maxTokens: resolveAgenticMaxTokens(settings),
+            }),
+            generationRateLimitSettings(settings),
+            'agent',
+        );
+        const route = readStoryRoute(reply);
+        if (!route.isKnownShape) {
+            log.warn(`[VectFox-StoryArc] Router returned an unknown shape, keeping the normal path: ${JSON.stringify(reply?.shape)}`);
+        }
+        return route;
+    } catch (err) {
+        await _reportAgentLlmFailure(err, 'StoryArc router', tStart, timeoutMs);
+        return null;
+    }
+}
+
+// ============================================================================
 // LLM planner call
 // ============================================================================
+
+/**
+ * Report a failed Agent Mode LLM call. A retired or unknown model would otherwise
+ * silently degrade to the pre-search forever, so the user is warned (once) to fix
+ * it, while retrieval keeps working in the meantime.
+ *
+ * @param {unknown} err
+ * @param {string} label - Which call failed
+ * @param {number} tStart - When the call started
+ * @param {number} timeoutMs - The call's configured limit
+ */
+async function _reportAgentLlmFailure(err, label, tStart, timeoutMs) {
+    const tLlmMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tStart));
+    const { isInvalidModelConfigError, notifyInvalidModel } = await import('../../shared/model-config-notifier.js');
+    if (isInvalidModelConfigError(err)) {
+        notifyInvalidModel(err.message);
+    }
+    // AbortSignal.timeout() throws either a TimeoutError or a generic
+    // "user aborted a request" message depending on the runtime. Detect both
+    // and surface a clearer log line so timeout vs. real error is obvious.
+    const isTimeout =
+        err?.name === 'TimeoutError' ||
+        err?.name === 'AbortError' ||
+        /aborted|timeout|timed out/i.test(err?.message || '');
+    if (isTimeout) {
+        log.warn(`[VectFox-Agentic] ${label} LLM call TIMED OUT after ${tLlmMs}ms (configured limit: ${timeoutMs}ms). Falling back to pre-search only. Bump "Planner LLM Timeout" in the AgentMode tab if your model needs longer.`);
+    } else {
+        log.warn(`[VectFox-Agentic] ${label} LLM call failed after ${tLlmMs}ms, using pre-search only: ${err?.message || err}`);
+    }
+}
+
 
 /**
  * Resolve the effective LLM config for the planner. Reads agentic_retrieval_*

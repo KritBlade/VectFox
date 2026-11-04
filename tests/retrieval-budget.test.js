@@ -117,6 +117,16 @@ describe('agent mode timeouts', () => {
         expect(agenticRetrievalExtraBudgetMs(agentOn))
             .toBe(AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
     });
+
+    // The StoryArc router runs alongside the pre-search and can outlast it.
+    it('adds one more planner timeout for the StoryArc router', () => {
+        expect(agenticRetrievalExtraBudgetMs({ ...agentOn, story_arc_mode_enabled: true }))
+            .toBe(2 * AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
+    });
+
+    it('adds nothing for StoryArc mode when agent mode is off', () => {
+        expect(agenticRetrievalExtraBudgetMs({ vector_backend: 'qdrant', story_arc_mode_enabled: true })).toBe(0);
+    });
 });
 
 describe('resolveEventBaseRetrievalTimeoutMs', () => {
