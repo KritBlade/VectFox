@@ -12,6 +12,10 @@
  * keep today's retrieval path. StoryArc Route rules decide the route for each
  * situation, and every turn reports the rule that decided it.
  *
+ * On a question about a thread, a second LLM call reads the chat's thread names
+ * and picks those that could hold the answer, even when they share no word with
+ * the question. The events of those threads take seats in the block first.
+ *
  * @see InternalProject/Vectfox/plans/story-arc.md
  * ============================================================================
  */
@@ -59,10 +63,16 @@ export const STORY_ROUTE_RULE = Object.freeze({
     RECIPE_FOUND_NOTHING: 'recipe-found-nothing',
     /** A first-time question whose subject is empty or named in no stored event starts from the closest events. */
     FIRST_TIME_SUBJECT_NOT_FOUND: 'first-time-subject-not-found',
+    /** An LLM picked threads by name, and their events took seats in the block first. */
+    THREAD_PICK: 'thread-pick',
+    /** The thread pick failed or has no model, so the recipe ran without it. */
+    THREAD_PICK_FAILED: 'thread-pick-failed',
 });
 
-/** Events in a block. 50 short lines fit where today's 10 full events do. */
-const BLOCK_EVENT_LIMIT = 50;
+/** Events in a block. 75 short lines come to about 10,500 characters. */
+const BLOCK_EVENT_LIMIT = 75;
+/** Seats a thread pick's events take first, which leaves a walk the 50 closest events it had without one. */
+const PICKED_EVENT_SEATS = 25;
 /**
  * Hybrid hits a recipe asks for. The search cannot be limited to chosen events, so
  * this pool is how a recipe tells which events are closest to the question.
@@ -76,6 +86,8 @@ const FIRST_TIME_CLOSEST_COUNT = 20;
 const CURRENT_NEWEST_COUNT = 10;
 /** A link this short stays inside a scene or the one next to it, so it joins steps without drifting across the story. */
 const SCENE_LINK_GAP = 20;
+/** The shapes whose block holds a thread's steps, which picked threads can add to. */
+const THREAD_PICK_SHAPES = new Set(['chain', 'why', 'bigger_plot']);
 
 /**
  * StoryArc mode's switch, plus what it needs: Agent Mode for the router, and Qdrant.
@@ -138,6 +150,91 @@ export function hasRecipe(shape) {
     return RECIPE_SHAPES.has(shape);
 }
 
+export const THREAD_PICK_PROMPT =
+    'A player asks about the past of a long roleplay story. Below is the list of the story\'s threads, oldest first, each with the message number where it starts. '
+    + 'Pick every thread that could hold a step of the answer, even when it uses another name for the same person or matter. A question about someone\'s relative or partner is also about that person. Pick at most 30.\n'
+    + 'Reply with JSON only: {"threads": ["..."]}, copying each thread name exactly.';
+
+/**
+ * Whether a shape's recipe asks an LLM to pick threads.
+ * @param {string} shape
+ * @returns {boolean}
+ */
+export function hasThreadPick(shape) {
+    return THREAD_PICK_SHAPES.has(shape);
+}
+
+/**
+ * The chat's threads: each name once, with the message where it starts, oldest first.
+ *
+ * @param {object[]} storedEvents
+ * @returns {{name: string, firstMessage: number}[]}
+ */
+export function listStoryThreads(storedEvents) {
+    const firstMessageByName = new Map();
+    for (const event of storedEvents) {
+        for (const link of event.story_links ?? []) {
+            if (!link.thread) continue;
+            const earliest = firstMessageByName.get(link.thread);
+            if (earliest === undefined || event.source_window_start < earliest) firstMessageByName.set(link.thread, event.source_window_start);
+        }
+    }
+    return [...firstMessageByName]
+        .map(([name, firstMessage]) => ({ name, firstMessage }))
+        .sort((a, b) => a.firstMessage - b.firstMessage);
+}
+
+/**
+ * The thread pick's user message: the list, then the question, so the list can be
+ * a cached prefix. The subject is added when the question leaves it out, as in
+ * "how did your father get there?".
+ *
+ * @param {{name: string, firstMessage: number}[]} threads - From listStoryThreads
+ * @param {string} question
+ * @param {string} subject - The router's subject
+ * @returns {string}
+ */
+export function buildThreadPickMessage(threads, question, subject) {
+    const list = threads.map(thread => `#${thread.firstMessage} ${thread.name}`).join('\n');
+    const about = subject && !question.includes(subject) ? `\nIt is about: ${subject}` : '';
+    return `Threads:\n${list}\n\nPlayer's question:\n${question}${about}`;
+}
+
+/**
+ * Read an LLM's thread pick. The model may copy a list line whole, with its message
+ * number. A name no link carries simply reaches no events.
+ *
+ * @param {unknown} reply - Parsed JSON from the LLM
+ * @returns {string[]} thread names, in the model's order
+ * @throws {Error} when the reply has no `threads` array, so a malformed reply never reads as "no threads"
+ */
+export function readThreadPick(reply) {
+    if (!Array.isArray(reply?.threads)) {
+        throw new Error(`Thread pick reply has no threads array: ${JSON.stringify(reply)?.slice(0, 200)}`);
+    }
+    return reply.threads
+        .filter(name => typeof name === 'string')
+        .map(name => name.replace(/^\s*#\d+\s*/, '').trim())
+        .filter(Boolean);
+}
+
+/**
+ * Every event the links of these threads join, in the order the threads are named.
+ *
+ * @param {string[]} threadNames
+ * @param {object[]} storedEvents
+ * @returns {Set<number>} hashes
+ */
+function hashesOfThreads(threadNames, storedEvents) {
+    const hashesByName = new Map(threadNames.map(name => [name, new Set()]));
+    for (const event of storedEvents) {
+        for (const link of event.story_links ?? []) {
+            hashesByName.get(link.thread)?.add(event._hash).add(link.hash);
+        }
+    }
+    return new Set([...hashesByName.values()].flatMap(hashes => [...hashes]));
+}
+
 /**
  * Whether an event's stored text holds the subject. The stored text carries the
  * summary, cause, result, characters, locations and keywords, so this also finds
@@ -155,16 +252,21 @@ function eventNamesSubject(event, subject) {
  * Limit a walk to a block: the events closest to the question, at most one per
  * chat window. A window is one step of a thread, and a block wants steps rather
  * than the detail of one scene. An event outside the pool ranks after every hit,
- * nearest to the seeds first.
+ * nearest to the seeds first. Picked threads' events go first, closest first, up to
+ * their seats, since a pick exists to reach what the search ranks low.
  */
-function keepClosestSteps(hopsByHash, eventByHash, poolRankByHash) {
+function keepClosestSteps(hopsByHash, eventByHash, poolRankByHash, pickedHashes) {
     const closenessOf = (hash) => poolRankByHash.get(hash) ?? Number.MAX_SAFE_INTEGER;
+    const picked = [...pickedHashes]
+        .filter(hash => eventByHash.has(hash))
+        .sort((a, b) => closenessOf(a) - closenessOf(b))
+        .slice(0, PICKED_EVENT_SEATS);
     const ranked = [...hopsByHash.keys()]
         .filter(hash => eventByHash.has(hash))
         .sort((a, b) => (closenessOf(a) - closenessOf(b)) || (hopsByHash.get(a) - hopsByHash.get(b)));
     const seenWindows = new Set();
     const kept = [];
-    for (const hash of ranked) {
+    for (const hash of [...picked, ...ranked]) {
         const event = eventByHash.get(hash);
         if (seenWindows.has(event.source_window_start)) continue;
         seenWindows.add(event.source_window_start);
@@ -210,9 +312,10 @@ function selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents }) {
  * @param {string} params.subject
  * @param {object[]} params.storedEvents - Every event in the collection, each with `_hash`
  * @param {object[]} params.poolEvents - Hybrid hits, closest first, each with `_hash`
+ * @param {string[]} [params.pickedThreads] - Thread names an LLM picked, whose events take seats first in a thread block
  * @returns {{events: object[], blockShape: string, ruleName: string}} events in time order; none when the turn should keep today's path
  */
-export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents }) {
+export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents, pickedThreads = [] }) {
     const namedEvents = subject ? storedEvents.filter(event => eventNamesSubject(event, subject)) : [];
     const closestNaming = namedEvents.length ? poolEvents.filter(event => eventNamesSubject(event, subject)) : [];
     if (!measureStoryLinkCoverage(storedEvents).hasUsableLinks) {
@@ -259,5 +362,10 @@ export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEven
         walked = walkStoryLinks(seedHashes, graph.parents, ALL_STORY_LINK_TYPES);
         addWalk(walked, walkStoryLinks(seedHashes, graph.children, [STORY_LINK_TYPE.CONTINUES]));
     }
-    return { events: inTimelineOrder(keepClosestSteps(walked, eventByHash, poolRankByHash)), blockShape: shape, ruleName: STORY_ROUTE_RULE.SHAPE_RECIPE };
+    const pickedHashes = hashesOfThreads(pickedThreads, storedEvents);
+    return {
+        events: inTimelineOrder(keepClosestSteps(walked, eventByHash, poolRankByHash, pickedHashes)),
+        blockShape: shape,
+        ruleName: pickedHashes.size ? STORY_ROUTE_RULE.THREAD_PICK : STORY_ROUTE_RULE.SHAPE_RECIPE,
+    };
 }

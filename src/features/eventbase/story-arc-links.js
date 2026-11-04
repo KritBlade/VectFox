@@ -13,11 +13,10 @@
 
 import { fetchPortableChunks } from '../collections/index.js';
 import { queryCollection, updateChunkMetadata } from '../vector-backend/index.js';
-import { resolveModelParameterStyle } from '../llm-provider/index.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
-import { callLlmForJson, resolveLlmConnection } from './agentic-retrieval.js';
+import { callLlmForJson, resolveStoryLinkLlmConfig } from './agentic-retrieval.js';
 import { resolveActiveEventBaseCollection } from './eventbase-store.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { isStoryArcActive } from './story-arc-core.js';
@@ -49,20 +48,6 @@ const NEW_EVENT_LINK_LIMIT = 50;
 const NEW_EVENT_PARALLEL_CALLS = 3;
 /** Hits a new event's candidates come from. Older events far outnumber newer ones, so few hits are lost as later events. */
 const NEW_EVENT_POOL_SIZE = 40;
-
-function _resolveLinkLlmConfig(settings) {
-    const connection = resolveLlmConnection({
-        provider: settings.story_arc_link_provider || 'openrouter',
-        model: settings.story_arc_link_model,
-        vllmUrl: settings.agent_vllm_url || settings.chat_vllm_url,
-    });
-    if (!connection.ok) return connection;
-    // A link needs thought, so the model keeps its own reasoning default and its own temperature.
-    return {
-        ...connection,
-        parameterStyle: { ...resolveModelParameterStyle(settings), sendTemperature: false, reasoningEffort: null },
-    };
-}
 
 /** One LLM decision, without storing it. Events with nothing earlier need no call. */
 async function _decideLinks(event, candidates, llmCfg, settings) {
@@ -203,7 +188,7 @@ async function _readChatEvents(settings, resolveOptions) {
 export async function describeStoryLinkPass(settings) {
     const { problem, collectionId, events } = await _readChatEvents(settings);
     if (problem) return { problem };
-    const llmCfg = _resolveLinkLlmConfig(settings);
+    const llmCfg = resolveStoryLinkLlmConfig(settings);
     if (!llmCfg.ok) return { problem: `Set the link model and its provider's key or URL first (${llmCfg.reason}).` };
     const coverage = measureStoryLinkCoverage(events);
     const price = await _readLinkModelPrice(settings);
@@ -237,7 +222,7 @@ export async function readStoryLinkCoverage(settings) {
  * @returns {Promise<{decidedCount: number, failedCount: number, isStopped: boolean}>}
  */
 export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDecided }) {
-    const llmCfg = _resolveLinkLlmConfig(settings);
+    const llmCfg = resolveStoryLinkLlmConfig(settings);
     if (!llmCfg.ok) throw new Error(`StoryArc link model is not ready: ${llmCfg.reason}`);
 
     let isStopRequested = false;
@@ -321,7 +306,7 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
             globalThis.toastr?.info(`${newEventIds.length} new events have no StoryArc links yet. Use the StoryArc tab to link them, where the cost is shown first.`, 'VectFox StoryArc');
             return;
         }
-        const llmCfg = _resolveLinkLlmConfig(settings);
+        const llmCfg = resolveStoryLinkLlmConfig(settings);
         if (!llmCfg.ok) {
             log.warn(`[VectFox-StoryArc] New events were not linked: ${llmCfg.reason}`);
             return;

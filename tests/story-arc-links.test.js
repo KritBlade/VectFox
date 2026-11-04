@@ -22,15 +22,11 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     updateChunkMetadata: (...args) => updateChunkMetadataMock(...args),
 }));
 
-vi.mock('../src/features/llm-provider/index.js', () => ({
-    resolveModelParameterStyle: () => ({ sendTemperature: true, tokenLimitParameter: 'max_tokens', reasoningEffort: 'none' }),
-}));
-
 const callLlmForJsonMock = vi.fn();
-const resolveLlmConnectionMock = vi.fn();
+const resolveLinkConfigMock = vi.fn();
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({
     callLlmForJson: (...args) => callLlmForJsonMock(...args),
-    resolveLlmConnection: (...args) => resolveLlmConnectionMock(...args),
+    resolveStoryLinkLlmConfig: (...args) => resolveLinkConfigMock(...args),
 }));
 
 const resolveActiveCollectionMock = vi.fn();
@@ -96,7 +92,7 @@ beforeEach(() => {
     updateChunkMetadataMock.mockReset().mockResolvedValue({});
     callLlmForJsonMock.mockReset().mockResolvedValue({ links: [] });
     listStoryEventsMock.mockReset();
-    resolveLlmConnectionMock.mockReset().mockReturnValue({ ok: true, provider: 'openrouter', model: 'openai/gpt-6-luna', apiKey: 'key' });
+    resolveLinkConfigMock.mockReset().mockReturnValue({ ok: true, provider: 'openrouter', model: 'openai/gpt-6-luna', apiKey: 'key' });
     resolveActiveCollectionMock.mockReset().mockReturnValue({ collectionId: COLLECTION, registryKey: `qdrant:${COLLECTION}` });
     vi.stubGlobal('fetch', vi.fn(async () => ({
         ok: true,
@@ -140,7 +136,7 @@ describe('runStoryLinkPass', () => {
         fetchPortableChunksMock.mockResolvedValue([chunk(1, 10), chunk(2, 20)]);
         await runStoryLinkPass({ collectionId: COLLECTION, settings, shouldRelinkDecided: true });
         const [call] = callLlmForJsonMock.mock.calls[0];
-        expect(call.llmCfg.parameterStyle).toEqual({ sendTemperature: false, tokenLimitParameter: 'max_tokens', reasoningEffort: null });
+        expect(call.llmCfg).toEqual(resolveLinkConfigMock.mock.results[0].value);
         expect(call.maxTokens).toBeGreaterThan(8000);
     });
 
@@ -257,7 +253,7 @@ describe('runStoryLinkPass', () => {
     });
 
     it('refuses to start without a usable model', async () => {
-        resolveLlmConnectionMock.mockReturnValueOnce({ ok: false, reason: 'missing_model' });
+        resolveLinkConfigMock.mockReturnValueOnce({ ok: false, reason: 'missing_model' });
         await expect(runStoryLinkPass({ collectionId: COLLECTION, settings, shouldRelinkDecided: true })).rejects.toThrow('missing_model');
         expect(progressMock.show).not.toHaveBeenCalled();
     });
@@ -306,7 +302,7 @@ describe('describeStoryLinkPass', () => {
         resolveActiveCollectionMock.mockReturnValueOnce(null);
         expect((await describeStoryLinkPass(settings)).problem).toContain('no EventBase collection');
         listStoryEventsMock.mockResolvedValueOnce([stored(1, 10)]);
-        resolveLlmConnectionMock.mockReturnValueOnce({ ok: false, reason: 'missing_openrouter_api_key' });
+        resolveLinkConfigMock.mockReturnValueOnce({ ok: false, reason: 'missing_openrouter_api_key' });
         expect((await describeStoryLinkPass(settings)).problem).toContain('missing_openrouter_api_key');
         listStoryEventsMock.mockResolvedValueOnce(null);
         expect((await describeStoryLinkPass(settings)).problem).toContain('Could not read');
@@ -421,7 +417,7 @@ describe('linkNewStoryEvents', () => {
     });
 
     it('warns when the link model is not set, and when listing throws', async () => {
-        resolveLlmConnectionMock.mockReturnValueOnce({ ok: false, reason: 'missing_model' });
+        resolveLinkConfigMock.mockReturnValueOnce({ ok: false, reason: 'missing_model' });
         await run(['id1']);
         expect(logWarnMock.mock.calls[0][0]).toContain('missing_model');
         listStoryEventsMock.mockRejectedValueOnce(new Error('boom'));

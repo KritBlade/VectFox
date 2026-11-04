@@ -13,8 +13,8 @@
 
 import { listChunks, queryCollection } from '../vector-backend/index.js';
 import { dedupeEventsByIdentity, removeEventsVisibleInContext } from './eventbase-retrieval.js';
-import { STORY_POOL_SIZE, STORY_ROUTE_RULE, hasRecipe, selectStoryRecipeEvents } from './story-arc-core.js';
-import { inTimelineOrder } from './story-arc-links-core.js';
+import { STORY_POOL_SIZE, STORY_ROUTE_RULE, hasRecipe, hasThreadPick, selectStoryRecipeEvents } from './story-arc-core.js';
+import { inTimelineOrder, measureStoryLinkCoverage } from './story-arc-links-core.js';
 import { log } from '../../sillytavern/log.js';
 
 /** Lists the whole collection: a limit below its size would return an arbitrary sample. */
@@ -74,13 +74,14 @@ function _mergeHitsByPlace(hitLists) {
  * @param {{shape: string, subject: string}} route
  * @param {object} params - The retrieval params (see retrieveEvents)
  * @param {(promise: Promise) => Promise} params.boundQuery - Limits how long one Qdrant call may take
- * @returns {Promise<{events: object[], blockShape: string, ruleName: string}>} blockShape says which block the events suit
+ * @param {(storedEvents: object[]) => Promise<string[]|null>} [params.pickThreads] - Asks an LLM which threads could hold the answer; null when that failed
+ * @returns {Promise<{events: object[], blockShape: string, ruleName: string, pickedThreadCount: number}>} blockShape says which block the events suit
  */
 export async function retrieveStoryRecipeEvents(route, params) {
-    const { keywordQuery, searchText, chatLength, settings, liveCollectionIds, additionalCandidates, skipLiveQuery, skipContextDedup, boundQuery } = params;
+    const { keywordQuery, searchText, chatLength, settings, liveCollectionIds, additionalCandidates, skipLiveQuery, skipContextDedup, boundQuery, pickThreads = async () => [] } = params;
     const queryText = keywordQuery || searchText;
     if (!hasRecipe(route.shape) || skipLiveQuery || !liveCollectionIds?.length || !queryText) {
-        return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING };
+        return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING, pickedThreadCount: 0 };
     }
 
     const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
@@ -89,19 +90,23 @@ export async function retrieveStoryRecipeEvents(route, params) {
         Promise.all(liveCollectionIds.map(collectionId => listStoryEvents(collectionId, ebSettings, boundQuery))),
     ]);
     if (stored.includes(null)) {
-        return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.LISTING_FAILED };
+        return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.LISTING_FAILED, pickedThreadCount: 0 };
     }
     const poolEvents = _mergeHitsByPlace([...pools, additionalCandidates || []]);
-    const selection = selectStoryRecipeEvents({ shape: route.shape, subject: route.subject, storedEvents: stored.flat(), poolEvents });
+    const storedEvents = stored.flat();
+    const pickedThreads = hasThreadPick(route.shape) && measureStoryLinkCoverage(storedEvents).hasUsableLinks ? await pickThreads(storedEvents) : [];
+    const selection = selectStoryRecipeEvents({ shape: route.shape, subject: route.subject, storedEvents, poolEvents, pickedThreads: pickedThreads ?? [] });
 
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
     const important = dedupeEventsByIdentity(selection.events).filter(event => event.importance == null || event.importance >= minImportance);
     const events = inTimelineOrder(removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup }));
     // A current-state question has no recipe without links, which is a different reason from finding nothing.
     const isWaitingForLinks = route.shape === 'current' && selection.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED;
+    const ruleName = pickedThreads === null ? STORY_ROUTE_RULE.THREAD_PICK_FAILED : selection.ruleName;
     return {
         events,
         blockShape: selection.blockShape,
-        ruleName: events.length || isWaitingForLinks ? selection.ruleName : STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING,
+        ruleName: events.length || isWaitingForLinks ? ruleName : STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING,
+        pickedThreadCount: pickedThreads?.length ?? 0,
     };
 }

@@ -1285,7 +1285,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <label for="VectFox_story_arc_link_model"><small>Link model</small></label>
                                 <input type="text" id="VectFox_story_arc_link_model" class="vectfox-input" placeholder="openai/gpt-6-luna" />
                                 <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    Links record which earlier events each event builds on, so StoryArc can follow a thread. Use a model that thinks: a cheap one links too loosely to help. Uses that provider's key from the AgentMode tab. Each new event then adds one call to this model.
+                                    Links record which earlier events each event builds on, so StoryArc can follow a thread. Use a model that thinks: a cheap one links too loosely to help. Uses that provider's key from the AgentMode tab. Each new event then adds one call to this model. So does each question about a thread, which reads all the chat's thread names: about 20,000 tokens on a long chat, and several seconds before the reply.
                                 </small>
                             </div>
 

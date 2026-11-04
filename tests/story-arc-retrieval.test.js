@@ -6,6 +6,7 @@
  *   - a thread question gets a wide pool in chat order, past the top-K trim,
  *   - a first-time question gets the subject's earliest events and closest hits,
  *   - stored links are walked once a chat has them,
+ *   - a thread question asks the link model which threads to add, and survives its failure,
  *   - ordinary turns, router failures, a failed listing and empty recipes keep today's path,
  *   - every StoryArc turn reports the Route rule that decided it,
  *   - StoryArc mode does nothing unless Agent Mode and its own switch are on.
@@ -32,7 +33,7 @@ vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOrigina
 const postChatCompletionMock = vi.fn();
 vi.mock('../src/features/llm-provider/index.js', () => ({
     postChatCompletion: (...args) => postChatCompletionMock(...args),
-    resolveModelParameterStyle: () => ({}),
+    resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
     LlmCallError: class LlmCallError extends Error {},
 }));
 
@@ -71,7 +72,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 const { retrieveStoryRecipeEvents } = await import('../src/features/eventbase/story-arc-retrieval.js');
-const { retrieveEventsWithAgent } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { resolveStoryLinkLlmConfig, retrieveEventsWithAgent } = await import('../src/features/eventbase/agentic-retrieval.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
 const event = (start, text = `event at ${start}`, extra = {}) => ({
@@ -109,32 +110,32 @@ beforeEach(() => {
 });
 
 describe('retrieveStoryRecipeEvents', () => {
-    it('gives a thread question 50 hits in chat order, past the top-K trim', async () => {
-        const hits = Array.from({ length: 50 }, (_, i) => event(1000 - i));
+    it('gives a thread question 75 hits in chat order, past the top-K trim', async () => {
+        const hits = Array.from({ length: 75 }, (_, i) => event(1000 - i));
         queryReturns(hits);
         const { events, blockShape } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: 'Nora' }, { ...baseParams, settings: { ...baseParams.settings, eventbase_retrieval_top_k: 10 } });
         expect(queryCollectionMock.mock.calls[0].slice(0, 3)).toEqual([COLLECTION, 'How did Nora get here?', 200]);
-        expect(events).toHaveLength(50);
+        expect(events).toHaveLength(75);
         expect(starts(events)).toEqual(starts(hits).reverse());
         expect(blockShape).toBe('chain');
     });
 
     // A hit's score is cosine, while its place is the fusion order, which also weighs the keyword match.
     it('keeps the search\'s own order, whatever the scores say', async () => {
-        const hits = Array.from({ length: 60 }, (_, i) => event(1000 + i, `hit ${i}`, { score: i / 100 }));
+        const hits = Array.from({ length: 90 }, (_, i) => event(1000 + i, `hit ${i}`, { score: i / 100 }));
         queryReturns(hits);
         const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, baseParams);
         expect(starts(events)).toContain(1000);
-        expect(starts(events)).not.toContain(1059);
+        expect(starts(events)).not.toContain(1089);
     });
 
     it('takes turns between searches, so no collection crowds out another', async () => {
-        const first = Array.from({ length: 60 }, (_, i) => event(1000 + i, `first ${i}`));
-        const second = Array.from({ length: 60 }, (_, i) => event(5000 + i, `second ${i}`));
+        const first = Array.from({ length: 90 }, (_, i) => event(1000 + i, `first ${i}`));
+        const second = Array.from({ length: 90 }, (_, i) => event(5000 + i, `second ${i}`));
         queryCollectionMock.mockResolvedValueOnce({ hashes: starts(first), metadata: first });
         queryCollectionMock.mockResolvedValueOnce({ hashes: starts(second), metadata: second });
         const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, { ...baseParams, liveCollectionIds: [COLLECTION, 'qdrant:vf_eventbase_other'] });
-        expect(starts(events).filter(start => start >= 5000)).toHaveLength(25);
+        expect(starts(events).filter(start => start >= 5000)).toHaveLength(37);
     });
 
     it('walks stored links once the chat has them, reaching events the search did not find', async () => {
@@ -295,6 +296,107 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         expect(routerCall[0].model).toBe('router-model');
         expect(routerCall[0].messages[1].content).toContain('How did Nora get here?');
         expect(routerCall[0].messages[1].content).not.toContain('pre-search hit');
+    });
+
+    describe('thread pick', () => {
+        const linkOn = { ...storyArcOn, story_arc_link_provider: 'openrouter', story_arc_link_model: 'link-model' };
+        const threadLink = (hash, thread) => ({ hash, type: 'continues', thread });
+        /** A thread the search misses, and the hit it does find. */
+        const missed = [
+            event(10, 'first step', { story_links: [] }),
+            event(20, 'second step', { story_links: [threadLink(10, 'Finding the father')] }),
+        ];
+        const hit = event(500, 'the closest hit', { story_links: [] });
+        const pickCalls = () => postChatCompletionMock.mock.calls.filter(([call]) => call.messages[0].content.startsWith('A player asks about the past'));
+
+        beforeEach(() => {
+            listReturns([...missed, hit]);
+            queryReturns([hit]);
+        });
+
+        it('asks the link model at low effort, and seats the events of the threads it picks', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['#20 Finding the father'] });
+            const result = await callAgent(linkOn);
+            expect(starts(result.events)).toEqual([10, 20, 500]);
+            expect(result.debug.storyArc.ruleName).toBe('thread-pick');
+            const [[pickCall]] = pickCalls();
+            expect(pickCall.model).toBe('link-model');
+            expect(pickCall.reasoningEffort).toBe('low');
+            expect(pickCall.sendTemperature).toBe(false);
+            expect(pickCall.messages[1].content).toBe("Threads:\n#20 Finding the father\n\nPlayer's question:\nHow did Nora get here?");
+        });
+
+        it('asks only for a question about a thread', async () => {
+            for (const shape of ['first_time', 'current']) {
+                postChatCompletionMock.mockReset();
+                llmReplies({ shape, subject: 'hit' });
+                await callAgent(linkOn);
+                expect(pickCalls(), shape).toHaveLength(0);
+            }
+        });
+
+        it('does not ask on a chat with too few decided events', async () => {
+            listReturns([...missed, hit, event(600), event(601), event(602)]);
+            llmReplies({ shape: 'chain', subject: 'Nora' });
+            const result = await callAgent(linkOn);
+            expect(pickCalls()).toHaveLength(0);
+            expect(result.debug.storyArc.ruleName).toBe('links-not-generated');
+        });
+
+        it('does not ask when no link has a name', async () => {
+            listReturns([event(10, 'first', { story_links: [] }), event(20, 'second', { story_links: [threadLink(10, '')] })]);
+            queryReturns([event(20, 'second', { story_links: [threadLink(10, '')] })]);
+            llmReplies({ shape: 'chain', subject: 'Nora' });
+            const result = await callAgent(linkOn);
+            expect(pickCalls()).toHaveLength(0);
+            expect(result.debug.storyArc.ruleName).toBe('shape-recipe');
+        });
+
+        it('keeps the recipe when the pick reports nothing', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: [] });
+            const result = await callAgent(linkOn);
+            expect(starts(result.events)).toEqual([500]);
+            expect(result.debug.storyArc.ruleName).toBe('shape-recipe');
+        });
+
+        it('runs the recipe without a pick when the call fails, and warns', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' });
+            postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
+            const result = await callAgent(linkOn);
+            expect(starts(result.events)).toEqual([500]);
+            expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
+            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('StoryArc thread pick LLM call failed');
+            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('so the recipe runs without it');
+        });
+
+        // A malformed reply must not read as "no threads fit".
+        it('counts a reply with no list as a failed pick', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { thread: 'Finding the father' });
+            const result = await callAgent(linkOn);
+            expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
+        });
+
+        it('runs the recipe without a pick when there is no link model, and warns', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' });
+            const result = await callAgent(storyArcOn);
+            expect(starts(result.events)).toEqual([500]);
+            expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
+            expect(pickCalls()).toHaveLength(0);
+            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Thread pick skipped: missing_model');
+        });
+    });
+
+    describe('resolveStoryLinkLlmConfig', () => {
+        // A link needs thought, so the settings that turn thinking off do not apply.
+        it('keeps the model\'s own reasoning default and temperature', () => {
+            const config = resolveStoryLinkLlmConfig({ story_arc_link_provider: 'openrouter', story_arc_link_model: 'link-model' });
+            expect(config).toMatchObject({ ok: true, provider: 'openrouter', model: 'link-model' });
+            expect(config.parameterStyle).toEqual({ sendTemperature: false, reasoningEffort: null });
+        });
+
+        it('reports a missing model', () => {
+            expect(resolveStoryLinkLlmConfig({})).toEqual({ ok: false, reason: 'missing_model' });
+        });
     });
 
     it('sends an ordinary turn down the existing planner path', async () => {

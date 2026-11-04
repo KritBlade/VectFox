@@ -9,9 +9,13 @@ import {
     STORY_ROUTER_PROMPT,
     STORY_ROUTE_RULE,
     buildStoryRouterMessage,
+    buildThreadPickMessage,
     hasRecipe,
+    hasThreadPick,
     isStoryArcActive,
+    listStoryThreads,
     readStoryRoute,
+    readThreadPick,
     selectStoryRecipeEvents,
 } from '../src/features/eventbase/story-arc-core.js';
 
@@ -100,16 +104,159 @@ describe('buildStoryRouterMessage', () => {
     });
 });
 
+describe('hasThreadPick', () => {
+    it('picks threads only for a question about a thread', () => {
+        for (const shape of ['chain', 'why', 'bigger_plot']) expect(hasThreadPick(shape), shape).toBe(true);
+        for (const shape of ['first_time', 'current', 'scene', 'anything else']) expect(hasThreadPick(shape), shape).toBe(false);
+    });
+});
+
+describe('listStoryThreads', () => {
+    it('lists each name once at the message where it starts, oldest first', () => {
+        const events = [
+            event(300, 'c', { story_links: [{ hash: 1, type: 'continues', thread: 'The blockade' }] }),
+            event(100, 'a', { story_links: [{ hash: 2, type: 'continues', thread: 'The blockade' }, { hash: 3, type: 'reveals', thread: 'The ledger' }] }),
+            event(50, 'b', { story_links: [{ hash: 4, type: 'continues', thread: 'The duel' }] }),
+        ];
+        expect(listStoryThreads(events)).toEqual([
+            { name: 'The duel', firstMessage: 50 },
+            { name: 'The blockade', firstMessage: 100 },
+            { name: 'The ledger', firstMessage: 100 },
+        ]);
+    });
+
+    it('leaves out a link with no name and an event not yet decided', () => {
+        expect(listStoryThreads([event(1, 'a', { story_links: [{ hash: 2, type: 'continues', thread: '' }] }), event(2)])).toEqual([]);
+    });
+});
+
+describe('buildThreadPickMessage', () => {
+    const threads = [{ name: 'The duel', firstMessage: 50 }, { name: 'The ledger', firstMessage: 100 }];
+
+    // The list first lets a provider cache it, since only the question changes.
+    it('puts the list first and the question last', () => {
+        expect(buildThreadPickMessage(threads, 'How did Nora win?', 'Nora')).toBe("Threads:\n#50 The duel\n#100 The ledger\n\nPlayer's question:\nHow did Nora win?");
+    });
+
+    it('adds the subject when the question leaves it out', () => {
+        expect(buildThreadPickMessage(threads, 'How did you win?', 'Nora')).toContain("Player's question:\nHow did you win?\nIt is about: Nora");
+    });
+
+    it('adds nothing when there is no subject', () => {
+        expect(buildThreadPickMessage(threads, 'How did it end?', '')).not.toContain('It is about');
+    });
+});
+
+describe('readThreadPick', () => {
+    it('reads thread names in the model\'s order', () => {
+        expect(readThreadPick({ threads: ['The ledger', 'The duel'] })).toEqual(['The ledger', 'The duel']);
+    });
+
+    // The model copies a list line whole more often than not.
+    it('removes a copied message number', () => {
+        expect(readThreadPick({ threads: ['#530 The ledger', ' #1840  The duel '] })).toEqual(['The ledger', 'The duel']);
+    });
+
+    it('drops what is not a name', () => {
+        expect(readThreadPick({ threads: ['The duel', 3, null, '', '  '] })).toEqual(['The duel']);
+    });
+
+    it('reads an empty pick as no threads', () => {
+        expect(readThreadPick({ threads: [] })).toEqual([]);
+    });
+
+    // A malformed reply must count as a failed pick, not as "nothing fits".
+    it('throws when the reply has no list', () => {
+        for (const reply of [{}, null, undefined, { threads: 'The duel' }]) {
+            expect(() => readThreadPick(reply), JSON.stringify(reply)).toThrow('no threads array');
+        }
+    });
+});
+
+describe('selectStoryRecipeEvents with a thread pick', () => {
+    const threadLink = (hash, thread) => ({ hash, type: 'continues', thread });
+    const pick = (shape, storedEvents, poolEvents, pickedThreads) => selectStoryRecipeEvents({ shape, subject: '', storedEvents, poolEvents, pickedThreads });
+    /** A thread the search never reaches, at messages 10 to 30. */
+    const missed = [
+        event(10, 'first step', { story_links: [] }),
+        event(20, 'second step', { story_links: [threadLink(10, 'Finding the father')] }),
+        event(30, 'third step', { story_links: [threadLink(20, 'Finding the father')] }),
+    ];
+    const hit = event(500, 'the closest hit', { story_links: [] });
+
+    it('adds both ends of every link in a picked thread, past what the search found', () => {
+        const { events, ruleName } = pick('chain', [...missed, hit], [hit], ['Finding the father']);
+        expect(starts(events)).toEqual([10, 20, 30, 500]);
+        expect(ruleName).toBe(STORY_ROUTE_RULE.THREAD_PICK);
+    });
+
+    it('works the same for every thread shape', () => {
+        for (const shape of ['chain', 'why', 'bigger_plot']) {
+            expect(starts(pick(shape, [...missed, hit], [hit], ['Finding the father']).events), shape).toEqual([10, 20, 30, 500]);
+        }
+    });
+
+    it('reports the normal rule when no link carries a picked name', () => {
+        const { events, ruleName } = pick('chain', [...missed, hit], [hit], ['A thread nobody named']);
+        expect(starts(events)).toEqual([500]);
+        expect(ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);
+    });
+
+    it('reports the normal rule when nothing was picked', () => {
+        expect(pick('chain', [...missed, hit], [hit], []).ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);
+    });
+
+    /** 80 steps of one thread the question reaches, and a picked thread of 40 events. */
+    const walkedThread = Array.from({ length: 80 }, (_, i) => event(5000 + i * 10, `walked ${i}`, { story_links: i ? [link(5000 + (i - 1) * 10)] : [] }));
+    const bigPicked = Array.from({ length: 40 }, (_, i) => event(100 + i * 10, `picked ${i}`, { story_links: i ? [threadLink(100 + (i - 1) * 10, 'Big thread')] : [] }));
+
+    it('caps a pick at 25 seats, which leaves the walk its own 50', () => {
+        const poolEvents = [...walkedThread].reverse();
+        const { events } = pick('chain', [...walkedThread, ...bigPicked], poolEvents, ['Big thread']);
+        expect(events).toHaveLength(75);
+        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(25);
+        expect(events.filter(item => item.text.startsWith('walked'))).toHaveLength(50);
+    });
+
+    it('seats a pick\'s closest events first', () => {
+        const closePicked = bigPicked[39];
+        const { events } = pick('chain', bigPicked, [closePicked], ['Big thread']);
+        expect(starts(events)).toContain(closePicked.source_window_start);
+    });
+
+    // The same window is one step, whichever way the event got its seat.
+    it('keeps one event per window across picks and the walk', () => {
+        const picked = event(40, 'picked', { _hash: 1, story_links: [] });
+        const sameWindow = event(40, 'walked', { _hash: 2, story_links: [] });
+        const holder = event(60, 'holder', { _hash: 3, story_links: [threadLink(1, 'A thread')] });
+        const { events } = pick('chain', [picked, sameWindow, holder], [sameWindow, holder], ['A thread']);
+        expect(events.filter(item => item.source_window_start === 40)).toHaveLength(1);
+    });
+
+    it('tolerates a picked link to a deleted event', () => {
+        const orphan = event(200, 'orphan', { story_links: [threadLink(12345, 'Lost thread')] });
+        expect(starts(pick('chain', [orphan], [orphan], ['Lost thread']).events)).toEqual([200]);
+    });
+
+    it('leaves first-time and current-state blocks alone', () => {
+        const first = selectStoryRecipeEvents({ shape: 'first_time', subject: 'hit', storedEvents: [...missed, hit], poolEvents: [hit], pickedThreads: ['Finding the father'] });
+        expect(starts(first.events)).toEqual([500]);
+        expect(first.ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);
+        const current = selectStoryRecipeEvents({ shape: 'current', subject: '', storedEvents: [...missed, hit], poolEvents: [hit], pickedThreads: ['Finding the father'] });
+        expect(starts(current.events)).toEqual([500]);
+    });
+});
+
 describe('selectStoryRecipeEvents without links', () => {
     const storedEvents = [90, 10, 30, 70, 50, 20, 40, 60].map(start => event(start, `Nora at ${start}`));
 
-    it('gives a thread question the 50 closest events in time order', () => {
-        const pool = Array.from({ length: 60 }, (_, i) => event(1000 - i));
+    it('gives a thread question the 75 closest events in time order', () => {
+        const pool = Array.from({ length: 90 }, (_, i) => event(1000 - i));
         for (const shape of ['chain', 'why', 'bigger_plot']) {
             const { events, blockShape, ruleName } = select(shape, '', [], pool);
-            expect(events).toHaveLength(50);
-            expect(events[0].source_window_start).toBe(951);
-            expect(events[49].source_window_start).toBe(1000);
+            expect(events).toHaveLength(75);
+            expect(events[0].source_window_start).toBe(926);
+            expect(events[74].source_window_start).toBe(1000);
             expect(blockShape).toBe(shape);
             expect(ruleName).toBe(STORY_ROUTE_RULE.LINKS_NOT_GENERATED);
         }
@@ -214,16 +361,16 @@ describe('selectStoryRecipeEvents with links', () => {
         expect(starts(events)).not.toContain(2010);
     });
 
-    it('cuts a long walk to 50, keeping the closest, then those nearest the seeds', () => {
-        const long = Array.from({ length: 80 }, (_, i) => event(i * 10 + 10, `step ${i}`, { story_links: i ? [link(i * 10)] : [] }));
-        const lastStep = long[79];
+    it('cuts a long walk to 75, keeping the closest, then those nearest the seeds', () => {
+        const long = Array.from({ length: 100 }, (_, i) => event(i * 10 + 10, `step ${i}`, { story_links: i ? [link(i * 10)] : [] }));
+        const lastStep = long[99];
         const closeEarlyStep = long[0];
         const { events } = select('chain', '', long, [lastStep, closeEarlyStep]);
-        expect(events).toHaveLength(50);
+        expect(events).toHaveLength(75);
         expect(starts(events)).toContain(closeEarlyStep.source_window_start);
         expect(starts(events)).toContain(lastStep.source_window_start);
         // The next closest are the steps one link from the seed at the end of the thread.
-        expect(starts(events)).toContain(790);
+        expect(starts(events)).toContain(990);
     });
 
     it('walks a first-time question back from the subject\'s earliest events, reaching another spelling', () => {
@@ -254,9 +401,9 @@ describe('selectStoryRecipeEvents with links', () => {
         expect(ruleName).toBe(STORY_ROUTE_RULE.FIRST_TIME_SUBJECT_NOT_FOUND);
     });
 
-    it('never makes a first-time block longer than 50', () => {
-        const named = Array.from({ length: 70 }, (_, i) => event(i + 1, 'Nora here', { story_links: i ? [link(i)] : [] }));
-        expect(select('first_time', 'Nora', named, [...named].reverse()).events.length).toBeLessThanOrEqual(50);
+    it('never makes a first-time block longer than 75', () => {
+        const named = Array.from({ length: 100 }, (_, i) => event(i + 1, 'Nora here', { story_links: i ? [link(i)] : [] }));
+        expect(select('first_time', 'Nora', named, [...named].reverse()).events.length).toBeLessThanOrEqual(75);
     });
 
     it('gives a current-state question the thread\'s newest events and the closest hits', () => {

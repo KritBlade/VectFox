@@ -32,7 +32,7 @@ import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
-import { STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, buildStoryRouterMessage, hasRecipe, isStoryArcActive, readStoryRoute } from './story-arc-core.js';
+import { STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isStoryArcActive, listStoryThreads, readStoryRoute, readThreadPick } from './story-arc-core.js';
 import { retrieveStoryRecipeEvents } from './story-arc-retrieval.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -90,10 +90,14 @@ export async function retrieveEventsWithAgent(params) {
     };
     if (storyRoute && hasRecipe(storyRoute.shape)) {
         const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
-        const recalled = await retrieveStoryRecipeEvents(storyRoute, { ...params, boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs) });
+        const recalled = await retrieveStoryRecipeEvents(storyRoute, {
+            ...params,
+            boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs),
+            pickThreads: storedEvents => _pickStoryThreads(storedEvents, storyRoute, params),
+        });
         storyArc.ruleName = recalled.ruleName;
         storyArc.finalCount = recalled.events.length;
-        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} events=${recalled.events.length}`);
+        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} threads=${recalled.pickedThreadCount} events=${recalled.events.length}`);
         if (recalled.events.length) {
             return {
                 events: recalled.events,
@@ -331,8 +335,36 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
 }
 
 // ============================================================================
-// StoryArc router
+// StoryArc router and thread pick
 // ============================================================================
+
+/**
+ * One StoryArc LLM call. Never throws: a failure is reported and returns null.
+ *
+ * @param {object} params
+ * @param {object} params.settings
+ * @param {string} params.label - Which call this is, for the log
+ * @param {string} [params.nextStep] - What the turn does without this call
+ * @param {object} params.call - What callLlmForJson needs, other than the time limit
+ * @param {(reply: unknown) => T} params.read - Reads the reply, and may throw on a malformed one
+ * @returns {Promise<T|null>}
+ * @template T
+ */
+async function _askStoryLlm({ settings, label, nextStep, call, read }) {
+    const timeoutMs = resolveAgenticPlannerTimeoutMs(settings);
+    const tStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    try {
+        const reply = await generationRateLimiter.execute(
+            () => callLlmForJson({ ...call, timeoutMs }),
+            generationRateLimitSettings(settings),
+            'agent',
+        );
+        return read(reply);
+    } catch (err) {
+        await _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep);
+        return null;
+    }
+}
 
 /**
  * Ask the router for the question's shape and subject. Never throws: a failure
@@ -349,29 +381,60 @@ async function _routeStoryQuestion({ settings, keywordQuery }) {
     }
     if (!keywordQuery?.trim()) return { shape: 'scene', subject: '', isKnownShape: true };
 
-    const timeoutMs = resolveAgenticPlannerTimeoutMs(settings);
-    const tStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    try {
-        const reply = await generationRateLimiter.execute(
-            () => callLlmForJson({
-                systemPrompt: STORY_ROUTER_PROMPT,
-                userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatForPlanner(settings), userMessage: keywordQuery }),
-                llmCfg,
-                timeoutMs,
-                maxTokens: resolveAgenticMaxTokens(settings),
-            }),
-            generationRateLimitSettings(settings),
-            'agent',
-        );
-        const route = readStoryRoute(reply);
-        if (!route.isKnownShape) {
-            log.warn(`[VectFox-StoryArc] Router returned an unknown shape, keeping the normal path: ${JSON.stringify(reply?.shape)}`);
-        }
-        return route;
-    } catch (err) {
-        await _reportAgentLlmFailure(err, 'StoryArc router', tStart, timeoutMs);
+    return _askStoryLlm({
+        settings,
+        label: 'StoryArc router',
+        call: {
+            systemPrompt: STORY_ROUTER_PROMPT,
+            userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatForPlanner(settings), userMessage: keywordQuery }),
+            llmCfg,
+            maxTokens: resolveAgenticMaxTokens(settings),
+        },
+        read: (reply) => {
+            const route = readStoryRoute(reply);
+            if (!route.isKnownShape) {
+                log.warn(`[VectFox-StoryArc] Router returned an unknown shape, keeping the normal path: ${JSON.stringify(reply?.shape)}`);
+            }
+            return route;
+        },
+    });
+}
+
+/** A thinking model's reasoning counts against this, so it leaves room for that as well as the names. */
+const THREAD_PICK_MAX_TOKENS = 9000;
+
+/**
+ * Ask the link model which threads could hold the answer. It reads every thread
+ * name, so this runs only for a question about a thread. Never throws: a failure
+ * is reported and returns null, so the recipe runs without a pick.
+ *
+ * @param {object[]} storedEvents
+ * @param {{subject: string}} route
+ * @param {object} params - The retrieval params
+ * @returns {Promise<string[]|null>} thread names
+ */
+async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }) {
+    const threads = listStoryThreads(storedEvents);
+    if (!threads.length) return [];
+    const linkCfg = resolveStoryLinkLlmConfig(settings);
+    if (!linkCfg.ok) {
+        log.warn(`[VectFox-StoryArc] Thread pick skipped: ${linkCfg.reason}`);
         return null;
     }
+    return _askStoryLlm({
+        settings,
+        label: 'StoryArc thread pick',
+        nextStep: 'so the recipe runs without it',
+        call: {
+            systemPrompt: THREAD_PICK_PROMPT,
+            userMessage: buildThreadPickMessage(threads, keywordQuery, route.subject),
+            // Low effort found about as many beats as the model's default, in a third of the time.
+            llmCfg: { ...linkCfg, parameterStyle: { ...linkCfg.parameterStyle, reasoningEffort: 'low' } },
+            maxTokens: THREAD_PICK_MAX_TOKENS,
+            contextLabel: 'StoryArc thread pick',
+        },
+        read: readThreadPick,
+    });
 }
 
 // ============================================================================
@@ -387,8 +450,9 @@ async function _routeStoryQuestion({ settings, keywordQuery }) {
  * @param {string} label - Which call failed
  * @param {number} tStart - When the call started
  * @param {number} timeoutMs - The call's configured limit
+ * @param {string} [nextStep] - What the turn does without this call
  */
-async function _reportAgentLlmFailure(err, label, tStart, timeoutMs) {
+async function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 'using pre-search only') {
     const tLlmMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tStart));
     const { isInvalidModelConfigError, notifyInvalidModel } = await import('../../shared/model-config-notifier.js');
     if (isInvalidModelConfigError(err)) {
@@ -402,9 +466,9 @@ async function _reportAgentLlmFailure(err, label, tStart, timeoutMs) {
         err?.name === 'AbortError' ||
         /aborted|timeout|timed out/i.test(err?.message || '');
     if (isTimeout) {
-        log.warn(`[VectFox-Agentic] ${label} LLM call TIMED OUT after ${tLlmMs}ms (configured limit: ${timeoutMs}ms). Falling back to pre-search only. Bump "Planner LLM Timeout" in the AgentMode tab if your model needs longer.`);
+        log.warn(`[VectFox-Agentic] ${label} LLM call TIMED OUT after ${tLlmMs}ms (configured limit: ${timeoutMs}ms), ${nextStep}. Bump "Planner LLM Timeout" in the AgentMode tab if your model needs longer.`);
     } else {
-        log.warn(`[VectFox-Agentic] ${label} LLM call failed after ${tLlmMs}ms, using pre-search only: ${err?.message || err}`);
+        log.warn(`[VectFox-Agentic] ${label} LLM call failed after ${tLlmMs}ms, ${nextStep}: ${err?.message || err}`);
     }
 }
 
@@ -423,6 +487,26 @@ export function _resolveAgenticLLMConfig(settings = {}) {
         vllmUrl: settings.agent_vllm_url || settings.chat_vllm_url,
     });
     return connection.ok ? { ...connection, parameterStyle: resolveModelParameterStyle(settings) } : connection;
+}
+
+/**
+ * Resolve the StoryArc link model, which writes links and picks threads. A link
+ * needs thought, so the model keeps its own reasoning default and its own temperature.
+ *
+ * @param {object} settings
+ * @returns {{ok: true, provider: string, model: string, apiKey: string, parameterStyle: object}|{ok: false, reason: string}}
+ */
+export function resolveStoryLinkLlmConfig(settings) {
+    const connection = resolveLlmConnection({
+        provider: settings.story_arc_link_provider || 'openrouter',
+        model: settings.story_arc_link_model,
+        vllmUrl: settings.agent_vllm_url || settings.chat_vllm_url,
+    });
+    if (!connection.ok) return connection;
+    return {
+        ...connection,
+        parameterStyle: { ...resolveModelParameterStyle(settings), sendTemperature: false, reasoningEffort: null },
+    };
 }
 
 /**
@@ -473,7 +557,7 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
 
 /**
  * Call an LLM for a JSON reply and return it parsed: the planner, the StoryArc
- * router and StoryArc links. Throws on network/auth failure, empty response, or
+ * router, thread pick and links. Throws on network/auth failure, empty response, or
  * unparseable JSON.
  */
 export async function callLlmForJson({ systemPrompt, userMessage, llmCfg, timeoutMs, maxTokens, contextLabel = 'Agent Mode' }) {
