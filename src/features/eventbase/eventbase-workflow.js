@@ -126,7 +126,7 @@ export function getCommitBoundary(messages, settings) {
  * @param {object}   params.settings    - VectFox settings
  * @param {AbortSignal|null} [params.abortSignal]
  * @param {{ strategy?: string, batchSize?: number, totalChunks?: number }|null} [params.progressPlan]
- * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number }>}
+ * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null }>}
  */
 /**
  * How many windows this run left unfinished — they were sent again and still
@@ -145,6 +145,31 @@ export function getCommitBoundary(messages, settings) {
  */
 export function countUnfinishedWindows(result) {
     return (result?.windowsTimedOut || 0) + (result?.windowsFailed || 0);
+}
+
+/**
+ * Tells the player what a finished run left undone, which is theirs to act on. Red
+ * only when nothing got through, since the run then achieved nothing and the fault
+ * lies with the provider or the settings rather than those windows.
+ *
+ * @param {{eventsExtracted: number, windowsProcessed: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null}} result
+ * @param {string} [nextStep] - What sends the windows again
+ * @param {object} [toastOptions] - Sticky unless told otherwise, since a long run may have been left alone
+ */
+export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize Content sends them again.', toastOptions = { timeOut: 0, extendedTimeOut: 0 }) {
+    const unfinishedCount = countUnfinishedWindows(result);
+    const timeoutAdvice = result.windowsTimedOut > 0
+        ? ` ${result.windowsTimedOut} timed out: raise "Extraction Timeout" in the EventBase settings, or check that your model or endpoint is responding.`
+        : '';
+    const firstError = result.firstFailureDetail ? ` First error: ${result.firstFailureDetail}` : '';
+    const message = `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
+        + `but ${unfinishedCount} window(s) kept failing and hold no events.${timeoutAdvice}${firstError} ${nextStep}`;
+    const hasNothingGotThrough = result.windowsProcessed === 0 && unfinishedCount > MAX_WINDOWS_TO_RESEND_WITHOUT_PROGRESS;
+    if (hasNothingGotThrough) {
+        globalThis.toastr?.error(message, 'VectFox', toastOptions);
+    } else {
+        globalThis.toastr?.warning(message, 'VectFox', toastOptions);
+    }
 }
 
 export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined }) {
@@ -341,25 +366,6 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     let windowsFailed = 0;
     let firstFailureDetail = null;
 
-    // First-timeout toast — fire once per run, the moment a window times out,
-    // instead of leaving the user staring at a silent "0 vectors" at the end
-    // (the #2 bug). A per-call timeout almost always means the model/endpoint is
-    // too slow or unreachable, so it's actionable. Shown regardless of the
-    // auto-sync popup/progress-modal settings because it's an error, not progress.
-    let _timeoutToastShown = false;
-    const _notifyFirstTimeout = () => {
-        if (_timeoutToastShown) return;
-        _timeoutToastShown = true;
-        const secs = Math.round((settings.eventbase_timeout_ms || 60000) / 1000);
-        try {
-            toastr.error(
-                `EventBase extraction timed out after ${secs}s. Raise "Extraction Timeout" in the EventBase settings, or check that your model/endpoint is responding. Timed-out windows stored nothing and are sent again.`,
-                'VectFox — EventBase timeout',
-                { timeOut: 0, extendedTimeOut: 0 },
-            );
-        } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
-    };
-
     // Smart fast-forward: windows are processed in order, so already-extracted ones
     // cluster at the front. Linear-scan past them with cheap Set.has() lookups instead
     // of spinning up Promise.allSettled batches that do the same check 3-at-a-time.
@@ -540,15 +546,14 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     // A per-call timeout (AbortSignal.timeout) rejects with a
                     // TimeoutError — NOT a user cancel. Silently skipping it is the
                     // #2 bug: every window times out → "0 vectors, no error". Detect
-                    // it (same test as agentic-retrieval.js), warn loudly, fire the
-                    // one-shot toast, and mark the window timedOut so the run reports it.
+                    // it (same test as agentic-retrieval.js), log it, and mark the
+                    // window timedOut so the end of the run reports it.
                     const isTimeout = err?.name === 'TimeoutError'
                         || err?.name === 'AbortError'
                         || /aborted|timeout|timed out/i.test(err?.message || '');
                     if (isTimeout) {
                         const secs = Math.round((settings.eventbase_timeout_ms || 60000) / 1000);
                         log.warn(`[EventBase] Window ${wIdx}: extraction TIMED OUT after ${secs}s (unfinished). Raise "Extraction Timeout" in EventBase settings, or check your model/endpoint is responding.`);
-                        _notifyFirstTimeout();
                         return { skipped: false, events: [], timedOut: true };
                     }
                     // `failed: true` keeps an errored window out of the processed
@@ -628,11 +633,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             }
             try {
                 await insertEvents(events, settings, abortSignal, collectionId);
-                // If we got here after a retry, signal recovery to the user so the
-                // earlier toast ("retrying...") gets a closing parenthesis.
-                if (attempt > 1) {
-                    globalThis.toastr?.success(`Insert recovered on attempt ${attempt}/3`, 'VectFox', { timeOut: 4000 });
-                }
+                if (attempt > 1) log.lifecycle(`[EventBase] Insert recovered on attempt ${attempt}/3`);
                 return; // success
             } catch (err) {
                 if (err?.name === 'AbortError' || abortSignal?.aborted) throw err;
@@ -650,15 +651,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     // end of JSON input"), and the server needs seconds to settle
                     // before a retry can succeed.
                     const backoffMs = attempt === 1 ? 5000 : 10000;
-                    // Visibility: tell the user this is a retry, not a hang.
-                    // Without this signal, retry attempts look identical to a
-                    // stall and users press Stop unnecessarily (which throws
-                    // away an in-flight retry that probably would have worked).
-                    globalThis.toastr?.warning(
-                        `Insert failed (attempt ${attempt}/3), retrying in ${backoffMs/1000}s. Server said: ${(err?.message || '').slice(0, 120)}`,
-                        'VectFox — retrying',
-                        { timeOut: backoffMs + 500 },
-                    );
+                    // The progress line says this is a retry, not a hang. Without it,
+                    // retry attempts look identical to a stall and users press Stop
+                    // unnecessarily (which throws away an in-flight retry that
+                    // probably would have worked).
                     progressTracker.updateProgress(
                         resendPassesDone > 0 ? windows.length : nextBatchFirstIdx,
                         `Insert retry ${attempt}/3 — waiting ${backoffMs/1000}s...`,
@@ -892,11 +888,6 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             const pass = resendPassesDone + 1;
             const backoffMs = WINDOW_RESEND_BACKOFF_MS[resendPassesDone];
             log.warn(`[EventBase] Sending ${windowsToResend.length} failed window(s) again in ${backoffMs / 1000}s, pass ${pass}/${WINDOW_RESEND_BACKOFF_MS.length}`);
-            globalThis.toastr?.warning(
-                `${windowsToResend.length} window(s) failed, sending them again in ${backoffMs / 1000}s.`,
-                'VectFox — retrying',
-                { timeOut: backoffMs + 500 },
-            );
             progressTracker.updateProgress(windows.length, `Sending ${windowsToResend.length} failed window(s) again, pass ${pass}/${WINDOW_RESEND_BACKOFF_MS.length}...`);
             await _waitBeforeResendPass(backoffMs, abortSignal);
             if (abortSignal?.aborted) continue; // the top of the loop ends the run
@@ -1027,12 +1018,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }
     }
 
-    // A timed-out window is a real failure (the immediate toast already told the
-    // user). Reflect it in the progress modal too rather than a misleading green
-    // "success" — especially when timeouts swallowed the whole run (0 events).
+    // A window still timed out after its re-sends is a real failure. Reflect it in
+    // the progress modal rather than a misleading green "success" — especially when
+    // timeouts swallowed the whole run (0 events).
     if (windowsTimedOut > 0) {
         progressTracker.complete(false,
-            `EventBase: ${windowsTimedOut} window(s) timed out — ${eventsExtracted} event(s) extracted. See the timeout notice; raise "Extraction Timeout" or check your endpoint.`);
+            `EventBase: ${windowsTimedOut} window(s) timed out — ${eventsExtracted} event(s) extracted. Raise "Extraction Timeout" in the EventBase settings, or check that your model or endpoint is responding.`);
     } else if (windowsFailed > 0) {
         // A window that errored stored nothing and was never marked extracted, so
         // reporting the run green told the user "this chat has no events" when the
@@ -1070,7 +1061,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }));
     }
 
-    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed };
+    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, firstFailureDetail };
 }
 
 // ---------------------------------------------------------------------------

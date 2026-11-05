@@ -92,6 +92,9 @@ function getTextWithoutAttachments(message) {
 // EventBase-enabled chat sync no longer depends on these chat chunk grouping modes, but
 // they are kept temporarily for backward compatibility and non-EventBase legacy flows.
 
+/** Chats already told that auto-sync left windows undone, so a failing provider does not toast on every turn. */
+const chatsWarnedOfUnfinishedWindows = new Set();
+
 /**
  * Synchronizes chat with vector index using simple FIFO queue
  *
@@ -158,7 +161,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         return { remaining: -1, messagesProcessed: 0, chunksCreated: 0 };
     }
 
-    const { runEventBaseIngestion, getAutoSyncWindowSize } = await import('../eventbase/index.js');
+    const { countUnfinishedWindows, getAutoSyncWindowSize, notifyUnfinishedWindows, runEventBaseIngestion } = await import('../eventbase/index.js');
     const messages = context.chat.filter(m => m.mes && m.mes.trim().length > 0);
     log.lifecycle(`[AutoSync] calling runEventBaseIngestion: messages=${messages.length}`);
     let result;
@@ -204,6 +207,13 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         throw err;
     }
     log.lifecycle(`[AutoSync] runEventBaseIngestion result:`, result);
+
+    if (countUnfinishedWindows(result) === 0) {
+        chatsWarnedOfUnfinishedWindows.delete(uuid);
+    } else if (!chatsWarnedOfUnfinishedWindows.has(uuid)) {
+        chatsWarnedOfUnfinishedWindows.add(uuid);
+        notifyUnfinishedWindows(result, 'Auto-sync sends them again with the next turn.', { timeOut: 15000 });
+    }
 
     return {
         remaining: 0,
@@ -1276,7 +1286,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
             ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
             : allMessages;
 
-        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../eventbase/index.js');
+        const { runEventBaseIngestion, countUnfinishedWindows, notifyUnfinishedWindows } = await import('../eventbase/index.js');
         const result = await runEventBaseIngestion({
             messages,
             chatUUID: getChatUUID(),
@@ -1304,12 +1314,7 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
         // here overwrote it, so a run that extracted nothing still looked clean.
         const unfinishedWindows = countUnfinishedWindows(result);
         if (unfinishedWindows > 0) {
-            toastr.warning(
-                `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
-                + `but ${unfinishedWindows} window(s) kept failing and hold no events. Resume in Vectorize Content sends them again — see the console.`,
-                'VectFox',
-                { timeOut: 0, extendedTimeOut: 0 },
-            );
+            notifyUnfinishedWindows(result);
             log.warn(`VectFox: Vectorization finished with gaps — ${result.eventsExtracted} events, ${result.windowsProcessed} windows processed, ${unfinishedWindows} unfinished`);
             return;
         }

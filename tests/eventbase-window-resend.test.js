@@ -133,6 +133,48 @@ describe('window re-send', () => {
             expect(unfinishedCount(chatUUID)).toBe(0);
         });
 
+        // Red means a run stopped, and a toast asks the player to act. A window that gets
+        // through on a later send does neither, so it stays in the console.
+        it('raises no toast for a window that gets through on a later send', async () => {
+            state.failureFor = (start, sendNumber) => (start === 2 && sendNumber === 1 ? extractionError() : null);
+
+            await manualRun(buildChat(8), newChatUUID());
+
+            expect(globalThis.toastr.error).not.toHaveBeenCalled();
+            expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+        });
+
+        it('raises no toast for a window that times out and then gets through', async () => {
+            const timeout = Object.assign(new Error('signal timed out'), { name: 'TimeoutError' });
+            state.failureFor = (start, sendNumber) => (start === 2 && sendNumber === 1 ? timeout : null);
+
+            await manualRun(buildChat(8), newChatUUID());
+
+            expect(globalThis.toastr.error).not.toHaveBeenCalled();
+            expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+        });
+
+        it('raises no toast for an insert that gets through on a retry', async () => {
+            const { insertEvents } = await import('../src/features/eventbase/eventbase-store.js');
+            insertEvents.mockRejectedValueOnce(new Error('Unexpected end of JSON input'));
+
+            const result = await manualRun(buildChat(8), newChatUUID());
+
+            expect(result.eventsExtracted).toBe(4);
+            expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+            expect(globalThis.toastr.success).not.toHaveBeenCalled();
+        });
+
+        it('hands the reason to whoever reports the run', async () => {
+            state.failureFor = (start) => (start === 2 ? extractionError() : null);
+
+            const result = await manualRun(buildChat(8), newChatUUID());
+
+            expect(result.windowsFailed).toBe(1);
+            expect(result.firstFailureDetail).toContain('could not be used');
+            expect(globalThis.toastr.error).not.toHaveBeenCalled();
+        });
+
         it('sends a timed-out window again', async () => {
             const chatUUID = newChatUUID();
             const timeout = Object.assign(new Error('signal timed out'), { name: 'TimeoutError' });

@@ -1106,7 +1106,7 @@ async function importStoryLinksFile(file, collectionKey) {
     const plan = await planStoryLinksImport(data, collection.id, browserState.settings);
     if (plan.writes.length === 0) {
       toastr.error(
-        `None of this file's ${plan.fileEventCount} events are in ${safeName}, so nothing was written.`,
+        `None of this file's ${plan.fileEventCount} events are in ${collection.name}, so nothing was written.`,
         "VectFox StoryArc",
       );
       return;
@@ -1135,7 +1135,7 @@ async function importStoryLinksFile(file, collectionKey) {
     document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
   } catch (error) {
     log.error("VectFox: Import links failed", error);
-    toastr.error(`Import links failed: ${escapeHtml(error.message)}`, "VectFox StoryArc");
+    toastr.error(`Import links failed: ${error.message}`, "VectFox StoryArc");
   }
 }
 
@@ -1634,7 +1634,7 @@ function bindCollectionCardEvents() {
         toastr.success(`Exported the links of ${linksFile.events.length} events`, "VectFox StoryArc");
       } catch (error) {
         log.error("VectFox: Export links failed", error);
-        toastr.error(`Export links failed: ${escapeHtml(error.message)}`, "VectFox StoryArc");
+        toastr.error(`Export links failed: ${error.message}`, "VectFox StoryArc");
       }
     });
 

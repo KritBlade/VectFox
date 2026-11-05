@@ -2983,7 +2983,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
     hideVectorizerForProgress();
 
     try {
-        const { runEventBaseIngestion, countUnfinishedWindows } = await import('../eventbase/index.js');
+        const { runEventBaseIngestion, countUnfinishedWindows, notifyUnfinishedWindows } = await import('../eventbase/index.js');
         const { chunkText } = await import('./chunking.js');
         const context = getContext();
         const settings = extension_settings.vectfox || {};
@@ -3051,13 +3051,7 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
             } else if (countUnfinishedWindows(result) > 0) {
                 // Keep the workflow's complete(false, …) verdict rather than
                 // painting over it with a green tick (see countUnfinishedWindows).
-                const unfinishedWindows = countUnfinishedWindows(result);
-                toastr.warning(
-                    `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
-                    + `but ${unfinishedWindows} window(s) kept failing and hold no events. Resume in Vectorize Content sends them again — see the console.`,
-                    'VectFox',
-                    { timeOut: 0, extendedTimeOut: 0 },
-                );
+                notifyUnfinishedWindows(result);
                 closeContentVectorizer();
             } else {
                 progressTracker.complete(true, `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows`);

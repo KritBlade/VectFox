@@ -115,7 +115,9 @@ const _upstreamNotified = new Set();
  * us the status text". Sticky because this class never self-heals: the same bad
  * key / unsupported parameter / invalid model fails identically on every window,
  * and an auto-dismissing toast during a long background extraction is exactly the
- * silence we are trying to remove.
+ * silence we are trying to remove. A warning because the caller carries on past it
+ * and the user must act: red means a run stopped. A provider's own server error
+ * asks nothing of the user, so postChatCompletion logs it without calling this.
  *
  * De-dup key is context + model + detail, so a different model or a different
  * upstream status warns afresh while a run of 200 failing windows warns once.
@@ -137,7 +139,7 @@ export function notifyUpstreamRejection(contextLabel, model, detail, isQuotaErro
           + 'a wrong API key, or a prompt the provider refused.';
 
     try {
-        toastr.error(
+        toastr.warning(
             `The provider rejected the ${contextLabel} request for model "${model}" (${detail}). ${why} `
             + `SillyTavern only forwards the status text to the browser — the provider's full error is in the `
             + `SillyTavern SERVER console ("Chat completion request error").`,

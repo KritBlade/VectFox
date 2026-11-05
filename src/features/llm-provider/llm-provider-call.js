@@ -83,6 +83,18 @@ function _upstreamRejectionDetail(data) {
 }
 
 /**
+ * Whether an upstream status names the provider's own failure rather than a fault
+ * in the request. Nothing the user changes fixes it, and a later send usually gets
+ * through, so it stays in the console.
+ *
+ * @param {string} detail - From _upstreamRejectionDetail
+ * @returns {boolean}
+ */
+function _isProviderServerFailure(detail) {
+    return /^(internal server error|bad gateway|service unavailable|gateway time-?out|too many requests|provider returned error)/i.test(detail);
+}
+
+/**
  * Detect a reply where the model spent its whole token budget without producing
  * an answer — `content` is empty, but the choice is otherwise well-formed and
  * carries positive evidence that generation happened and ran out of room.
@@ -371,6 +383,16 @@ export async function postChatCompletion({
         // Treating it as 'empty' is what made a wrong key, an unsupported parameter,
         // and a refused prompt all look like "the model said nothing".
         const upstreamDetail = _upstreamRejectionDetail(data);
+        if (upstreamDetail && !data?.quota_error && _isProviderServerFailure(upstreamDetail)) {
+            log.warn(
+                `[${contextLabel}] ${label} had a server error on model "${model}" (HTTP ${response.status} from ST, `
+                + `upstream status text "${upstreamDetail}"). The request was not at fault. Raw body: ${bodyText.slice(0, 500)}`,
+            );
+            throw new LlmCallError(
+                `${contextLabel}: ${label} had a server error on model "${model}" — ${upstreamDetail}`,
+                { kind: 'upstream_error', status: response.status, provider },
+            );
+        }
         if (upstreamDetail) {
             if (shouldNotifyProviderFailure) {
                 notifyUpstreamRejection(contextLabel, model, upstreamDetail, Boolean(data?.quota_error));

@@ -10,7 +10,7 @@
  * have left the green tick exactly where the user sees it.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // eventbase-workflow.js transitively imports ST modules that don't resolve under
 // vitest, so the whole graph is stubbed — the pure helper under test uses none of
@@ -47,7 +47,7 @@ vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
 
-const { countUnfinishedWindows } = await import('../src/features/eventbase/eventbase-workflow.js');
+const { countUnfinishedWindows, notifyUnfinishedWindows } = await import('../src/features/eventbase/eventbase-workflow.js');
 
 describe('countUnfinishedWindows', () => {
     it('reports a clean run as having nothing unfinished', () => {
@@ -88,5 +88,53 @@ describe('countUnfinishedWindows', () => {
         expect(countUnfinishedWindows({ eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 })).toBe(0);
         expect(countUnfinishedWindows(null)).toBe(0);
         expect(countUnfinishedWindows(undefined)).toBe(0);
+    });
+});
+
+describe('notifyUnfinishedWindows', () => {
+    const run = (extra) => ({ eventsExtracted: 40, windowsProcessed: 30, windowsFailed: 2, firstFailureDetail: 'the first reason', ...extra });
+
+    beforeEach(() => {
+        globalThis.toastr = { error: vi.fn(), warning: vi.fn() };
+    });
+
+    it('asks the player to act with a sticky warning, naming the reason and what sends them again', () => {
+        notifyUnfinishedWindows(run());
+
+        expect(globalThis.toastr.error).not.toHaveBeenCalled();
+        const [message, , options] = globalThis.toastr.warning.mock.calls[0];
+        expect(message).toContain('extracted 40 events from 30 windows, but 2 window(s) kept failing');
+        expect(message).toContain('First error: the first reason');
+        expect(message).toContain('Resume in Vectorize Content');
+        expect(options).toEqual({ timeOut: 0, extendedTimeOut: 0 });
+    });
+
+    it('says what to change when windows timed out', () => {
+        notifyUnfinishedWindows(run({ windowsFailed: 0, windowsTimedOut: 3, firstFailureDetail: null }));
+
+        const [message] = globalThis.toastr.warning.mock.calls[0];
+        expect(message).toContain('3 timed out: raise "Extraction Timeout"');
+        expect(message).not.toContain('First error');
+    });
+
+    it('takes its next step and options from the caller', () => {
+        notifyUnfinishedWindows(run(), 'The next turn sends them again.', { timeOut: 15000 });
+
+        const [message, , options] = globalThis.toastr.warning.mock.calls[0];
+        expect(message).toContain('The next turn sends them again.');
+        expect(options).toEqual({ timeOut: 15000 });
+    });
+
+    // Nothing got through, so the run achieved nothing and the fault is not those windows.
+    it('goes red only when many windows failed and none got through', () => {
+        notifyUnfinishedWindows(run({ windowsProcessed: 0, windowsFailed: 9 }));
+        expect(globalThis.toastr.error).toHaveBeenCalledTimes(1);
+        expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+    });
+
+    it('stays a warning for a few windows that were all a run had left', () => {
+        notifyUnfinishedWindows(run({ windowsProcessed: 0, windowsFailed: 1 }));
+        expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
+        expect(globalThis.toastr.error).not.toHaveBeenCalled();
     });
 });

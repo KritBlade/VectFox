@@ -29,6 +29,7 @@ export {
     countUnfinishedWindows,
     getAutoSyncWindowSize,
     getChatAutoSyncStatus,
+    notifyUnfinishedWindows,
     runEventBaseIngestion,
     runEventBaseRetrieval,
 } from './eventbase-workflow.js';

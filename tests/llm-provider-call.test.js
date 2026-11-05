@@ -372,6 +372,30 @@ describe('postChatCompletion — error classification', () => {
         expect(mockNotifyUpstreamRejection).not.toHaveBeenCalled();
     });
 
+    // A provider's own failure asks nothing of the user: the caller sends the window again.
+    it('keeps a provider server error to the console', async () => {
+        for (const message of ['Internal Server Error', 'Bad Gateway', 'Service Unavailable', 'Gateway Timeout', 'Too Many Requests']) {
+            vi.stubGlobal('fetch', vi.fn(async () => ({
+                ok: true, status: 200, json: async () => ({ error: { message } }),
+            })));
+
+            await expect(postChatCompletion(baseArgs()), message).rejects.toMatchObject({
+                kind: 'upstream_error',
+                message: expect.stringContaining(`had a server error on model "test/model" — ${message}`),
+            });
+        }
+        expect(mockNotifyUpstreamRejection).not.toHaveBeenCalled();
+    });
+
+    it('still tells the user about a quota error, which only they can fix', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true, status: 200, json: async () => ({ error: { message: 'Too Many Requests' }, quota_error: true }),
+        })));
+
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'upstream_error' });
+        expect(mockNotifyUpstreamRejection).toHaveBeenCalledWith('TestFeature', 'test/model', 'Too Many Requests', true);
+    });
+
     it('still reports a genuinely empty completion as kind:empty', async () => {
         // choices present, no error anywhere → the model really did answer nothing.
         vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: '   ' })));
