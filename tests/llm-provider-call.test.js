@@ -189,6 +189,18 @@ describe('postChatCompletion — request body', () => {
         const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
         expect(sent.chat_completion_source).toBe('custom');
         expect(sent.reasoning_effort).toBe('none');
+        expect(JSON.parse(sent.custom_include_body)).toEqual({ reasoning_effort: 'none' });
+    });
+
+    it('sends custom_include_body only on the vLLM/custom route with an effort resolved', async () => {
+        const fetchMock = vi.fn(async () => okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+
+        await postChatCompletion(baseArgs({ provider: 'openrouter', reasoningEffort: 'none' }));
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('custom_include_body');
+
+        await postChatCompletion(baseArgs({ provider: 'vllm', vllmUrl: 'http://localhost:8000/v1' }));
+        expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('custom_include_body');
     });
 
     it('never sends sampling params VectFox does not support', async () => {

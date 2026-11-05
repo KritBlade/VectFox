@@ -187,11 +187,12 @@ export function resolveModelParameterStyle(settings = {}) {
         // measured reasoning_tokens 0 on Gemini, with byte-identical extraction
         // yield to sending nothing across all 8 windows of a real chat.
         //
-        // 'none' is NOT universally accepted, which is why unchecking matters:
-        // google/gemini-3.5-flash-lite, 3.5-flash and 3.8-flash reject it with
-        // an upstream "Bad Request" on every single call (newer Gemini cannot
-        // have thinking switched off at all), while gemini-3.1-flash-lite,
+        // Neither value is universally accepted, which is why the switch exists.
+        // google/gemini-3.5-flash-lite, 3.5-flash and 3.8-flash reject 'none'
+        // with an upstream "Bad Request" on every single call (newer Gemini
+        // cannot have thinking switched off at all), while gemini-3.1-flash-lite,
         // gpt-4o-mini, claude-haiku-4.5 and deepseek-chat all accept it.
+        // gpt-6-luna is the reverse: it takes 'none' and rejects 'minimal'.
         reasoningEffort: settings?.should_disable_thinking !== false ? 'none' : 'minimal',
     };
 }
@@ -223,9 +224,9 @@ export function resolveModelParameterStyle(settings = {}) {
  *        (reasoning models accept only their own default). From resolveModelParameterStyle.
  * @param {string}   [opts.tokenLimitParameter='max_tokens'] body key for the output-token
  *        cap — 'max_completion_tokens' for reasoning models. From resolveModelParameterStyle.
- * @param {string|null} [opts.reasoningEffort=null] sent as `reasoning_effort` when set;
- *        'none' turns a reasoning model's thinking off entirely. From
- *        resolveModelParameterStyle.
+ * @param {string|null} [opts.reasoningEffort=null] sent as `reasoning_effort` when set, and
+ *        on the vLLM/custom route inside `custom_include_body` as well; 'none' turns a
+ *        reasoning model's thinking off entirely. From resolveModelParameterStyle.
  * @returns {Promise<{content: string, finishReason: string|null, usage: object|null, data: any}>}
  * @throws {LlmCallError}
  */
@@ -250,16 +251,29 @@ export async function postChatCompletion({
     const body = { model, messages, [tokenLimitParameter]: maxTokens };
     if (sendTemperature) body.temperature = temperature;
     if (responseFormat) body.response_format = responseFormat;
-    // Top-level OpenAI-standard field, NOT OpenRouter's `reasoning` object —
-    // SillyTavern's proxy forwards this one and strips that one. Measured on the
-    // real EventBase prompt: deepseek-v4-flash went 153.5s / 1632 reasoning
-    // tokens → 6.7s / 0, and gpt-5.6-luna 29.5s / 1034 → 3.0s / 0, both still
-    // extracting correctly. Harmless on models that never think (gpt-4o-mini
-    // accepted it without error), so it needs no per-model gate.
+    // Top-level OpenAI-standard field, NOT OpenRouter's `reasoning` object, which
+    // SillyTavern's proxy strips. Measured on the real EventBase prompt:
+    // deepseek-v4-flash went 153.5s / 1632 reasoning tokens → 6.7s / 0, and
+    // gpt-5.6-luna 29.5s / 1034 → 3.0s / 0, both still extracting correctly.
+    // Harmless on models that never think (gpt-4o-mini accepted it without error),
+    // so it needs no per-model gate.
     if (reasoningEffort) body.reasoning_effort = reasoningEffort;
 
+    // On its custom route ST forwards the top-level field only for the model ids in
+    // OPENAI_REASONING_EFFORT_MODELS, and silently drops it for the rest: gateway ids
+    // and models newer than the list, such as gpt-6-luna, would keep thinking with the
+    // switch on. ST merges `custom_include_body` into the upstream request for any
+    // model. The top-level field stays because, for a listed model, ST applies it after
+    // that merge and maps it to the value that model accepts.
     const requestBody = (provider === 'vllm' || provider === 'custom')
-        ? { chat_completion_source: 'custom', custom_url: vllmUrl, ...body }
+        ? {
+            chat_completion_source: 'custom',
+            custom_url: vllmUrl,
+            ...body,
+            ...(reasoningEffort
+                ? { custom_include_body: JSON.stringify({ reasoning_effort: reasoningEffort }) }
+                : {}),
+        }
         : { chat_completion_source: 'openrouter', ...body };
 
     const response = await fetch('/api/backends/chat-completions/generate', {
@@ -365,8 +379,6 @@ export async function postChatCompletion({
             // no cause, so print the request-shape switches alongside it — they are
             // the parameters a model rejects while accepting the same prompt, and
             // the user can act on every one of them from the Core tab.
-            // `reasoning_effort: 'none'` is the known repeat offender: newer Gemini
-            // (3.5-flash-lite, 3.5-flash, 3.8-flash) rejects it on every call.
             const shapeSent = [
                 `reasoning_effort=${reasoningEffort ?? '(not sent)'}`,
                 `${tokenLimitParameter}=${maxTokens}`,
@@ -375,9 +387,9 @@ export async function postChatCompletion({
             log.warn(
                 `[${contextLabel}] ${label} rejected the request for model "${model}" (HTTP ${response.status} from ST, `
                 + `upstream status text "${upstreamDetail}"). Request shape sent: ${shapeSent}. ST forwards only the status `
-                + `text, so the provider's full error is in the SillyTavern server console. If reasoning_effort=none, try `
-                + `unchecking "Turn off model thinking" in the VectFox Core tab — newer Gemini models reject that value on `
-                + `every call. Raw body: ${bodyText.slice(0, 500)}`,
+                + `text, so the provider's full error is in the SillyTavern server console. A model can reject any of these `
+                + `values: try the switches "Use max_completion_tokens", "Send temperature" and "Turn off model thinking" `
+                + `in Core → LLM Summarization settings. Raw body: ${bodyText.slice(0, 500)}`,
             );
             throw new LlmCallError(
                 `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,
