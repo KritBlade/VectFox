@@ -1300,7 +1300,7 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
  *
  * Reads the registry, the eventbase window cache, and extension_settings. The one
  * backend call is the vectorization-tip probe (ensureVectorizationTip), which runs
- * only when the tip is not cached yet. Passive refreshes while VectFox is disabled
+ * when the tip is not cached yet or is far behind the chat. Passive refreshes while VectFox is disabled
  * pass `shouldProbeBackend: false` (report the cached tip alone, never call the
  * backend) and `shouldLogResolution: false` (no write-target diagnostics).
  *
@@ -1382,12 +1382,13 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
     const fullyVectorized = isChatFullyVectorized(committedMessages, settings, uuid, getAutoSyncWindowSize(settings), 0);
 
-    // Cache-first read; one-time probe on cold cache populates from Qdrant.
-    // After first session-warmup, the ingestion loop keeps this up-to-date
-    // via setVectorizationTip after each window. See eventbase-store.js for
-    // the cache lifecycle docs. Without the probe, a cold cache reports no tip.
+    // Cache-first read; one-time probe on cold cache populates from Qdrant, and a
+    // far-behind tip gets one check per page load. After first session-warmup, the
+    // ingestion loop keeps this up-to-date via setVectorizationTip after each window.
+    // See eventbase-store.js for the cache lifecycle docs. Without the probe, a cold
+    // cache reports no tip.
     const vectorizationTip = shouldProbeBackend
-        ? await ensureVectorizationTip(uuid, match.collectionId, settings)
+        ? await ensureVectorizationTip(uuid, match.collectionId, settings, { commitBoundary, windowSize: getAutoSyncWindowSize(settings) })
         : getVectorizationTip(uuid);
 
     return {

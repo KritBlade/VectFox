@@ -2437,8 +2437,7 @@ function bindSettingsEvents(settings, callbacks) {
                 // See InternalProject/Vectfox/plans/executed/autosync-backlog-catchup-on-enable.md.
                 let markerFloorOverride; // undefined → smart placement (catch up to tip)
                 try {
-                    const { getVectorizationTip } = await import('../eventbase/index.js');
-                    const { getAutoSyncWindowSize } = await import('../eventbase/index.js');
+                    const { FAR_BEHIND_WINDOW_COUNT, countWindowsBehind, getAutoSyncWindowSize, getVectorizationTip } = await import('../eventbase/index.js');
                     const { getChatUUID } = await import('../../shared/collection-ids.js');
                     const uuid = getChatUUID();
                     const chatMsgCount = typeof status.chatMessageCount === 'number'
@@ -2451,10 +2450,9 @@ function bindSettingsEvents(settings, callbacks) {
                     // "pending backlog". See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
                     const boundary = typeof status.commitBoundary === 'number' ? status.commitBoundary : chatMsgCount;
                     const pendingMsgs = Math.max(0, boundary - tip);
-                    const pendingWindows = Math.floor(pendingMsgs / windowSize);
-                    const CATCHUP_PROMPT_THRESHOLD = 5; // windows (~5 LLM calls)
+                    const pendingWindows = countWindowsBehind(boundary, tip, windowSize);
 
-                    if (pendingWindows >= CATCHUP_PROMPT_THRESHOLD) {
+                    if (pendingWindows >= FAR_BEHIND_WINDOW_COUNT) {
                         const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../../sillytavern/popup.js');
                         const choice = await callGenericPopup(
                             `<div style="text-align:left">

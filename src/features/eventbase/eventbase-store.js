@@ -47,10 +47,33 @@ const _windowCacheSet = new Map(); // chatUUID → Set<fingerprint>
 //   - persisted to extension_settings.vectfox.eventbase_vectorization_tip so the
 //     value survives reload WITHOUT a backend probe (benefits standard+plugin and
 //     qdrant+plugin users; standard-no-plugin can't probe anyway). See getter.
-//   - probed via ensureVectorizationTip only when neither the in-memory cache nor
-//     the persisted map has a value (i.e. the very first read on a chat)
+//   - probed via ensureVectorizationTip when neither the in-memory cache nor the
+//     persisted map has a value (i.e. the very first read on a chat), and once per
+//     page load when the known tip is far behind the chat
 //   - cleared by clearVectorizationTip (parity with clearAutoSyncMarker)
 const _vectorizationTipByUuid = new Map(); // chatUUID → number (tip)
+
+// Chats whose far-behind tip was read against the backend on this page load.
+const _tipsCheckedThisPageLoad = new Set();
+
+/**
+ * Whole Auto-sync windows behind the sync boundary at which a chat counts as far behind: the
+ * auto-sync enable flow asks before spending on the backlog, and ensureVectorizationTip checks the
+ * tip against the backend.
+ */
+export const FAR_BEHIND_WINDOW_COUNT = 5;
+
+/**
+ * Whole Auto-sync windows between a tip and the sync boundary.
+ *
+ * @param {number} commitBoundary - messages eligible for auto-sync (getCommitBoundary)
+ * @param {number} tip
+ * @param {number} windowSize - messages per Auto-sync window (getAutoSyncWindowSize)
+ * @returns {number}
+ */
+export function countWindowsBehind(commitBoundary, tip, windowSize) {
+    return Math.floor(Math.max(0, commitBoundary - tip) / windowSize);
+}
 
 /**
  * Sync getter. On in-memory miss, warms the cache from the persisted
@@ -177,34 +200,123 @@ export function pruneOrphanedEventBaseChatMaps() {
 }
 
 /**
- * Async cache-miss reader. On hit (in-memory OR persisted, via getVectorizationTip),
- * returns the tip immediately with no backend round-trip. Only when nothing is
- * known yet does it probe the backend via listChunks ONCE, populate the cache, and
- * return the value. Same shape as stampAutoSyncMarker's existing scan, so cost on a
- * genuinely-cold chat is the same as the existing marker-stamp flow.
+ * Reads where a collection's events sit, from their stored source_window_end.
+ *
+ * @param {string} collectionId - Bare or registry-key form; passed straight to listChunks.
+ * @param {object} settings
+ * @returns {Promise<{ end: number, createdAt: number|undefined }[]>}
+ */
+async function _readEventPositions(collectionId, settings) {
+    const { getBackend } = await import('../vector-backend/index.js');
+    const backendInstance = await getBackend(settings);
+    const result = await backendInstance.listChunks(collectionId, settings, { limit: 10000 });
+    const items = Array.isArray(result?.items) ? result.items : [];
+    return items
+        .filter(item => typeof item?.metadata?.source_window_end === 'number')
+        .map(item => ({ end: item.metadata.source_window_end, createdAt: item.metadata.created_at }));
+}
+
+/** The tip those positions prove: one past the highest message any event covers, 0 with none. */
+function _tipOfPositions(positions) {
+    return positions.reduce((tip, { end }) => Math.max(tip, end + 1), 0);
+}
+
+/** The later of two event times, either of which an older event may lack. */
+function _laterEventTime(first, second) {
+    return second === undefined || first > second ? first : second;
+}
+
+/**
+ * Whether the events at the collection's end are older than events below a tip. Reset & Vectorize
+ * keeps the existing events and re-extracts from the start, so a run stopped part way looks like
+ * this, and its tip is the run's own progress. A stale tip does not: the collection's end is newest.
+ *
+ * @param {{ end: number, createdAt: number|undefined }[]} positions
+ * @param {number} tip
+ * @returns {boolean}
+ */
+function _isReExtractionUnfinished(positions, tip) {
+    let highestEnd = -1;
+    let newestAtHighestEnd;
+    let newestBelowTip;
+    for (const { end, createdAt } of positions) {
+        if (end > highestEnd) {
+            highestEnd = end;
+            newestAtHighestEnd = createdAt;
+        } else if (end === highestEnd) {
+            newestAtHighestEnd = _laterEventTime(createdAt, newestAtHighestEnd);
+        }
+        if (end < tip) newestBelowTip = _laterEventTime(createdAt, newestBelowTip);
+    }
+    return newestBelowTip > newestAtHighestEnd;
+}
+
+/**
+ * Checks a far-behind tip against its collection, once per chat per page load. SillyTavern saves the
+ * whole settings file from whichever tab saves last, so a tab left open or a restored backup can put
+ * back a tip from long before the collection's events, and a known tip is otherwise never re-read.
+ *
+ * Only ever raises: windows that produced no events leave nothing in the backend, so it can prove a
+ * tip too low but never too high. The window record goes too, because it describes the same old
+ * state and a non-empty one makes Resume start where it ends instead of at the tip
+ * (shouldUseTipFallback).
+ *
+ * @param {string} chatUUID
+ * @param {string} collectionId
+ * @param {object} settings
+ * @param {number} knownTip
+ * @returns {Promise<number>} the tip to use
+ */
+async function _checkFarBehindTip(chatUUID, collectionId, settings, knownTip) {
+    _tipsCheckedThisPageLoad.add(chatUUID);
+    let positions;
+    try {
+        positions = await _readEventPositions(collectionId, settings);
+    } catch (err) {
+        _tipsCheckedThisPageLoad.delete(chatUUID); // the next status read tries again
+        log.warn(`[EventBase VectorizationTip] check of far-behind tip ${knownTip} failed for ${collectionId}, keeping it:`, err);
+        return knownTip;
+    }
+    const collectionTip = _tipOfPositions(positions);
+    if (collectionTip <= knownTip) return knownTip; // the backlog is real
+    if (_isReExtractionUnfinished(positions, knownTip)) {
+        log.lifecycle(`[EventBase VectorizationTip] tip ${knownTip} is an unfinished re-extraction in ${collectionId}, keeping it`);
+        return knownTip;
+    }
+    clearWindowCacheForChat(chatUUID);
+    setVectorizationTip(chatUUID, collectionTip);
+    log.warn(`[EventBase VectorizationTip] saved tip ${knownTip} was behind ${collectionId}, which reaches ${collectionTip}: raised it and dropped the window record`);
+    return collectionTip;
+}
+
+/**
+ * Reads a chat's tip, going to the backend only when the known one cannot answer. On a hit
+ * (in-memory OR persisted, via getVectorizationTip), returns the tip with no backend round-trip,
+ * unless syncProgress shows it far behind (_checkFarBehindTip). When nothing is known yet it probes
+ * the backend via listChunks ONCE, populates the cache, and returns the value. Same shape as
+ * stampAutoSyncMarker's existing scan, so cost on a genuinely-cold chat is the same as the existing
+ * marker-stamp flow.
  *
  * @param {string} chatUUID
  * @param {string} collectionId  - Bare or registry-key form; passed straight to listChunks.
  * @param {object} settings
+ * @param {{ commitBoundary: number, windowSize: number }} [syncProgress] - where the chat stands
+ *   (see countWindowsBehind). Without it a known tip is returned as it is.
  * @returns {Promise<number|null>}  Tip, or null if the collection has no events yet.
  */
-export async function ensureVectorizationTip(chatUUID, collectionId, settings) {
+export async function ensureVectorizationTip(chatUUID, collectionId, settings, syncProgress = null) {
     if (!chatUUID) return null;
     const cached = getVectorizationTip(chatUUID); // in-memory, else warms from persisted
-    if (typeof cached === 'number') return cached;
+    if (typeof cached === 'number') {
+        const isFarBehind = syncProgress
+            && countWindowsBehind(syncProgress.commitBoundary, cached, syncProgress.windowSize) >= FAR_BEHIND_WINDOW_COUNT;
+        if (!isFarBehind || !collectionId || _tipsCheckedThisPageLoad.has(chatUUID)) return cached;
+        return _checkFarBehindTip(chatUUID, collectionId, settings, cached);
+    }
     if (!collectionId) return null;
     try {
-        const { getBackend } = await import('../vector-backend/index.js');
-        const backendInstance = await getBackend(settings);
-        const result = await backendInstance.listChunks(collectionId, settings, { limit: 10000 });
-        const items = Array.isArray(result?.items) ? result.items : [];
-        let maxEnd = -1;
-        for (const it of items) {
-            const end = it?.metadata?.source_window_end;
-            if (typeof end === 'number' && end > maxEnd) maxEnd = end;
-        }
-        if (maxEnd < 0) return null;
-        const tip = maxEnd + 1;
+        const tip = _tipOfPositions(await _readEventPositions(collectionId, settings));
+        if (tip === 0) return null;
         _vectorizationTipByUuid.set(chatUUID, tip);
         return tip;
     } catch (err) {
