@@ -76,6 +76,10 @@ describe('isStoryArcActive', () => {
 });
 
 describe('STORY_ROUTER_PROMPT', () => {
+    it('keeps how one matter finally ended out of the last-time shape', () => {
+        expect(STORY_ROUTER_PROMPT).toContain('How one matter finally ended is not this shape');
+    });
+
     it('offers every shape a recipe or today\'s path handles', () => {
         for (const shape of ['scene', 'first_time', 'last_time', 'chain', 'why', 'current', 'bigger_plot']) {
             expect(STORY_ROUTER_PROMPT).toContain(`"${shape}"`);

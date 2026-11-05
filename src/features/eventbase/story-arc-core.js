@@ -44,7 +44,7 @@ const STORY_SHAPES = {
     why: 'why something happened or keeps happening',
     current: 'where things stand now',
     bigger_plot: 'how one matter connects to a larger plot',
-    last_time: 'the last or most recent time someone appeared or something happened',
+    last_time: 'the last or most recent occurrence of something that happens more than once, such as the last time two people met or spoke. How one matter finally ended is not this shape',
 };
 
 const SCENE_SHAPE = 'scene';
