@@ -28,12 +28,37 @@ import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schem
 import { extractEvents } from './eventbase-extractor.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
 import { retrieveEvents } from './eventbase-retrieval.js';
 import { retrieveEventsWithAgent } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
+
+// The wait before each extra pass over the windows that failed in a run, one entry
+// per pass. A window therefore gets three sends in the run where it first fails.
+const WINDOW_RESEND_BACKOFF_MS = [5000, 10000];
+
+// A pass that got nothing through, with more failures than one parallel batch, points
+// at the provider and not at those windows: repeating it would only repeat the wait.
+const MAX_WINDOWS_TO_RESEND_WITHOUT_PROGRESS = 8;
+
+/**
+ * Waits before a re-send pass, ending early when the user presses Stop.
+ * @param {number} delayMs
+ * @param {AbortSignal|null} abortSignal
+ * @returns {Promise<void>}
+ */
+function _waitBeforeResendPass(delayMs, abortSignal) {
+    return new Promise((resolve) => {
+        let timer = null;
+        abortSignal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            resolve();
+        }, { once: true });
+        timer = setTimeout(resolve, delayMs);
+    });
+}
 
 /**
  * Resolve the auto-sync extraction window size in MESSAGES from the per-user
@@ -104,8 +129,9 @@ export function getCommitBoundary(messages, settings) {
  * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number }>}
  */
 /**
- * How many windows this run left unfinished — they produced no events, were not
- * marked extracted, and will be retried next run.
+ * How many windows this run left unfinished — they were sent again and still
+ * produced no events, so they are not marked extracted. They stay on the chat's
+ * unfinished record until a later run gets them through.
  *
  * Lives here because this module owns the counters, and BOTH callers that report
  * a run to the user need the same answer. Neither used to ask: each ended with an
@@ -220,8 +246,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // A tail window becomes eligible once it reaches windowSize messages, at which
     // point the next step boundary also produces a fresh overlap window correctly.
     // Quick-exit: check only the LAST complete window fingerprint against the Set cache.
-    // If it's already extracted, all prior windows are done too (processed in order).
     // Avoids building O(n/step) window objects on every auto-sync fire when nothing is new.
+    // A manual run does not take this exit while windows are on the unfinished record:
+    // a run carries on past a failed window, so the last window being done says nothing
+    // about it. Auto-sync keeps the exit and reaches its failed windows when the next
+    // turn commits.
     // Note: edits to messages deep in history bypass this check — acceptable limitation.
     // Settle/commit lag: on auto-sync, hold back the active (still-swipeable) last
     // turn — only extract messages up to the commit boundary. Manual Vectorize
@@ -232,7 +261,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const commitBoundary = isAutoSync ? getCommitBoundary(messages, settings) : messages.length;
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
 
-    if (isLastWindowExtracted(committedMessages, windowSize, step, uuid, hashSourceMessage)) {
+    const unfinishedFingerprints = getUnfinishedWindowFingerprints(uuid, windowSize);
+    const shouldSendUnfinishedWindows = !isAutoSync && unfinishedFingerprints.size > 0;
+    if (!shouldSendUnfinishedWindows && isLastWindowExtracted(committedMessages, windowSize, step, uuid, hashSourceMessage)) {
         log.lifecycle(`[EventBase] Quick-exit: last committed window already extracted, nothing new`);
         return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
     }
@@ -243,6 +274,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         const msgs = messages.slice(start, end + 1);
         if (msgs.length < windowSize) break; // tail is incomplete — wait for more messages
         windows.push({ start, end, msgs });
+    }
+
+    if (shouldSendUnfinishedWindows) {
+        const chatFingerprints = new Set(windows.map(win => windowFingerprint(win.msgs.map(hashSourceMessage))));
+        forgetUnfinishedWindowsNotInChat(uuid, windowSize, chatFingerprints);
+        log.lifecycle(`[EventBase] ${getUnfinishedWindowFingerprints(uuid, windowSize).size} unfinished window(s) on record for this chat`);
     }
 
     // AutoSync start-marker gate. The marker says "everything before this
@@ -278,6 +315,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }
     }
 
+    // Each window keeps its place in this list, so a re-send pass still logs the right number.
+    windows.forEach((win, index) => { win.index = index; });
+
     log.lifecycle(`[EventBase] Ingestion: ${messages.length} messages → ${windows.length} windows (size=${windowSize}, overlap=${windowOverlap})`);
 
     const showProgressModal = !isAutoSync || settings.autosync_show_progress_modal === true;
@@ -312,7 +352,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         const secs = Math.round((settings.eventbase_timeout_ms || 60000) / 1000);
         try {
             toastr.error(
-                `EventBase extraction timed out after ${secs}s. Raise "Extraction Timeout" in the EventBase settings, or check that your model/endpoint is responding. Events from timed-out windows were not stored.`,
+                `EventBase extraction timed out after ${secs}s. Raise "Extraction Timeout" in the EventBase settings, or check that your model/endpoint is responding. Timed-out windows stored nothing and are sent again.`,
                 'VectFox — EventBase timeout',
                 { timeOut: 0, extendedTimeOut: 0 },
             );
@@ -344,6 +384,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         skipTipFallback,
         fastForwardSkipped,
         hasCollection: !!collectionId,
+        hasUnfinishedWindows: getUnfinishedWindowFingerprints(uuid, windowSize).size > 0,
     });
     if (!useTipFallback && skipTipFallback) {
         log.lifecycle('[EventBase] shouldUseTipFallback=false — caller explicitly opted out (skipTipFallback=true)');
@@ -421,6 +462,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // ONE batch is extracted-but-not-inserted at any time — deeper queue
     // would not help (slow stage gates throughput) and only adds memory +
     // complicates abort.
+    //
+    // When all windows are through, the coordinator runs up to
+    // WINDOW_RESEND_BACKOFF_MS.length more passes over the windows that failed.
     // -----------------------------------------------------------------------
 
     /**
@@ -430,17 +474,17 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
      * the underlying LLM call surfaces one (auth/config errors).
      *
      * @param {object[]} windowsSlice
-     * @param {number}   batchFirstIdx  Absolute index of this batch's first window
      * @returns {Promise<object>} ExtractResult
      */
-    async function _runOneExtractBatch(windowsSlice, batchFirstIdx) {
+    async function _runOneExtractBatch(windowsSlice) {
         const batchStartedAt = performance.now();
-        const batchLastIdx = batchFirstIdx + windowsSlice.length - 1;
+        const batchFirstIdx = windowsSlice[0].index;
+        const batchLastIdx = windowsSlice[windowsSlice.length - 1].index;
         log.verbose(`[EventBase concurrency] Dispatching batch: windows ${batchFirstIdx}-${batchLastIdx} (size=${windowsSlice.length}, CONCURRENCY=${CONCURRENCY}) at t=${batchStartedAt.toFixed(1)}ms`);
 
         const batchResults = await Promise.allSettled(
-            windowsSlice.map(async (win, batchOffset) => {
-                const wIdx = batchFirstIdx + batchOffset;
+            windowsSlice.map(async (win) => {
+                const wIdx = win.index;
                 const winStartedAt = performance.now();
                 log.verbose(`[EventBase concurrency] Window ${wIdx}: dispatched at +${(winStartedAt - batchStartedAt).toFixed(1)}ms`);
 
@@ -502,7 +546,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                         || /aborted|timeout|timed out/i.test(err?.message || '');
                     if (isTimeout) {
                         const secs = Math.round((settings.eventbase_timeout_ms || 60000) / 1000);
-                        log.warn(`[EventBase] Window ${wIdx}: extraction TIMED OUT after ${secs}s (skipped). Raise "Extraction Timeout" in EventBase settings, or check your model/endpoint is responding.`);
+                        log.warn(`[EventBase] Window ${wIdx}: extraction TIMED OUT after ${secs}s (unfinished). Raise "Extraction Timeout" in EventBase settings, or check your model/endpoint is responding.`);
                         _notifyFirstTimeout();
                         return { skipped: false, events: [], timedOut: true };
                     }
@@ -512,10 +556,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     // from N window(s)" — indistinguishable from a chat that
                     // genuinely held no events (issue #14).
                     if (err instanceof EventBaseExtractionError) {
-                        log.warn(`[EventBase] Window ${wIdx}: extraction error (skipped) — ${err.message}`);
+                        log.warn(`[EventBase] Window ${wIdx}: extraction error (unfinished) — ${err.message}`);
                         return { skipped: false, events: [], failed: true, failureDetail: err.message };
                     }
-                    log.warn(`[EventBase] Window ${wIdx}: unexpected error (skipped) — ${err.message}`);
+                    log.warn(`[EventBase] Window ${wIdx}: unexpected error (unfinished) — ${err.message}`);
                     return { skipped: false, events: [], failed: true, failureDetail: err.message };
                 }
 
@@ -552,6 +596,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }
 
         return {
+            windowsSlice,
             batchFirstIdx,
             batchLastIdx,
             batchResults,
@@ -614,7 +659,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                         { timeOut: backoffMs + 500 },
                     );
                     progressTracker.updateProgress(
-                        nextBatchFirstIdx,
+                        resendPassesDone > 0 ? windows.length : nextBatchFirstIdx,
                         `Insert retry ${attempt}/3 — waiting ${backoffMs/1000}s...`,
                     );
                     await new Promise(r => setTimeout(r, backoffMs));
@@ -628,6 +673,24 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     /**
+     * Puts a failed window on the chat's unfinished record and, the first time it
+     * fails, queues it for this run's next pass. A window already on the record when
+     * the run began gets one send per run, so one that always fails (a refused
+     * prompt, say) does not cost three calls on every later run.
+     *
+     * @param {object}  win
+     * @param {boolean} wasTimedOut
+     * @param {object}  tally
+     */
+    function _recordUnfinishedWindow(win, wasTimedOut, tally) {
+        const sourceHashes = win.msgs.map(hashSourceMessage);
+        markWindowUnfinished(sourceHashes, uuid);
+        if (!unfinishedFingerprints.has(windowFingerprint(sourceHashes))) {
+            tally.windowsToResend.push({ win, wasTimedOut });
+        }
+    }
+
+    /**
      * Per-batch finalizer — calls _insertWithRetry, then marks windows
      * extracted + bumps tip + updates progress, IN THAT ORDER. The order is
      * the "no corrupted state" invariant: we never mark a window as covered
@@ -637,7 +700,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
      * insert errors bubble (Promise.race in the coordinator surfaces them).
      */
     async function _finalizeBatch(extractResult) {
-        const { batchFirstIdx, batchResults, allEvents, hashesToMark, endsExtracted, batchStartedAt, extractPhaseEndedAt } = extractResult;
+        const { windowsSlice, batchFirstIdx, batchResults, allEvents, hashesToMark, endsExtracted, batchStartedAt, extractPhaseEndedAt } = extractResult;
 
         if (!abortSignal?.aborted && allEvents.length > 0) {
             await _insertWithRetry(allEvents, batchFirstIdx);
@@ -660,14 +723,18 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         log.lifecycle(`[EventBase concurrency] Batch DONE: total=${(batchEndedAt - batchStartedAt).toFixed(0)}ms (extract=${extractPhaseMs.toFixed(0)}ms parallel, insert=${insertPhaseMs.toFixed(0)}ms — 1 batched POST with ${allEvents.length} event(s))`);
 
         // Tally results, watch for fatal LLM errors (extract-side fatals
-        // arrive as rejected promises in batchResults).
-        const tally = { eventsAdded: 0, windowsProcessed: 0, windowsSkipped: 0, windowsTimedOut: 0, windowsFailed: 0, failureDetail: null, fatalError: null };
-        for (const result of batchResults) {
+        // arrive as rejected promises in batchResults). The loop runs to the end of
+        // the batch even after a fatal, so every failed window reaches the record
+        // before the coordinator stops the run.
+        const tally = { eventsAdded: 0, windowsProcessed: 0, windowsSkipped: 0, windowsTimedOut: 0, windowsFailed: 0, failureDetail: null, fatalError: null, windowsToResend: [] };
+        for (const [position, result] of batchResults.entries()) {
+            const win = windowsSlice[position];
             if (result.status === 'rejected') {
                 const err = result.reason;
+                _recordUnfinishedWindow(win, false, tally);
                 if (err instanceof EventBaseFatalError) {
-                    tally.fatalError = err;
-                    return tally; // coordinator handles the fatal
+                    tally.fatalError ??= err; // coordinator handles the fatal
+                    continue;
                 }
                 log.warn('[EventBase] Batch window error:', err?.message || err);
                 tally.windowsFailed++;
@@ -677,12 +744,14 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     tally.windowsSkipped++;
                 } else if (result.value?.timedOut) {
                     // Counted separately — NOT as "processed" (it produced no events
-                    // and wasn't marked extracted, so it retries next run).
+                    // and wasn't marked extracted).
+                    _recordUnfinishedWindow(win, true, tally);
                     tally.windowsTimedOut++;
                 } else if (result.value?.failed) {
                     // Same reasoning as timedOut: no events, not marked extracted,
                     // so it must not inflate the processed count that the final
                     // success message reports.
+                    _recordUnfinishedWindow(win, false, tally);
                     tally.windowsFailed++;
                     tally.failureDetail ??= result.value.failureDetail || null;
                 } else {
@@ -701,11 +770,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
      * stored, not extracted" preference (decision #2 in the design chat).
      * The `batchLastIdx + 1` value is the next window to process; passing it
      * to updateProgress keeps the progress bar advancing at the rhythm of
-     * inserts, not extracts.
+     * inserts, not extracts. A re-send pass works behind that point, so the
+     * bar stays at the end.
      */
     function _updateProgressAfterFinalize(extractResult) {
+        const advancedWindowIdx = resendPassesDone > 0 ? windows.length : extractResult.batchLastIdx + 1;
         if (totalLegacyChunks > 0) {
-            const advancedWindowIdx = extractResult.batchLastIdx + 1;
             const coveredMessages = Math.min(messages.length, (advancedWindowIdx * step) + windowOverlap);
             const processedLegacyChunks = _estimateProcessedLegacyChunks({
                 coveredMessages,
@@ -719,7 +789,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
         progressTracker.updateChunks(eventsExtracted);
         progressTracker.updateProgress(
-            extractResult.batchLastIdx + 1,
+            advancedWindowIdx,
             `${eventsExtracted} event(s) found, processing windows...`,
         );
     }
@@ -727,6 +797,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // -----------------------------------------------------------------------
     // Coordinator — single-slot pipelined loop.
     // -----------------------------------------------------------------------
+    let dispatchWindows = windows; // the windows of the current pass
+    let windowsToResend = [];      // failed in the current pass: { win, wasTimedOut }
+    let resendPassesDone = 0;
+    let windowsProcessedBeforePass = 0;
     let nextBatchFirstIdx = fastForwardSkipped;
     let pendingExtract = null;  // Promise<ExtractResult> | null
     let pendingInsert  = null;  // Promise<Tally> | null
@@ -796,19 +870,48 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         // put its result. Correct single-slot behavior: at most one extract
         // + one insert in flight + one queued result.
         const insertBarrier = disablePipeline && pendingInsert !== null;
-        if (!pendingExtract && queuedResult === null && !insertBarrier && nextBatchFirstIdx < windows.length) {
-            const slice = windows.slice(nextBatchFirstIdx, nextBatchFirstIdx + CONCURRENCY);
-            const sliceFirstIdx = nextBatchFirstIdx;
+        if (!pendingExtract && queuedResult === null && !insertBarrier && nextBatchFirstIdx < dispatchWindows.length) {
+            const slice = dispatchWindows.slice(nextBatchFirstIdx, nextBatchFirstIdx + CONCURRENCY);
             nextBatchFirstIdx += slice.length;
-            pendingExtract = _runOneExtractBatch(slice, sliceFirstIdx);
+            pendingExtract = _runOneExtractBatch(slice);
             extractKey = pendingExtract.then(
                 r => ({ kind: 'extract', result: r }),
                 e => ({ kind: 'extract', error: e }),
             );
         }
 
-        // Terminal state: nothing pending, nothing queued, no more windows.
-        if (!pendingExtract && !pendingInsert) break;
+        // End of a pass: nothing pending, nothing queued, no more windows in it.
+        if (!pendingExtract && !pendingInsert) {
+            const hasPassLeft = resendPassesDone < WINDOW_RESEND_BACKOFF_MS.length;
+            const isPassWithoutProgress = windowsProcessed === windowsProcessedBeforePass
+                && windowsToResend.length > MAX_WINDOWS_TO_RESEND_WITHOUT_PROGRESS;
+            if (windowsToResend.length === 0 || !hasPassLeft || isPassWithoutProgress) break;
+
+            const pass = resendPassesDone + 1;
+            const backoffMs = WINDOW_RESEND_BACKOFF_MS[resendPassesDone];
+            log.warn(`[EventBase] Sending ${windowsToResend.length} failed window(s) again in ${backoffMs / 1000}s, pass ${pass}/${WINDOW_RESEND_BACKOFF_MS.length}`);
+            globalThis.toastr?.warning(
+                `${windowsToResend.length} window(s) failed, sending them again in ${backoffMs / 1000}s.`,
+                'VectFox — retrying',
+                { timeOut: backoffMs + 500 },
+            );
+            progressTracker.updateProgress(windows.length, `Sending ${windowsToResend.length} failed window(s) again, pass ${pass}/${WINDOW_RESEND_BACKOFF_MS.length}...`);
+            await _waitBeforeResendPass(backoffMs, abortSignal);
+            if (abortSignal?.aborted) continue; // the top of the loop ends the run
+
+            // These windows are in flight again: a tally counts them if they fail again.
+            for (const { wasTimedOut } of windowsToResend) {
+                if (wasTimedOut) windowsTimedOut--;
+                else windowsFailed--;
+            }
+            firstFailureDetail = null;
+            windowsProcessedBeforePass = windowsProcessed;
+            dispatchWindows = windowsToResend.map(({ win }) => win);
+            windowsToResend = [];
+            nextBatchFirstIdx = 0;
+            resendPassesDone = pass;
+            continue;
+        }
 
         // Race whichever is in flight.
         const inFlight = [];
@@ -869,6 +972,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             windowsTimedOut  += tally.windowsTimedOut;
             windowsFailed    += tally.windowsFailed;
             firstFailureDetail ??= tally.failureDetail;
+            windowsToResend.push(...tally.windowsToResend);
             _updateProgressAfterFinalize(winner.extractResult);
         }
     }
@@ -1272,9 +1376,9 @@ function _estimateProcessedLegacyChunks({ coveredMessages, totalMessages, totalC
 }
 
 /**
- * Returns true if every complete window of the given messages has already been
- * extracted for this chat. Uses the same hash + window parameters as the main
- * ingestion loop so the result is authoritative.
+ * Returns true if the last complete window of the given messages has already been
+ * extracted for this chat and no window is on its unfinished record. Uses the same
+ * hash + window parameters as the main ingestion loop so the result is authoritative.
  *
  * Returns false when messages.length < windowSize (nothing extractable yet).
  *
@@ -1291,7 +1395,8 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
         ? Math.max(0, Math.min(windowSize - 1, windowOverlapOverride))
         : Math.max(0, Math.min(windowSize - 1, settings.eventbase_window_overlap ?? 0));
     const step = windowSize - windowOverlap;
-    return isLastWindowExtracted(messages, windowSize, step, chatUUID, hashSourceMessage);
+    return getUnfinishedWindowFingerprints(chatUUID, windowSize).size === 0
+        && isLastWindowExtracted(messages, windowSize, step, chatUUID, hashSourceMessage);
 }
 
 /**
@@ -1314,12 +1419,14 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
  *                                                                       deleted messages after vectorizing). NOTHING
  *                                                                       should sync — we wait for chat to catch up.
  *   { state: 'partial',          collectionId, registryKey,
- *     chatMessageCount, commitBoundary,
- *     markerValue?, vectorizationTip? }                                — collection exists, last window not extracted;
- *                                                                       counts let the UI show the backfill gap
+ *     chatMessageCount, commitBoundary, unfinishedWindowCount,
+ *     markerValue?, vectorizationTip? }                                — collection exists, last window not extracted or
+ *                                                                       windows on the unfinished record; counts let the
+ *                                                                       UI show the backfill gap
  *   { state: 'fully-vectorized', collectionId, registryKey,
- *     chatMessageCount, commitBoundary,
+ *     chatMessageCount, commitBoundary, unfinishedWindowCount: 0,
  *     markerValue?, vectorizationTip? }                                — collection exists, last window already extracted
+ *                                                                       and none on the unfinished record
  *
  * @param {object} settings - extension_settings.vectfox
  * @param {object} [options]
@@ -1397,6 +1504,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
         registryKey: match.registryKey,
         chatMessageCount,
         commitBoundary,
+        unfinishedWindowCount: getUnfinishedWindowFingerprints(uuid, getAutoSyncWindowSize(settings)).size,
         markerValue: typeof markerValue === 'number' ? markerValue : undefined,
         vectorizationTip: typeof vectorizationTip === 'number' ? vectorizationTip : undefined,
     };

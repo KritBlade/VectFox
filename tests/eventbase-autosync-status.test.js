@@ -35,7 +35,7 @@ vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({ EventBaseFatal
 vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({ extractEvents: vi.fn() }));
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: {}, generationRateLimitSettings: {} }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
-    insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(),
+    insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(), getUnfinishedWindowFingerprints: vi.fn(() => new Set()),
     clearExtractionCachesForChat: vi.fn(), buildEventBaseCollectionId: vi.fn(), isLastWindowExtracted: vi.fn(() => false),
     getVectorizationTip: mocks.getVectorizationTip, setVectorizationTip: vi.fn(),
     ensureVectorizationTip: mocks.ensureVectorizationTip, shouldUseTipFallback: vi.fn(),

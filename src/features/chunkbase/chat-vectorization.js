@@ -1306,8 +1306,9 @@ export async function vectorizeAll(settings, batchSize, abortSignal = null, {
         if (unfinishedWindows > 0) {
             toastr.warning(
                 `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
-                + `but ${unfinishedWindows} window(s) produced nothing. They were not stored and will be retried next run — see the console.`,
+                + `but ${unfinishedWindows} window(s) kept failing and hold no events. Resume in Vectorize Content sends them again — see the console.`,
                 'VectFox',
+                { timeOut: 0, extendedTimeOut: 0 },
             );
             log.warn(`VectFox: Vectorization finished with gaps — ${result.eventsExtracted} events, ${result.windowsProcessed} windows processed, ${unfinishedWindows} unfinished`);
             return;

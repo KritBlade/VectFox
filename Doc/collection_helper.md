@@ -344,13 +344,14 @@ It computes `activeIds` by filtering own-persona lorebooks (creatorHandle stamp)
 
 Before reading the rest of this section, internalize this: **the window fingerprint cache is what prevents auto-sync from re-extracting the entire chat on every trigger**. Without it, the cost of running auto-sync would grow linearly with chat length on every single message — every trigger would re-process every window from the top. The fingerprint cache is the "smart marker" that lets auto-sync only do the *new* work.
 
-The cache lives in [`src/features/eventbase/eventbase-store.js`](../src/features/eventbase/eventbase-store.js). Three functions form the contract:
+The cache lives in [`src/features/eventbase/eventbase-store.js`](../src/features/eventbase/eventbase-store.js). Four functions form the contract:
 
 | Function | Role in auto-sync |
 |---|---|
-| `markWindowExtracted(sourceHashes, chatUUID)` | Called by `runEventBaseIngestion` after each window is successfully extracted. Writes the fingerprint to both the in-memory `_windowCacheSet` AND the persisted `extension_settings.vectfox.eventbase_extracted_windows[chatUUID]` array, then calls `saveSettingsDebounced()`. Survives page reload. |
+| `markWindowExtracted(sourceHashes, chatUUID)` | Called by `runEventBaseIngestion` after each window is successfully extracted. Writes the fingerprint to both the in-memory `_windowCacheSet` AND the persisted `extension_settings.vectfox.eventbase_extracted_windows[chatUUID]` array, takes the window off the unfinished record, then calls `saveSettingsDebounced()`. Survives page reload. |
+| `markWindowUnfinished(sourceHashes, chatUUID)` | Called by `runEventBaseIngestion` for each window that failed or timed out. Writes the fingerprint to `extension_settings.vectfox.eventbase_unfinished_windows[chatUUID]`. See "When a window fails" below. |
 | `isWindowAlreadyExtracted(sourceHashes, messageIds, settings, chatUUID)` | Per-window dedup gate inside the ingestion loop. Returns `set.has(fp)` from the in-memory Set — synchronous, O(1). `messageIds` and `settings` are kept for API compat but ignored. |
-| `isLastWindowExtracted(messages, windowSize, step, chatUUID, hashFn)` | Quick-exit gate at the top of `runEventBaseIngestion`. If the last possible window for the current message count is already in the cache, every prior window must be too (windows process in order), so ingestion no-ops immediately without building the window list. This is the cheapest possible "is there anything new?" check. |
+| `isLastWindowExtracted(messages, windowSize, step, chatUUID, hashFn)` | Quick-exit gate at the top of `runEventBaseIngestion`. If the last possible window for the current message count is already in the cache, ingestion no-ops immediately without building the window list. This is the cheapest possible "is there anything new?" check. It says nothing about earlier windows, because a run carries on past a failed one. |
 
 User scenario the cache makes safe:
 
@@ -361,7 +362,16 @@ User scenario the cache makes safe:
 5. The ingestion loop iterates windows. For `[0-1]`, `isWindowAlreadyExtracted` returns true → skipped (no LLM call, no duplicate event). For `[2-3]` and `[4-5]`, returns false → LLM extracts events, `markWindowExtracted` records each fingerprint.
 6. Next trigger: `isLastWindowExtracted` against `[4-5]` returns true → quick-exit → no work done.
 
-**Test coverage**: see TEST 014 in `tests/Eventbase-test.spec.js`. The full storage shape (two-tier persisted-array + in-memory-Set) and the rationale for *why* it's two-tier is in [Doc/dev_helper.md §4](dev_helper.md).
+**When a window fails.** A failed window is only absent from the cache, while the windows after it are present, so the quick-exit and the tip cannot see it. The unfinished record exists to say so:
+
+1. **Same run.** A window that fails or times out goes on the record and the run carries on. A provider rejection, a parse failure, a reply cut at the token limit, and a reply with no valid event all count as failing. When all windows are through, the run sends the failed ones again, up to 2 more passes, after 5s and 10s. It stops early when a pass got nothing through and more than 8 windows failed, because that points at the provider rather than at those windows.
+2. **Still failing.** The window stays on the record. The progress panel and a sticky toast report it, and the Chat Auto-Sync status names it.
+3. **Later runs.** A manual run does not take the quick-exit while its window size has windows on the record, so Resume reaches them. Auto-sync keeps the quick-exit and sends them when the next turn commits, but only those at or after its start marker. Neither run uses the tip fallback while the record has such windows. A window already on the record when a run begins gets one send in that run, so one that always fails does not cost three calls every time.
+4. **Off the record.** Success takes a window off. A manual run also drops windows the chat no longer has, because a message in them was edited or deleted, and `clearExtractionCachesForChat` drops the whole record.
+
+A fatal error (bad key, bad model) stops the run with no re-send, but its window still goes on the record.
+
+**Test coverage**: see TEST 014 in `tests/Eventbase-test.spec.js`, and `tests/eventbase-window-resend.test.js` for failed windows. The full storage shape (two-tier persisted-array + in-memory-Set) and the rationale for *why* it's two-tier is in [Doc/dev_helper.md §4](dev_helper.md).
 
 ### Second safety layer — the start marker (window-size-change protection)
 
@@ -538,13 +548,13 @@ State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend =
 { state: 'no-chat' }
 { state: 'no-collection' }
 { state: 'vectorization-ahead', collectionId, registryKey, chatMessageCount, markerValue }
-{ state: 'partial',          collectionId, registryKey, chatMessageCount, commitBoundary, markerValue?, vectorizationTip? }
-{ state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, markerValue?, vectorizationTip? }
+{ state: 'partial',          collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount, markerValue?, vectorizationTip? }
+{ state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount: 0, markerValue?, vectorizationTip? }
 ```
 
 Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does no UUID walk of its own; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; ticking the checkbox then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
 
-"Fully vectorized" is determined by `isChatFullyVectorized(messages, settings, chatUUID)`, which checks whether the last possible window for the current message count is already in `eventbase_extracted_windows[uuid]`. No DB query, just an O(1) Set lookup.
+"Fully vectorized" is determined by `isChatFullyVectorized(messages, settings, chatUUID)`, which checks that the last possible window for the current message count is already in `eventbase_extracted_windows[uuid]` and that no window of that size is in `eventbase_unfinished_windows[uuid]`. No DB query, just an O(1) Set lookup and a read of the record.
 
 **`vectorizationTip`** is the tip from "Vectorization tip cache" above. The UI prefers it over `markerValue` for the "vectorization: N msgs" count, because the start marker (`eventbase_autosync_start_marker[uuid]`) is stamped once at enable time and never moves.
 

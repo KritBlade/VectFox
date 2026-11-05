@@ -84,6 +84,22 @@ function _mapEventBaseError(e, windowIndex) {
     }
 }
 
+/**
+ * A reply the provider cut at the token limit lost its last events, even when the
+ * parser can still read the ones before the cut. Treating it as a failed window keeps
+ * it from being marked extracted with events missing.
+ * @param {string|null} finishReason
+ * @param {number} maxTokens
+ * @param {number} windowIndex
+ */
+function _throwIfReplyWasCut(finishReason, maxTokens, windowIndex) {
+    if (finishReason !== 'length') return;
+    throw new EventBaseExtractionError(
+        `EventBase: the reply for window ${windowIndex} was cut at the ${maxTokens}-token limit. Raise the EventBase token limit.`,
+        windowIndex,
+    );
+}
+
 // EventBase prompts require a top-level JSON array, so the shared call must NOT
 // force response_format=json_object (providers would coerce output to an object
 // and suppress valid array responses) — we simply omit responseFormat below.
@@ -134,6 +150,35 @@ function _inferLanguageHint(text) {
 // HTTP callers
 // ---------------------------------------------------------------------------
 
+/**
+ * Sends the extraction prompt and returns the reply text, with provider failures
+ * mapped onto EventBase's errors.
+ * @param {string} prompt
+ * @param {object} settings
+ * @param {number} windowIndex
+ * @param {{ model: string, provider: string, vllmUrl?: string }} route
+ * @returns {Promise<string>}
+ */
+async function _requestExtraction(prompt, settings, windowIndex, route) {
+    const maxTokens = settings.eventbase_max_tokens || DEFAULT_MAX_TOKENS;
+    let reply;
+    try {
+        reply = await postChatCompletion({
+            messages: [{ role: 'user', content: prompt }],
+            ...route,
+            maxTokens,
+            temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
+            timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
+            contextLabel: 'EventBase',
+            ...resolveModelParameterStyle(settings),
+        });
+    } catch (e) {
+        throw _mapEventBaseError(e, windowIndex);
+    }
+    _throwIfReplyWasCut(reply.finishReason, maxTokens, windowIndex);
+    return reply.content;
+}
+
 async function _callOpenRouter(prompt, settings, windowIndex) {
     // Presence-only check: getOpenRouterApiKey() returns ST's MASKED value; the
     // real key is read server-side by the proxy (see llm-provider-call.js).
@@ -153,21 +198,7 @@ async function _callOpenRouter(prompt, settings, windowIndex) {
         );
     }
 
-    try {
-        const { content } = await postChatCompletion({
-            messages: [{ role: 'user', content: prompt }],
-            model,
-            provider: 'openrouter',
-            maxTokens: settings.eventbase_max_tokens || DEFAULT_MAX_TOKENS,
-            temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
-            timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
-            contextLabel: 'EventBase',
-            ...resolveModelParameterStyle(settings),
-        });
-        return content;
-    } catch (e) {
-        throw _mapEventBaseError(e, windowIndex);
-    }
+    return _requestExtraction(prompt, settings, windowIndex, { model, provider: 'openrouter' });
 }
 
 async function _callVLLM(prompt, settings, windowIndex) {
@@ -195,22 +226,7 @@ async function _callVLLM(prompt, settings, windowIndex) {
         );
     }
 
-    try {
-        const { content } = await postChatCompletion({
-            messages: [{ role: 'user', content: prompt }],
-            model,
-            provider: 'vllm',
-            vllmUrl: baseUrl,
-            maxTokens: settings.eventbase_max_tokens || DEFAULT_MAX_TOKENS,
-            temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
-            timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
-            contextLabel: 'EventBase',
-            ...resolveModelParameterStyle(settings),
-        });
-        return content;
-    } catch (e) {
-        throw _mapEventBaseError(e, windowIndex);
-    }
+    return _requestExtraction(prompt, settings, windowIndex, { model, provider: 'vllm', vllmUrl: baseUrl });
 }
 
 /**
@@ -435,6 +451,16 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
     }
 
     log.verbose(`[EventBase] Window ${windowIndex} ${msgRange}: extracted ${validatedEvents.length} valid events`);
+
+    // The model answered with events and none of them could be used, which is not the
+    // same as answering with an empty array: marked extracted, this window would be lost.
+    if (validatedEvents.length === 0) {
+        log.warn(`[EventBase] Window ${windowIndex} ${msgRange}: no valid event in the reply. Full raw reply:\n${rawReply}`);
+        throw new EventBaseExtractionError(
+            `EventBase: none of the ${rawArray.length} event(s) in the reply for window ${windowIndex} (${msgRange}) were valid. See the console.`,
+            windowIndex,
+        );
+    }
 
     return validatedEvents;
 }
