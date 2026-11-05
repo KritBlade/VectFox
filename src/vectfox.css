@@ -6,6 +6,12 @@
  * @author Kritblade
  * ============================================================================ */
 
+/* GUI-DNA: every rule sits under .vfx-ui, so these reach only the surfaces moved to it */
+@import url('./shared/gui-dna/palette.css');
+@import url('./shared/gui-dna/gui-dna.css');
+@import url('./shared/gui-dna/dialogs.css');
+@import url('./features/eventbase/story-arc-page.css');
+
 /* Base styles - variables, icons, container */
 @import url('./shared/base.css');
 

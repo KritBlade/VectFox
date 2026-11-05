@@ -32,6 +32,8 @@ const defaultCollectionMeta = {
     createdAt: null,
     lastUsed: null,
     queryCount: 0,
+    // StoryArc's merged entity names, { kept name: [other names] } (eventbase/story-arc-entity-core.js).
+    storyEntityMerges: {},
 
     // =========================================================================
     // ACTIVATION TRIGGERS

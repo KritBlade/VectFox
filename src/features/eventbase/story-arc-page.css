@@ -1,0 +1,133 @@
+/* story-arc-page.css — the StoryArc page's own rules on top of the GUI-DNA: the holder, the tabs along the top of the page,
+ * and the story web, a surface it draws itself. Layout and genes are the DNA's. The web's colours are channels, so its canvas
+ * can draw them at any strength (story-arc-web.js). */
+
+/* The page lives here, hidden, whenever its dialog is closed. */
+#VectFox_story_arc_page_holder {
+    display: none;
+}
+
+#VectFox_story_arc_page {
+    --vfx-web-heat-few: 96, 165, 250;
+    --vfx-web-heat-some: 167, 139, 250;
+    --vfx-web-heat-more: 244, 114, 182;
+    --vfx-web-heat-many: 249, 115, 22;
+    --vfx-web-continues: 96, 165, 250;
+    --vfx-web-caused-by: 45, 212, 191;
+    --vfx-web-reveals: 251, 191, 36;
+    --vfx-web-ring: 248, 250, 252;
+}
+
+.vfx-ui .vfx-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border-bottom: 1px solid var(--vfx-border);
+}
+
+.vfx-ui .vfx-subnav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    margin: 0 0 -1px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    border-radius: var(--vfx-radius-control) var(--vfx-radius-control) 0 0;
+    background: none;
+    color: var(--vfx-text-muted);
+    font: inherit;
+    cursor: pointer;
+    transition: color var(--vfx-motion), border-color var(--vfx-motion), background-color var(--vfx-motion);
+}
+
+.vfx-ui .vfx-subnav-item:hover {
+    background-color: var(--vfx-surface-raised);
+    color: var(--vfx-text);
+}
+
+.vfx-ui .vfx-subnav-item.is-active {
+    border-bottom-color: var(--vfx-accent);
+    color: var(--vfx-text);
+    font-weight: 600;
+}
+
+.vfx-ui .vfx-subnav-item:focus-visible {
+    outline: 2px solid var(--vfx-accent-ink);
+    outline-offset: 2px;
+}
+
+/* Keeps the question readable on a phone: the buttons wrap under it first. */
+.vfx-ui .vfx-story-web-query {
+    flex: 1 1 240px;
+}
+
+.vfx-ui .vfx-story-web {
+    position: relative;
+    overflow: hidden;
+    height: min(58vh, 620px);
+    min-height: 320px;
+    border: 1px solid var(--vfx-border);
+    border-radius: var(--vfx-radius-control);
+    background-color: var(--vfx-field);
+}
+
+/* The library's hover label. */
+.vfx-ui .vfx-story-web .float-tooltip-kap {
+    max-width: 320px;
+    padding: 6px 8px;
+    border-radius: var(--vfx-radius-control);
+    background: var(--vfx-surface-solid);
+    box-shadow: var(--vfx-surface-shadow);
+    color: var(--vfx-text);
+    font: inherit;
+    font-size: 0.85em;
+    white-space: normal;
+}
+
+.vfx-ui .vfx-story-web-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    color: var(--vfx-text-muted);
+    font-size: 0.85em;
+}
+
+.vfx-ui .vfx-story-web-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vfx-ui .vfx-story-web-heat {
+    width: 72px;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, rgb(var(--vfx-web-heat-few)), rgb(var(--vfx-web-heat-some)), rgb(var(--vfx-web-heat-more)), rgb(var(--vfx-web-heat-many)));
+}
+
+.vfx-ui .vfx-story-web-line {
+    width: 18px;
+    height: 2px;
+    border-radius: 1px;
+}
+
+.vfx-ui .vfx-story-web-line.is-continues {
+    background-color: rgb(var(--vfx-web-continues));
+}
+
+.vfx-ui .vfx-story-web-line.is-caused-by {
+    background-color: rgb(var(--vfx-web-caused-by));
+}
+
+.vfx-ui .vfx-story-web-line.is-reveals {
+    background-color: rgb(var(--vfx-web-reveals));
+}
+
+.vfx-ui .vfx-story-web-ring {
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid var(--vfx-text);
+    border-radius: 50%;
+}

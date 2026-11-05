@@ -94,22 +94,23 @@ export async function retrieveEventsWithAgent(params) {
         const recalled = await retrieveStoryRecipeEvents(storyRoute, {
             ...params,
             boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs),
-            pickThreads: storedEvents => _pickStoryThreads(storedEvents, storyRoute, params),
-            chooseBlockEvents: events => _chooseBlockEvents(events, storyRoute, params),
+            pickThreads: (storedEvents, keptNames) => _pickStoryThreads(storedEvents, { subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }),
+            chooseBlockEvents: (events, keptNames) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }),
         });
         storyArc.ruleName = recalled.ruleName;
         storyArc.cutRuleName = recalled.cutRuleName;
         storyArc.finalCount = recalled.events.length;
-        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} cut=${storyArc.cutRuleName || 'none'} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} threads=${recalled.pickedThreadCount} events=${recalled.events.length}`);
+        log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} cut=${storyArc.cutRuleName || 'none'} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} threads=${recalled.pickedThreadCount} events=${recalled.events.length}`);
         if (recalled.events.length) {
             return {
                 events: recalled.events,
                 storyArcShape: recalled.blockShape,
+                storyArcEntityNames: recalled.entityNames,
                 debug: { ...(preSearch.debug || {}), storyArc },
             };
         }
     } else {
-        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape}`);
+        log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape}`);
     }
 
     const planned = await _retrieveWithPlanner(params, preSearch, tAgentStart);

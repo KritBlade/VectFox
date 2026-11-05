@@ -20,3 +20,20 @@ const HTML_ENTITIES = {
 export function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"'/]/g, character => HTML_ENTITIES[character]);
 }
+
+/**
+ * Escapes characters for safe inclusion inside HTML attribute values.
+ * @param {string} value
+ * @returns {string}
+ */
+export function escapeHtmlAttribute(value) {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}

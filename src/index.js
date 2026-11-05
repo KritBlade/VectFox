@@ -309,6 +309,7 @@ const defaultSettings = {
         standard: false,    // similharity plugin internals
         injection: false,   // Chunk Path: what got injected, where, why
         agent: false,       // agent-mode planner / per-query hits
+        story_arc: false,   // StoryArc: the Route rule of each turn, and the search text with other names
         rerank: false,      // native vs JS re-rank comparison
     },
     // eventbase_debug_logging, eventbase_raw_llm_debug and debug_vectorizing_log

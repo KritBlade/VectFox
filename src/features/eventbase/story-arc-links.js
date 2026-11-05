@@ -171,16 +171,16 @@ async function _readLinkModelPrice(settings) {
  *
  * @param {object} settings
  * @param {object} [resolveOptions] - Passed on to resolveActiveEventBaseCollection
- * @returns {Promise<{problem: string}|{collectionId: string, events: object[]}>}
+ * @returns {Promise<{problem: string}|{collectionId: string, registryKey: string, events: object[]}>}
  */
-async function _readChatEvents(settings, resolveOptions) {
+export async function readChatStoryEvents(settings, resolveOptions) {
     if (settings.vector_backend !== 'qdrant') return { problem: 'StoryArc links need the Qdrant backend.' };
     const collection = resolveActiveEventBaseCollection(settings, undefined, resolveOptions);
     if (!collection) return { problem: 'This chat has no EventBase collection yet.' };
     const events = await listStoryEvents(collection.collectionId, settings);
     if (!events) return { problem: 'Could not read this chat\'s events. See the console.' };
     if (!events.length) return { problem: 'This chat has no stored events yet.' };
-    return { collectionId: collection.collectionId, events };
+    return { collectionId: collection.collectionId, registryKey: collection.registryKey, events };
 }
 
 /**
@@ -190,7 +190,7 @@ async function _readChatEvents(settings, resolveOptions) {
  * @returns {Promise<{problem: string}|{collectionId: string, coverage: object, allEstimate: object, undecidedEstimate: object, model: string}>}
  */
 export async function describeStoryLinkPass(settings) {
-    const { problem, collectionId, events } = await _readChatEvents(settings);
+    const { problem, collectionId, events } = await readChatStoryEvents(settings);
     if (problem) return { problem };
     const llmCfg = resolveStoryLinkLlmConfig(settings);
     if (!llmCfg.ok) return { problem: `Set the link model and its provider's key or URL first (${llmCfg.reason}).` };
@@ -212,7 +212,7 @@ export async function describeStoryLinkPass(settings) {
  * @returns {Promise<{problem: string}|object>} the coverage, or what stands in the way
  */
 export async function readStoryLinkCoverage(settings) {
-    const { problem, events } = await _readChatEvents(settings, { shouldLogResolution: false });
+    const { problem, events } = await readChatStoryEvents(settings, { shouldLogResolution: false });
     return problem ? { problem } : measureStoryLinkCoverage(events);
 }
 
@@ -320,7 +320,7 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
         const newIds = new Set(newEventIds);
         const newEvents = inTimelineOrder(events.filter(event => newIds.has(event.event_id)));
         if (!shouldLinkNewEvents(events.filter(event => !newIds.has(event.event_id)))) {
-            log.domain('agent', 'lifecycle', '[VectFox-StoryArc] This chat has had no link pass, so its new events wait for the StoryArc button');
+            log.domain('story_arc', 'lifecycle', '[VectFox-StoryArc] This chat has had no link pass, so its new events wait for the StoryArc button');
             return;
         }
         const ordered = inTimelineOrder(events);

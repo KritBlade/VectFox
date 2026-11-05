@@ -1,0 +1,101 @@
+/* dialogs.css — VectFox's own rules for SillyTavern's dialog around GUI-DNA content, on top of the portable DNA. Every dialog
+ * that goes through sillytavern/popup.js with the DNA's look carries .vfx-popup.vfx-ui, and the panel's dialog adds .is-panel.
+ * SillyTavern's own look stops at the dialog's edge. */
+
+dialog.popup.vfx-popup {
+    padding: 0;
+    border-color: var(--vfx-border);
+    border-radius: var(--vfx-radius-card);
+    background-color: var(--vfx-surface-solid);
+    background-image: var(--vfx-surface-gradient);
+    color: var(--vfx-text);
+    box-shadow: var(--vfx-dialog-shadow);
+}
+
+dialog.popup.vfx-popup .popup-content {
+    margin: 0;
+    padding: 18px 20px 4px;
+}
+
+/* Near-fullscreen, on the canvas, the panel filling it. SillyTavern's size classes set only a MIN or MAX width, so the dialog
+   would shrink-wrap its content. The width is set outright, and the selector is dialog-qualified so it beats
+   .large_dialogue_popup's !important on specificity. */
+dialog.popup.vfx-popup.is-panel {
+    width: 90vw !important;
+    max-width: 90vw !important;
+    background: var(--vfx-bg);
+}
+
+@media (max-width: 720px) {
+    dialog.popup.vfx-popup.is-panel {
+        width: calc(100dvw - 16px) !important;
+        max-width: calc(100dvw - 16px) !important;
+    }
+}
+
+/* The canvas is painted on the dialog's scroller instead of the shell: a scroller's own background stays put while its
+   content scrolls, so the gradient spans the visible pane however long the page is. */
+dialog.popup.vfx-popup.is-panel .popup-content {
+    container: vfx-scroller / size;
+    padding: 0;
+    background-color: var(--vfx-bg);
+    background-image: var(--vfx-bg-gradient);
+}
+
+dialog.popup.vfx-popup.is-panel .vfx-shell {
+    background: none;
+}
+
+/* The buttons on a bar of their own, right-aligned: each a DNA secondary button, the action the primary one. The panel's
+   Close stays secondary: it performs nothing. */
+dialog.popup.vfx-popup .popup-controls {
+    align-self: stretch;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 16px 0 0;
+    padding: 10px 16px;
+    border-top: 1px solid var(--vfx-border);
+    background-color: var(--vfx-surface);
+}
+
+dialog.popup.vfx-popup.is-panel .popup-controls {
+    margin: 0;
+}
+
+dialog.popup.vfx-popup .popup-controls .menu_button {
+    min-height: var(--vfx-control-height);
+    margin: 0;
+    padding: 0 16px;
+    border: 1px solid var(--vfx-border);
+    border-radius: var(--vfx-radius-control);
+    background-color: var(--vfx-surface-raised);
+    color: var(--vfx-text);
+    font-weight: 500;
+    box-shadow: none;
+    filter: none;
+}
+
+dialog.popup.vfx-popup .popup-controls .menu_button:hover {
+    border-color: var(--vfx-border-strong);
+    filter: none;
+}
+
+dialog.popup.vfx-popup:not(.is-panel) .popup-controls .popup-button-ok {
+    border-color: var(--vfx-accent-fill);
+    background-color: var(--vfx-accent-fill);
+    background-image: var(--vfx-accent-gradient);
+    box-shadow: var(--vfx-accent-glow);
+    color: var(--vfx-on-accent);
+    font-weight: 600;
+}
+
+dialog.popup.vfx-popup:not(.is-panel) .popup-controls .popup-button-ok:hover {
+    border-color: var(--vfx-accent-fill-hover);
+    background-color: var(--vfx-accent-fill-hover);
+    background-image: var(--vfx-accent-gradient-hover);
+}
+
+dialog.popup.vfx-popup .popup-controls .menu_button:focus-visible {
+    outline: 2px solid var(--vfx-accent-ink);
+    outline-offset: 2px;
+}

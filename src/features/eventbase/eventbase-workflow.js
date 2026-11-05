@@ -1246,7 +1246,7 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     // canonical re-ranker. Otherwise it returns the pre-search output unchanged,
     // making it a safe drop-in replacement.
     const retrieveFn = settings.agentic_retrieval_enabled ? retrieveEventsWithAgent : retrieveEvents;
-    const { events, debug, storyArcShape } = await retrieveFn({
+    const { events, debug, storyArcShape, storyArcEntityNames } = await retrieveFn({
         searchText: effectiveSearchText,
         keywordQuery,
         chatLength: getContext().chat?.length || chat?.length || 0,
@@ -1282,7 +1282,7 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     }
 
     const injectionResult = storyArcShape
-        ? formatStoryArcForInjection(events, storyArcShape)
+        ? formatStoryArcForInjection(events, storyArcShape, storyArcEntityNames)
         : formatEventsForInjectionDetailed(events, settings);
     let injectionText = injectionResult.text;
     const injectedCount = injectionResult.includedCount;

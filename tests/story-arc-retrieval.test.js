@@ -10,7 +10,9 @@
  *   - a long block is cut by the link model with a prompt for its shape, and survives its failure,
  *   - ordinary turns, router failures, a failed listing and empty recipes keep today's path,
  *   - every StoryArc turn reports the Route rule that decided it,
- *   - StoryArc mode does nothing unless Agent Mode and its own switch are on.
+ *   - StoryArc mode does nothing unless Agent Mode and its own switch are on,
+ *   - merged entity names reach the search, the recipe, the cut and the block, and nothing stored changes,
+ *   - a story web search calls no LLM.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -23,6 +25,12 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     getQueryVector: vi.fn(),
     getBackendForCollection: vi.fn(),
     getBackend: vi.fn(),
+}));
+
+let entityMerges = {};
+vi.mock('../src/features/collections/index.js', () => ({
+    getCollectionMeta: () => ({ storyEntityMerges: entityMerges }),
+    setCollectionMeta: vi.fn(),
 }));
 
 const retrieveEventsMock = vi.fn();
@@ -72,7 +80,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     },
 }));
 
-const { retrieveStoryRecipeEvents } = await import('../src/features/eventbase/story-arc-retrieval.js');
+const { findStoryWebEvents, retrieveStoryRecipeEvents } = await import('../src/features/eventbase/story-arc-retrieval.js');
 const { resolveStoryLinkLlmConfig, retrieveEventsWithAgent } = await import('../src/features/eventbase/agentic-retrieval.js');
 const { BLOCK_CUT_PROMPT_BY_SHAPE } = await import('../src/features/eventbase/story-arc-core.js');
 
@@ -109,6 +117,7 @@ beforeEach(() => {
     queryCollectionMock.mockReset();
     listChunksMock.mockReset();
     listReturns([]);
+    entityMerges = {};
 });
 
 describe('retrieveStoryRecipeEvents', () => {
@@ -254,6 +263,87 @@ describe('retrieveStoryRecipeEvents', () => {
             expect((await retrieveStoryRecipeEvents(route, params)).events).toEqual([]);
         }
         expect(queryCollectionMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('entity merges', () => {
+    const stored = [
+        event(10, 'The Oracle speaks through a servant'),
+        event(20, 'Nora prays', { characters: ['Nora'] }),
+        event(30, 'Nora hears the Oracle again'),
+    ];
+    const question = 'How did Nora first reach me?';
+
+    it('leaves the search as it is with no merges', async () => {
+        listReturns(stored);
+        queryReturns([stored[1]]);
+        const { entityNames } = await retrieveStoryRecipeEvents({ shape: 'first_time', subject: 'Nora' }, { ...baseParams, keywordQuery: question });
+        expect(queryCollectionMock.mock.calls[0][1]).toBe(question);
+        expect(entityNames).toEqual([]);
+    });
+
+    it('asks the search for the other names', async () => {
+        entityMerges = { Nora: ['Oracle'] };
+        listReturns(stored);
+        queryReturns([stored[1]]);
+        await retrieveStoryRecipeEvents({ shape: 'first_time', subject: 'Nora' }, { ...baseParams, keywordQuery: question });
+        expect(queryCollectionMock.mock.calls[0][1]).toBe(`${question} Oracle`);
+    });
+
+    it('finds a first event stored under the other name, and reads it with the kept name', async () => {
+        entityMerges = { Nora: ['Oracle'] };
+        listReturns(stored);
+        queryReturns([stored[1]]);
+        const { events } = await retrieveStoryRecipeEvents({ shape: 'first_time', subject: 'Nora' }, { ...baseParams, keywordQuery: question });
+        expect(starts(events)).toEqual([10, 20, 30]);
+        expect(events[0].text).toBe('The Nora speaks through a servant');
+    });
+
+    it('resolves a subject the player gave under the other name', async () => {
+        entityMerges = { Nora: ['Oracle'] };
+        listReturns(stored);
+        queryReturns([stored[1]]);
+        const { events, entityNames } = await retrieveStoryRecipeEvents({ shape: 'first_time', subject: 'Oracle' }, { ...baseParams, keywordQuery: 'How did the Oracle first reach me?' });
+        expect(starts(events)).toEqual([10, 20, 30]);
+        expect(entityNames).toEqual([{ name: 'Oracle', keptName: 'Nora' }]);
+    });
+
+    it('gives the cut and the thread pick kept names', async () => {
+        entityMerges = { Nora: ['Oracle'] };
+        const many = Array.from({ length: 30 }, (_, i) => event(100 + i, `Oracle step ${i}`));
+        listReturns(many);
+        queryReturns(many);
+        const pickThreads = vi.fn(async () => []);
+        const chooseBlockEvents = vi.fn(async () => null);
+        await retrieveStoryRecipeEvents({ shape: 'chain', subject: 'Oracle' }, { ...baseParams, keywordQuery: 'How did the Oracle get here?', pickThreads, chooseBlockEvents });
+        const [cutEvents, keptNames] = chooseBlockEvents.mock.calls[0];
+        expect(keptNames).toEqual({ question: 'How did the Nora get here?', subject: 'Nora' });
+        expect(cutEvents[0].text).toBe('Nora step 0');
+    });
+
+    it('still reports a failed listing', async () => {
+        entityMerges = { Nora: ['Oracle'] };
+        listChunksMock.mockRejectedValue(new Error('gone'));
+        queryReturns([stored[1]]);
+        const { events, ruleName } = await retrieveStoryRecipeEvents({ shape: 'first_time', subject: 'Nora' }, { ...baseParams, keywordQuery: question });
+        expect(events).toEqual([]);
+        expect(ruleName).toBe('listing-failed');
+    });
+});
+
+describe('findStoryWebEvents', () => {
+    it('finds the closest events and what they reach along links, with no LLM', async () => {
+        const stored = [
+            { ...event(10, 'Oracle one'), _hash: 10, story_links: [] },
+            { ...event(20, 'Nora two'), _hash: 20, story_links: [{ event_id: 'id10', type: 'continues', thread: 'A' }] },
+            { ...event(30, 'Tom three'), _hash: 30, story_links: [] },
+        ];
+        queryReturns([stored[1]]);
+        const found = await findStoryWebEvents({ question: 'Where is Nora?', collectionKey: COLLECTION, storedEvents: stored, merges: { Nora: ['Oracle'] }, settings: baseParams.settings });
+        expect(queryCollectionMock.mock.calls[0][1]).toBe('Where is Nora? Oracle');
+        expect(found.closestHashes).toEqual([20]);
+        expect(found.reachedHashes.sort()).toEqual([10, 20]);
+        expect(postChatCompletionMock).not.toHaveBeenCalled();
     });
 });
 

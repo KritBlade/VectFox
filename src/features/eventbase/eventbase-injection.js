@@ -262,16 +262,21 @@ const STORY_ARC_HEADER_BY_SHAPE = {
  *
  * @param {object[]} events - In time order
  * @param {string} shape - The question shape the router chose
+ * @param {{name: string, keptName: string}[]} [entityNames] - Other names the player used, which the lines write as the kept name
  * @returns {{text: string, includedCount: number, requestedCount: number}}
  */
-export function formatStoryArcForInjection(events, shape) {
+export function formatStoryArcForInjection(events, shape, entityNames = []) {
     if (!events?.length) {
         return { text: '', includedCount: 0, requestedCount: 0 };
     }
     const ordered = _orderEventsForPresentation(events);
     const lines = (shape === 'current' ? ordered.reverse() : ordered).map(formatStoryLine);
     return {
-        text: `${STORY_ARC_HEADER_BY_SHAPE[shape] ?? STORY_ARC_HEADER_BY_SHAPE.chain}\n${lines.join('\n')}`,
+        text: [
+            STORY_ARC_HEADER_BY_SHAPE[shape] ?? STORY_ARC_HEADER_BY_SHAPE.chain,
+            ...entityNames.map(({ name, keptName }) => `${name} is written ${keptName} here.`),
+            ...lines,
+        ].join('\n'),
         includedCount: lines.length,
         requestedCount: events.length,
     };

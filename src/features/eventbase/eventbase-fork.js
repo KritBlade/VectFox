@@ -17,6 +17,7 @@ import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from '../../shared/collection-ids.js';
 import {
+    getCollectionMeta,
     registerCollection,
     getChatLockedCollections,
     removeCollectionLock,
@@ -184,7 +185,7 @@ export async function forkEventBaseFromSource(settings, source) {
 
         progressTracker.updateProgress(3, 'Activating for this chat...');
         registerCollection(targetRegistryKey);
-        setCollectionMeta(targetRegistryKey, { scope: 'chat' });
+        setCollectionMeta(targetRegistryKey, { scope: 'chat', storyEntityMerges: getCollectionMeta(source.registryKey).storyEntityMerges });
         setCollectionLock(targetRegistryKey, chatId);
         for (const lockKey of getChatLockedCollections(chatId)) {
             if (parseRegistryKey(lockKey).collectionId === source.collectionId) removeCollectionLock(lockKey, chatId);

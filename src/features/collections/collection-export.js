@@ -235,6 +235,9 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
                 // Prompt context
                 context: collectionMeta.context || '',
                 xmlTag: collectionMeta.xmlTag || '',
+
+                // StoryArc's merged entity names
+                storyEntityMerges: collectionMeta.storyEntityMerges || {},
             },
 
             // Chunks (text + metadata + vectors)
@@ -727,6 +730,7 @@ export async function importCollection(exportData, settings, options = {}) {
                 temporalDecay: exportData.settings.temporalDecay,
                 context: exportData.settings.context || '',
                 xmlTag: exportData.settings.xmlTag || '',
+                storyEntityMerges: exportData.settings.storyEntityMerges || {},
             });
         }
 

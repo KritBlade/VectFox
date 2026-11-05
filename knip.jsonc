@@ -4,7 +4,10 @@
 {
     "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
     // src/index.js is the manifest's "js" entry; bm25-scorer.js loads the vendored jieba glue by URL.
-    "entry": ["src/index.js!", "src/vendor/jieba/jieba_rs_wasm.js!"],
+    // story-arc-web.js loads the vendored graph library by URL.
+    "entry": ["src/index.js!", "src/vendor/jieba/jieba_rs_wasm.js!", "src/vendor/force-graph-1.52.0.min.js!"],
+    // The gene builders are generated from mvu-helper's whole set, and pages move to them one at a time.
+    "ignore": ["src/shared/gui-dna/gui-dna-core.js"],
     "project": [
         "src/**/*.js!",
         "tests/**/*.{js,mjs}",

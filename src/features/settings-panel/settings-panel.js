@@ -34,7 +34,7 @@ import { progressTracker } from '../../shared/progress-tracker.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { clearLorebookPrompt } from '../world-info/index.js';
-import { describeStoryLinkPass, readStoryLinkCoverage, refreshWorldInfoEntryDepthCache, runStoryLinkPass } from '../eventbase/index.js';
+import { describeStoryLinkPass, openStoryArcPage, readStoryLinkCoverage, refreshWorldInfoEntryDepthCache, runStoryLinkPass, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator, runDiagnostics } from '../diagnostics/index.js';
 import { getCollectionRegistry, getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
@@ -1261,43 +1261,14 @@ export function renderSettings(containerId, settings, callbacks) {
                         </div>
                         <div class="vectfox-card-body">
                             <div class="vectfox-form-group">
-                                <label class="checkbox_label" for="VectFox_story_arc_mode_enabled">
-                                    <input id="VectFox_story_arc_mode_enabled" type="checkbox" />
-                                    <span><b>Enable StoryArc mode</b></span>
-                                </label>
-                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    Uses the AgentMode model, and a cheap one works well. Adds one small LLM call per message. Requires Qdrant backend (A3).
-                                </small>
-                                <small class="VectFox_hint" id="VectFox_story_arc_needs_agent_mode" style="display:block; margin-top:6px;">
-                                    <b>AgentMode is off, so StoryArc mode does nothing.</b> Turn it on in the AgentMode tab.
-                                </small>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_story_arc_link_provider"><small>Link provider</small></label>
-                                <select id="VectFox_story_arc_link_provider" class="vectfox-select">
-                                    <option value="openrouter">OpenRouter</option>
-                                    <option value="vllm">vLLM</option>
-                                </select>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_story_arc_link_model"><small>Link model</small></label>
-                                <input type="text" id="VectFox_story_arc_link_model" class="vectfox-input" placeholder="openai/gpt-6-luna" />
-                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    Links record which earlier events each event builds on, so StoryArc can follow a thread. Use a model that thinks: a cheap one links too loosely to help. Uses that provider's key from the AgentMode tab. Each new event then adds one call to this model. So does each question about a thread, which reads all the chat's thread names: about 20,000 tokens on a long chat, and several seconds before the reply. A question about the story's past with more than 20 events found adds one more, about 5,000 tokens and 5 seconds, to cut them to 20 lines.
-                                </small>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <button type="button" id="VectFox_story_arc_regenerate_links" class="menu_button" style="width:auto; white-space:nowrap;">
-                                    <i class="fa-solid fa-link"></i> Regenerate links for this chat
+                                <button type="button" id="VectFox_story_arc_open_page" class="menu_button" style="width:auto; white-space:nowrap;">
+                                    <i class="fa-solid fa-diagram-project"></i> Open StoryArc
                                 </button>
-                                <small class="VectFox_hint" id="VectFox_story_arc_link_status" style="display:block; margin-top:6px;"></small>
                                 <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    The Database Browser shows each chat's links under its collection, where they can be saved to a file and put back.
+                                    The story web, merged entity names, and StoryArc's settings.
                                 </small>
                             </div>
+                            ${storyArcPageMarkup()}
                         </div>
                     </div>
 
@@ -2076,6 +2047,7 @@ async function refreshStoryLinkStatus(settings) {
         ? 'StoryArc follows threads through these links.'
         : 'StoryArc searches without links until this pass is mostly done.';
     $status.text(`${coverage.decidedCount} of ${coverage.totalCount} events decided, ${coverage.linkedCount} with links. ${usability}`);
+    $('#VectFox_story_arc_link_pill').text(`${coverage.linkedCount} of ${coverage.totalCount} linked`).show();
 }
 
 /** One line of what a link pass would likely cost. */
@@ -2982,6 +2954,21 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
+
+    $('#VectFox_story_arc_debug')
+        .prop('checked', settings.debug_domain?.story_arc || false)
+        .on('change', function() {
+            if (!settings.debug_domain) settings.debug_domain = {};
+            settings.debug_domain.story_arc = $(this).prop('checked');
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    wireStoryArcPage(settings);
+    $('#VectFox_story_arc_open_page').on('click', () => {
+        openStoryArcPage(() => refreshStoryLinkStatus(settings))
+            .catch(err => log.error('VectFox StoryArc: the page could not open:', err));
+    });
 
     $('#VectFox_story_arc_regenerate_links').on('click', async function() {
         const $button = $(this).prop('disabled', true);
