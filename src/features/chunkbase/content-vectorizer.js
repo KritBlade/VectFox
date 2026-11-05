@@ -3054,8 +3054,9 @@ async function _runEventBaseBackfill({ resetCaches = false } = {}) {
                 const unfinishedWindows = countUnfinishedWindows(result);
                 toastr.warning(
                     `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
-                    + `but ${unfinishedWindows} window(s) produced nothing. They were not stored and will be retried next run — see the console.`,
+                    + `but ${unfinishedWindows} window(s) kept failing and hold no events. Resume in Vectorize Content sends them again — see the console.`,
                     'VectFox',
+                    { timeOut: 0, extendedTimeOut: 0 },
                 );
                 closeContentVectorizer();
             } else {

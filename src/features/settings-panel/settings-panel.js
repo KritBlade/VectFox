@@ -2260,6 +2260,8 @@ export async function refreshAutoSyncCheckbox(settings) {
         );
     } else if (status.state === 'fully-vectorized') {
         $status.html(`${LED.green} Ready — fully synced${counts}`);
+    } else if (status.unfinishedWindowCount > 0) {
+        $status.html(`${LED.yellow} ${status.unfinishedWindowCount} window(s) failed and hold no events — Resume in Vectorize Content sends them again${counts}`);
     } else {
         $status.html(`${LED.yellow} Locked — will sync to latest history on next auto-sync trigger${counts}`);
     }

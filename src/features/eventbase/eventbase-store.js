@@ -126,15 +126,17 @@ const _ORPHANABLE_CHAT_MAPS = [
     'eventbase_autosync_start_marker',
     'eventbase_last_used_window_size',
     'eventbase_vectorization_tip',
+    'eventbase_unfinished_windows',
 ];
 
 /**
  * Prune orphaned per-chat entries from the EventBase maps above (+ the in-memory
  * tip cache). An entry is orphaned when its chat UUID is NOT in `liveUuids` — the
  * set of UUIDs that still have an EventBase/archive-event collection, which
- * pruneOrphanedEventBaseChatMaps reads from the collection registry. All pruned
- * values are regenerable: a live chat that loses its marker/tip re-stamps/re-probes
- * on the next ingestion, so an over-eager prune self-heals rather than losing real data.
+ * pruneOrphanedEventBaseChatMaps reads from the collection registry. A live chat
+ * that loses its marker/tip re-stamps/re-probes on the next ingestion, and a chat
+ * with no collection has no fingerprints either, so its next run sends every window.
+ * An over-eager prune therefore self-heals rather than losing real data.
  *
  * @param {Set<string>} liveUuids
  * @returns {number} entries removed across the persisted maps
@@ -161,14 +163,14 @@ function pruneOrphanedChatMaps(liveUuids) {
     }
     if (removed > 0) {
         saveSettingsDebounced();
-        log.lifecycle(`[EventBase] Pruned ${removed} orphaned per-chat entries (marker / last-window-size / tip)`);
+        log.lifecycle(`[EventBase] Pruned ${removed} orphaned per-chat entries (marker / last-window-size / tip / unfinished windows)`);
     }
     return removed;
 }
 
 /**
  * Prune orphaned per-chat EventBase settings (auto-sync marker, last-used window
- * size, vectorization tip): entries whose chat UUID no longer has an EventBase or
+ * size, vectorization tip, unfinished windows): entries whose chat UUID no longer has an EventBase or
  * archive-event collection in the registry, because the chat or its collection was
  * deleted, possibly outside the EventBase delete flow.
  *
@@ -646,17 +648,23 @@ export function checkWindowSizeChanged(chatUUID, currentSize) {
  *   - Caller did NOT explicitly opt out (skipTipFallback === false)
  *   - The local cache gave zero skips (fastForwardSkipped === 0)
  *   - A collection exists to probe (hasCollection === true)
+ *   - No window of this chat is on the unfinished record (hasUnfinishedWindows === false)
+ *
+ * The tip is the furthest window stored, so falling back to it would mark every
+ * window before it extracted, unfinished ones included. A record also proves the
+ * local cache is alive, so zero skips means the first window is the unfinished one.
  *
  * The workflow and the UI popups that request fresh extraction share this
  * rule, so a change to the condition is made here only.
  *
- * @param {{ skipTipFallback: boolean, fastForwardSkipped: number, hasCollection: boolean }} state
+ * @param {{ skipTipFallback: boolean, fastForwardSkipped: number, hasCollection: boolean, hasUnfinishedWindows?: boolean }} state
  * @returns {boolean}
  */
-export function shouldUseTipFallback({ skipTipFallback, fastForwardSkipped, hasCollection }) {
+export function shouldUseTipFallback({ skipTipFallback, fastForwardSkipped, hasCollection, hasUnfinishedWindows = false }) {
     if (skipTipFallback) return false;
     if (fastForwardSkipped > 0) return false;
     if (!hasCollection) return false;
+    if (hasUnfinishedWindows) return false;
     return true;
 }
 
@@ -700,8 +708,8 @@ export function windowFingerprint(sourceHashes) {
 }
 
 /**
- * Marks a window as extracted. Stored in extension_settings so it survives
- * page reloads without requiring a chat save.
+ * Marks a window as extracted, and takes it off the unfinished record. Stored in
+ * extension_settings so it survives page reloads without requiring a chat save.
  * @param {number[]} sourceHashes
  * @param {string} [chatUUID]
  */
@@ -716,6 +724,7 @@ export function markWindowExtracted(sourceHashes, chatUUID) {
     if (!store.eventbase_extracted_windows[uuid]) store.eventbase_extracted_windows[uuid] = [];
 
     const fp = windowFingerprint(sourceHashes);
+    _keepUnfinishedWindows(uuid, recordedFingerprint => recordedFingerprint !== fp);
 
     // Update the in-memory Set first (O(1) check)
     if (!_windowCacheSet.has(uuid)) {
@@ -730,7 +739,73 @@ export function markWindowExtracted(sourceHashes, chatUUID) {
 }
 
 /**
- * Clears the extraction cache for a specific chat.
+ * Puts a window on the chat's unfinished record: its extraction failed, so it must be
+ * sent again. The fingerprint cache cannot say this by itself, because a failed window
+ * is merely absent from it, while the windows after it are present, and the quick exit
+ * and the tip look only at the furthest window reached.
+ *
+ * @param {number[]} sourceHashes
+ * @param {string} chatUUID
+ */
+export function markWindowUnfinished(sourceHashes, chatUUID) {
+    const store = extension_settings?.vectfox;
+    if (!store || !chatUUID || !sourceHashes?.length) return;
+    if (!store.eventbase_unfinished_windows) store.eventbase_unfinished_windows = {};
+    if (!store.eventbase_unfinished_windows[chatUUID]) store.eventbase_unfinished_windows[chatUUID] = [];
+
+    const record = store.eventbase_unfinished_windows[chatUUID];
+    const fingerprint = windowFingerprint(sourceHashes);
+    if (record.includes(fingerprint)) return;
+    record.push(fingerprint);
+    saveSettingsDebounced();
+}
+
+/**
+ * The windows of this size on the chat's unfinished record. A fingerprint holds one hash
+ * per message, so a run at another window size does not see them: its windows are different.
+ *
+ * @param {string} chatUUID
+ * @param {number} windowSize
+ * @returns {Set<string>} window fingerprints
+ */
+export function getUnfinishedWindowFingerprints(chatUUID, windowSize) {
+    const record = extension_settings?.vectfox?.eventbase_unfinished_windows?.[chatUUID];
+    if (!Array.isArray(record)) return new Set();
+    return new Set(record.filter(fingerprint => fingerprint.split(',').length === windowSize));
+}
+
+/**
+ * Takes windows of this size off the record when the chat no longer has them, because a
+ * message in the window was edited or deleted. An edited window has a new fingerprint and
+ * goes through the run like any window not yet extracted.
+ *
+ * @param {string} chatUUID
+ * @param {number} windowSize
+ * @param {Set<string>} chatFingerprints - every window fingerprint the chat has now
+ */
+export function forgetUnfinishedWindowsNotInChat(chatUUID, windowSize, chatFingerprints) {
+    _keepUnfinishedWindows(chatUUID, fingerprint =>
+        fingerprint.split(',').length !== windowSize || chatFingerprints.has(fingerprint));
+}
+
+/**
+ * @param {string} chatUUID
+ * @param {(fingerprint: string) => boolean} shouldKeep
+ */
+function _keepUnfinishedWindows(chatUUID, shouldKeep) {
+    const records = extension_settings?.vectfox?.eventbase_unfinished_windows;
+    const record = records?.[chatUUID];
+    if (!Array.isArray(record)) return;
+
+    const kept = record.filter(shouldKeep);
+    if (kept.length === record.length) return;
+    if (kept.length > 0) records[chatUUID] = kept;
+    else delete records[chatUUID];
+    saveSettingsDebounced();
+}
+
+/**
+ * Clears the extraction cache and the unfinished record for a specific chat.
  * Call this whenever an EventBase collection is deleted so that
  * the next vectorization run starts fresh.
  * @param {string} [chatUUID]
@@ -739,16 +814,17 @@ export function clearWindowCacheForChat(chatUUID) {
     const uuid = chatUUID || getChatUUID();
     if (!uuid) return;
     const store = extension_settings?.vectfox;
-    if (!store?.eventbase_extracted_windows) return;
-    delete store.eventbase_extracted_windows[uuid];
+    if (!store) return;
+    delete store.eventbase_extracted_windows?.[uuid];
+    delete store.eventbase_unfinished_windows?.[uuid];
     _windowCacheSet.delete(uuid);
     saveSettingsDebounced();
 }
 
 /**
  * Drops BOTH "already-extracted" caches for a chat — the persisted window
- * fingerprint Set and the in-memory vectorization tip. These are two
- * representations of the same fact ("how far this chat is already extracted"),
+ * fingerprint Set (with the unfinished record) and the in-memory vectorization tip.
+ * These are two representations of the same fact ("how far this chat is already extracted"),
  * so they must always be cleared together: clearing one but not the other was
  * the stale-tip bug where re-vectorizing a deleted collection fast-forwarded
  * past every window and extracted 0 events.
@@ -790,8 +866,9 @@ export function clearCachesForDeletedOrImportedCollection(collectionId) {
 
 /**
  * Quick-exit check: returns true if the LAST complete window in the message list
- * is already extracted. When true, all prior windows are also done (windows are
- * always processed in-order from the tail). Avoids building O(n) window objects.
+ * is already extracted. Avoids building O(n) window objects. True does NOT mean every
+ * earlier window succeeded, since a run carries on past a window that failed: check
+ * getUnfinishedWindowFingerprints for those.
  *
  * @param {object[]} messages  - Filtered message array (same as passed to runEventBaseIngestion)
  * @param {number}   windowSize
