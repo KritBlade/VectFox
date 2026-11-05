@@ -230,13 +230,13 @@ describe('selectStoryRecipeEvents with a thread pick', () => {
         expect(starts(events)).toContain(closePicked.source_window_start);
     });
 
-    // The same window is one step, whichever way the event got its seat.
-    it('keeps one event per window across picks and the walk', () => {
+    // A window counts once towards the block, whichever way its events got there.
+    it('counts a window once across picks and the walk, and keeps its events', () => {
         const picked = event(40, 'picked', { _hash: 1, story_links: [] });
         const sameWindow = event(40, 'walked', { _hash: 2, story_links: [] });
         const holder = event(60, 'holder', { _hash: 3, story_links: [threadLink(1, 'A thread')] });
         const { events } = pick('chain', [picked, sameWindow, holder], [sameWindow, holder], ['A thread']);
-        expect(events.filter(item => item.source_window_start === 40)).toHaveLength(1);
+        expect(events.filter(item => item.source_window_start === 40).map(item => item.text).sort()).toEqual(['picked', 'walked']);
     });
 
     it('tolerates a picked link to a deleted event', () => {
@@ -377,13 +377,21 @@ describe('selectStoryRecipeEvents with links', () => {
         expect(starts(events)).toEqual(expect.arrayContaining([10, 20, 30]));
     });
 
-    // A window is one step of a thread, and a block wants steps, not the detail of one scene.
-    it('keeps the closest event of each window', () => {
-        const first = event(100, 'closer', { _hash: 1, story_links: [] });
-        const second = event(100, 'further', { _hash: 2, story_links: [{ event_id: 'id1', type: 'continues', thread: 't' }] });
-        const third = event(110, 'next step', { _hash: 3, story_links: [{ event_id: 'id2', type: 'continues', thread: 't' }] });
-        const { events } = select('chain', '', [first, second, third], [third, first, second]);
-        expect(events.map(item => item.text)).toEqual(['closer', 'next step']);
+    // A window can tell several things, and a search rank cannot say which answers the question.
+    it('keeps every event of a window it reaches, even one no link or hit reaches', () => {
+        const linked = event(100, 'linked', { _hash: 1, story_links: [] });
+        const unreached = event(100, 'no link to it', { _hash: 2, story_links: [] });
+        const hit = event(110, 'next step', { _hash: 3, story_links: [{ event_id: 'id1', type: 'continues', thread: 't' }] });
+        const { events } = select('chain', '', [linked, unreached, hit], [hit]);
+        expect(events.map(item => item.text).sort()).toEqual(['linked', 'next step', 'no link to it']);
+    });
+
+    it('counts windows towards a thread block, so 75 of them can hold more lines', () => {
+        const long = Array.from({ length: 100 }, (_, i) => event(i * 10 + 10, `step ${i}`, { story_links: i ? [link(i * 10)] : [] }));
+        const others = long.map(item => event(item.source_window_start, `other at ${item.source_window_start}`, { _hash: item.source_window_start + 1, story_links: [] }));
+        const { events } = select('chain', '', [...long, ...others], [long[99]]);
+        expect(new Set(starts(events)).size).toBe(75);
+        expect(events).toHaveLength(150);
     });
 
     it('keeps a chain\'s top hits and what links reach from them, and no other hit', () => {
@@ -526,9 +534,9 @@ describe('the block cut', () => {
             for (const shape of ['chain', 'why', 'bigger_plot']) expect(BLOCK_CUT_PROMPT_BY_SHAPE[shape], shape).toContain('Choose the 20 events');
         });
 
-        it('gives every shape its own goal, and asks for the lines\' positions', () => {
+        it('gives every shape its own goal, and asks for each line\'s label', () => {
             expect(new Set(Object.values(BLOCK_CUT_PROMPT_BY_SHAPE)).size).toBe(5);
-            for (const prompt of Object.values(BLOCK_CUT_PROMPT_BY_SHAPE)) expect(prompt).toContain('# positions of the lines');
+            for (const prompt of Object.values(BLOCK_CUT_PROMPT_BY_SHAPE)) expect(prompt).toContain('# label of each line');
         });
     });
 
@@ -537,6 +545,11 @@ describe('the block cut', () => {
 
         it('lists the lines oldest first with their positions, then the question', () => {
             expect(buildBlockCutMessage(events, 'How did it go?', '')).toBe("Events:\n- #10: Why it began. A first step How it ended.\n- #30: A later step\n\nPlayer's question:\nHow did it go?");
+        });
+
+        it('gives the lines of one window their own letters, and any other line its position', () => {
+            const shared = [event(30, 'three'), event(10, 'one', { _hash: 1 }), event(10, 'two', { _hash: 2 })];
+            expect(buildBlockCutMessage(shared, 'Why?', '')).toBe("Events:\n- #10a: one\n- #10b: two\n- #30: three\n\nPlayer's question:\nWhy?");
         });
 
         it('adds the subject only when the question leaves it out', () => {
@@ -552,9 +565,26 @@ describe('the block cut', () => {
             expect(starts(readBlockCut({ events: [30, '#10', '- #20:'] }, events))).toEqual([30, 10, 20]);
         });
 
-        it('keeps every event at a position, since a line does not say which', () => {
-            const shared = [event(10, 'one', { _hash: 1 }), event(10, 'two', { _hash: 2 }), event(20)];
-            expect(readBlockCut({ events: [10] }, shared).map(item => item.text)).toEqual(['one', 'two']);
+        describe('when a window holds several lines', () => {
+            const shared = [event(10, 'one', { _hash: 1 }), event(10, 'two', { _hash: 2 }), event(20, 'three')];
+            const textsOf = (reply) => readBlockCut(reply, shared).map(item => item.text);
+
+            it('takes the one line a label names', () => {
+                expect(textsOf({ events: ['10b', '#20'] })).toEqual(['two', 'three']);
+                expect(textsOf({ events: ['#10A'] })).toEqual(['one']);
+            });
+
+            it('takes every line at a position for a bare number', () => {
+                expect(textsOf({ events: [10] })).toEqual(['one', 'two']);
+            });
+
+            it('takes every line at a position for a letter the block does not have', () => {
+                expect(textsOf({ events: ['10z', '20a'] })).toEqual(['one', 'two', 'three']);
+            });
+
+            it('takes a line once when two entries name it', () => {
+                expect(textsOf({ events: ['10a', 10] })).toEqual(['one', 'two']);
+            });
         });
 
         it('ignores a position that is not in the block, and a repeat', () => {
@@ -589,6 +619,16 @@ describe('the block cut', () => {
 
         it('keeps the 20 closest in time order when the LLM failed', () => {
             expect(starts(cut(null))).toEqual(lastTwenty);
+        });
+
+        it('seats each window before any window takes a second event when the LLM failed', () => {
+            const twins = Array.from({ length: 25 }, (_, i) => [
+                event(200 + i * 2, `first ${i}`, { _hash: 1000 + i }),
+                event(200 + i * 2, `second ${i}`, { _hash: 2000 + i }),
+            ]).flat();
+            const seats = cutBlockToSeats({ shape: 'chain', subject: '', events: twins, poolEvents: twins, chosenEvents: null });
+            expect(seats).toHaveLength(20);
+            expect(new Set(starts(seats)).size).toBe(20);
         });
 
         it('ranks an event the search did not find after every hit', () => {

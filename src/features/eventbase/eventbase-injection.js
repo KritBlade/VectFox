@@ -123,13 +123,23 @@ export function storyLinePosition(event) {
 }
 
 /**
+ * One event as a single line under a given label: cause, summary and result.
+ * @param {object} event
+ * @param {string} label - What follows the #
+ * @returns {string}
+ */
+export function formatLabelledStoryLine(event, label) {
+    const parts = [event.cause, _summaryFromText(event.text), event.result].filter(Boolean);
+    return `- #${label}: ${parts.join(' ')}`;
+}
+
+/**
  * One event as a single line: its position in the conversation, then cause, summary and result.
  * @param {object} event
  * @returns {string}
  */
 export function formatStoryLine(event) {
-    const parts = [event.cause, _summaryFromText(event.text), event.result].filter(Boolean);
-    return `- #${storyLinePosition(event) ?? '?'}: ${parts.join(' ')}`;
+    return formatLabelledStoryLine(event, storyLinePosition(event) ?? '?');
 }
 
 /**

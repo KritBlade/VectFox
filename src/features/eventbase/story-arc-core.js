@@ -25,7 +25,7 @@
  * ============================================================================
  */
 
-import { formatStoryLine, storyLinePosition } from './eventbase-injection.js';
+import { formatLabelledStoryLine, storyLinePosition } from './eventbase-injection.js';
 import {
     ALL_STORY_LINK_TYPES,
     STORY_LINK_TYPE,
@@ -86,11 +86,13 @@ export const STORY_ROUTE_RULE = Object.freeze({
     BLOCK_CUT_FAILED: 'block-cut-failed',
 });
 
-/** Events a recipe gathers before the cut. 75 short lines come to about 10,500 characters. */
+/** Events a first-time, last-time or linkless recipe gathers before the cut. 75 short lines come to about 10,500 characters. */
 const BLOCK_EVENT_LIMIT = 75;
+/** Chat windows a thread recipe gathers before the cut. With every event stored at them, they come to about 110 to 130 lines. */
+const BLOCK_WINDOW_LIMIT = 75;
 /** Lines a block keeps after the cut. 20 come to about 2,000 tokens, against about 3,300 for today's 10 full events. */
 const BLOCK_CUT_EVENT_COUNT = 20;
-/** Seats a thread pick's events take first, which leaves a walk the 50 closest events it had without one. */
+/** A thread pick's events that take their windows first, which leaves a walk at least the 50 closest windows. */
 const PICKED_EVENT_SEATS = 25;
 /**
  * Hybrid hits a recipe asks for. The search cannot be limited to chosen events, so
@@ -278,13 +280,14 @@ function eventNamesSubject(event, subject) {
 }
 
 /**
- * Limit a walk to a block: the events closest to the question, at most one per
- * chat window. A window is one step of a thread, and a block wants steps rather
- * than the detail of one scene. An event outside the pool ranks after every hit,
- * nearest to the seeds first. Picked threads' events go first, closest first, up to
- * their seats, since a pick exists to reach what the search ranks low.
+ * Limit a walk to a block: the chat windows of the events closest to the question,
+ * with every event stored at them. A window can tell several things, and a search rank
+ * cannot say which answers the question, so the block cut reads them all. An event
+ * outside the pool ranks after every hit, nearest to the seeds first. Picked threads'
+ * events go first, closest first, up to their limit, since a pick exists to reach what
+ * the search ranks low.
  */
-function keepClosestSteps(hopsByHash, eventByHash, poolRankByHash, pickedHashes) {
+function keepClosestWindows(hopsByHash, eventByHash, poolRankByHash, pickedHashes) {
     const closenessOf = (hash) => poolRankByHash.get(hash) ?? Number.MAX_SAFE_INTEGER;
     const picked = [...pickedHashes]
         .filter(hash => eventByHash.has(hash))
@@ -293,16 +296,12 @@ function keepClosestSteps(hopsByHash, eventByHash, poolRankByHash, pickedHashes)
     const ranked = [...hopsByHash.keys()]
         .filter(hash => eventByHash.has(hash))
         .sort((a, b) => (closenessOf(a) - closenessOf(b)) || (hopsByHash.get(a) - hopsByHash.get(b)));
-    const seenWindows = new Set();
-    const kept = [];
+    const windows = new Set();
     for (const hash of [...picked, ...ranked]) {
-        const event = eventByHash.get(hash);
-        if (seenWindows.has(event.source_window_start)) continue;
-        seenWindows.add(event.source_window_start);
-        kept.push(event);
-        if (kept.length === BLOCK_EVENT_LIMIT) break;
+        windows.add(storyLinePosition(eventByHash.get(hash)));
+        if (windows.size === BLOCK_WINDOW_LIMIT) break;
     }
-    return kept;
+    return [...eventByHash.values()].filter(event => windows.has(storyLinePosition(event)));
 }
 
 /** Steps of one thread: the strongest link, and any short enough to stay in the scene. */
@@ -406,7 +405,7 @@ export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEven
     }
     const pickedHashes = hashesOfThreads(pickedThreads, storedEvents);
     return {
-        events: inTimelineOrder(keepClosestSteps(walked, eventByHash, poolRankByHash, pickedHashes)),
+        events: inTimelineOrder(keepClosestWindows(walked, eventByHash, poolRankByHash, pickedHashes)),
         blockShape: shape,
         ruleName: pickedHashes.size ? STORY_ROUTE_RULE.THREAD_PICK : STORY_ROUTE_RULE.SHAPE_RECIPE,
     };
@@ -414,7 +413,7 @@ export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEven
 
 const BLOCK_CUT_PROMPT_START = 'A player asks about the past of a long roleplay story. Below are events from the story\'s memory, oldest first, which a search found. Each line starts with its # position in the conversation: a smaller # happened earlier. Many of them do not matter for this question.\n';
 const BLOCK_CUT_PROMPT_END = 'Skip events about other matters, and keep only one of any events that tell the same step.\n'
-    + 'Reply with JSON only: {"events": [12, 47, 96]}, using the # positions of the lines.';
+    + 'Reply with JSON only: {"events": ["12", "47a", "96"]}, using the # label of each line. Lines with the same number and different letters come from one moment of the story and can tell different things, so judge each on its own.';
 const BLOCK_CUT_GOAL_BY_SHAPE = {
     chain: 'how this came to be, step by step: where the matter starts, the steps that moved it on, and where it ended up.',
     why: 'why this happened: the event asked about, what directly caused it, and the earlier causes behind those, however far back. Leave out what came after, unless it explains the cause.',
@@ -446,6 +445,27 @@ export function isBlockCutNeeded(shape, eventCount) {
 }
 
 /**
+ * A block's lines with their labels, oldest first: each line's # position, with a letter
+ * when its window holds several lines, so the block cut can take one of them.
+ *
+ * @param {object[]} events
+ * @returns {{event: object, label: string}[]}
+ */
+function labelBlockLines(events) {
+    const ordered = inTimelineOrder(events);
+    const lineCountAt = new Map();
+    for (const event of ordered) lineCountAt.set(storyLinePosition(event), (lineCountAt.get(storyLinePosition(event)) ?? 0) + 1);
+    const seenAt = new Map();
+    return ordered.map((event) => {
+        const position = storyLinePosition(event);
+        const seen = seenAt.get(position) ?? 0;
+        seenAt.set(position, seen + 1);
+        const letter = lineCountAt.get(position) > 1 ? String.fromCharCode(97 + seen) : '';
+        return { event, label: `${position ?? '?'}${letter}` };
+    });
+}
+
+/**
  * The block cut's user message: the block's lines, then the question. The subject is
  * added when the question leaves it out.
  *
@@ -455,14 +475,13 @@ export function isBlockCutNeeded(shape, eventCount) {
  * @returns {string}
  */
 export function buildBlockCutMessage(events, question, subject) {
-    const lines = inTimelineOrder(events).map(formatStoryLine).join('\n');
+    const lines = labelBlockLines(events).map(({ event, label }) => formatLabelledStoryLine(event, label)).join('\n');
     return `Events:\n${lines}\n\nPlayer's question:\n${question}${_aboutSubject(question, subject)}`;
 }
 
 /**
- * Read an LLM's block cut. The model may copy a line's # along with its number. A
- * position can hold several events, and the line it names does not say which, so all
- * of them count.
+ * Read an LLM's block cut. The model may copy a line's # along with its label. A bare
+ * number, or a letter the block does not have, names every line at that position.
  *
  * @param {unknown} reply - Parsed JSON from the LLM
  * @param {object[]} events - The block the model chose from
@@ -473,8 +492,14 @@ export function readBlockCut(reply, events) {
     if (!Array.isArray(reply?.events)) {
         throw new Error(`Block cut reply has no events array: ${JSON.stringify(reply)?.slice(0, 200)}`);
     }
-    const positions = new Set(reply.events.map(value => Number(/\d+/.exec(String(value))?.[0])));
-    const chosen = [...positions].flatMap(position => events.filter(event => storyLinePosition(event) === position));
+    const lines = labelBlockLines(events);
+    const chosen = withoutRepeats(reply.events.flatMap((value) => {
+        const match = /(\d+)([a-z]?)/i.exec(String(value));
+        if (!match) return [];
+        const label = `${match[1]}${match[2].toLowerCase()}`;
+        const named = lines.filter(line => line.label === label);
+        return named.length ? named : lines.filter(line => storyLinePosition(line.event) === Number(match[1]));
+    }).map(line => line.event));
     if (!chosen.length) {
         throw new Error(`Block cut reply names no line of the block: ${JSON.stringify(reply.events).slice(0, 200)}`);
     }
@@ -498,7 +523,8 @@ function seatsByTimeRule(shape, events, subject) {
 /**
  * Cut a long block to its seats. A first-time or last-time block seats the LLM's lines
  * first, and its seat rule fills the rest. Any other block keeps the LLM's lines. When
- * the LLM failed, the seat rule stands alone, or the block keeps its closest events.
+ * the LLM failed, the seat rule stands alone, or the block keeps its closest event of
+ * each window, then its next closest.
  *
  * @param {object} params
  * @param {string} params.shape - The router's shape, which says what the question asks even when the block has no subject
@@ -516,5 +542,13 @@ export function cutBlockToSeats({ shape, subject, events, poolEvents, chosenEven
     if (chosenEvents) return inTimelineOrder(chosenEvents.slice(0, BLOCK_CUT_EVENT_COUNT));
     const placeByHash = new Map(poolEvents.map((event, place) => [event._hash, place]));
     const placeOf = (event) => placeByHash.get(event._hash) ?? Number.MAX_SAFE_INTEGER;
-    return inTimelineOrder([...events].sort((a, b) => placeOf(a) - placeOf(b)).slice(0, BLOCK_CUT_EVENT_COUNT));
+    const closestFirst = [...events].sort((a, b) => placeOf(a) - placeOf(b));
+    // With no LLM to say which event of a window answers, each window takes a seat before any takes a second.
+    const windowsSeated = new Set();
+    const closestOfEachWindow = closestFirst.filter((event) => {
+        const isFirstOfWindow = !windowsSeated.has(storyLinePosition(event));
+        windowsSeated.add(storyLinePosition(event));
+        return isFirstOfWindow;
+    });
+    return inTimelineOrder(withoutRepeats([...closestOfEachWindow, ...closestFirst]).slice(0, BLOCK_CUT_EVENT_COUNT));
 }
