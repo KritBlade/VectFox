@@ -25,8 +25,8 @@ import {
     selectStoryRecipeEvents,
 } from '../src/features/eventbase/story-arc-core.js';
 
-const event = (start, text = `event at ${start}`, extra = {}) => ({ _hash: start, source_window_start: start, source_window_end: start + 1, text, ...extra });
-const link = (hash, type = 'continues') => ({ hash, type, thread: 'a thread' });
+const event = (start, text = `event at ${start}`, extra = {}) => ({ _hash: start, event_id: `id${extra._hash ?? start}`, source_window_start: start, source_window_end: start + 1, text, ...extra });
+const link = (hash, type = 'continues') => ({ event_id: `id${hash}`, type, thread: 'a thread' });
 const starts = (events) => events.map(item => item.source_window_start);
 const select = (shape, subject, storedEvents, poolEvents) => selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents });
 
@@ -120,9 +120,9 @@ describe('hasThreadPick', () => {
 describe('listStoryThreads', () => {
     it('lists each name once at the message where it starts, oldest first', () => {
         const events = [
-            event(300, 'c', { story_links: [{ hash: 1, type: 'continues', thread: 'The blockade' }] }),
-            event(100, 'a', { story_links: [{ hash: 2, type: 'continues', thread: 'The blockade' }, { hash: 3, type: 'reveals', thread: 'The ledger' }] }),
-            event(50, 'b', { story_links: [{ hash: 4, type: 'continues', thread: 'The duel' }] }),
+            event(300, 'c', { story_links: [{ event_id: 'id1', type: 'continues', thread: 'The blockade' }] }),
+            event(100, 'a', { story_links: [{ event_id: 'id2', type: 'continues', thread: 'The blockade' }, { event_id: 'id3', type: 'reveals', thread: 'The ledger' }] }),
+            event(50, 'b', { story_links: [{ event_id: 'id4', type: 'continues', thread: 'The duel' }] }),
         ];
         expect(listStoryThreads(events)).toEqual([
             { name: 'The duel', firstMessage: 50 },
@@ -132,7 +132,7 @@ describe('listStoryThreads', () => {
     });
 
     it('leaves out a link with no name and an event not yet decided', () => {
-        expect(listStoryThreads([event(1, 'a', { story_links: [{ hash: 2, type: 'continues', thread: '' }] }), event(2)])).toEqual([]);
+        expect(listStoryThreads([event(1, 'a', { story_links: [{ event_id: 'id2', type: 'continues', thread: '' }] }), event(2)])).toEqual([]);
     });
 });
 
@@ -180,7 +180,7 @@ describe('readThreadPick', () => {
 });
 
 describe('selectStoryRecipeEvents with a thread pick', () => {
-    const threadLink = (hash, thread) => ({ hash, type: 'continues', thread });
+    const threadLink = (hash, thread) => ({ event_id: `id${hash}`, type: 'continues', thread });
     const pick = (shape, storedEvents, poolEvents, pickedThreads) => selectStoryRecipeEvents({ shape, subject: '', storedEvents, poolEvents, pickedThreads });
     /** A thread the search never reaches, at messages 10 to 30. */
     const missed = [
@@ -380,8 +380,8 @@ describe('selectStoryRecipeEvents with links', () => {
     // A window is one step of a thread, and a block wants steps, not the detail of one scene.
     it('keeps the closest event of each window', () => {
         const first = event(100, 'closer', { _hash: 1, story_links: [] });
-        const second = event(100, 'further', { _hash: 2, story_links: [{ hash: 1, type: 'continues', thread: 't' }] });
-        const third = event(110, 'next step', { _hash: 3, story_links: [{ hash: 2, type: 'continues', thread: 't' }] });
+        const second = event(100, 'further', { _hash: 2, story_links: [{ event_id: 'id1', type: 'continues', thread: 't' }] });
+        const third = event(110, 'next step', { _hash: 3, story_links: [{ event_id: 'id2', type: 'continues', thread: 't' }] });
         const { events } = select('chain', '', [first, second, third], [third, first, second]);
         expect(events.map(item => item.text)).toEqual(['closer', 'next step']);
     });

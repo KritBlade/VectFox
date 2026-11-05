@@ -368,6 +368,37 @@
     );
 }
 
+/* A collection's StoryArc links, drawn as a branch of its card. The negative margin takes back the card's margin and the list's gap. */
+.vectfox-story-links-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 8px 12px;
+    margin: -20px 0 16px 28px;
+    padding: 8px 12px;
+    border-left: 2px solid
+        color-mix(in srgb, var(--SmartThemeBodyColor) 25%, transparent);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 3%, transparent);
+    font-size: 0.85em;
+}
+
+.vectfox-story-links-title {
+    font-weight: 600;
+}
+
+.vectfox-story-links-status {
+    color: color-mix(in srgb, var(--SmartThemeBodyColor) 65%, transparent);
+}
+
+.vectfox-story-links-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+}
+
 .vectfox-collection-header {
     display: flex;
     justify-content: space-between;

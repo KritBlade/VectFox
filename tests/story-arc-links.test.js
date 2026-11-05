@@ -5,7 +5,8 @@
  *   - a pass stores each decision, reports failures, and keeps going past one,
  *   - it stops on an invalid model and on a run of failures, and when asked,
  *   - it can skip events already decided, and shows its cost first,
- *   - a new event is linked only when that spends nothing unasked for.
+ *   - a new event is linked only when that spends nothing unasked for,
+ *   - a links file reads and writes a collection's links with no LLM call.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -66,7 +67,16 @@ vi.mock('../src/sillytavern/log.js', () => ({
     log: { warn: (...args) => logWarnMock(...args), lifecycle: vi.fn(), domain: vi.fn(), error: vi.fn() },
 }));
 
-const { describeStoryLinkPass, linkNewStoryEvents, readStoryLinkCoverage, runStoryLinkPass } = await import('../src/features/eventbase/story-arc-links.js');
+const {
+    buildCollectionLinksFile,
+    describeStoryLinkPass,
+    linkNewStoryEvents,
+    planStoryLinksImport,
+    readCollectionLinkCoverage,
+    readStoryLinkCoverage,
+    runStoryLinkPass,
+    writeImportedStoryLinks,
+} = await import('../src/features/eventbase/story-arc-links.js');
 
 const COLLECTION = 'vf_eventbase_chat';
 const settings = {
@@ -112,7 +122,7 @@ describe('runStoryLinkPass', () => {
         const [call] = callLlmForJsonMock.mock.calls[0];
         expect(call.userMessage).toContain('E1: (message 10)');
         expect(call.userMessage).toContain('NEW:\n(message 20)');
-        expect(writtenLinks()).toEqual({ 1: [], 2: [{ hash: 1, type: 'continues', thread: 'The blockade' }] });
+        expect(writtenLinks()).toEqual({ 1: [], 2: [{ event_id: 'id1', type: 'continues', thread: 'The blockade' }] });
         expect(updateChunkMetadataMock.mock.calls[0][0]).toBe(COLLECTION);
         expect(result).toEqual({ decidedCount: 2, failedCount: 0, isStopped: false });
         expect(progressMock.complete.mock.calls[0][0]).toBe(true);
@@ -345,7 +355,7 @@ describe('linkNewStoryEvents', () => {
         expect(userMessage).toContain('(message 10)');
         expect(userMessage).toContain('(message 20)');
         expect(userMessage).not.toContain('(message 40)');
-        expect(writtenLinks()).toEqual({ 3: [{ hash: 1, type: 'continues', thread: 'A' }] });
+        expect(writtenLinks()).toEqual({ 3: [{ event_id: 'id1', type: 'continues', thread: 'A' }] });
     });
 
     it('decides the first event of a chat with no call and no search', async () => {
@@ -423,5 +433,93 @@ describe('linkNewStoryEvents', () => {
         listStoryEventsMock.mockRejectedValueOnce(new Error('boom'));
         await expect(run(['id1'])).resolves.toBeUndefined();
         expect(logWarnMock.mock.calls[1][1].message).toBe('boom');
+    });
+});
+
+describe('links files', () => {
+    const link = { event_id: 'id1', type: 'continues', thread: 'A' };
+    const linked = [stored(1, 10, { story_links: [] }), stored(2, 20, { story_links: [link] })];
+    const collection = { id: 'vf_eventbase_other', name: 'Other chat' };
+    const writesFor = (count) => Array.from({ length: count }, (_, i) => ({ event: stored(i + 1, (i + 1) * 10), links: [link] }));
+
+    it('reads a collection\'s coverage, or nothing when its events cannot be read', async () => {
+        listStoryEventsMock.mockResolvedValueOnce(linked);
+        expect(await readCollectionLinkCoverage(collection.id, settings)).toMatchObject({ totalCount: 2, decidedCount: 2, linkedCount: 1 });
+        expect(listStoryEventsMock).toHaveBeenCalledWith(collection.id, settings);
+        listStoryEventsMock.mockResolvedValueOnce(null);
+        expect(await readCollectionLinkCoverage(collection.id, settings)).toBeNull();
+    });
+
+    it('makes a file from the collection it is given, with no LLM call', async () => {
+        listStoryEventsMock.mockResolvedValue(linked);
+        const file = await buildCollectionLinksFile(collection, settings);
+        expect(listStoryEventsMock).toHaveBeenCalledWith(collection.id, settings);
+        expect(file.collection).toEqual(collection);
+        expect(file.events).toEqual([{ event_id: 'id1', story_links: [] }, { event_id: 'id2', story_links: [link] }]);
+        expect(callLlmForJsonMock).not.toHaveBeenCalled();
+    });
+
+    it('fails loudly when the events cannot be read', async () => {
+        listStoryEventsMock.mockResolvedValue(null);
+        await expect(buildCollectionLinksFile(collection, settings)).rejects.toThrow('Could not read');
+        const file = { type: 'vectfox-story-links', events: [] };
+        await expect(planStoryLinksImport(file, collection.id, settings)).rejects.toThrow('Could not read');
+    });
+
+    it('plans an import without writing anything', async () => {
+        listStoryEventsMock.mockResolvedValue(linked);
+        const file = await buildCollectionLinksFile(collection, settings);
+        const plan = await planStoryLinksImport(file, collection.id, settings);
+        expect(plan.writes.map(write => write.event._hash)).toEqual([1, 2]);
+        expect(updateChunkMetadataMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses the wrong kind of file before reading the collection', async () => {
+        await expect(planStoryLinksImport({ chunks: [] }, collection.id, settings)).rejects.toThrow('not a StoryArc links file');
+        expect(listStoryEventsMock).not.toHaveBeenCalled();
+    });
+
+    it('stores only the links, on each event\'s own point', async () => {
+        const result = await writeImportedStoryLinks(writesFor(3), collection.id, settings);
+        expect(result).toEqual({ writtenCount: 3, failedCount: 0, isStopped: false });
+        expect(updateChunkMetadataMock.mock.calls).toEqual([1, 2, 3].map(hash => [collection.id, hash, { story_links: [link] }, settings]));
+        expect(callLlmForJsonMock).not.toHaveBeenCalled();
+        expect(progressMock.complete).toHaveBeenCalledWith(true, expect.stringContaining('3 of 3 events written'));
+        expect(progressMock.clearCancelHandler).toHaveBeenCalled();
+    });
+
+    it('tries a failed write again', async () => {
+        updateChunkMetadataMock.mockRejectedValueOnce(new Error('a blip'));
+        const result = await writeImportedStoryLinks(writesFor(1), collection.id, settings);
+        expect(result).toEqual({ writtenCount: 1, failedCount: 0, isStopped: false });
+        expect(updateChunkMetadataMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps going past an event that fails, and says so', async () => {
+        updateChunkMetadataMock.mockImplementation(async (_, hash) => {
+            if (hash === 1) throw new Error('refused');
+        });
+        const result = await writeImportedStoryLinks(writesFor(3), collection.id, settings);
+        expect(result).toEqual({ writtenCount: 2, failedCount: 1, isStopped: false });
+        expect(progressMock.addError).toHaveBeenCalledWith('Message 10: refused');
+        expect(progressMock.complete).toHaveBeenCalledWith(false, expect.stringContaining('Import the file again'));
+    });
+
+    it('stops when asked, keeping what it wrote', async () => {
+        updateChunkMetadataMock.mockImplementation(async () => {
+            progressMock.setCancelHandler.mock.lastCall[0]();
+        });
+        const result = await writeImportedStoryLinks(writesFor(20), collection.id, settings);
+        expect(result).toEqual({ writtenCount: 1, failedCount: 0, isStopped: true });
+        expect(progressMock.complete).toHaveBeenCalledWith(false, expect.stringContaining('Stopped by you'));
+    });
+
+    it('stops after a run of failures', async () => {
+        updateChunkMetadataMock.mockRejectedValue(new Error('the server is down'));
+        const result = await writeImportedStoryLinks(writesFor(60), collection.id, settings);
+        expect(result.isStopped).toBe(true);
+        expect(result.writtenCount).toBe(0);
+        expect(result.failedCount).toBeLessThan(60);
+        expect(progressMock.complete).toHaveBeenCalledWith(false, expect.stringContaining('failed in a row'));
     });
 });

@@ -6,6 +6,7 @@
  * chat's stored events, and each new event gets its links after it joins. One
  * decision needs only stored vectors and text, not other links, so decisions run
  * in parallel. Each is stored as it finishes, so a stopped pass keeps its work.
+ * A collection's links can also be saved to a file and put back, with no LLM call.
  *
  * Pure logic lives in story-arc-links-core.js.
  * ============================================================================
@@ -25,13 +26,16 @@ import {
     LINK_PARALLEL_CALLS,
     STORY_LINK_PROMPT,
     buildStoryLinkMessage,
+    buildStoryLinksFile,
     earlierEventsOf,
     estimateStoryLinkPass,
     inTimelineOrder,
     measureStoryLinkCoverage,
     mergeLinkCandidates,
     nearestByVector,
+    planStoryLinkWrites,
     readStoryLinks,
+    readStoryLinksFile,
     shouldLinkNewEvents,
 } from './story-arc-links-core.js';
 import { listStoryEvents } from './story-arc-retrieval.js';
@@ -344,5 +348,106 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
         }
     } catch (err) {
         log.warn('[VectFox-StoryArc] Linking new events failed:', err);
+    }
+}
+
+/**
+ * How far a collection's link pass has got, for its row in the Database Browser.
+ *
+ * @param {string} collectionId
+ * @param {object} settings
+ * @returns {Promise<object|null>} the coverage, or null when its events could not be read, which the listing has logged
+ */
+export async function readCollectionLinkCoverage(collectionId, settings) {
+    const events = await listStoryEvents(collectionId, settings);
+    return events ? measureStoryLinkCoverage(events) : null;
+}
+
+/** A collection's stored events, for a links file to be made from or matched against. */
+async function _readEventsForLinksFile(collectionId, settings) {
+    const events = await listStoryEvents(collectionId, settings);
+    if (!events) throw new Error('Could not read this collection\'s events. See the console.');
+    return events;
+}
+
+/**
+ * A collection's links as a file of their own.
+ *
+ * @param {{id: string, name: string}} collection
+ * @param {object} settings
+ * @returns {Promise<object>} the file, whose `events` is empty when no event is decided
+ */
+export async function buildCollectionLinksFile(collection, settings) {
+    const events = await _readEventsForLinksFile(collection.id, settings);
+    return buildStoryLinksFile(events, collection, new Date().toISOString());
+}
+
+/**
+ * What a links file would write to a collection, without writing it.
+ *
+ * @param {unknown} file - Parsed JSON
+ * @param {string} collectionId
+ * @param {object} settings
+ * @returns {Promise<object>} the plan from planStoryLinkWrites
+ */
+export async function planStoryLinksImport(file, collectionId, settings) {
+    const linksByEventId = readStoryLinksFile(file);
+    return planStoryLinkWrites(linksByEventId, await _readEventsForLinksFile(collectionId, settings));
+}
+
+/**
+ * Store a links import's links on their events. Shows progress and a Stop button.
+ * Each event stores as it finishes, so a stopped import keeps its work and importing
+ * the file again finishes it.
+ *
+ * @param {{event: object, links: object[]}[]} writes - From planStoryLinksImport
+ * @param {string} collectionId
+ * @param {object} settings
+ * @returns {Promise<{writtenCount: number, failedCount: number, isStopped: boolean}>}
+ */
+export async function writeImportedStoryLinks(writes, collectionId, settings) {
+    let isStopRequested = false;
+    let stopReason = '';
+    let writtenCount = 0;
+    let failedCount = 0;
+    let consecutiveFailures = 0;
+    let next = 0;
+    progressTracker.show('Importing StoryArc links', writes.length, 'Events');
+    progressTracker.setCancelHandler(() => { isStopRequested = true; });
+    const runWorker = async () => {
+        while (next < writes.length && !isStopRequested && !stopReason) {
+            const { event, links } = writes[next++];
+            try {
+                await _tryTwice(() => updateChunkMetadata(collectionId, event._hash, { story_links: links }, settings), `The event at message ${event.source_window_start}: storing its links`);
+                writtenCount++;
+                consecutiveFailures = 0;
+            } catch (err) {
+                failedCount++;
+                consecutiveFailures++;
+                progressTracker.addError(`Message ${event.source_window_start}: ${err?.message || err}`);
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                    stopReason = `${MAX_CONSECUTIVE_FAILURES} events failed in a row. Last error: ${err?.message || err}`;
+                }
+            }
+            progressTracker.updateEmbeddingProgress(writtenCount + failedCount, writes.length);
+            progressTracker.updateProgress(writtenCount + failedCount, `${writtenCount} events written, ${failedCount} failed`);
+        }
+    };
+    try {
+        await Promise.all(Array.from({ length: Math.min(LINK_PARALLEL_CALLS, writes.length) }, runWorker));
+        const outcome = `${writtenCount} of ${writes.length} events written, ${failedCount} failed`;
+        log.lifecycle(`[VectFox-StoryArc] Links import on ${collectionId}: ${outcome}${stopReason ? `. Stopped: ${stopReason}` : ''}`);
+        if (stopReason) {
+            progressTracker.complete(false, `Stopped: ${stopReason} (${outcome})`);
+        } else if (isStopRequested) {
+            progressTracker.complete(false, `Stopped by you: ${outcome}. Import the file again to write the rest.`);
+        } else if (failedCount > 0) {
+            progressTracker.complete(false, `${outcome}. Import the file again to retry those.`);
+        } else {
+            progressTracker.complete(true, outcome);
+        }
+        return { writtenCount, failedCount, isStopped: isStopRequested || Boolean(stopReason) };
+    } finally {
+        progressTracker.clearCancelHandler();
     }
 }

@@ -30,6 +30,7 @@ import {
     ALL_STORY_LINK_TYPES,
     STORY_LINK_TYPE,
     buildStoryLinkGraph,
+    eventsByEventId,
     inTimelineOrder,
     measureStoryLinkCoverage,
     walkStoryLinks,
@@ -250,9 +251,14 @@ export function readThreadPick(reply) {
  */
 function hashesOfThreads(threadNames, storedEvents) {
     const hashesByName = new Map(threadNames.map(name => [name, new Set()]));
+    const eventById = eventsByEventId(storedEvents);
     for (const event of storedEvents) {
         for (const link of event.story_links ?? []) {
-            hashesByName.get(link.thread)?.add(event._hash).add(link.hash);
+            const hashes = hashesByName.get(link.thread);
+            if (!hashes) continue;
+            hashes.add(event._hash);
+            const parent = eventById.get(link.event_id);
+            if (parent) hashes.add(parent._hash);
         }
     }
     return new Set([...hashesByName.values()].flatMap(hashes => [...hashes]));

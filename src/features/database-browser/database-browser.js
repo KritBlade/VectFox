@@ -51,6 +51,15 @@ import {
 import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
 import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
+  STORY_LINKS_FILE_TYPE,
+  buildCollectionLinksFile,
+  describeStoryLinkCoverage,
+  describeStoryLinksImport,
+  planStoryLinksImport,
+  readCollectionLinkCoverage,
+  writeImportedStoryLinks,
+} from "../eventbase/index.js";
+import {
   queryMultipleCollections,
 } from "../vector-backend/index.js";
 import { getRequestHeaders } from "../../sillytavern/requests.js";
@@ -87,6 +96,10 @@ let browserState = {
   availableKeywords: [],
   // PNG export state
   pendingPngExport: null,
+  // Each StoryArc links row's read of its collection, by collection key, so a redraw reads nothing again
+  storyLinkCoverage: new Map(),
+  // The collection whose Import links button opened the file picker
+  pendingLinksImportKey: null,
 };
 
 // Event binding flags (module-level for proper reset on modal close)
@@ -311,6 +324,7 @@ function createBrowserModal() {
                         <!-- Hidden file inputs for import -->
                         <input type="file" id="vectfox_import_file" accept=".json,.vectfox.json,.png,image/png" style="display: none;">
                         <input type="file" id="vectfox_png_image_picker" accept="image/*" style="display: none;">
+                        <input type="file" id="vectfox_import_links_file" accept=".json" style="display: none;">
                     </div>
 
                     <!-- Search Tab -->
@@ -601,6 +615,18 @@ function bindBrowserEvents() {
     $("#vectfox_import_file").click();
   });
 
+  // StoryArc links file handler; the row's button named the collection
+  $("#vectfox_import_links_file").on("change", async function (e) {
+    const file = e.target.files[0];
+    const collectionKey = browserState.pendingLinksImportKey;
+    browserState.pendingLinksImportKey = null;
+
+    // Reset input so same file can be selected again
+    $(this).val("");
+
+    if (file && collectionKey) await importStoryLinksFile(file, collectionKey);
+  });
+
   // Import file handler (supports JSON and PNG)
   $("#vectfox_import_file").on("change", async function (e) {
     const file = e.target.files[0];
@@ -648,6 +674,14 @@ function bindBrowserEvents() {
       } else {
         // JSON file
         data = await readImportFile(file);
+      }
+
+      if (data?.type === STORY_LINKS_FILE_TYPE) {
+        toastr.error(
+          "This is a StoryArc links file. Use Import links on its collection's row in this list.",
+          "VECTFOX Import",
+        );
+        return;
       }
 
       const info = getExportInfo(data);
@@ -860,6 +894,7 @@ function _filterCollectionsByCurrentPersona(collections) {
 
 async function refreshCollections(withScan = false) {
   try {
+    browserState.storyLinkCoverage.clear();
     const allCollections = await loadAllCollections(browserState.settings, withScan);
     browserState.collections = _filterCollectionsByCurrentPersona(allCollections);
 
@@ -987,10 +1022,121 @@ function renderCollections() {
 
   // Bind card events
   bindCollectionCardEvents();
+  fillStoryLinkRows().catch((err) => log.warn("VectFox: Could not fill in the StoryArc links rows:", err));
 
   // Update stats
   const totalChunks = filtered.reduce((sum, c) => sum + c.chunkCount, 0);
   updateStats(filtered.length, totalChunks);
+}
+
+/**
+ * Whether a collection gets a StoryArc links row: links need Qdrant, and only a
+ * live EventBase collection holds them.
+ * @param {object} collection Collection data
+ * @returns {boolean}
+ */
+function hasStoryLinksRow(collection) {
+  const { settings } = browserState;
+  return Boolean(settings?.story_arc_mode_enabled)
+    && settings.vector_backend === "qdrant"
+    && collection.backend === "qdrant"
+    && String(collection.id).startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE);
+}
+
+/**
+ * Renders a collection's StoryArc links row, drawn as a branch of its card. The
+ * links are a field on the collection's events, so the row is a view of them and
+ * fillStoryLinkRows fills in its count.
+ * @param {object} collection Collection data
+ * @param {string} safeKey The collection's key, escaped
+ * @returns {string} Row HTML, empty for a collection without one
+ */
+function renderStoryLinksRow(collection, safeKey) {
+  if (!hasStoryLinksRow(collection)) return "";
+  return `
+        <div class="vectfox-story-links-row" data-collection-key="${safeKey}">
+            <span class="vectfox-story-links-title">↳ StoryArc links</span>
+            <span class="vectfox-story-links-status">Reading...</span>
+            <div class="vectfox-story-links-actions">
+                <button class="vectfox-btn-sm vectfox-action-export-links"
+                        data-collection-key="${safeKey}"
+                        title="Save this collection's links to a small file. Its events stay as they are.">
+                    ${icons.download(16)} Export links
+                </button>
+                <button class="vectfox-btn-sm vectfox-action-import-links"
+                        data-collection-key="${safeKey}"
+                        title="Put links from a saved file back onto this collection's events, matched event by event. Nothing else about them changes.">
+                    📥 Import links
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Fills in the count on each StoryArc links row, one row at a time since each reads
+ * a whole collection. A redraw starts this again and shares the reads already made.
+ * @returns {Promise<void>}
+ */
+async function fillStoryLinkRows() {
+  for (const row of $(".vectfox-story-links-row").toArray()) {
+    const key = $(row).data("collection-key");
+    const collection = findCollectionByKey(key);
+    if (!collection) continue;
+    if (!browserState.storyLinkCoverage.has(key)) {
+      browserState.storyLinkCoverage.set(key, readCollectionLinkCoverage(collection.id, browserState.settings));
+    }
+    const coverage = await browserState.storyLinkCoverage.get(key);
+    $(row).find(".vectfox-story-links-status").text(describeStoryLinkCoverage(coverage));
+  }
+}
+
+/**
+ * Puts a links file's links onto a collection's events, after showing what that changes.
+ * @param {File} file The picked file
+ * @param {string} collectionKey The collection whose Import links button was pressed
+ * @returns {Promise<void>}
+ */
+async function importStoryLinksFile(file, collectionKey) {
+  const collection = findCollectionByKey(collectionKey);
+  if (!collection) return;
+  const safeName = escapeHtml(collection.name);
+  try {
+    const data = await readImportFile(file);
+    const plan = await planStoryLinksImport(data, collection.id, browserState.settings);
+    if (plan.writes.length === 0) {
+      toastr.error(
+        `None of this file's ${plan.fileEventCount} events are in ${safeName}, so nothing was written.`,
+        "VectFox StoryArc",
+      );
+      return;
+    }
+
+    const sentences = describeStoryLinksImport(plan).map((sentence) => `<p>${sentence}</p>`).join("");
+    const { callGenericPopup, POPUP_TYPE } = await import("../../sillytavern/popup.js");
+    const confirmed = await callGenericPopup(
+      `<div style="text-align:left;">
+                    <p><strong>Import StoryArc links into ${safeName}?</strong></p>
+                    ${sentences}
+                    <p style="margin-top:10px;">Saved from ${escapeHtml(String(data.collection?.name ?? "an unnamed collection"))} on ${escapeHtml(String(data.exportDate ?? "an unknown date").slice(0, 10))}. Nothing else about the events changes, and this makes no LLM call.</p>
+                </div>`,
+      POPUP_TYPE.CONFIRM,
+      "",
+      { okButton: "Import links", cancelButton: "Cancel" },
+    );
+    if (!confirmed) return;
+
+    const { writtenCount, failedCount, isStopped } = await writeImportedStoryLinks(plan.writes, collection.id, browserState.settings);
+    if (failedCount === 0 && !isStopped) {
+      toastr.success(`Imported the links of ${writtenCount} events`, "VectFox StoryArc");
+    }
+    browserState.storyLinkCoverage.delete(collectionKey);
+    await fillStoryLinkRows();
+    document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
+  } catch (error) {
+    log.error("VectFox: Import links failed", error);
+    toastr.error(`Import links failed: ${escapeHtml(error.message)}`, "VectFox StoryArc");
+  }
 }
 
 /**
@@ -1210,6 +1356,7 @@ function renderCollectionCard(collection, isActiveById = null) {
                 </button>
             </div>
         </div>
+        ${renderStoryLinksRow(collection, safeKey)}
     `;
 }
 
@@ -1468,6 +1615,36 @@ function bindCollectionCardEvents() {
         log.error("VectFox: Failed to delete collection", error);
         toastr.error(`Failed to delete collection: ${error.message}`, "VectFox");
       }
+    });
+
+  // Save a collection's StoryArc links to a file
+  $(".vectfox-action-export-links")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      const collection = findCollectionByKey($(this).data("collection-key"));
+      if (!collection) return;
+      try {
+        const linksFile = await buildCollectionLinksFile(collection, browserState.settings);
+        if (linksFile.events.length === 0) {
+          toastr.info("This collection has no links to export yet.", "VectFox StoryArc");
+          return;
+        }
+        downloadExport(linksFile, `${collection.name || collection.id}-storyarc-links`);
+        toastr.success(`Exported the links of ${linksFile.events.length} events`, "VectFox StoryArc");
+      } catch (error) {
+        log.error("VectFox: Export links failed", error);
+        toastr.error(`Export links failed: ${escapeHtml(error.message)}`, "VectFox StoryArc");
+      }
+    });
+
+  // Pick a links file for this collection; the file picker's handler does the rest
+  $(".vectfox-action-import-links")
+    .off("click")
+    .on("click", function (e) {
+      e.stopPropagation();
+      browserState.pendingLinksImportKey = $(this).data("collection-key");
+      $("#vectfox_import_links_file").click();
     });
 
   // Visualize chunks

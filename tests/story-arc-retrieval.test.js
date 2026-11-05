@@ -141,7 +141,7 @@ describe('retrieveStoryRecipeEvents', () => {
     });
 
     it('walks stored links once the chat has them, reaching events the search did not find', async () => {
-        const steps = [100, 200, 300].map((start, i, all) => event(start, `step ${start}`, { story_links: i ? [{ hash: all[i - 1], type: 'continues', thread: 't' }] : [] }));
+        const steps = [100, 200, 300].map((start, i, all) => event(start, `step ${start}`, { story_links: i ? [{ event_id: `id${all[i - 1]}`, type: 'continues', thread: 't' }] : [] }));
         listReturns(steps);
         queryReturns([steps[2]]);
         const { events, blockShape, ruleName } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: 'Nora' }, baseParams);
@@ -151,7 +151,7 @@ describe('retrieveStoryRecipeEvents', () => {
     });
 
     it('matches a hit to its listed event when one reports its hash as text', async () => {
-        const steps = [100, 200].map((start, i, all) => event(start, `step ${start}`, { story_links: i ? [{ hash: all[i - 1], type: 'continues', thread: 't' }] : [] }));
+        const steps = [100, 200].map((start, i, all) => event(start, `step ${start}`, { story_links: i ? [{ event_id: `id${all[i - 1]}`, type: 'continues', thread: 't' }] : [] }));
         listReturns(steps);
         queryCollectionMock.mockResolvedValue({ hashes: ['200'], metadata: [steps[1]] });
         const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, baseParams);
@@ -302,7 +302,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
 
     describe('thread pick', () => {
         const linkOn = { ...storyArcOn, story_arc_link_provider: 'openrouter', story_arc_link_model: 'link-model' };
-        const threadLink = (hash, thread) => ({ hash, type: 'continues', thread });
+        const threadLink = (hash, thread) => ({ event_id: `id${hash}`, type: 'continues', thread });
         /** A thread the search misses, and the hit it does find. */
         const missed = [
             event(10, 'first step', { story_links: [] }),
@@ -500,7 +500,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         });
 
         it('runs after the thread pick, on the block that made', async () => {
-            const steps = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `step ${i}`, { story_links: i ? [{ hash: 100 + (i - 1) * 2, type: 'continues', thread: 'The long road' }] : [] }));
+            const steps = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `step ${i}`, { story_links: i ? [{ event_id: `id${100 + (i - 1) * 2}`, type: 'continues', thread: 'The long road' }] : [] }));
             listReturns(steps);
             queryReturns([steps[29]]);
             llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['The long road'] }, { events: [100, 158] });

@@ -8,7 +8,9 @@
  * links from its nearest earlier events and the events just before it.
  *
  * `story_links` is absent until a link pass has decided the event, and an empty
- * array means it decided the event has no earlier step.
+ * array means it decided the event has no earlier step. A link names the earlier
+ * event by `event_id`, which stays with the event when an import or a text edit
+ * gives its point a new hash.
  *
  * @see InternalProject/Vectfox/plans/story-arc.md
  * ============================================================================
@@ -98,7 +100,18 @@ function isDecided(event) {
 }
 
 /**
- * How far a collection's link pass has got.
+ * Stored events by `event_id`, which is how a link names the event it reaches.
+ *
+ * @param {object[]} events
+ * @returns {Map<string, object>}
+ */
+export function eventsByEventId(events) {
+    return new Map(events.filter(event => event.event_id).map(event => [event.event_id, event]));
+}
+
+/**
+ * How far a collection's link pass has got. An event counts as linked only when a
+ * link of its reaches a stored event, so links that lead nowhere show as none.
  *
  * @param {object[]} events
  * @returns {{totalCount: number, decidedCount: number, linkedCount: number, hasUsableLinks: boolean}}
@@ -106,7 +119,8 @@ function isDecided(event) {
  */
 export function measureStoryLinkCoverage(events) {
     const decided = events.filter(isDecided);
-    const linkedCount = decided.filter(event => event.story_links.length > 0).length;
+    const eventById = eventsByEventId(events);
+    const linkedCount = decided.filter(event => event.story_links.some(link => eventById.has(link.event_id))).length;
     return {
         totalCount: events.length,
         decidedCount: decided.length,
@@ -199,11 +213,11 @@ export function buildStoryLinkMessage(event, candidates) {
 
 /**
  * Read an LLM's link reply into `story_links`, strongest first. A link that names
- * no candidate or an unknown type is dropped and counted.
+ * no candidate, a candidate with no `event_id`, or an unknown type is dropped and counted.
  *
  * @param {unknown} reply - Parsed JSON from the LLM
  * @param {object[]} candidates - The list its ids refer to
- * @returns {{links: {hash: number, type: string, thread: string}[], droppedCount: number}}
+ * @returns {{links: {event_id: string, type: string, thread: string}[], droppedCount: number}}
  * @throws {Error} when the reply has no `links` array, so a malformed reply never reads as "no links"
  */
 export function readStoryLinks(reply, candidates) {
@@ -211,17 +225,17 @@ export function readStoryLinks(reply, candidates) {
         throw new Error(`Link reply has no links array: ${JSON.stringify(reply)?.slice(0, 200)}`);
     }
     const links = [];
-    const seenHashes = new Set();
+    const seenEventIds = new Set();
     let droppedCount = 0;
     for (const item of reply.links) {
         const position = Number(/^E(\d+)$/.exec(String(item?.id ?? '').trim())?.[1]);
         const candidate = candidates[position - 1];
-        if (!candidate || !ALL_STORY_LINK_TYPES.includes(item?.type) || seenHashes.has(candidate._hash)) {
+        if (!candidate?.event_id || !ALL_STORY_LINK_TYPES.includes(item?.type) || seenEventIds.has(candidate.event_id)) {
             droppedCount++;
             continue;
         }
-        seenHashes.add(candidate._hash);
-        links.push({ hash: candidate._hash, type: item.type, thread: typeof item.thread === 'string' ? item.thread.trim() : '' });
+        seenEventIds.add(candidate.event_id);
+        links.push({ event_id: candidate.event_id, type: item.type, thread: typeof item.thread === 'string' ? item.thread.trim() : '' });
     }
     return { links, droppedCount };
 }
@@ -234,7 +248,7 @@ export function readStoryLinks(reply, candidates) {
  * @returns {{parents: Map<number, {hash: number, type: string}[]>, children: Map<number, {hash: number, type: string}[]>}}
  */
 export function buildStoryLinkGraph(events, keepsLink = () => true) {
-    const eventByHash = new Map(events.map(event => [event._hash, event]));
+    const eventById = eventsByEventId(events);
     const parents = new Map();
     const children = new Map();
     const addNeighbour = (neighbours, hash, neighbour) => {
@@ -243,10 +257,10 @@ export function buildStoryLinkGraph(events, keepsLink = () => true) {
     };
     for (const event of events) {
         (event.story_links ?? []).forEach((link, position) => {
-            const parent = eventByHash.get(link.hash);
+            const parent = eventById.get(link.event_id);
             if (!parent || !keepsLink(position, event.source_window_start - parent.source_window_start)) return;
-            addNeighbour(parents, event._hash, { hash: link.hash, type: link.type });
-            addNeighbour(children, link.hash, { hash: event._hash, type: link.type });
+            addNeighbour(parents, event._hash, { hash: parent._hash, type: link.type });
+            addNeighbour(children, parent._hash, { hash: event._hash, type: link.type });
         });
     }
     return { parents, children };
@@ -272,4 +286,113 @@ export function walkStoryLinks(seedHashes, neighbours, allowedTypes) {
         }
     }
     return hopsByHash;
+}
+
+/** Tells a links file from any other JSON a person might pick. */
+export const STORY_LINKS_FILE_TYPE = 'vectfox-story-links';
+
+/**
+ * A collection's links in a few words, for its row in the Database Browser.
+ *
+ * @param {{totalCount: number, decidedCount: number, linkedCount: number}|null} coverage - Null when its events could not be read
+ * @returns {string}
+ */
+export function describeStoryLinkCoverage(coverage) {
+    if (!coverage) return 'Could not read its events. See the console.';
+    if (!coverage.totalCount) return 'No events yet';
+    const undecidedCount = coverage.totalCount - coverage.decidedCount;
+    return `${coverage.linkedCount} of ${coverage.totalCount} events linked${undecidedCount ? `, ${undecidedCount} not decided yet` : ''}`;
+}
+
+/**
+ * A collection's links as a file of their own, so they can be saved and put back
+ * without touching its events. An undecided event stays out, having no decision to keep.
+ *
+ * @param {object[]} events - The collection's stored events
+ * @param {{id: string, name: string}} collection
+ * @param {string} exportDate
+ * @returns {{type: string, exportDate: string, collection: {id: string, name: string}, events: {event_id: string, story_links: object[]}[]}}
+ * @throws {Error} when a decided event or one of its links has no `event_id`, since a file could never match it
+ */
+export function buildStoryLinksFile(events, collection, exportDate) {
+    const decided = inTimelineOrder(events.filter(isDecided));
+    const unusableCount = decided.filter(event => !event.event_id || event.story_links.some(link => !link.event_id)).length;
+    if (unusableCount) {
+        throw new Error(`${unusableCount} events hold links without an event_id, so they cannot be exported. Regenerate this collection's links.`);
+    }
+    return {
+        type: STORY_LINKS_FILE_TYPE,
+        exportDate,
+        collection: { id: collection.id, name: collection.name },
+        events: decided.map(event => ({ event_id: event.event_id, story_links: event.story_links })),
+    };
+}
+
+/** @param {unknown} link @returns {boolean} whether a links file's link can be stored */
+function isStorableFileLink(link) {
+    return typeof link?.event_id === 'string' && link.event_id !== '' && ALL_STORY_LINK_TYPES.includes(link.type);
+}
+
+/**
+ * Read a links file into each event's links. The file may come from anywhere, so
+ * only what a link needs is kept, and a damaged file is refused whole rather than
+ * written in part.
+ *
+ * @param {unknown} file - Parsed JSON
+ * @returns {Map<string, {event_id: string, type: string, thread: string}[]>} links by the `event_id` of the event holding them
+ * @throws {Error} when it is not a links file, or is damaged
+ */
+export function readStoryLinksFile(file) {
+    if (file?.type !== STORY_LINKS_FILE_TYPE || !Array.isArray(file.events)) {
+        throw new Error('This is not a StoryArc links file. Export links on a collection\'s StoryArc links row makes one.');
+    }
+    const linksByEventId = new Map();
+    file.events.forEach((record, place) => {
+        const isValid = typeof record?.event_id === 'string' && record.event_id !== ''
+            && Array.isArray(record.story_links) && record.story_links.every(isStorableFileLink);
+        if (!isValid) throw new Error(`This StoryArc links file is damaged at its event number ${place + 1}, so nothing was written.`);
+        linksByEventId.set(record.event_id, record.story_links.map(link => ({
+            event_id: link.event_id,
+            type: link.type,
+            thread: typeof link.thread === 'string' ? link.thread : '',
+        })));
+    });
+    return linksByEventId;
+}
+
+/**
+ * What a links file would write to a collection. A file names events by `event_id`,
+ * so the wrong file finds none. A link to an event the collection does not hold is
+ * left out, since it could never be walked.
+ *
+ * @param {Map<string, object[]>} linksByEventId - From readStoryLinksFile
+ * @param {object[]} storedEvents - The collection's stored events
+ * @returns {{writes: {event: object, links: object[]}[], fileEventCount: number, storedEventCount: number, leftOutLinkCount: number}}
+ */
+export function planStoryLinkWrites(linksByEventId, storedEvents) {
+    const eventById = eventsByEventId(storedEvents);
+    const writes = [];
+    let leftOutLinkCount = 0;
+    for (const [eventId, links] of linksByEventId) {
+        const event = eventById.get(eventId);
+        if (!event) continue;
+        const storableLinks = links.filter(link => eventById.has(link.event_id));
+        leftOutLinkCount += links.length - storableLinks.length;
+        writes.push({ event, links: storableLinks });
+    }
+    return { writes, fileEventCount: linksByEventId.size, storedEventCount: storedEvents.length, leftOutLinkCount };
+}
+
+/**
+ * What a links import would change, one sentence each, for its confirmation popup.
+ *
+ * @param {{writes: object[], fileEventCount: number, storedEventCount: number, leftOutLinkCount: number}} plan - From planStoryLinkWrites
+ * @returns {string[]}
+ */
+export function describeStoryLinksImport({ writes, fileEventCount, storedEventCount, leftOutLinkCount }) {
+    const lines = [`${writes.length} of this collection's ${storedEventCount} events are in the file, and their links will be replaced.`];
+    if (storedEventCount > writes.length) lines.push(`The other ${storedEventCount - writes.length} keep what they have.`);
+    if (fileEventCount > writes.length) lines.push(`${fileEventCount - writes.length} events in the file are not in this collection, so they are skipped.`);
+    if (leftOutLinkCount) lines.push(`${leftOutLinkCount} links reach events this collection does not hold, so they are left out.`);
+    return lines;
 }

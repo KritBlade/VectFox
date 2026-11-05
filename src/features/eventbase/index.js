@@ -33,7 +33,16 @@ export {
     runEventBaseRetrieval,
 } from './eventbase-workflow.js';
 export { getEventBaseExtractionPrompt } from './prompts-i18n.js';
-export { describeStoryLinkPass, readStoryLinkCoverage, runStoryLinkPass } from './story-arc-links.js';
+export { STORY_LINKS_FILE_TYPE, describeStoryLinkCoverage, describeStoryLinksImport } from './story-arc-links-core.js';
+export {
+    buildCollectionLinksFile,
+    describeStoryLinkPass,
+    planStoryLinksImport,
+    readCollectionLinkCoverage,
+    readStoryLinkCoverage,
+    runStoryLinkPass,
+    writeImportedStoryLinks,
+} from './story-arc-links.js';
 export {
     applyGhosting,
     buildSummarizerInjection,

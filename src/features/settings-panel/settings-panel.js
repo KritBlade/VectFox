@@ -1294,6 +1294,9 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <i class="fa-solid fa-link"></i> Regenerate links for this chat
                                 </button>
                                 <small class="VectFox_hint" id="VectFox_story_arc_link_status" style="display:block; margin-top:6px;"></small>
+                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
+                                    The Database Browser shows each chat's links under its collection, where they can be saved to a file and put back.
+                                </small>
                             </div>
                         </div>
                     </div>
@@ -4146,6 +4149,10 @@ function bindSettingsEvents(settings, callbacks) {
     // (e.g. chat just got vectorized) and chat-changed shift the state.
     const _refreshAutoSync = () => refreshAutoSyncCheckbox(extension_settings.vectfox);
     document.addEventListener('vectfox:collections-updated', _refreshAutoSync);
+    // Links imported in the Database Browser change what this line reports.
+    document.addEventListener('vectfox:collections-updated', () => {
+        if ($('#VectFox_story_arc_link_status').is(':visible')) refreshStoryLinkStatus(extension_settings.vectfox);
+    });
 
     document.addEventListener('vectfox:eventbase-synced', () => {
         // The chat just gained a collection because the user was sent here by
