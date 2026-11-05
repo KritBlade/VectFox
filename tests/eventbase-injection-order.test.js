@@ -173,13 +173,14 @@ describe('formatStoryArcForInjection', () => {
 
     it('says what the block is for each shape, and tells the reader how to read it', () => {
         const events = [line({ summary: 'a', source_window_end: 2 })];
-        const headers = ['first_time', 'chain', 'why', 'bigger_plot', 'current'].map(shape => formatStoryArcForInjection(events, shape).text.split('\n')[0]);
-        expect(new Set(headers).size).toBe(5);
+        const headers = ['first_time', 'chain', 'why', 'bigger_plot', 'current', 'last_time'].map(shape => formatStoryArcForInjection(events, shape).text.split('\n')[0]);
+        expect(new Set(headers).size).toBe(6);
         for (const header of headers) {
             expect(header).toContain(header === headers[4] ? 'newest → oldest' : 'oldest → newest');
             expect(header).toContain('smaller # happened earlier');
         }
         expect(headers[0]).toContain('earliest');
+        expect(headers[5]).toContain('latest');
     });
 
     it('stays near the size of the normal block at 50 events', () => {

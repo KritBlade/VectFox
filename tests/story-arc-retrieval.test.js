@@ -7,6 +7,7 @@
  *   - a first-time question gets the subject's earliest events and closest hits,
  *   - stored links are walked once a chat has them,
  *   - a thread question asks the link model which threads to add, and survives its failure,
+ *   - a long block is cut by the link model with a prompt for its shape, and survives its failure,
  *   - ordinary turns, router failures, a failed listing and empty recipes keep today's path,
  *   - every StoryArc turn reports the Route rule that decided it,
  *   - StoryArc mode does nothing unless Agent Mode and its own switch are on.
@@ -73,6 +74,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 
 const { retrieveStoryRecipeEvents } = await import('../src/features/eventbase/story-arc-retrieval.js');
 const { resolveStoryLinkLlmConfig, retrieveEventsWithAgent } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { BLOCK_CUT_PROMPT_BY_SHAPE } = await import('../src/features/eventbase/story-arc-core.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
 const event = (start, text = `event at ${start}`, extra = {}) => ({
@@ -284,7 +286,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         const result = await callAgent(storyArcOn);
         expect(starts(result.events)).toEqual([100, 200]);
         expect(result.storyArcShape).toBe('chain');
-        expect(result.debug.storyArc).toEqual({ ruleName: 'links-not-generated', shape: 'chain', subject: 'Nora', finalCount: 2 });
+        expect(result.debug.storyArc).toEqual({ ruleName: 'links-not-generated', cutRuleName: '', shape: 'chain', subject: 'Nora', finalCount: 2 });
         expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
         expect(retrieveEventsMock).toHaveBeenCalledTimes(1);
     });
@@ -383,6 +385,129 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
             expect(pickCalls()).toHaveLength(0);
             expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Thread pick skipped: missing_model');
+        });
+    });
+
+    describe('block cut', () => {
+        const linkOn = { ...storyArcOn, story_arc_link_provider: 'openrouter', story_arc_link_model: 'link-model' };
+        /** 30 hits at messages 100 to 158, closest last, on a chat with no links. */
+        const hits = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `Nora at ${100 + i * 2}`));
+        const closestFirst = [...hits].reverse();
+        const cutCalls = () => postChatCompletionMock.mock.calls.filter(([call]) => Object.values(BLOCK_CUT_PROMPT_BY_SHAPE).includes(call.messages[0].content));
+
+        beforeEach(() => queryReturns(closestFirst));
+
+        it('asks the link model at low effort, and keeps the lines it chooses', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [110, '#102', 999] });
+            const result = await callAgent(linkOn);
+            expect(starts(result.events)).toEqual([102, 110]);
+            expect(result.storyArcShape).toBe('chain');
+            expect(result.debug.storyArc).toEqual({ ruleName: 'links-not-generated', cutRuleName: 'block-cut', shape: 'chain', subject: 'Nora', finalCount: 2 });
+            const [[cutCall]] = cutCalls();
+            expect(cutCall.model).toBe('link-model');
+            expect(cutCall.reasoningEffort).toBe('low');
+            expect(cutCall.sendTemperature).toBe(false);
+            expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.chain);
+            expect(cutCall.messages[1].content).toContain('- #100: Nora at 100\n- #102: Nora at 102');
+            expect(cutCall.messages[1].content.endsWith("Player's question:\nHow did Nora get here?")).toBe(true);
+        });
+
+        it('does not ask for a block of 20 or fewer', async () => {
+            queryReturns(closestFirst.slice(0, 20));
+            llmReplies({ shape: 'chain', subject: 'Nora' });
+            const result = await callAgent(linkOn);
+            expect(result.events).toHaveLength(20);
+            expect(cutCalls()).toHaveLength(0);
+            expect(result.debug.storyArc.cutRuleName).toBe('');
+        });
+
+        it('keeps the closest 20 when the call fails, and warns', async () => {
+            llmReplies({ shape: 'why', subject: 'Nora' });
+            postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
+            const result = await callAgent(linkOn);
+            expect(starts(result.events)).toEqual(starts(hits).slice(-20));
+            expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
+            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('StoryArc block cut LLM call failed');
+            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('so the block is cut without it');
+        });
+
+        // A malformed reply must not read as "nothing answers this".
+        it('counts a reply with no list, or one naming no line, as a failed cut', async () => {
+            for (const reply of [{ lines: [100] }, { events: [] }, { events: [999] }]) {
+                postChatCompletionMock.mockReset();
+                llmReplies({ shape: 'chain', subject: 'Nora' }, reply);
+                const result = await callAgent(linkOn);
+                expect(result.events, JSON.stringify(reply)).toHaveLength(20);
+                expect(result.debug.storyArc.cutRuleName, JSON.stringify(reply)).toBe('block-cut-failed');
+            }
+        });
+
+        it('keeps the closest 20 when there is no link model, and warns', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' });
+            const result = await callAgent(storyArcOn);
+            expect(starts(result.events)).toEqual(starts(hits).slice(-20));
+            expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
+            expect(cutCalls()).toHaveLength(0);
+            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Block cut skipped: missing_model');
+        });
+
+        it('offers no event the filters removed, and seats none', async () => {
+            const stillVisible = event(2990, 'Nora still in context');
+            queryReturns([stillVisible, ...closestFirst]);
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [100] });
+            const result = await callAgent({ ...linkOn, deduplication_depth: 20 });
+            const [[cutCall]] = cutCalls();
+            expect(cutCall.messages[1].content).not.toContain('#2990');
+            expect(starts(result.events)).toEqual([100]);
+        });
+
+        it('asks a first-time question with its own prompt, and fills the seats by the rule', async () => {
+            listReturns(hits);
+            llmReplies({ shape: 'first_time', subject: 'Nora' }, { events: [130] });
+            const result = await callAgent(linkOn);
+            const [[cutCall]] = cutCalls();
+            expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.first_time);
+            expect(result.events).toHaveLength(20);
+            expect(starts(result.events)).toContain(130);
+            expect(starts(result.events)).toContain(100);
+            expect(result.storyArcShape).toBe('first_time');
+            expect(result.debug.storyArc.cutRuleName).toBe('block-cut');
+        });
+
+        it('routes a last-time question to its recipe, with its own prompt and block', async () => {
+            listReturns(hits);
+            // Closest oldest first, so the closest hits are not also its latest events.
+            queryReturns(hits);
+            llmReplies({ shape: 'last_time', subject: 'Nora' }, { events: [130] });
+            const result = await callAgent(linkOn);
+            const [[cutCall]] = cutCalls();
+            expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.last_time);
+            expect(result.events).toHaveLength(20);
+            expect(starts(result.events)).toContain(130);
+            expect(starts(result.events)).toContain(158);
+            expect(result.storyArcShape).toBe('last_time');
+            expect(result.debug.storyArc).toMatchObject({ ruleName: 'links-not-generated', cutRuleName: 'block-cut', shape: 'last_time' });
+        });
+
+        it('fills a first-time block by the rule alone when the call fails', async () => {
+            listReturns(hits);
+            llmReplies({ shape: 'first_time', subject: 'Nora' });
+            postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
+            const result = await callAgent(linkOn);
+            // The block is the earliest 5 and the closest 20, so its first 20 skip what neither holds.
+            expect(starts(result.events)).toEqual([...starts(hits).slice(0, 5), ...starts(hits).slice(10, 25)]);
+            expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
+        });
+
+        it('runs after the thread pick, on the block that made', async () => {
+            const steps = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `step ${i}`, { story_links: i ? [{ hash: 100 + (i - 1) * 2, type: 'continues', thread: 'The long road' }] : [] }));
+            listReturns(steps);
+            queryReturns([steps[29]]);
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['The long road'] }, { events: [100, 158] });
+            const result = await callAgent(linkOn);
+            expect(starts(result.events)).toEqual([100, 158]);
+            expect(result.debug.storyArc).toMatchObject({ ruleName: 'thread-pick', cutRuleName: 'block-cut' });
+            expect(cutCalls()).toHaveLength(1);
         });
     });
 

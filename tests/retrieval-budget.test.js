@@ -118,10 +118,10 @@ describe('agent mode timeouts', () => {
             .toBe(AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
     });
 
-    // The StoryArc router can outlast the pre-search, and the thread pick runs after the recipe's searches.
-    it('adds one more planner timeout each for the StoryArc router and thread pick', () => {
+    // The StoryArc router can outlast the pre-search, and the thread pick and block cut run after the recipe's searches.
+    it('adds one more planner timeout each for the StoryArc router, thread pick and block cut', () => {
         expect(agenticRetrievalExtraBudgetMs({ ...agentOn, story_arc_mode_enabled: true }))
-            .toBe(3 * AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
+            .toBe(4 * AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
     });
 
     it('adds nothing for StoryArc mode when agent mode is off', () => {

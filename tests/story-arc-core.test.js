@@ -1,19 +1,25 @@
 /**
  * Tests for StoryArc mode's pure logic (src/features/eventbase/story-arc-core.js):
- * reading the router's reply, whether a shape has a recipe, and which events each
- * recipe selects, with and without links, and which Route rule decided that.
+ * reading the router's reply, whether a shape has a recipe, which events each recipe
+ * selects, with and without links, which Route rule decided that, and how a long
+ * block is cut.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
+    BLOCK_CUT_PROMPT_BY_SHAPE,
     STORY_ROUTER_PROMPT,
     STORY_ROUTE_RULE,
+    buildBlockCutMessage,
     buildStoryRouterMessage,
     buildThreadPickMessage,
+    cutBlockToSeats,
     hasRecipe,
     hasThreadPick,
+    isBlockCutNeeded,
     isStoryArcActive,
     listStoryThreads,
+    readBlockCut,
     readStoryRoute,
     readThreadPick,
     selectStoryRecipeEvents,
@@ -44,7 +50,7 @@ describe('readStoryRoute', () => {
 
 describe('hasRecipe', () => {
     it('gives a recipe to questions about the past', () => {
-        for (const shape of ['first_time', 'chain', 'why', 'current', 'bigger_plot']) {
+        for (const shape of ['first_time', 'last_time', 'chain', 'why', 'current', 'bigger_plot']) {
             expect(hasRecipe(shape), shape).toBe(true);
         }
     });
@@ -71,7 +77,7 @@ describe('isStoryArcActive', () => {
 
 describe('STORY_ROUTER_PROMPT', () => {
     it('offers every shape a recipe or today\'s path handles', () => {
-        for (const shape of ['scene', 'first_time', 'chain', 'why', 'current', 'bigger_plot']) {
+        for (const shape of ['scene', 'first_time', 'last_time', 'chain', 'why', 'current', 'bigger_plot']) {
             expect(STORY_ROUTER_PROMPT).toContain(`"${shape}"`);
         }
     });
@@ -107,7 +113,7 @@ describe('buildStoryRouterMessage', () => {
 describe('hasThreadPick', () => {
     it('picks threads only for a question about a thread', () => {
         for (const shape of ['chain', 'why', 'bigger_plot']) expect(hasThreadPick(shape), shape).toBe(true);
-        for (const shape of ['first_time', 'current', 'scene', 'anything else']) expect(hasThreadPick(shape), shape).toBe(false);
+        for (const shape of ['first_time', 'last_time', 'current', 'scene', 'anything else']) expect(hasThreadPick(shape), shape).toBe(false);
     });
 });
 
@@ -298,6 +304,33 @@ describe('selectStoryRecipeEvents without links', () => {
         }
     });
 
+    it('gives a last-time question the subject\'s latest 5, whatever order they are stored in', () => {
+        const { events, blockShape, ruleName } = select('last_time', 'Nora', storedEvents, []);
+        expect(starts(events)).toEqual([40, 50, 60, 70, 90]);
+        expect(blockShape).toBe('last_time');
+        expect(ruleName).toBe(STORY_ROUTE_RULE.LINKS_NOT_GENERATED);
+    });
+
+    it('adds a last-time question\'s closest hits naming the subject, and the top 10 hits under any name', () => {
+        const pool = [...Array.from({ length: 12 }, (_, i) => event(500 + i, 'Someone else')), ...Array.from({ length: 25 }, (_, i) => event(1000 + i, 'Nora again'))];
+        const { events } = select('last_time', 'Nora', [event(1, 'Nora once')], pool);
+        expect(events).toHaveLength(31);
+        expect(starts(events)).toContain(509);
+        expect(starts(events)).not.toContain(510);
+        expect(starts(events)).toContain(1019);
+        expect(starts(events)).not.toContain(1020);
+    });
+
+    it('gives a last-time question the closest events under the thread header when the subject is empty or named nowhere', () => {
+        const pool = [event(300), event(100), event(200)];
+        for (const subject of ['', 'Bo']) {
+            const { events, blockShape, ruleName } = select('last_time', subject, storedEvents, pool);
+            expect(starts(events), subject).toEqual([100, 200, 300]);
+            expect(blockShape, subject).toBe('chain');
+            expect(ruleName, subject).toBe(STORY_ROUTE_RULE.LAST_TIME_SUBJECT_NOT_FOUND);
+        }
+    });
+
     it('leaves a current-state question to today\'s path', () => {
         const { events, ruleName } = select('current', 'Nora', storedEvents, storedEvents);
         expect(events).toEqual([]);
@@ -406,6 +439,45 @@ describe('selectStoryRecipeEvents with links', () => {
         expect(select('first_time', 'Nora', named, [...named].reverse()).events.length).toBeLessThanOrEqual(75);
     });
 
+    it('walks a last-time question forward from the subject\'s latest events, reaching another spelling', () => {
+        const named = event(2500, 'Mayla signs', { story_links: [] });
+        const later = event(2510, 'Vera at the door', { story_links: [link(2500)] });
+        const unrelated = event(100, 'Someone else', { story_links: [] });
+        const { events, blockShape, ruleName } = select('last_time', 'Mayla', [unrelated, named, later], [named]);
+        expect(starts(events)).toEqual([2500, 2510]);
+        expect(blockShape).toBe('last_time');
+        expect(ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);
+    });
+
+    // A long-range link from the latest events would walk off into another thread.
+    it('follows only scene links on a last-time walk past an event\'s strongest link', () => {
+        const named = event(100, 'Nora arrives', { story_links: [] });
+        const near = event(110, 'in the scene', { story_links: [link(100)] });
+        const other = event(50, 'elsewhere', { story_links: [] });
+        const far = event(900, 'a long way on', { story_links: [link(50), link(100)] });
+        const { events } = select('last_time', 'Nora', [other, named, near, far], [named]);
+        expect(starts(events)).toEqual([100, 110]);
+    });
+
+    it('seats a last-time block\'s top hits, which can use a spelling the question did not', () => {
+        const named = event(1920, 'Nora speaks', { story_links: [] });
+        const laterSpelling = event(2588, 'Norah returns', { story_links: [] });
+        const { events } = select('last_time', 'Nora speaks', [named, laterSpelling], [laterSpelling, named]);
+        expect(starts(events)).toEqual([1920, 2588]);
+    });
+
+    it('starts a last-time walk from the closest events under the thread header when the subject is named nowhere', () => {
+        const { events, blockShape, ruleName } = select('last_time', 'Bo', stored, [thread[3]]);
+        expect(starts(events)).toEqual([130, 140]);
+        expect(blockShape).toBe('chain');
+        expect(ruleName).toBe(STORY_ROUTE_RULE.LAST_TIME_SUBJECT_NOT_FOUND);
+    });
+
+    it('never makes a last-time block longer than 75', () => {
+        const named = Array.from({ length: 100 }, (_, i) => event(i + 1, 'Nora here', { story_links: i ? [link(i)] : [] }));
+        expect(select('last_time', 'Nora', named, [...named].reverse()).events.length).toBeLessThanOrEqual(75);
+    });
+
     it('gives a current-state question the thread\'s newest events and the closest hits', () => {
         const long = Array.from({ length: 30 }, (_, i) => event(i * 10 + 10, `step ${i}`, { story_links: i ? [link(i * 10)] : [] }));
         const { events, blockShape, ruleName } = select('current', '', long, [long[2]]);
@@ -423,5 +495,169 @@ describe('selectStoryRecipeEvents with links', () => {
     it('tolerates a link to a deleted event', () => {
         const orphan = event(200, 'orphan', { story_links: [link(12345)] });
         expect(starts(select('chain', '', [orphan], [orphan]).events)).toEqual([200]);
+    });
+});
+
+describe('the block cut', () => {
+    /** A block of 30 events at messages 100 to 158. Only those from 140 on name Nora. */
+    const block = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, i >= 20 ? `Nora at ${100 + i * 2}` : `Bo at ${100 + i * 2}`));
+    const pool = [...block].reverse();
+    const firstTwenty = starts(block).slice(0, 20);
+    const lastTwenty = starts(block).slice(-20);
+
+    describe('isBlockCutNeeded', () => {
+        it('cuts a block over 20 for every shape with a prompt', () => {
+            for (const shape of ['first_time', 'last_time', 'chain', 'why', 'bigger_plot']) {
+                expect(isBlockCutNeeded(shape, 21), shape).toBe(true);
+                expect(isBlockCutNeeded(shape, 20), shape).toBe(false);
+            }
+        });
+
+        // A current-state block holds at most its 10 newest and its 10 closest.
+        it('never cuts a current-state block or a turn with no recipe', () => {
+            for (const shape of ['current', 'scene', 'anything else']) expect(isBlockCutNeeded(shape, 75), shape).toBe(false);
+        });
+    });
+
+    describe('BLOCK_CUT_PROMPT_BY_SHAPE', () => {
+        it('asks a date question for its own end of the story, and any other for 20 lines', () => {
+            expect(BLOCK_CUT_PROMPT_BY_SHAPE.first_time).toContain('up to 20 events from the earliest scene');
+            expect(BLOCK_CUT_PROMPT_BY_SHAPE.last_time).toContain('up to 20 events from the latest scene');
+            for (const shape of ['chain', 'why', 'bigger_plot']) expect(BLOCK_CUT_PROMPT_BY_SHAPE[shape], shape).toContain('Choose the 20 events');
+        });
+
+        it('gives every shape its own goal, and asks for the lines\' positions', () => {
+            expect(new Set(Object.values(BLOCK_CUT_PROMPT_BY_SHAPE)).size).toBe(5);
+            for (const prompt of Object.values(BLOCK_CUT_PROMPT_BY_SHAPE)) expect(prompt).toContain('# positions of the lines');
+        });
+    });
+
+    describe('buildBlockCutMessage', () => {
+        const events = [event(30, 'A later step'), event(10, 'A first step', { cause: 'Why it began.', result: 'How it ended.' })];
+
+        it('lists the lines oldest first with their positions, then the question', () => {
+            expect(buildBlockCutMessage(events, 'How did it go?', '')).toBe("Events:\n- #10: Why it began. A first step How it ended.\n- #30: A later step\n\nPlayer's question:\nHow did it go?");
+        });
+
+        it('adds the subject only when the question leaves it out', () => {
+            expect(buildBlockCutMessage(events, 'How did you win?', 'Nora')).toContain("Player's question:\nHow did you win?\nIt is about: Nora");
+            expect(buildBlockCutMessage(events, 'How did Nora win?', 'Nora')).not.toContain('It is about');
+        });
+    });
+
+    describe('readBlockCut', () => {
+        const events = [event(10), event(20), event(30)];
+
+        it('reads positions in the model\'s order, with or without a copied #', () => {
+            expect(starts(readBlockCut({ events: [30, '#10', '- #20:'] }, events))).toEqual([30, 10, 20]);
+        });
+
+        it('keeps every event at a position, since a line does not say which', () => {
+            const shared = [event(10, 'one', { _hash: 1 }), event(10, 'two', { _hash: 2 }), event(20)];
+            expect(readBlockCut({ events: [10] }, shared).map(item => item.text)).toEqual(['one', 'two']);
+        });
+
+        it('ignores a position that is not in the block, and a repeat', () => {
+            expect(starts(readBlockCut({ events: [10, 999, 10, 'none'] }, events))).toEqual([10]);
+        });
+
+        // A malformed reply must not read as "nothing answers this", which would empty the block.
+        it('throws when the reply has no list', () => {
+            for (const reply of [{}, null, undefined, { events: 10 }]) {
+                expect(() => readBlockCut(reply, events), JSON.stringify(reply)).toThrow('no events array');
+            }
+        });
+
+        it('throws when the reply names no line', () => {
+            for (const reply of [{ events: [] }, { events: [999] }]) {
+                expect(() => readBlockCut(reply, events), JSON.stringify(reply)).toThrow('names no line');
+            }
+        });
+    });
+
+    describe('cutBlockToSeats on a thread question', () => {
+        const cut = (chosenEvents) => cutBlockToSeats({ shape: 'chain', subject: 'Nora', events: block, poolEvents: pool, chosenEvents });
+
+        it('keeps only the LLM\'s lines, in time order', () => {
+            expect(starts(cut([block[5], block[1]]))).toEqual([102, 110]);
+        });
+
+        // Several events can share a position, so a reply can name more than the seats hold.
+        it('holds the LLM\'s lines to 20', () => {
+            expect(cut(block)).toHaveLength(20);
+        });
+
+        it('keeps the 20 closest in time order when the LLM failed', () => {
+            expect(starts(cut(null))).toEqual(lastTwenty);
+        });
+
+        it('ranks an event the search did not find after every hit', () => {
+            const hits = block.slice(10);
+            const walked = cutBlockToSeats({ shape: 'why', subject: '', events: block, poolEvents: hits, chosenEvents: null });
+            expect(starts(walked)).toEqual(starts(hits));
+        });
+    });
+
+    describe('cutBlockToSeats on a first-time question', () => {
+        const cut = (chosenEvents, subject = 'Nora', events = block) => cutBlockToSeats({ shape: 'first_time', subject, events, poolEvents: pool, chosenEvents });
+
+        it('takes 10 from the block\'s start and 10 from where it first names the subject when the LLM failed', () => {
+            expect(starts(cut(null))).toEqual([...starts(block).slice(0, 10), ...starts(block).slice(20, 30)]);
+        });
+
+        it('seats the LLM\'s lines first, and the rule fills the rest', () => {
+            const chosen = [block[15], block[16]];
+            const kept = starts(cut(chosen));
+            expect(kept).toHaveLength(20);
+            expect(kept).toEqual(expect.arrayContaining(starts(chosen)));
+            expect(kept.slice(0, 10)).toEqual(starts(block).slice(0, 10));
+            // The last of the rule's seats gave way.
+            expect(kept).not.toContain(158);
+            expect(kept).not.toContain(156);
+        });
+
+        it('takes the block\'s first 20 when the subject is empty or named nowhere', () => {
+            for (const subject of ['', 'Zed']) expect(starts(cut(null, subject)), subject).toEqual(firstTwenty);
+        });
+
+        it('takes the first 20 when the block names the subject among its first events', () => {
+            expect(starts(cut(null, 'Bo'))).toEqual(firstTwenty);
+        });
+
+        it('fills empty seats when the block first names the subject near its far end', () => {
+            const kept = starts(cut(null, 'at 158'));
+            expect(kept).toHaveLength(20);
+            expect(kept).toContain(158);
+            expect(kept.slice(0, 19)).toEqual(starts(block).slice(0, 19));
+        });
+
+        it('holds the LLM\'s lines to 20', () => {
+            expect(cut(block)).toHaveLength(20);
+        });
+    });
+
+    describe('cutBlockToSeats on a last-time question', () => {
+        /** A block whose subject is last named at message 118, with later events walked to under other names. */
+        const earlyNaming = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, i < 10 ? `Nora at ${100 + i * 2}` : `Bo at ${100 + i * 2}`));
+        const cut = (chosenEvents, subject = 'Nora', events = earlyNaming) => cutBlockToSeats({ shape: 'last_time', subject, events, poolEvents: pool, chosenEvents });
+
+        it('takes 10 from the block\'s end and 10 up to where it last names the subject when the LLM failed', () => {
+            expect(starts(cut(null))).toEqual([...starts(earlyNaming).slice(0, 10), ...starts(earlyNaming).slice(20, 30)]);
+        });
+
+        it('seats the LLM\'s lines first, and the rule fills the rest from the newest', () => {
+            const chosen = [earlyNaming[15], earlyNaming[16]];
+            const kept = starts(cut(chosen));
+            expect(kept).toHaveLength(20);
+            expect(kept).toEqual(expect.arrayContaining(starts(chosen)));
+            expect(kept.slice(-10)).toEqual(starts(earlyNaming).slice(-10));
+            // The oldest of the rule's seats gave way.
+            expect(kept).not.toContain(100);
+            expect(kept).not.toContain(102);
+        });
+
+        it('takes the block\'s last 20 when the subject is empty or named nowhere', () => {
+            for (const subject of ['', 'Zed']) expect(starts(cut(null, subject)), subject).toEqual(lastTwenty);
+        });
     });
 });

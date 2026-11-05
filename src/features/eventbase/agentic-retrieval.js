@@ -32,7 +32,7 @@ import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
-import { STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isStoryArcActive, listStoryThreads, readStoryRoute, readThreadPick } from './story-arc-core.js';
+import { BLOCK_CUT_PROMPT_BY_SHAPE, STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
 import { retrieveStoryRecipeEvents } from './story-arc-retrieval.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -84,6 +84,7 @@ export async function retrieveEventsWithAgent(params) {
     const storyRoute = await storyRoutePromise;
     const storyArc = {
         ruleName: storyRoute?.isKnownShape ? STORY_ROUTE_RULE.ORDINARY_TURN : STORY_ROUTE_RULE.ROUTER_UNUSABLE,
+        cutRuleName: '',
         shape: storyRoute?.shape ?? '',
         subject: storyRoute?.subject ?? '',
         finalCount: 0,
@@ -94,10 +95,12 @@ export async function retrieveEventsWithAgent(params) {
             ...params,
             boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs),
             pickThreads: storedEvents => _pickStoryThreads(storedEvents, storyRoute, params),
+            chooseBlockEvents: events => _chooseBlockEvents(events, storyRoute, params),
         });
         storyArc.ruleName = recalled.ruleName;
+        storyArc.cutRuleName = recalled.cutRuleName;
         storyArc.finalCount = recalled.events.length;
-        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} threads=${recalled.pickedThreadCount} events=${recalled.events.length}`);
+        log.domain('agent', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} cut=${storyArc.cutRuleName || 'none'} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} threads=${recalled.pickedThreadCount} events=${recalled.events.length}`);
         if (recalled.events.length) {
             return {
                 events: recalled.events,
@@ -400,8 +403,13 @@ async function _routeStoryQuestion({ settings, keywordQuery }) {
     });
 }
 
-/** A thinking model's reasoning counts against this, so it leaves room for that as well as the names. */
-const THREAD_PICK_MAX_TOKENS = 9000;
+/** A thinking model's reasoning counts against this, so it leaves room for that as well as the reply. */
+const STORY_CHOICE_MAX_TOKENS = 9000;
+
+/** The link model for a quick choice. Low effort found about as much as more thought, in much less time. */
+function _linkModelAtLowEffort(linkCfg) {
+    return { ...linkCfg, parameterStyle: { ...linkCfg.parameterStyle, reasoningEffort: 'low' } };
+}
 
 /**
  * Ask the link model which threads could hold the answer. It reads every thread
@@ -428,12 +436,42 @@ async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }
         call: {
             systemPrompt: THREAD_PICK_PROMPT,
             userMessage: buildThreadPickMessage(threads, keywordQuery, route.subject),
-            // Low effort found about as many beats as the model's default, in a third of the time.
-            llmCfg: { ...linkCfg, parameterStyle: { ...linkCfg.parameterStyle, reasoningEffort: 'low' } },
-            maxTokens: THREAD_PICK_MAX_TOKENS,
+            llmCfg: _linkModelAtLowEffort(linkCfg),
+            maxTokens: STORY_CHOICE_MAX_TOKENS,
             contextLabel: 'StoryArc thread pick',
         },
         read: readThreadPick,
+    });
+}
+
+/**
+ * Ask the link model which of a long block's events answer the question, with a
+ * prompt chosen by the router's shape. Never throws: a failure is reported and
+ * returns null, so the block is cut without it.
+ *
+ * @param {object[]} events - The block
+ * @param {{shape: string, subject: string}} route
+ * @param {object} params - The retrieval params
+ * @returns {Promise<object[]|null>} the chosen events
+ */
+async function _chooseBlockEvents(events, route, { settings, keywordQuery }) {
+    const linkCfg = resolveStoryLinkLlmConfig(settings);
+    if (!linkCfg.ok) {
+        log.warn(`[VectFox-StoryArc] Block cut skipped: ${linkCfg.reason}`);
+        return null;
+    }
+    return _askStoryLlm({
+        settings,
+        label: 'StoryArc block cut',
+        nextStep: 'so the block is cut without it',
+        call: {
+            systemPrompt: BLOCK_CUT_PROMPT_BY_SHAPE[route.shape],
+            userMessage: buildBlockCutMessage(events, keywordQuery, route.subject),
+            llmCfg: _linkModelAtLowEffort(linkCfg),
+            maxTokens: STORY_CHOICE_MAX_TOKENS,
+            contextLabel: 'StoryArc block cut',
+        },
+        read: reply => readBlockCut(reply, events),
     });
 }
 
