@@ -3,8 +3,8 @@
 //
 // chunkbase imports this feature dynamically: its generation interceptor runs EventBase retrieval and the
 // summarizer injection, and its content vectorizer runs ingestion. src/index.js hands
-// clearCachesForDeletedCollection to collection deletion; src/app/ runs ensureEventBaseIndexes and
-// pruneOrphanedEventBaseChatMaps at startup.
+// clearCachesForDeletedOrImportedCollection to collection deletion and import; src/app/ runs
+// ensureEventBaseIndexes and pruneOrphanedEventBaseChatMaps at startup.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { findEventBaseForkSource, forkEventBaseFromSource } from './eventbase-fork.js';
@@ -12,7 +12,7 @@ export { packTimelineSortKey } from './eventbase-schema.js';
 export {
     checkWindowSizeChanged,
     clearAutoSyncMarker,
-    clearCachesForDeletedCollection,
+    clearCachesForDeletedOrImportedCollection,
     ensureEventBaseIndexes,
     findEventBaseCollectionsForChat,
     getVectorizationTip,

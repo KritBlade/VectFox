@@ -20,9 +20,9 @@ import {
     migrateOldEnabledKeys,
     cleanupCorruptedCollections,
     registerCollection,
-    setDeletedCollectionCleanup,
+    setDeletedOrImportedCollectionCleanup,
 } from './features/collections/index.js';
-import { clearCachesForDeletedCollection, refreshWorldInfoEntryDepthCache } from './features/eventbase/index.js';
+import { clearCachesForDeletedOrImportedCollection, refreshWorldInfoEntryDepthCache } from './features/eventbase/index.js';
 import { setInsertedCollectionRegistrar } from './features/vector-backend/index.js';
 import { migrateLegacyApiKeys } from './shared/api-keys.js';
 import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
@@ -45,7 +45,7 @@ import { initializeWorldInfoIntegration } from './features/world-info/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
-setDeletedCollectionCleanup(clearCachesForDeletedCollection);
+setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
 setInsertedCollectionRegistrar(registerCollection);
 
 // Default settings

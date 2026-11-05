@@ -43,10 +43,10 @@ vi.mock('../src/features/collections/index.js', () => ({
     migrateOldEnabledKeys: () => ({ migrated: 0 }),
     cleanupCorruptedCollections: vi.fn(),
     registerCollection: vi.fn(),
-    setDeletedCollectionCleanup: vi.fn(),
+    setDeletedOrImportedCollectionCleanup: vi.fn(),
 }));
 vi.mock('../src/features/eventbase/index.js', () => ({
-    clearCachesForDeletedCollection: vi.fn(),
+    clearCachesForDeletedOrImportedCollection: vi.fn(),
     refreshWorldInfoEntryDepthCache: vi.fn(),
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({
