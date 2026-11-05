@@ -10,9 +10,11 @@
 export { findEventBaseForkSource, forkEventBaseFromSource } from './eventbase-fork.js';
 export { packTimelineSortKey } from './eventbase-schema.js';
 export {
+    FAR_BEHIND_WINDOW_COUNT,
     checkWindowSizeChanged,
     clearAutoSyncMarker,
     clearCachesForDeletedOrImportedCollection,
+    countWindowsBehind,
     ensureEventBaseIndexes,
     findEventBaseCollectionsForChat,
     getVectorizationTip,

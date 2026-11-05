@@ -3,7 +3,7 @@
  *
  * The auto-sync status feeds the Chat Auto-Sync checkbox + LED. Its one backend
  * call is the vectorization-tip probe (ensureVectorizationTip), which runs on a cold
- * tip cache; resolving the write target logs `[EventBase][resolve]` diagnostics. The
+ * or far-behind tip; resolving the write target logs `[EventBase][resolve]` diagnostics. The
  * panel refreshes this status on every chat change, including while VectFox is
  * disabled — and a disabled VectFox must neither call the backend nor log. These
  * tests lock in that `shouldProbeBackend: false` reads only the cached tip and
@@ -69,7 +69,7 @@ beforeEach(() => {
 describe('getChatAutoSyncStatus — vectorization tip source', () => {
     it('probes the backend by default', async () => {
         const status = await getChatAutoSyncStatus({});
-        expect(mocks.ensureVectorizationTip).toHaveBeenCalledWith('uuid-1', 'vf_eventbase_c1', {});
+        expect(mocks.ensureVectorizationTip).toHaveBeenCalledWith('uuid-1', 'vf_eventbase_c1', {}, { commitBoundary: 2, windowSize: 2 });
         expect(status.vectorizationTip).toBe(4);
     });
 
