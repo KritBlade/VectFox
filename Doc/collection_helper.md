@@ -445,13 +445,13 @@ Because un-kept swipes only ever live on the active turn (which is past the boun
 
 ### Vectorization tip cache — honest "vectorization: N msgs" display
 
-The auto-sync start marker is stamped *once* at enable time and never advances as new windows extract, so it cannot serve as the UI count. The vectorization tip (`max(source_window_end) + 1` for the chat) is the live value: `setVectorizationTip` keeps it in memory and persists it to `extension_settings.vectfox.eventbase_vectorization_tip[chatUUID]` (backend-agnostic), and `getVectorizationTip` warms the in-memory cache from that map after a reload. Only when neither holds a value does `ensureVectorizationTip` probe the backend via `listChunks`; the probe works for Qdrant and Standard+plugin. For Standard without the similharity plugin it returns `null` (the native fallback returns hashes, no metadata), so the UI falls back to `markerValue` until the next ingestion run sets the tip.
+The auto-sync start marker is stamped *once* at enable time and never advances as new windows extract, so it cannot serve as the UI count. The vectorization tip (`max(source_window_end) + 1` for the chat) is the live value: `setVectorizationTip` keeps it in memory and persists it to `extension_settings.vectfox.eventbase_vectorization_tip[chatUUID]` (backend-agnostic), and `getVectorizationTip` warms the in-memory cache from that map after a reload. Only when neither holds a value, which deleting or importing the collection brings about, does `ensureVectorizationTip` probe the backend via `listChunks`; the probe works for Qdrant and Standard+plugin. For Standard without the similharity plugin it returns `null` (the native fallback returns hashes, no metadata), so the UI falls back to `markerValue` until the next ingestion run sets the tip.
 
 | Function | File | Notes |
 |---|---|---|
 | `getVectorizationTip(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Sync; returns the in-memory tip, else the persisted one (warming the cache), else `undefined`. UI falls back to `markerValue` when undefined. |
 | `setVectorizationTip(chatUUID, tip)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Sync, monotonic max in memory and in the persisted map — out-of-order calls won't regress. Called by `runEventBaseIngestion` after every successful window via `setVectorizationTip(uuid, win.end + 1)`. |
-| `clearVectorizationTip(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Clears the in-memory and persisted tip. Call when deleting or clearing EventBase for a chat (parity with `clearAutoSyncMarker`). |
+| `clearVectorizationTip(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Clears the in-memory and persisted tip. Call when deleting, importing or clearing EventBase for a chat (parity with `clearAutoSyncMarker`). |
 | `ensureVectorizationTip(chatUUID, collectionId, settings)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Async. Returns the known tip at once (in-memory or persisted); otherwise probes the backend once, caches the result in memory only, and returns it. Returns `null` when the collection has no events. Called by `getChatAutoSyncStatus`. |
 
 ### Last-used window size — window-size-change detection for Continue
@@ -516,7 +516,7 @@ Called internally by the ingestion loop. Do not call from application code; reim
 | Function | File | Notes |
 |---|---|---|
 | `windowFingerprint(sourceHashes)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Deterministic sorted-join of message hashes. **Window-size dependent** — a fingerprint from `windowSize=2` never collides with one from `windowSize=4`, which is why the start marker is needed as a second safety layer. |
-| `clearWindowCacheForChat(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Evicts the in-memory fingerprint Set for a chat. Use when a collection is deleted. Do NOT call on window-size change — that would force full re-extraction; use `stampAutoSyncMarker` instead. |
+| `clearWindowCacheForChat(chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Evicts the in-memory fingerprint Set for a chat. Use when a collection is deleted or imported. Do NOT call on window-size change — that would force full re-extraction; use `stampAutoSyncMarker` instead. |
 
 ### Auto-sync entry points
 

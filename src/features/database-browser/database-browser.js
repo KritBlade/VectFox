@@ -721,6 +721,10 @@ function bindBrowserEvents() {
       }
       log.error("VectFox: Import failed", error);
       toastr.error(`Import failed: ${error.message}`, "VectFox");
+    } finally {
+      // The settings panel re-checks its auto-sync status on this event: an import clears what
+      // VectFox remembered about the imported chat.
+      document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
     }
   });
 }

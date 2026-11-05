@@ -642,7 +642,7 @@ export function clearWindowCacheForChat(chatUUID) {
  * past every window and extracted 0 events.
  *
  * Use this anywhere a chat's extraction state is invalidated wholesale:
- *   - the EventBase collection is deleted (clearCachesForDeletedCollection)
+ *   - the EventBase collection is deleted or imported (clearCachesForDeletedOrImportedCollection)
  *   - the backend is found empty but a local cache lingers (eventbase-workflow.js)
  *   - the user hits Vectorize for a fresh start (content-vectorizer.js)
  *
@@ -659,13 +659,14 @@ export function clearExtractionCachesForChat(chatUUID) {
 }
 
 /**
- * Clears the extraction caches of the chat whose EventBase collection was deleted; any
- * other collection needs nothing. index.js hands it to collection-loader's
- * setDeletedCollectionCleanup(), so deleteCollection() runs it.
+ * Clears the extraction caches of the chat whose EventBase collection was deleted or imported, so
+ * the next read probes what the collection holds now; any other collection needs nothing. index.js
+ * hands it to collection-loader's setDeletedOrImportedCollectionCleanup(), so deleteCollection()
+ * and importCollection() run it.
  *
- * @param {string} collectionId - the deleted collection's bare ID
+ * @param {string} collectionId - the collection's bare ID
  */
-export function clearCachesForDeletedCollection(collectionId) {
+export function clearCachesForDeletedOrImportedCollection(collectionId) {
     if (!collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) return;
     // The chat UUID is always the last underscore-separated segment of the collection ID.
     const chatUUID = collectionId.split('_').pop();

@@ -221,16 +221,31 @@ export function unregisterCollection(collectionId) {
     }
 }
 
-// What deleteCollection() runs last, to clear the per-chat state a feature above this
-// one keeps for the deleted collection. index.js sets it at startup.
-let deletedCollectionCleanup = null;
+// What deleteCollection() and importCollection() run last, to clear the per-chat state a feature
+// above this one keeps for a collection whose events are gone or replaced. index.js sets it at startup.
+let deletedOrImportedCollectionCleanup = null;
 
 /**
- * Sets the cleanup deleteCollection() runs with the deleted collection's ID.
+ * Sets the cleanup run with the ID of a collection that was deleted or imported.
  * @param {(collectionId: string) => void} cleanup
  */
-export function setDeletedCollectionCleanup(cleanup) {
-    deletedCollectionCleanup = cleanup;
+export function setDeletedOrImportedCollectionCleanup(cleanup) {
+    deletedOrImportedCollectionCleanup = cleanup;
+}
+
+/**
+ * Clears the per-chat state kept for a collection that was deleted or imported (EventBase's
+ * extraction caches). A failure is logged and goes no further: a cache clear never fails a delete
+ * or an import.
+ * @param {string} collectionId - the collection's bare ID
+ */
+export function clearStateOfDeletedOrImportedCollection(collectionId) {
+    try {
+        if (!deletedOrImportedCollectionCleanup) throw new Error('no cleanup set: index.js calls setDeletedOrImportedCollectionCleanup() at startup');
+        deletedOrImportedCollectionCleanup(collectionId);
+    } catch (error) {
+        log.warn(`VectFox: Failed to clear per-chat state for ${collectionId}:`, error);
+    }
 }
 
 /**
@@ -238,7 +253,7 @@ export function setDeletedCollectionCleanup(cleanup) {
  * 1. Vector backend (actual embeddings)
  * 2. Registry (collection tracking)
  * 3. Metadata (display names, settings, chunk info)
- * and then runs the cleanup set by setDeletedCollectionCleanup().
+ * and then runs clearStateOfDeletedOrImportedCollection().
  *
  * This is the ONE function that should be called to fully delete a collection.
  * All other delete functions are partial and will leave ghosts.
@@ -298,14 +313,8 @@ export async function deleteCollection(collectionId, settings, registryKey = nul
         log.warn(`VectFox: ✗ Failed to delete metadata for ${collectionId}:`, error.message);
     }
 
-    // Step 4: Clear the per-chat state kept for this collection (EventBase's extraction caches).
-    try {
-        if (!deletedCollectionCleanup) throw new Error('no cleanup set: index.js calls setDeletedCollectionCleanup() at startup');
-        deletedCollectionCleanup(collectionId);
-    } catch (error) {
-        // Don't fail the whole delete over a cache clear.
-        log.warn(`VectFox: Failed to clear per-chat state for ${collectionId}:`, error);
-    }
+    // Step 4: Clear the per-chat state kept for this collection.
+    clearStateOfDeletedOrImportedCollection(collectionId);
 
     const success = vectorsDeleted && registryDeleted && metadataDeleted;
 

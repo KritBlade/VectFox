@@ -30,6 +30,7 @@ import {
     getEffectiveScope,
 } from './collection-metadata.js';
 import {
+    clearStateOfDeletedOrImportedCollection,
     registerCollection,
 } from './collection-loader.js';
 import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from '../../shared/collection-ids.js';
@@ -502,6 +503,8 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
 /**
  * Imports a collection from export data
  * Uses pre-computed vectors if available and settings match, otherwise re-embeds
+ * Also clears the per-chat state kept for the collection, so its chat's next read reports what the
+ * collection holds now.
  *
  * @param {object} exportData - Single collection export data (or one item from multi-export)
  * @param {object} settings - VectFox settings
@@ -772,6 +775,9 @@ export async function importCollection(exportData, settings, options = {}) {
         }
         throw error;
     } finally {
+        // Whatever the outcome, the collection no longer holds what its chat's records describe:
+        // overwrite purged it, and a failed or stopped import leaves it empty or partial.
+        clearStateOfDeletedOrImportedCollection(collectionId);
         progressTracker.clearCancelHandler();
     }
 }
