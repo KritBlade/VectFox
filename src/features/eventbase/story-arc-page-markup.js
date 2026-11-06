@@ -63,6 +63,8 @@ function storyWebCard() {
                 <input type="text" id="${webQuery}" class="vfx-input vfx-story-web-query" placeholder="Ask about the story's past" title="Question to find links for">
                 ${button({ text: 'Find links', icon: 'fa-magnifying-glass', kind: 'primary', data: { 'web-action': 'find' } })}
                 ${button({ text: 'Show all', icon: 'fa-circle-nodes', data: { 'web-action': 'clear' } })}
+                ${button({ text: 'Go back', icon: 'fa-arrow-left', data: { 'web-action': 'back' } })}
+                ${button({ text: 'Pause', icon: 'fa-pause', data: { 'web-action': 'pause' } })}
             </div>
             <div id="${webProblem}"></div>
             <div id="${webCanvas}" class="vfx-story-web"></div>

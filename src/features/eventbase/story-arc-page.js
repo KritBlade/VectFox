@@ -32,6 +32,8 @@ const page = {
     merges: {},
     web: null,
     webData: null,
+    webViewStatus: '',
+    isWebFloating: null,
     openTab: 'main',
     entityKind: 'people',
     entityWord: '',
@@ -131,7 +133,39 @@ function setWebStatus(text) {
 
 function describeWholeWeb() {
     const { nodes, links } = page.webData;
-    return `${nodes.length} events, ${links.length} links. Hover a dot to light its links, and click it to read it.`;
+    return `${nodes.length} events, ${links.length} links. Hover near a dot to stop the web and light what connects to it, and click to go into it.`;
+}
+
+function webActionButton(action) {
+    return elementOf(STORY_ARC_ELEMENT_ID.webCanvas).closest('.vfx-card').querySelector(`[data-web-action="${action}"]`);
+}
+
+/** What the page says about the view the web now shows: a sub graph's centre, or null for the whole web. */
+function showWebView(centre, shownNodes) {
+    webActionButton('back').style.display = centre ? '' : 'none';
+    if (!centre) {
+        elementOf(STORY_ARC_ELEMENT_ID.webSelected).innerHTML = '';
+        setWebStatus(page.webViewStatus);
+        return;
+    }
+    const nodeById = new Map(page.webData.nodes.map(node => [node.id, node]));
+    elementOf(STORY_ARC_ELEMENT_ID.webSelected).innerHTML = selectedEventMarkup(centre, linksOfNode(centre.id, page.webData.links, nodeById));
+    const connectedCount = shownNodes.length - 1;
+    setWebStatus(connectedCount
+        ? `#${centre.message} and the ${connectedCount} ${connectedCount === 1 ? 'event' : 'events'} linked to it. Click one to go on from there.`
+        : `#${centre.message} has no links.`);
+}
+
+function showFloatingButton() {
+    const button = webActionButton('pause');
+    button.querySelector('span').textContent = page.isWebFloating ? 'Pause' : 'Resume';
+    button.querySelector('i').className = `fa-solid ${page.isWebFloating ? 'fa-pause' : 'fa-play'}`;
+}
+
+function toggleFloating() {
+    page.isWebFloating = !page.isWebFloating;
+    showFloatingButton();
+    page.web?.setFloating(page.isWebFloating);
 }
 
 function closeWeb() {
@@ -139,20 +173,21 @@ function closeWeb() {
     page.web = null;
     page.webData = null;
     elementOf(STORY_ARC_ELEMENT_ID.webSelected).innerHTML = '';
+    webActionButton('back').style.display = 'none';
 }
 
 async function drawWeb() {
     closeWeb();
     page.webData = buildStoryWeb(readableEvents());
     setWebStatus(`Drawing ${page.webData.nodes.length} events...`);
-    const nodeById = new Map(page.webData.nodes.map(node => [node.id, node]));
+    showFloatingButton();
     try {
         page.web = await drawStoryWeb(elementOf(STORY_ARC_ELEMENT_ID.webCanvas), page.webData, {
-            onNodeClick: (node) => {
-                elementOf(STORY_ARC_ELEMENT_ID.webSelected).innerHTML = node ? selectedEventMarkup(node, linksOfNode(node.id, page.webData.links, nodeById)) : '';
-            },
+            onViewChange: showWebView,
+            isFloating: page.isWebFloating,
         });
-        setWebStatus(describeWholeWeb());
+        page.webViewStatus = describeWholeWeb();
+        showWebView(null, []);
     } catch (error) {
         log.error('[VectFox-StoryArc] The story web could not be drawn:', error);
         toastr.error(`The story web could not be drawn: ${error.message}`, TOAST_TITLE);
@@ -175,20 +210,24 @@ async function findLinks() {
         setWebStatus('The search found nothing for that.');
         return;
     }
+    page.webViewStatus = `${found.closestHashes.length} closest events, and ${found.reachedHashes.length} events along their links. No LLM was called.`;
     page.web.showFound(found);
-    setWebStatus(`${found.closestHashes.length} closest events, and ${found.reachedHashes.length} events along their links. No LLM was called.`);
+    setWebStatus(page.webViewStatus);
 }
 
 function clearFound() {
     elementOf(STORY_ARC_ELEMENT_ID.webQuery).value = '';
     if (!page.web) return;
+    page.webViewStatus = describeWholeWeb();
     page.web.clearFound();
-    setWebStatus(describeWholeWeb());
+    setWebStatus(page.webViewStatus);
 }
 
 function runWebAction(action) {
     if (action === 'find') return findLinks();
     if (action === 'clear') return clearFound();
+    if (action === 'back') return page.web?.goBack();
+    if (action === 'pause') return toggleFloating();
     return readAndPaintPage();
 }
 
@@ -297,6 +336,7 @@ export async function openStoryArcPage(onOpen) {
     }
     if (page.isOpen) return;
     page.isOpen = true;
+    page.isWebFloating ??= !matchMedia('(prefers-reduced-motion: reduce)').matches;
     onOpen();
     const { openPanelPopup } = await import('../../sillytavern/popup.js');
     const closed = openPanelPopup(root);

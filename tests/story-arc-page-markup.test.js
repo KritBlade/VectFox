@@ -3,6 +3,7 @@
  *
  * Guards that:
  *   - the page holds every control the settings handlers find by id, so moving them to the page kept their wiring,
+ *   - the story web has each action its handlers read,
  *   - only the DNA's own classes, state classes and Font Awesome icons are used,
  *   - the entity list pages, opens one panel under its row, and escapes names.
  */
@@ -16,6 +17,10 @@ const listParams = { kind: 'people', pageIndex: 0, mergingName: null, splittingN
 
 describe('storyArcPageMarkup', () => {
     const markup = storyArcPageMarkup();
+
+    it.each(['find', 'clear', 'back', 'pause', 'reload'])('holds the story web action %s', (action) => {
+        expect(markup).toContain(`data-web-action="${action}"`);
+    });
 
     it.each([
         'VectFox_story_arc_mode_enabled',

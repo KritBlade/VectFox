@@ -73,17 +73,8 @@
     background-color: var(--vfx-field);
 }
 
-/* The library's hover label. */
-.vfx-ui .vfx-story-web .float-tooltip-kap {
-    max-width: 320px;
-    padding: 6px 8px;
-    border-radius: var(--vfx-radius-control);
-    background: var(--vfx-surface-solid);
-    box-shadow: var(--vfx-surface-shadow);
-    color: var(--vfx-text);
-    font: inherit;
-    font-size: 0.85em;
-    white-space: normal;
+.vfx-ui .vfx-story-web.is-over-dot canvas {
+    cursor: pointer;
 }
 
 .vfx-ui .vfx-story-web-legend {
