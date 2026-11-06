@@ -106,8 +106,8 @@ const TIME_END_EVENT_COUNT = 5;
 const TIME_CLOSEST_EVENT_COUNT = 20;
 /** The newest events of a thread a current-state block keeps. */
 const CURRENT_NEWEST_COUNT = 10;
-/** A link this short stays inside a scene or the one next to it, so it joins steps without drifting across the story. */
-const SCENE_LINK_GAP = 20;
+/** Messages this close stay inside a scene or the one next to it: a link this short joins steps without drifting across the story. */
+const SCENE_MESSAGE_GAP = 20;
 /** The shapes whose block holds a thread's steps, which picked threads can add to. */
 const THREAD_PICK_SHAPES = new Set(['chain', 'why', 'bigger_plot']);
 
@@ -305,7 +305,7 @@ function keepClosestWindows(hopsByHash, eventByHash, poolRankByHash, pickedHashe
 }
 
 /** Steps of one thread: the strongest link, and any short enough to stay in the scene. */
-const isSceneLink = (position, messageGap) => position === 0 || messageGap <= SCENE_LINK_GAP;
+const isSceneLink = (position, messageGap) => position === 0 || messageGap <= SCENE_MESSAGE_GAP;
 
 /** Add a walk's events to another's, keeping the distance each already has. */
 function addWalk(hopsByHash, moreHopsByHash) {
@@ -521,10 +521,22 @@ function seatsByTimeRule(shape, events, subject) {
 }
 
 /**
- * Cut a long block to its seats. A first-time or last-time block seats the LLM's lines
- * first, and its seat rule fills the rest. Any other block keeps the LLM's lines. When
- * the LLM failed, the seat rule stands alone, or the block keeps its closest event of
- * each window, then its next closest.
+ * A first-time or last-time block's seats when the LLM chose: its lines, then the block's
+ * lines in the same scene or the next, closest first. Other scenes take no seat, even a
+ * free one, since a reader can name any scene it is shown.
+ */
+function seatsAroundChosen(chosenEvents, events) {
+    const chosenPlaces = chosenEvents.map(storyLinePosition);
+    const gapOf = event => Math.min(...chosenPlaces.map(place => Math.abs(storyLinePosition(event) - place)));
+    const near = events.filter(event => gapOf(event) <= SCENE_MESSAGE_GAP).sort((a, b) => gapOf(a) - gapOf(b));
+    return withoutRepeats([...chosenEvents, ...near]).slice(0, BLOCK_CUT_EVENT_COUNT);
+}
+
+/**
+ * Cut a long block to its seats. A first-time or last-time block keeps the LLM's lines and
+ * their scene, and any other block keeps the LLM's lines. When the LLM failed, a first-time
+ * or last-time block takes its seat rule, and any other keeps its closest event of each
+ * window, then its next closest.
  *
  * @param {object} params
  * @param {string} params.shape - The router's shape, which says what the question asks even when the block has no subject
@@ -536,8 +548,10 @@ function seatsByTimeRule(shape, events, subject) {
  */
 export function cutBlockToSeats({ shape, subject, events, poolEvents, chosenEvents }) {
     if (TIME_SHAPES.has(shape)) {
-        const seats = withoutRepeats([...(chosenEvents ?? []).slice(0, BLOCK_CUT_EVENT_COUNT), ...seatsByTimeRule(shape, events, subject)]);
-        return inTimelineOrder(seats.slice(0, BLOCK_CUT_EVENT_COUNT));
+        const seats = chosenEvents?.length
+            ? seatsAroundChosen(chosenEvents.slice(0, BLOCK_CUT_EVENT_COUNT), events)
+            : seatsByTimeRule(shape, events, subject);
+        return inTimelineOrder(seats);
     }
     if (chosenEvents) return inTimelineOrder(chosenEvents.slice(0, BLOCK_CUT_EVENT_COUNT));
     const placeByHash = new Map(poolEvents.map((event, place) => [event._hash, place]));

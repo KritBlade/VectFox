@@ -551,15 +551,14 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             expect(starts(result.events)).toEqual([100]);
         });
 
-        it('asks a first-time question with its own prompt, and fills the seats by the rule', async () => {
+        it('asks a first-time question with its own prompt, and keeps the chosen line\'s scene', async () => {
             listReturns(hits);
             llmReplies({ shape: 'first_time', subject: 'Nora' }, { events: [130] });
             const result = await callAgent(linkOn);
             const [[cutCall]] = cutCalls();
             expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.first_time);
-            expect(result.events).toHaveLength(20);
-            expect(starts(result.events)).toContain(130);
-            expect(starts(result.events)).toContain(100);
+            // The block holds 120 to 158, and its lines more than 20 messages from 130 stay out.
+            expect(starts(result.events)).toEqual(starts(hits).filter(start => start >= 120 && start <= 150));
             expect(result.storyArcShape).toBe('first_time');
             expect(result.debug.storyArc.cutRuleName).toBe('block-cut');
         });
@@ -572,9 +571,10 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             const result = await callAgent(linkOn);
             const [[cutCall]] = cutCalls();
             expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.last_time);
-            expect(result.events).toHaveLength(20);
             expect(starts(result.events)).toContain(130);
-            expect(starts(result.events)).toContain(158);
+            expect(starts(result.events)).toContain(110);
+            expect(starts(result.events)).toContain(150);
+            expect(starts(result.events)).not.toContain(158);
             expect(result.storyArcShape).toBe('last_time');
             expect(result.debug.storyArc).toMatchObject({ ruleName: 'links-not-generated', cutRuleName: 'block-cut', shape: 'last_time' });
         });

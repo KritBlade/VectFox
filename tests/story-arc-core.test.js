@@ -649,15 +649,18 @@ describe('the block cut', () => {
             expect(starts(cut(null))).toEqual([...starts(block).slice(0, 10), ...starts(block).slice(20, 30)]);
         });
 
-        it('seats the LLM\'s lines first, and the rule fills the rest', () => {
-            const chosen = [block[15], block[16]];
-            const kept = starts(cut(chosen));
-            expect(kept).toHaveLength(20);
-            expect(kept).toEqual(expect.arrayContaining(starts(chosen)));
-            expect(kept.slice(0, 10)).toEqual(starts(block).slice(0, 10));
-            // The last of the rule's seats gave way.
-            expect(kept).not.toContain(158);
-            expect(kept).not.toContain(156);
+        it('seats the LLM\'s lines, then the block\'s lines in their scene, closest first', () => {
+            // 20 messages either side holds 22 lines, so the two farthest give way.
+            expect(starts(cut([block[15], block[16]]))).toEqual(starts(block).slice(6, 26));
+        });
+
+        it('leaves other scenes out, even with seats free', () => {
+            const scattered = [100, 150, 160, 175, 300].map(start => event(start, `Nora at ${start}`));
+            expect(starts(cut([scattered[2]], 'Nora', scattered))).toEqual([150, 160, 175]);
+        });
+
+        it('takes its seat rule when the LLM chose nothing', () => {
+            expect(starts(cut([]))).toEqual(starts(cut(null)));
         });
 
         it('takes the block\'s first 20 when the subject is empty or named nowhere', () => {
@@ -689,15 +692,13 @@ describe('the block cut', () => {
             expect(starts(cut(null))).toEqual([...starts(earlyNaming).slice(0, 10), ...starts(earlyNaming).slice(20, 30)]);
         });
 
-        it('seats the LLM\'s lines first, and the rule fills the rest from the newest', () => {
-            const chosen = [earlyNaming[15], earlyNaming[16]];
-            const kept = starts(cut(chosen));
-            expect(kept).toHaveLength(20);
-            expect(kept).toEqual(expect.arrayContaining(starts(chosen)));
-            expect(kept.slice(-10)).toEqual(starts(earlyNaming).slice(-10));
-            // The oldest of the rule's seats gave way.
-            expect(kept).not.toContain(100);
-            expect(kept).not.toContain(102);
+        it('seats the LLM\'s lines and their scene, not the newest lines', () => {
+            expect(starts(cut([earlyNaming[15], earlyNaming[16]]))).toEqual(starts(earlyNaming).slice(6, 26));
+        });
+
+        it('leaves other scenes out, even with seats free', () => {
+            const scattered = [100, 150, 160, 175, 300].map(start => event(start, `Nora at ${start}`));
+            expect(starts(cut([scattered[2]], 'Nora', scattered))).toEqual([150, 160, 175]);
         });
 
         it('takes the block\'s last 20 when the subject is empty or named nowhere', () => {
