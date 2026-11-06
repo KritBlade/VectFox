@@ -107,7 +107,7 @@ const baseParams = {
     keywordQuery: 'How did Nora get here?',
     searchText: 'recent chat',
     chatLength: 3000,
-    settings: { vector_backend: 'qdrant' },
+    settings: { vector_backend: 'qdrant', story_arc_block_scale: 0.7 },
     liveCollectionIds: [COLLECTION],
     boundQuery: (promise) => promise,
 };
@@ -361,6 +361,7 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         story_arc_mode_enabled: true,
         story_arc_link_provider: 'openrouter',
         story_arc_link_model: 'link-model',
+        story_arc_block_scale: 0.7,
     };
     const llmReplies = (...replies) => {
         for (const reply of replies) {
@@ -516,6 +517,15 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             const [[cutCall]] = cutCalls();
             expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 20));
             expect(result.events).toHaveLength(20);
+        });
+
+        it('asks for the lines the Block size setting gives', async () => {
+            listReturns(Array.from({ length: 800 }, (_, i) => event(5000 + i)));
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: starts(hits) });
+            const result = await callAgent({ ...storyArcOn, story_arc_block_scale: 0.5 });
+            const [[cutCall]] = cutCalls();
+            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 14));
+            expect(result.events).toHaveLength(14);
         });
 
         it('keeps the closest of a short story\'s 10 lines when the call fails, and warns', async () => {

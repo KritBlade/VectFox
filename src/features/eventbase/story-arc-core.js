@@ -88,9 +88,7 @@ export const STORY_ROUTE_RULE = Object.freeze({
 
 /** Events a first-time or last-time recipe gathers before the cut. Its closest hits come first and its walk last, so a shorter limit would drop the very events it asks about. */
 const TIME_BLOCK_EVENT_LIMIT = 75;
-/** Lines a block keeps after the cut, per square root of the story's events: 10 at 200 events, 30 at 1,800. A line is about 200 tokens, against about 470 for a full event. */
-const BLOCK_LINES_PER_ROOT_EVENT = 0.7;
-/** The fewest lines a block keeps, as many events as a plain search, at about 2,100 tokens. */
+/** The fewest lines a block keeps, as many events as a plain search, at about 2,100 tokens. A line is about 200 tokens, against about 470 for a full event. */
 const MIN_BLOCK_LINES = 10;
 /** The most lines a block keeps, about 8,100 tokens, however long the story. */
 const MAX_BLOCK_LINES = 40;
@@ -121,10 +119,11 @@ const THREAD_PICK_SHAPES = new Set(['chain', 'why', 'bigger_plot']);
  * square root of its events.
  *
  * @param {number} storyEventCount - The events stored for the story
+ * @param {number} blockScale - Lines per square root of the story's events, from the Block size setting: at 1,800 events, 0.5 keeps 21 lines and 0.7 keeps 30
  * @returns {{lineCount: number, seatCount: number}} the lines a block keeps after the cut, and its seats before it: chat windows in a walked block, or events in a linkless one, and a thread pick's events take them first
  */
-export function storyBlockLimits(storyEventCount) {
-    const lineCount = Math.min(MAX_BLOCK_LINES, Math.max(MIN_BLOCK_LINES, Math.round(BLOCK_LINES_PER_ROOT_EVENT * Math.sqrt(storyEventCount))));
+export function storyBlockLimits(storyEventCount, blockScale) {
+    const lineCount = Math.min(MAX_BLOCK_LINES, Math.max(MIN_BLOCK_LINES, Math.round(blockScale * Math.sqrt(storyEventCount))));
     return { lineCount, seatCount: Math.max(MIN_BLOCK_SEATS, Math.round(lineCount * BLOCK_SEATS_PER_LINE)) };
 }
 
@@ -373,12 +372,13 @@ function selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents, sea
  * @param {object[]} params.storedEvents - Every event in the collection, each with `_hash`
  * @param {object[]} params.poolEvents - Hybrid hits, closest first, each with `_hash`
  * @param {string[]} [params.pickedThreads] - Thread names an LLM picked, whose events take seats first in a thread block
+ * @param {number} params.blockScale - The Block size setting, as {@link storyBlockLimits} reads it
  * @returns {{events: object[], blockShape: string, ruleName: string}} events in time order; none when the turn should keep the pre-search
  */
-export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents, pickedThreads = [] }) {
+export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents, pickedThreads = [], blockScale }) {
     const namedEvents = subject ? storedEvents.filter(event => eventNamesSubject(event, subject)) : [];
     const closestNaming = namedEvents.length ? poolEvents.filter(event => eventNamesSubject(event, subject)) : [];
-    const { seatCount } = storyBlockLimits(storedEvents.length);
+    const { seatCount } = storyBlockLimits(storedEvents.length, blockScale);
     if (!measureStoryLinkCoverage(storedEvents).hasUsableLinks) {
         return selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents, seatCount });
     }

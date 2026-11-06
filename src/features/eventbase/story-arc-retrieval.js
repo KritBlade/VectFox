@@ -127,12 +127,13 @@ export async function retrieveStoryRecipeEvents(route, params) {
     const storedEvents = readable(stored.flat());
     const keptNames = { question: writeName(queryText), subject: writeName(route.subject) };
     const pickedThreads = hasThreadPick(route.shape) && measureStoryLinkCoverage(storedEvents).hasUsableLinks ? await pickThreads(storedEvents, keptNames) : [];
-    const selection = selectStoryRecipeEvents({ shape: route.shape, subject: keptNames.subject, storedEvents, poolEvents, pickedThreads: pickedThreads ?? [] });
+    const blockScale = settings.story_arc_block_scale;
+    const selection = selectStoryRecipeEvents({ shape: route.shape, subject: keptNames.subject, storedEvents, poolEvents, pickedThreads: pickedThreads ?? [], blockScale });
 
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
     const important = dedupeEventsByIdentity(selection.events).filter(event => event.importance == null || event.importance >= minImportance);
     const block = inTimelineOrder(removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup }));
-    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, chooseBlockEvents, storyBlockLimits(storedEvents.length).lineCount);
+    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, chooseBlockEvents, storyBlockLimits(storedEvents.length, blockScale).lineCount);
     // A current-state question has no recipe without links, which is a different reason from finding nothing.
     const isWaitingForLinks = route.shape === 'current' && selection.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED;
     const ruleName = pickedThreads === null ? STORY_ROUTE_RULE.THREAD_PICK_FAILED : selection.ruleName;
@@ -163,7 +164,7 @@ export async function findStoryWebEvents({ question, collectionKey, storedEvents
     const searchText = entitySearchText({ queryText: question, subject: '', merges, storedEvents });
     const writeName = buildEntityNameWriter(merges, storedEvents);
     const poolEvents = withKeptEntityNames(await _queryPool(collectionKey, searchText, STORY_POOL_SIZE, ebSettings, promise => promise), writeName);
-    const { events } = selectStoryRecipeEvents({ shape: 'chain', subject: '', storedEvents: withKeptEntityNames(storedEvents, writeName), poolEvents, pickedThreads: [] });
+    const { events } = selectStoryRecipeEvents({ shape: 'chain', subject: '', storedEvents: withKeptEntityNames(storedEvents, writeName), poolEvents, pickedThreads: [], blockScale: settings.story_arc_block_scale });
     return {
         closestHashes: poolEvents.slice(0, STORY_WEB_CLOSEST_COUNT).map(event => event._hash),
         reachedHashes: events.map(event => event._hash),

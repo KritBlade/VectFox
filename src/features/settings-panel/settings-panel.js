@@ -2932,6 +2932,23 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
+    // The number box owns the value and the range mirrors it. The range holds a typed value to its limits and steps, and an empty box takes the saved value back.
+    const $blockScale = $('#VectFox_story_arc_block_scale');
+    const $blockScaleRange = $('[data-vfx-slider-for="VectFox_story_arc_block_scale"]');
+    $blockScale.val(settings.story_arc_block_scale);
+    $blockScaleRange.val(settings.story_arc_block_scale);
+    const saveBlockScale = () => {
+        $blockScale.val($blockScaleRange.val());
+        settings.story_arc_block_scale = Number($blockScaleRange.val());
+        Object.assign(extension_settings.vectfox, settings);
+        saveSettingsDebounced();
+    };
+    $blockScaleRange.on('input', saveBlockScale);
+    $blockScale.on('change', function() {
+        if ($(this).val() !== '') $blockScaleRange.val($(this).val());
+        saveBlockScale();
+    });
+
     $('#VectFox_story_arc_debug')
         .prop('checked', settings.debug_domain?.story_arc || false)
         .on('change', function() {

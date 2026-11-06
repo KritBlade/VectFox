@@ -99,6 +99,23 @@ function modeCard() {
     </section>`;
 }
 
+function blockSizeCard() {
+    const limits = 'min="0.4" max="0.8" step="0.05"';
+    return `<section class="vfx-card">
+        ${cardHeader({ icon: 'fa-sliders', title: 'Block size', description: 'How much of the story a question about the past reads.' })}
+        <div class="vfx-card-body vfx-stack">
+            ${field([
+                fieldLabel({ text: 'Block size', forId: 'VectFox_story_arc_block_scale' }),
+                `<div class="vfx-slider">
+                    <input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_block_scale" ${limits} title="Block size">
+                    <input type="number" id="VectFox_story_arc_block_scale" class="vfx-input" ${limits}>
+                </div>`,
+                hint({ text: 'A block keeps this × the square root of the story\'s events as lines, from 10 to 40, chosen from 2.5 times as many chat windows, at least 40. At 1,800 events, 0.5 keeps 21 lines from 53 windows, and 0.7 keeps 30 from 75. More lines cost more tokens on those questions.' }),
+            ])}
+        </div>
+    </section>`;
+}
+
 function debugCard() {
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-bug', title: 'Debug', description: 'Console detail for StoryArc. Errors and warnings always show.' })}
@@ -185,6 +202,7 @@ export function storyArcPageMarkup() {
                 <div class="vfx-page" data-story-arc-panel="main">
                     ${storyWebCard()}
                     ${modeCard()}
+                    ${blockSizeCard()}
                     ${debugCard()}
                     ${connectionCard()}
                 </div>

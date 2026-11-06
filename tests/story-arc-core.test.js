@@ -29,25 +29,34 @@ import {
 const event = (start, text = `event at ${start}`, extra = {}) => ({ _hash: start, event_id: `id${extra._hash ?? start}`, source_window_start: start, source_window_end: start + 1, text, ...extra });
 const link = (hash, type = 'continues') => ({ event_id: `id${hash}`, type, thread: 'a thread' });
 const starts = (events) => events.map(item => item.source_window_start);
-const select = (shape, subject, storedEvents, poolEvents) => selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents });
+const BLOCK_SCALE = 0.7;
+const select = (shape, subject, storedEvents, poolEvents, blockScale = BLOCK_SCALE) => selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents, blockScale });
 
 describe('storyBlockLimits', () => {
     it('grows lines and seats with the square root of the story', () => {
-        expect(storyBlockLimits(600)).toEqual({ lineCount: 17, seatCount: 43 });
-        expect(storyBlockLimits(800)).toEqual({ lineCount: 20, seatCount: 50 });
-        expect(storyBlockLimits(1800)).toEqual({ lineCount: 30, seatCount: 75 });
+        expect(storyBlockLimits(600, BLOCK_SCALE)).toEqual({ lineCount: 17, seatCount: 43 });
+        expect(storyBlockLimits(800, BLOCK_SCALE)).toEqual({ lineCount: 20, seatCount: 50 });
+        expect(storyBlockLimits(1800, BLOCK_SCALE)).toEqual({ lineCount: 30, seatCount: 75 });
+    });
+
+    it('moves both lines and seats with the block scale, to the nearest whole number', () => {
+        expect(storyBlockLimits(1800, 0.4)).toEqual({ lineCount: 17, seatCount: 43 });
+        expect(storyBlockLimits(1800, 0.5)).toEqual({ lineCount: 21, seatCount: 53 });
+        expect(storyBlockLimits(1800, 0.8)).toEqual({ lineCount: 34, seatCount: 85 });
     });
 
     it('keeps at least 10 lines and 40 seats, however short the story', () => {
-        for (const eventCount of [0, 1, 50, 200]) expect(storyBlockLimits(eventCount), String(eventCount)).toEqual({ lineCount: 10, seatCount: 40 });
+        for (const eventCount of [0, 1, 50, 200]) expect(storyBlockLimits(eventCount, BLOCK_SCALE), String(eventCount)).toEqual({ lineCount: 10, seatCount: 40 });
+        expect(storyBlockLimits(400, 0.4)).toEqual({ lineCount: 10, seatCount: 40 });
     });
 
     it('gives a story of 400 events more lines but no more than the fewest seats', () => {
-        expect(storyBlockLimits(400)).toEqual({ lineCount: 14, seatCount: 40 });
+        expect(storyBlockLimits(400, BLOCK_SCALE)).toEqual({ lineCount: 14, seatCount: 40 });
     });
 
     it('keeps at most 40 lines and 100 seats, however long the story', () => {
-        for (const eventCount of [3300, 5000, 100000]) expect(storyBlockLimits(eventCount), String(eventCount)).toEqual({ lineCount: 40, seatCount: 100 });
+        for (const eventCount of [3300, 5000, 100000]) expect(storyBlockLimits(eventCount, BLOCK_SCALE), String(eventCount)).toEqual({ lineCount: 40, seatCount: 100 });
+        expect(storyBlockLimits(100000, 0.8)).toEqual({ lineCount: 40, seatCount: 100 });
     });
 });
 
@@ -206,7 +215,7 @@ describe('readThreadPick', () => {
 
 describe('selectStoryRecipeEvents with a thread pick', () => {
     const threadLink = (hash, thread) => ({ event_id: `id${hash}`, type: 'continues', thread });
-    const pick = (shape, storedEvents, poolEvents, pickedThreads) => selectStoryRecipeEvents({ shape, subject: '', storedEvents, poolEvents, pickedThreads });
+    const pick = (shape, storedEvents, poolEvents, pickedThreads) => selectStoryRecipeEvents({ shape, subject: '', storedEvents, poolEvents, pickedThreads, blockScale: BLOCK_SCALE });
     /** A thread the search never reaches, at messages 10 to 30. */
     const missed = [
         event(10, 'first step', { story_links: [] }),
@@ -285,10 +294,10 @@ describe('selectStoryRecipeEvents with a thread pick', () => {
     });
 
     it('leaves first-time and current-state blocks alone', () => {
-        const first = selectStoryRecipeEvents({ shape: 'first_time', subject: 'hit', storedEvents: [...missed, hit], poolEvents: [hit], pickedThreads: ['Finding the father'] });
+        const first = selectStoryRecipeEvents({ shape: 'first_time', subject: 'hit', storedEvents: [...missed, hit], poolEvents: [hit], pickedThreads: ['Finding the father'], blockScale: BLOCK_SCALE });
         expect(starts(first.events)).toEqual([500]);
         expect(first.ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);
-        const current = selectStoryRecipeEvents({ shape: 'current', subject: '', storedEvents: [...missed, hit], poolEvents: [hit], pickedThreads: ['Finding the father'] });
+        const current = selectStoryRecipeEvents({ shape: 'current', subject: '', storedEvents: [...missed, hit], poolEvents: [hit], pickedThreads: ['Finding the father'], blockScale: BLOCK_SCALE });
         expect(starts(current.events)).toEqual([500]);
     });
 });
@@ -313,6 +322,11 @@ describe('selectStoryRecipeEvents without links', () => {
         const { events } = select('chain', '', longStory, [...longStory].reverse());
         expect(events).toHaveLength(75);
         expect(events[0].source_window_start).toBe(1725);
+    });
+
+    it('gives a block the seats of its block scale', () => {
+        const longStory = Array.from({ length: 1800 }, (_, i) => event(i));
+        expect(select('chain', '', longStory, [...longStory].reverse(), 0.5).events).toHaveLength(53);
     });
 
     it('gives a first-time question the subject\'s earliest 5, whatever order they are stored in', () => {
