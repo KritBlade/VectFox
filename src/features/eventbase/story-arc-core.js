@@ -86,14 +86,18 @@ export const STORY_ROUTE_RULE = Object.freeze({
     BLOCK_CUT_FAILED: 'block-cut-failed',
 });
 
-/** Events a first-time, last-time or linkless recipe gathers before the cut. 75 short lines come to about 10,500 characters. */
-const BLOCK_EVENT_LIMIT = 75;
-/** Chat windows a thread recipe gathers before the cut. With every event stored at them, they come to about 110 to 130 lines. */
-const BLOCK_WINDOW_LIMIT = 75;
-/** Lines a block keeps after the cut. 20 come to about 2,600 tokens, against about 3,300 for 10 full events. */
-const BLOCK_CUT_EVENT_COUNT = 20;
-/** A thread pick's events whose windows come first, closest first. They can fill a block, the walk takes what is left, and the block cut chooses among them all. */
-const PICKED_EVENT_SEATS = 75;
+/** Events a first-time or last-time recipe gathers before the cut. Its closest hits come first and its walk last, so a shorter limit would drop the very events it asks about. */
+const TIME_BLOCK_EVENT_LIMIT = 75;
+/** Lines a block keeps after the cut, per square root of the story's events: 10 at 200 events, 30 at 1,800. A line is about 200 tokens, against about 470 for a full event. */
+const BLOCK_LINES_PER_ROOT_EVENT = 0.7;
+/** The fewest lines a block keeps, as many events as a plain search, at about 2,100 tokens. */
+const MIN_BLOCK_LINES = 10;
+/** The most lines a block keeps, about 8,100 tokens, however long the story. */
+const MAX_BLOCK_LINES = 40;
+/** Seats a block has before the cut, per line it keeps. A chat window holds about 1.8 lines, so the cut chooses among over four times what it keeps. */
+const BLOCK_SEATS_PER_LINE = 2.5;
+/** The fewest seats a block has. Only the cut reads them, so a short story loses nothing by having more than its lines call for. */
+const MIN_BLOCK_SEATS = 40;
 /**
  * Hybrid hits a recipe asks for. The search cannot be limited to chosen events, so
  * this pool is how a recipe tells which events are closest to the question.
@@ -110,6 +114,19 @@ const CURRENT_NEWEST_COUNT = 10;
 const SCENE_MESSAGE_GAP = 20;
 /** The shapes whose block holds a thread's steps, which picked threads can add to. */
 const THREAD_PICK_SHAPES = new Set(['chain', 'why', 'bigger_plot']);
+
+/**
+ * How much of a story a block holds. A longer story's threads have more steps, spread
+ * thinner, and the lines and seats that hold the same share of those steps grow with the
+ * square root of its events.
+ *
+ * @param {number} storyEventCount - The events stored for the story
+ * @returns {{lineCount: number, seatCount: number}} the lines a block keeps after the cut, and its seats before it: chat windows in a walked block, or events in a linkless one, and a thread pick's events take them first
+ */
+export function storyBlockLimits(storyEventCount) {
+    const lineCount = Math.min(MAX_BLOCK_LINES, Math.max(MIN_BLOCK_LINES, Math.round(BLOCK_LINES_PER_ROOT_EVENT * Math.sqrt(storyEventCount))));
+    return { lineCount, seatCount: Math.max(MIN_BLOCK_SEATS, Math.round(lineCount * BLOCK_SEATS_PER_LINE)) };
+}
 
 /**
  * StoryArc mode's switch, plus the Qdrant backend it needs.
@@ -287,19 +304,19 @@ function eventNamesSubject(event, subject) {
  * events go first, closest first, up to their limit, since a pick exists to reach what
  * the search ranks low.
  */
-function keepClosestWindows(hopsByHash, eventByHash, poolRankByHash, pickedHashes) {
+function keepClosestWindows(hopsByHash, eventByHash, poolRankByHash, pickedHashes, seatCount) {
     const closenessOf = (hash) => poolRankByHash.get(hash) ?? Number.MAX_SAFE_INTEGER;
     const picked = [...pickedHashes]
         .filter(hash => eventByHash.has(hash))
         .sort((a, b) => closenessOf(a) - closenessOf(b))
-        .slice(0, PICKED_EVENT_SEATS);
+        .slice(0, seatCount);
     const ranked = [...hopsByHash.keys()]
         .filter(hash => eventByHash.has(hash))
         .sort((a, b) => (closenessOf(a) - closenessOf(b)) || (hopsByHash.get(a) - hopsByHash.get(b)));
     const windows = new Set();
     for (const hash of [...picked, ...ranked]) {
         windows.add(storyLinePosition(eventByHash.get(hash)));
-        if (windows.size === BLOCK_WINDOW_LIMIT) break;
+        if (windows.size === seatCount) break;
     }
     return [...eventByHash.values()].filter(event => windows.has(storyLinePosition(event)));
 }
@@ -335,14 +352,14 @@ function timeSubjectNotFoundRule(shape) {
 }
 
 /** A recipe's events when too few events are decided to walk. */
-function selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents }) {
+function selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents, seatCount }) {
     if (shape === 'current') return { events: [], blockShape: shape, ruleName: STORY_ROUTE_RULE.LINKS_NOT_GENERATED };
     if (TIME_SHAPES.has(shape) && !namedEvents.length) {
-        return { events: inTimelineOrder(poolEvents.slice(0, BLOCK_EVENT_LIMIT)), blockShape: THREAD_SHAPE, ruleName: timeSubjectNotFoundRule(shape) };
+        return { events: inTimelineOrder(poolEvents.slice(0, seatCount)), blockShape: THREAD_SHAPE, ruleName: timeSubjectNotFoundRule(shape) };
     }
     const events = TIME_SHAPES.has(shape)
         ? withoutRepeats([...timeEndEvents(shape, namedEvents), ...closestNaming.slice(0, TIME_CLOSEST_EVENT_COUNT), ...timeTopHits(shape, poolEvents)])
-        : poolEvents.slice(0, BLOCK_EVENT_LIMIT);
+        : poolEvents.slice(0, seatCount);
     return { events: inTimelineOrder(events), blockShape: shape, ruleName: STORY_ROUTE_RULE.LINKS_NOT_GENERATED };
 }
 
@@ -361,8 +378,9 @@ function selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents }) {
 export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents, pickedThreads = [] }) {
     const namedEvents = subject ? storedEvents.filter(event => eventNamesSubject(event, subject)) : [];
     const closestNaming = namedEvents.length ? poolEvents.filter(event => eventNamesSubject(event, subject)) : [];
+    const { seatCount } = storyBlockLimits(storedEvents.length);
     if (!measureStoryLinkCoverage(storedEvents).hasUsableLinks) {
-        return selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents });
+        return selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents, seatCount });
     }
 
     const eventByHash = new Map([...poolEvents, ...storedEvents].map(event => [event._hash, event]));
@@ -377,7 +395,7 @@ export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEven
         const sceneGraph = buildStoryLinkGraph(storedEvents, isSceneLink);
         const walked = walkStoryLinks(endHashes, shape === 'first_time' ? sceneGraph.parents : sceneGraph.children, [STORY_LINK_TYPE.CONTINUES]);
         const closest = (namedEvents.length ? closestNaming : poolEvents).slice(0, TIME_CLOSEST_EVENT_COUNT);
-        const events = withoutRepeats([...closest, ...timeTopHits(shape, poolEvents), ...inTimelineOrder(eventsOf(walked.keys()))]).slice(0, BLOCK_EVENT_LIMIT);
+        const events = withoutRepeats([...closest, ...timeTopHits(shape, poolEvents), ...inTimelineOrder(eventsOf(walked.keys()))]).slice(0, TIME_BLOCK_EVENT_LIMIT);
         return {
             events: inTimelineOrder(events),
             // Without the subject these are not its first or last events, so the block must not say they are.
@@ -405,7 +423,7 @@ export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEven
     }
     const pickedHashes = hashesOfThreads(pickedThreads, storedEvents);
     return {
-        events: inTimelineOrder(keepClosestWindows(walked, eventByHash, poolRankByHash, pickedHashes)),
+        events: inTimelineOrder(keepClosestWindows(walked, eventByHash, poolRankByHash, pickedHashes, seatCount)),
         blockShape: shape,
         ruleName: pickedHashes.size ? STORY_ROUTE_RULE.THREAD_PICK : STORY_ROUTE_RULE.SHAPE_RECIPE,
     };
@@ -424,24 +442,35 @@ const BLOCK_CUT_GOAL_BY_SHAPE = {
  * What the block cut asks for, by the router's shape. A current-state block is never
  * longer than the cut's count, so it has no prompt.
  */
-export const BLOCK_CUT_PROMPT_BY_SHAPE = Object.freeze({
-    first_time: `${BLOCK_CUT_PROMPT_START}The question asks for the first time something happened. Choose up to ${BLOCK_CUT_EVENT_COUNT} events from the earliest scene that fits, and what leads straight out of it. A later scene does not count, however well it matches the words. `
+const BLOCK_CUT_PROMPT_WRITERS = Object.freeze({
+    first_time: lineCount => `${BLOCK_CUT_PROMPT_START}The question asks for the first time something happened. Choose up to ${lineCount} events from the earliest scene that fits, and what leads straight out of it. A later scene does not count, however well it matches the words. `
         + `People can go by other names in earlier events, so a scene can fit without using the name in the question. ${BLOCK_CUT_PROMPT_END}`,
-    last_time: `${BLOCK_CUT_PROMPT_START}The question asks for the last or most recent time something happened. Choose up to ${BLOCK_CUT_EVENT_COUNT} events from the latest scene that fits, and what leads straight into it. An earlier scene does not count, however well it matches the words. ${BLOCK_CUT_PROMPT_END}`,
+    last_time: lineCount => `${BLOCK_CUT_PROMPT_START}The question asks for the last or most recent time something happened. Choose up to ${lineCount} events from the latest scene that fits, and what leads straight into it. An earlier scene does not count, however well it matches the words. ${BLOCK_CUT_PROMPT_END}`,
     ...Object.fromEntries(Object.entries(BLOCK_CUT_GOAL_BY_SHAPE).map(([shape, goal]) => [
         shape,
-        `${BLOCK_CUT_PROMPT_START}Choose the ${BLOCK_CUT_EVENT_COUNT} events that together answer it best, as a short account of ${goal} ${BLOCK_CUT_PROMPT_END}`,
+        lineCount => `${BLOCK_CUT_PROMPT_START}Choose the ${lineCount} events that together answer it best, as a short account of ${goal} ${BLOCK_CUT_PROMPT_END}`,
     ])),
 });
+
+/**
+ * The block cut's prompt for a shape that has one.
+ * @param {string} shape - The router's shape
+ * @param {number} lineCount - The lines the block keeps
+ * @returns {string}
+ */
+export function buildBlockCutPrompt(shape, lineCount) {
+    return BLOCK_CUT_PROMPT_WRITERS[shape](lineCount);
+}
 
 /**
  * Whether a block is long enough to cut.
  * @param {string} shape - The router's shape
  * @param {number} eventCount
+ * @param {number} lineCount - The lines the block keeps
  * @returns {boolean}
  */
-export function isBlockCutNeeded(shape, eventCount) {
-    return Object.hasOwn(BLOCK_CUT_PROMPT_BY_SHAPE, shape) && eventCount > BLOCK_CUT_EVENT_COUNT;
+export function isBlockCutNeeded(shape, eventCount, lineCount) {
+    return Object.hasOwn(BLOCK_CUT_PROMPT_WRITERS, shape) && eventCount > lineCount;
 }
 
 /**
@@ -511,13 +540,13 @@ export function readBlockCut(reply, events) {
  * from the block's end, which a walk reached under any name, and half from where it
  * first or last names the subject. Closest to the end asked about first.
  */
-function seatsByTimeRule(shape, events, subject) {
+function seatsByTimeRule(shape, events, subject, lineCount) {
     // A last-time block is a first-time block read from the other end.
     const fromAskedEnd = shape === 'first_time' ? inTimelineOrder(events) : inTimelineOrder(events).reverse();
-    const endSeats = Math.floor(BLOCK_CUT_EVENT_COUNT / 2);
+    const endSeats = Math.floor(lineCount / 2);
     const namingPlace = subject ? fromAskedEnd.findIndex(event => eventNamesSubject(event, subject)) : -1;
     const namingStart = Math.max(namingPlace, endSeats);
-    return [...fromAskedEnd.slice(0, endSeats), ...fromAskedEnd.slice(namingStart), ...fromAskedEnd.slice(endSeats, namingStart)].slice(0, BLOCK_CUT_EVENT_COUNT);
+    return [...fromAskedEnd.slice(0, endSeats), ...fromAskedEnd.slice(namingStart), ...fromAskedEnd.slice(endSeats, namingStart)].slice(0, lineCount);
 }
 
 /**
@@ -525,11 +554,11 @@ function seatsByTimeRule(shape, events, subject) {
  * lines in the same scene or the next, closest first. Other scenes take no seat, even a
  * free one, since a reader can name any scene it is shown.
  */
-function seatsAroundChosen(chosenEvents, events) {
+function seatsAroundChosen(chosenEvents, events, lineCount) {
     const chosenPlaces = chosenEvents.map(storyLinePosition);
     const gapOf = event => Math.min(...chosenPlaces.map(place => Math.abs(storyLinePosition(event) - place)));
     const near = events.filter(event => gapOf(event) <= SCENE_MESSAGE_GAP).sort((a, b) => gapOf(a) - gapOf(b));
-    return withoutRepeats([...chosenEvents, ...near]).slice(0, BLOCK_CUT_EVENT_COUNT);
+    return withoutRepeats([...chosenEvents, ...near]).slice(0, lineCount);
 }
 
 /**
@@ -544,16 +573,17 @@ function seatsAroundChosen(chosenEvents, events) {
  * @param {object[]} params.events - The block
  * @param {object[]} params.poolEvents - Hybrid hits, closest first
  * @param {object[]|null} params.chosenEvents - The LLM's lines, null when that failed
+ * @param {number} params.lineCount - The lines the block keeps
  * @returns {object[]} events in time order
  */
-export function cutBlockToSeats({ shape, subject, events, poolEvents, chosenEvents }) {
+export function cutBlockToSeats({ shape, subject, events, poolEvents, chosenEvents, lineCount }) {
     if (TIME_SHAPES.has(shape)) {
         const seats = chosenEvents?.length
-            ? seatsAroundChosen(chosenEvents.slice(0, BLOCK_CUT_EVENT_COUNT), events)
-            : seatsByTimeRule(shape, events, subject);
+            ? seatsAroundChosen(chosenEvents.slice(0, lineCount), events, lineCount)
+            : seatsByTimeRule(shape, events, subject, lineCount);
         return inTimelineOrder(seats);
     }
-    if (chosenEvents) return inTimelineOrder(chosenEvents.slice(0, BLOCK_CUT_EVENT_COUNT));
+    if (chosenEvents) return inTimelineOrder(chosenEvents.slice(0, lineCount));
     const placeByHash = new Map(poolEvents.map((event, place) => [event._hash, place]));
     const placeOf = (event) => placeByHash.get(event._hash) ?? Number.MAX_SAFE_INTEGER;
     const closestFirst = [...events].sort((a, b) => placeOf(a) - placeOf(b));
@@ -564,5 +594,5 @@ export function cutBlockToSeats({ shape, subject, events, poolEvents, chosenEven
         windowsSeated.add(storyLinePosition(event));
         return isFirstOfWindow;
     });
-    return inTimelineOrder(withoutRepeats([...closestOfEachWindow, ...closestFirst]).slice(0, BLOCK_CUT_EVENT_COUNT));
+    return inTimelineOrder(withoutRepeats([...closestOfEachWindow, ...closestFirst]).slice(0, lineCount));
 }

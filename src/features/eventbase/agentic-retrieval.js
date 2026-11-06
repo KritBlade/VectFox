@@ -28,7 +28,7 @@ import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
-import { BLOCK_CUT_PROMPT_BY_SHAPE, STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
+import { STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
 import { retrieveStoryRecipeEvents } from './story-arc-retrieval.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -88,7 +88,7 @@ async function _retrieveWithStoryArc(params) {
             ...params,
             boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs),
             pickThreads: (storedEvents, keptNames) => _pickStoryThreads(storedEvents, { subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection),
-            chooseBlockEvents: (events, keptNames) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection),
+            chooseBlockEvents: (events, keptNames, lineCount) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection, lineCount),
         });
         storyArc.ruleName = recalled.ruleName;
         storyArc.cutRuleName = recalled.cutRuleName;
@@ -439,15 +439,16 @@ async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }
  * @param {{shape: string, subject: string}} route
  * @param {object} params - The retrieval params
  * @param {object} linkConnection - From resolveStoryLinkLlmConfig, which the router has already needed
+ * @param {number} lineCount - The lines the block keeps
  * @returns {Promise<object[]|null>} the chosen events
  */
-async function _chooseBlockEvents(events, route, { settings, keywordQuery }, linkConnection) {
+async function _chooseBlockEvents(events, route, { settings, keywordQuery }, linkConnection, lineCount) {
     return _askStoryLlm({
         settings,
         label: 'StoryArc block cut',
         nextStep: 'so the block is cut without it',
         call: {
-            systemPrompt: BLOCK_CUT_PROMPT_BY_SHAPE[route.shape],
+            systemPrompt: buildBlockCutPrompt(route.shape, lineCount),
             userMessage: buildBlockCutMessage(events, keywordQuery, route.subject),
             llmConnection: _linkModelAtLowEffort(linkConnection),
             maxTokens: STORY_CHOICE_MAX_TOKENS,

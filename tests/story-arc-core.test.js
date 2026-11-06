@@ -7,10 +7,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    BLOCK_CUT_PROMPT_BY_SHAPE,
     STORY_ROUTER_PROMPT,
     STORY_ROUTE_RULE,
     buildBlockCutMessage,
+    buildBlockCutPrompt,
     buildStoryRouterMessage,
     buildThreadPickMessage,
     cutBlockToSeats,
@@ -23,12 +23,33 @@ import {
     readStoryRoute,
     readThreadPick,
     selectStoryRecipeEvents,
+    storyBlockLimits,
 } from '../src/features/eventbase/story-arc-core.js';
 
 const event = (start, text = `event at ${start}`, extra = {}) => ({ _hash: start, event_id: `id${extra._hash ?? start}`, source_window_start: start, source_window_end: start + 1, text, ...extra });
 const link = (hash, type = 'continues') => ({ event_id: `id${hash}`, type, thread: 'a thread' });
 const starts = (events) => events.map(item => item.source_window_start);
 const select = (shape, subject, storedEvents, poolEvents) => selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents });
+
+describe('storyBlockLimits', () => {
+    it('grows lines and seats with the square root of the story', () => {
+        expect(storyBlockLimits(600)).toEqual({ lineCount: 17, seatCount: 43 });
+        expect(storyBlockLimits(800)).toEqual({ lineCount: 20, seatCount: 50 });
+        expect(storyBlockLimits(1800)).toEqual({ lineCount: 30, seatCount: 75 });
+    });
+
+    it('keeps at least 10 lines and 40 seats, however short the story', () => {
+        for (const eventCount of [0, 1, 50, 200]) expect(storyBlockLimits(eventCount), String(eventCount)).toEqual({ lineCount: 10, seatCount: 40 });
+    });
+
+    it('gives a story of 400 events more lines but no more than the fewest seats', () => {
+        expect(storyBlockLimits(400)).toEqual({ lineCount: 14, seatCount: 40 });
+    });
+
+    it('keeps at most 40 lines and 100 seats, however long the story', () => {
+        for (const eventCount of [3300, 5000, 100000]) expect(storyBlockLimits(eventCount), String(eventCount)).toEqual({ lineCount: 40, seatCount: 100 });
+    });
+});
 
 describe('readStoryRoute', () => {
     it('reads a known shape and its subject', () => {
@@ -216,31 +237,37 @@ describe('selectStoryRecipeEvents with a thread pick', () => {
         expect(pick('chain', [...missed, hit], [hit], []).ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);
     });
 
-    /** 80 steps of one thread the question reaches, and a picked thread of 40 events. */
+    /** A short story, which takes 40 seats: 80 steps of one thread the question reaches, and a picked thread. */
     const walkedThread = Array.from({ length: 80 }, (_, i) => event(5000 + i * 10, `walked ${i}`, { story_links: i ? [link(5000 + (i - 1) * 10)] : [] }));
-    const bigPicked = Array.from({ length: 40 }, (_, i) => event(100 + i * 10, `picked ${i}`, { story_links: i ? [threadLink(100 + (i - 1) * 10, 'Big thread')] : [] }));
+    const pickedThreadOf = eventCount => Array.from({ length: eventCount }, (_, i) => event(100 + i * 10, `picked ${i}`, { story_links: i ? [threadLink(100 + (i - 1) * 10, 'Big thread')] : [] }));
 
     it('seats a pick first, and the walk takes the seats left', () => {
         const poolEvents = [...walkedThread].reverse();
-        const { events } = pick('chain', [...walkedThread, ...bigPicked], poolEvents, ['Big thread']);
-        expect(events).toHaveLength(75);
-        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(40);
-        expect(events.filter(item => item.text.startsWith('walked'))).toHaveLength(35);
+        const { events } = pick('chain', [...walkedThread, ...pickedThreadOf(10)], poolEvents, ['Big thread']);
+        expect(events).toHaveLength(40);
+        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(10);
+        expect(events.filter(item => item.text.startsWith('walked'))).toHaveLength(30);
     });
 
     // A pick counts events, and several events can share a window.
     it('lets a pick of one event a window take every seat of a block', () => {
-        const hugePicked = Array.from({ length: 90 }, (_, i) => event(100 + i * 10, `picked ${i}`, { story_links: i ? [threadLink(100 + (i - 1) * 10, 'Big thread')] : [] }));
         const poolEvents = [...walkedThread].reverse();
-        const { events } = pick('chain', [...walkedThread, ...hugePicked], poolEvents, ['Big thread']);
-        expect(events).toHaveLength(75);
-        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(75);
+        const { events } = pick('chain', [...walkedThread, ...pickedThreadOf(50)], poolEvents, ['Big thread']);
+        expect(events).toHaveLength(40);
+        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(40);
     });
 
     it('seats a pick\'s closest events first', () => {
-        const closePicked = bigPicked[39];
-        const { events } = pick('chain', bigPicked, [closePicked], ['Big thread']);
+        const picked = pickedThreadOf(50);
+        const closePicked = picked[49];
+        const { events } = pick('chain', picked, [closePicked], ['Big thread']);
         expect(starts(events)).toContain(closePicked.source_window_start);
+    });
+
+    it('gives a longer story\'s pick more seats', () => {
+        const picked = pickedThreadOf(800);
+        const { events } = pick('chain', picked, [picked[799]], ['Big thread']);
+        expect(events).toHaveLength(50);
     });
 
     // A window counts once towards the block, whichever way its events got there.
@@ -269,16 +296,23 @@ describe('selectStoryRecipeEvents with a thread pick', () => {
 describe('selectStoryRecipeEvents without links', () => {
     const storedEvents = [90, 10, 30, 70, 50, 20, 40, 60].map(start => event(start, `Nora at ${start}`));
 
-    it('gives a thread question the 75 closest events in time order', () => {
+    it('gives a thread question a short story\'s 40 closest events in time order', () => {
         const pool = Array.from({ length: 90 }, (_, i) => event(1000 - i));
         for (const shape of ['chain', 'why', 'bigger_plot']) {
             const { events, blockShape, ruleName } = select(shape, '', [], pool);
-            expect(events).toHaveLength(75);
-            expect(events[0].source_window_start).toBe(926);
-            expect(events[74].source_window_start).toBe(1000);
+            expect(events).toHaveLength(40);
+            expect(events[0].source_window_start).toBe(961);
+            expect(events[39].source_window_start).toBe(1000);
             expect(blockShape).toBe(shape);
             expect(ruleName).toBe(STORY_ROUTE_RULE.LINKS_NOT_GENERATED);
         }
+    });
+
+    it('gives a longer story more of its closest events', () => {
+        const longStory = Array.from({ length: 1800 }, (_, i) => event(i));
+        const { events } = select('chain', '', longStory, [...longStory].reverse());
+        expect(events).toHaveLength(75);
+        expect(events[0].source_window_start).toBe(1725);
     });
 
     it('gives a first-time question the subject\'s earliest 5, whatever order they are stored in', () => {
@@ -399,12 +433,22 @@ describe('selectStoryRecipeEvents with links', () => {
         expect(events.map(item => item.text).sort()).toEqual(['linked', 'next step', 'no link to it']);
     });
 
-    it('counts windows towards a thread block, so 75 of them can hold more lines', () => {
+    it('counts windows towards a thread block, so its 40 seats can hold more lines', () => {
         const long = Array.from({ length: 100 }, (_, i) => event(i * 10 + 10, `step ${i}`, { story_links: i ? [link(i * 10)] : [] }));
         const others = long.map(item => event(item.source_window_start, `other at ${item.source_window_start}`, { _hash: item.source_window_start + 1, story_links: [] }));
         const { events } = select('chain', '', [...long, ...others], [long[99]]);
-        expect(new Set(starts(events)).size).toBe(75);
-        expect(events).toHaveLength(150);
+        expect(new Set(starts(events)).size).toBe(40);
+        expect(events).toHaveLength(80);
+    });
+
+    it('gives a longer story\'s walk more seats', () => {
+        const windowsKept = (eventCount) => {
+            const long = Array.from({ length: eventCount }, (_, i) => event(i * 10 + 10, `step ${i}`, { story_links: i ? [link(i * 10)] : [] }));
+            return new Set(starts(select('chain', '', long, [long[eventCount - 1]]).events)).size;
+        };
+        expect(windowsKept(200)).toBe(40);
+        expect(windowsKept(800)).toBe(50);
+        expect(windowsKept(1800)).toBe(75);
     });
 
     it('keeps a chain\'s top hits and what links reach from them, and no other hit', () => {
@@ -415,12 +459,12 @@ describe('selectStoryRecipeEvents with links', () => {
         expect(starts(events)).not.toContain(2010);
     });
 
-    it('cuts a long walk to 75, keeping the closest, then those nearest the seeds', () => {
+    it('cuts a long walk to its seats, keeping the closest, then those nearest the seeds', () => {
         const long = Array.from({ length: 100 }, (_, i) => event(i * 10 + 10, `step ${i}`, { story_links: i ? [link(i * 10)] : [] }));
         const lastStep = long[99];
         const closeEarlyStep = long[0];
         const { events } = select('chain', '', long, [lastStep, closeEarlyStep]);
-        expect(events).toHaveLength(75);
+        expect(events).toHaveLength(40);
         expect(starts(events)).toContain(closeEarlyStep.source_window_start);
         expect(starts(events)).toContain(lastStep.source_window_start);
         // The next closest are the steps one link from the seed at the end of the thread.
@@ -527,29 +571,33 @@ describe('the block cut', () => {
     const lastTwenty = starts(block).slice(-20);
 
     describe('isBlockCutNeeded', () => {
-        it('cuts a block over 20 for every shape with a prompt', () => {
+        it('cuts a block over its line count for every shape with a prompt', () => {
             for (const shape of ['first_time', 'last_time', 'chain', 'why', 'bigger_plot']) {
-                expect(isBlockCutNeeded(shape, 21), shape).toBe(true);
-                expect(isBlockCutNeeded(shape, 20), shape).toBe(false);
+                expect(isBlockCutNeeded(shape, 21, 20), shape).toBe(true);
+                expect(isBlockCutNeeded(shape, 20, 20), shape).toBe(false);
+                expect(isBlockCutNeeded(shape, 11, 10), shape).toBe(true);
             }
         });
 
         // A current-state block holds at most its 10 newest and its 10 closest.
         it('never cuts a current-state block or a turn with no recipe', () => {
-            for (const shape of ['current', 'scene', 'anything else']) expect(isBlockCutNeeded(shape, 75), shape).toBe(false);
+            for (const shape of ['current', 'scene', 'anything else']) expect(isBlockCutNeeded(shape, 75, 20), shape).toBe(false);
         });
     });
 
-    describe('BLOCK_CUT_PROMPT_BY_SHAPE', () => {
-        it('asks a date question for its own end of the story, and any other for 20 lines', () => {
-            expect(BLOCK_CUT_PROMPT_BY_SHAPE.first_time).toContain('up to 20 events from the earliest scene');
-            expect(BLOCK_CUT_PROMPT_BY_SHAPE.last_time).toContain('up to 20 events from the latest scene');
-            for (const shape of ['chain', 'why', 'bigger_plot']) expect(BLOCK_CUT_PROMPT_BY_SHAPE[shape], shape).toContain('Choose the 20 events');
+    describe('buildBlockCutPrompt', () => {
+        const cutShapes = ['first_time', 'last_time', 'chain', 'why', 'bigger_plot'];
+
+        it('asks a date question for its own end of the story, and any other for the lines given', () => {
+            expect(buildBlockCutPrompt('first_time', 14)).toContain('up to 14 events from the earliest scene');
+            expect(buildBlockCutPrompt('last_time', 14)).toContain('up to 14 events from the latest scene');
+            for (const shape of ['chain', 'why', 'bigger_plot']) expect(buildBlockCutPrompt(shape, 30), shape).toContain('Choose the 30 events');
         });
 
         it('gives every shape its own goal, and asks for each line\'s label', () => {
-            expect(new Set(Object.values(BLOCK_CUT_PROMPT_BY_SHAPE)).size).toBe(5);
-            for (const prompt of Object.values(BLOCK_CUT_PROMPT_BY_SHAPE)) expect(prompt).toContain('# label of each line');
+            const prompts = cutShapes.map(shape => buildBlockCutPrompt(shape, 20));
+            expect(new Set(prompts).size).toBe(5);
+            for (const prompt of prompts) expect(prompt).toContain('# label of each line');
         });
     });
 
@@ -619,19 +667,21 @@ describe('the block cut', () => {
     });
 
     describe('cutBlockToSeats on a thread question', () => {
-        const cut = (chosenEvents) => cutBlockToSeats({ shape: 'chain', subject: 'Nora', events: block, poolEvents: pool, chosenEvents });
+        const cut = (chosenEvents, lineCount = 20) => cutBlockToSeats({ shape: 'chain', subject: 'Nora', events: block, poolEvents: pool, chosenEvents, lineCount });
 
         it('keeps only the LLM\'s lines, in time order', () => {
             expect(starts(cut([block[5], block[1]]))).toEqual([102, 110]);
         });
 
         // Several events can share a position, so a reply can name more than the seats hold.
-        it('holds the LLM\'s lines to 20', () => {
+        it('holds the LLM\'s lines to the line count', () => {
             expect(cut(block)).toHaveLength(20);
+            expect(cut(block, 10)).toHaveLength(10);
         });
 
-        it('keeps the 20 closest in time order when the LLM failed', () => {
+        it('keeps as many of the closest as the line count, in time order, when the LLM failed', () => {
             expect(starts(cut(null))).toEqual(lastTwenty);
+            expect(starts(cut(null, 10))).toEqual(starts(block).slice(-10));
         });
 
         it('seats each window before any window takes a second event when the LLM failed', () => {
@@ -639,28 +689,33 @@ describe('the block cut', () => {
                 event(200 + i * 2, `first ${i}`, { _hash: 1000 + i }),
                 event(200 + i * 2, `second ${i}`, { _hash: 2000 + i }),
             ]).flat();
-            const seats = cutBlockToSeats({ shape: 'chain', subject: '', events: twins, poolEvents: twins, chosenEvents: null });
+            const seats = cutBlockToSeats({ shape: 'chain', subject: '', events: twins, poolEvents: twins, chosenEvents: null, lineCount: 20 });
             expect(seats).toHaveLength(20);
             expect(new Set(starts(seats)).size).toBe(20);
         });
 
         it('ranks an event the search did not find after every hit', () => {
             const hits = block.slice(10);
-            const walked = cutBlockToSeats({ shape: 'why', subject: '', events: block, poolEvents: hits, chosenEvents: null });
+            const walked = cutBlockToSeats({ shape: 'why', subject: '', events: block, poolEvents: hits, chosenEvents: null, lineCount: 20 });
             expect(starts(walked)).toEqual(starts(hits));
         });
     });
 
     describe('cutBlockToSeats on a first-time question', () => {
-        const cut = (chosenEvents, subject = 'Nora', events = block) => cutBlockToSeats({ shape: 'first_time', subject, events, poolEvents: pool, chosenEvents });
+        const cut = (chosenEvents, subject = 'Nora', events = block, lineCount = 20) => cutBlockToSeats({ shape: 'first_time', subject, events, poolEvents: pool, chosenEvents, lineCount });
 
         it('takes 10 from the block\'s start and 10 from where it first names the subject when the LLM failed', () => {
             expect(starts(cut(null))).toEqual([...starts(block).slice(0, 10), ...starts(block).slice(20, 30)]);
         });
 
+        it('takes half its line count from the block\'s start and half from where it first names the subject when the LLM failed', () => {
+            expect(starts(cut(null, 'Nora', block, 10))).toEqual([...starts(block).slice(0, 5), ...starts(block).slice(20, 25)]);
+        });
+
         it('seats the LLM\'s lines, then the block\'s lines in their scene, closest first', () => {
             // 20 messages either side holds 22 lines, so the two farthest give way.
             expect(starts(cut([block[15], block[16]]))).toEqual(starts(block).slice(6, 26));
+            expect(starts(cut([block[15], block[16]], 'Nora', block, 10))).toEqual(starts(block).slice(11, 21));
         });
 
         it('leaves other scenes out, even with seats free', () => {
@@ -695,7 +750,7 @@ describe('the block cut', () => {
     describe('cutBlockToSeats on a last-time question', () => {
         /** A block whose subject is last named at message 118, with later events walked to under other names. */
         const earlyNaming = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, i < 10 ? `Nora at ${100 + i * 2}` : `Bo at ${100 + i * 2}`));
-        const cut = (chosenEvents, subject = 'Nora', events = earlyNaming) => cutBlockToSeats({ shape: 'last_time', subject, events, poolEvents: pool, chosenEvents });
+        const cut = (chosenEvents, subject = 'Nora', events = earlyNaming) => cutBlockToSeats({ shape: 'last_time', subject, events, poolEvents: pool, chosenEvents, lineCount: 20 });
 
         it('takes 10 from the block\'s end and 10 up to where it last names the subject when the LLM failed', () => {
             expect(starts(cut(null))).toEqual([...starts(earlyNaming).slice(0, 10), ...starts(earlyNaming).slice(20, 30)]);

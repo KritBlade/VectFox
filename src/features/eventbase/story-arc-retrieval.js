@@ -15,7 +15,7 @@
 
 import { listChunks, queryCollection } from '../vector-backend/index.js';
 import { dedupeEventsByIdentity, removeEventsVisibleInContext } from './eventbase-retrieval.js';
-import { STORY_POOL_SIZE, STORY_ROUTE_RULE, cutBlockToSeats, hasRecipe, hasThreadPick, isBlockCutNeeded, selectStoryRecipeEvents } from './story-arc-core.js';
+import { STORY_POOL_SIZE, STORY_ROUTE_RULE, cutBlockToSeats, hasRecipe, hasThreadPick, isBlockCutNeeded, selectStoryRecipeEvents, storyBlockLimits } from './story-arc-core.js';
 import { buildEntityNameWriter, entityNamesInMessage, entitySearchText, hasEntityMerges, withKeptEntityNames } from './story-arc-entity-core.js';
 import { readEntityMerges } from './story-arc-entities.js';
 import { inTimelineOrder, measureStoryLinkCoverage } from './story-arc-links-core.js';
@@ -78,11 +78,11 @@ function _mergeHitsByPlace(hitLists) {
  * Cut a long block, after the filters every retrieval applies, so a filtered event
  * takes no seat. `cutRuleName` is empty when the block needed no cut.
  */
-async function _cutLongBlock(shape, keptNames, events, poolEvents, chooseBlockEvents) {
-    if (!chooseBlockEvents || !isBlockCutNeeded(shape, events.length)) return { events, cutRuleName: '' };
-    const chosenEvents = await chooseBlockEvents(events, keptNames);
+async function _cutLongBlock(shape, keptNames, events, poolEvents, chooseBlockEvents, lineCount) {
+    if (!chooseBlockEvents || !isBlockCutNeeded(shape, events.length, lineCount)) return { events, cutRuleName: '' };
+    const chosenEvents = await chooseBlockEvents(events, keptNames, lineCount);
     return {
-        events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents }),
+        events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents, lineCount }),
         cutRuleName: chosenEvents ? STORY_ROUTE_RULE.BLOCK_CUT : STORY_ROUTE_RULE.BLOCK_CUT_FAILED,
     };
 }
@@ -95,7 +95,7 @@ async function _cutLongBlock(shape, keptNames, events, poolEvents, chooseBlockEv
  * @param {object} params - The retrieval params (see retrieveEvents)
  * @param {(promise: Promise) => Promise} params.boundQuery - Limits how long one Qdrant call may take
  * @param {(storedEvents: object[], keptNames: {question: string, subject: string}) => Promise<string[]|null>} [params.pickThreads] - Asks an LLM which threads could hold the answer; null when that failed
- * @param {(events: object[], keptNames: {question: string, subject: string}) => Promise<object[]|null>} [params.chooseBlockEvents] - Asks an LLM which of a long block's events answer the question; null when that failed. Without it, no block is cut
+ * @param {(events: object[], keptNames: {question: string, subject: string}, lineCount: number) => Promise<object[]|null>} [params.chooseBlockEvents] - Asks an LLM which of a long block's events answer the question; null when that failed. Without it, no block is cut
  * @returns {Promise<{events: object[], blockShape: string, ruleName: string, cutRuleName: string, pickedThreadCount: number, entityNames: {name: string, keptName: string}[]}>} blockShape says which block the events suit, and entityNames which other names the question used
  */
 export async function retrieveStoryRecipeEvents(route, params) {
@@ -132,7 +132,7 @@ export async function retrieveStoryRecipeEvents(route, params) {
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
     const important = dedupeEventsByIdentity(selection.events).filter(event => event.importance == null || event.importance >= minImportance);
     const block = inTimelineOrder(removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup }));
-    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, chooseBlockEvents);
+    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, chooseBlockEvents, storyBlockLimits(storedEvents.length).lineCount);
     // A current-state question has no recipe without links, which is a different reason from finding nothing.
     const isWaitingForLinks = route.shape === 'current' && selection.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED;
     const ruleName = pickedThreads === null ? STORY_ROUTE_RULE.THREAD_PICK_FAILED : selection.ruleName;

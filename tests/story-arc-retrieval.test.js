@@ -82,7 +82,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 
 const { findStoryWebEvents, retrieveStoryRecipeEvents } = await import('../src/features/eventbase/story-arc-retrieval.js');
 const { resolveStoryLinkLlmConfig, retrieveEventsForTurn } = await import('../src/features/eventbase/agentic-retrieval.js');
-const { BLOCK_CUT_PROMPT_BY_SHAPE } = await import('../src/features/eventbase/story-arc-core.js');
+const { buildBlockCutPrompt } = await import('../src/features/eventbase/story-arc-core.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
 const event = (start, text = `event at ${start}`, extra = {}) => ({
@@ -121,14 +121,21 @@ beforeEach(() => {
 });
 
 describe('retrieveStoryRecipeEvents', () => {
-    it('gives a thread question 75 hits in chat order, past the top-K trim', async () => {
+    it('gives a short story\'s thread question 40 hits in chat order, past the top-K trim', async () => {
         const hits = Array.from({ length: 75 }, (_, i) => event(1000 - i));
         queryReturns(hits);
         const { events, blockShape } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: 'Nora' }, { ...baseParams, settings: { ...baseParams.settings, eventbase_retrieval_top_k: 10 } });
         expect(queryCollectionMock.mock.calls[0].slice(0, 3)).toEqual([COLLECTION, 'How did Nora get here?', 200]);
-        expect(events).toHaveLength(75);
-        expect(starts(events)).toEqual(starts(hits).reverse());
+        expect(events).toHaveLength(40);
+        expect(starts(events)).toEqual(starts(hits).slice(0, 40).reverse());
         expect(blockShape).toBe('chain');
+    });
+
+    it('gives a longer story\'s thread question more hits', async () => {
+        listReturns(Array.from({ length: 1800 }, (_, i) => event(5000 + i)));
+        queryReturns(Array.from({ length: 90 }, (_, i) => event(1000 - i)));
+        const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: 'Nora' }, baseParams);
+        expect(events).toHaveLength(75);
     });
 
     // A hit's score is cosine, while its place is the fusion order, which also weighs the keyword match.
@@ -146,7 +153,7 @@ describe('retrieveStoryRecipeEvents', () => {
         queryCollectionMock.mockResolvedValueOnce({ hashes: starts(first), metadata: first });
         queryCollectionMock.mockResolvedValueOnce({ hashes: starts(second), metadata: second });
         const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, { ...baseParams, liveCollectionIds: [COLLECTION, 'qdrant:vf_eventbase_other'] });
-        expect(starts(events).filter(start => start >= 5000)).toHaveLength(37);
+        expect(starts(events).filter(start => start >= 5000)).toHaveLength(20);
     });
 
     it('walks stored links once the chat has them, reaching events the search did not find', async () => {
@@ -474,39 +481,48 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         /** 30 hits at messages 100 to 158, closest last, on a chat with no links. */
         const hits = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `Nora at ${100 + i * 2}`));
         const closestFirst = [...hits].reverse();
-        const cutCalls = () => postChatCompletionMock.mock.calls.filter(([call]) => Object.values(BLOCK_CUT_PROMPT_BY_SHAPE).includes(call.messages[0].content));
+        const cutCalls = () => postChatCompletionMock.mock.calls.filter(([call]) => call.messages[0].content.includes('# label of each line'));
 
         beforeEach(() => queryReturns(closestFirst));
 
         it('asks the link model at low effort, and keeps the lines it chooses', async () => {
-            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [110, '#102', 999] });
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [120, '#112', 999] });
             const result = await callAgent(storyArcOn);
-            expect(starts(result.events)).toEqual([102, 110]);
+            expect(starts(result.events)).toEqual([112, 120]);
             expect(result.storyArcShape).toBe('chain');
             expect(result.debug.storyArc).toEqual({ ruleName: 'links-not-generated', cutRuleName: 'block-cut', shape: 'chain', subject: 'Nora', finalCount: 2 });
             const [[cutCall]] = cutCalls();
             expect(cutCall.model).toBe('link-model');
             expect(cutCall.reasoningEffort).toBe('low');
             expect(cutCall.sendTemperature).toBe(false);
-            expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.chain);
-            expect(cutCall.messages[1].content).toContain('- #100: Nora at 100\n- #102: Nora at 102');
+            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 10));
+            expect(cutCall.messages[1].content).toContain('- #110: Nora at 110\n- #112: Nora at 112');
             expect(cutCall.messages[1].content.endsWith("Player's question:\nHow did Nora get here?")).toBe(true);
         });
 
-        it('does not ask for a block of 20 or fewer', async () => {
-            queryReturns(closestFirst.slice(0, 20));
+        it('does not ask for a block no longer than a short story\'s 10 lines', async () => {
+            queryReturns(closestFirst.slice(0, 10));
             llmReplies({ shape: 'chain', subject: 'Nora' });
             const result = await callAgent(storyArcOn);
-            expect(result.events).toHaveLength(20);
+            expect(result.events).toHaveLength(10);
             expect(cutCalls()).toHaveLength(0);
             expect(result.debug.storyArc.cutRuleName).toBe('');
         });
 
-        it('keeps the closest 20 when the call fails, and warns', async () => {
+        it('asks for the lines a longer story keeps, and holds the reply to them', async () => {
+            listReturns(Array.from({ length: 800 }, (_, i) => event(5000 + i)));
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: starts(hits) });
+            const result = await callAgent(storyArcOn);
+            const [[cutCall]] = cutCalls();
+            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 20));
+            expect(result.events).toHaveLength(20);
+        });
+
+        it('keeps the closest of a short story\'s 10 lines when the call fails, and warns', async () => {
             llmReplies({ shape: 'why', subject: 'Nora' });
             postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
             const result = await callAgent(storyArcOn);
-            expect(starts(result.events)).toEqual(starts(hits).slice(-20));
+            expect(starts(result.events)).toEqual(starts(hits).slice(-10));
             expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
             expect(logWarnMock.mock.calls.flat().join(' ')).toContain('StoryArc block cut LLM call failed');
             expect(logWarnMock.mock.calls.flat().join(' ')).toContain('so the block is cut without it');
@@ -518,7 +534,7 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
                 postChatCompletionMock.mockReset();
                 llmReplies({ shape: 'chain', subject: 'Nora' }, reply);
                 const result = await callAgent(storyArcOn);
-                expect(result.events, JSON.stringify(reply)).toHaveLength(20);
+                expect(result.events, JSON.stringify(reply)).toHaveLength(10);
                 expect(result.debug.storyArc.cutRuleName, JSON.stringify(reply)).toBe('block-cut-failed');
             }
         });
@@ -526,11 +542,11 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         it('offers no event the filters removed, and seats none', async () => {
             const stillVisible = event(2990, 'Nora still in context');
             queryReturns([stillVisible, ...closestFirst]);
-            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [100] });
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [120] });
             const result = await callAgent({ ...storyArcOn, deduplication_depth: 20 });
             const [[cutCall]] = cutCalls();
             expect(cutCall.messages[1].content).not.toContain('#2990');
-            expect(starts(result.events)).toEqual([100]);
+            expect(starts(result.events)).toEqual([120]);
         });
 
         it('asks a first-time question with its own prompt, and keeps the chosen line\'s scene', async () => {
@@ -538,9 +554,9 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             llmReplies({ shape: 'first_time', subject: 'Nora' }, { events: [130] });
             const result = await callAgent(storyArcOn);
             const [[cutCall]] = cutCalls();
-            expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.first_time);
-            // The block holds 120 to 158, and its lines more than 20 messages from 130 stay out.
-            expect(starts(result.events)).toEqual(starts(hits).filter(start => start >= 120 && start <= 150));
+            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('first_time', 10));
+            // The 10 lines are the one chosen and the block's lines closest to it.
+            expect(starts(result.events)).toEqual(starts(hits).filter(start => start >= 120 && start <= 138));
             expect(result.storyArcShape).toBe('first_time');
             expect(result.debug.storyArc.cutRuleName).toBe('block-cut');
         });
@@ -552,11 +568,8 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             llmReplies({ shape: 'last_time', subject: 'Nora' }, { events: [130] });
             const result = await callAgent(storyArcOn);
             const [[cutCall]] = cutCalls();
-            expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.last_time);
-            expect(starts(result.events)).toContain(130);
-            expect(starts(result.events)).toContain(110);
-            expect(starts(result.events)).toContain(150);
-            expect(starts(result.events)).not.toContain(158);
+            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('last_time', 10));
+            expect(starts(result.events)).toEqual(starts(hits).filter(start => start >= 120 && start <= 138));
             expect(result.storyArcShape).toBe('last_time');
             expect(result.debug.storyArc).toMatchObject({ ruleName: 'links-not-generated', cutRuleName: 'block-cut', shape: 'last_time' });
         });
@@ -566,8 +579,8 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             llmReplies({ shape: 'first_time', subject: 'Nora' });
             postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
             const result = await callAgent(storyArcOn);
-            // The block is the earliest 5 and the closest 20, so its first 20 skip what neither holds.
-            expect(starts(result.events)).toEqual([...starts(hits).slice(0, 5), ...starts(hits).slice(10, 25)]);
+            // The block is the earliest 5 and the closest 20, so its first 10 skip what neither holds.
+            expect(starts(result.events)).toEqual([...starts(hits).slice(0, 5), ...starts(hits).slice(10, 15)]);
             expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
         });
 
