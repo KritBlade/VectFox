@@ -17,6 +17,23 @@ import { log } from '../../sillytavern/log.js';
 // BUILT-IN PRESETS
 // ============================================================================
 
+// The narrator's thinking, by the names mvu-helper reads it: <think>, <thinking> and <thinking_*>.
+const THINKING_TAG_NAMES = 'think|thinking(?:_[a-z0-9]+)*';
+// A planning wrapper a model adds, any tag whose name holds "planning", such as <konatan_planning~>.
+// A name can end in ~, which is not a word character, so this has no \b.
+const PLANNING_WRAPPER_NAME = '[A-Za-z][\\w~-]*planning[\\w~-]*';
+
+/**
+ * A pattern for closed thinking blocks and planning wrappers. A block needs its closing tag, since only that
+ * says where its thinking ends, and starts at the opener nearest that closer, so a tag never closed cannot
+ * pair with a later block and take the story between them.
+ *
+ * @param {string} tagNames - The tag names, as a regex alternation
+ * @returns {string} The regex source
+ */
+const closedThinkingPattern = tagNames => `<(${tagNames})(?:\\s[^<>]*)?>(?:(?!<\\1(?:\\s[^<>]*)?>)[\\s\\S])*?</\\1\\s*>`
+    + `|<(${PLANNING_WRAPPER_NAME})[^>]*>(?:(?!<\\2[^>]*>)[\\s\\S])*?</\\2\\s*>`;
+
 /**
  * Built-in cleaning patterns that users can enable
  */
@@ -63,8 +80,8 @@ export const BUILTIN_PATTERNS = {
     },
     strip_thinking_tags: {
         id: 'strip_thinking_tags',
-        name: 'Strip <thinking> Tags',
-        pattern: '<thinking>[\\s\\S]*?</thinking>',
+        name: 'Strip Closed Thinking Blocks (<think>, <thinking>, <thinking_*>, planning)',
+        pattern: closedThinkingPattern(THINKING_TAG_NAMES),
         replacement: '',
         flags: 'gi',
         builtin: true,
@@ -164,6 +181,37 @@ export const BUILTIN_PATTERNS = {
         flags: 'gi',
         builtin: true,
     },
+    // The three patterns below start at the opener nearest the closer. Reasoning can quote a tag's name
+    // ("next I will print <current_event>"), and a plain lazy match would start at that quote and eat the story
+    // up to the real closer.
+    // <progress> is not listed: the event extractor reads this preset's output, and that tag is where it
+    // finds a scene's clock time, and at times its date, on a story whose narrative does not state them.
+    strip_mvu_status_tags: {
+        id: 'strip_mvu_status_tags',
+        name: 'Strip Status & Side-Chat Tags (<current_event>, <Analysis>, <konatan_chat>)',
+        pattern: '<(current_event|Analysis|konatan_chat)\\b[^>]*>(?:(?!<\\1\\b)[\\s\\S])*?</\\1\\s*>\\n*',
+        replacement: '',
+        flags: 'g',
+        builtin: true,
+    },
+    // The same regex as the School pack's PromptDeTagBlocks, which hides these from the reply model.
+    strip_mvu_world_blocks: {
+        id: 'strip_mvu_world_blocks',
+        name: 'Strip <Blocks>, <World_State>, <Bonds> Tags (MVU)',
+        pattern: '<Blocks>(?:(?!<Blocks>)[\\s\\S])*?</Blocks>\\n*|<(World_State|Bonds)>(?:(?!<\\1>)[\\s\\S])*?</\\1>\\n*',
+        replacement: '',
+        flags: 'g',
+        builtin: true,
+    },
+    // The same regex as the School pack's PromptDeTagInternalStates.
+    strip_mvu_internal_states: {
+        id: 'strip_mvu_internal_states',
+        name: 'Strip Status Graphics & <internal_states> (MVU)',
+        pattern: '<!-- GFX_START -->(?:(?!<!-- GFX_START -->)[\\s\\S])*?<!-- GFX_END -->\\n*|<internal_states>(?:(?!<internal_states>)[\\s\\S])*?</internal_states>\\n*',
+        replacement: '',
+        flags: 'g',
+        builtin: true,
+    },
 };
 
 /**
@@ -212,7 +260,7 @@ export const CLEANING_PRESETS = {
     mvu_game_maker: {
         id: 'mvu_game_maker',
         name: 'MVU',
-        description: 'Strips MVU tags (state updates, combat logs, game-system guides, cast/stats/choices scaffolding, pictures with their image prompts) plus standard HTML formatting and AI reasoning tags. VectFox updates add new MVU tags to it.',
+        description: 'Strips MVU tags (state updates, combat logs, game-system guides, status panels, cast/stats/choices scaffolding, pictures with their image prompts) plus standard HTML formatting and AI reasoning tags. VectFox updates add new MVU tags to it.',
         patterns: [
             'strip_font_tags',
             'strip_color_spans',
@@ -229,6 +277,9 @@ export const CLEANING_PRESETS = {
             'strip_mvu_engine_tags',
             'strip_mvu_pictures',
             'strip_mvu_cast_records',
+            'strip_mvu_status_tags',
+            'strip_mvu_world_blocks',
+            'strip_mvu_internal_states',
         ],
     },
 };
@@ -388,36 +439,22 @@ export function cleanText(text) {
  *
  * Deliberately UNCONDITIONAL and independent of the user's vectorization
  * cleaning config (getActivePatterns): reasoning must never steer retrieval
- * planning, even when the user has cleaning set to "none" for vectorization,
- * and the default `strip_thinking_tags` pattern only matches <thinking> — not
- * the bare <think> tag ST actually emits, nor custom planning wrappers nested
- * inside it (e.g. <konatan_planning~>).
- *
- * Handles three shapes, narrative-AFTER-reasoning preserved in all of them:
- *   1. Paired standard blocks: <think>…</think>, <thinking>…, <reasoning>….
- *   2. Paired custom "planning" wrappers, e.g. <konatan_planning~>…</konatan_planning~>
- *      (model-injected planning scaffolds; tag names may contain ~ or -).
- *   3. An unterminated <think> that is never closed with </think> — common when the
- *      model only closes the inner planning wrapper. Here we strip the orphan TAG
- *      itself (step 3), NOT everything to end-of-string: stripping <think>…$ would
- *      delete the whole narrative reply and leave the planner an empty turn.
+ * planning, even when the user has cleaning set to "none" for vectorization.
+ * It removes what the strip_thinking_tags builtin removes, plus <reasoning> blocks
+ * and any such tag with no partner: a <think> never closed, common when the model
+ * closes only the wrapper inside it, loses only the tag, since nothing says where
+ * its thinking ends and removing to the end of the reply would delete the story.
+ * Its callers need that tag gone, as it stops an LLM's JSON reply from parsing.
  *
  * @param {string} text
  * @returns {string} text with reasoning blocks removed
  */
 export function stripReasoningBlocks(text) {
     if (!text || typeof text !== 'string') return text;
+    const tagNames = `${THINKING_TAG_NAMES}|reasoning`;
     const stripped = text
-        // 1. Paired standard reasoning blocks. \1 keeps open/close matched.
-        .replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-        // 2. Paired custom planning wrappers (tag name contains "planning",
-        //    may carry ~ or - e.g. konatan_planning~). No \b — the name can end
-        //    in ~, which is not a word char, so \b would fail before '>'.
-        .replace(/<([A-Za-z][\w~-]*planning[\w~-]*)[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-        // 3. Remove orphan reasoning tags left behind (e.g. an unterminated
-        //    <think> whose inner planning block was just stripped). Tag-only —
-        //    never to EOS, so any narrative after the reasoning survives.
-        .replace(/<\/?(?:think|thinking|reasoning)\b[^>]*>/gi, '')
+        .replace(new RegExp(closedThinkingPattern(tagNames), 'gi'), '')
+        .replace(new RegExp(`</?(?:${tagNames})(?:\\s[^<>]*)?>`, 'gi'), '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 

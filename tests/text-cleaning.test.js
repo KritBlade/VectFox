@@ -14,6 +14,14 @@
  * mvu-helper's stored pictures (every wrap shape it writes, with the image
  * prompts inside) and its <cast> records, and never swallow prose next to a
  * shape they don't know.
+ *
+ * strip_thinking_tags: the vectorization builtin removes closed thinking blocks and
+ * planning wrappers, so the event extractor does not read them, and leaves a tag with
+ * no closing tag, since nothing says where its thinking ends.
+ *
+ * strip_mvu_status_tags / strip_mvu_world_blocks / strip_mvu_internal_states: paired
+ * patterns that start at the opener nearest the closer, so a quoted tag name cannot
+ * make them eat the story.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -93,6 +101,14 @@ describe('stripReasoningBlocks', () => {
     it('strips a mid-text reasoning block without harming surrounding narrative', () => {
         const out = stripReasoningBlocks('Before.<think>aside</think>After.');
         expect(out).toBe('Before.After.');
+    });
+
+    it.each(['thinking_left', 'reasoning'])('removes <%s> blocks too', (tag) => {
+        expect(stripReasoningBlocks(`<${tag}>plan</${tag}>The door opened.`)).toBe('The door opened.');
+    });
+
+    it('takes a <thinking_*> tag with no partner, as it does <think>', () => {
+        expect(stripReasoningBlocks('<thinking_left>The door opened.')).toBe('The door opened.');
     });
 
     it('leaves plain narrative untouched', () => {
@@ -186,6 +202,75 @@ describe('stripGameSystemBlocks', () => {
     it('removes mvu-helper pictures, cast records and the <reply_cast> block', () => {
         const raw = `美月跑了過來。\n${PICTURE_WRAPS.rendered}\n<cast name="橘美月" outfit="default">\n<reply_cast>\n<cast name="有川真奈">\n</reply_cast>`;
         expect(stripGameSystemBlocks(raw)).toBe('美月跑了過來。');
+    });
+});
+
+describe('strip_thinking_tags builtin', () => {
+    const strip = stripWith('strip_thinking_tags');
+
+    it.each(['think', 'thinking', 'thinking_left', 'thinking_step_2', 'THINK'])('removes a closed <%s> block and keeps the story after it', (tag) => {
+        expect(strip(`<${tag}>plan the scene</${tag}>The door opened.`)).toBe('The door opened.');
+    });
+
+    it('removes a block whose open tag has attributes', () => {
+        expect(strip('<think depth="2">plan</think>The door opened.')).toBe('The door opened.');
+    });
+
+    it('removes a closed planning wrapper inside a <think> that is never closed, and leaves that <think>', () => {
+        expect(strip('<think><writer_planning~>主線：送別</writer_planning~>\n\n列車停下的動靜很輕。')).toBe('<think>\n\n列車停下的動靜很輕。');
+    });
+
+    it.each(['<think>', '<thinking_left>', '<writer_planning~>', '</think>', '</thinking_left>', '</writer_planning~>'])('leaves %s when it has no partner', (tag) => {
+        const text = `${tag}列車停下的動靜很輕。`;
+        expect(strip(text)).toBe(text);
+    });
+
+    it('starts at the opener nearest the closer, so a <think> never closed keeps the story after it', () => {
+        expect(strip('<think>\n列車停下的動靜很輕。\n<think>草稿</think>\n她下了車。')).toBe('<think>\n列車停下的動靜很輕。\n\n她下了車。');
+    });
+
+    it('needs the closing tag of the same name', () => {
+        const text = '<thinking_left>列車停下的動靜很輕。</thinking_right>';
+        expect(strip(text)).toBe(text);
+    });
+
+    it('leaves tags whose name only starts with a thinking name untouched', () => {
+        const text = '<thinker>a</thinker><thinking-cap>b</thinking-cap><thinking_>c</thinking_>';
+        expect(strip(text)).toBe(text);
+    });
+});
+
+describe('paired patterns start at the opener nearest the closer', () => {
+    const PAIRS = [
+        ['strip_mvu_status_tags', '<current_event>', '</current_event>'],
+        ['strip_mvu_status_tags', '<Analysis>', '</Analysis>'],
+        ['strip_mvu_status_tags', '<konatan_chat>', '</konatan_chat>'],
+        ['strip_mvu_world_blocks', '<Blocks>', '</Blocks>'],
+        ['strip_mvu_world_blocks', '<World_State>', '</World_State>'],
+        ['strip_mvu_world_blocks', '<Bonds>', '</Bonds>'],
+        ['strip_mvu_internal_states', '<!-- GFX_START -->', '<!-- GFX_END -->'],
+        ['strip_mvu_internal_states', '<internal_states>', '</internal_states>'],
+    ];
+
+    it.each(PAIRS)('%s removes %s, and leaves a quote of it and the story alone', (builtinId, open, close) => {
+        const before = `<think>\nNext I will print ${open} and fill it.\n故事在這裡。\n`;
+        const out = stripWith(builtinId)(`${before}${open}\nREAL BODY\n${close}\nAFTER`);
+        expect(out).toBe(`${before}AFTER`);
+    });
+
+    it('leaves a block that never closes', () => {
+        const text = '故事。\n<Blocks>\n<World_State>x';
+        expect(stripWith('strip_mvu_world_blocks')(text)).toBe(text);
+    });
+
+    it('leaves tags whose name only ends or starts with a listed name untouched', () => {
+        const text = '<UpdateAnalysis>a</UpdateAnalysis><StoryAnalysis>b</StoryAnalysis><current_event_log>c</current_event_log>';
+        expect(stripWith('strip_mvu_status_tags')(text)).toBe(text);
+    });
+
+    it('keeps <progress>, where the event extractor finds a scene\'s date and clock time', () => {
+        const text = '<progress>1577年8月17日 22:30</progress>';
+        expect(cleanText(text)).toBe(text);
     });
 });
 
@@ -298,5 +383,24 @@ describe('MVU preset', () => {
     it('cleans pictures and cast records on a fresh install', () => {
         const reply = `<p>美月跑了過來。</p>\n${PICTURE_WRAPS.rendered}\n<cast name="橘美月" outfit="default">`;
         expect(cleanText(reply)).toBe('<p>美月跑了過來。</p>');
+    });
+
+    it('leaves the story and <progress> of a whole reply, with no tag lookup', () => {
+        const reply = [
+            '<think><writer_planning~>主線：送別</writer_planning~></think>',
+            '<Analysis>分析</Analysis>',
+            '<content>',
+            '<p>美月跑了過來。</p>',
+            '</content>',
+            '<tucao>吐槽</tucao>',
+            '<current_event>事件</current_event>',
+            '<progress>進度</progress>',
+            '<konatan_chat>閒聊</konatan_chat>',
+            '<cast name="橘美月" outfit="school" clothes="校服">',
+            '<Blocks>\n<World_State>weather: clear</World_State>\n</Blocks>',
+            '<!-- GFX_START -->\n<div>panel</div>\n<!-- GFX_END -->',
+            '<internal_states>state</internal_states>',
+        ].join('\n');
+        expect(cleanText(reply)).toBe('<content>\n<p>美月跑了過來。</p>\n</content>\n\n<progress>進度</progress>');
     });
 });
