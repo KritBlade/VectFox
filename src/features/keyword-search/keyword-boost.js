@@ -305,7 +305,7 @@ export function extractLorebookKeywords(entry, settings = null) {
 function extractBracketTerms(text) {
     const results = [];
     // 【...】 — CJK concept/system marker (game skills, item names, system panels)
-    // [...] with CJK content — ASCII square bracket concept markers (e.g. [勇者之劍])
+    // [...] with CJK content — ASCII square bracket concept markers (e.g. [長劍])
     // 「」 and 『』 are dialogue SPEECH QUOTES — intentionally excluded.
     const bracketRe = /(?:\u3010([^\u3011\n]{2,20})\u3011|\[([^\]\n]{2,20})\])/g;
     let m;
@@ -328,7 +328,7 @@ export function extractTextKeywords(text, options = {}) {
     text = text.replace(/\s*\[keywords?[:\s][^\]]*\]/gi, '').trimEnd();
     // Strip structural markup tags: [User], [Character], [OOC], [location], [tag: content], etc.
     // Only strips brackets whose content is purely non-CJK (ASCII labels/formatting markers).
-    // Brackets containing CJK characters (e.g. [勇者之劍]) are preserved for extractBracketTerms.
+    // Brackets containing CJK characters (e.g. [長劍]) are preserved for extractBracketTerms.
     text = text.replace(/\[[^\]\u4E00-\u9FFF\u3040-\u30FF\u3400-\u4DBF\uF900-\uFAFF]{1,30}\]/g, ' ').replace(/\s+/g, ' ').trim();
 
     const level = options.level || DEFAULT_EXTRACTION_LEVEL;
@@ -528,7 +528,7 @@ export function extractBM25Keywords(text, options = {}) {
     text = text.replace(/\s*\[keywords?[:\s][^\]]*\]/gi, '').trimEnd();
     // Strip structural markup tags: [User], [Character], [OOC], [location], [tag: content], etc.
     // Only strips brackets whose content is purely non-CJK (ASCII labels/formatting markers).
-    // Brackets containing CJK characters (e.g. [勇者之劍]) are preserved for extractBracketTerms.
+    // Brackets containing CJK characters (e.g. [長劍]) are preserved for extractBracketTerms.
     text = text.replace(/\[[^\]\u4E00-\u9FFF\u3040-\u30FF\u3400-\u4DBF\uF900-\uFAFF]{1,30}\]/g, ' ').replace(/\s+/g, ' ').trim();
 
     // Get extraction level config

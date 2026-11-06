@@ -29,8 +29,7 @@ import { extractEvents } from './eventbase-extractor.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
-import { retrieveEvents } from './eventbase-retrieval.js';
-import { retrieveEventsWithAgent } from './agentic-retrieval.js';
+import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
@@ -1240,13 +1239,8 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     // cannot be compared to the current chat length — skip the context-dedup step entirely.
     const isCrossChat = lockedLiveCollections.some(c => !c.collectionId.includes(uuid));
 
-    // When `agentic_retrieval_enabled` is true and backend is Qdrant, route through
-    // retrieveEventsWithAgent — it runs the pre-search itself, calls the planner,
-    // fans out parallel queries, and re-feeds everything through retrieveEvents'
-    // canonical re-ranker. Otherwise it returns the pre-search output unchanged,
-    // making it a safe drop-in replacement.
-    const retrieveFn = settings.agentic_retrieval_enabled ? retrieveEventsWithAgent : retrieveEvents;
-    const { events, debug, storyArcShape, storyArcEntityNames } = await retrieveFn({
+    // retrieveEventsForTurn decides the turn's path: StoryArc mode, Agent Mode, or the plain search.
+    const { events, debug, storyArcShape, storyArcEntityNames } = await retrieveEventsForTurn({
         searchText: effectiveSearchText,
         keywordQuery,
         chatLength: getContext().chat?.length || chat?.length || 0,

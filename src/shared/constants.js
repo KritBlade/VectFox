@@ -60,7 +60,7 @@ export const RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000;
  * disabling retrieval outright; the ceiling keeps a mistyped 1500000 from
  * hanging a generation for half an hour. Agent Mode legitimately needs more than
  * this ceiling and gets it by ADDING its own planner/fanout budget on top --
- * see agenticRetrievalExtraBudgetMs() in src/shared/retrieval-budget.js.
+ * see retrievalModeExtraBudgetMs() in src/shared/retrieval-budget.js.
  */
 export const RETRIEVAL_TIMEOUT_MIN_MS = 3000;
 export const RETRIEVAL_TIMEOUT_MAX_MS = 120000;
@@ -82,17 +82,13 @@ export const AGENTIC_TIMEOUT_MAX_MS = 60000;
 /**
  * Output-token cap for the Agent Mode planner call, and its clamp range.
  *
- * The planner emits a small JSON object (a handful of short queries plus
- * filters), so the default is generous for a non-thinking model. It is NOT
+ * The planner emits a small JSON object (a handful of short queries and a
+ * rationale), so the default is generous for a non-thinking model. It is NOT
  * generous for a thinking one: reasoning tokens are charged against the same
  * cap, so a model that reasons can spend the whole budget thinking and return
  * truncated or empty content -- which then fails JSON.parse and drops Agent Mode
- * back to pre-search with only a log line. That is GitHub issue #18, and it is
- * why this became a user-visible setting instead of the literal 2000 that used
- * to sit in callLlmForJson.
- *
- * Default is unchanged from that literal on purpose: exposing the knob must not
- * silently move anyone's behavior. Raise it if your planner model thinks.
+ * back to pre-search with only a log line (GitHub issue #18), so this is a
+ * user-visible setting. Raise it if your planner model thinks.
  */
 export const AGENTIC_MAX_TOKENS_DEFAULT = 2000;
 export const AGENTIC_MAX_TOKENS_MIN = 256;

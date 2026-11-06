@@ -86,7 +86,6 @@ export async function hybridSearch(collectionId, searchText, topK, settings, opt
         textWeight = settings.hybrid_text_weight ?? 0.5,
         rrfK = settings.hybrid_rrf_k || DEFAULT_RRF_K,
         queryVector = null,
-        filters = {},
     } = options;
 
     // Check if backend supports native hybrid search and user prefers it
@@ -99,7 +98,7 @@ export async function hybridSearch(collectionId, searchText, topK, settings, opt
                 textWeight,
                 fusionMethod,
                 rrfK,
-            }, filters, queryVector);
+            }, queryVector);
         } catch (error) {
             // THE single fallback for the hybrid path. Backends must not degrade
             // internally — QdrantBackend.hybridQuery used to retry vector-only on

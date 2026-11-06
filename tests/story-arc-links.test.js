@@ -82,7 +82,6 @@ const COLLECTION = 'vf_eventbase_chat';
 const settings = {
     vector_backend: 'qdrant',
     story_arc_mode_enabled: true,
-    agentic_retrieval_enabled: true,
     story_arc_link_provider: 'openrouter',
     story_arc_link_model: 'openai/gpt-6-luna',
 };
@@ -146,7 +145,7 @@ describe('runStoryLinkPass', () => {
         fetchPortableChunksMock.mockResolvedValue([chunk(1, 10), chunk(2, 20)]);
         await runStoryLinkPass({ collectionId: COLLECTION, settings, shouldRelinkDecided: true });
         const [call] = callLlmForJsonMock.mock.calls[0];
-        expect(call.llmCfg).toEqual(resolveLinkConfigMock.mock.results[0].value);
+        expect(call.llmConnection).toEqual(resolveLinkConfigMock.mock.results[0].value);
         expect(call.maxTokens).toBeGreaterThan(8000);
     });
 
@@ -383,7 +382,6 @@ describe('linkNewStoryEvents', () => {
 
     it('does nothing when StoryArc mode is not active', async () => {
         await run(['id1'], { story_arc_mode_enabled: false });
-        await run(['id1'], { agentic_retrieval_enabled: false });
         await run(['id1'], { vector_backend: 'standard' });
         await run([]);
         expect(listStoryEventsMock).not.toHaveBeenCalled();

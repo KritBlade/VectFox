@@ -52,7 +52,7 @@ vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackend: async () => ({ listChunks: async () => ({ items: state.points.map(p => ({ metadata: { source_window_end: p.source_window_end } })) }) }),
 }));
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
-vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
+vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn() }));
 vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
 vi.mock('../src/features/collections/collection-metadata.js', () => ({
     isCollectionEnabled: () => true, isCollectionActiveForContextAnyKey: () => true,

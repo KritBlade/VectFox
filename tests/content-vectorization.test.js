@@ -155,22 +155,22 @@ describe('prepareLorebookContent — combined strategy', () => {
 
     it('prepends title before each entry content', () => {
         const result = prepareLorebookContent(
-            { entries: [withComment('Mayla', 'A succubus enchantress.')] },
+            { entries: [withComment('Nora', 'A travelling healer.')] },
             settings,
         );
         expect(result.type).toBe('combined');
-        expect(result.text).toContain('# Mayla\nA succubus enchantress.');
+        expect(result.text).toContain('# Nora\nA travelling healer.');
     });
 
     it('joins multiple entries with separator', () => {
         const result = prepareLorebookContent(
-            { entries: [withComment('Mayla', 'Content A.'), withComment('Valerie', 'Content B.')] },
+            { entries: [withComment('Nora', 'Content A.'), withComment('Rin', 'Content B.')] },
             settings,
         );
         expect(result.type).toBe('combined');
         expect(result.text).toContain('\n\n---\n\n');
-        expect(result.text).toContain('# Mayla\n');
-        expect(result.text).toContain('# Valerie\n');
+        expect(result.text).toContain('# Nora\n');
+        expect(result.text).toContain('# Rin\n');
     });
 
     it('omits separator when only one entry', () => {

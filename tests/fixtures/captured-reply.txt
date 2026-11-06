@@ -1,8 +1,8 @@
 <think><konatan_planning~>主線：送別
-回顾当前情况：列車即將離站，需要交代柯拉莉亞的離別心境，避免落入俗套。
+回顾当前情况：列車即將離站，需要交代Tessa的離別心境，避免落入俗套。
 行文注意：保持克制，留白。</konatan_planning~>
 
-列車停下的動靜很輕。柯拉莉亞走過來，說「拜托你了」。
+列車停下的動靜很輕。Tessa走過來，說「拜托你了」。
 <combat_log></combat_log>
 <UpdateVariable>
 <UpdateAnalysis>relationship ledger update</UpdateAnalysis>

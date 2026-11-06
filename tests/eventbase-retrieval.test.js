@@ -183,7 +183,7 @@ describe('retrieveEvents', () => {
         // Two query texts × two collections = four queries, but only two embeddings.
         expect(getQueryVectorMock).toHaveBeenCalledTimes(2);
         expect(queryCollectionMock).toHaveBeenCalledTimes(4);
-        for (const [, queryText, , , , queryVector] of queryCollectionMock.mock.calls) {
+        for (const [, queryText, , , queryVector] of queryCollectionMock.mock.calls) {
             expect(queryVector).toEqual(vectorFor(queryText));
         }
     });
@@ -223,8 +223,8 @@ describe('retrieveEvents', () => {
         expect(Array.isArray(events)).toBe(true);
     });
 
-    it('collapses duplicate events (same identity) from agentic fan-out into one', async () => {
-        // The agentic planner surfaces the SAME stored event from several queries.
+    it('collapses duplicate events (same identity) from several searches into one', async () => {
+        // Several searches can surface the SAME stored event.
         // Five identical copies (event_id evt_1, score 0.89) + one distinct event
         // arrive via additionalCandidates. Without identity-dedup the similarity
         // score-override escape hatch (0.89 >= 0.75) lets the duplicates through and

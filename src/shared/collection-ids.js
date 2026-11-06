@@ -173,7 +173,7 @@ export function remapCollectionIdToHandle(collectionId, targetHandle) {
 
     for (const prefix of Object.values(COLLECTION_PREFIXES)) {
         if (!collectionId.startsWith(prefix)) continue;
-        let rest = collectionId.slice(prefix.length); // 'qdrant_critblade_char_uuid' or 'critblade_char_uuid'
+        let rest = collectionId.slice(prefix.length); // 'qdrant_wanderer_char_uuid' or 'wanderer_char_uuid'
 
         // Skip the optional backend segment if present so we land on the handle.
         let backendPart = '';

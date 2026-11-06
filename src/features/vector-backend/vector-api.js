@@ -804,12 +804,11 @@ export async function getQueryVector(backend, searchText, settings) {
  * @param {string} searchText - The text to query
  * @param {number} topK - The number of results to return
  * @param {object} settings VectFox settings object
- * @param {object} [filters] - Payload filters (concepts_any also extends the keyword query)
  * @param {number[]|null} [queryVector] - The query's embedding when the caller already has
  *   it (e.g. one vector shared by several collections); otherwise embedded here
  * @returns {Promise<{ hashes: number[], metadata: object[]}>} - Hashes and metadata of the results
  */
-export async function queryCollection(collectionId, searchText, topK, settings, filters = {}, queryVector = null) {
+export async function queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
     // Canonical routing (Doc/collection_helper.md): resolveBackendForCollection accepts either form
     //   (registry-key "backend:id" or bare ID) and returns the backend label
     //   plus the BARE collectionId for downstream calls. Falls back to
@@ -842,18 +841,6 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
         }
     }
 
-    // Append concepts_any terms to the query text so BM25 naturally boosts events containing
-    // those theme words — without hard-filtering anything out. The dense vector stays clean
-    // when queryVector is already set (client-side source above, or the caller's vector);
-    // otherwise the embed below sees effectiveQuery, as the per-request embed used to.
-    let effectiveQuery = searchText;
-    if (Array.isArray(filters.concepts_any) && filters.concepts_any.length > 0) {
-        effectiveQuery = `${searchText} ${filters.concepts_any.join(' ')}`;
-        if (log.enabled('lifecycle')) {
-            log.verbose(`[VectFox] concepts_any appended to query text: [${filters.concepts_any.join(', ')}]`);
-        }
-    }
-
     // Backend name for metrics — resolved backend wins, fall back to settings.
     const actualBackendName = resolved.backend || settings?.vector_backend || 'standard';
 
@@ -862,7 +849,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     // of re-embedding the text.
     if (!queryVector) {
         try {
-            queryVector = await getQueryVector(backend, effectiveQuery, settings);
+            queryVector = await getQueryVector(backend, searchText, settings);
         } catch (error) {
             recordError(actualBackendName, error);
             throw error;
@@ -886,7 +873,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
         }
         const queryStart = Date.now();
         try {
-            const result = await hybridSearch(bareCollectionId, effectiveQuery, topK, settings, { queryVector, filters });
+            const result = await hybridSearch(bareCollectionId, searchText, topK, settings, { queryVector });
             const queryLatency = Date.now() - queryStart;
             recordQuery(actualBackendName, queryLatency);
             if (log.enabled('lifecycle')) {
@@ -901,17 +888,14 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
         }
     }
 
-    // Standard vector search flow (A1/A2). Filters are not supported here.
-    if (Object.keys(filters).length > 0 && log.enabled('lifecycle')) {
-        log.warn('[VectFox] queryCollection: filters ignored on A1/A2 Standard backend path');
-    }
+    // Standard vector search flow (A1/A2).
     // Overfetch to allow keyword-boosted chunks to surface
     const overfetchAmount = getOverfetchAmount(topK);
     // VEC-18: Track query latency for health dashboard
     const queryStart = Date.now();
     let rawResults;
     try {
-        rawResults = await backend.queryCollection(bareCollectionId, effectiveQuery, overfetchAmount, settings, queryVector);
+        rawResults = await backend.queryCollection(bareCollectionId, searchText, overfetchAmount, settings, queryVector);
         const queryLatency = Date.now() - queryStart;
         recordQuery(actualBackendName, queryLatency);
         if (log.enabled('lifecycle')) {
@@ -932,7 +916,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
         text: meta.text || ''
     }));
 
-    let finalResults = await scoreResults(resultsForBoost, effectiveQuery, topK, settings, bareCollectionId);
+    let finalResults = await scoreResults(resultsForBoost, searchText, topK, settings, bareCollectionId);
 
     if (log.enabled('trace')) {
         const idfMode = settings.bm25_use_corpus_idf ? 'corpus-IDF' : 'local-IDF';

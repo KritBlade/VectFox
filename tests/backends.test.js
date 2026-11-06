@@ -802,7 +802,7 @@ describe('QdrantBackend', () => {
                 : mockFetchResponse({ results: [] })));
             const queryVector = [0.4, 0.5, 0.6];
 
-            await backend.hybridQuery('test-collection', 'search', 5, defaultSettings, {}, {}, queryVector);
+            await backend.hybridQuery('test-collection', 'search', 5, defaultSettings, {}, queryVector);
 
             const calls = fetchMock.mock.calls.map(([url, opts]) => ({ url, body: opts?.body ? JSON.parse(opts.body) : null }));
             expect(calls.map(c => c.url)).not.toContain('/api/plugins/similharity/get-embedding');
@@ -821,7 +821,7 @@ describe('QdrantBackend', () => {
             });
             const queryVector = [0.4, 0.5, 0.6];
 
-            await backend.hybridQueryWithRerank('test-collection', 'search', 5, defaultSettings, { weights: {} }, {}, {}, queryVector);
+            await backend.hybridQueryWithRerank('test-collection', 'search', 5, defaultSettings, { weights: {} }, {}, queryVector);
 
             const calls = fetchMock.mock.calls.map(([url, opts]) => ({ url, body: opts?.body ? JSON.parse(opts.body) : null }));
             expect(calls.map(c => c.url)).not.toContain('/api/plugins/similharity/get-embedding');

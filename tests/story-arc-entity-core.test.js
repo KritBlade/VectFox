@@ -7,6 +7,9 @@
  *   - the search asks for the other names of anyone the question names, except the rare ones,
  *   - the entity list counts a merged entity once and never loses one that no tag names,
  *   - merging carries a source's own other names, and splitting undoes it.
+ *
+ * A name in CJK script takes its own path, matching as a substring and not as a whole
+ * word. The tests of that path use plain words in place of names, which stay English.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -34,36 +37,36 @@ describe('buildEntityNameWriter', () => {
     });
 
     it('takes a Latin name only as a whole word, in any case', () => {
-        const writeName = buildEntityNameWriter({ 夜鶯: ['Fern'] });
-        expect(writeName('FERN and Fernando, Fern的劍')).toBe('夜鶯 and Fernando, 夜鶯的劍');
+        const writeName = buildEntityNameWriter({ Rose: ['Dorin'] });
+        expect(writeName('DORIN and Dorinda, Dorin的劍')).toBe('Rose and Dorinda, Rose的劍');
     });
 
     it('prefers the longest name where names overlap', () => {
-        const writeName = buildEntityNameWriter({ 青: ['青鳥·藍', '青鳥'] });
-        expect(writeName('青鳥·藍 見 青鳥')).toBe('青 見 青');
+        const writeName = buildEntityNameWriter({ 雪: ['石頭·藍', '石頭'] });
+        expect(writeName('石頭·藍 見 石頭')).toBe('雪 見 雪');
     });
 
     it('leaves a different person\'s longer name alone, when several events tag it', () => {
-        const events = Array.from({ length: 3 }, () => ({ characters: ['柯拉米亞'] }));
-        const writeName = buildEntityNameWriter({ 雪: ['米亞'] }, events);
-        expect(writeName('米亞 和 柯拉米亞')).toBe('雪 和 柯拉米亞');
+        const events = Array.from({ length: 3 }, () => ({ characters: ['大石頭'] }));
+        const writeName = buildEntityNameWriter({ 雪: ['石頭'] }, events);
+        expect(writeName('石頭 和 大石頭')).toBe('雪 和 大石頭');
     });
 
     it('takes a one-off spelling, such as the name with a title on it', () => {
-        const events = [{ characters: ['女神米亞'] }, { characters: ['米亞女神'] }];
-        const writeName = buildEntityNameWriter({ 雪: ['米亞'] }, events);
-        expect(writeName('女神米亞 和 米亞女神')).toBe('女神雪 和 雪女神');
+        const events = [{ characters: ['女神石頭'] }, { characters: ['石頭女神'] }];
+        const writeName = buildEntityNameWriter({ 雪: ['石頭'] }, events);
+        expect(writeName('女神石頭 和 石頭女神')).toBe('女神雪 和 雪女神');
     });
 
     it('rewrites a full name that holds the other name as a part', () => {
-        const events = Array.from({ length: 3 }, () => ({ characters: ['米亞·霜'] }));
-        const writeName = buildEntityNameWriter({ 雪: ['米亞'] }, events);
-        expect(writeName('米亞·霜')).toBe('雪·霜');
+        const events = Array.from({ length: 3 }, () => ({ characters: ['石頭·霜'] }));
+        const writeName = buildEntityNameWriter({ 雪: ['石頭'] }, events);
+        expect(writeName('石頭·霜')).toBe('雪·霜');
     });
 
     it('leaves a kept name that holds an other name alone', () => {
-        const writeName = buildEntityNameWriter({ 瑪麗莎: ['麗莎'] });
-        expect(writeName('瑪麗莎 又名 麗莎')).toBe('瑪麗莎 又名 瑪麗莎');
+        const writeName = buildEntityNameWriter({ 大石頭: ['石頭'] });
+        expect(writeName('大石頭 又名 石頭')).toBe('大石頭 又名 大石頭');
     });
 
     it('takes a place name inside a longer place tag', () => {
@@ -75,8 +78,8 @@ describe('buildEntityNameWriter', () => {
 
 describe('entityNamesLeftAlone', () => {
     it('names the longer names that stay their own', () => {
-        const events = Array.from({ length: 3 }, () => ({ characters: ['柯拉米亞', '米亞·霜', 'Tom'] }));
-        expect(entityNamesLeftAlone({ 雪: ['米亞'] }, [...events, { characters: ['女神米亞'] }])).toEqual(['柯拉米亞']);
+        const events = Array.from({ length: 3 }, () => ({ characters: ['大石頭', '石頭·霜', 'Tom'] }));
+        expect(entityNamesLeftAlone({ 雪: ['石頭'] }, [...events, { characters: ['女神石頭'] }])).toEqual(['大石頭']);
     });
 });
 
@@ -105,18 +108,18 @@ describe('entitySearchText', () => {
     const eventsHolding = (name, count) => Array.from({ length: count }, () => ({ text: `${name} acts` }));
 
     it('adds the other names of someone the question names', () => {
-        const storedEvents = [...eventsHolding('Rose', 5), ...eventsHolding('玫瑰', 5)];
-        expect(entitySearchText({ queryText: 'How did Rose win?', subject: '', merges: { Rose: ['玫瑰'] }, storedEvents })).toBe('How did Rose win? 玫瑰');
+        const storedEvents = [...eventsHolding('Rose', 5), ...eventsHolding('Rosa', 5)];
+        expect(entitySearchText({ queryText: 'How did Rose win?', subject: '', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did Rose win? Rosa');
     });
 
     it('adds them when only the subject names the entity', () => {
-        const storedEvents = [...eventsHolding('Rose', 5), ...eventsHolding('玫瑰', 5)];
-        expect(entitySearchText({ queryText: 'How did you win?', subject: 'rose', merges: { Rose: ['玫瑰'] }, storedEvents })).toBe('How did you win? Rose 玫瑰');
+        const storedEvents = [...eventsHolding('Rose', 5), ...eventsHolding('Rosa', 5)];
+        expect(entitySearchText({ queryText: 'How did you win?', subject: 'rose', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did you win? Rose Rosa');
     });
 
     it('leaves a rare name out of the search', () => {
-        const storedEvents = [...eventsHolding('Rose', 95), ...eventsHolding('Rosie', 5), ...eventsHolding('玫瑰', 20)];
-        expect(entitySearchText({ queryText: 'How did Rose win?', subject: '', merges: { Rose: ['Rosie', '玫瑰'] }, storedEvents })).toBe('How did Rose win? 玫瑰');
+        const storedEvents = [...eventsHolding('Rose', 95), ...eventsHolding('Rosie', 5), ...eventsHolding('Rosa', 20)];
+        expect(entitySearchText({ queryText: 'How did Rose win?', subject: '', merges: { Rose: ['Rosie', 'Rosa'] }, storedEvents })).toBe('How did Rose win? Rosa');
     });
 
     it('adds the main name when the question uses the rare one', () => {
@@ -126,36 +129,36 @@ describe('entitySearchText', () => {
 
     it('changes nothing for a question about someone else', () => {
         const storedEvents = eventsHolding('Rose', 5);
-        expect(entitySearchText({ queryText: 'How did Tom win?', subject: 'Tom', merges: { Rose: ['玫瑰'] }, storedEvents })).toBe('How did Tom win?');
+        expect(entitySearchText({ queryText: 'How did Tom win?', subject: 'Tom', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did Tom win?');
     });
 });
 
 describe('entityNamesInMessage', () => {
     it('names the other names a message uses', () => {
-        expect(entityNamesInMessage('Rosie and Tom', { Rose: ['Rosie', '玫瑰'] })).toEqual([{ name: 'Rosie', keptName: 'Rose' }]);
+        expect(entityNamesInMessage('Rosie and Tom', { Rose: ['Rosie', 'Rosa'] })).toEqual([{ name: 'Rosie', keptName: 'Rose' }]);
     });
 });
 
 describe('listEntities', () => {
     const events = [
         { text: 'Rose', characters: ['Rose', 'Tom'], locations: ['Bay'] },
-        { text: '玫瑰', characters: ['玫瑰'] },
-        { text: 'Rose and 玫瑰', characters: ['Rose', '玫瑰'] },
+        { text: 'Rosa', characters: ['Rosa'] },
+        { text: 'Rose and Rosa', characters: ['Rose', 'Rosa'] },
         { text: 'Tom', characters: ['Tom ', 'Tom'] },
     ];
 
     it('lists one kind, most named first, counting a tag once per event', () => {
         expect(listEntities(events, {}, 'people')).toEqual([
+            { name: 'Rosa', otherNames: [], eventCount: 2 },
             { name: 'Rose', otherNames: [], eventCount: 2 },
             { name: 'Tom', otherNames: [], eventCount: 2 },
-            { name: '玫瑰', otherNames: [], eventCount: 2 },
         ]);
         expect(listEntities(events, {}, 'places')).toEqual([{ name: 'Bay', otherNames: [], eventCount: 1 }]);
     });
 
     it('shows a merged entity once, counting each event naming it once', () => {
-        expect(listEntities(events, { Rose: ['玫瑰'] }, 'people')).toEqual([
-            { name: 'Rose', otherNames: ['玫瑰'], eventCount: 3 },
+        expect(listEntities(events, { Rose: ['Rosa'] }, 'people')).toEqual([
+            { name: 'Rose', otherNames: ['Rosa'], eventCount: 3 },
             { name: 'Tom', otherNames: [], eventCount: 2 },
         ]);
     });
@@ -172,8 +175,8 @@ describe('listEntities', () => {
 
 describe('filterEntities', () => {
     it('finds a row by any of its names, in any case', () => {
-        const rows = [{ name: 'Rose', otherNames: ['玫瑰'] }, { name: 'Tom', otherNames: [] }];
-        expect(filterEntities(rows, '玫').map(row => row.name)).toEqual(['Rose']);
+        const rows = [{ name: 'Rose', otherNames: ['Rosa'] }, { name: 'Tom', otherNames: [] }];
+        expect(filterEntities(rows, 'rosa').map(row => row.name)).toEqual(['Rose']);
         expect(filterEntities(rows, 'TOM').map(row => row.name)).toEqual(['Tom']);
         expect(filterEntities(rows, '  ')).toEqual(rows);
     });
@@ -181,20 +184,20 @@ describe('filterEntities', () => {
 
 describe('mergeEntityNames', () => {
     it('makes the source an other name of the target', () => {
-        const { isMerged, merges } = mergeEntityNames({}, '玫瑰', 'Rose');
+        const { isMerged, merges } = mergeEntityNames({}, 'Rosa', 'Rose');
         expect(isMerged).toBe(true);
-        expect(merges).toEqual({ Rose: ['玫瑰'] });
+        expect(merges).toEqual({ Rose: ['Rosa'] });
         expect(hasEntityMerges(merges)).toBe(true);
     });
 
     it('carries the source\'s own other names', () => {
-        const { merges } = mergeEntityNames({ 玫瑰: ['Rosie'] }, '玫瑰', 'Rose');
-        expect(merges).toEqual({ Rose: ['玫瑰', 'Rosie'] });
+        const { merges } = mergeEntityNames({ Rosa: ['Rosie'] }, 'Rosa', 'Rose');
+        expect(merges).toEqual({ Rose: ['Rosa', 'Rosie'] });
     });
 
     it('resolves a target that is already an other name', () => {
-        const { merges } = mergeEntityNames({ Rose: ['Rosie'] }, '玫瑰', 'rosie');
-        expect(merges).toEqual({ Rose: ['Rosie', '玫瑰'] });
+        const { merges } = mergeEntityNames({ Rose: ['Rosie'] }, 'Rosa', 'rosie');
+        expect(merges).toEqual({ Rose: ['Rosie', 'Rosa'] });
     });
 
     it('refuses a name already in the target\'s entity', () => {
@@ -211,14 +214,14 @@ describe('mergeEntityNames', () => {
 
     it('leaves the merges it was given unchanged', () => {
         const before = { Rose: ['Rosie'] };
-        mergeEntityNames(before, '玫瑰', 'Rose');
+        mergeEntityNames(before, 'Rosa', 'Rose');
         expect(before).toEqual({ Rose: ['Rosie'] });
     });
 });
 
 describe('splitEntityName', () => {
     it('takes one name out and keeps the rest', () => {
-        expect(splitEntityName({ Rose: ['Rosie', '玫瑰'] }, 'Rose', 'Rosie')).toEqual({ Rose: ['玫瑰'] });
+        expect(splitEntityName({ Rose: ['Rosie', 'Rosa'] }, 'Rose', 'Rosie')).toEqual({ Rose: ['Rosa'] });
     });
 
     it('drops an entity left with no other names', () => {

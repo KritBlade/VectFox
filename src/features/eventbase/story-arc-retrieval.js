@@ -33,7 +33,7 @@ const STORY_WEB_CLOSEST_COUNT = 10;
  */
 async function _queryPool(collectionId, queryText, poolSize, settings, boundQuery) {
     try {
-        const { hashes, metadata } = await boundQuery(queryCollection(collectionId, queryText, poolSize, settings, {}));
+        const { hashes, metadata } = await boundQuery(queryCollection(collectionId, queryText, poolSize, settings));
         return (hashes || []).map((hash, i) => ({ ...(metadata?.[i] || {}), _hash: Number(hash), _sortFrame: collectionId }));
     } catch (err) {
         log.warn(`[VectFox-StoryArc] Query failed (${collectionId}):`, err);
@@ -89,7 +89,7 @@ async function _cutLongBlock(shape, keptNames, events, poolEvents, chooseBlockEv
 
 /**
  * Fetch a recipe's events, in time order. Returns no events when the turn should
- * keep today's path, and `ruleName` says which Route rule decided that.
+ * keep the pre-search, and `ruleName` says which Route rule decided that.
  *
  * @param {{shape: string, subject: string}} route
  * @param {object} params - The retrieval params (see retrieveEvents)

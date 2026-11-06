@@ -54,13 +54,13 @@ const NEW_EVENT_PARALLEL_CALLS = 3;
 const NEW_EVENT_POOL_SIZE = 40;
 
 /** One LLM decision, without storing it. Events with nothing earlier need no call. */
-async function _decideLinks(event, candidates, llmCfg, settings) {
+async function _decideLinks(event, candidates, llmConnection, settings) {
     if (!candidates.length) return { links: [], droppedCount: 0 };
     const reply = await generationRateLimiter.execute(
         () => callLlmForJson({
             systemPrompt: STORY_LINK_PROMPT,
             userMessage: buildStoryLinkMessage(event, candidates),
-            llmCfg,
+            llmConnection,
             timeoutMs: LINK_TIMEOUT_MS,
             maxTokens: LINK_MAX_TOKENS,
             contextLabel: 'StoryArc links',
@@ -102,21 +102,21 @@ async function _tryTwice(work, description) {
  * @param {number} params.parallelCalls
  * @param {(event: object) => Promise<object[]>|object[]} params.findCandidates - What an event chooses links from; may throw
  * @param {string} params.collectionId
- * @param {object} params.llmCfg
+ * @param {object} params.llmConnection
  * @param {object} params.settings
  * @param {() => boolean} [params.shouldStop] - Checked before each event
  * @param {(event: object, err: Error) => void} params.onEventFailed
  * @param {(tally: object) => void} [params.onEventFinished]
  * @returns {Promise<{finishedCount: number, linkedCount: number, failedCount: number, droppedLinkCount: number, stopReason: string}>}
  */
-async function _linkEvents({ events, parallelCalls, findCandidates, collectionId, llmCfg, settings, shouldStop = () => false, onEventFailed, onEventFinished = () => {} }) {
+async function _linkEvents({ events, parallelCalls, findCandidates, collectionId, llmConnection, settings, shouldStop = () => false, onEventFailed, onEventFinished = () => {} }) {
     const tally = { finishedCount: 0, linkedCount: 0, failedCount: 0, droppedLinkCount: 0, stopReason: '' };
     let consecutiveFailures = 0;
     let next = 0;
     const linkOneEvent = async (event) => {
         const candidates = await findCandidates(event);
         const label = `The event at message ${event.source_window_start}`;
-        const decision = await _tryTwice(() => _decideLinks(event, candidates, llmCfg, settings), `${label}: its link decision`);
+        const decision = await _tryTwice(() => _decideLinks(event, candidates, llmConnection, settings), `${label}: its link decision`);
         // Only the write is tried again here, so a failed write never pays for a second decision.
         await _tryTwice(() => updateChunkMetadata(collectionId, event._hash, { story_links: decision.links }, settings), `${label}: storing its links`);
         return decision;
@@ -192,8 +192,8 @@ export async function readChatStoryEvents(settings, resolveOptions) {
 export async function describeStoryLinkPass(settings) {
     const { problem, collectionId, events } = await readChatStoryEvents(settings);
     if (problem) return { problem };
-    const llmCfg = resolveStoryLinkLlmConfig(settings);
-    if (!llmCfg.ok) return { problem: `Set the link model and its provider's key or URL first (${llmCfg.reason}).` };
+    const llmConnection = resolveStoryLinkLlmConfig(settings);
+    if (!llmConnection.ok) return { problem: `Set the link model and its provider's key or URL first (${llmConnection.reason}).` };
     const coverage = measureStoryLinkCoverage(events);
     const price = await _readLinkModelPrice(settings);
     return {
@@ -226,8 +226,8 @@ export async function readStoryLinkCoverage(settings) {
  * @returns {Promise<{decidedCount: number, failedCount: number, isStopped: boolean}>}
  */
 export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDecided }) {
-    const llmCfg = resolveStoryLinkLlmConfig(settings);
-    if (!llmCfg.ok) throw new Error(`StoryArc link model is not ready: ${llmCfg.reason}`);
+    const llmConnection = resolveStoryLinkLlmConfig(settings);
+    if (!llmConnection.ok) throw new Error(`StoryArc link model is not ready: ${llmConnection.reason}`);
 
     let isStopRequested = false;
     progressTracker.show('Linking story events', 0, 'Events');
@@ -258,7 +258,7 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
                 return mergeLinkCandidates(nearestByVector(event.vector, earlierEvents, LINK_NEAREST_COUNT), earlierEvents);
             },
             collectionId,
-            llmCfg,
+            llmConnection,
             settings,
             shouldStop: () => isStopRequested,
             onEventFailed: (event, err) => progressTracker.addError(`Message ${event.source_window_start}: ${err?.message || err}`),
@@ -310,9 +310,9 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
             globalThis.toastr?.info(`${newEventIds.length} new events have no StoryArc links yet. Use the StoryArc tab to link them, where the cost is shown first.`, 'VectFox StoryArc');
             return;
         }
-        const llmCfg = resolveStoryLinkLlmConfig(settings);
-        if (!llmCfg.ok) {
-            log.warn(`[VectFox-StoryArc] New events were not linked: ${llmCfg.reason}`);
+        const llmConnection = resolveStoryLinkLlmConfig(settings);
+        if (!llmConnection.ok) {
+            log.warn(`[VectFox-StoryArc] New events were not linked: ${llmConnection.reason}`);
             return;
         }
         const events = await listStoryEvents(collectionId, settings);
@@ -331,7 +331,7 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
             parallelCalls: NEW_EVENT_PARALLEL_CALLS,
             findCandidates: async (event) => {
                 const earlierEvents = earlierEventsOf(event, ordered);
-                const { hashes } = earlierEvents.length ? await queryCollection(collectionId, event.text, NEW_EVENT_POOL_SIZE, searchSettings, {}) : { hashes: [] };
+                const { hashes } = earlierEvents.length ? await queryCollection(collectionId, event.text, NEW_EVENT_POOL_SIZE, searchSettings) : { hashes: [] };
                 const nearest = (hashes ?? [])
                     .map(hash => eventByHash.get(Number(hash)))
                     .filter(hit => hit && hit.source_window_start < event.source_window_start)
@@ -339,7 +339,7 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
                 return mergeLinkCandidates(nearest, earlierEvents);
             },
             collectionId,
-            llmCfg,
+            llmConnection,
             settings,
             onEventFailed: (event, err) => log.warn(`[VectFox-StoryArc] The new event at message ${event.source_window_start} was not linked:`, err),
         });

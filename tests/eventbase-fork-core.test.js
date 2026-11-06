@@ -53,8 +53,8 @@ const branchHashes = branchMessages.map(hashSourceMessage);
 
 describe('hashSourceMessage', () => {
     it('keeps the stored hash values (window record and stored events depend on them)', () => {
-        expect(hashSourceMessage({ name: '勇希', mes: '  早安！\n' })).toBe(470147541);
-        expect(hashSourceMessage({ name: 'Critblade', mes: 'Hello there' })).toBe(3440497841);
+        expect(hashSourceMessage({ name: 'Kai', mes: '  早安！\n' })).toBe(1144484477);
+        expect(hashSourceMessage({ name: 'Rin', mes: 'Hello there' })).toBe(2680015622);
     });
 
     it('prefers the message\'s own hash', () => {

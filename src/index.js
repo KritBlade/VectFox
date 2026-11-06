@@ -358,14 +358,14 @@ const defaultSettings = {
     eventbase_compare_rerank_verbose: false,
 
     // ─── AgentMode (Agentic Retrieval) ──────────────────────────────────
-    // Optional LLM planner step that consumes pre-search candidates plus
-    // recent chat context and emits 1-4 follow-up queries which fan out in
-    // parallel against Qdrant. Purely additive — never replaces the existing
-    // flow. A3 (Qdrant) only. See InternalProject/Vectfox/plans/executed/agentic-retrieval-plan.md.
+    // Optional LLM planner that reads recent chat alongside the pre-search and
+    // emits 1-6 follow-up queries which fan out in parallel against Qdrant. Their
+    // hits add seats beside the pre-search's, which keeps all its own. Does not run
+    // under StoryArc mode. A3 (Qdrant) only.
     agentic_retrieval_enabled: false,                  // Master toggle (default OFF)
-    story_arc_mode_enabled: false,                     // StoryArc mode: routes questions about the story's past to time-ordered searches (needs AgentMode)
-    story_arc_link_provider: 'openrouter',             // StoryArc links' own model: a link needs a model that thinks,
-    story_arc_link_model: 'openai/gpt-6-luna',         // which the router and planner do not
+    story_arc_mode_enabled: false,                     // StoryArc mode: routes questions about the story's past to time-ordered searches. AgentMode's planner does not run under it
+    story_arc_link_provider: 'openrouter',             // StoryArc's own model: a link needs a model that thinks,
+    story_arc_link_model: 'openai/gpt-6-luna',         // which AgentMode's planner does not
     agent_provider: '',                    // '' → inherit chat_provider
     agent_model: '',                       // '' → inherit chat_model
     // agentic_retrieval_openrouter_api_key and agentic_retrieval_vllm_api_key
@@ -375,7 +375,6 @@ const defaultSettings = {
     // (dual-write for vLLM, see embedding/chat split in api-keys.js header).
     agent_vllm_url: '',                    // '' → inherit chat_vllm_url
     agentic_retrieval_chat_depth: 3,                   // # of past chat turns sent to planner (slider 1-10)
-    agentic_retrieval_candidates_to_show: 12,          // Pre-search slice shown to planner (slider 5-20)
     agentic_retrieval_max_queries: 6,                  // Hard ceiling on planner output (slider 1-6)
     // Both timeouts run INSIDE the EventBase retrieval bound and are ADDED to it
     // (src/shared/retrieval-budget.js), so raising either really does buy the planner
@@ -384,9 +383,8 @@ const defaultSettings = {
     agentic_retrieval_query_timeout_ms: AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,   // Per-query fanout timeout — drop a straggling Qdrant call so one slow embed/search doesn't stall retrieval
     // Planner output-token cap. A thinking model spends this on reasoning before
     // it writes any JSON, so too low = truncated output = agent mode silently
-    // falls back to pre-search. Was a hardcoded 2000. UI: AgentMode tab.
+    // falls back to pre-search. UI: AgentMode tab.
     agentic_retrieval_max_tokens: AGENTIC_MAX_TOKENS_DEFAULT,
-    agentic_filters_enabled: true,                     // Apply planner-emitted *_any / importance_gte filters (Phase 1.5)
 
     // ─── Auto-Reformat (Document/URL/Wiki) ──────────────────────────────
     // Optional, per-session LLM pass offered in Vectorize Content for

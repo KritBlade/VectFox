@@ -5,7 +5,7 @@
  * Retrieval decides WHICH events are injected (relevance/score); the injector
  * decides DISPLAY order. These guard that:
  *   - within one conversation frame, events render oldest → newest by
- *     `source_window_end` (the Bluewatch-#1-before-#2 case),
+ *     `source_window_end` (a place's first event before its second),
  *   - events lacking a window key sink to the end without disturbing others,
  *   - ties keep their incoming (relevance) order (stable sort),
  *   - across frames (archive vs live), events never interleave — whole frames

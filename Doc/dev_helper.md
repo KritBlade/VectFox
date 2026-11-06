@@ -407,7 +407,7 @@ The `bm25_use_corpus_idf` toggle is the source of the most common misconception.
 | Question                                                                   | Answer                                                                                               |
 | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Does ON make BM25 score all chunks in the collection?                      | **No.** BM25 still only scores the ANN top-K candidates the vector layer surfaced.                   |
-| What does ON actually change?                                              | The**IDF weights** used for the per-query terms. With ON, IDF is computed from corpus-wide df values (e.g. `df(贖身)=5 / N=1394`). With OFF, df is recomputed per query against just the local candidate set (e.g. `df(贖身)=3 / N=40`) — which biases IDF toward zero whenever the candidates already share the term. |
+| What does ON actually change?                                              | The**IDF weights** used for the per-query terms. With ON, IDF is computed from corpus-wide df values (e.g. `df(還債)=5 / N=1394`). With OFF, df is recomputed per query against just the local candidate set (e.g. `df(還債)=3 / N=40`) — which biases IDF toward zero whenever the candidates already share the term. |
 | How can a doc that doesn't appear in the ANN top-K still affect the score? | It can't be a result. It can only contribute to global df values, which feed into the per-term IDF weights of docs that*are* in the candidate set. |
 | What if I want true full-corpus retrieval (find docs that vector missed)?  | Use**A3 (Qdrant)**. Only that path stores a sparse-vector index over every chunk and can match by term across the full collection. The standard backend has no inverted/sparse index. |
 
@@ -457,7 +457,7 @@ EventBase overrides `keyword_scoring_method` with `eventbase_keyword_scoring_met
 | `hybrid_rrf_k`                                                              | 60                        | A2 RRF mode only                                               | Qdrant uses its own internal default for A3; this knob doesn't reach the server.                     |
 | `cjk_tokenizer_mode` (`intl` / `jieba` / `jieba_tw` / `tiny_segmenter`)     | `intl`                    | A3 (locked per Qdrant collection at upsert via sentinel point) | Mismatch between current setting and the collection's locked tokenizer triggers a modal and refuses the query. On A1/A2 the tokenizer is also used but not locked — changing it just means inconsistent tokenization until re-vectorize. |
 | `deduplication_depth`                                                       | 0 (disabled)              | All three paths                                                | EventBase context-window dedup: suppress events whose source window falls within the last N messages. Same JS path post-retrieval. |
-| `eventbase_retrieval_top_k`                                                 | 10                        | All three paths                                                | Final number of events injected. Internal overfetch is`top_k × 2 × 2 = 40` for A1 (`getOverfetchAmount` in keyword-boost.js). |
+| `eventbase_retrieval_top_k`                                                 | 10                        | All three paths                                                | Final number of events injected, plus up to 5 that Agent Mode adds; a StoryArc block keeps its own count. Internal overfetch is`top_k × 2 × 2 = 40` for A1 (`getOverfetchAmount` in keyword-boost.js). |
 | `eventbase_retrieval_min_importance`                                        | 1                         | All three paths                                                | Drops events below this importance threshold after retrieval.                                        |
 | `eventbase_rerank_w_cosine` / `_w_importance` / `_w_persist` / `_w_recency` | 0.55 / 0.20 / 0.15 / 0.10 | All three paths (formula coefficients)                         | A3 with`eventbase_native_rerank=true` applies them server-side via Qdrant formula; A1/A2 apply them in JS in `eventbase-retrieval.js`. |
 | `eventbase_native_rerank`                                                   | `true`                    | A3 only                                                        | Pushes the 4-weight formula into the same Qdrant`/points/query` call. Requires Qdrant ≥ 1.13. Set `false` to fall back to JS post-processing. |
@@ -501,7 +501,7 @@ still surface in the final result.
 
 **What stays client-side even with native rerank:**
 
-- **Anchor boost** — multi-token phrase substring match (e.g. `贖身的儀式`)
+- **Anchor boost** — multi-token phrase substring match (e.g. `還債的經過`)
   requires JS; Qdrant tokenizes terms individually and any-of matching would
   miss phrases.
 - **Pairwise deduplication** — content-hash overlap across events.
@@ -656,7 +656,7 @@ Activation Triggers and Advanced Conditions (Collection Settings → Activation 
 
 ### Why it works for any language
 
-**Triggers** and the text-matching conditions (`pattern` / `speaker` / `characterPresent` / `lorebookActive`) match against recent messages with JavaScript `String.includes()` — see `checkTriggers()` in `src/features/collections/collection-metadata.js` and `evaluatePatternCondition()` in `src/features/collections/conditional-activation.js`. Substring matching is inherently language-neutral: `"贖身".includes("贖身")` is `true` regardless of script or whitespace. There is no tokenization or word-boundary assumption in the plain-string path.
+**Triggers** and the text-matching conditions (`pattern` / `speaker` / `characterPresent` / `lorebookActive`) match against recent messages with JavaScript `String.includes()` — see `checkTriggers()` in `src/features/collections/collection-metadata.js` and `evaluatePatternCondition()` in `src/features/collections/conditional-activation.js`. Substring matching is inherently language-neutral: `"還債".includes("還債")` is `true` regardless of script or whitespace. There is no tokenization or word-boundary assumption in the plain-string path.
 
 **Numeric / structural conditions** — Message Count, Swipe Count, Time of Day, Generation Type, Group Chat, Random Chance — never inspect text and are trivially language-independent.
 
@@ -670,36 +670,34 @@ A trigger or `pattern` value wrapped in `/.../` is run as a real `RegExp`. If *y
 
 ## 13) AgentMode — Agentic Retrieval
 
-Optional LLM-planner step that runs between EventBase pre-search and re-rank. Sees the pre-search candidates plus recent chat context, then fans out 1-4 follow-up queries in parallel against Qdrant. **Purely additive — never replaces the existing flow.** A3 (Qdrant) only.
-
-Design: `InternalProject/Vectfox/plans/executed/agentic-retrieval-plan.md`.
+Optional LLM planner that runs alongside the EventBase pre-search. It sees recent chat context, not the pre-search's hits, and fans out 1-6 follow-up queries in parallel against Qdrant. **Purely additive — the pre-search keeps every seat it won, and the queries add up to 5 from outside its results.** A3 (Qdrant) only. It does not run under StoryArc mode, whose router, thread pick and block cut use the link model.
 
 ### Files
 
 | File                                                        | Role                                                                                                 |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| [prompts-i18n.js](../src/features/eventbase/prompts-i18n.js) | Planner system prompt per language mode (`_PLANNER_PROMPTS`, read through `getAgenticPlannerPrompt(mode)`) and the user message (`buildPlannerUserMessage`: recent chat + current message + candidate summaries). |
-| [src/features/eventbase/agentic-retrieval.js](../src/features/eventbase/agentic-retrieval.js)   | Public`retrieveEventsWithAgent(params)`. Runs pre-search, calls planner LLM, fans out queries, merges, re-feeds through canonical re-ranker. Includes `_resolveAgenticLLMConfig()` for inheritance from the `chat_*` fields. |
-| [src/features/eventbase/eventbase-workflow.js](../src/features/eventbase/eventbase-workflow.js) | Switches between`retrieveEvents` and `retrieveEventsWithAgent` based on `settings.agentic_retrieval_enabled`. |
+| [prompts-i18n.js](../src/features/eventbase/prompts-i18n.js) | Planner system prompt per language mode (`_PLANNER_PROMPTS`, read through `getAgenticPlannerPrompt(mode)`) and the user message (`buildPlannerUserMessage`: recent chat + current message). |
+| [src/features/eventbase/agentic-retrieval.js](../src/features/eventbase/agentic-retrieval.js)   | Public`retrieveEventsForTurn(params)`, retrieval's one entry point, which decides a turn's path: StoryArc mode, Agent Mode or the plain search. Runs the planner alongside the pre-search and fans out its queries. Includes `_resolveAgenticLLMConfig()` for inheritance from the `chat_*` fields. |
+| [src/features/eventbase/planner-seats-core.js](../src/features/eventbase/planner-seats-core.js) | `seatPlannerHits`, the pure rule for the seats the planner's queries add. |
+| [src/features/eventbase/eventbase-workflow.js](../src/features/eventbase/eventbase-workflow.js) | Calls `retrieveEventsForTurn` on every turn. |
 | [src/features/settings-panel/settings-panel.js](../src/features/settings-panel/settings-panel.js)                     | "AgentMode" tab (peer of Core/EventBase/etc.) with provider/model inheritance, sliders and timeouts. |
 
 ### Flow
 
 ```
-retrieveEventsWithAgent(params)
- ├─ STAGE 1 — retrieveEvents(params)              (existing pre-search, unchanged)
- ├─ STAGE 2 — early-exit if disabled or non-Qdrant → return pre-search
- ├─ STAGE 3 — _callPlanner({system, user, llmCfg, timeoutMs})
- │    LLM input: recent N turns + current user message + top-K candidate summaries
- │    LLM output: { queries: string[], filters?: {...}, rationale: string }
- ├─ STAGE 4 — Promise.all of queryCollection per (collection × planner-query)
- └─ STAGE 5 — retrieveEvents({skipLiveQuery: true, additionalCandidates: [...]})
-              re-runs 4-weight rerank / dedup / context-dedup / top-K trim
+retrieveEventsForTurn(params)
+ ├─ StoryArc mode on → router, recipe, or the plain search. No planner
+ ├─ Agent Mode off or non-Qdrant → the plain search
+ └─ _retrieveWithPlanner(params)
+      ├─ retrieveEvents(params)                     (the pre-search, unchanged)
+      ├─ _searchPlannedQueries(params), alongside it
+      │    LLM input: recent N turns + current user message
+      │    LLM output: { queries: string[], rationale: string }
+      │    Promise.all of queryCollection per (collection × planner-query)
+      └─ seatPlannerHits(...)                       (up to 5 events from outside the pre-search's pool)
 ```
 
-### Planner-emitted filters
-
-- **Planner-emitted filters are applied** to queries while `agentic_filters_enabled` is on (default). The planner emits `characters_any`, `locations_any`, `factions_any`, `items_any`, `concepts_any`, `event_type_any`, and `importance_gte`, validated and clamped by [`agentic-retrieval.js::_validatePlannerFilters`](../src/features/eventbase/agentic-retrieval.js) (arrays capped to a reasonable max, `importance_gte` clamped to 1–10), then translated by Similharity's [`_buildHybridFilter`](../../similharity/qdrant-backend.js) into Qdrant payload `should` clauses (for `*_any` — OR within and across fields) and a `must` clause (for `importance_gte`). Both the non-rerank and formula-rerank Qdrant query paths apply them.
+The result is the pre-search's events, then the added ones. There is no second rerank. An added event passes the same minimum importance, context filter and duplicate rule as the pre-search's.
 
 ### Settings (all in `src/index.js` defaults)
 
@@ -709,58 +707,53 @@ agent_provider                           ''          // '' → inherit chat_prov
 agent_model                              ''          // '' → inherit chat_model
 agent_vllm_url                           ''          // '' → inherit chat_vllm_url
 agentic_retrieval_chat_depth             3           // past chat turns sent to the planner (slider 1-10)
-agentic_retrieval_candidates_to_show     12          // pre-search slice shown to the planner (slider 5-20)
 agentic_retrieval_max_queries            6           // ceiling on planner queries (slider 1-6)
 agentic_retrieval_timeout_ms             30000       // planner LLM call timeout
 agentic_retrieval_query_timeout_ms       10000       // per-query fan-out timeout; a straggler is dropped
 agentic_retrieval_max_tokens             2000        // planner output-token cap
-agentic_filters_enabled                  true        // apply planner-emitted *_any / importance_gte filters
 ```
 
 API keys are SillyTavern's own secrets (`SECRET_KEYS.OPENROUTER`, and `CUSTOM` / `VLLM` for vLLM); VectFox has no key settings. Both timeouts run inside the EventBase retrieval bound and are added to it. Inheritance is centralized in `_resolveAgenticLLMConfig(settings)` — read it once, no scattered `||` checks elsewhere.
 
 ### Debug log shape
 
-Lines go through `log.domain('agent', level, …)` with the `[VectFox-Agentic]` prefix, so they're greppable and distinct from `[EventBase]` / `[Qdrant]`. Steps 1–3, 5 and 12–14 log at `lifecycle`, the rest at `verbose`; the per-turn snippets of step 4 and the per-query lines of step 11 log at `trace`.
+Lines go through `log.domain('agent', level, …)` with the `[VectFox-Agentic]` prefix, so they're greppable and distinct from `[EventBase]` / `[Qdrant]`. Steps 1, 2, 4, 10 and 11 log at `lifecycle`, the rest at `verbose`; the per-turn snippets of step 3 and the per-query lines of step 9 log at `trace`.
 
 Per retrieval round emits, in order:
 
 1. `mode=ON trigger=user_message_len=<N>`
-2. `Pre-search returned <N> candidates (top score=<x.xx>)`
-3. `Past chat turns sent to planner: <depth>`
-4. `Narrative context preview` — one ~50-word snippet per turn (matches what the planner actually sees, and the count equals `agentic_retrieval_chat_depth`)
-5. `LLM prompt size: system+user approx <T> tokens (<a>+<b> chars)` — size only, not the prompt text (the static system prompt is in `prompts-i18n.js`; the narrative-context preview at step 4 shows the dynamic part)
-6. `LLM call complete: <ms>ms` — with prompt / completion / total tokens when the provider returns usage
-7. `Planner output:` followed by the full JSON response from the LLM (queries, filters, rationale)
-8. `Planner filters applied: …` or `Planner filters: (none — running unfiltered)`
-9. `Qdrant fanout: <N> queries × <M> collection(s) = <X> parallel calls`
-10. `Qdrant fanout complete: <ms>ms`
-11. `Per-query hits:` — one line per query with top score
-12. `Agentic-only hits (not already in pre-search): <N>`
-13. `Final merged candidates: <pre> pre-search + <agentic> agentic = <total> total …`
-14. `Total wall-clock for agent overhead: <ms>ms (LLM=<ms>ms, fanout=<ms>ms)`
+2. `Past chat turns sent to planner: <depth>`
+3. `Narrative context preview` — one ~50-word snippet per turn (matches what the planner actually sees, and the count equals `agentic_retrieval_chat_depth`)
+4. `LLM prompt size: system+user approx <T> tokens (<a>+<b> chars)` — size only, not the prompt text (the static system prompt is in `prompts-i18n.js`; the narrative-context preview at step 3 shows the dynamic part)
+5. `LLM call complete: <ms>ms` — with prompt / completion / total tokens when the provider returns usage
+6. `Planner output:` followed by the full JSON response from the LLM (queries, rationale)
+7. `Qdrant fanout: <N> queries × <M> collection(s) = <X> parallel calls`
+8. `Qdrant fanout complete: <ms>ms`
+9. `Per-query hits:` — one line per query with top score
+10. `Final: <pre> pre-search seats + <added> added from <hits> planner hits`
+11. `Total wall-clock: <ms>ms (LLM=<ms>ms, fanout=<ms>ms)`
 
 Timing buckets:
 
-- LLM call ms (measured around `_callPlanner`)
+- LLM call ms (measured around `callLlmForJson`)
 - Qdrant fanout ms (measured around the `Promise.all` of `queryCollection` calls)
-- Total agent overhead ms (measured from agent-stage entry through stage 5 return)
+- Total ms (measured from the start of `_retrieveWithPlanner` until its seats are chosen, so it holds the pre-search too)
 - Embedding batch ms — implicit inside each `queryCollection` call; not separately timed
 
 ### Failure modes — all fall back to pre-search
 
 | Failure                                                          | Outcome                                                                     |
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `agentic_retrieval_enabled = false`                              | Skip stages 2-5; identical to the plain flow                                |
+| `agentic_retrieval_enabled = false`                              | No planner; identical to the plain flow                                     |
 | `vector_backend !== 'qdrant'`                                    | Skip; log`mode=SKIPPED reason=requires_qdrant_backend`                      |
 | Missing model, API key or vLLM URL                               | Skip; warn `mode=SKIPPED reason=missing_model` / `missing_openrouter_api_key` / `missing_vllm_url` / `missing_vllm_api_key` |
 | Planner LLM throws / times out / returns invalid JSON            | Log warn; return pre-search only                                            |
 | Planner returns 0 valid queries (after`_validateAndTrimQueries`) | Log; return pre-search only                                                 |
-| One of N Qdrant queries fails or exceeds `agentic_retrieval_query_timeout_ms` | That query contributes `[]` (warned); other queries still merge |
-| All Qdrant queries fail                                          | `agenticHits = []`; pre-search events still feed stage 5 re-rank            |
-| `liveCollectionIds` empty                                        | Skip stages 4-5; return pre-search                                          |
+| One of N Qdrant queries fails or exceeds `agentic_retrieval_query_timeout_ms` | That query contributes `[]` (warned); other queries still seat |
+| All Qdrant queries fail                                          | No seats added; the pre-search's events stay                                |
+| `liveCollectionIds` empty                                        | Skip the fanout; return pre-search                                          |
 
-**Invariant:** AgentMode MUST NEVER produce a worse result than the plain flow. The drop-in shape of `retrieveEventsWithAgent` is designed so that on any failure the return value is exactly what `retrieveEvents` would have returned.
+**Invariant:** AgentMode MUST NEVER produce a worse result than the plain flow. The drop-in shape of `retrieveEventsForTurn` is designed so that on any failure the return value is exactly what `retrieveEvents` would have returned.
 
 ### Debug return shape
 
@@ -774,7 +767,8 @@ When AgentMode runs successfully, the returned `debug` object gains:
   agenticLLMMs: number,
   agenticFanoutMs: number,
   agenticTotalMs: number,
-  agenticHitCount: number,      // events the agentic stage contributed before merge/rerank
+  agenticHitCount: number,      // hits across the planner's queries, before seats were chosen
+  agenticAddedSeats: number,    // events added beside the pre-search's
 }
 ```
 

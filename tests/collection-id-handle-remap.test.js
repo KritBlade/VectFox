@@ -31,7 +31,7 @@ describe('sanitizeIdSegment (primitive)', () => {
         expect(sanitizeIdSegment('!!!', { maxLen: 50, trim: true, fallback: 'x' })).toBe('x');
     });
     it('sanitizeHandleId === sanitizeIdSegment(name, {maxLen:30, trim, fallback:user})', () => {
-        for (const n of ['Crit Blade', '  Rabbit!  ', '', '創世域', 'a'.repeat(40)]) {
+        for (const n of ['Wanderer Kai', '  Rabbit!  ', '', '旅人', 'a'.repeat(40)]) {
             expect(sanitizeHandleId(n)).toBe(sanitizeIdSegment(n, { maxLen: 30, trim: true, fallback: 'user' }));
         }
     });
@@ -50,7 +50,7 @@ describe('sanitizeNameSegment', () => {
 
 describe('sanitizeHandleId', () => {
     it('lowercases, joins non-alphanumerics with underscore, trims edges', () => {
-        expect(sanitizeHandleId('Crit Blade')).toBe('crit_blade');
+        expect(sanitizeHandleId('Wanderer Kai')).toBe('wanderer_kai');
         expect(sanitizeHandleId('  Rabbit!  ')).toBe('rabbit');
     });
     it('falls back to "user" for empty/nullish input', () => {
@@ -59,7 +59,7 @@ describe('sanitizeHandleId', () => {
         expect(sanitizeHandleId(undefined)).toBe('user');
     });
     it('preserves non-latin scripts (NFC) and caps at 30 chars', () => {
-        expect(sanitizeHandleId('創世域')).toBe('創世域');
+        expect(sanitizeHandleId('旅人')).toBe('旅人');
         expect(sanitizeHandleId('a'.repeat(40))).toBe('a'.repeat(30));
     });
 });
@@ -67,24 +67,24 @@ describe('sanitizeHandleId', () => {
 describe('remapCollectionIdToHandle', () => {
     it('rewrites the handle segment after a backend segment', () => {
         expect(
-            remapCollectionIdToHandle('vf_eventbase_qdrant_critblade_artificrealm_uuid123', 'rabbit'),
-        ).toBe('vf_eventbase_qdrant_rabbit_artificrealm_uuid123');
+            remapCollectionIdToHandle('vf_eventbase_qdrant_wanderer_mychat_uuid123', 'rabbit'),
+        ).toBe('vf_eventbase_qdrant_rabbit_mychat_uuid123');
     });
 
     it('rewrites the handle segment in a legacy (no-backend) ID', () => {
         expect(
-            remapCollectionIdToHandle('vf_eventbase_critblade_artificrealm_uuid123', 'rabbit'),
-        ).toBe('vf_eventbase_rabbit_artificrealm_uuid123');
+            remapCollectionIdToHandle('vf_eventbase_wanderer_mychat_uuid123', 'rabbit'),
+        ).toBe('vf_eventbase_rabbit_mychat_uuid123');
     });
 
     it('sanitizes the target handle before substituting', () => {
         expect(
-            remapCollectionIdToHandle('vf_lorebook_standard_critblade_world_123', 'Rabbit King!'),
+            remapCollectionIdToHandle('vf_lorebook_standard_wanderer_world_123', 'Rabbit King!'),
         ).toBe('vf_lorebook_standard_rabbit_king_world_123');
     });
 
     it('is a no-op when the handle already matches', () => {
-        const id = 'vf_eventbase_qdrant_rabbit_artificrealm_uuid123';
+        const id = 'vf_eventbase_qdrant_rabbit_mychat_uuid123';
         expect(remapCollectionIdToHandle(id, 'rabbit')).toBe(id);
     });
 
@@ -95,7 +95,7 @@ describe('remapCollectionIdToHandle', () => {
 
     it('does not corrupt the char/uuid tail when remapping', () => {
         // char name itself contains underscores — only the handle segment must change
-        const out = remapCollectionIdToHandle('vf_character_qdrant_critblade_my_long_char_name_999', 'rabbit');
+        const out = remapCollectionIdToHandle('vf_character_qdrant_wanderer_my_long_char_name_999', 'rabbit');
         expect(out).toBe('vf_character_qdrant_rabbit_my_long_char_name_999');
     });
 });

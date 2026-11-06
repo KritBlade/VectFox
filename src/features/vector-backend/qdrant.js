@@ -849,12 +849,11 @@ export class QdrantBackend extends VectorBackend {
      * @param {number} topK - Number of results to return
      * @param {object} settings - VectFox settings
      * @param {object} hybridOptions - Hybrid search options
-     * @param {object} [filters] - Payload filters
      * @param {number[]|null} [queryVector] - The query's embedding, when the caller
      *   already has it; otherwise this method embeds searchText itself
      * @returns {Promise<{hashes: number[], metadata: object[]}>}
      */
-    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}, filters = {}, queryVector = null) {
+    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}, queryVector = null) {
         const {
             vectorWeight = 0.5,
             textWeight = 0.5,
@@ -957,13 +956,10 @@ export class QdrantBackend extends VectorBackend {
             ...getPluginProviderParams(settings),
         };
 
-        // Merge multitenancy content_type into the filters object so the
-        // plugin's _buildHybridFilter handles it via the unified filters path.
-        const mergedFilters = settings.qdrant_multitenancy
-            ? { ...filters, content_type: strippedCollectionId }
-            : { ...filters };
-        if (Object.keys(mergedFilters).length > 0) {
-            body.filters = mergedFilters;
+        // Multitenancy's content_type travels in the plugin's filters field,
+        // which its _buildHybridFilter reads.
+        if (settings.qdrant_multitenancy) {
+            body.filters = { content_type: strippedCollectionId };
         }
 
         if (log.enabled('verbose')) {
@@ -1068,12 +1064,11 @@ export class QdrantBackend extends VectorBackend {
      * @param {object} settings - VectFox settings
      * @param {object} rerankParams - { weights, chatLength, halfLife, minImportance, visibleThreshold, applyContextDedupFilter, rrfScoreScale? }
      * @param {object} hybridOptions - { prefetchLimit }
-     * @param {object} [filters] - Payload filters
      * @param {number[]|null} [queryVector] - The query's embedding, reused by this
      *   call and by both fallbacks; without it the plugin embeds searchText itself
      * @returns {Promise<{hashes:number[], metadata:object[]}>}
      */
-    async hybridQueryWithRerank(collectionId, searchText, topK, settings, rerankParams, hybridOptions = {}, filters = {}, queryVector = null) {
+    async hybridQueryWithRerank(collectionId, searchText, topK, settings, rerankParams, hybridOptions = {}, queryVector = null) {
         const strippedCollectionId = this._stripRegistryPrefix(collectionId);
         const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
 
@@ -1134,11 +1129,8 @@ export class QdrantBackend extends VectorBackend {
             ...getPluginProviderParams(settings),
         };
 
-        const mergedFilters = settings.qdrant_multitenancy
-            ? { ...filters, content_type: strippedCollectionId }
-            : { ...filters };
-        if (Object.keys(mergedFilters).length > 0) {
-            body.filters = mergedFilters;
+        if (settings.qdrant_multitenancy) {
+            body.filters = { content_type: strippedCollectionId };
         }
 
         if (log.enabled('verbose')) {
@@ -1194,6 +1186,6 @@ export class QdrantBackend extends VectorBackend {
         // Fallback: regular hybridQuery (no server-side rerank). The caller
         // (eventbase-retrieval) will then need to apply JS re-rank itself; the
         // result lacks `rerankApplied: true` so the caller can detect and branch.
-        return this.hybridQuery(collectionId, searchText, topK, settings, hybridOptions, filters, queryVector);
+        return this.hybridQuery(collectionId, searchText, topK, settings, hybridOptions, queryVector);
     }
 }

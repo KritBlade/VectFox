@@ -15,13 +15,16 @@
  *   tiny_segmenter  → Japanese                   (日本語 examples)
  *   korean          → Korean                     (한국어 examples)
  *   others          → Any other language          (English examples + language notice)
+ *
+ * Every example's cast is made up and written in English in every language. The
+ * language rules tell the LLM to keep a name as the chat writes it.
  * ============================================================================
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENTIC PLANNER SYSTEM PROMPT
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared structural header — output format, filter rules, question type guide.
+// Shared structural header — output format, question type guide.
 // Language rule + examples are in the per-language blocks below.
 
 const _PLANNER_HEADER =
@@ -46,26 +49,22 @@ PLAN FROM these sources, in priority order:
           FREQUENCY CHECK: the addressee's name should appear in only the MINORITY
           of your queries — usually ONE (the fact they actually act in). If you've
           bolted it onto most queries, you defaulted to the addressee — REDO.
-     E.g. spoken to Kai (chat establishes father = Marcus, brother = Dorin, sister = Lena):
+     E.g. spoken to Kai (chat establishes father = Marcus, brother = Dorin, sister = Tessa):
        "your brother and your father never trusted each other"
           → "Dorin and Marcus mutual distrust" (both named; Kai is NOT a party).
        "your father is finally pardoned" → "Marcus pardoned — what cleared him" (subject = Marcus)
-       "you finally found your sister"   → addressee IS a party → "Kai and Lena reunion".
+       "you finally found your sister"   → addressee IS a party → "Kai and Tessa reunion".
      ✗ WRONG — addressee bolted onto facts they're not part of:
          "Kai's father pardoned", "Kai and his brother's distrust", "Kai and his sister reunion"
          (Kai forced into all three; the first two aren't even about Kai)
      ✓ RIGHT — query the real parties; addressee appears ONCE (only the reunion):
          "Marcus pardoned — what cleared him", "Dorin and Marcus mutual distrust",
-         "Kai and Lena reunion"
+         "Kai and Tessa reunion"
   2. RECENT CHAT — background for what is happening right now. When the user
      message is SHORT or thin on references, lean on recent chat (especially the
      previous reply) to decide what backstory is worth retrieving.
-  3. PRE-SEARCH CANDIDATES — hints about what already exists in the DB; use them
-     to refine wording and filters, not as the main driver.
 
-Filterable event fields: event_type, importance (1–10), characters, locations, factions, items, concepts (themes), keywords, DateTime.
-
-Output STRICT JSON with exactly three fields:
+Output STRICT JSON with exactly two fields:
 
   queries    1–6 short search strings (5–15 words). Prefer one query per distinct
              backstory reference in the user message; add more only while each
@@ -86,25 +85,7 @@ Output STRICT JSON with exactly three fields:
              Genre note: in slice-of-life / dating / workplace stories, prefer pattern +
              key-moment pairs over causal chains. Causal chains fit RPG/mystery/thriller.
 
-  filters    Optional:
-               characters_any, locations_any, factions_any, items_any, concepts_any,
-               event_type_any  — arrays of strings
-               importance_gte  — number 1–10
-
   rationale  One sentence in the story language. Debug only — not used in retrieval.
-
-══ FILTER RULES ══════════════════════════════════════════════════════
-
-concepts_any = THEME words in the story language.
-  • Never mix languages here. Never put proper nouns here.
-  • If a theme word appears in your queries, also put it in concepts_any — it is the
-    strongest anchor for sparse-vector matching.
-
-characters_any / locations_any / items_any / factions_any = proper nouns in whatever
-form they appear in the chat (keep original script/spelling).
-
-importance_gte: set 6–7 to skip filler events for "remember when…" questions.
-Over-filtering on characters_any is fine; avoid over-constraining locations/factions.
 
 ══ QUESTION TYPE GUIDE ═══════════════════════════════════════════════
 
@@ -113,9 +94,9 @@ Over-filtering on characters_any is fine; avoid over-constraining locations/fact
   "why X?"        → one query per causal stage: cause → act → aftermath
   "at location?"  → events at that place
   "the [event]?"  → the event itself + lead-up history that caused it + key participants + consequences
-  "remember...?"  → event + result + reactions; don't over-filter (user may misremember)
+  "remember...?"  → event + result + reactions
   "Z's reaction?" → Z's events around that moment
-  Vague/open      → broad queries, fewer filters
+  Vague/open      → broad queries
 
 `;
 
@@ -132,17 +113,15 @@ Proper nouns (names, places, items) keep their exact form from the chat.
 ══ EXAMPLES ══════════════════════════════════════════════════════════
 
 Example 1 — Causal "why" chain (plot-driven, RPG/mystery/thriller):
-User: "Do you remember why we had to pay the ransom?"
+User: "Do you remember why we had to pay off Kai's debt?"
 {
   "queries": [
-    "kidnapping ransom payment negotiation",
-    "hostage capture arrest imprisonment",
-    "rescue aftermath emotional reaction"
+    "Kai debt loan note amount",
+    "debt collectors threats at his door",
+    "repayment negotiation middleman",
+    "Kai after the debt was cleared emotional reaction"
   ],
-  "filters": {
-    "concepts_any": ["ransom", "kidnapping", "rescue"]
-  },
-  "rationale": "Causal chain — different TIME slices: capture → negotiation → payment → rescue aftermath."
+  "rationale": "Causal chain — different TIME slices: debt → collectors → negotiation → aftermath."
 }
 
 Example 2 — Slice-of-life / character state pattern (mixed-axis decomposition):
@@ -154,297 +133,248 @@ User: "How has Yuki been adjusting to the dorm?"
     "Yuki study routine late night habits",
     "Yuki mood shifts recent weeks"
   ],
-  "filters": {
-    "characters_any": ["Yuki"]
-  },
   "rationale": "Mixed axes — arrival event (TIME), social pattern (FACET), daily habit (GRANULARITY), emotional trajectory (FACET)."
 }
 
 Example 3 — A line said TO X, but about a relationship BETWEEN OTHERS (participant resolution):
 User: To Kai — "Your father is finally cleared, your sister never got on with your father, but you've found your sister again."
-(relative to Kai: your father = Marcus, your sister = Lena)
+(relative to Kai: your father = Marcus, your sister = Tessa)
 {
   "queries": [
     "Marcus cleared of the charge — how",
-    "Lena and Marcus long-standing rift",
-    "Kai and Lena reunion"
+    "Tessa and Marcus long-standing rift",
+    "Kai and Tessa reunion"
   ],
-  "filters": {
-    "characters_any": ["Marcus", "Lena", "Kai"],
-    "concepts_any": ["exoneration", "father-daughter rift", "reunion"]
-  },
-  "rationale": "Resolve participants: 'cleared' is about Marcus; 'rift' is Lena↔Marcus (Kai not a party); only 'reunion' is Kai↔Lena. Don't pin every query on Kai."
+  "rationale": "Resolve participants: 'cleared' is about Marcus; 'rift' is Tessa↔Marcus (Kai not a party); only 'reunion' is Kai↔Tessa. Don't pin every query on Kai."
 }
 ✗ WRONG — Kai bolted onto every fact (even ones he is not in):
-    "Kai's father cleared", "Kai and Marcus rift", "Kai and Lena reunion"
+    "Kai's father cleared", "Kai and Marcus rift", "Kai and Tessa reunion"
 ✓ RIGHT — query the real parties; Kai appears once (the reunion he is in):
-    "Marcus cleared of the charge — how", "Lena and Marcus rift", "Kai and Lena reunion"
+    "Marcus cleared of the charge — how", "Tessa and Marcus rift", "Kai and Tessa reunion"
 Note: in a line said TO X, most facts are BETWEEN OTHERS — X's name should appear in only a few (usually one) query.
 
 `;
 
 const _PLANNER_EXAMPLES_JIEBA_TW =
 `══ 語言規則 ══════════════════════════════════════════════════════════
-所有 queries 及 concepts_any 必須以繁體中文書寫，不得混入英文或其他語言。
+所有 queries 必須以繁體中文書寫，不得混入英文或其他語言。
 例外：人名、地名、物品名稱保留原文形式（英文名稱不翻譯）。
 
 ══ EXAMPLES ══════════════════════════════════════════════════════════
 
 Example 1 — 因果「為何」鏈 (劇情驅動 / RPG / 推理 / 懸疑)：
-User: 我對 Mayla 説 "你記得我當時為甚麼為你贖身嗎?"
+User: 我對 Kai 説 "你記得我當時為甚麼幫你還債嗎?"
 {
   "queries": [
-    "Mayla 贖身 2萬金幣付款",
-    "Mayla 綁架 被擄走 監禁",
-    "贖金談判 老闆 中介",
-    "Mayla 獲救 後續 情感反應"
+    "Kai 欠債 借據 金額",
+    "Kai 遭人上門討債 威脅",
+    "還債 談判 中間人",
+    "Kai 還清之後 情感反應"
   ],
-  "filters": {
-    "characters_any": ["Mayla"],
-    "concepts_any": ["贖身", "綁架", "獲救"]
-  },
-  "rationale": "因果鏈，TIME 軸分段：綁架→談判→付款→救出反應。"
+  "rationale": "因果鏈，TIME 軸分段：欠債→討債→談判→還清後反應。"
 }
 
 Example 2 — 日常狀態 / 角色適應 (混合軸分解)：
-User: "Fern 最近過得怎麼樣？"
+User: "Yuki 最近過得怎麼樣？"
 {
   "queries": [
-    "Fern 加入眷屬 初次反應",
-    "Fern 與其他眷屬 日常互動",
-    "Fern 訓練 學習 進步",
-    "Fern 情緒變化 最近幾日"
+    "Yuki 搬到新城市 初次反應",
+    "Yuki 與同事 日常相處",
+    "Yuki 工作 學習 進步",
+    "Yuki 情緒變化 最近幾日"
   ],
-  "filters": {
-    "characters_any": ["Fern"]
-  },
-  "rationale": "混合軸：加入事件 (TIME)、社交模式 (FACET)、能力成長 (GRANULARITY)、情感軌跡 (FACET)。"
+  "rationale": "混合軸：搬家事件 (TIME)、社交模式 (FACET)、能力成長 (GRANULARITY)、情感軌跡 (FACET)。"
 }
 
 Example 3 — 對 X 説的話，描述的卻是「其他人之間」的關係 (參與者解析)：
-User: 我對 阿傑 説 "你爸終於洗脱罪名了, 你姊雖然跟你爸一直有心結, 不過你已經找回你姊了"
-（對 阿傑 而言：你爸 = 周漢、你姊 = 周敏）
+User: 我對 Kai 説 "你爸終於洗脱罪名了, 你姊雖然跟你爸一直有心結, 不過你已經找回你姊了"
+（對 Kai 而言：你爸 = Marcus、你姊 = Tessa）
 {
   "queries": [
-    "周漢 洗脱罪名 經過 原因",
-    "周敏 與 周漢 心結 不和",
-    "阿傑 與 周敏 重逢 經過"
+    "Marcus 洗脱罪名 經過 原因",
+    "Tessa 與 Marcus 心結 不和",
+    "Kai 與 Tessa 重逢 經過"
   ],
-  "filters": {
-    "characters_any": ["周漢", "周敏", "阿傑"],
-    "concepts_any": ["洗脱罪名", "父女心結", "重逢"]
-  },
-  "rationale": "解析參與者：「洗脱罪名」主角是周漢、「心結」是周敏↔周漢(父女，阿傑非當事人)、「重逢」才是阿傑↔周敏。不把每條都掛在阿傑身上。"
+  "rationale": "解析參與者：「洗脱罪名」主角是 Marcus、「心結」是 Tessa↔Marcus(父女，Kai 非當事人)、「重逢」才是 Kai↔Tessa。不把每條都掛在 Kai 身上。"
 }
-✗ 錯誤 — 把 阿傑 硬加在每一條（連他不相關的事都掛上）：
-    "阿傑 父親 洗脱罪名", "阿傑 與 周漢 心結 不和", "阿傑 與 周敏 重逢"
-    （前兩條阿傑根本不是當事人，「心結」是周敏↔周漢）
-✓ 正確 — 查真正的當事人，阿傑 只出現一次（他真正參與的重逢）：
-    "周漢 洗脱罪名 經過", "周敏 與 周漢 心結 不和", "阿傑 與 周敏 重逢"
+✗ 錯誤 — 把 Kai 硬加在每一條（連他不相關的事都掛上）：
+    "Kai 父親 洗脱罪名", "Kai 與 Marcus 心結 不和", "Kai 與 Tessa 重逢"
+    （前兩條 Kai 根本不是當事人，「心結」是 Tessa↔Marcus）
+✓ 正確 — 查真正的當事人，Kai 只出現一次（他真正參與的重逢）：
+    "Marcus 洗脱罪名 經過", "Tessa 與 Marcus 心結 不和", "Kai 與 Tessa 重逢"
 注意：對 X 説的話，多數事實是「別人之間」的，X 的名字應只出現在少數（通常一條）query。
 
 `;
 
 const _PLANNER_EXAMPLES_JIEBA =
 `══ 语言规则 ══════════════════════════════════════════════════════════
-所有 queries 及 concepts_any 必须以简体中文书写，不得混入英文或其他语言。
+所有 queries 必须以简体中文书写，不得混入英文或其他语言。
 例外：人名、地名、物品名称保留原文形式（英文名称不翻译）。
 
 ══ EXAMPLES ══════════════════════════════════════════════════════════
 
 Example 1 — 因果"为何"链 (剧情驱动 / RPG / 推理 / 悬疑)：
-User: 我对 Mayla 说 "你还记得我当时为什么为你赎身吗?"
+User: 我对 Kai 说 "你记得我当时为什么帮你还债吗?"
 {
   "queries": [
-    "Mayla 赎身 2万金币付款",
-    "Mayla 绑架 被掳走 监禁",
-    "赎金谈判 老板 中介",
-    "Mayla 获救 后续 情感反应"
+    "Kai 欠债 借据 金额",
+    "Kai 遭人上门讨债 威胁",
+    "还债 谈判 中间人",
+    "Kai 还清之后 情感反应"
   ],
-  "filters": {
-    "characters_any": ["Mayla"],
-    "concepts_any": ["赎身", "绑架", "获救"]
-  },
-  "rationale": "因果链，TIME 轴分段：绑架→谈判→付款→救出反应。"
+  "rationale": "因果链，TIME 轴分段：欠债→讨债→谈判→还清后反应。"
 }
 
 Example 2 — 日常状态 / 角色适应 (混合轴分解)：
-User: "Fern 最近过得怎么样？"
+User: "Yuki 最近过得怎么样？"
 {
   "queries": [
-    "Fern 加入眷属 初次反应",
-    "Fern 与其他眷属 日常互动",
-    "Fern 训练 学习 进步",
-    "Fern 情绪变化 最近几日"
+    "Yuki 搬到新城市 初次反应",
+    "Yuki 与同事 日常相处",
+    "Yuki 工作 学习 进步",
+    "Yuki 情绪变化 最近几日"
   ],
-  "filters": {
-    "characters_any": ["Fern"]
-  },
-  "rationale": "混合轴：加入事件 (TIME)、社交模式 (FACET)、能力成长 (GRANULARITY)、情感轨迹 (FACET)。"
+  "rationale": "混合轴：搬家事件 (TIME)、社交模式 (FACET)、能力成长 (GRANULARITY)、情感轨迹 (FACET)。"
 }
 
 Example 3 — 对 X 说的话，描述的却是「其他人之间」的关系 (参与者解析)：
-User: 我对 阿杰 说 "你爸终于洗脱罪名了, 你姐虽然跟你爸一直有心结, 不过你已经找回你姐了"
-（对 阿杰 而言：你爸 = 周汉、你姐 = 周敏）
+User: 我对 Kai 说 "你爸终于洗脱罪名了, 你姐虽然跟你爸一直有心结, 不过你已经找回你姐了"
+（对 Kai 而言：你爸 = Marcus、你姐 = Tessa）
 {
   "queries": [
-    "周汉 洗脱罪名 经过 原因",
-    "周敏 与 周汉 心结 不和",
-    "阿杰 与 周敏 重逢 经过"
+    "Marcus 洗脱罪名 经过 原因",
+    "Tessa 与 Marcus 心结 不和",
+    "Kai 与 Tessa 重逢 经过"
   ],
-  "filters": {
-    "characters_any": ["周汉", "周敏", "阿杰"],
-    "concepts_any": ["洗脱罪名", "父女心结", "重逢"]
-  },
-  "rationale": "解析参与者：「洗脱罪名」主角是周汉、「心结」是周敏↔周汉(父女，阿杰非当事人)、「重逢」才是阿杰↔周敏。不把每条都挂在阿杰身上。"
+  "rationale": "解析参与者：「洗脱罪名」主角是 Marcus、「心结」是 Tessa↔Marcus(父女，Kai 非当事人)、「重逢」才是 Kai↔Tessa。不把每条都挂在 Kai 身上。"
 }
-✗ 错误 — 把 阿杰 硬加在每一条（连他不相关的事都挂上）：
-    "阿杰 父亲 洗脱罪名", "阿杰 与 周汉 心结 不和", "阿杰 与 周敏 重逢"
-    （前两条阿杰根本不是当事人，「心结」是周敏↔周汉）
-✓ 正确 — 查真正的当事人，阿杰 只出现一次（他真正参与的重逢）：
-    "周汉 洗脱罪名 经过", "周敏 与 周汉 心结 不和", "阿杰 与 周敏 重逢"
+✗ 错误 — 把 Kai 硬加在每一条（连他不相关的事都挂上）：
+    "Kai 父亲 洗脱罪名", "Kai 与 Marcus 心结 不和", "Kai 与 Tessa 重逢"
+    （前两条 Kai 根本不是当事人，「心结」是 Tessa↔Marcus）
+✓ 正确 — 查真正的当事人，Kai 只出现一次（他真正参与的重逢）：
+    "Marcus 洗脱罪名 经过", "Tessa 与 Marcus 心结 不和", "Kai 与 Tessa 重逢"
 注意：对 X 说的话，多数事实是「别人之间」的，X 的名字应只出现在少数（通常一条）query。
 
 `;
 
 const _PLANNER_EXAMPLES_TINY_SEGMENTER =
 `══ 言語ルール ════════════════════════════════════════════════════════
-queriesおよびconcepts_anyはすべて日本語で記述する。他の言語を混在させない。
+queriesはすべて日本語で記述する。他の言語を混在させない。
 例外：人名・地名・物品名は会話中の元の表記をそのまま使用する。
 
 ══ EXAMPLES ══════════════════════════════════════════════════════════
 
 Example 1 — 因果「なぜ」チェーン (プロット駆動 / RPG / ミステリー / スリラー)：
-User: "なぜあのとき身代金を払わなければならなかったの覚えてる？"
+User: "なぜあのときKaiの借金を返さなければならなかったの覚えてる？"
 {
   "queries": [
-    "身代金 誘拐 拘束 監禁",
-    "交渉 支払い 解放 救出",
-    "救出 後の感情 反応 関係"
+    "Kai 借金 借用書 金額",
+    "Kai 取り立て 脅し",
+    "返済 交渉 仲介人",
+    "Kai 完済後 感情 反応"
   ],
-  "filters": {
-    "concepts_any": ["身代金", "誘拐", "救出"]
-  },
-  "rationale": "因果連鎖、TIME 軸の分割：誘拐→交渉→支払い→救出後。"
+  "rationale": "因果連鎖、TIME 軸の分割：借金→取り立て→交渉→完済後。"
 }
 
 Example 2 — 日常的状況・キャラクターの適応 (混合軸の分解)：
-User: "ユキは寮の生活にどう馴染んでる？"
+User: "Yukiは寮の生活にどう馴染んでる？"
 {
   "queries": [
-    "ユキ 寮 引っ越し 最初の印象",
-    "ユキ ルームメイト 食事 会話",
-    "ユキ 勉強 夜 習慣",
-    "ユキ 気分 変化 最近"
+    "Yuki 寮 引っ越し 最初の印象",
+    "Yuki ルームメイト 食事 会話",
+    "Yuki 勉強 夜 習慣",
+    "Yuki 気分 変化 最近"
   ],
-  "filters": {
-    "characters_any": ["ユキ"]
-  },
   "rationale": "混合軸：到着 (TIME)、社交パターン (FACET)、日常習慣 (GRANULARITY)、感情の推移 (FACET)。"
 }
 
 Example 3 — X に向けた台詞だが、実は「他人同士」の関係を述べている (当事者の特定)：
-User: ケンに — 「君の父さんはやっと無実が証明された、君の姉さんは父さんとずっと折り合いが悪かったが、君は姉さんと再会できた」
-（ケンから見て：君の父さん = タカシ、君の姉さん = ミナ）
+User: Kaiに — 「君の父さんはやっと無実が証明された、君の姉さんは父さんとずっと折り合いが悪かったが、君は姉さんと再会できた」
+（Kaiから見て：君の父さん = Marcus、君の姉さん = Tessa）
 {
   "queries": [
-    "タカシ 無実 証明 経緯",
-    "ミナ と タカシ 不和 確執",
-    "ケン と ミナ 再会"
+    "Marcus 無実 証明 経緯",
+    "Tessa と Marcus 不和 確執",
+    "Kai と Tessa 再会"
   ],
-  "filters": {
-    "characters_any": ["タカシ", "ミナ", "ケン"],
-    "concepts_any": ["無実証明", "父娘の確執", "再会"]
-  },
-  "rationale": "当事者を特定：「無実」はタカシ、「確執」はミナ↔タカシ(ケンは当事者でない)、「再会」だけがケン↔ミナ。すべてをケンに結びつけない。"
+  "rationale": "当事者を特定：「無実」はMarcus、「確執」はTessa↔Marcus(Kaiは当事者でない)、「再会」だけがKai↔Tessa。すべてをKaiに結びつけない。"
 }
-✗ 誤り — ケンを全部の事実に無理やり付ける（無関係なものまで）：
-    "ケンの父 無実", "ケン と タカシ 確執", "ケン と ミナ 再会"
-✓ 正しい — 本当の当事者で検索；ケンは一度だけ（本人が関わる再会）：
-    "タカシ 無実 証明 経緯", "ミナ と タカシ 確執", "ケン と ミナ 再会"
+✗ 誤り — Kaiを全部の事実に無理やり付ける（無関係なものまで）：
+    "Kaiの父 無実", "Kai と Marcus 確執", "Kai と Tessa 再会"
+✓ 正しい — 本当の当事者で検索；Kaiは一度だけ（本人が関わる再会）：
+    "Marcus 無実 証明 経緯", "Tessa と Marcus 確執", "Kai と Tessa 再会"
 注意：X に向けた台詞では、ほとんどの事実は「他人同士」のもの。X の名前は少数（通常一つ）の query にのみ現れるべき。
 
 `;
 
 const _PLANNER_EXAMPLES_KOREAN =
 `══ 언어 규칙 ════════════════════════════════════════════════════════
-모든 queries 및 concepts_any는 한국어로만 작성한다. 다른 언어를 섞지 않는다.
+모든 queries는 한국어로만 작성한다. 다른 언어를 섞지 않는다.
 예외: 인명·지명·아이템명은 대화에서 사용된 원래 표기를 그대로 유지한다.
 
 ══ EXAMPLES ══════════════════════════════════════════════════════════
 
 Example 1 — 인과 「왜」 체인 (플롯 중심 / RPG / 미스터리 / 스릴러):
-User: "우리가 왜 몸값을 내야 했는지 기억해?"
+User: "우리가 왜 Kai의 빚을 갚아야 했는지 기억해?"
 {
   "queries": [
-    "납치 몸값 협상 지불",
-    "인질 체포 감금 구금",
-    "구출 이후 감정 반응"
+    "Kai 빚 차용증 금액",
+    "Kai 빚 독촉 협박",
+    "빚 상환 협상 중개인",
+    "Kai 완납 이후 감정 반응"
   ],
-  "filters": {
-    "concepts_any": ["몸값", "납치", "구출"]
-  },
-  "rationale": "인과 사슬, TIME 축 분할: 납치→협상→지불→구출 이후."
+  "rationale": "인과 사슬, TIME 축 분할: 빚→독촉→협상→완납 이후."
 }
 
 Example 2 — 일상생활 / 캐릭터 적응 (혼합 축 분해):
-User: "유키는 기숙사 생활에 어떻게 적응하고 있어?"
+User: "Yuki는 기숙사 생활에 어떻게 적응하고 있어?"
 {
   "queries": [
-    "유키 기숙사 입주 첫 인상",
-    "유키 룸메이트 식사 대화",
-    "유키 공부 밤 습관",
-    "유키 기분 변화 최근"
+    "Yuki 기숙사 입주 첫 인상",
+    "Yuki 룸메이트 식사 대화",
+    "Yuki 공부 밤 습관",
+    "Yuki 기분 변화 최근"
   ],
-  "filters": {
-    "characters_any": ["유키"]
-  },
   "rationale": "혼합 축: 도착 사건 (TIME), 사회적 패턴 (FACET), 일상 습관 (GRANULARITY), 감정 변화 (FACET)."
 }
 
 Example 3 — X에게 한 말이지만, 실은 「다른 사람들 사이」의 관계를 서술 (당사자 식별):
-User: 준호에게 — "네 아버지는 마침내 누명을 벗었어, 네 누나는 아버지와 늘 사이가 안 좋았지만, 너는 누나와 다시 만났잖아"
-(준호 기준: 네 아버지 = 영석, 네 누나 = 미나)
+User: Kai에게 — "네 아버지는 마침내 누명을 벗었어, 네 누나는 아버지와 늘 사이가 안 좋았지만, 너는 누나와 다시 만났잖아"
+(Kai 기준: 네 아버지 = Marcus, 네 누나 = Tessa)
 {
   "queries": [
-    "영석 누명 벗음 경위",
-    "미나 와 영석 오랜 불화",
-    "준호 와 미나 재회"
+    "Marcus 누명 벗음 경위",
+    "Tessa 와 Marcus 오랜 불화",
+    "Kai 와 Tessa 재회"
   ],
-  "filters": {
-    "characters_any": ["영석", "미나", "준호"],
-    "concepts_any": ["누명 벗음", "부녀 불화", "재회"]
-  },
-  "rationale": "당사자 식별: '누명'은 영석, '불화'는 미나↔영석(준호는 당사자 아님), '재회'만 준호↔미나. 모든 query를 준호에게 걸지 않는다."
+  "rationale": "당사자 식별: '누명'은 Marcus, '불화'는 Tessa↔Marcus(Kai는 당사자 아님), '재회'만 Kai↔Tessa. 모든 query를 Kai에게 걸지 않는다."
 }
-✗ 틀림 — 준호를 모든 사실에 억지로 붙임(관련 없는 것까지):
-    "준호 아버지 누명", "준호 와 영석 불화", "준호 와 미나 재회"
-✓ 맞음 — 진짜 당사자로 검색; 준호는 한 번만(그가 참여한 재회):
-    "영석 누명 벗음 경위", "미나 와 영석 불화", "준호 와 미나 재회"
+✗ 틀림 — Kai를 모든 사실에 억지로 붙임(관련 없는 것까지):
+    "Kai 아버지 누명", "Kai 와 Marcus 불화", "Kai 와 Tessa 재회"
+✓ 맞음 — 진짜 당사자로 검색; Kai는 한 번만(그가 참여한 재회):
+    "Marcus 누명 벗음 경위", "Tessa 와 Marcus 불화", "Kai 와 Tessa 재회"
 참고: X에게 한 말에서 대부분의 사실은 「다른 사람들 사이」의 것 — X의 이름은 소수(보통 하나)의 query에만 나와야 한다.
 
 `;
 
 const _PLANNER_EXAMPLES_OTHERS =
 `══ LANGUAGE RULE ═════════════════════════════════════════════════════
-Detect the story language from the chat. Write ALL queries and concepts_any
+Detect the story language from the chat. Write ALL queries
 in that language only. Do NOT default to English — match the roleplay language.
 Proper nouns (names, places, items) keep their exact form from the chat.
 
 ══ EXAMPLES (shown in English — apply the same pattern in your detected language) ══
 
 Example 1 — Causal "why" chain (plot-driven, RPG/mystery/thriller):
-User: "Do you remember why we had to pay the ransom?"
+User: "Do you remember why we had to pay off Kai's debt?"
 {
   "queries": [
-    "kidnapping ransom payment negotiation",
-    "hostage capture arrest imprisonment",
-    "rescue aftermath emotional reaction"
+    "Kai debt loan note amount",
+    "debt collectors threats at his door",
+    "repayment negotiation middleman",
+    "Kai after the debt was cleared emotional reaction"
   ],
-  "filters": {
-    "concepts_any": ["ransom", "kidnapping", "rescue"]
-  },
-  "rationale": "Causal chain — different TIME slices: capture → negotiation → payment → rescue aftermath."
+  "rationale": "Causal chain — different TIME slices: debt → collectors → negotiation → aftermath."
 }
 
 Example 2 — Slice-of-life / character state pattern (mixed-axis decomposition):
@@ -456,31 +386,24 @@ User: "How has Yuki been adjusting to the dorm?"
     "Yuki study routine late night habits",
     "Yuki mood shifts recent weeks"
   ],
-  "filters": {
-    "characters_any": ["Yuki"]
-  },
   "rationale": "Mixed axes — arrival event (TIME), social pattern (FACET), daily habit (GRANULARITY), emotional trajectory (FACET)."
 }
 
 Example 3 — A line said TO X, but about a relationship BETWEEN OTHERS (participant resolution):
 User: To Kai — "Your father is finally cleared, your sister never got on with your father, but you've found your sister again."
-(relative to Kai: your father = Marcus, your sister = Lena)
+(relative to Kai: your father = Marcus, your sister = Tessa)
 {
   "queries": [
     "Marcus cleared of the charge — how",
-    "Lena and Marcus long-standing rift",
-    "Kai and Lena reunion"
+    "Tessa and Marcus long-standing rift",
+    "Kai and Tessa reunion"
   ],
-  "filters": {
-    "characters_any": ["Marcus", "Lena", "Kai"],
-    "concepts_any": ["exoneration", "father-daughter rift", "reunion"]
-  },
-  "rationale": "Resolve participants: 'cleared' is about Marcus; 'rift' is Lena↔Marcus (Kai not a party); only 'reunion' is Kai↔Lena. Don't pin every query on Kai."
+  "rationale": "Resolve participants: 'cleared' is about Marcus; 'rift' is Tessa↔Marcus (Kai not a party); only 'reunion' is Kai↔Tessa. Don't pin every query on Kai."
 }
 ✗ WRONG — Kai bolted onto every fact (even ones he is not in):
-    "Kai's father cleared", "Kai and Marcus rift", "Kai and Lena reunion"
+    "Kai's father cleared", "Kai and Marcus rift", "Kai and Tessa reunion"
 ✓ RIGHT — query the real parties; Kai appears once (the reunion he is in):
-    "Marcus cleared of the charge — how", "Lena and Marcus rift", "Kai and Lena reunion"
+    "Marcus cleared of the charge — how", "Tessa and Marcus rift", "Kai and Tessa reunion"
 Note: in a line said TO X, most facts are BETWEEN OTHERS — X's name should appear in only a few (usually one) query.
 
 `;
@@ -534,7 +457,7 @@ const _EXTRACTION_LANG_INTL =
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
    - CONCEPTS examples for this language (see full rules in OUTPUT SCHEMA below):
        GOOD: "sacrifice", "trust", "obligation", "isolation", "redemption", "the cost of victory"
-       BAD:  "Mayla" (character), "tavern" (location), "sword" (item),
+       BAD:  "Aria" (character), "tavern" (location), "sword" (item),
              "combat" (action), "leveling up" (mechanic)
    - Violating this rule makes the output invalid.
 
@@ -546,9 +469,9 @@ const _EXTRACTION_LANG_JIEBA =
    - DO NOT convert to Traditional Chinese.
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
    - CONCEPTS 范例（完整规则见下方 OUTPUT SCHEMA）：
-       好的概念：「赎身」、「失踪的父亲」、「信仰」、「情感依附」、「亲情」、「孤独」、「背叛」
-       不要放：「梅拉」(人名)、「酒馆」(地点)、「魔导石」(物品)、
-                「战斗」(动作)、「升级」(机制)、「食腐蟹」(怪物名)、
+       好的概念：「牺牲」、「胜利的代价」、「信仰」、「情感依附」、「亲情」、「孤独」、「背叛」
+       不要放：「Aria」(人名)、「酒馆」(地点)、「长剑」(物品)、
+                「战斗」(动作)、「升级」(机制)、「Goblin」(怪物名)、
                 「属性点分配」(游戏机制)
    - Violating this rule makes the output invalid.
 
@@ -560,9 +483,9 @@ const _EXTRACTION_LANG_JIEBA_TW =
    - DO NOT convert to Simplified Chinese.
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
    - CONCEPTS 範例（完整規則見下方 OUTPUT SCHEMA）：
-       好的概念：「贖身」、「失蹤的父親」、「信仰」、「情感依附」、「親情」、「孤獨」、「背叛」
-       不要放：「梅拉」(人名)、「酒館」(地點)、「魔導石」(物品)、
-                「戰鬥」(動作)、「升級」(機制)、「食腐蟹」(怪物名)、
+       好的概念：「犧牲」、「勝利的代價」、「信仰」、「情感依附」、「親情」、「孤獨」、「背叛」
+       不要放：「Aria」(人名)、「酒館」(地點)、「長劍」(物品)、
+                「戰鬥」(動作)、「升級」(機制)、「Goblin」(怪物名)、
                 「屬性點分配」(遊戲機制)
    - Violating this rule makes the output invalid.
 
@@ -573,10 +496,10 @@ const _EXTRACTION_LANG_TINY_SEGMENTER =
    - All string fields (summary, cause, result, characters, locations, factions, items, concepts, keywords, open_threads) MUST be in Japanese (日本語).
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
    - CONCEPTS 例（詳しいルールは下の OUTPUT SCHEMA を参照）：
-       良い概念：「誓い」、「罪悪感」、「信頼」、「孤独」、「親子の絆」、「贖罪」、「裏切り」
-       不可：「メイラ」(人名)、「酒場」(場所)、「剣」(アイテム)、
+       良い概念：「誓い」、「罪悪感」、「信頼」、「孤独」、「家族の絆」、「贖罪」、「裏切り」
+       不可：「Aria」(人名)、「酒場」(場所)、「剣」(アイテム)、
               「戦闘」(動作)、「レベルアップ」(ゲーム機構)、
-              「食腐蟹」(モンスター名)、「ステータス振り分け」(機構)
+              「Goblin」(モンスター名)、「ステータス振り分け」(機構)
    - Violating this rule makes the output invalid.
 
 `;
@@ -586,10 +509,10 @@ const _EXTRACTION_LANG_KOREAN =
    - All string fields (summary, cause, result, characters, locations, factions, items, concepts, keywords, open_threads) MUST be in Korean (한국어).
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
    - CONCEPTS 예시 (전체 규칙은 아래 OUTPUT SCHEMA 참조):
-       좋은 개념: "맹세", "부녀의 정", "신뢰", "고독", "속죄", "배신", "희생"
-       나쁨: "메이라" (인명), "주막" (장소), "검" (아이템),
+       좋은 개념: "맹세", "가족의 정", "신뢰", "고독", "속죄", "배신", "희생"
+       나쁨: "Aria" (인명), "주막" (장소), "검" (아이템),
              "전투" (행동), "레벨업" (게임 메커닉),
-             "식부해" (몬스터 이름), "능력치 분배" (게임 메커닉)
+             "Goblin" (몬스터 이름), "능력치 분배" (게임 메커닉)
    - Violating this rule makes the output invalid.
 
 `;
@@ -761,25 +684,25 @@ const _EXTRACTION_EXAMPLES_INTL =
 
 const _EXTRACTION_EXAMPLES_JIEBA =
 `One event (Simplified Chinese excerpt):
-[{"event_type":"promise_or_oath","importance":9,"summary":"师傅承诺帮梅拉寻找失踪的父亲暗影之翼。","cause":"梅拉在房间中央哭着请求帮助。","result":"寻找暗影之翼成为队伍的核心目标。","characters":["梅拉","师父"],"locations":["星月绿洲顶楼公寓"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":[],"concepts":["失踪的父亲","承诺","亲情"],"keywords":["暗影之翼","寻找父亲","承诺","哭泣","请求","失踪","核心目标","队伍任务","誓言","亲情"],"open_threads":["确定暗影之翼是生是死"],"should_persist":true}]
+[{"event_type":"promise_or_oath","importance":9,"summary":"Aria 承诺帮 Leon 找回被盗的传家罗盘。","cause":"Leon 在房间中央哭着请求帮助。","result":"找回罗盘成为队伍的核心目标。","characters":["Aria","Leon"],"locations":["Harbor Inn 顶楼客房"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":["传家罗盘"],"concepts":["传承","承诺","亲情"],"keywords":["传家罗盘","寻找罗盘","承诺","哭泣","请求","失窃","核心目标","队伍任务","誓言","亲情"],"open_threads":["查明罗盘落在谁手里"],"should_persist":true}]
 
 `;
 
 const _EXTRACTION_EXAMPLES_JIEBA_TW =
 `One event (Traditional Chinese excerpt):
-[{"event_type":"promise_or_oath","importance":9,"summary":"師傅承諾幫梅拉尋找失蹤的父親暗影之翼。","cause":"梅拉在房間中央哭著請求幫助。","result":"尋找暗影之翼成為隊伍的核心目標。","characters":["梅拉","師父"],"locations":["星月綠洲頂樓公寓"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":[],"concepts":["失蹤的父親","承諾","親情"],"keywords":["暗影之翼","尋找父親","承諾","哭泣","請求","失蹤","核心目標","隊伍任務","誓言","親情"],"open_threads":["確定暗影之翼是生是死"],"should_persist":true}]
+[{"event_type":"promise_or_oath","importance":9,"summary":"Aria 承諾幫 Leon 找回被盜的傳家羅盤。","cause":"Leon 在房間中央哭著請求幫助。","result":"找回羅盤成為隊伍的核心目標。","characters":["Aria","Leon"],"locations":["Harbor Inn 頂樓客房"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":["傳家羅盤"],"concepts":["傳承","承諾","親情"],"keywords":["傳家羅盤","尋找羅盤","承諾","哭泣","請求","失竊","核心目標","隊伍任務","誓言","親情"],"open_threads":["查明羅盤落在誰手裡"],"should_persist":true}]
 
 `;
 
 const _EXTRACTION_EXAMPLES_TINY_SEGMENTER =
 `One event (Japanese excerpt):
-[{"event_type":"promise_or_oath","importance":9,"summary":"師匠はメイラの行方不明の父・影の翼を見つけることを約束した。","cause":"メイラが部屋の中央で泣きながら助けを求めた。","result":"影の翼の捜索がパーティーの中心目標となった。","characters":["メイラ","師匠"],"locations":["星月オアシス最上階アパート"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":[],"concepts":["行方不明の父","誓い","親子の絆"],"keywords":["影の翼","父の捜索","約束","泣く","懇願","行方不明","中心目標","パーティーの任務","誓い","親子の絆"],"open_threads":["影の翼の生死を確認する"],"should_persist":true}]
+[{"event_type":"promise_or_oath","importance":9,"summary":"Aria は Leon の盗まれた家宝の羅針盤を取り戻すと約束した。","cause":"Leon が部屋の中央で泣きながら助けを求めた。","result":"羅針盤の奪還がパーティーの中心目標となった。","characters":["Aria","Leon"],"locations":["Harbor Inn 最上階の客室"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":["家宝の羅針盤"],"concepts":["継承","誓い","家族の絆"],"keywords":["家宝の羅針盤","羅針盤の捜索","約束","泣く","懇願","盗難","中心目標","パーティーの任務","誓い","家族の絆"],"open_threads":["羅針盤を持ち去った者を突き止める"],"should_persist":true}]
 
 `;
 
 const _EXTRACTION_EXAMPLES_KOREAN =
 `One event (Korean excerpt):
-[{"event_type":"promise_or_oath","importance":9,"summary":"스승은 메이라의 실종된 아버지 그림자의 날개를 찾아주기로 약속했다.","cause":"메이라가 방 한가운데서 울며 도움을 청했다.","result":"그림자의 날개를 찾는 것이 파티의 핵심 목표가 되었다.","characters":["메이라","스승"],"locations":["성월 오아시스 옥상 아파트"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":[],"concepts":["실종된 아버지","약속","부녀의 정"],"keywords":["그림자의 날개","아버지 찾기","약속","울음","간청","실종","핵심 목표","파티 임무","맹세","부녀의 정"],"open_threads":["그림자의 날개의 생사 확인"],"should_persist":true}]
+[{"event_type":"promise_or_oath","importance":9,"summary":"Aria는 Leon의 도둑맞은 가보 나침반을 되찾아 주기로 약속했다.","cause":"Leon이 방 한가운데서 울며 도움을 청했다.","result":"나침반을 되찾는 것이 파티의 핵심 목표가 되었다.","characters":["Aria","Leon"],"locations":["Harbor Inn 꼭대기 층 객실"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":["가보 나침반"],"concepts":["대물림","약속","가족의 정"],"keywords":["가보 나침반","나침반 찾기","약속","울음","간청","도난","핵심 목표","파티 임무","맹세","가족의 정"],"open_threads":["나침반을 가져간 자 확인"],"should_persist":true}]
 
 `;
 
@@ -837,16 +760,15 @@ export function getEventBaseExtractionPrompt(mode) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Build the user-message portion of the planner prompt. Combines recent chat,
- * the current user message, and a summary of pre-search candidates.
+ * Build the user-message portion of the planner prompt: recent chat and the
+ * current user message.
  *
  * @param {object} params
  * @param {{speaker: string, text: string}[]} params.recentTurns - Past chat (oldest first)
  * @param {string} params.userMessage - Current user input verbatim
- * @param {object[]} params.candidates - Pre-search event candidates (already trimmed)
  * @returns {string} The user-message text
  */
-export function buildPlannerUserMessage({ recentTurns, userMessage, candidates }) {
+export function buildPlannerUserMessage({ recentTurns, userMessage }) {
     const parts = [];
 
     parts.push('Recent chat (oldest first):');
@@ -868,40 +790,7 @@ export function buildPlannerUserMessage({ recentTurns, userMessage, candidates }
     parts.push(`  ${userMessage || '(empty)'}`);
 
     parts.push('');
-    parts.push('Candidate events from pre-search (top by similarity, may be incomplete):');
-    if (!candidates || candidates.length === 0) {
-        parts.push('  (none — DB returned no semantic matches)');
-    } else {
-        candidates.forEach((ev, i) => {
-            parts.push(_formatCandidateLine(ev, i + 1));
-        });
-    }
-
-    parts.push('');
     parts.push('Plan retrieval. Return strict JSON only.');
 
     return parts.join('\n');
-}
-
-/**
- * One-line summary of a candidate event for the planner prompt.
- * Format: E<N> [score] type — text (chars: [...], concepts: [...], importance: X)
- */
-function _formatCandidateLine(ev, idx) {
-    const score = typeof ev.score === 'number' ? ev.score.toFixed(2)
-        : typeof ev.vectorScore === 'number' ? ev.vectorScore.toFixed(2)
-        : '—';
-    const type = ev.event_type || ev.metadata?.event_type || 'event';
-    const text = (ev.text || ev.metadata?.text || '').replace(/\s+/g, ' ').slice(0, 90);
-    const chars = (ev.characters || ev.metadata?.characters || []).slice(0, 4).join(', ');
-    const concepts = (ev.concepts || ev.metadata?.concepts || []).slice(0, 4).join(', ');
-    const importance = ev.importance ?? ev.metadata?.importance ?? '?';
-
-    const meta = [
-        chars ? `chars: [${chars}]` : '',
-        concepts ? `concepts: [${concepts}]` : '',
-        `importance: ${importance}`,
-    ].filter(Boolean).join(' | ');
-
-    return `  E${idx} [${score}] ${type} — ${text}\n      ${meta}`;
 }

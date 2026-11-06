@@ -21,7 +21,7 @@ import {
     resolveAgenticPlannerTimeoutMs,
     resolveAgenticQueryTimeoutMs,
     resolveAgenticMaxTokens,
-    agenticRetrievalExtraBudgetMs,
+    retrievalModeExtraBudgetMs,
     resolveEventBaseRetrievalTimeoutMs,
 } from '../src/shared/retrieval-budget.js';
 import {
@@ -103,29 +103,35 @@ describe('agent mode timeouts', () => {
     });
 
     it('adds nothing when agent mode is off', () => {
-        expect(agenticRetrievalExtraBudgetMs({ vector_backend: 'qdrant' })).toBe(0);
-        expect(agenticRetrievalExtraBudgetMs(undefined)).toBe(0);
+        expect(retrievalModeExtraBudgetMs({ vector_backend: 'qdrant' })).toBe(0);
+        expect(retrievalModeExtraBudgetMs(undefined)).toBe(0);
     });
 
-    // Same gate as STAGE 2 of retrieveEventsWithAgent: the planner never runs on
-    // the standard backend, so paying for it would just make failures slower.
+    // Same gate as retrieveEventsForTurn: the planner never runs on the standard
+    // backend, so paying for it would just make failures slower.
     it('adds nothing on a backend that cannot run the planner', () => {
-        expect(agenticRetrievalExtraBudgetMs({ ...agentOn, vector_backend: 'standard' })).toBe(0);
+        expect(retrievalModeExtraBudgetMs({ ...agentOn, vector_backend: 'standard' })).toBe(0);
     });
 
     it('adds planner + one per-query timeout when agent mode is live', () => {
-        expect(agenticRetrievalExtraBudgetMs(agentOn))
+        expect(retrievalModeExtraBudgetMs(agentOn))
             .toBe(AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
     });
 
     // The StoryArc router can outlast the pre-search, and the thread pick and block cut run after the recipe's searches.
-    it('adds one more planner timeout each for the StoryArc router, thread pick and block cut', () => {
-        expect(agenticRetrievalExtraBudgetMs({ ...agentOn, story_arc_mode_enabled: true }))
-            .toBe(4 * AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
+    it('adds a planner timeout each for the StoryArc router, thread pick and block cut, and one per-query timeout', () => {
+        expect(retrievalModeExtraBudgetMs({ vector_backend: 'qdrant', story_arc_mode_enabled: true }))
+            .toBe(3 * AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
     });
 
-    it('adds nothing for StoryArc mode when agent mode is off', () => {
-        expect(agenticRetrievalExtraBudgetMs({ vector_backend: 'qdrant', story_arc_mode_enabled: true })).toBe(0);
+    // The planner does not run under StoryArc mode, so agent mode's switch changes nothing there.
+    it('adds the same for StoryArc mode with agent mode on', () => {
+        expect(retrievalModeExtraBudgetMs({ ...agentOn, story_arc_mode_enabled: true }))
+            .toBe(3 * AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
+    });
+
+    it('adds nothing for StoryArc mode on a backend it cannot run on', () => {
+        expect(retrievalModeExtraBudgetMs({ vector_backend: 'standard', story_arc_mode_enabled: true })).toBe(0);
     });
 });
 

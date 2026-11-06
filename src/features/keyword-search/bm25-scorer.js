@@ -761,15 +761,11 @@ export function applyBM25Scoring(results, query, options = {}) {
 /**
  * Tokenize a single segmented span using the run-merging strategy.
  *
- * The segmenter often returns ALL single-char segments for unknown proper names
- * (e.g. character names like 偲雅伶绪). But when a name appears adjacent to a
- * known word in the same span (e.g. 向偲雅伶绪问候), the "all single" check
- * used previously failed and fragmented the name.
- *
- * Run-merging fix: accumulate consecutive single-char word-like segments into a
- * "run". Flush the run as one compound token when a multi-char word interrupts it
- * or the span ends. This preserves known words (聚餐, 问候) as individual tokens
- * while keeping unknown proper names intact.
+ * The segmenter often returns single-char segments for a proper name it does not
+ * know, even when the name sits beside known words in the same span. So consecutive
+ * single-char word-like segments accumulate into a "run", flushed as one compound
+ * token when a multi-char word interrupts it or the span ends. This keeps known
+ * words (聚餐, 问候) as individual tokens and unknown proper names whole.
  *
  * @param {Intl.Segmenter} segmenter
  * @param {string} span
@@ -796,14 +792,14 @@ function _segmentSpan(segmenter, span) {
     }
     // Flush any remaining run.
     // If other multi-char tokens were already produced in this span, a final
-    // solo char is a trailing suffix (e.g. '村' from '瞭望村') — drop it.
+    // solo char is a trailing suffix (e.g. '村' from '漁港村') — drop it.
     // If this is the only output so far, keep it (e.g. '劍' as a standalone span).
     if (singleRun.length >= 2) {
         tokens.push(singleRun);
     } else if (singleRun.length === 1 && tokens.length === 0) {
         tokens.push(singleRun); // solo char span — preserve (e.g. '劍', '龍')
     }
-    // else: trailing single char after known words — discard (e.g. '瞭望' + '村')
+    // else: trailing single char after known words — discard (e.g. '漁港' + '村')
 
     // Safety: if nothing produced (e.g. all filtered), emit whole span
     return tokens.length > 0 ? tokens : (span.length >= 2 ? [span] : []);

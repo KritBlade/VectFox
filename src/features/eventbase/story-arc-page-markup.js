@@ -85,14 +85,10 @@ function modeCard() {
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-link', title: 'StoryArc mode', description: 'The switch, and the links it follows.' })}
         <div class="vfx-card-body vfx-stack">
-            <div id="VectFox_story_arc_needs_agent_mode" class="vfx-notice is-warning">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-                <p class="vfx-notice-text">AgentMode is off, so StoryArc does nothing. Turn it on in the AgentMode tab.</p>
-            </div>
             <label class="vfx-switch-row">
                 <input type="checkbox" role="switch" id="VectFox_story_arc_mode_enabled" class="vfx-switch">
                 <span class="vfx-switch-title">Enable StoryArc mode</span>
-                <span class="vfx-switch-desc">Adds one small LLM call per message. Needs AgentMode and Qdrant.</span>
+                <span class="vfx-switch-desc">Adds one small LLM call per message, on the link model. Needs Qdrant.</span>
             </label>
             <div class="vfx-control-row">
                 <button type="button" id="VectFox_story_arc_regenerate_links" class="vfx-btn vfx-btn-primary"><i class="fa-solid fa-link"></i><span>Regenerate links</span></button>
@@ -124,7 +120,7 @@ function connectionCard() {
     });
     const model = '<input type="text" id="VectFox_story_arc_link_model" class="vfx-input" placeholder="openai/gpt-6-luna">';
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-plug', title: 'API connection', description: 'The model that writes links, picks threads and cuts blocks.' })}
+        ${cardHeader({ icon: 'fa-plug', title: 'API connection', description: 'The model that writes links, routes each message, picks threads and cuts blocks.' })}
         <div class="vfx-card-body">
             ${grid([
                 field([fieldLabel({ text: 'Link provider', forId: 'VectFox_story_arc_link_provider' }), provider]),

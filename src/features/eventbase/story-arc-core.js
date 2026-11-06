@@ -9,7 +9,7 @@
  * A small LLM call, the router, reads the player's message and returns the
  * question's shape and subject. The shape picks a recipe: which events to fetch,
  * which links to walk, and how many to keep. Ordinary turns have no recipe and
- * keep today's retrieval path. StoryArc Route rules decide the route for each
+ * keep the pre-search. StoryArc Route rules decide the route for each
  * situation, and every turn reports the rule that decided it.
  *
  * On a question about a thread, a second LLM call reads the chat's thread names
@@ -49,7 +49,7 @@ const STORY_SHAPES = {
 
 const SCENE_SHAPE = 'scene';
 
-/** The shapes a recipe answers. Any other shape keeps today's path. */
+/** The shapes a recipe answers. Any other shape keeps the pre-search. */
 const RECIPE_SHAPES = new Set(['first_time', 'last_time', 'chain', 'why', 'current', 'bigger_plot']);
 
 /** The shapes that ask for one end of a matter: its first or its last time. */
@@ -62,15 +62,15 @@ const THREAD_SHAPE = 'chain';
 export const STORY_ROUTE_RULE = Object.freeze({
     /** The question's shape chose its recipe, and the recipe found events. */
     SHAPE_RECIPE: 'shape-recipe',
-    /** The router called the message an ordinary turn, so it keeps today's path. */
+    /** The router called the message an ordinary turn, so it keeps the pre-search. */
     ORDINARY_TURN: 'ordinary-turn',
-    /** The router failed, has no model, or returned an unknown shape, so the turn keeps today's path. */
+    /** The router failed, has no model, or returned an unknown shape, so the turn keeps the pre-search. */
     ROUTER_UNUSABLE: 'router-unusable',
-    /** The collection could not be listed, so the turn keeps today's path. */
+    /** The collection could not be listed, so the turn keeps the pre-search. */
     LISTING_FAILED: 'listing-failed',
     /** Too few events are decided to walk, so a recipe searches without links. */
     LINKS_NOT_GENERATED: 'links-not-generated',
-    /** A recipe ended with no events, so the turn keeps today's path. */
+    /** A recipe ended with no events, so the turn keeps the pre-search. */
     RECIPE_FOUND_NOTHING: 'recipe-found-nothing',
     /** A first-time question whose subject is empty or named in no stored event starts from the closest events. */
     FIRST_TIME_SUBJECT_NOT_FOUND: 'first-time-subject-not-found',
@@ -78,11 +78,11 @@ export const STORY_ROUTE_RULE = Object.freeze({
     LAST_TIME_SUBJECT_NOT_FOUND: 'last-time-subject-not-found',
     /** An LLM picked threads by name, and their events took seats in the block first. */
     THREAD_PICK: 'thread-pick',
-    /** The thread pick failed or has no model, so the recipe ran without it. */
+    /** The thread pick failed, so the recipe ran without it. */
     THREAD_PICK_FAILED: 'thread-pick-failed',
     /** An LLM chose the lines that answer the question, and a long block was cut to them. */
     BLOCK_CUT: 'block-cut',
-    /** The cut failed, has no model, or its reply named no line, so a long block was cut without it. */
+    /** The cut failed, or its reply named no line, so a long block was cut without it. */
     BLOCK_CUT_FAILED: 'block-cut-failed',
 });
 
@@ -90,10 +90,10 @@ export const STORY_ROUTE_RULE = Object.freeze({
 const BLOCK_EVENT_LIMIT = 75;
 /** Chat windows a thread recipe gathers before the cut. With every event stored at them, they come to about 110 to 130 lines. */
 const BLOCK_WINDOW_LIMIT = 75;
-/** Lines a block keeps after the cut. 20 come to about 2,000 tokens, against about 3,300 for today's 10 full events. */
+/** Lines a block keeps after the cut. 20 come to about 2,600 tokens, against about 3,300 for 10 full events. */
 const BLOCK_CUT_EVENT_COUNT = 20;
-/** A thread pick's events that take their windows first, which leaves a walk at least the 50 closest windows. */
-const PICKED_EVENT_SEATS = 25;
+/** A thread pick's events whose windows come first, closest first. They can fill a block, the walk takes what is left, and the block cut chooses among them all. */
+const PICKED_EVENT_SEATS = 75;
 /**
  * Hybrid hits a recipe asks for. The search cannot be limited to chosen events, so
  * this pool is how a recipe tells which events are closest to the question.
@@ -112,12 +112,12 @@ const SCENE_MESSAGE_GAP = 20;
 const THREAD_PICK_SHAPES = new Set(['chain', 'why', 'bigger_plot']);
 
 /**
- * StoryArc mode's switch, plus what it needs: Agent Mode for the router, and Qdrant.
+ * StoryArc mode's switch, plus the Qdrant backend it needs.
  * @param {object} settings
  * @returns {boolean}
  */
 export function isStoryArcActive(settings) {
-    return !!(settings?.story_arc_mode_enabled && settings.agentic_retrieval_enabled && settings.vector_backend === 'qdrant');
+    return !!(settings?.story_arc_mode_enabled && settings.vector_backend === 'qdrant');
 }
 
 /** How much recent chat the router sees: enough to work out who "you" or a kinship word means. */
@@ -151,7 +151,7 @@ export function buildStoryRouterMessage({ recentTurns, userMessage }) {
 }
 
 /**
- * Read the router's reply. An unknown shape reads as a scene, so the turn takes today's path.
+ * Read the router's reply. An unknown shape reads as a scene, so the turn keeps the pre-search.
  *
  * @param {unknown} reply - Parsed JSON from the router
  * @returns {{shape: string, subject: string, isKnownShape: boolean}}
@@ -164,7 +164,7 @@ export function readStoryRoute(reply) {
 }
 
 /**
- * Whether a question shape has a recipe. Any other shape keeps today's path.
+ * Whether a question shape has a recipe. Any other shape keeps the pre-search.
  * @param {string} shape
  * @returns {boolean}
  */
@@ -356,7 +356,7 @@ function selectWithoutLinks({ shape, namedEvents, closestNaming, poolEvents }) {
  * @param {object[]} params.storedEvents - Every event in the collection, each with `_hash`
  * @param {object[]} params.poolEvents - Hybrid hits, closest first, each with `_hash`
  * @param {string[]} [params.pickedThreads] - Thread names an LLM picked, whose events take seats first in a thread block
- * @returns {{events: object[], blockShape: string, ruleName: string}} events in time order; none when the turn should keep today's path
+ * @returns {{events: object[], blockShape: string, ruleName: string}} events in time order; none when the turn should keep the pre-search
  */
 export function selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents, pickedThreads = [] }) {
     const namedEvents = subject ? storedEvents.filter(event => eventNamesSubject(event, subject)) : [];

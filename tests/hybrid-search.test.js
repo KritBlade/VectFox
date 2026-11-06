@@ -752,8 +752,7 @@ describe('hybridSearch', () => {
                 textWeight: 0.3,
                 rrfK: 40,
             }),
-            expect.any(Object), // 6th arg: filters (added after this test was written)
-            null,               // 7th arg: queryVector (none passed in options here)
+            null, // queryVector: none passed in options here
         );
     });
 
@@ -764,7 +763,7 @@ describe('hybridSearch', () => {
 
         await hybridSearch('test-collection', 'query', 10, { hybrid_native_prefer: true }, { queryVector });
 
-        expect(mockBackend.hybridQuery.mock.calls[0][6]).toBe(queryVector);
+        expect(mockBackend.hybridQuery.mock.calls[0][5]).toBe(queryVector);
     });
 
     it('should use settings for fusion parameters when not in options', async () => {
@@ -794,8 +793,7 @@ describe('hybridSearch', () => {
                 textWeight: 0.4,
                 rrfK: 50,
             }),
-            expect.any(Object), // 6th arg: filters (added after this test was written)
-            null,               // 7th arg: queryVector (none passed in options here)
+            null, // queryVector: none passed in options here
         );
     });
 

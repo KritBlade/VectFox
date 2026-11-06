@@ -435,18 +435,18 @@ describe('VECTFOX vs OpenVault Keyword Comparison', () => {
             }
         });
 
-        it('OpenVault: >2 length filter cannot distinguish 3-char names from 14-char sentences', () => {
-            // A 3-character name like 索拉雅 survives the >2 filter correctly
+        it('OpenVault: >2 length filter cannot distinguish 3-char words from 14-char sentences', () => {
+            // A 3-character word like 圖書館 survives the >2 filter correctly
             // But a 14-character sentence like 酒館裡大概有三十個人 ALSO survives
             // because \p{L} treats the entire CJK run as one token
-            const shortCjk = '索拉雅';  // 3 chars — valid name
+            const shortCjk = '圖書館';  // 3 chars — a word
             const longCjk = '酒館裡大概有三十個人';  // 8 chars — sentence
 
             const shortTokens = openvaultTokenize(shortCjk);
             const longTokens = openvaultTokenize(longCjk);
 
             // Both survive length filter (both > 2), but OpenVault can't distinguish them
-            console.log('\n[OpenVault] 3-char name:', shortTokens);
+            console.log('\n[OpenVault] 3-char word:', shortTokens);
             console.log('[OpenVault] 8-char sentence:', longTokens);
             console.log('[OpenVault] Both survive >2 filter — system cannot distinguish names from sentences');
 

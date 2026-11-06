@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const CHAT_UUID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const OTHER_CHAT_UUID = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
-const EXPORTED_COLLECTION_ID = `vf_eventbase_qdrant_critblade_kagami_${CHAT_UUID}`;
+const EXPORTED_COLLECTION_ID = `vf_eventbase_qdrant_wanderer_kagami_${CHAT_UUID}`;
 const IMPORTED_COLLECTION_ID = `vf_eventbase_qdrant_rabbit_kagami_${CHAT_UUID}`;
 
 vi.mock('../../../../extensions.js', () => ({
@@ -151,7 +151,7 @@ describe('importing a collection resets its chat records', () => {
     });
 
     it('keeps them when the imported collection is not an EventBase', async () => {
-        await importCollection(exportFile(`vf_lorebook_qdrant_critblade_worldlore_${CHAT_UUID}`), SETTINGS, { overwrite: true });
+        await importCollection(exportFile(`vf_lorebook_qdrant_wanderer_worldlore_${CHAT_UUID}`), SETTINGS, { overwrite: true });
 
         expect(await hasOldRecords(CHAT_UUID)).toEqual(OLD_RECORDS);
     });

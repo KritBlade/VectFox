@@ -34,7 +34,7 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     resolveEventBaseWriteTarget: vi.fn(),
 }));
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
-vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
+vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn() }));
 vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
 vi.mock('../src/features/collections/collection-metadata.js', () => ({ isCollectionEnabled: vi.fn(), isCollectionLockedToChat: vi.fn(), setCollectionLock: vi.fn(), setCollectionMeta: vi.fn() }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: {} }));

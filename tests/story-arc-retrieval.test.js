@@ -1,6 +1,6 @@
 /**
  * Tests for StoryArc mode's recipes (src/features/eventbase/story-arc-retrieval.js)
- * and how Agent Mode routes to them (src/features/eventbase/agentic-retrieval.js).
+ * and how retrieval routes to them (src/features/eventbase/agentic-retrieval.js).
  *
  * Guards that:
  *   - a thread question gets a wide pool in chat order, past the top-K trim,
@@ -8,9 +8,9 @@
  *   - stored links are walked once a chat has them,
  *   - a thread question asks the link model which threads to add, and survives its failure,
  *   - a long block is cut by the link model with a prompt for its shape, and survives its failure,
- *   - ordinary turns, router failures, a failed listing and empty recipes keep today's path,
+ *   - ordinary turns, router failures, a failed listing and empty recipes keep the pre-search, and no planner runs,
  *   - every StoryArc turn reports the Route rule that decided it,
- *   - StoryArc mode does nothing unless Agent Mode and its own switch are on,
+ *   - StoryArc mode runs on its own switch and Qdrant, with Agent Mode on or off,
  *   - merged entity names reach the search, the recipe, the cut and the block, and nothing stored changes,
  *   - a story web search calls no LLM.
  */
@@ -81,7 +81,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 const { findStoryWebEvents, retrieveStoryRecipeEvents } = await import('../src/features/eventbase/story-arc-retrieval.js');
-const { resolveStoryLinkLlmConfig, retrieveEventsWithAgent } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { resolveStoryLinkLlmConfig, retrieveEventsForTurn } = await import('../src/features/eventbase/agentic-retrieval.js');
 const { BLOCK_CUT_PROMPT_BY_SHAPE } = await import('../src/features/eventbase/story-arc-core.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
@@ -347,21 +347,20 @@ describe('findStoryWebEvents', () => {
     });
 });
 
-describe('retrieveEventsWithAgent with StoryArc mode', () => {
+describe('retrieveEventsForTurn with StoryArc mode', () => {
     const preSearch = { events: [event(9, 'pre-search hit')], debug: { rawCount: 1 } };
     const storyArcOn = {
         vector_backend: 'qdrant',
-        agentic_retrieval_enabled: true,
         story_arc_mode_enabled: true,
-        agent_provider: 'openrouter',
-        agent_model: 'router-model',
+        story_arc_link_provider: 'openrouter',
+        story_arc_link_model: 'link-model',
     };
     const llmReplies = (...replies) => {
         for (const reply of replies) {
             postChatCompletionMock.mockResolvedValueOnce({ content: JSON.stringify(reply), usage: {} });
         }
     };
-    const callAgent = (settings) => retrieveEventsWithAgent({ ...baseParams, settings });
+    const callAgent = (settings) => retrieveEventsForTurn({ ...baseParams, settings });
     const routerCalls = () => postChatCompletionMock.mock.calls.filter(([call]) => call.messages[0].content.startsWith('A player is writing'));
 
     beforeEach(() => {
@@ -381,17 +380,18 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         expect(retrieveEventsMock).toHaveBeenCalledTimes(1);
     });
 
-    it('asks the router with no event hits in its prompt', async () => {
-        llmReplies({ shape: 'scene', subject: '' }, { queries: [] });
-        await callAgent(storyArcOn);
+    it('asks the router on the link model at low effort, with no event hits in its prompt', async () => {
+        llmReplies({ shape: 'scene', subject: '' });
+        await callAgent({ ...storyArcOn, agent_provider: 'openrouter', agent_model: 'agent-model' });
         const [routerCall] = routerCalls();
-        expect(routerCall[0].model).toBe('router-model');
+        expect(routerCall[0].model).toBe('link-model');
+        expect(routerCall[0].reasoningEffort).toBe('low');
+        expect(routerCall[0].sendTemperature).toBe(false);
         expect(routerCall[0].messages[1].content).toContain('How did Nora get here?');
         expect(routerCall[0].messages[1].content).not.toContain('pre-search hit');
     });
 
     describe('thread pick', () => {
-        const linkOn = { ...storyArcOn, story_arc_link_provider: 'openrouter', story_arc_link_model: 'link-model' };
         const threadLink = (hash, thread) => ({ event_id: `id${hash}`, type: 'continues', thread });
         /** A thread the search misses, and the hit it does find. */
         const missed = [
@@ -408,7 +408,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
 
         it('asks the link model at low effort, and seats the events of the threads it picks', async () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['#20 Finding the father'] });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(starts(result.events)).toEqual([10, 20, 500]);
             expect(result.debug.storyArc.ruleName).toBe('thread-pick');
             const [[pickCall]] = pickCalls();
@@ -422,7 +422,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             for (const shape of ['first_time', 'current']) {
                 postChatCompletionMock.mockReset();
                 llmReplies({ shape, subject: 'hit' });
-                await callAgent(linkOn);
+                await callAgent(storyArcOn);
                 expect(pickCalls(), shape).toHaveLength(0);
             }
         });
@@ -430,7 +430,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         it('does not ask on a chat with too few decided events', async () => {
             listReturns([...missed, hit, event(600), event(601), event(602)]);
             llmReplies({ shape: 'chain', subject: 'Nora' });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(pickCalls()).toHaveLength(0);
             expect(result.debug.storyArc.ruleName).toBe('links-not-generated');
         });
@@ -439,14 +439,14 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             listReturns([event(10, 'first', { story_links: [] }), event(20, 'second', { story_links: [threadLink(10, '')] })]);
             queryReturns([event(20, 'second', { story_links: [threadLink(10, '')] })]);
             llmReplies({ shape: 'chain', subject: 'Nora' });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(pickCalls()).toHaveLength(0);
             expect(result.debug.storyArc.ruleName).toBe('shape-recipe');
         });
 
         it('keeps the recipe when the pick reports nothing', async () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: [] });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(starts(result.events)).toEqual([500]);
             expect(result.debug.storyArc.ruleName).toBe('shape-recipe');
         });
@@ -454,7 +454,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         it('runs the recipe without a pick when the call fails, and warns', async () => {
             llmReplies({ shape: 'chain', subject: 'Nora' });
             postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(starts(result.events)).toEqual([500]);
             expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
             expect(logWarnMock.mock.calls.flat().join(' ')).toContain('StoryArc thread pick LLM call failed');
@@ -464,22 +464,13 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         // A malformed reply must not read as "no threads fit".
         it('counts a reply with no list as a failed pick', async () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { thread: 'Finding the father' });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
         });
 
-        it('runs the recipe without a pick when there is no link model, and warns', async () => {
-            llmReplies({ shape: 'chain', subject: 'Nora' });
-            const result = await callAgent(storyArcOn);
-            expect(starts(result.events)).toEqual([500]);
-            expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
-            expect(pickCalls()).toHaveLength(0);
-            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Thread pick skipped: missing_model');
-        });
     });
 
     describe('block cut', () => {
-        const linkOn = { ...storyArcOn, story_arc_link_provider: 'openrouter', story_arc_link_model: 'link-model' };
         /** 30 hits at messages 100 to 158, closest last, on a chat with no links. */
         const hits = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `Nora at ${100 + i * 2}`));
         const closestFirst = [...hits].reverse();
@@ -489,7 +480,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
 
         it('asks the link model at low effort, and keeps the lines it chooses', async () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [110, '#102', 999] });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(starts(result.events)).toEqual([102, 110]);
             expect(result.storyArcShape).toBe('chain');
             expect(result.debug.storyArc).toEqual({ ruleName: 'links-not-generated', cutRuleName: 'block-cut', shape: 'chain', subject: 'Nora', finalCount: 2 });
@@ -505,7 +496,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         it('does not ask for a block of 20 or fewer', async () => {
             queryReturns(closestFirst.slice(0, 20));
             llmReplies({ shape: 'chain', subject: 'Nora' });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(result.events).toHaveLength(20);
             expect(cutCalls()).toHaveLength(0);
             expect(result.debug.storyArc.cutRuleName).toBe('');
@@ -514,7 +505,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         it('keeps the closest 20 when the call fails, and warns', async () => {
             llmReplies({ shape: 'why', subject: 'Nora' });
             postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(starts(result.events)).toEqual(starts(hits).slice(-20));
             expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
             expect(logWarnMock.mock.calls.flat().join(' ')).toContain('StoryArc block cut LLM call failed');
@@ -526,26 +517,17 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             for (const reply of [{ lines: [100] }, { events: [] }, { events: [999] }]) {
                 postChatCompletionMock.mockReset();
                 llmReplies({ shape: 'chain', subject: 'Nora' }, reply);
-                const result = await callAgent(linkOn);
+                const result = await callAgent(storyArcOn);
                 expect(result.events, JSON.stringify(reply)).toHaveLength(20);
                 expect(result.debug.storyArc.cutRuleName, JSON.stringify(reply)).toBe('block-cut-failed');
             }
-        });
-
-        it('keeps the closest 20 when there is no link model, and warns', async () => {
-            llmReplies({ shape: 'chain', subject: 'Nora' });
-            const result = await callAgent(storyArcOn);
-            expect(starts(result.events)).toEqual(starts(hits).slice(-20));
-            expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
-            expect(cutCalls()).toHaveLength(0);
-            expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Block cut skipped: missing_model');
         });
 
         it('offers no event the filters removed, and seats none', async () => {
             const stillVisible = event(2990, 'Nora still in context');
             queryReturns([stillVisible, ...closestFirst]);
             llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [100] });
-            const result = await callAgent({ ...linkOn, deduplication_depth: 20 });
+            const result = await callAgent({ ...storyArcOn, deduplication_depth: 20 });
             const [[cutCall]] = cutCalls();
             expect(cutCall.messages[1].content).not.toContain('#2990');
             expect(starts(result.events)).toEqual([100]);
@@ -554,7 +536,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         it('asks a first-time question with its own prompt, and keeps the chosen line\'s scene', async () => {
             listReturns(hits);
             llmReplies({ shape: 'first_time', subject: 'Nora' }, { events: [130] });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             const [[cutCall]] = cutCalls();
             expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.first_time);
             // The block holds 120 to 158, and its lines more than 20 messages from 130 stay out.
@@ -568,7 +550,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             // Closest oldest first, so the closest hits are not also its latest events.
             queryReturns(hits);
             llmReplies({ shape: 'last_time', subject: 'Nora' }, { events: [130] });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             const [[cutCall]] = cutCalls();
             expect(cutCall.messages[0].content).toBe(BLOCK_CUT_PROMPT_BY_SHAPE.last_time);
             expect(starts(result.events)).toContain(130);
@@ -583,7 +565,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             listReturns(hits);
             llmReplies({ shape: 'first_time', subject: 'Nora' });
             postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             // The block is the earliest 5 and the closest 20, so its first 20 skip what neither holds.
             expect(starts(result.events)).toEqual([...starts(hits).slice(0, 5), ...starts(hits).slice(10, 25)]);
             expect(result.debug.storyArc.cutRuleName).toBe('block-cut-failed');
@@ -594,7 +576,7 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
             listReturns(steps);
             queryReturns([steps[29]]);
             llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['The long road'] }, { events: [100, 158] });
-            const result = await callAgent(linkOn);
+            const result = await callAgent(storyArcOn);
             expect(starts(result.events)).toEqual([100, 158]);
             expect(result.debug.storyArc).toMatchObject({ ruleName: 'thread-pick', cutRuleName: 'block-cut' });
             expect(cutCalls()).toHaveLength(1);
@@ -614,17 +596,26 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         });
     });
 
-    it('sends an ordinary turn down the existing planner path', async () => {
-        llmReplies({ shape: 'scene', subject: '' }, { queries: [] });
+    it('keeps the pre-search on an ordinary turn, with no planner call', async () => {
+        llmReplies({ shape: 'scene', subject: '' });
         const result = await callAgent(storyArcOn);
         expect(result.events).toBe(preSearch.events);
         expect(result.debug.storyArc.ruleName).toBe('ordinary-turn');
-        expect(postChatCompletionMock).toHaveBeenCalledTimes(2);
+        expect(result.debug.agenticMode).toBeUndefined();
+        expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
         expect(queryCollectionMock).not.toHaveBeenCalled();
     });
 
-    it('routes a current-state question to its recipe, which keeps today\'s path until the chat has links', async () => {
-        llmReplies({ shape: 'current', subject: 'Nora' }, { queries: [] });
+    it('runs no planner with Agent Mode on as well', async () => {
+        llmReplies({ shape: 'scene', subject: '' });
+        const result = await callAgent({ ...storyArcOn, agentic_retrieval_enabled: true, agent_provider: 'openrouter', agent_model: 'agent-model' });
+        expect(result.events).toBe(preSearch.events);
+        expect(result.debug.agenticMode).toBeUndefined();
+        expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes a current-state question to its recipe, which keeps the pre-search until the chat has links', async () => {
+        llmReplies({ shape: 'current', subject: 'Nora' });
         queryReturns([event(100)]);
         const result = await callAgent(storyArcOn);
         expect(result.events).toBe(preSearch.events);
@@ -632,25 +623,24 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         expect(result.debug.storyArc.ruleName).toBe('links-not-generated');
     });
 
-    it('keeps today\'s path and warns when the router fails', async () => {
+    it('keeps the pre-search and warns when the router fails', async () => {
         postChatCompletionMock.mockRejectedValueOnce(new Error('router down'));
-        llmReplies({ queries: [] });
         const result = await callAgent(storyArcOn);
         expect(result.events).toBe(preSearch.events);
         expect(result.debug.storyArc.ruleName).toBe('router-unusable');
         expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('StoryArc router'))).toBe(true);
     });
 
-    it('keeps today\'s path and warns on an unknown shape', async () => {
-        llmReplies({ shape: 'history', subject: '' }, { queries: [] });
+    it('keeps the pre-search and warns on an unknown shape', async () => {
+        llmReplies({ shape: 'history', subject: '' });
         const result = await callAgent(storyArcOn);
         expect(result.events).toBe(preSearch.events);
         expect(result.debug.storyArc.ruleName).toBe('router-unusable');
         expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('unknown shape'))).toBe(true);
     });
 
-    it('keeps today\'s path when the recipe finds nothing', async () => {
-        llmReplies({ shape: 'chain', subject: 'Nora' }, { queries: [] });
+    it('keeps the pre-search when the recipe finds nothing', async () => {
+        llmReplies({ shape: 'chain', subject: 'Nora' });
         queryReturns([]);
         const result = await callAgent(storyArcOn);
         expect(result.events).toBe(preSearch.events);
@@ -658,8 +648,8 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         expect(result.debug.storyArc.ruleName).toBe('recipe-found-nothing');
     });
 
-    it('keeps today\'s path when the listing fails, and names the rule', async () => {
-        llmReplies({ shape: 'first_time', subject: 'Nora' }, { queries: [] });
+    it('keeps the pre-search when the listing fails, and names the rule', async () => {
+        llmReplies({ shape: 'first_time', subject: 'Nora' });
         queryReturns([event(100, 'Nora')]);
         listChunksMock.mockRejectedValue(new Error('list failed'));
         const result = await callAgent(storyArcOn);
@@ -667,24 +657,36 @@ describe('retrieveEventsWithAgent with StoryArc mode', () => {
         expect(result.debug.storyArc.ruleName).toBe('listing-failed');
     });
 
+    it('gives the router its own token limit, not Agent Mode\'s', async () => {
+        llmReplies({ shape: 'scene', subject: '' });
+        await callAgent({ ...storyArcOn, agentic_retrieval_max_tokens: 256 });
+        const [routerCall] = routerCalls();
+        expect(routerCall[0].maxTokens).toBe(9000);
+    });
+
     it('does not run the router when StoryArc mode is off', async () => {
-        llmReplies({ queries: [] });
         await callAgent({ ...storyArcOn, story_arc_mode_enabled: false });
         expect(routerCalls()).toHaveLength(0);
     });
 
-    it('does nothing when Agent Mode is off or the backend is not Qdrant', async () => {
-        for (const settings of [{ ...storyArcOn, agentic_retrieval_enabled: false }, { ...storyArcOn, vector_backend: 'standard' }]) {
-            expect(await callAgent(settings)).toBe(preSearch);
-        }
+    it('does nothing when the backend is not Qdrant', async () => {
+        expect(await callAgent({ ...storyArcOn, vector_backend: 'standard' })).toBe(preSearch);
         expect(postChatCompletionMock).not.toHaveBeenCalled();
     });
 
-    it('skips the router and warns when no Agent Mode model is set', async () => {
-        const result = await callAgent({ ...storyArcOn, agent_model: '', chat_model: '' });
+    it('answers a question with Agent Mode off', async () => {
+        llmReplies({ shape: 'chain', subject: 'Nora' });
+        queryReturns([event(200), event(100)]);
+        const result = await callAgent({ ...storyArcOn, agentic_retrieval_enabled: false });
+        expect(starts(result.events)).toEqual([100, 200]);
+        expect(result.storyArcShape).toBe('chain');
+    });
+
+    it('skips the router and warns when no link model is set', async () => {
+        const result = await callAgent({ ...storyArcOn, story_arc_link_model: '', agent_model: 'agent-model', chat_model: 'chat-model' });
         expect(result.events).toBe(preSearch.events);
         expect(result.debug.storyArc.ruleName).toBe('router-unusable');
         expect(postChatCompletionMock).not.toHaveBeenCalled();
-        expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('Router skipped'))).toBe(true);
+        expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('Router skipped: missing_model'))).toBe(true);
     });
 });

@@ -18,13 +18,21 @@ const listParams = { kind: 'people', pageIndex: 0, mergingName: null, splittingN
 describe('storyArcPageMarkup', () => {
     const markup = storyArcPageMarkup();
 
+    it('does not say StoryArc needs AgentMode', () => {
+        expect(markup).not.toContain('VectFox_story_arc_needs_agent_mode');
+        expect(markup).not.toContain('AgentMode');
+    });
+
+    it('says the link model also routes each message', () => {
+        expect(markup).toContain('Adds one small LLM call per message, on the link model. Needs Qdrant.');
+    });
+
     it.each(['find', 'clear', 'back', 'pause', 'reload'])('holds the story web action %s', (action) => {
         expect(markup).toContain(`data-web-action="${action}"`);
     });
 
     it.each([
         'VectFox_story_arc_mode_enabled',
-        'VectFox_story_arc_needs_agent_mode',
         'VectFox_story_arc_link_provider',
         'VectFox_story_arc_link_model',
         'VectFox_story_arc_regenerate_links',
@@ -74,14 +82,14 @@ describe('entityListMarkup', () => {
     });
 
     it('offers Split only on a merged entity', () => {
-        const merged = [{ name: 'Rose', otherNames: ['Rosie', '玫瑰'], eventCount: 3 }];
+        const merged = [{ name: 'Rose', otherNames: ['Rosie', 'Rosa'], eventCount: 3 }];
         expect(entityListMarkup({ ...listParams, rows: merged }).list).toContain('data-entity-action="split"');
         expect(entityListMarkup({ ...listParams, rows: rowsOf(1) }).list).not.toContain('data-entity-action="split"');
     });
 
     it('shows other names as written', () => {
-        const merged = [{ name: 'Rose', otherNames: ['Rosie', '玫瑰'], eventCount: 3 }];
-        expect(entityListMarkup({ ...listParams, rows: merged }).list).toContain('Rosie · 玫瑰');
+        const merged = [{ name: 'Rose', otherNames: ['Rosie', 'Rosa'], eventCount: 3 }];
+        expect(entityListMarkup({ ...listParams, rows: merged }).list).toContain('Rosie · Rosa');
     });
 
     it('opens the Merge panel under its row, offering other names', () => {

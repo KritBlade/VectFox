@@ -172,11 +172,10 @@ export class VectorBackend {
      * @param {number} hybridOptions.textWeight - Weight for text scores (0-1)
      * @param {string} hybridOptions.fusionMethod - Fusion method ('rrf' or 'weighted')
      * @param {number} hybridOptions.rrfK - RRF constant (default 60)
-     * @param {object} [filters] - Payload filters
      * @param {number[]|null} [queryVector] - Pre-computed query embedding
      * @returns {Promise<{hashes: number[], metadata: object[]}>}
      */
-    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}, filters = {}, queryVector = null) {
+    async hybridQuery(collectionId, searchText, topK, settings, hybridOptions = {}, queryVector = null) {
         // Default: fallback to vector-only search
         log.warn(`VectFox: Backend ${this.constructor.name} does not support native hybrid search, using vector-only`);
         return this.queryCollection(collectionId, searchText, topK, settings, queryVector);

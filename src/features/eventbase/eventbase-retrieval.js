@@ -159,7 +159,7 @@ async function _runOneLiveQuery({
                 let jsCompletedAt = null;
                 const jsQueryPromise = compareMode
                     ? Promise.race([
-                        queryCollection(colId, queryText, topK, ebSettings, {}, queryVector),
+                        queryCollection(colId, queryText, topK, ebSettings, queryVector),
                         new Promise((_, reject) =>
                             setTimeout(() => reject(new Error(`JS compare timed out after ${JS_COMPARE_TIMEOUT_MS}ms`)), JS_COMPARE_TIMEOUT_MS)
                         ),
@@ -167,7 +167,7 @@ async function _runOneLiveQuery({
                     : null;
 
                 const { hashes, metadata } = await backend.hybridQueryWithRerank(
-                    colId, queryText, topK, ebSettings, rerankParams, {}, {}, queryVector
+                    colId, queryText, topK, ebSettings, rerankParams, {}, queryVector
                 );
                 const nativeMs = (performance.now() - tStart).toFixed(1);
                 const nativeResults = (hashes || []).map((h, i) => ({
@@ -216,7 +216,7 @@ async function _runOneLiveQuery({
     }
 
     // Legacy path: queryCollection (vector-only or hybrid, depending on settings).
-    const { hashes, metadata } = await queryCollection(colId, queryText, topK, ebSettings, {}, queryVector);
+    const { hashes, metadata } = await queryCollection(colId, queryText, topK, ebSettings, queryVector);
     if (!hashes?.length) return [];
     return metadata.map((m, i) => {
         const base = { ...m, _hash: hashes[i] };
@@ -233,10 +233,9 @@ async function _runOneLiveQuery({
  * Collapse events that are the SAME physical event (same event_id, or _hash
  * fallback) to a single copy, keeping the highest-scoring instance.
  *
- * The agentic planner fans one user message into several queries, each of which
- * can surface the same stored event. Those duplicates must be merged by identity
- * BEFORE the similarity-dedup stage — otherwise its score-override escape hatch
- * (high-score candidates survive dedup) lets identical events straight through,
+ * Several searches can surface the same stored event. Those duplicates must be merged
+ * by identity BEFORE the similarity-dedup stage — otherwise its score-override escape
+ * hatch (high-score candidates survive dedup) lets identical events straight through,
  * so the "final 10" can be just 2 unique events repeated.
  *
  * @param {object[]} events
@@ -252,6 +251,66 @@ export function dedupeEventsByIdentity(events) {
         }
     }
     return [...map.values()];
+}
+
+/**
+ * A candidate's similarity at or above this says it is a distinct event. Most Qdrant RRF
+ * scores land in 0.2-0.6, so crossing it means the query and the event are tightly aligned.
+ */
+const DUPLICATE_SCORE_OVERRIDE = 0.75;
+
+const _candidateSimScore = (candidate) =>
+    typeof candidate.score === 'number' ? candidate.score :
+    typeof candidate.vectorScore === 'number' ? candidate.vectorScore : 0;
+
+/**
+ * Events this many messages apart or more count as distinct. `eventbase_dedup_window_gap`
+ * (Core tab slider, 0-200, default 10) sets it. 0 turns the check off, so every distance is
+ * kept, including same-window duplicates extracted from one chunk. 1 suppresses only the
+ * same window. 10 suppresses distances 0 to 9. 200 is the most aggressive.
+ */
+function _duplicateWindowGap(settings) {
+    return typeof settings.eventbase_dedup_window_gap === 'number'
+        ? Math.max(0, Math.min(200, settings.eventbase_dedup_window_gap))
+        : 10;
+}
+
+/**
+ * Whether a candidate repeats an event already accepted. All of these have to hold:
+ *   (a) the same event_type, and
+ *   (b) a character overlap (Jaccard) of 60% or more, which together catch the same cast
+ *       and scene type that overlapping ingestion windows produce;
+ *   (c) source windows closer than the gap, since the same cast and type far apart are two
+ *       scenes. When either event has no source_window_end, the distance cannot be checked,
+ *       so this counts as close;
+ *   (d) on the JS path, a similarity below DUPLICATE_SCORE_OVERRIDE: real duplicates share
+ *       scores with their winner, so one that matches the query this well is likely a
+ *       distinct event of a similar shape. A formula-scored event is left out, because its
+ *       `score` is a weighted sum that routinely passes 0.75, which would let duplicates
+ *       fill every seat.
+ *
+ * @param {object} candidate
+ * @param {object} accepted
+ * @param {object} settings
+ * @returns {boolean}
+ */
+export function isDuplicateEvent(candidate, accepted, settings) {
+    if (accepted.event_type !== candidate.event_type) return false;
+    if (_characterOverlap(accepted.characters || [], candidate.characters || []) < 0.6) return false;
+
+    const acceptedEnd = accepted.source_window_end;
+    const candidateEnd = candidate.source_window_end;
+    const hasTiming = typeof acceptedEnd === 'number' && typeof candidateEnd === 'number';
+    if (hasTiming && Math.abs(acceptedEnd - candidateEnd) >= _duplicateWindowGap(settings)) return false;
+
+    if (!candidate._rerankApplied && !accepted._rerankApplied) {
+        const similarity = _candidateSimScore(candidate);
+        if (similarity >= DUPLICATE_SCORE_OVERRIDE) {
+            log.trace(`[EventBase] Dedup: "${candidate.event_type}" ESCAPED dedup via score override (sim=${similarity.toFixed(3)} >= ${DUPLICATE_SCORE_OVERRIDE}, windows ${hasTiming ? Math.abs(acceptedEnd - candidateEnd) + ' msgs' : '?'} apart)`);
+            return false;
+        }
+    }
+    return true;
 }
 
 /**
@@ -378,7 +437,8 @@ function _logRerankComparison(colId, queryText, native, js, nativeMs, jsMs, sett
  * @param {boolean}  [params.skipContextDedup] - When true, skip the dedup-depth step.
  *        Set when locked cross-chat: source_window_end values belong to a different conversation
  *        and cannot be compared to the current chat length.
- * @returns {Promise<{ events: object[], debug: object }>}
+ * @returns {Promise<{ events: object[], poolEvents: object[], debug: object }>} poolEvents is
+ *        everything the live searches found, before any filter or trim
  */
 /**
  * Stamp each event with its source conversation frame (collection id) so the
@@ -531,11 +591,8 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
         log.verbose(`[EventBase] Live query: ${liveCollectionIds.length} collection(s) × ${queryTexts.length} query/queries → ${rawCandidates.length} unique events`);
     }
 
-    // Merge in caller-supplied candidates: archive events (VectFox_archiveevent_*)
-    // and the agentic planner's per-query fanout. The fanout can surface the SAME
-    // event from multiple queries, so dedupe the combined set by identity (keeping
-    // the highest score) — otherwise identical events reach similarity-dedup as
-    // separate candidates and the score-override escape hatch lets them through.
+    // Merge in caller-supplied candidates: archive events (VectFox_archiveevent_*). They can
+    // repeat a live hit, so dedupe the combined set by identity (keeping the highest score).
     let allCandidates;
     if (additionalCandidates?.length) {
         const combinedLen = rawCandidates.length + additionalCandidates.length;
@@ -576,13 +633,13 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     // Pre-build anchor keyword lookup from the user's last message so that events
     // whose keywords explicitly match what the user just asked about get a boost.
     // Matching is substring-based (event keyword appears verbatim in anchor text)
-    // which handles CJK multi-char terms (e.g. 贖身) and Latin names alike.
+    // which handles CJK multi-char terms (e.g. 還債) and Latin names alike.
     const anchorText = (keywordQuery || '').toLowerCase();
 
     // Anchor boost is computed for ALL candidates (both rerank-applied and not)
     // because anchor matching is intentionally substring-based — a semantic the
     // server-side formula path cannot replicate (multi-token LLM-extracted
-    // keywords like "贖身的儀式" need verbatim substring presence in the user's
+    // keywords like "還債的經過" need verbatim substring presence in the user's
     // message, not tokenized any-of). Configurable via `eventbase_anchor_boost`.
     const anchorBoostAmount = _resolveAnchorBoostAmount(settings);
 
@@ -621,106 +678,16 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
 
     scored.sort((a, b) => b._finalScore - a._finalScore);
 
-    // 5. Duplicate suppression — same event_type + character overlap >= 60%
-    //    AND temporal proximity (source windows within DUPLICATE_WINDOW_GAP messages)
-    //    AND similarity score below DUPLICATE_SCORE_OVERRIDE.
-    //
-    //    Three conditions ALL have to hold for a candidate to be suppressed:
-    //      (a) Same event_type as an already-accepted event
-    //      (b) Character overlap (Jaccard) >= 60%
-    //      (c) Source windows within DUPLICATE_WINDOW_GAP messages
-    //      (d) Candidate's raw similarity score below DUPLICATE_SCORE_OVERRIDE
-    //
-    //    Why each condition:
-    //      (a)+(b) catch the "same cast + same scene type" duplicate pattern that
-    //              overlapping ingestion windows produce.
-    //      (c)     prevents false positives where two distinct scenes happen to share
-    //              the same cast type 50 days / 1000 messages apart.
-    //      (d)     score-based escape hatch — a candidate that scored above 0.75 on
-    //              the query is almost certainly a real signal the user asked for,
-    //              not an ingestion artifact. Let it survive even if (a)+(b)+(c)
-    //              would normally flag it. The thinking: real duplicates from
-    //              overlapping windows tend to share scores closely with their
-    //              "winner"; if a "duplicate" significantly out-scores or matches
-    //              the query, it's more likely a distinct event with similar shape.
-    //
-    //    DUPLICATE_WINDOW_GAP is intentionally small (20 messages). Real ingestion
-    //    duplicates come from overlapping windows during extraction (window size is
-    //    typically 2-6 messages, so adjacent windows are within a few messages).
-    //    Anything beyond 20 messages is almost certainly a distinct narrative beat.
-    //
-    //    DUPLICATE_SCORE_OVERRIDE = 0.75 is intentionally high. Most Qdrant RRF
-    //    scores land in 0.2-0.6; crossing 0.75 means the query text and event are
-    //    very tightly aligned (often a near-exact concept/keyword anchor match).
-    // Configurable via `eventbase_dedup_window_gap` (Core tab slider, 0-200,
-    // default 10). Semantics: events N or more messages apart are kept.
-    //   0   → temporal-proximity dedup fully DISABLED (every distance kept,
-    //         including same-window duplicates that were extracted from one chunk).
-    //   1   → only literal same-window (distance=0) duplicates suppressed.
-    //   10  → distances 0..9 suppressed; 10+ kept (default).
-    //   200 → aggressive dedup (max).
-    const DUPLICATE_WINDOW_GAP = typeof settings.eventbase_dedup_window_gap === 'number'
-        ? Math.max(0, Math.min(200, settings.eventbase_dedup_window_gap))
-        : 10;
-    const DUPLICATE_SCORE_OVERRIDE = 0.75;
-    const _candidateSimScore = (c) =>
-        typeof c.score === 'number' ? c.score :
-        typeof c.vectorScore === 'number' ? c.vectorScore : 0;
-
+    // 5. Duplicate suppression (isDuplicateEvent).
     const dedupedEvents = [];
     for (const candidate of scored) {
-        let isDuplicate = false;
-        for (const accepted of dedupedEvents) {
-            if (accepted.event_type !== candidate.event_type) continue;
-            if (_characterOverlap(accepted.characters || [], candidate.characters || []) < 0.6) continue;
-
-            // Temporal proximity check: only suppress when source windows are close.
-            // Semantics: gap N means "events N or more messages apart are KEPT
-            // (treated as distinct)". So we use STRICT less-than:
-            //   gap=1  → only same-window (distance 0) gets suppressed
-            //   gap=20 → distances 0..19 get suppressed; 20+ are kept
-            //   gap=200 → distances 0..199 get suppressed; 200+ are kept
-            //
-            // When either event is missing source_window_end (unknown timing), we
-            // can't verify proximity — fall back to the old behavior (suppress) to
-            // stay safe against unannotated duplicates.
-            const aEnd = accepted.source_window_end;
-            const cEnd = candidate.source_window_end;
-            const haveTiming = typeof aEnd === 'number' && typeof cEnd === 'number';
-            const withinWindow = haveTiming
-                ? Math.abs(aEnd - cEnd) < DUPLICATE_WINDOW_GAP
-                : true;  // unknown timing → treat as suspect (legacy safety)
-
-            if (!withinWindow) continue;
-
-            // Score-based escape hatch: high-similarity candidates survive dedup.
-            // IMPORTANT: only apply on the JS path, where `score` is raw cosine /
-            // RRF similarity (typically 0.2-0.6, threshold 0.75 is a real signal).
-            // For `_rerankApplied` (Qdrant native formula path), `score` is the
-            // server-side weighted sum (cosine·RRF + importance + persist + recency)
-            // which routinely lands at 0.8-1.5+ for important persistent events —
-            // applying the same 0.75 threshold would ALWAYS escape dedup and let
-            // ingestion duplicates fill every slot (see Qdrant duplicate-fill bug).
-            // Score override only applies when the accepted event is also on the JS
-            // path (not formula-scored). If accepted._rerankApplied is true, its
-            // formula score is authoritative and a high-cosine sibling chunk must not
-            // escape — that's the exact scenario that causes duplicate chunk injection.
-            if (!candidate._rerankApplied && !accepted._rerankApplied) {
-                const candSim = _candidateSimScore(candidate);
-                if (candSim >= DUPLICATE_SCORE_OVERRIDE) {
-                    log.trace(`[EventBase] Dedup: "${candidate.event_type}" ESCAPED dedup via score override (sim=${candSim.toFixed(3)} >= ${DUPLICATE_SCORE_OVERRIDE}, windows ${haveTiming ? Math.abs(aEnd - cEnd) + ' msgs' : '?'} apart)`);
-                    continue;  // not a duplicate after all — let it through
-                }
-            }
-
-            isDuplicate = true;
-            if (log.enabled('trace')) {
-                const simForLog = _candidateSimScore(candidate);
-                log.trace(`[EventBase] Dedup: "${candidate.event_type}" suppressed (sim=${simForLog.toFixed(3)}${candidate._rerankApplied ? ' [formula]' : ''}, ${haveTiming ? `windows ${Math.abs(aEnd - cEnd)} msgs apart` : 'no timing info'})`);
-            }
-            break;
+        const repeated = dedupedEvents.find(accepted => isDuplicateEvent(candidate, accepted, settings));
+        if (!repeated) {
+            dedupedEvents.push(candidate);
+        } else if (log.enabled('trace')) {
+            const hasTiming = typeof repeated.source_window_end === 'number' && typeof candidate.source_window_end === 'number';
+            log.trace(`[EventBase] Dedup: "${candidate.event_type}" suppressed (sim=${_candidateSimScore(candidate).toFixed(3)}${candidate._rerankApplied ? ' [formula]' : ''}, ${hasTiming ? `windows ${Math.abs(repeated.source_window_end - candidate.source_window_end)} msgs apart` : 'no timing info'})`);
         }
-        if (!isDuplicate) dedupedEvents.push(candidate);
     }
 
     // 6. Dedup depth — skip events whose source window is already visible in recent context.
@@ -743,6 +710,8 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
 
     return {
         events: finalEvents,
+        // Everything the live searches found, before any filter or trim.
+        poolEvents: rawCandidates,
         debug: {
             dualQuery,
             keywordScoringMethod: ebSettings.keyword_scoring_method,

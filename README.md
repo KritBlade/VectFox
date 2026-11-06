@@ -111,53 +111,42 @@ EventBase doesn't *force* you onto Qdrant — the A1/A2 light paths run on Silly
 
 ### 3. Agent Mode — let an AI plan your search (optional, Qdrant / A3 only)
 
-Plain vector search has one weakness: it can only search for what you literally typed. Ask *"do you remember why I paid the ransom?"* and the search looks for events matching those words. But the real answer might involve the kidnapping that led to the ransom, the negotiation where the price was decided, and your character's reaction afterward — and your raw question doesn't mention any of those.
+Plain vector search has one weakness: it can only search for what you literally typed. Ask *"do you remember why I paid off your debt?"* and the search looks for events matching those words. But the real answer might involve the loan that started it, the collectors at the door, and your character's reaction afterward — and your raw question doesn't mention any of those.
 
-**Agent Mode adds a small "planner" LLM** that reads your recent chat plus the top semantic matches, then asks: *"What other angles should I search for to really answer this?"* It outputs 1–4 follow-up queries that fan out in parallel against Qdrant.
+**Agent Mode adds a small "planner" LLM** that reads your recent chat, then asks: *"What other angles should I search for to really answer this?"* It outputs 1–6 follow-up queries that fan out in parallel against Qdrant, alongside the normal search.
 
 **Concrete example.** You type:
 
-> *I say to Mayla, "Do you remember why I paid your ransom back then?"*
+> *I say to Kai, "Do you remember why I paid off your debt back then?"*
 
 Without Agent Mode the search finds:
 
-- ✓ The ransom payment event itself (direct keyword match on "ransom")
+- ✓ The payment itself (direct keyword match on "debt")
 
 With Agent Mode the planner adds these angles automatically (illustrative planner output for this kind of query):
 
 ```json
 {
   "queries": [
-    "Critblade ransom Mayla reason",
-    "Mayla past fear of abandonment",
-    "Critblade promise to help find her father",
-    "Mayla leadership challenge moment"
+    "Kai debt loan note amount",
+    "debt collectors threats at his door",
+    "repayment negotiation middleman",
+    "Kai after the debt was cleared emotional reaction"
   ],
-  "filters": {
-    "characters_any": ["Critblade", "Mayla"],
-    "concepts_any": ["ransom", "abandonment", "leadership"]
-  }
+  "rationale": "Causal chain: debt, collectors, negotiation, aftermath."
 }
 ```
 
-Four parallel Qdrant searches return:
-
-- ✓ The ransom payment (direct)
-- ✓ Mayla's past fear of abandonment (emotional context)
-- ✓ The promise to find her missing father (a related narrative beat the planner inferred from recent chat context)
-- ✓ The leadership-challenge moment (a related arc the planner pulled in)
-
-All four merge with the original search and feed the same 4-weight re-ranker. The main reply LLM then has the **full causal chain plus emotional context** instead of just the moment of payment.
+The normal search keeps every event it found a seat for, and these searches **add up to 5 more events from outside its results**, taking turns so that no one query fills them. The main reply LLM then has what your own words reached, plus older events they did not.
 
 **Why Agent Mode pairs with A3 (Qdrant)**:
 
 - Each planner query is a separate Qdrant call. Qdrant fanout completes in 1–3 seconds for 4 parallel queries.
-- AgentMode requires Qdrant — on the Standard backend it skips entirely (logs `mode=SKIPPED reason=requires_qdrant_backend`) and just returns the pre-search unchanged. No graceful degradation, by design.
-- Qdrant's payload filters (`characters_any`, `locations_any`, `factions_any`, `items_any`, `concepts_any`, `event_type_any`, `importance_gte`) let the planner narrow each search precisely — the standard backend doesn't expose these.
+- AgentMode requires Qdrant — on the Standard backend it skips entirely (logs `mode=SKIPPED reason=requires_qdrant_backend`) and just returns the normal search unchanged. No graceful degradation, by design.
 
-**Cost & latency**: ~$0.0002 with GPT-4o-mini or Haiku as the planner, ~2–5 seconds added per turn. It's purely additive — never replaces normal search, and falls back cleanly to the standard flow if the planner fails. Configure it in the dedicated **AgentMode** tab; default off.
+**Cost & latency**: about $0.0004 per turn on GPT-6 Luna as the planner, about 2 seconds of planning alongside the normal search, and up to 5 more events in the reply's prompt. It's purely additive — every normal result stays, and it falls back cleanly to the standard flow if the planner fails. Configure it in the dedicated **AgentMode** tab; default off. It does not run while StoryArc mode is on.
 
-> 💡 Agent Mode works best on **reflective questions** ("why...", "remember when..."), **vague callbacks** ("that thing about my father"), and **cause-chain queries** where the literal user message doesn't contain the search anchors. For direct lookups where your message already contains the right keywords, the standard pre-search already does most of the work; Agent Mode is incremental polish.
+> 💡 On a 2,600-message test chat, on ordinary turns, the reply leaned on one of the added events about once every 4 turns, against about one line a turn from the normal search. It is incremental polish, so weigh it against the larger prompt.
 
 ### 4. Summarizer Injection — guaranteed recent-turn memory (optional)
 
@@ -167,9 +156,9 @@ Semantic retrieval answers *"which old event is relevant to this message?"*. But
 
 ```
 <VectFoxSummarizer>
-(3 turns ago) Critblade agreed to escort Mayla to the harbor before dawn.
-(2 turns ago) They were ambushed in the alley; Mayla took a knife wound to the arm.
-(latest turn) Critblade carried her into the apothecary and demanded a healer.
+(3 turns ago) Kai agreed to escort Yuki to the harbor before dawn.
+(2 turns ago) They were ambushed in the alley; Yuki took a knife wound to the arm.
+(latest turn) Kai carried her into the apothecary and demanded a healer.
 </VectFoxSummarizer>
 ```
 
@@ -209,9 +198,9 @@ Most existing memory extensions use one of two approaches. Both lose detail as t
 
 **Where Summarizer Injection fits:** the one thing rolling summaries get *right* is that they always keep recent context in front of the AI. VectFox's optional **Summarizer Injection** rebuilds that guarantee on EventBase — it pins the most recent N structured events into every prompt — but without the recursive re-compression that makes rolling summaries lose detail over time. So you get rolling-summary's *"always remember what just happened"* **and** EventBase's *"never lose an old detail,"* from one structured store: recent turns are always injected, older turns surface by relevance.
 
-> 💡 **The way you phrase your message has a big impact on what gets retrieved.** Because retrieval is driven by the text of your reply, the words you use matter. For example, *"Mayla, Do you remember why I paid the ransom?"* and *"Mayla, Do you remember why I paid 2,000 bucks?"* will return very different events — "ransom" pulls in every event tied to that storyline (the kidnapping, the negotiation, the drop-off), while "2,000 bucks" mostly matches events that literally mention the number 2,000. If you want the AI to recall a specific scene, anchor your message with the **story-meaningful words** from that scene rather than incidental details like exact numbers.
+> 💡 **The way you phrase your message has a big impact on what gets retrieved.** Because retrieval is driven by the text of your reply, the words you use matter. For example, *"Kai, do you remember why I paid off your debt?"* and *"Kai, do you remember why I paid 2,000 bucks?"* will return very different events — "debt" pulls in every event tied to that storyline (the loan, the collectors, the negotiation), while "2,000 bucks" mostly matches events that literally mention the number 2,000. If you want the AI to recall a specific scene, anchor your message with the **story-meaningful words** from that scene rather than incidental details like exact numbers.
 >
-> In side-by-side testing on a 1,500-event chat, A3 (Qdrant) ranked the ransom events at **#1 / #2** for the well-anchored query and still surfaced them at the top for the numeric-detail query. A1 / A2 (standard backend) *did* find the same ransom events but ranked them lower (around **#3 / #5** for the well-anchored query, often outside the top events that actually get injected into the prompt). The difference is structural — A3 searches the full corpus via a sparse keyword index, while A1 / A2 score only the candidates the dense vector layer happened to surface (see the Path comparison below). Anchor wording matters on every backend; A3 is just more forgiving when you guess wrong.
+> In side-by-side testing on a 1,500-event chat, A3 (Qdrant) ranked the debt events at **#1 / #2** for the well-anchored query and still surfaced them at the top for the numeric-detail query. A1 / A2 (standard backend) *did* find the same ransom events but ranked them lower (around **#3 / #5** for the well-anchored query, often outside the top events that actually get injected into the prompt). The difference is structural — A3 searches the full corpus via a sparse keyword index, while A1 / A2 score only the candidates the dense vector layer happened to surface (see the Path comparison below). Anchor wording matters on every backend; A3 is just more forgiving when you guess wrong.
 
 ---
 
@@ -261,7 +250,7 @@ Browser does a vector search to get the top ~100 candidates, then ranks **the sa
 
 A3 is the big upgrade. Instead of grabbing ~100 events first, Qdrant searches your **entire history two ways at once** — by meaning **and** by exact keyword — and does all the ranking and filtering on the server in a single request. So even a rare word buried in one event from 1,500 chats ago gets found directly, instead of being missed because it didn't make the first cut.
 
-If you use **AgentMode**, it goes further: it breaks your question into several angles (*how did this happen? what led up to it? who else was involved?*) and narrows the search by who/where/what *before* searching, so irrelevant events never compete for a slot.
+If you use **AgentMode**, it goes further: it breaks your question into several angles (*how did this happen? what led up to it? who else was involved?*), and those searches add a few events your own words did not reach.
 
 **Tradeoff:** Best accuracy, fastest at scale. Requires a Qdrant instance (free, open-source). → [Qdrant installation guide](Doc/Qdrant_install.md)
 
@@ -273,13 +262,13 @@ A3 runs **everything inside Qdrant in a single API call**. The key structural ad
 1. **Dense + sparse hybrid retrieval over the FULL corpus** — Qdrant stores a sparse keyword vector on every event at upsert time. At query time it runs the dense index (meaning) and the sparse index (keywords) **in parallel against every event in the collection**, then fuses the two result lists via native RRF. This is the part that genuinely scales: if a rare keyword only appears in one obscure event from 1,500 chats ago, the sparse index finds it directly — no dependence on the dense vector layer happening to surface it. (A1 / A2 only score the ANN top-K candidates the dense layer returned, so events outside that window are invisible no matter how well their keywords match.) BM25 IDF is also computed globally on the server, so rare-word scoring is correct by construction.
 2. **Server-side formula rerank** — Qdrant then applies a 4-weight rerank formula to those hybrid results inside the same call. Each `w_X` is a user-tunable weight slider; the term it multiplies is normalized so weights compose cleanly: `w_cosine × RRF_score + w_importance × (importance/10) + w_persist × (1 if should_persist else 0) + w_recency × exp_decay(source_window_end → chatLength)`. The final ranked list comes back already sorted. No extra round-trip. No browser JavaScript doing the scoring.
 3. **Server-side filtering** — Minimum importance threshold and context dedup cutoff (events already visible in recent chat) are enforced inside Qdrant, not after the results arrive. Events below the threshold never leave the server.
-4. **AgentMode semantic pre-filtering + multi-angle querying** — AgentMode does two things that compound each other. First, the planner LLM decomposes the user's question into multiple sub-queries from different angles — not just the surface meaning, but also *how did this happen?*, *what led up to it?*, *what were the consequences?*, *who else was involved?* Each angle runs as a separate vector search. Second, the planner emits structured entity filters (`characters_any`, `locations_any`, `factions_any`, `items_any`, `concepts_any`, `event_type_any`, `importance_gte`) applied as Qdrant payload clauses in the same call, narrowing the candidate pool *before* vector search even runs. The combination is powerful: multi-angle queries cast a wide semantic net while pinpoint filters ensure every search stays scoped to the right entities — irrelevant characters, locations, or event types never compete for recall slots.
+4. **AgentMode multi-angle querying** — the planner LLM decomposes the user's question into multiple sub-queries from different angles — not just the surface meaning, but also *how did this happen?*, *what led up to it?*, *what were the consequences?*, *who else was involved?* Each angle runs as a separate search, and the events they find outside the normal results add up to 5 seats beside it.
 
 The browser only handles anchor boost (phrase matching), pairwise dedup, and the final merge across multiple collections.
 
 **Example:** Searching "I cast Fireball at the dragon." Qdrant searches dense (spell/attack meanings) and sparse (literal "Fireball" + "dragon") at the same time, fuses via RRF, ranks by importance/recency formula, filters low-importance events — and returns the final ready-to-inject list in one call.
 
-**AgentMode example:** Asking "What deal did we make with Shadowheart?" The planner emits `characters_any: ["Shadowheart"]` and fans out into sub-queries: the original question, *"what agreement or promise involving Shadowheart"*, *"what event led to the deal with Shadowheart"*, *"what did Shadowheart ask for in return"*. Each sub-query runs against a Qdrant candidate pool already restricted to Shadowheart-tagged events — broad semantic recall, zero cross-character noise.
+**AgentMode example:** Asking "What deal did we make with Shadowheart?" The planner fans out into sub-queries: *"what agreement or promise involving Shadowheart"*, *"what event led to the deal with Shadowheart"*, *"what did Shadowheart ask for in return"*. Names in a query still reach the keyword search, and the best event each query finds outside the normal results takes a seat beside them.
 
 </details>
 
@@ -293,7 +282,7 @@ The browser only handles anchor boost (phrase matching), pairwise dedup, and the
 | Importance / recency re-ranking  | Browser JS                                                  | Browser JS                                                                       | **Server-side formula** (Qdrant ≥ 1.13)                                  |
 | Minimum importance filter        | Browser JS                                                  | Browser JS                                                                       | **Server-side**                                                          |
 | Context dedup filter             | Browser JS                                                  | Browser JS                                                                       | **Server-side**                                                          |
-| AgentMode semantic pre-filtering | ❌ Not supported                                            | ❌ Not supported                                                                 | **Server-side** (characters, locations, factions, concepts, event type)  |
+| AgentMode multi-angle queries    | ❌ Not supported                                            | ❌ Not supported                                                                 | **Parallel server-side searches**, adding up to 5 events                 |
 | Network calls per query          | 1                                                           | 1                                                                                | **1** (hybrid + rerank + filter, all in one)                             |
 | Scale ceiling                    | Hundreds of events (sub-second BM25 over ANN top-K)         | Hundreds of events (sub-second BM25 over ANN top-K)                              | **Thousands+ events** (sparse index, server-side rerank)                 |
 
@@ -341,12 +330,12 @@ It's the useful half of a rolling summary — *"always remind the AI what just h
 
 ### 🤖 Agent Mode — LLM-planned multi-angle retrieval (Qdrant / A3 only)
 
-A small planner LLM reads your recent chat plus the top pre-search candidates, then emits 1–4 follow-up Qdrant queries each targeting a different angle of what you asked about. Results fan out in parallel and merge through the same 4-weight re-ranker — purely additive, never replaces normal search. Falls back cleanly to the standard flow on any failure. Best for **reflective questions, vague callbacks, and cause-chain queries** where the literal user message doesn't contain the right search anchors.
+A small planner LLM reads your recent chat, then emits 1–6 follow-up Qdrant queries each targeting a different angle of what you asked about. They run in parallel alongside the normal search, which keeps every result it found, and the events they find outside its results add up to 5 seats. Falls back cleanly to the standard flow on any failure, and does not run while StoryArc mode is on.
 
 - **Provider/model inheritance** — leave blank in AgentMode tab to inherit from your summarizer config; override with a cheaper model (e.g. Haiku 4.5, GPT-4o-mini) to cut planner cost.
 - **Language-matching prompt** — planner emits queries in the chat language (Chinese, Japanese, Korean, Latin-script, English), preserving proper nouns. No cross-language pollution.
-- **Configurable sliders** — past chat turns sent to planner (1–10), candidates shown to planner (5–20), max queries (1–6), timeout (1–60s), debug logging.
-- **Real cost** — ~$0.0002 per turn with a small fast model, ~2–5 seconds added latency. Disabled by default — opt in when long-form recall matters.
+- **Configurable sliders** — past chat turns sent to planner (1–10), max queries (1–6), timeout (1–60s), debug logging.
+- **Real cost** — about $0.0004 per turn on GPT-6 Luna, about 2 seconds of planning, and up to 5 more events in the prompt. Disabled by default — opt in when long-form recall matters.
 
 See the **AgentMode** tab in settings, or the "How It Works → Agent Mode" section above for the full architecture.
 

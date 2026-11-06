@@ -31,7 +31,7 @@ describe('hashToken', () => {
 
     it('is deterministic', () => {
         expect(hashToken('abc')).toBe(hashToken('abc'));
-        expect(hashToken('阿拉贡')).toBe(hashToken('阿拉贡'));
+        expect(hashToken('勇者')).toBe(hashToken('勇者'));
     });
 
     it('produces different hashes for different inputs', () => {
@@ -90,13 +90,13 @@ describe('encodeSparseVector', () => {
     });
 
     it('handles CJK text (Chinese)', () => {
-        const sv = encodeSparseVector('阿拉贡 与 莱戈拉斯 一起 战斗');
+        const sv = encodeSparseVector('勇者 与 法师 一起 战斗');
         expect(sv.indices.length).toBeGreaterThan(0);
         expect(sv.indices.length).toBe(sv.values.length);
     });
 
     it('handles mixed Latin + CJK text', () => {
-        const sv = encodeSparseVector('Aragorn 阿拉贡 fought the 半兽人');
+        const sv = encodeSparseVector('Aragorn 勇者 fought the 半兽人');
         expect(sv.indices.length).toBeGreaterThan(0);
     });
 

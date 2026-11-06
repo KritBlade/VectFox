@@ -1,6 +1,6 @@
 const { getRequestHeaders } = await import('/script.js');
 
-const cid = 'vf_eventbase_qdrant_kritblade_artificrealm_67d28099-167f-4c07-a7cb-1b62e33f43d0';
+const cid = 'vf_eventbase_qdrant_wanderer_mychat_00000000-0000-0000-0000-000000000000';
 
 const r = await fetch('/api/plugins/similharity/chunks/list', {
   method: 'POST',

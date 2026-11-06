@@ -53,11 +53,11 @@ import {
 // The picture shapes mvu-helper writes into message.mes
 // (mvu-helper src/features/imagegen/image-splice-core.js): the original <pic>
 // tag rides HTML-escaped in data-rawtag, the full image prompt in the <img> title.
-const ESCAPED_PIC_TAG = '&lt;pic char=&quot;橘美月&quot; outfit=&quot;default&quot; prompt=&quot;1girl, mitsuki pouting &gt;_&lt; at the gate&quot;&gt;';
+const ESCAPED_PIC_TAG = '&lt;pic char=&quot;Mia Hart&quot; outfit=&quot;default&quot; prompt=&quot;1girl, mia pouting &gt;_&lt; at the gate&quot;&gt;';
 const PICTURE_WRAPS = {
-    rendered: `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}"><img src="/user/images/ArtificKoi/a.png" title="masterpiece, best quality, 1girl, mitsuki pouting" alt="generated image">`
+    rendered: `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}"><img src="/user/images/SampleCharacter/a.png" title="masterpiece, best quality, 1girl, mia pouting" alt="generated image">`
         + '<span class="auto-img-regen fa-solid fa-arrows-rotate" title="Regenerate image" role="button" tabindex="0" style="cursor:pointer;margin-inline-start:6px;opacity:0.7;"></span></span>',
-    'rendered with debug line': `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}"><img src="/user/images/ArtificKoi/a.png" title="masterpiece, best quality, 1girl" alt="generated image">`
+    'rendered with debug line': `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}"><img src="/user/images/SampleCharacter/a.png" title="masterpiece, best quality, 1girl" alt="generated image">`
         + `<code class="auto-img-pictag" style="display:block;font-size:0.75em;opacity:0.65;overflow-wrap:anywhere;">${ESCAPED_PIC_TAG}</code>`
         + '<span class="auto-img-regen fa-solid fa-arrows-rotate" title="Regenerate image" role="button" tabindex="0"></span></span>',
     unrendered: `<span class="auto-img-wrap" data-rawtag="${ESCAPED_PIC_TAG}">`
@@ -75,8 +75,8 @@ const stripWith = (builtinId) => (text) => {
 
 describe('stripReasoningBlocks', () => {
     it('removes a paired <think>…</think> block and keeps the narrative after it', () => {
-        const out = stripReasoningBlocks('<think>plan the scene</think>\n\n莉莉安遞給她一枚貝殼。');
-        expect(out).toBe('莉莉安遞給她一枚貝殼。');
+        const out = stripReasoningBlocks('<think>plan the scene</think>\n\nTessa遞給她一枚貝殼。');
+        expect(out).toBe('Tessa遞給她一枚貝殼。');
     });
 
     it('removes <thinking>…</thinking> too (case-insensitive)', () => {
@@ -87,9 +87,9 @@ describe('stripReasoningBlocks', () => {
     it('handles an unterminated <think> whose only close is the inner planning wrapper', () => {
         // Real format: <think> never gets </think>; <konatan_planning~> closes,
         // then the main text follows. Narrative must survive.
-        const raw = '<think><konatan_planning~>主線：送別\n行文注意…</konatan_planning~>\n\n列車停下的動靜很輕。柯拉莉亞走過來。';
+        const raw = '<think><konatan_planning~>主線：送別\n行文注意…</konatan_planning~>\n\n列車停下的動靜很輕。Tessa走過來。';
         const out = stripReasoningBlocks(raw);
-        expect(out).toBe('列車停下的動靜很輕。柯拉莉亞走過來。');
+        expect(out).toBe('列車停下的動靜很輕。Tessa走過來。');
         expect(out).not.toMatch(/konatan_planning|行文注意|主線/);
     });
 
@@ -112,7 +112,7 @@ describe('stripReasoningBlocks', () => {
     });
 
     it('leaves plain narrative untouched', () => {
-        const text = '卡希雅從文件夾掏出街道圖。';
+        const text = 'Yuki從文件夾掏出街道圖。';
         expect(stripReasoningBlocks(text)).toBe(text);
     });
 
@@ -137,12 +137,12 @@ describe('stripReasoningBlocks', () => {
     // line, reading to the user as "agent mode does nothing".
     it('leaves a thinking model’s JSON reply parseable (the Agent Mode planner shape)', () => {
         const raw = '<think>The user asked about the shell. I should query for it.</think>\n'
-            + '{"queries":["貝殼 莉莉安"],"filters":{"importance_gte":3}}';
+            + '{"queries":["貝殼 Tessa"],"rationale":"尋找貝殼的來歷"}';
 
         const out = stripReasoningBlocks(raw);
 
         expect(() => JSON.parse(out.trim())).not.toThrow();
-        expect(JSON.parse(out.trim()).queries).toEqual(['貝殼 莉莉安']);
+        expect(JSON.parse(out.trim()).queries).toEqual(['貝殼 Tessa']);
     });
 
     it('same, when the model also fences the JSON', () => {
@@ -175,7 +175,7 @@ describe('stripGameSystemBlocks', () => {
     });
 
     it('leaves narrative without game-system blocks untouched', () => {
-        const text = '柯拉莉亞走過來，說「拜托你了」。';
+        const text = 'Tessa走過來，說「拜托你了」。';
         expect(stripGameSystemBlocks(text)).toBe(text);
     });
 
@@ -200,8 +200,8 @@ describe('stripGameSystemBlocks', () => {
     });
 
     it('removes mvu-helper pictures, cast records and the <reply_cast> block', () => {
-        const raw = `美月跑了過來。\n${PICTURE_WRAPS.rendered}\n<cast name="橘美月" outfit="default">\n<reply_cast>\n<cast name="有川真奈">\n</reply_cast>`;
-        expect(stripGameSystemBlocks(raw)).toBe('美月跑了過來。');
+        const raw = `Mia跑了過來。\n${PICTURE_WRAPS.rendered}\n<cast name="Mia Hart" outfit="default">\n<reply_cast>\n<cast name="Nora Lane">\n</reply_cast>`;
+        expect(stripGameSystemBlocks(raw)).toBe('Mia跑了過來。');
     });
 });
 
@@ -277,20 +277,20 @@ describe('paired patterns start at the opener nearest the closer', () => {
 describe('strip_mvu_engine_tags builtin', () => {
     const strip = stripWith('strip_mvu_engine_tags');
 
-    // Shape of a real ArtificKoi reply: narrative inside <maintext>, engine
+    // Shape of a real SampleCharacter reply: narrative inside <maintext>, engine
     // blocks after it, and a self-closing <background … /> up front.
     const reply = [
         '<maintext>',
         '<background scene="gcd6g3mt-ioxmse_scene_1_1sgldoj" />',
-        '<p>美月整個人趴在課桌上。</p>',
-        '<styled type="terminal" title="Scene Stats">\nMitsuki Tachibana: Affection 19 (+4)\n</styled>',
+        '<p>Mia整個人趴在課桌上。</p>',
+        '<styled type="terminal" title="Scene Stats">\nMia Hart: Affection 19 (+4)\n</styled>',
         '</maintext>',
-        '<reply_cast>\n<cast name="Mitsuki">\n</reply_cast>',
+        '<reply_cast>\n<cast name="Mia">\n</reply_cast>',
         '<choices>\n1. 吃下厚蛋燒\n2. 拒絕\n</choices>',
-        '<classmate_trait_check>\nMitsuki: Tsundere\n</classmate_trait_check>',
+        '<classmate_trait_check>\nMia: Tsundere\n</classmate_trait_check>',
         '<POSTUpdateVariable>\n<JSONPatch>[{"op":"replace","path":"/Intent/initiative/0"}]</JSONPatch>\n</POSTUpdateVariable>',
         '<RES_Variable>\n[{"op":"replace","path":"/World/Time/0","value":"12:05"}]\n</RES_Variable>',
-        '<RES_POST_Variable>\n[{"op":"replace","path":"/Classmate/Mitsuki/LastInitiative/0"}]\n</RES_POST_Variable>',
+        '<RES_POST_Variable>\n[{"op":"replace","path":"/Classmate/Mia/LastInitiative/0"}]\n</RES_POST_Variable>',
     ].join('\n');
 
     it('removes every engine state / scaffolding block and keeps the narrative', () => {
@@ -298,7 +298,7 @@ describe('strip_mvu_engine_tags builtin', () => {
         expect(out).not.toMatch(/background|reply_cast|cast name|choices|厚蛋燒|classmate_trait_check|Tsundere/);
         expect(out).not.toMatch(/POSTUpdateVariable|RES_Variable|RES_POST_Variable|JSONPatch|"op"/);
         expect(out).not.toMatch(/styled|Scene Stats|Affection/);
-        expect(out).toContain('<p>美月整個人趴在課桌上。</p>');
+        expect(out).toContain('<p>Mia整個人趴在課桌上。</p>');
         expect(out).toContain('<maintext>');
         expect(out).toContain('</maintext>');
     });
@@ -320,7 +320,7 @@ describe('strip_mvu_engine_tags builtin', () => {
     it('is enabled by the default cleaning settings (fresh install)', () => {
         const out = cleanText(reply);
         expect(out).not.toMatch(/RES_Variable|reply_cast|Scene Stats|<background/);
-        expect(out).toContain('美月整個人趴在課桌上。');
+        expect(out).toContain('Mia整個人趴在課桌上。');
     });
 });
 
@@ -336,11 +336,11 @@ describe('strip_mvu_pictures builtin', () => {
     });
 
     it('removes an undrawn <pic> whose quoted prompt contains ">"', () => {
-        expect(strip('A<pic char="橘美月" outfit="default" prompt="mitsuki pouting >_< at the gate">B')).toBe('AB');
+        expect(strip('A<pic char="Mia Hart" outfit="default" prompt="mia pouting >_< at the gate">B')).toBe('AB');
     });
 
     it('leaves a wrap holding anything else alone, so the prose after it survives', () => {
-        const text = '<span class="auto-img-wrap"><b>kept</b></span>美月笑了。</span></span>';
+        const text = '<span class="auto-img-wrap"><b>kept</b></span>Mia笑了。</span></span>';
         expect(strip(text)).toBe(text);
     });
 
@@ -354,12 +354,12 @@ describe('strip_mvu_cast_records builtin', () => {
     const strip = stripWith('strip_mvu_cast_records');
 
     it('removes every record and keeps the prose between them', () => {
-        expect(strip('<cast name="橘美月" outfit="default">\n美月笑了。\n<cast name="有川真奈" key="mana">'))
-            .toBe('\n美月笑了。\n');
+        expect(strip('<cast name="Mia Hart" outfit="default">\nMia笑了。\n<cast name="Nora Lane" key="nora">'))
+            .toBe('\nMia笑了。\n');
     });
 
     it('cannot cross a line, so a record missing its ">" never swallows the prose after it', () => {
-        const text = '<cast name="橘美月" outfit="default\n美月笑了。>';
+        const text = '<cast name="Mia Hart" outfit="default\nMia笑了。>';
         expect(strip(text)).toBe(text);
     });
 
@@ -381,8 +381,8 @@ describe('MVU preset', () => {
     });
 
     it('cleans pictures and cast records on a fresh install', () => {
-        const reply = `<p>美月跑了過來。</p>\n${PICTURE_WRAPS.rendered}\n<cast name="橘美月" outfit="default">`;
-        expect(cleanText(reply)).toBe('<p>美月跑了過來。</p>');
+        const reply = `<p>Mia跑了過來。</p>\n${PICTURE_WRAPS.rendered}\n<cast name="Mia Hart" outfit="default">`;
+        expect(cleanText(reply)).toBe('<p>Mia跑了過來。</p>');
     });
 
     it('leaves the story and <progress> of a whole reply, with no tag lookup', () => {
@@ -390,17 +390,17 @@ describe('MVU preset', () => {
             '<think><writer_planning~>主線：送別</writer_planning~></think>',
             '<Analysis>分析</Analysis>',
             '<content>',
-            '<p>美月跑了過來。</p>',
+            '<p>Mia跑了過來。</p>',
             '</content>',
             '<tucao>吐槽</tucao>',
             '<current_event>事件</current_event>',
             '<progress>進度</progress>',
             '<konatan_chat>閒聊</konatan_chat>',
-            '<cast name="橘美月" outfit="school" clothes="校服">',
+            '<cast name="Mia Hart" outfit="school" clothes="校服">',
             '<Blocks>\n<World_State>weather: clear</World_State>\n</Blocks>',
             '<!-- GFX_START -->\n<div>panel</div>\n<!-- GFX_END -->',
             '<internal_states>state</internal_states>',
         ].join('\n');
-        expect(cleanText(reply)).toBe('<content>\n<p>美月跑了過來。</p>\n</content>\n\n<progress>進度</progress>');
+        expect(cleanText(reply)).toBe('<content>\n<p>Mia跑了過來。</p>\n</content>\n\n<progress>進度</progress>');
     });
 });

@@ -15,7 +15,7 @@ import { log } from '../../sillytavern/log.js';
 /**
  * Opens the Query Tester modal. The user types a test message, clicks Run, and
  * sees what each pipeline would inject for it, using all current settings
- * (agentic mode, filters, locked collections).
+ * (Agent Mode, StoryArc, locked collections).
  */
 export function openQueryTestModal() {
     $('#VectFox_query_tester_modal').remove();

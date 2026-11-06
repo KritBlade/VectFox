@@ -2,29 +2,25 @@
  * ============================================================================
  * AGENTIC RETRIEVAL
  * ============================================================================
- * Optional pre-retrieval LLM planning step that consumes the existing pre-search
- * candidates plus recent chat context, then emits 1-4 targeted follow-up queries
- * which run in parallel against Qdrant. Results merge with the pre-search output
- * and re-flow through the existing 4-weight re-ranker untouched.
+ * The two optional modes around the ordinary pre-search, both Qdrant (A3) only.
  *
  * StoryArc mode adds a router alongside the pre-search. When the player asks
- * about the story's past, a recipe (story-arc-retrieval.js) replaces the planner
- * with events in time order. Any other turn continues as usual, and a StoryArc
- * turn reports the Route rule that decided it in `debug.storyArc`.
+ * about the story's past, a recipe (story-arc-retrieval.js) answers with events in
+ * time order. Any other turn keeps the pre-search, and a StoryArc turn reports the
+ * Route rule that decided it in `debug.storyArc`. No planner runs under this mode.
  *
- * Every failure path falls back cleanly to the pre-search output. Qdrant (A3) only.
+ * Agent Mode, with StoryArc mode off, adds an LLM planner alongside the pre-search.
+ * It reads recent chat and writes follow-up queries, which run in parallel. The
+ * pre-search keeps every seat it won, and the queries add a few from outside its
+ * results (planner-seats-core.js).
  *
- * Phase 1.5: planner-emitted *_any / importance_gte filters are validated and
- * threaded into each queryCollection call when agentic_filters_enabled is true
- * (the default). Disable via settings to run unfiltered for A/B comparison.
- *   - OpenRouter only. vLLM support is Phase 2.
- *
- * @see InternalProject/Vectfox/plans/executed/agentic-retrieval-plan.md
+ * Every failure path falls back cleanly to the pre-search output.
  * ============================================================================
  */
 
 import { getContext } from '../../sillytavern/chat.js';
-import { retrieveEvents } from './eventbase-retrieval.js';
+import { isDuplicateEvent, removeEventsVisibleInContext, retrieveEvents } from './eventbase-retrieval.js';
+import { seatPlannerHits } from './planner-seats-core.js';
 import { queryCollection } from '../vector-backend/index.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
@@ -41,46 +37,43 @@ import { log } from '../../sillytavern/log.js';
 // ============================================================================
 
 /**
- * Agentic wrapper around retrieveEvents. When `agentic_retrieval_enabled` is
- * true AND backend is Qdrant, calls the planner LLM, fans out its queries in
- * parallel, merges results with the pre-search output, and re-runs the
- * canonical re-ranker via retrieveEvents(skipLiveQuery: true).
+ * Retrieval's entry point, which decides a turn's path: StoryArc mode if it is on, then
+ * Agent Mode if it is on, and otherwise the pre-search alone, so callers need no other gate.
  *
- * When agentic is disabled or unavailable, returns the unmodified pre-search
- * result so callers can use this as a drop-in replacement for retrieveEvents.
- *
- * @param {object} params - Same shape as retrieveEvents params; this function
- *        runs the pre-search itself before the planner sees the candidates.
+ * @param {object} params - Same shape as retrieveEvents params
  * @returns {Promise<{events: object[], debug: object}>}
  */
-export async function retrieveEventsWithAgent(params) {
+export async function retrieveEventsForTurn(params) {
     const { settings } = params;
-    const agenticDebug = log.domainEnabled('agent');
-    const tAgentStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-
-    // The router runs alongside the pre-search, so an ordinary turn waits only for the slower of the two.
-    const isStoryArcOn = isStoryArcActive(settings);
-    const storyRoutePromise = isStoryArcOn ? _routeStoryQuestion(params) : null;
-
-    // STAGE 1 — existing pre-search runs unconditionally.
-    const preSearch = await retrieveEvents(params);
-
-    // STAGE 2 — early exit if agentic is off or backend isn't Qdrant.
+    if (isStoryArcActive(settings)) {
+        return _retrieveWithStoryArc(params);
+    }
     if (!settings?.agentic_retrieval_enabled) {
-        return preSearch;
+        return retrieveEvents(params);
     }
     if (settings.vector_backend !== 'qdrant') {
-        if (agenticDebug) {
+        if (log.domainEnabled('agent')) {
             log.domain('agent', 'lifecycle', '[VectFox-Agentic] mode=SKIPPED reason=requires_qdrant_backend');
         }
-        return preSearch;
+        return retrieveEvents(params);
     }
+    return _retrieveWithPlanner(params);
+}
 
-    if (!isStoryArcOn) {
-        return _retrieveWithPlanner(params, preSearch, tAgentStart);
-    }
+/**
+ * StoryArc mode: a question about the story's past is answered by its recipe, which
+ * skips the rerank. Any other turn keeps the pre-search as it is, and no planner runs.
+ *
+ * @param {object} params - The retrieval params
+ * @returns {Promise<{events: object[], debug: object, storyArcShape?: string, storyArcEntityNames?: object[]}>}
+ */
+async function _retrieveWithStoryArc(params) {
+    const { settings } = params;
+    const linkConnection = resolveStoryLinkLlmConfig(settings);
 
-    // A question about the story's past is answered by its recipe, which skips the planner and the rerank.
+    // The router runs alongside the pre-search, so an ordinary turn waits only for the slower of the two.
+    const storyRoutePromise = _routeStoryQuestion(params, linkConnection);
+    const preSearch = await retrieveEvents(params);
     const storyRoute = await storyRoutePromise;
     const storyArc = {
         ruleName: storyRoute?.isKnownShape ? STORY_ROUTE_RULE.ORDINARY_TURN : STORY_ROUTE_RULE.ROUTER_UNUSABLE,
@@ -94,8 +87,8 @@ export async function retrieveEventsWithAgent(params) {
         const recalled = await retrieveStoryRecipeEvents(storyRoute, {
             ...params,
             boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs),
-            pickThreads: (storedEvents, keptNames) => _pickStoryThreads(storedEvents, { subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }),
-            chooseBlockEvents: (events, keptNames) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }),
+            pickThreads: (storedEvents, keptNames) => _pickStoryThreads(storedEvents, { subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection),
+            chooseBlockEvents: (events, keptNames) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection),
         });
         storyArc.ruleName = recalled.ruleName;
         storyArc.cutRuleName = recalled.cutRuleName;
@@ -106,46 +99,89 @@ export async function retrieveEventsWithAgent(params) {
                 events: recalled.events,
                 storyArcShape: recalled.blockShape,
                 storyArcEntityNames: recalled.entityNames,
-                debug: { ...(preSearch.debug || {}), storyArc },
+                debug: { ...preSearch.debug, storyArc },
             };
         }
     } else {
         log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} shape=${storyArc.shape}`);
     }
 
-    const planned = await _retrieveWithPlanner(params, preSearch, tAgentStart);
-    return { ...planned, debug: { ...(planned.debug || {}), storyArc } };
+    return { events: preSearch.events, debug: { ...preSearch.debug, storyArc } };
 }
 
 /**
- * Stages 3 to 5: the planner's queries, merged with the pre-search and re-ranked.
+ * Agent Mode: the planner's queries add seats beside the pre-search's, which keeps all
+ * its own. A plan needs no search results, so it runs alongside the pre-search.
  *
  * @param {object} params - The retrieval params
- * @param {{events: object[], debug: object}} preSearch
- * @param {number} tAgentStart - When this retrieval started
  * @returns {Promise<{events: object[], debug: object}>}
  */
-async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
-    const { settings, liveCollectionIds, keywordQuery, additionalCandidates } = params;
-    const agenticDebug = log.domainEnabled('agent');
-
-    // STAGE 3 — gather context for planner and call LLM.
-    const llmCfg = _resolveAgenticLLMConfig(settings);
-    if (!llmCfg.ok) {
-        if (agenticDebug) {
-            log.warn(`[VectFox-Agentic] mode=SKIPPED reason=${llmCfg.reason}`);
-        }
+async function _retrieveWithPlanner(params) {
+    const { settings, chatLength, skipContextDedup } = params;
+    const tAgentStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const [preSearch, planned] = await Promise.all([retrieveEvents(params), _searchPlannedQueries(params)]);
+    if (!planned) {
         return preSearch;
     }
 
-    if (agenticDebug) {
-        const topScore = preSearch.events?.[0]?._finalScore ?? preSearch.events?.[0]?.score ?? 0;
+    const minImportance = settings.eventbase_retrieval_min_importance || 1;
+    const seatedEvents = preSearch.events;
+    const addedEvents = seatPlannerHits({
+        hitLists: planned.hitLists,
+        poolEvents: preSearch.poolEvents,
+        seatedEvents,
+        canTakeSeat: event => (event.importance == null || event.importance >= minImportance)
+            && removeEventsVisibleInContext([event], { chatLength, settings, skipContextDedup }).length > 0,
+        isDuplicate: (candidate, seated) => isDuplicateEvent(candidate, seated, settings),
+    });
+
+    const hitCount = planned.hitLists.reduce((sum, hits) => sum + hits.length, 0);
+    const tTotalMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tAgentStart));
+    if (log.domainEnabled('agent')) {
+        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Final: ${seatedEvents.length} pre-search seats + ${addedEvents.length} added from ${hitCount} planner hits`);
+        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Total wall-clock: ${tTotalMs}ms (LLM=${planned.llmMs}ms, fanout=${planned.fanoutMs}ms)`);
+    }
+
+    // Annotate debug so callers can detect agentic mode in diagnostics.
+    return {
+        events: [...seatedEvents, ...addedEvents],
+        debug: {
+            ...preSearch.debug,
+            agenticMode: true,
+            agenticQueries: planned.queries,
+            agenticRationale: planned.rationale,
+            agenticLLMMs: planned.llmMs,
+            agenticFanoutMs: planned.fanoutMs,
+            agenticTotalMs: tTotalMs,
+            agenticHitCount: hitCount,
+            agenticAddedSeats: addedEvents.length,
+        },
+    };
+}
+
+/**
+ * Ask the planner for queries and run them. Never throws: a failure is reported and
+ * returns null, so the turn keeps the pre-search.
+ *
+ * @param {object} params - The retrieval params
+ * @returns {Promise<{queries: string[], rationale: string|null, hitLists: object[][], llmMs: number, fanoutMs: number}|null>} one list of hits per query and collection
+ */
+async function _searchPlannedQueries(params) {
+    const { settings, liveCollectionIds, keywordQuery } = params;
+    const isAgentDebugOn = log.domainEnabled('agent');
+
+    const llmConnection = _resolveAgenticLLMConfig(settings);
+    if (!llmConnection.ok) {
+        log.warn(`[VectFox-Agentic] mode=SKIPPED reason=${llmConnection.reason}`);
+        return null;
+    }
+
+    if (isAgentDebugOn) {
         log.domain('agent', 'lifecycle', `[VectFox-Agentic] mode=ON  trigger=user_message_len=${(keywordQuery || '').length}`);
-        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Pre-search returned ${preSearch.events?.length || 0} candidates (top score=${typeof topScore === 'number' ? topScore.toFixed(3) : '—'})`);
     }
 
     const recentTurns = _getRecentChatForPlanner(settings);
-    if (agenticDebug) {
+    if (isAgentDebugOn) {
         log.domain('agent', 'lifecycle', `[VectFox-Agentic] Past chat turns sent to planner: ${recentTurns.length}`);
         log.domain('agent', 'verbose', '[VectFox-Agentic] Narrative context preview (one ~50-word snippet per turn):');
         recentTurns.forEach((turn, idx) => {
@@ -155,16 +191,12 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
         });
     }
 
-    const candidatesToShow = Math.max(1, Math.min(20, settings.agentic_retrieval_candidates_to_show || 12));
-    const candidates = (preSearch.events || []).slice(0, candidatesToShow);
-
     const userMessage = buildPlannerUserMessage({
         recentTurns,
         userMessage: keywordQuery || '',
-        candidates,
     });
 
-    if (agenticDebug) {
+    if (isAgentDebugOn) {
         // Prompt size only — the full prompt is intentionally NOT dumped to keep
         // the log readable. The narrative-context preview above already shows
         // what the planner sees per turn; the static system prompt is
@@ -186,7 +218,7 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
             () => callLlmForJson({
                 systemPrompt: getAgenticPlannerPrompt(settings?.cjk_tokenizer_mode),
                 userMessage,
-                llmCfg,
+                llmConnection,
                 timeoutMs,
                 maxTokens: resolveAgenticMaxTokens(settings),
             }),
@@ -195,11 +227,11 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
         );
     } catch (err) {
         await _reportAgentLlmFailure(err, 'Planner', tLlmStart, timeoutMs);
-        return preSearch;
+        return null;
     }
     const tLlmMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tLlmStart));
 
-    if (agenticDebug) {
+    if (isAgentDebugOn) {
         // Surface real token usage from the API response (when the provider
         // returns it — OpenRouter/OpenAI-compatible APIs do). The chars/4
         // estimate above is a rough guess; this is the truth from the provider.
@@ -220,18 +252,17 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
     const maxQueries = Math.max(1, Math.min(6, settings.agentic_retrieval_max_queries || 6));
     const validatedQueries = _validateAndTrimQueries(plan?.queries, maxQueries);
     if (validatedQueries.length === 0) {
-        if (agenticDebug) {
+        if (isAgentDebugOn) {
             log.domain('agent', 'lifecycle', '[VectFox-Agentic] Planner returned 0 valid queries — falling back to pre-search only');
         }
-        return preSearch;
+        return null;
     }
 
-    // STAGE 4 — run planner queries in parallel against all live collections.
     if (!liveCollectionIds?.length) {
-        if (agenticDebug) {
+        if (isAgentDebugOn) {
             log.domain('agent', 'lifecycle', '[VectFox-Agentic] No live collections to query — falling back to pre-search only');
         }
-        return preSearch;
+        return null;
     }
 
     const ebSettings = {
@@ -239,15 +270,6 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
         keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25',
     };
     const topK = (settings.eventbase_retrieval_top_k || 8) * 2;
-
-    const plannerFilters = _validatePlannerFilters(plan?.filters, settings);
-    if (agenticDebug) {
-        if (Object.keys(plannerFilters).length === 0) {
-            log.domain('agent', 'verbose', '[VectFox-Agentic] Planner filters: (none — running unfiltered)');
-        } else {
-            log.domain('agent', 'verbose', `[VectFox-Agentic] Planner filters applied: ${JSON.stringify(plannerFilters)}`);
-        }
-    }
 
     // Per-query timeout: the fanout runs in parallel, so the whole retrieval
     // waits on the SLOWEST query. A single embed/search latency spike (e.g. the
@@ -258,10 +280,11 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
     const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
     const tFanoutStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const fanoutPromises = [];
-    for (const colId of liveCollectionIds) {
-        for (const queryText of validatedQueries) {
+    // Query by query, so each one's lists are together and no collection takes every turn at the seats.
+    for (const queryText of validatedQueries) {
+        for (const colId of liveCollectionIds) {
             fanoutPromises.push(
-                _raceWithTimeout(queryCollection(colId, queryText, topK, ebSettings, plannerFilters), queryTimeoutMs)
+                _raceWithTimeout(queryCollection(colId, queryText, topK, ebSettings), queryTimeoutMs)
                     .then(({ hashes, metadata }) => {
                         if (!hashes?.length) return { queryText, hits: [] };
                         // _sortFrame tags these live-collection hits with their source
@@ -284,9 +307,7 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
     const fanoutResults = await Promise.all(fanoutPromises);
     const tFanoutMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tFanoutStart));
 
-    const agenticHits = fanoutResults.flatMap(r => r.hits);
-
-    if (agenticDebug) {
+    if (isAgentDebugOn) {
         log.domain('agent', 'verbose', `[VectFox-Agentic] Qdrant fanout: ${validatedQueries.length} queries × ${liveCollectionIds.length} collection(s) = ${fanoutPromises.length} parallel calls`);
         log.domain('agent', 'verbose', `[VectFox-Agentic] Qdrant fanout complete: ${tFanoutMs}ms`);
         log.domain('agent', 'verbose', '[VectFox-Agentic] Per-query hits:');
@@ -294,47 +315,14 @@ async function _retrieveWithPlanner(params, preSearch, tAgentStart) {
             const topScore = r.hits[0]?.score ?? r.hits[0]?.vectorScore ?? 0;
             log.domain('agent', 'trace', `  Q${i + 1} "${r.queryText.slice(0, 60)}" → ${r.hits.length} hits (top score=${typeof topScore === 'number' ? topScore.toFixed(3) : '—'})`);
         });
-        const preSearchIds = new Set((preSearch.events || []).map(e => e.event_id ?? e._hash));
-        const newHits = agenticHits.filter(h => !preSearchIds.has(h.event_id ?? h._hash));
-        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Agentic-only hits (not already in pre-search): ${newHits.length}`);
     }
 
-    // STAGE 5 — re-feed merged candidates through retrieveEvents for canonical rerank.
-    // Pre-search events are passed as their original meta shape; retrieveEvents will
-    // re-score using its 4-weight formula. We also pass through the original
-    // additionalCandidates so archive events still factor in.
-    const mergedAdditional = [
-        ...(additionalCandidates || []),
-        ...(preSearch.events || []),
-        ...agenticHits,
-    ];
-
-    const final = await retrieveEvents({
-        ...params,
-        liveCollectionIds: [],          // already searched; skip live query in stage 5
-        additionalCandidates: mergedAdditional,
-        skipLiveQuery: true,
-    });
-
-    const tTotalMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tAgentStart));
-    if (agenticDebug) {
-        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Final merged candidates: ${(preSearch.events || []).length} pre-search + ${agenticHits.length} agentic = ${mergedAdditional.length} total → ${final.events?.length || 0} after rerank/dedup/trim`);
-        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Total wall-clock for agent overhead: ${tTotalMs}ms (LLM=${tLlmMs}ms, fanout=${tFanoutMs}ms)`);
-    }
-
-    // Annotate debug so callers can detect agentic mode in diagnostics.
     return {
-        events: final.events,
-        debug: {
-            ...(final.debug || {}),
-            agenticMode: true,
-            agenticQueries: validatedQueries,
-            agenticRationale: typeof plan?.rationale === 'string' ? plan.rationale : null,
-            agenticLLMMs: tLlmMs,
-            agenticFanoutMs: tFanoutMs,
-            agenticTotalMs: tTotalMs,
-            agenticHitCount: agenticHits.length,
-        },
+        queries: validatedQueries,
+        rationale: typeof plan?.rationale === 'string' ? plan.rationale : null,
+        hitLists: fanoutResults.map(result => result.hits),
+        llmMs: tLlmMs,
+        fanoutMs: tFanoutMs,
     };
 }
 
@@ -372,15 +360,15 @@ async function _askStoryLlm({ settings, label, nextStep, call, read }) {
 
 /**
  * Ask the router for the question's shape and subject. Never throws: a failure
- * is reported and returns null, so the turn keeps the normal path.
+ * is reported and returns null, so the turn keeps the pre-search.
  *
  * @param {object} params - The retrieval params
+ * @param {object} linkConnection - From resolveStoryLinkLlmConfig
  * @returns {Promise<{shape: string, subject: string, isKnownShape: boolean}|null>}
  */
-async function _routeStoryQuestion({ settings, keywordQuery }) {
-    const llmCfg = _resolveAgenticLLMConfig(settings);
-    if (!llmCfg.ok) {
-        log.warn(`[VectFox-StoryArc] Router skipped: ${llmCfg.reason}`);
+async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
+    if (!linkConnection.ok) {
+        log.warn(`[VectFox-StoryArc] Router skipped: ${linkConnection.reason}`);
         return null;
     }
     if (!keywordQuery?.trim()) return { shape: 'scene', subject: '', isKnownShape: true };
@@ -391,8 +379,9 @@ async function _routeStoryQuestion({ settings, keywordQuery }) {
         call: {
             systemPrompt: STORY_ROUTER_PROMPT,
             userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatForPlanner(settings), userMessage: keywordQuery }),
-            llmCfg,
-            maxTokens: resolveAgenticMaxTokens(settings),
+            llmConnection: _linkModelAtLowEffort(linkConnection),
+            maxTokens: STORY_CHOICE_MAX_TOKENS,
+            contextLabel: 'StoryArc router',
         },
         read: (reply) => {
             const route = readStoryRoute(reply);
@@ -408,8 +397,8 @@ async function _routeStoryQuestion({ settings, keywordQuery }) {
 const STORY_CHOICE_MAX_TOKENS = 9000;
 
 /** The link model for a quick choice. Low effort found about as much as more thought, in much less time. */
-function _linkModelAtLowEffort(linkCfg) {
-    return { ...linkCfg, parameterStyle: { ...linkCfg.parameterStyle, reasoningEffort: 'low' } };
+function _linkModelAtLowEffort(linkConnection) {
+    return { ...linkConnection, parameterStyle: { ...linkConnection.parameterStyle, reasoningEffort: 'low' } };
 }
 
 /**
@@ -420,16 +409,12 @@ function _linkModelAtLowEffort(linkCfg) {
  * @param {object[]} storedEvents
  * @param {{subject: string}} route
  * @param {object} params - The retrieval params
+ * @param {object} linkConnection - From resolveStoryLinkLlmConfig, which the router has already needed
  * @returns {Promise<string[]|null>} thread names
  */
-async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }) {
+async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }, linkConnection) {
     const threads = listStoryThreads(storedEvents);
     if (!threads.length) return [];
-    const linkCfg = resolveStoryLinkLlmConfig(settings);
-    if (!linkCfg.ok) {
-        log.warn(`[VectFox-StoryArc] Thread pick skipped: ${linkCfg.reason}`);
-        return null;
-    }
     return _askStoryLlm({
         settings,
         label: 'StoryArc thread pick',
@@ -437,7 +422,7 @@ async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }
         call: {
             systemPrompt: THREAD_PICK_PROMPT,
             userMessage: buildThreadPickMessage(threads, keywordQuery, route.subject),
-            llmCfg: _linkModelAtLowEffort(linkCfg),
+            llmConnection: _linkModelAtLowEffort(linkConnection),
             maxTokens: STORY_CHOICE_MAX_TOKENS,
             contextLabel: 'StoryArc thread pick',
         },
@@ -453,14 +438,10 @@ async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }
  * @param {object[]} events - The block
  * @param {{shape: string, subject: string}} route
  * @param {object} params - The retrieval params
+ * @param {object} linkConnection - From resolveStoryLinkLlmConfig, which the router has already needed
  * @returns {Promise<object[]|null>} the chosen events
  */
-async function _chooseBlockEvents(events, route, { settings, keywordQuery }) {
-    const linkCfg = resolveStoryLinkLlmConfig(settings);
-    if (!linkCfg.ok) {
-        log.warn(`[VectFox-StoryArc] Block cut skipped: ${linkCfg.reason}`);
-        return null;
-    }
+async function _chooseBlockEvents(events, route, { settings, keywordQuery }, linkConnection) {
     return _askStoryLlm({
         settings,
         label: 'StoryArc block cut',
@@ -468,7 +449,7 @@ async function _chooseBlockEvents(events, route, { settings, keywordQuery }) {
         call: {
             systemPrompt: BLOCK_CUT_PROMPT_BY_SHAPE[route.shape],
             userMessage: buildBlockCutMessage(events, keywordQuery, route.subject),
-            llmCfg: _linkModelAtLowEffort(linkCfg),
+            llmConnection: _linkModelAtLowEffort(linkConnection),
             maxTokens: STORY_CHOICE_MAX_TOKENS,
             contextLabel: 'StoryArc block cut',
         },
@@ -529,8 +510,9 @@ export function _resolveAgenticLLMConfig(settings = {}) {
 }
 
 /**
- * Resolve the StoryArc link model, which writes links and picks threads. A link
- * needs thought, so the model keeps its own reasoning default and its own temperature.
+ * Resolve the StoryArc link model, which writes links, routes questions, picks threads
+ * and cuts blocks. A link needs thought, so the model keeps its own reasoning default
+ * and its own temperature. Every other call asks for low effort.
  *
  * @param {object} settings
  * @returns {{ok: true, provider: string, model: string, apiKey: string, parameterStyle: object}|{ok: false, reason: string}}
@@ -599,7 +581,7 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
  * router, thread pick and links. Throws on network/auth failure, empty response, or
  * unparseable JSON.
  */
-export async function callLlmForJson({ systemPrompt, userMessage, llmCfg, timeoutMs, maxTokens, contextLabel = 'Agent Mode' }) {
+export async function callLlmForJson({ systemPrompt, userMessage, llmConnection, timeoutMs, maxTokens, contextLabel = 'Agent Mode' }) {
     // Shared HTTP + response classification (llm-provider-call.js). The planner
     // is a two-message, json_object call. authBranch:false preserves the prior
     // behavior of folding 401/403 into the model-config / generic paths (Agent
@@ -611,16 +593,16 @@ export async function callLlmForJson({ systemPrompt, userMessage, llmCfg, timeou
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userMessage },
             ],
-            model: llmCfg.model,
-            provider: llmCfg.provider,
-            vllmUrl: llmCfg.vllmUrl || '',
+            model: llmConnection.model,
+            provider: llmConnection.provider,
+            vllmUrl: llmConnection.vllmUrl || '',
             maxTokens,
             temperature: 0.2,
             timeoutMs,
             responseFormat: { type: 'json_object' },
             contextLabel,
             authBranch: false,
-            ...(llmCfg.parameterStyle || {}),
+            ...(llmConnection.parameterStyle || {}),
         }));
     } catch (e) {
         if (e instanceof LlmCallError) {
@@ -653,7 +635,7 @@ export async function callLlmForJson({ systemPrompt, userMessage, llmCfg, timeou
     }
 
     // Attach usage as a non-enumerable property so callers can read it without
-    // polluting the planner JSON contract (queries / filters / rationale).
+    // polluting the planner JSON contract (queries / rationale).
     Object.defineProperty(parsed, '__usage', { value: usage, enumerable: false });
     return parsed;
 }
@@ -719,36 +701,6 @@ function _firstNWords(text, n) {
     const parts = trimmed.split(' ');
     if (parts.length <= n) return trimmed;
     return parts.slice(0, n).join(' ') + '...';
-}
-
-/**
- * Sanitize planner-emitted filters. Drops unknown keys, trims arrays to a
- * reasonable max, clamps importance_gte to 1-10. Returns {} on empty / invalid
- * input so callers can check `Object.keys(out).length === 0`.
- */
-export function _validatePlannerFilters(raw, settings) {
-    if (!raw || typeof raw !== 'object') return {};
-    if (settings?.agentic_filters_enabled === false) return {};
-
-    const MAX_VALUES_PER_FIELD = 8;
-    const out = {};
-    const arrayFields = ['characters_any', 'locations_any', 'factions_any',
-        'items_any', 'concepts_any', 'event_type_any'];
-    for (const key of arrayFields) {
-        const v = raw[key];
-        if (Array.isArray(v) && v.length > 0) {
-            const cleaned = [...new Set(
-                v.filter(x => typeof x === 'string')
-                 .map(x => x.trim())
-                 .filter(x => x.length > 0)
-            )].slice(0, MAX_VALUES_PER_FIELD);
-            if (cleaned.length > 0) out[key] = cleaned;
-        }
-    }
-    if (typeof raw.importance_gte === 'number' && Number.isFinite(raw.importance_gte)) {
-        out.importance_gte = Math.max(1, Math.min(10, Math.round(raw.importance_gte)));
-    }
-    return out;
 }
 
 /**

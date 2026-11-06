@@ -1279,7 +1279,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                 <span class="vectfox-icon"><i class="fa-solid fa-robot"></i></span>
                                 AgentMode — Agentic Retrieval
                             </h3>
-                            <p class="vectfox-card-subtitle">An optional LLM-planner step that runs between pre-search and re-rank. It reads recent chat context plus pre-search candidates, then fans out 1-4 follow-up queries in parallel against Qdrant. Purely additive — never replaces the normal flow.</p>
+                            <p class="vectfox-card-subtitle">An optional LLM planner that runs alongside pre-search. It reads recent chat, then fans out 1-6 follow-up queries in parallel against Qdrant, whose hits add up to 5 events beside the normal results. Purely additive — every normal result stays.</p>
                         </div>
                         <div class="vectfox-card-body">
 
@@ -1290,7 +1290,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                     <span><b>Enable AgentMode</b></span>
                                 </label>
                                 <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    Requires Qdrant backend (A3). Adds ~$0.0002 and ~300ms per turn. Always merged with normal search — never replaces it. Falls back gracefully on any failure.
+                                    Requires Qdrant backend (A3). Adds about $0.0004 per turn on GPT-6 Luna, about 2 seconds, and up to 5 more events in the prompt. Does not run while StoryArc mode is on. Falls back gracefully on any failure.
                                 </small>
                             </div>
 
@@ -1339,13 +1339,7 @@ export function renderSettings(containerId, settings, callbacks) {
                             <div class="vectfox-form-group">
                                 <label class="vectfox-label">Past chat turns sent to planner: <span id="VectFox_agentic_chat_depth_val">3</span></label>
                                 <input type="range" id="VectFox_agentic_chat_depth" min="1" max="10" step="1" class="vectfox-slider" />
-                                <small class="VectFox_hint">How many recent non-system chat turns are included as narrative context for the planner. Lower = faster + cheaper LLM call; higher = more story context for the planner to reason about.</small>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label class="vectfox-label">Candidates shown to planner: <span id="VectFox_agentic_candidates_val">12</span></label>
-                                <input type="range" id="VectFox_agentic_candidates" min="5" max="20" step="1" class="vectfox-slider" />
-                                <small class="VectFox_hint">How many top pre-search events the planner sees when deciding what extra queries to run.</small>
+                                <small class="VectFox_hint">How many recent non-system chat turns are included as narrative context for the planner. StoryArc's router reads up to the last 2 of them. Lower = faster + cheaper LLM call; higher = more story context for the planner to reason about.</small>
                             </div>
 
                             <div class="vectfox-form-group">
@@ -1357,7 +1351,7 @@ export function renderSettings(containerId, settings, callbacks) {
                             <div class="vectfox-form-group">
                                 <label for="VectFox_agentic_timeout"><small>Planner LLM Timeout (ms)</small></label>
                                 <input type="number" id="VectFox_agentic_timeout" class="vectfox-input" min="${AGENTIC_TIMEOUT_MIN_MS}" max="${AGENTIC_TIMEOUT_MAX_MS}" step="1000" />
-                                <small class="VectFox_hint">Hard timeout for the planner call. Default <b>${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS / 1000}s)</b>. On timeout, agent mode falls back to pre-search only. Increase if your planner model is slow (large models / free-tier providers often take 10-20s on a 1500-token prompt). This time is <b>added to</b> "Retrieval Timeout" on the Core tab for the EventBase lookup, so raising it here is not capped by that setting.</small>
+                                <small class="VectFox_hint">Hard timeout for the planner call, and for each StoryArc LLM call. Default <b>${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS / 1000}s)</b>. On timeout, agent mode falls back to pre-search only. Increase if your planner model is slow (large models / free-tier providers often take 10-20s on a 1500-token prompt). This time is <b>added to</b> "Retrieval Timeout" on the Core tab for the EventBase lookup, so raising it here is not capped by that setting.</small>
                             </div>
 
                             <div class="vectfox-form-group">
@@ -1369,18 +1363,7 @@ export function renderSettings(containerId, settings, callbacks) {
                             <div class="vectfox-form-group">
                                 <label for="VectFox_agentic_query_timeout"><small>Per-query Timeout (ms)</small></label>
                                 <input type="number" id="VectFox_agentic_query_timeout" class="vectfox-input" min="${AGENTIC_TIMEOUT_MIN_MS}" max="${AGENTIC_TIMEOUT_MAX_MS}" step="1000" />
-                                <small class="VectFox_hint">Hard timeout for each parallel fanout query. Default <b>${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS / 1000}s)</b>. Queries run in parallel, so the turn waits on the slowest one — this drops a straggling query (e.g. an embedding-provider latency spike) so a single slow call can't stall retrieval. The remaining queries still count. Like the planner timeout above, this is <b>added to</b> "Retrieval Timeout" on the Core tab rather than capped by it.</small>
-                            </div>
-
-                            <!-- Apply planner filters (Phase 1.5) -->
-                            <div class="vectfox-form-group">
-                                <label class="checkbox_label" for="VectFox_agentic_filters_enabled">
-                                    <input id="VectFox_agentic_filters_enabled" type="checkbox" />
-                                    <span><b>Apply planner filters</b></span>
-                                </label>
-                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    When on, the planner's character / location / concept / importance filters narrow each Qdrant query. Turn off to run all queries without filters (useful for A/B comparison). Has no effect on the pre-search. Qdrant only.
-                                </small>
+                                <small class="VectFox_hint">Hard timeout for each parallel fanout query, and for each StoryArc search. Default <b>${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS / 1000}s)</b>. Queries run in parallel, so the turn waits on the slowest one — this drops a straggling query (e.g. an embedding-provider latency spike) so a single slow call can't stall retrieval. The remaining queries still count. Like the planner timeout above, this is <b>added to</b> "Retrieval Timeout" on the Core tab rather than capped by it.</small>
                             </div>
 
                         </div>
@@ -2917,17 +2900,12 @@ function bindSettingsEvents(settings, callbacks) {
         $('#VectFox_agentic_vllm_row').toggle(resolved === 'vllm');
     };
 
-    const updateStoryArcNotice = () => {
-        $('#VectFox_story_arc_needs_agent_mode').toggle(!settings.agentic_retrieval_enabled);
-    };
-
     $('#VectFox_agentic_retrieval_enabled')
         .prop('checked', !!settings.agentic_retrieval_enabled)
         .on('change', function() {
             settings.agentic_retrieval_enabled = $(this).prop('checked');
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
-            updateStoryArcNotice();
         });
 
     $('#VectFox_story_arc_mode_enabled')
@@ -2937,7 +2915,6 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
-    updateStoryArcNotice();
 
     $('#VectFox_story_arc_link_provider')
         .val(settings.story_arc_link_provider)
@@ -3124,7 +3101,6 @@ function bindSettingsEvents(settings, callbacks) {
         });
     };
     bindAgenticSlider('#VectFox_agentic_chat_depth', '#VectFox_agentic_chat_depth_val', 'agentic_retrieval_chat_depth', 3);
-    bindAgenticSlider('#VectFox_agentic_candidates', '#VectFox_agentic_candidates_val', 'agentic_retrieval_candidates_to_show', 12);
     bindAgenticSlider('#VectFox_agentic_max_queries', '#VectFox_agentic_max_queries_val', 'agentic_retrieval_max_queries', 6);
 
     // Both clamp through the same resolvers the retrieval path uses, so what the
@@ -3158,14 +3134,6 @@ function bindSettingsEvents(settings, callbacks) {
         .on('change', function() {
             if (!settings.debug_domain) settings.debug_domain = {};
             settings.debug_domain.agent = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    $('#VectFox_agentic_filters_enabled')
-        .prop('checked', settings.agentic_filters_enabled !== false)
-        .on('change', function() {
-            settings.agentic_filters_enabled = $(this).prop('checked');
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });

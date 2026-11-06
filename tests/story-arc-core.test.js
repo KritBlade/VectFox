@@ -64,12 +64,12 @@ describe('hasRecipe', () => {
 });
 
 describe('isStoryArcActive', () => {
-    const on = { story_arc_mode_enabled: true, agentic_retrieval_enabled: true, vector_backend: 'qdrant' };
+    const on = { story_arc_mode_enabled: true, vector_backend: 'qdrant' };
 
-    it('needs its switch, Agent Mode and Qdrant', () => {
+    it('needs its switch and Qdrant, and does not need Agent Mode', () => {
         expect(isStoryArcActive(on)).toBe(true);
+        expect(isStoryArcActive({ ...on, agentic_retrieval_enabled: true })).toBe(true);
         expect(isStoryArcActive({ ...on, story_arc_mode_enabled: false })).toBe(false);
-        expect(isStoryArcActive({ ...on, agentic_retrieval_enabled: false })).toBe(false);
         expect(isStoryArcActive({ ...on, vector_backend: 'standard' })).toBe(false);
         expect(isStoryArcActive(undefined)).toBe(false);
     });
@@ -220,12 +220,21 @@ describe('selectStoryRecipeEvents with a thread pick', () => {
     const walkedThread = Array.from({ length: 80 }, (_, i) => event(5000 + i * 10, `walked ${i}`, { story_links: i ? [link(5000 + (i - 1) * 10)] : [] }));
     const bigPicked = Array.from({ length: 40 }, (_, i) => event(100 + i * 10, `picked ${i}`, { story_links: i ? [threadLink(100 + (i - 1) * 10, 'Big thread')] : [] }));
 
-    it('caps a pick at 25 seats, which leaves the walk its own 50', () => {
+    it('seats a pick first, and the walk takes the seats left', () => {
         const poolEvents = [...walkedThread].reverse();
         const { events } = pick('chain', [...walkedThread, ...bigPicked], poolEvents, ['Big thread']);
         expect(events).toHaveLength(75);
-        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(25);
-        expect(events.filter(item => item.text.startsWith('walked'))).toHaveLength(50);
+        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(40);
+        expect(events.filter(item => item.text.startsWith('walked'))).toHaveLength(35);
+    });
+
+    // A pick counts events, and several events can share a window.
+    it('lets a pick of one event a window take every seat of a block', () => {
+        const hugePicked = Array.from({ length: 90 }, (_, i) => event(100 + i * 10, `picked ${i}`, { story_links: i ? [threadLink(100 + (i - 1) * 10, 'Big thread')] : [] }));
+        const poolEvents = [...walkedThread].reverse();
+        const { events } = pick('chain', [...walkedThread, ...hugePicked], poolEvents, ['Big thread']);
+        expect(events).toHaveLength(75);
+        expect(events.filter(item => item.text.startsWith('picked'))).toHaveLength(75);
     });
 
     it('seats a pick\'s closest events first', () => {
@@ -293,9 +302,9 @@ describe('selectStoryRecipeEvents without links', () => {
         expect(starts(select('first_time', 'nora', stored, []).events)).toEqual([1]);
     });
 
-    it('matches a Chinese name inside a sentence', () => {
-        const stored = [event(1, 'Critblade在包廂中詢問薇拉的名字'), event(2, '英妮獨自離開')];
-        expect(starts(select('first_time', '薇拉', stored, []).events)).toEqual([1]);
+    it('matches a name inside a Chinese sentence', () => {
+        const stored = [event(1, 'Rin在包廂中詢問Tessa的名字'), event(2, 'Kai獨自離開')];
+        expect(starts(select('first_time', 'Tessa', stored, []).events)).toEqual([1]);
     });
 
     it('gives the closest events under the thread header when the subject is empty or named nowhere', () => {
@@ -419,10 +428,10 @@ describe('selectStoryRecipeEvents with links', () => {
     });
 
     it('walks a first-time question back from the subject\'s earliest events, reaching another spelling', () => {
-        const scene = event(1180, 'Vera at the door', { story_links: [] });
-        const named = event(1198, 'Mayla signs', { story_links: [link(1180)] });
+        const scene = event(1180, 'Yuna at the door', { story_links: [] });
+        const named = event(1198, 'Nora signs', { story_links: [link(1180)] });
         const decided = [event(1, 'unrelated', { story_links: [] }), scene, named];
-        const { events, blockShape, ruleName } = select('first_time', 'Mayla', decided, [named]);
+        const { events, blockShape, ruleName } = select('first_time', 'Nora', decided, [named]);
         expect(starts(events)).toEqual([1180, 1198]);
         expect(blockShape).toBe('first_time');
         expect(ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);
@@ -452,10 +461,10 @@ describe('selectStoryRecipeEvents with links', () => {
     });
 
     it('walks a last-time question forward from the subject\'s latest events, reaching another spelling', () => {
-        const named = event(2500, 'Mayla signs', { story_links: [] });
-        const later = event(2510, 'Vera at the door', { story_links: [link(2500)] });
+        const named = event(2500, 'Nora signs', { story_links: [] });
+        const later = event(2510, 'Yuna at the door', { story_links: [link(2500)] });
         const unrelated = event(100, 'Someone else', { story_links: [] });
-        const { events, blockShape, ruleName } = select('last_time', 'Mayla', [unrelated, named, later], [named]);
+        const { events, blockShape, ruleName } = select('last_time', 'Nora', [unrelated, named, later], [named]);
         expect(starts(events)).toEqual([2500, 2510]);
         expect(blockShape).toBe('last_time');
         expect(ruleName).toBe(STORY_ROUTE_RULE.SHAPE_RECIPE);

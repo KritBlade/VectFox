@@ -1237,7 +1237,7 @@ export async function ensureEventBaseIndexes(settings) {
         log.warn('[VectFox] EventBase index backfill errors:', errors);
         if (typeof toastr !== 'undefined') {
             toastr.warning(
-                `VectFox: EventBase index upgrade failed for ${errors.length} collection(s) — see console. AgentMode filters may run slower.`,
+                `VectFox: EventBase index upgrade failed for ${errors.length} collection(s) — see console. Searches may run slower.`,
                 'VectFox',
                 { timeOut: 10000 },
             );

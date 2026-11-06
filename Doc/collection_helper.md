@@ -28,8 +28,8 @@ Code outside a feature imports these through the feature's `index.js` (`src/feat
 ```js
 import { resolveBackendForCollection } from '../../shared/collection-ids.js';
 
-const { backend, collectionId } = resolveBackendForCollection('qdrant:vf_lorebook_qdrant_rabbit_artificrealm_1779...');
-// → { backend: 'qdrant', collectionId: 'vf_lorebook_qdrant_rabbit_artificrealm_1779...' }
+const { backend, collectionId } = resolveBackendForCollection('qdrant:vf_lorebook_qdrant_rabbit_mychat_1779...');
+// → { backend: 'qdrant', collectionId: 'vf_lorebook_qdrant_rabbit_mychat_1779...' }
 
 const { backend: b2, collectionId: c2 } = resolveBackendForCollection('vf_eventbase_vectra_rabbit_your_wives_uuid');
 // → { backend: 'vectra', collectionId: 'vf_eventbase_vectra_rabbit_your_wives_uuid' }
@@ -96,7 +96,7 @@ These patterns will look correct but produce broken state:
 | `` `${getRegistryBackend(settings.vector_backend)}:${collectionId}` `` hand-rolled at every call site (drift bait — one site forgets and the bug above surfaces) | `buildRegistryKey(collectionId, settings)` |
 | `shouldCollectionActivate(collectionId, context)` with bare `collectionId` — its internal `getCollectionMeta` and `isCollectionLockedToChat` calls both read from `extension_settings.vectfox.collections[id]`, which is keyed by `backend:id` form. Passing bare ID returns empty defaults; lock checks always return `false`, so every collection looks unlocked and nothing activates correctly. | `shouldCollectionActivate(entry.registryKey, context)` where `entry` comes from `getCollectionListing(settings)` |
 | `queryCollection(collection.collectionId, ...)` — passing the bare ID. `queryCollection`'s `parseRegistryKey` returns `backend=null`, then it falls back to `settings.vector_backend` (the user's *default* backend). On mixed-backend setups this silently queries the wrong backend → 0 results, or worse, returns content from a *different* collection that happens to be on the default backend. TEST 013 covers this. | `queryCollection(collection.registryKey, ...)` — the registry-key form lets `resolveBackendForCollection` pick the right backend per-collection. |
-| `liveCollectionIds: lockedLiveCollections.map(c => c.collectionId)` — destructuring `.collectionId` off a `_gatherLockedEventBaseCollections` result. The object has BOTH `.collectionId` (bare) and `.registryKey` (canonical) — picking the wrong one cascades the bare-ID bug down to every consumer (retrieveEvents, retrieveEventsWithAgent). | `liveCollectionIds: lockedLiveCollections.map(c => c.registryKey)` — same pattern, right field. |
+| `liveCollectionIds: lockedLiveCollections.map(c => c.collectionId)` — destructuring `.collectionId` off a `_gatherLockedEventBaseCollections` result. The object has BOTH `.collectionId` (bare) and `.registryKey` (canonical) — picking the wrong one cascades the bare-ID bug down to every consumer (retrieveEvents, retrieveEventsForTurn). | `liveCollectionIds: lockedLiveCollections.map(c => c.registryKey)` — same pattern, right field. |
 | `parseRegistryKey(id).backend ?? 'qdrant'` (or `?? settings.vector_backend`) hand-rolled — silently misroutes bare IDs that *do* have a detectable backend in the ID structure. | `resolveBackendForCollection(id)` — tries registry-key prefix first, then ID-structure detection, then returns `null` so the caller knows resolution failed. |
 
 ## Pause/Resume button — `enabled` flag

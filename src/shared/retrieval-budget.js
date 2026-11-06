@@ -138,30 +138,32 @@ export function resolveAgenticMaxTokens(settings) {
 }
 
 /**
- * Extra milliseconds Agent Mode adds to the EventBase retrieval budget, on top
- * of the base timeout.
+ * Extra milliseconds Agent Mode or StoryArc mode adds to the EventBase retrieval
+ * budget, on top of the base timeout.
  *
- * Agent Mode is three sequential stages inside one retrieval: the ordinary
- * pre-search, then the planner LLM call, then the query fanout. The base budget
- * already covers the pre-search (it IS an ordinary retrieval), so the extra is
- * planner + fanout. The fanout runs in parallel, so it costs one per-query
- * timeout regardless of how many queries the planner emitted. StoryArc mode's
- * router runs alongside the pre-search and can outlast it, and its thread pick and
- * block cut run after the recipe's searches, so each adds one more planner timeout.
+ * Agent Mode's planner runs alongside the ordinary pre-search and can outlast it,
+ * and its query fanout follows. The base budget already covers the pre-search (it
+ * IS an ordinary retrieval), so the extra is planner + fanout. The fanout runs in
+ * parallel, so it costs one per-query timeout regardless of how many queries the
+ * planner emitted.
  *
- * Returns 0 unless the agent path can actually run — same gate as STAGE 2 of
- * retrieveEventsWithAgent(). A user who leaves the agent timeouts cranked up but
- * turns agent mode OFF gets the plain base budget back, not a silently inflated
- * one.
+ * StoryArc mode replaces the planner. Its router runs alongside the pre-search and
+ * can outlast it, and its thread pick and block cut run after the recipe's
+ * searches, so each costs one planner timeout, and those searches one per-query
+ * timeout.
+ *
+ * Returns 0 unless one of them can actually run — the same gate as
+ * retrieveEventsForTurn(). A user who leaves the timeouts cranked up but turns
+ * both modes OFF gets the plain base budget back, not a silently inflated one.
  *
  * @param {object} [settings] - VectFox settings
- * @returns {number} milliseconds (0 when agent mode is inactive)
+ * @returns {number} milliseconds (0 when neither mode is active)
  */
-export function agenticRetrievalExtraBudgetMs(settings) {
-    if (!settings?.agentic_retrieval_enabled) return 0;
-    if (settings.vector_backend !== 'qdrant') return 0;
-    const storyArcMs = settings.story_arc_mode_enabled ? 3 * resolveAgenticPlannerTimeoutMs(settings) : 0;
-    return storyArcMs + resolveAgenticPlannerTimeoutMs(settings) + resolveAgenticQueryTimeoutMs(settings);
+export function retrievalModeExtraBudgetMs(settings) {
+    if (settings?.vector_backend !== 'qdrant') return 0;
+    if (settings.story_arc_mode_enabled) return 3 * resolveAgenticPlannerTimeoutMs(settings) + resolveAgenticQueryTimeoutMs(settings);
+    if (settings.agentic_retrieval_enabled) return resolveAgenticPlannerTimeoutMs(settings) + resolveAgenticQueryTimeoutMs(settings);
+    return 0;
 }
 
 /**
@@ -172,5 +174,5 @@ export function agenticRetrievalExtraBudgetMs(settings) {
  * @returns {number} milliseconds
  */
 export function resolveEventBaseRetrievalTimeoutMs(settings) {
-    return resolveRetrievalTimeoutMs(settings) + agenticRetrievalExtraBudgetMs(settings);
+    return resolveRetrievalTimeoutMs(settings) + retrievalModeExtraBudgetMs(settings);
 }

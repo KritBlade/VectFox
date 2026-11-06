@@ -1939,8 +1939,8 @@ test('TEST 009 — DB Browser standard, no plugin: graceful degradation', async 
 //
 // Why this test exists:
 //   On prod (qdrant) we observed `<VectFoxLorebook>` injection containing
-//   entries from TWO different lorebooks (e.g. Henry from "Your Wives" leaking
-//   into a chat that should only see ArtificRealm content). That's a contract
+//   entries from TWO different lorebooks (e.g. a character from one story leaking
+//   into a chat that should only see another's content). That's a contract
 //   violation — only collections active for the current chat should appear in
 //   the semantic WI injection.
 //

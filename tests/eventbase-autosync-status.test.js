@@ -42,7 +42,7 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     resolveEventBaseWriteTarget: mocks.resolveEventBaseWriteTarget,
 }));
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
-vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsWithAgent: vi.fn() }));
+vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn() }));
 vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
 vi.mock('../src/features/collections/collection-metadata.js', () => ({
     isCollectionEnabled: vi.fn(), isCollectionActiveForContextAnyKey: vi.fn(), setCollectionLock: vi.fn(), setCollectionMeta: vi.fn(),
