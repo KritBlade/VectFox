@@ -182,10 +182,15 @@ async function drawWeb() {
     setWebStatus(`Drawing ${page.webData.nodes.length} events...`);
     showFloatingButton();
     try {
-        page.web = await drawStoryWeb(elementOf(STORY_ARC_ELEMENT_ID.webCanvas), page.webData, {
+        const web = await drawStoryWeb(elementOf(STORY_ARC_ELEMENT_ID.webCanvas), page.webData, {
             onViewChange: showWebView,
             isFloating: page.isWebFloating,
         });
+        if (!page.isOpen) {
+            web.destroy();
+            return;
+        }
+        page.web = web;
         page.webViewStatus = describeWholeWeb();
         showWebView(null, []);
     } catch (error) {
@@ -344,9 +349,10 @@ export async function openStoryArcPage(onOpen) {
     try {
         await closed;
     } finally {
-        // Always put the page back, or it stays inside a removed dialog and the next open is empty.
+        // First: SillyTavern has removed the dialog by now, so the page's elements cannot be found until it is back,
+        // and the next open cannot find the page at all if a failure below strands it.
+        holder.appendChild(root);
         page.isOpen = false;
         closeWeb();
-        holder.appendChild(root);
     }
 }
