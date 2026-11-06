@@ -894,9 +894,9 @@ class QdrantBackend {
 
         // Base filter with sentinel exclusion + any must clauses we've collected.
         const out = this._buildFilterExcludingSentinel(must);
-        // *_any fields (concepts, characters, locations, etc.) are always soft boosts — never
-        // hard filters. Using min_should would silently exclude events whose metadata wasn't
-        // tagged with the exact term, causing false negatives. Soft should only lifts scores.
+        // *_any fields (concepts, characters, locations, etc.) are a hard OR, not a boost: Qdrant keeps only
+        // points matching at least one `should` clause, so an event tagged with none of the values is left out,
+        // and a value no event has can leave nothing.
         if (should.length > 0) {
             out.should = should;
         }
