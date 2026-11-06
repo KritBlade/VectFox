@@ -457,7 +457,7 @@ export function renderSettings(containerId, settings, callbacks) {
                                         <input type="checkbox" id="VectFox_should_disable_thinking" />
                                         <span>Turn off model thinking</span>
                                     </label>
-                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and the token limit goes to the answer. Unchecked sends <code>reasoning_effort: "minimal"</code>, which keeps thinking short. <b>Flip this if your model returns <i>"Bad Request"</i> on every call</b> — some models accept only one of the two: newer Gemini (3.5-flash-lite, 3.5-flash, 3.8-flash) rejects <code>"none"</code>, and gpt-6-luna rejects <code>"minimal"</code>. Affects every LLM call.</small>
+                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and the token limit goes to the answer. Unchecked sends <code>reasoning_effort: "minimal"</code>, which keeps thinking short. <b>Flip this if your model returns <i>"Bad Request"</i> on every call</b> — some models accept only one of the two: newer Gemini (3.5-flash-lite, 3.5-flash, 3.8-flash) rejects <code>"none"</code>, and gpt-6-luna rejects <code>"minimal"</code>. Affects every LLM call but StoryArc's links, thread pick and block cut, which keep their own effort. StoryArc's router follows this switch too, on the link model, with <code>"low"</code> when unchecked.</small>
                                 </div>
                             </div>
 

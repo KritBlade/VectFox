@@ -379,7 +379,7 @@ async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
         call: {
             systemPrompt: STORY_ROUTER_PROMPT,
             userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatForPlanner(settings), userMessage: keywordQuery }),
-            llmConnection: _linkModelAtLowEffort(linkConnection),
+            llmConnection: _linkModelForRouter(linkConnection, settings),
             maxTokens: STORY_CHOICE_MAX_TOKENS,
             contextLabel: 'StoryArc router',
         },
@@ -396,9 +396,23 @@ async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
 /** A thinking model's reasoning counts against this, so it leaves room for that as well as the reply. */
 const STORY_CHOICE_MAX_TOKENS = 9000;
 
+function _linkModelAtEffort(linkConnection, reasoningEffort) {
+    return { ...linkConnection, parameterStyle: { ...linkConnection.parameterStyle, reasoningEffort } };
+}
+
 /** The link model for a quick choice. Low effort found about as much as more thought, in much less time. */
 function _linkModelAtLowEffort(linkConnection) {
-    return { ...linkConnection, parameterStyle: { ...linkConnection.parameterStyle, reasoningEffort: 'low' } };
+    return _linkModelAtEffort(linkConnection, 'low');
+}
+
+/**
+ * The link model for the router, which runs on every message, so it follows Core's
+ * `Turn off model thinking`. Off, it takes low effort rather than the switch's `minimal`,
+ * because GPT-6 Luna, the default link model, rejects `minimal`. On, it takes `none`, which
+ * newer Gemini rejects, so a link model there needs the switch off.
+ */
+function _linkModelForRouter(linkConnection, settings) {
+    return _linkModelAtEffort(linkConnection, settings.should_disable_thinking === false ? 'low' : 'none');
 }
 
 /**
@@ -513,7 +527,7 @@ export function _resolveAgenticLLMConfig(settings = {}) {
 /**
  * Resolve the StoryArc link model, which writes links, routes questions, picks threads
  * and cuts blocks. A link needs thought, so the model keeps its own reasoning default
- * and its own temperature. Every other call asks for low effort.
+ * and its own temperature. The router, thread pick and block cut each set their own effort.
  *
  * @param {object} settings
  * @returns {{ok: true, provider: string, model: string, apiKey: string, parameterStyle: object}|{ok: false, reason: string}}

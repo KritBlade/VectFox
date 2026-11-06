@@ -388,12 +388,18 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         expect(retrieveEventsMock).toHaveBeenCalledTimes(1);
     });
 
-    it('asks the router on the link model at low effort, with no event hits in its prompt', async () => {
+    it('asks the router at low effort when Core\'s thinking switch is off, as some models reject none', async () => {
+        llmReplies({ shape: 'scene', subject: '' });
+        await callAgent({ ...storyArcOn, should_disable_thinking: false });
+        expect(routerCalls()[0][0].reasoningEffort).toBe('low');
+    });
+
+    it('asks the router on the link model with no thinking while Core\'s thinking switch is on, with no event hits in its prompt', async () => {
         llmReplies({ shape: 'scene', subject: '' });
         await callAgent({ ...storyArcOn, agent_provider: 'openrouter', agent_model: 'agent-model' });
         const [routerCall] = routerCalls();
         expect(routerCall[0].model).toBe('link-model');
-        expect(routerCall[0].reasoningEffort).toBe('low');
+        expect(routerCall[0].reasoningEffort).toBe('none');
         expect(routerCall[0].sendTemperature).toBe(false);
         expect(routerCall[0].messages[1].content).toContain('How did Nora get here?');
         expect(routerCall[0].messages[1].content).not.toContain('pre-search hit');
