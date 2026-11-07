@@ -202,6 +202,24 @@ export function resetRetrievalFailureNotifications() {
     _retrievalNotified.clear();
 }
 
+/**
+ * Yellow toast for a turn that ends with no memory because a query embedding still
+ * failed after its retry. The player can regenerate, so it is a warning, and it is
+ * not de-duped: every turn that loses its memory says so.
+ *
+ * @param {string} detail - the embedding error's message
+ */
+export function notifyMemoryNotInjected(detail) {
+    const message = String(detail || 'unknown error').replace(/\s+/g, ' ').trim();
+    // toastr is SillyTavern's page global, absent where no page is loaded.
+    globalThis.toastr?.warning(
+        `Query embedding failed after a retry, so no memory was injected this turn. `
+        + `Regenerate to try again. Details: ${message.slice(0, 320)}`,
+        'VectFox — memory not injected',
+        { timeOut: 30000, extendedTimeOut: 10000 },
+    );
+}
+
 // ---------------------------------------------------------------------------
 // "Feature is on but nothing it needs is active" surfacing.
 // ---------------------------------------------------------------------------

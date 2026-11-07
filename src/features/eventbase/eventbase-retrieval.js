@@ -530,6 +530,8 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     //    Identical strings are deduped so we never pay double cost.
     //    Skipped entirely when no live collection is available.
     let rawCandidates = [];
+    // Query embeddings that still failed after their retry, one per query text.
+    const failedEmbeddings = [];
     const queryTexts = [keywordQuery, searchText]
         .filter(q => q && String(q).trim())
         .filter((q, i, arr) => arr.indexOf(q) === i);
@@ -546,11 +548,15 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
         log.verbose('[EventBase] Live query skipped (no locked collection or paused)');
     } else {
         // Embed each query text ONCE for every collection and every fallback inside
-        // _runOneLiveQuery (see getQueryVector). If a text's embedding fails twice,
-        // each of its queries fails into the per-query catch below.
+        // _runOneLiveQuery (see getQueryVector). If a text's embedding still fails
+        // after its retry, it is counted in failedEmbeddings, and each of its queries
+        // fails into the per-query catch below.
         const queryVectorByText = new Map(queryTexts.map(text => [
             text,
-            getBackend(settings).then(backend => getQueryVector(backend, text, ebSettings)),
+            getBackend(settings).then(backend => getQueryVector(backend, text, ebSettings).catch((error) => {
+                failedEmbeddings.push(error);
+                throw error;
+            })),
         ]));
         const promises = [];
         for (const colId of liveCollectionIds) {
@@ -720,6 +726,8 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
             nativeRerank: useNativeRerank,
             rerankComparison: comparisonLog || undefined,
             rawCount: rawCandidates.length,
+            failedEmbeddingCount: failedEmbeddings.length,
+            embeddingFailureMessage: failedEmbeddings.length ? String(failedEmbeddings[0]?.message || failedEmbeddings[0]) : '',
             archiveCandidates: additionalCandidates?.length || 0,
             afterImportanceFilter: importanceFiltered.length,
             afterDedup: dedupedEvents.length,

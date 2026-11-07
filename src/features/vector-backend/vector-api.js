@@ -774,11 +774,12 @@ export async function deleteVectorItems(collectionId, hashes, settings) {
  * provider outage cost up to four embedding calls per query before it gave up —
  * retries by accident, stacked on one another.
  *
- * Retries once on failure: a provider 429 ("The engine is currently overloaded")
- * usually clears on the next call. A second failure throws, because every route
- * needs the vector and no fallback could succeed without it. An invalid-model
- * error is not retried: it fails the same way every time and must reach the
- * sticky model-config popup.
+ * Retries once on failure, after QUERY_EMBEDDING_RETRY_PAUSE_MS: a provider 500 or
+ * 429 ("The engine is currently overloaded") tends to clear within a second, and an
+ * immediate retry usually meets the same failure. A second failure throws, because
+ * every route needs the vector and no fallback could succeed without it. An
+ * invalid-model error is not retried: it fails the same way every time and must
+ * reach the sticky model-config popup.
  *
  * @param {object} backend - VectorBackend instance (see embedQuery)
  * @param {string} searchText - Text to embed
@@ -791,10 +792,14 @@ export async function getQueryVector(backend, searchText, settings) {
         return await backend.embedQuery(searchText, settings);
     } catch (error) {
         if (error?.code === 'invalid_model_config') throw error;
-        log.warn(`VectFox: query embedding failed, retrying once — ${error?.message || error}`);
+        log.warn(`VectFox: query embedding failed, retrying once in ${QUERY_EMBEDDING_RETRY_PAUSE_MS} ms — ${error?.message || error}`);
+        await new Promise(resolve => setTimeout(resolve, QUERY_EMBEDDING_RETRY_PAUSE_MS));
         return await backend.embedQuery(searchText, settings);
     }
 }
+
+/** How long a failed query embedding waits before its one retry. */
+export const QUERY_EMBEDDING_RETRY_PAUSE_MS = 1000;
 
 /**
  * Queries a single collection for similar vectors

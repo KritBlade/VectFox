@@ -203,6 +203,47 @@ describe('retrieveEvents', () => {
 
         expect(queryCollectionMock).not.toHaveBeenCalled(); // no route can run without the vector
         expect(debug.archiveCandidates).toBe(1);
+        expect(debug.failedEmbeddingCount).toBe(2);
+        expect(debug.embeddingFailureMessage).toBe("Query embedding via 'openrouter' failed: 500");
+    });
+
+    it('still runs the other text\'s queries when one query text fails to embed', async () => {
+        queryCollectionMock.mockResolvedValue({ hashes: [], metadata: [] });
+        getQueryVectorMock.mockImplementation(async (_backend, text) => {
+            if (text === 'story') throw new Error("Query embedding via 'openrouter' failed: 500");
+            return vectorFor(text);
+        });
+
+        const { debug } = await retrieveEvents({
+            searchText: 'story recap',
+            keywordQuery: 'story',
+            chatLength: 100,
+            settings: baseSettings,
+            liveCollectionIds: ['standard:vf_eventbase_a'],
+            additionalCandidates: [],
+            skipLiveQuery: false,
+        });
+
+        expect(queryCollectionMock).toHaveBeenCalledTimes(1);
+        expect(queryCollectionMock.mock.calls[0][1]).toBe('story recap');
+        expect(debug.failedEmbeddingCount).toBe(1);
+    });
+
+    it('counts no failed embedding when every query text embeds', async () => {
+        queryCollectionMock.mockResolvedValue({ hashes: [], metadata: [] });
+
+        const { debug } = await retrieveEvents({
+            searchText: 'story recap',
+            keywordQuery: 'story',
+            chatLength: 100,
+            settings: baseSettings,
+            liveCollectionIds: ['standard:vf_eventbase_a'],
+            additionalCandidates: [],
+            skipLiveQuery: false,
+        });
+
+        expect(debug.failedEmbeddingCount).toBe(0);
+        expect(debug.embeddingFailureMessage).toBe('');
     });
 
     it('skips the live query and folds in archive candidates without calling the backend', async () => {

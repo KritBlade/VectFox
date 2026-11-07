@@ -32,6 +32,7 @@ import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindow
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
+import { notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
 
 // The wait before each extra pass over the windows that failed in a run, one entry
@@ -1262,6 +1263,7 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
 
     if (!events?.length) {
         log.lifecycle('[EventBase] No events to inject');
+        if (debug?.failedEmbeddingCount > 0) notifyMemoryNotInjected(debug.embeddingFailureMessage);
         log.verbose(`[EventBase Popup] no-events branch gate: retrieval_popup_on_result=${settings.retrieval_popup_on_result} → fire=${!!settings.retrieval_popup_on_result}`);
         if (settings.retrieval_popup_on_result) {
             const rawCount = debug?.rawCount ?? 0;
