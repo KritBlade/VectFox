@@ -38,9 +38,9 @@ import {
 
 /** What each question shape means, as the router reads it. */
 const STORY_SHAPES = {
-    scene: "one scene or fight: what happened in it and how it ended, or anything that is not a question about the story's past",
+    scene: "the message carries the story forward and asks nothing about the story's past, even when it mentions past events",
     first_time: 'the first time someone appeared or something happened',
-    chain: 'how someone or something came to be what it is now, step by step',
+    chain: 'how someone or something came to be what it is now, step by step, how one past scene or fight went, or any question about the past that fits no other shape',
     why: 'why something happened or keeps happening',
     current: 'where things stand now',
     bigger_plot: 'how one matter connects to a larger plot',

@@ -110,6 +110,19 @@ describe('STORY_ROUTER_PROMPT', () => {
         expect(STORY_ROUTER_PROMPT).toContain('How one matter finally ended is not this shape');
     });
 
+    it('sends a question about one past scene or fight to the chain shape, not the plain search', () => {
+        expect(STORY_ROUTER_PROMPT).toContain('"chain": how someone or something came to be what it is now, step by step, how one past scene or fight went');
+        expect(STORY_ROUTER_PROMPT).not.toContain('"scene": one scene or fight');
+    });
+
+    it('gives a question about the past that fits no shape somewhere to go other than the plain search', () => {
+        expect(STORY_ROUTER_PROMPT).toContain('or any question about the past that fits no other shape');
+    });
+
+    it('keeps a message that only mentions past events on the scene shape', () => {
+        expect(STORY_ROUTER_PROMPT).toContain('"scene": the message carries the story forward and asks nothing about the story\'s past, even when it mentions past events');
+    });
+
     it('offers every shape a recipe or today\'s path handles', () => {
         for (const shape of ['scene', 'first_time', 'last_time', 'chain', 'why', 'current', 'bigger_plot']) {
             expect(STORY_ROUTER_PROMPT).toContain(`"${shape}"`);
