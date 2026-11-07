@@ -482,8 +482,8 @@ export function stripReasoningBlocks(text) {
 const PLANNER_NOISE_TAGS = ['UpdateVariable', 'UpdateAnalysis', 'JSONPatch', 'combat_log', 'reply_cast'];
 
 // Unpaired machinery, removed with the builtins' own patterns whether or not the
-// user enabled them: pictures (one image prompt alone fills the planner's
-// 600-char view of a turn) and cast records written outside <reply_cast>.
+// user enabled them: pictures (one image prompt alone can fill much of the
+// planner's view of a turn) and cast records written outside <reply_cast>.
 const PLANNER_NOISE_PATTERNS = [BUILTIN_PATTERNS.strip_mvu_pictures, BUILTIN_PATTERNS.strip_mvu_cast_records];
 
 /**

@@ -23,7 +23,7 @@ import { isDuplicateEvent, removeEventsVisibleInContext, retrieveEvents } from '
 import { seatPlannerHits } from './planner-seats-core.js';
 import { queryCollection } from '../vector-backend/index.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
-import { stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
+import { cleanText, stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
@@ -180,7 +180,7 @@ async function _searchPlannedQueries(params) {
         log.domain('agent', 'lifecycle', `[VectFox-Agentic] mode=ON  trigger=user_message_len=${(keywordQuery || '').length}`);
     }
 
-    const recentTurns = _getRecentChatForPlanner(settings);
+    const recentTurns = _getRecentChatTurns(settings);
     if (isAgentDebugOn) {
         log.domain('agent', 'lifecycle', `[VectFox-Agentic] Past chat turns sent to planner: ${recentTurns.length}`);
         log.domain('agent', 'verbose', '[VectFox-Agentic] Narrative context preview (one ~50-word snippet per turn):');
@@ -378,7 +378,7 @@ async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
         label: 'StoryArc router',
         call: {
             systemPrompt: STORY_ROUTER_PROMPT,
-            userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatForPlanner(settings), userMessage: keywordQuery }),
+            userMessage: buildStoryRouterMessage({ recentTurns: _getRecentChatTurns(settings), userMessage: keywordQuery }),
             llmConnection: _linkModelForRouter(linkConnection, settings),
             maxTokens: STORY_CHOICE_MAX_TOKENS,
             contextLabel: 'StoryArc router',
@@ -683,11 +683,17 @@ function _raceWithTimeout(promise, ms) {
 }
 
 /**
- * Read recent non-system chat turns from getContext().chat. Source of "what
- * has been happening" context for the planner, independent from the embedding-
- * search's searchText parameter.
+ * The characters the planner and the StoryArc router read from the start of each recent
+ * chat turn, once the blocks below and Text Cleaning are removed, where the story sits. A
+ * reply of over 1,000 Chinese characters fits whole, and a reply far longer cannot fill the call.
  */
-function _getRecentChatForPlanner(settings) {
+const RECENT_TURN_CHARACTERS = 3500;
+
+/**
+ * Read recent non-system chat turns from getContext().chat, as the planner and the
+ * StoryArc router see them. Independent from the embedding search's searchText parameter.
+ */
+function _getRecentChatTurns(settings) {
     const chat = getContext().chat || [];
     const depth = Math.max(1, Math.min(50, settings.agentic_retrieval_chat_depth || 3));
     return chat
@@ -695,13 +701,12 @@ function _getRecentChatForPlanner(settings) {
         .slice(-depth)
         .map(m => ({
             speaker: m.is_user ? '{{user}}' : (m.name || '{{character}}'),
-            // Reduce each turn to narrative for the planner: drop the model's
-            // <think>/planning blocks (chain-of-thought that names off-screen
-            // characters and meta plot lines), the MVU game-system blocks
-            // (<UpdateVariable>/<JSONPatch>/<combat_log> bookkeeping, the cast
-            // roster) and pictures with their image prompts. Otherwise they
-            // dominate the 600-char per-turn budget and steer the queries.
-            text: stripGameSystemBlocks(stripReasoningBlocks((m.mes || '').toString())),
+            // Reduce each turn to narrative: drop the model's <think>/planning blocks
+            // (chain-of-thought that names off-screen characters and meta plot lines), the
+            // MVU game-system blocks (<UpdateVariable>/<JSONPatch>/<combat_log> bookkeeping,
+            // the cast roster) and pictures with their image prompts, then what the player's
+            // Text Cleaning removes, as the extractor reads them.
+            text: cleanText(stripGameSystemBlocks(stripReasoningBlocks((m.mes || '').toString()))).slice(0, RECENT_TURN_CHARACTERS),
         }));
 }
 

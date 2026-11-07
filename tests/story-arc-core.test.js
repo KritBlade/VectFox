@@ -131,21 +131,19 @@ describe('STORY_ROUTER_PROMPT', () => {
 });
 
 describe('buildStoryRouterMessage', () => {
-    it('shows the end of the last two earlier turns, then the message', () => {
+    it('shows the last two earlier turns as they were read, then the message', () => {
         const message = buildStoryRouterMessage({
             recentTurns: [
                 { speaker: 'A', text: 'oldest turn' },
                 { speaker: 'B', text: 'middle turn' },
-                { speaker: 'C', text: `${'x'.repeat(700)}the end` },
+                { speaker: 'C', text: 'the story so far' },
                 { speaker: 'Player', text: 'Where are you?' },
             ],
             userMessage: 'Where are you?',
         });
         expect(message).not.toContain('oldest turn');
-        expect(message).toContain('B: middle turn');
-        expect(message).toContain('the end');
-        expect(message.length).toBeLessThan(800);
-        expect(message.indexOf('Player\'s message:')).toBeGreaterThan(message.indexOf('the end'));
+        expect(message).toContain('B: middle turn\nC: the story so far\n');
+        expect(message.indexOf('Player\'s message:')).toBeGreaterThan(message.indexOf('the story'));
         expect(message.endsWith('Where are you?')).toBe(true);
         // The message itself is not repeated as recent chat.
         expect(message.indexOf('Where are you?')).toBe(message.lastIndexOf('Where are you?'));

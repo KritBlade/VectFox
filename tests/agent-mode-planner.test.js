@@ -34,7 +34,9 @@ vi.mock('../src/features/llm-provider/index.js', () => ({
     LlmCallError: class LlmCallError extends Error {},
 }));
 
-vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({ chat: [{ is_user: true, name: 'Rin', mes: 'an earlier line' }] }) }));
+const EARLIER_CHAT = [{ is_user: true, name: 'Rin', mes: 'an earlier line' }];
+const chatState = vi.hoisted(() => ({ chat: null }));
+vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({ chat: chatState.chat ?? EARLIER_CHAT }) }));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => 'key', getCustomApiKey: () => 'key' }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: vi.fn(async () => true) }));
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({
@@ -44,6 +46,8 @@ vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({
 vi.mock('../src/features/text-cleaning/index.js', () => ({
     stripReasoningBlocks: (text) => text,
     stripGameSystemBlocks: (text) => text,
+    // Stands in for a Text Cleaning preset that removes an aside block.
+    cleanText: (text) => text.replace(/<aside>[\s\S]*?<\/aside>/g, '').trim(),
 }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({
     isInvalidModelConfigError: () => false,
@@ -182,6 +186,20 @@ describe('Agent Mode planner', () => {
         expect(userMessage).toContain('Where did Nora go?');
         expect(userMessage).not.toContain('text of kept1');
         expect(userMessage).not.toMatch(/candidate/i);
+    });
+
+    it('reads each recent turn through Text Cleaning, then its first 3,500 characters', async () => {
+        const story = `Nora rides north at dawn.${'x'.repeat(4000)}`;
+        chatState.chat = [{ is_user: false, name: 'Nora', mes: `<aside>${'status '.repeat(200)}</aside>${story}` }];
+        planReturns({ queries: ['only query'] });
+        hitsReturn({});
+        await callAgent();
+        chatState.chat = null;
+        const [[call]] = postChatCompletionMock.mock.calls;
+        const [, { content: userMessage }] = call.messages;
+        expect(userMessage).toContain(`Nora: ${story.slice(0, 3500)}\n`);
+        expect(userMessage).not.toContain(story.slice(0, 3501));
+        expect(userMessage).not.toContain('status');
     });
 
     it('keeps the pre-search and warns when the planner call fails', async () => {

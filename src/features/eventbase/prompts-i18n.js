@@ -764,7 +764,7 @@ export function getEventBaseExtractionPrompt(mode) {
  * current user message.
  *
  * @param {object} params
- * @param {{speaker: string, text: string}[]} params.recentTurns - Past chat (oldest first)
+ * @param {{speaker: string, text: string}[]} params.recentTurns - Past chat (oldest first), already cleaned and cut to length by its reader
  * @param {string} params.userMessage - Current user input verbatim
  * @returns {string} The user-message text
  */
@@ -778,10 +778,7 @@ export function buildPlannerUserMessage({ recentTurns, userMessage }) {
         recentTurns.forEach((turn, idx) => {
             const idxLabel = `[-${recentTurns.length - idx}]`;
             const speaker = turn.speaker || (turn.is_user ? '{{user}}' : '{{character}}');
-            // Soft-trim each turn to ~600 chars so very long replies don't blow the budget.
-            const body = (turn.text || '').slice(0, 600);
-            const ellipsis = (turn.text || '').length > 600 ? '...' : '';
-            parts.push(`  ${idxLabel} ${speaker}: ${body}${ellipsis}`);
+            parts.push(`  ${idxLabel} ${speaker}: ${turn.text || ''}`);
         });
     }
 

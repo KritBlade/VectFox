@@ -138,7 +138,6 @@ export function isStoryArcActive(settings) {
 
 /** How much recent chat the router sees: enough to work out who "you" or a kinship word means. */
 const ROUTER_RECENT_TURNS = 2;
-const ROUTER_TURN_CHARS = 600;
 
 export const STORY_ROUTER_PROMPT =
     'A player is writing to a long roleplay story. Decide which memory search their message needs.\n'
@@ -152,17 +151,16 @@ export const STORY_ROUTER_PROMPT =
     + `Reply with JSON only: {"shape": "${SCENE_SHAPE}", "subject": ""}`;
 
 /**
- * The router's user message: the end of the recent turns, then the player's message.
- * A turn's end is what the player is answering, so that is the part kept.
+ * The router's user message: the last two recent turns, then the player's message.
  *
  * @param {object} params
- * @param {{speaker: string, text: string}[]} params.recentTurns - Recent chat, oldest first; may include the player's message itself
+ * @param {{speaker: string, text: string}[]} params.recentTurns - Recent chat, oldest first, already cleaned and cut to length by its reader; may include the player's message itself
  * @param {string} params.userMessage - The message being routed
  * @returns {string}
  */
 export function buildStoryRouterMessage({ recentTurns, userMessage }) {
     const earlierTurns = (recentTurns || []).filter(turn => turn.text?.trim() && turn.text.trim() !== userMessage.trim());
-    const lines = earlierTurns.slice(-ROUTER_RECENT_TURNS).map(turn => `${turn.speaker}: ${turn.text.slice(-ROUTER_TURN_CHARS)}`);
+    const lines = earlierTurns.slice(-ROUTER_RECENT_TURNS).map(turn => `${turn.speaker}: ${turn.text}`);
     return `Recent chat:\n${lines.join('\n') || '(none)'}\n\nPlayer's message:\n${userMessage}`;
 }
 

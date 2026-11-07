@@ -46,7 +46,8 @@ vi.mock('../src/features/llm-provider/index.js', () => ({
     LlmCallError: class LlmCallError extends Error {},
 }));
 
-vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({ chat: [] }) }));
+const chatState = vi.hoisted(() => ({ chat: [] }));
+vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({ chat: chatState.chat }) }));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => 'key', getCustomApiKey: () => 'key' }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: vi.fn(async () => true) }));
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({
@@ -56,6 +57,8 @@ vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({
 vi.mock('../src/features/text-cleaning/index.js', () => ({
     stripReasoningBlocks: (text) => text,
     stripGameSystemBlocks: (text) => text,
+    // Stands in for a Text Cleaning preset that removes an aside block.
+    cleanText: (text) => text.replace(/<aside>[\s\S]*?<\/aside>/g, '').trim(),
 }));
 vi.mock('../src/features/eventbase/prompts-i18n.js', () => ({
     buildPlannerUserMessage: () => 'planner message',
@@ -403,6 +406,21 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         expect(routerCall[0].sendTemperature).toBe(false);
         expect(routerCall[0].messages[1].content).toContain('How did Nora get here?');
         expect(routerCall[0].messages[1].content).not.toContain('pre-search hit');
+    });
+
+    it('reads the recent chat through Text Cleaning, then the first 3,500 characters of each turn', async () => {
+        const story = `Nora draws her sword at the gate.${'x'.repeat(4000)}`;
+        chatState.chat = [
+            { is_user: false, name: 'Nora', mes: `<aside>${'status '.repeat(200)}</aside>${story}` },
+            { is_user: true, mes: 'How did Nora get here?' },
+        ];
+        llmReplies({ shape: 'scene', subject: '' });
+        await callAgent(storyArcOn);
+        chatState.chat = [];
+        const routerMessage = routerCalls()[0][0].messages[1].content;
+        expect(routerMessage).toContain(`Nora: ${story.slice(0, 3500)}\n`);
+        expect(routerMessage).not.toContain(story.slice(0, 3501));
+        expect(routerMessage).not.toContain('status');
     });
 
     describe('thread pick', () => {
