@@ -699,10 +699,27 @@ describe('the block cut', () => {
     });
 
     describe('cutBlockToSeats on a thread question', () => {
-        const cut = (chosenEvents, lineCount = 20) => cutBlockToSeats({ shape: 'chain', subject: 'Nora', events: block, poolEvents: pool, chosenEvents, lineCount });
+        const cut = (chosenEvents, lineCount = 20) => cutBlockToSeats({ shape: 'chain', subject: 'Nora', events: block, poolEvents: pool, chosenEvents, lineCount, storedEvents: block });
 
-        it('keeps only the LLM\'s lines, in time order', () => {
-            expect(starts(cut([block[5], block[1]]))).toEqual([102, 110]);
+        it('fills the free seats with the block\'s lines in the windows right before and after the LLM\'s, in time order', () => {
+            expect(starts(cut([block[5], block[1]]))).toEqual([100, 102, 104, 108, 110, 112]);
+        });
+
+        it('takes the earliest of those lines when they hold more than the free seats', () => {
+            expect(starts(cut([block[10]], 2))).toEqual([118, 120]);
+        });
+
+        it('seats no other line of a window the LLM kept a line from', () => {
+            const shared = [event(100), event(102, 'one', { _hash: 1 }), event(102, 'two', { _hash: 2 }), event(104)];
+            const seats = cutBlockToSeats({ shape: 'why', subject: '', events: shared, poolEvents: shared, chosenEvents: [shared[1]], lineCount: 20, storedEvents: shared });
+            expect(seats.map(item => item.text)).toEqual(['event at 100', 'one', 'event at 104']);
+        });
+
+        it('goes by the chat\'s windows, so a window the block left out stops the fill', () => {
+            const stored = [event(100), event(104), event(110), event(112)];
+            const gapped = [stored[0], stored[2], stored[3]];
+            const seats = cutBlockToSeats({ shape: 'bigger_plot', subject: '', events: gapped, poolEvents: gapped, chosenEvents: [stored[2]], lineCount: 20, storedEvents: stored });
+            expect(starts(seats)).toEqual([110, 112]);
         });
 
         // Several events can share a position, so a reply can name more than the seats hold.

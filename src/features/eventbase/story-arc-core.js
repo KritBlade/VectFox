@@ -567,10 +567,27 @@ function seatsAroundChosen(chosenEvents, events, lineCount) {
 }
 
 /**
+ * A thread block's seats when the LLM chose: its lines, then the block's lines in the chat's
+ * windows right before and after a window it kept a line from, oldest first, while seats are
+ * free. A kept window's other lines take no seat, since that window is already in the block.
+ */
+function seatsBesideChosen(chosenEvents, events, storedEvents, lineCount) {
+    const windowStarts = [...new Set(storedEvents.map(storyLinePosition))].filter(Number.isFinite).sort((a, b) => a - b);
+    const placeOfWindow = new Map(windowStarts.map((start, place) => [start, place]));
+    const keptPlaces = new Set(chosenEvents.map(event => placeOfWindow.get(storyLinePosition(event))));
+    const isBesideKept = (event) => {
+        const place = placeOfWindow.get(storyLinePosition(event));
+        return place !== undefined && !keptPlaces.has(place) && (keptPlaces.has(place - 1) || keptPlaces.has(place + 1));
+    };
+    return withoutRepeats([...chosenEvents, ...inTimelineOrder(events).filter(isBesideKept)]).slice(0, lineCount);
+}
+
+/**
  * Cut a long block to its seats. A first-time or last-time block keeps the LLM's lines and
- * their scene, and any other block keeps the LLM's lines. When the LLM failed, a first-time
- * or last-time block takes its seat rule, and any other keeps its closest event of each
- * window, then its next closest.
+ * their scene. Any other block keeps the LLM's lines, and the seats they leave free go to the
+ * block's lines in the chat's windows right before and after them. When the LLM failed, a
+ * first-time or last-time block takes its seat rule, and any other keeps its closest event of
+ * each window, then its next closest.
  *
  * @param {object} params
  * @param {string} params.shape - The router's shape, which says what the question asks even when the block has no subject
@@ -579,16 +596,17 @@ function seatsAroundChosen(chosenEvents, events, lineCount) {
  * @param {object[]} params.poolEvents - Hybrid hits, closest first
  * @param {object[]|null} params.chosenEvents - The LLM's lines, null when that failed
  * @param {number} params.lineCount - The lines the block keeps
+ * @param {object[]} params.storedEvents - The collection's events, whose windows give the chat's window order
  * @returns {object[]} events in time order
  */
-export function cutBlockToSeats({ shape, subject, events, poolEvents, chosenEvents, lineCount }) {
+export function cutBlockToSeats({ shape, subject, events, poolEvents, chosenEvents, lineCount, storedEvents }) {
     if (TIME_SHAPES.has(shape)) {
         const seats = chosenEvents?.length
             ? seatsAroundChosen(chosenEvents.slice(0, lineCount), events, lineCount)
             : seatsByTimeRule(shape, events, subject, lineCount);
         return inTimelineOrder(seats);
     }
-    if (chosenEvents) return inTimelineOrder(chosenEvents.slice(0, lineCount));
+    if (chosenEvents) return inTimelineOrder(seatsBesideChosen(chosenEvents.slice(0, lineCount), events, storedEvents, lineCount));
     const placeByHash = new Map(poolEvents.map((event, place) => [event._hash, place]));
     const placeOf = (event) => placeByHash.get(event._hash) ?? Number.MAX_SAFE_INTEGER;
     const closestFirst = [...events].sort((a, b) => placeOf(a) - placeOf(b));

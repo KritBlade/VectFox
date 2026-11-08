@@ -624,7 +624,8 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             queryReturns([steps[29]]);
             llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['The long road'] }, { events: [100, 158] });
             const result = await callAgent(storyArcOn);
-            expect(starts(result.events)).toEqual([100, 158]);
+            // The cut's 2 lines, then the windows right beside them in its free seats.
+            expect(starts(result.events)).toEqual([100, 102, 156, 158]);
             expect(result.debug.storyArc).toMatchObject({ ruleName: 'thread-pick', cutRuleName: 'block-cut' });
             expect(cutCalls()).toHaveLength(1);
         });

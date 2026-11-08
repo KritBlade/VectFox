@@ -78,11 +78,11 @@ function _mergeHitsByPlace(hitLists) {
  * Cut a long block, after the filters every retrieval applies, so a filtered event
  * takes no seat. `cutRuleName` is empty when the block needed no cut.
  */
-async function _cutLongBlock(shape, keptNames, events, poolEvents, chooseBlockEvents, lineCount) {
+async function _cutLongBlock(shape, keptNames, events, poolEvents, storedEvents, chooseBlockEvents, lineCount) {
     if (!chooseBlockEvents || !isBlockCutNeeded(shape, events.length, lineCount)) return { events, cutRuleName: '' };
     const chosenEvents = await chooseBlockEvents(events, keptNames, lineCount);
     return {
-        events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents, lineCount }),
+        events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents, lineCount, storedEvents }),
         cutRuleName: chosenEvents ? STORY_ROUTE_RULE.BLOCK_CUT : STORY_ROUTE_RULE.BLOCK_CUT_FAILED,
     };
 }
@@ -133,7 +133,7 @@ export async function retrieveStoryRecipeEvents(route, params) {
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
     const important = dedupeEventsByIdentity(selection.events).filter(event => event.importance == null || event.importance >= minImportance);
     const block = inTimelineOrder(removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup }));
-    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, chooseBlockEvents, storyBlockLimits(storedEvents.length, blockScale).lineCount);
+    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, storedEvents, chooseBlockEvents, storyBlockLimits(storedEvents.length, blockScale).lineCount);
     // A current-state question has no recipe without links, which is a different reason from finding nothing.
     const isWaitingForLinks = route.shape === 'current' && selection.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED;
     const ruleName = pickedThreads === null ? STORY_ROUTE_RULE.THREAD_PICK_FAILED : selection.ruleName;
