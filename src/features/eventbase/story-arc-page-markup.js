@@ -100,7 +100,7 @@ function modeCard() {
 }
 
 function blockSizeCard() {
-    const limits = 'min="0.4" max="0.8" step="0.05"';
+    const limits = 'min="0.4" max="1.0" step="0.05"';
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-sliders', title: 'Block size', description: 'How much of the story a question about the past reads.' })}
         <div class="vfx-card-body vfx-stack">
@@ -110,7 +110,7 @@ function blockSizeCard() {
                     <input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_block_scale" ${limits} title="Block size">
                     <input type="number" id="VectFox_story_arc_block_scale" class="vfx-input" ${limits}>
                 </div>`,
-                hint({ text: 'A block keeps this × the square root of the story\'s events as lines, from 10 to 40, chosen from 2.5 times as many chat windows, at least 40. At 1,800 events, 0.5 keeps 21 lines from 53 windows, and 0.7 keeps 30 from 75. More lines cost more tokens on those questions.' }),
+                hint({ text: 'The cut reads chat windows and keeps lines, and both grow with the square root of the story\'s events. At 1,800 events, 0.5 keeps 28 lines from 53 windows, 0.7 keeps 40 from 75, and 1.0 keeps 40 from 100. A short story keeps at least 10 lines from 40 windows. More lines cost more tokens on those questions, and more windows cost the cut more.' }),
             ])}
         </div>
     </section>`;

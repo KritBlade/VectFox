@@ -366,7 +366,7 @@ const defaultSettings = {
     story_arc_mode_enabled: false,                     // StoryArc mode: routes questions about the story's past to time-ordered searches. AgentMode's planner does not run under it
     story_arc_link_provider: 'openrouter',             // StoryArc's own model: a link needs a model that thinks,
     story_arc_link_model: 'openai/gpt-6-luna',         // which AgentMode's planner does not
-    story_arc_block_scale: 0.5,                        // Block size slider, 0.4 to 0.8: a block keeps this × √events lines, and 2.5 times as many seats
+    story_arc_block_scale: 0.5,                        // Block size slider, 0.4 to 1.0: a block has 2.5 × this × √events seats, and keeps 4/3 × this × √events lines
     agent_provider: '',                    // '' → inherit chat_provider
     agent_model: '',                       // '' → inherit chat_model
     // agentic_retrieval_openrouter_api_key and agentic_retrieval_vllm_api_key

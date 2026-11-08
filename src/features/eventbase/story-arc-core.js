@@ -88,14 +88,18 @@ export const STORY_ROUTE_RULE = Object.freeze({
 
 /** Events a first-time or last-time recipe gathers before the cut. Its closest hits come first and its walk last, so a shorter limit would drop the very events it asks about. */
 const TIME_BLOCK_EVENT_LIMIT = 75;
-/** The fewest lines a block keeps, as many events as a plain search, at about 2,100 tokens. A line is about 200 tokens, against about 470 for a full event. */
+/** The fewest lines a block keeps, as many events as a plain search, at about 1,900 tokens. A line is about 180 tokens, against about 470 for a full event. */
 const MIN_BLOCK_LINES = 10;
-/** The most lines a block keeps, about 8,100 tokens, however long the story. */
+/** The most lines a block keeps, about 7,300 tokens, however long the story. */
 const MAX_BLOCK_LINES = 40;
-/** Seats a block has before the cut, per line it keeps. A chat window holds about 1.8 lines, so the cut chooses among over four times what it keeps. */
-const BLOCK_SEATS_PER_LINE = 2.5;
+/** Lines a block keeps per step of its size, the Block size setting × √events, rounded. */
+const BLOCK_LINES_PER_SIZE = 4 / 3;
+/** Seats a block has before the cut per step of its size. A chat window holds about 1.8 lines, so the cut chooses among over three times what it keeps. */
+const BLOCK_SEATS_PER_SIZE = 2.5;
 /** The fewest seats a block has. Only the cut reads them, so a short story loses nothing by having more than its lines call for. */
 const MIN_BLOCK_SEATS = 40;
+/** The most seats a block has, however long the story. */
+const MAX_BLOCK_SEATS = 100;
 /**
  * Hybrid hits a recipe asks for. The search cannot be limited to chosen events, so
  * this pool is how a recipe tells which events are closest to the question.
@@ -119,12 +123,15 @@ const THREAD_PICK_SHAPES = new Set(['chain', 'why', 'bigger_plot']);
  * square root of its events.
  *
  * @param {number} storyEventCount - The events stored for the story
- * @param {number} blockScale - Lines per square root of the story's events, from the Block size setting: at 1,800 events, 0.5 keeps 21 lines and 0.7 keeps 30
+ * @param {number} blockScale - The Block size setting: at 1,800 events, 0.5 keeps 28 lines from 53 seats, 0.7 keeps 40 from 75, and 1.0 keeps 40 from 100
  * @returns {{lineCount: number, seatCount: number}} the lines a block keeps after the cut, and its seats before it: chat windows in a walked block, or events in a linkless one, and a thread pick's events take them first
  */
 export function storyBlockLimits(storyEventCount, blockScale) {
-    const lineCount = Math.min(MAX_BLOCK_LINES, Math.max(MIN_BLOCK_LINES, Math.round(blockScale * Math.sqrt(storyEventCount))));
-    return { lineCount, seatCount: Math.max(MIN_BLOCK_SEATS, Math.round(lineCount * BLOCK_SEATS_PER_LINE)) };
+    const blockSize = Math.round(blockScale * Math.sqrt(storyEventCount));
+    return {
+        lineCount: Math.min(MAX_BLOCK_LINES, Math.max(MIN_BLOCK_LINES, Math.round(blockSize * BLOCK_LINES_PER_SIZE))),
+        seatCount: Math.min(MAX_BLOCK_SEATS, Math.max(MIN_BLOCK_SEATS, Math.round(blockSize * BLOCK_SEATS_PER_SIZE))),
+    };
 }
 
 /**

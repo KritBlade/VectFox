@@ -44,15 +44,15 @@ describe('storyArcPageMarkup', () => {
         expect(markup).toContain(`id="${id}"`);
     });
 
-    it('offers the Block size slider from 0.4 to 0.8 on the Main tab, beside the number that owns its value', () => {
+    it('offers the Block size slider from 0.4 to 1.0 on the Main tab, beside the number that owns its value', () => {
         const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="entity"'));
         const range = /<input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_block_scale"[^>]*>/.exec(mainPanel)?.[0];
         expect(range).toContain('min="0.4"');
-        expect(range).toContain('max="0.8"');
+        expect(range).toContain('max="1.0"');
         expect(range).toContain('step="0.05"');
         const box = /<input type="number" id="VectFox_story_arc_block_scale"[^>]*>/.exec(mainPanel)?.[0];
         expect(box).toContain('min="0.4"');
-        expect(box).toContain('max="0.8"');
+        expect(box).toContain('max="1.0"');
     });
 
     it('holds every element the page paints', () => {

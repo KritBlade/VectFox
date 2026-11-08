@@ -539,8 +539,8 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { events: starts(hits) });
             const result = await callAgent(storyArcOn);
             const [[cutCall]] = cutCalls();
-            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 20));
-            expect(result.events).toHaveLength(20);
+            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 27));
+            expect(result.events).toHaveLength(27);
         });
 
         it('asks for the lines the Block size setting gives', async () => {
@@ -548,8 +548,8 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { events: starts(hits) });
             const result = await callAgent({ ...storyArcOn, story_arc_block_scale: 0.5 });
             const [[cutCall]] = cutCalls();
-            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 14));
-            expect(result.events).toHaveLength(14);
+            expect(cutCall.messages[0].content).toBe(buildBlockCutPrompt('chain', 19));
+            expect(result.events).toHaveLength(19);
         });
 
         it('keeps the closest of a short story\'s 10 lines when the call fails, and warns', async () => {

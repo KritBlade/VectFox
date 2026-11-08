@@ -33,30 +33,37 @@ const BLOCK_SCALE = 0.7;
 const select = (shape, subject, storedEvents, poolEvents, blockScale = BLOCK_SCALE) => selectStoryRecipeEvents({ shape, subject, storedEvents, poolEvents, blockScale });
 
 describe('storyBlockLimits', () => {
+    it('keeps 40 lines from 75 seats at 0.7 on a story of 1,800 events', () => {
+        expect(storyBlockLimits(1800, BLOCK_SCALE)).toEqual({ lineCount: 40, seatCount: 75 });
+    });
+
     it('grows lines and seats with the square root of the story', () => {
-        expect(storyBlockLimits(600, BLOCK_SCALE)).toEqual({ lineCount: 17, seatCount: 43 });
-        expect(storyBlockLimits(800, BLOCK_SCALE)).toEqual({ lineCount: 20, seatCount: 50 });
-        expect(storyBlockLimits(1800, BLOCK_SCALE)).toEqual({ lineCount: 30, seatCount: 75 });
+        expect(storyBlockLimits(600, BLOCK_SCALE)).toEqual({ lineCount: 23, seatCount: 43 });
+        expect(storyBlockLimits(800, BLOCK_SCALE)).toEqual({ lineCount: 27, seatCount: 50 });
     });
 
     it('moves both lines and seats with the block scale, to the nearest whole number', () => {
-        expect(storyBlockLimits(1800, 0.4)).toEqual({ lineCount: 17, seatCount: 43 });
-        expect(storyBlockLimits(1800, 0.5)).toEqual({ lineCount: 21, seatCount: 53 });
-        expect(storyBlockLimits(1800, 0.8)).toEqual({ lineCount: 34, seatCount: 85 });
+        expect(storyBlockLimits(1800, 0.4)).toEqual({ lineCount: 23, seatCount: 43 });
+        expect(storyBlockLimits(1800, 0.5)).toEqual({ lineCount: 28, seatCount: 53 });
+    });
+
+    it('gives a higher block scale only more seats once a block keeps 40 lines', () => {
+        expect(storyBlockLimits(1800, 0.8)).toEqual({ lineCount: 40, seatCount: 85 });
+        expect(storyBlockLimits(1800, 1)).toEqual({ lineCount: 40, seatCount: 100 });
     });
 
     it('keeps at least 10 lines and 40 seats, however short the story', () => {
-        for (const eventCount of [0, 1, 50, 200]) expect(storyBlockLimits(eventCount, BLOCK_SCALE), String(eventCount)).toEqual({ lineCount: 10, seatCount: 40 });
-        expect(storyBlockLimits(400, 0.4)).toEqual({ lineCount: 10, seatCount: 40 });
+        for (const eventCount of [0, 1, 50]) expect(storyBlockLimits(eventCount, BLOCK_SCALE), String(eventCount)).toEqual({ lineCount: 10, seatCount: 40 });
+        expect(storyBlockLimits(200, 0.4)).toEqual({ lineCount: 10, seatCount: 40 });
     });
 
     it('gives a story of 400 events more lines but no more than the fewest seats', () => {
-        expect(storyBlockLimits(400, BLOCK_SCALE)).toEqual({ lineCount: 14, seatCount: 40 });
+        expect(storyBlockLimits(400, BLOCK_SCALE)).toEqual({ lineCount: 19, seatCount: 40 });
     });
 
     it('keeps at most 40 lines and 100 seats, however long the story', () => {
         for (const eventCount of [3300, 5000, 100000]) expect(storyBlockLimits(eventCount, BLOCK_SCALE), String(eventCount)).toEqual({ lineCount: 40, seatCount: 100 });
-        expect(storyBlockLimits(100000, 0.8)).toEqual({ lineCount: 40, seatCount: 100 });
+        expect(storyBlockLimits(100000, 1)).toEqual({ lineCount: 40, seatCount: 100 });
     });
 });
 
