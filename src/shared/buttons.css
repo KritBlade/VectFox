@@ -10,13 +10,6 @@
  * STUNNING ACTION BUTTONS
  * ============================================================================ */
 
-.vectfox-actions-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-top: 24px;
-}
-
 .vectfox-action-btn {
     padding: 18px 24px;
     border-radius: 12px;
@@ -114,50 +107,3 @@
 .vectfox-btn-secondary i {
     color: var(--vectfox-secondary);
 }
-
-/* Featured action button - larger and more prominent */
-.vectfox-action-featured {
-    grid-column: span 2;
-    padding: 22px 28px;
-    font-size: 1.1em;
-    background: linear-gradient(135deg,
-        color-mix(in srgb, var(--vectfox-primary) 35%, var(--SmartThemeBlurTintColor)) 0%,
-        color-mix(in srgb, var(--vectfox-primary) 20%, var(--SmartThemeBlurTintColor)) 100%);
-    border: 2px solid color-mix(in srgb, var(--vectfox-primary) 60%, transparent);
-    box-shadow:
-        0 4px 16px color-mix(in srgb, var(--vectfox-primary) 25%, transparent),
-        inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
-}
-
-.vectfox-action-featured:hover {
-    background: linear-gradient(135deg,
-        color-mix(in srgb, var(--vectfox-primary) 45%, var(--SmartThemeBlurTintColor)) 0%,
-        color-mix(in srgb, var(--vectfox-primary) 30%, var(--SmartThemeBlurTintColor)) 100%);
-    border-color: var(--vectfox-primary);
-    box-shadow:
-        0 8px 28px color-mix(in srgb, var(--vectfox-primary) 35%, transparent),
-        inset 0 1px 0 color-mix(in srgb, white 15%, transparent);
-}
-
-.vectfox-action-featured i {
-    font-size: 1.3em;
-    color: var(--vectfox-primary-bright);
-}
-
-/* Danger outline button - less prominent destructive action */
-.vectfox-btn-danger-outline {
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--vectfox-danger) 50%, transparent);
-    color: var(--vectfox-danger);
-}
-
-.vectfox-btn-danger-outline:hover {
-    background: color-mix(in srgb, var(--vectfox-danger) 15%, transparent);
-    border-color: var(--vectfox-danger);
-}
-
-.vectfox-btn-danger-outline i {
-    color: var(--vectfox-danger);
-}
-
-

@@ -27,18 +27,16 @@ import {
 } from '../embedding/index.js';
 import { escapeHtml } from '../../shared/html-escape.js';
 import { openDatabaseBrowser } from '../database-browser/index.js';
-import { openContentVectorizer, clearInterceptorPrompts } from '../chunkbase/index.js';
-import { openQueryTestModal } from '../query-tester/index.js';
-import { openTextCleaningModal } from '../text-cleaning/index.js';
-import { progressTracker } from '../../shared/progress-tracker.js';
+import { openContentVectorizer } from '../chunkbase/index.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
-import { clearLorebookPrompt } from '../world-info/index.js';
-import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, refreshWorldInfoEntryDepthCache, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
-import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator, runDiagnostics } from '../diagnostics/index.js';
+import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
+import { getHealthModalHtml, getHealthPillHtml, initializeHealthDashboard, refreshHealthPill, runDiagnostics } from '../diagnostics/index.js';
 import { placeOnTopmostModalLayer } from '../../sillytavern/popup.js';
-import { PANEL_TABS, panelNavMarkup, panelPageMarkup } from './panel-shell-markup.js';
+import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
+import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
+import { wireActionPage } from './action-page.js';
 import { getCollectionRegistry, getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { parseRegistryKey } from '../../shared/collection-ids.js';
@@ -74,10 +72,6 @@ import { log } from '../../sillytavern/log.js';
  * @param {string} containerId - The container element ID to render into
  * @param {object} settings - VectFox settings object
  * @param {object} callbacks - Object containing callback functions
- * @param {Function} callbacks.onVectorizeAll - Called when "Vectorize All" is clicked
- * @param {Function} callbacks.onPurge - Called when "Purge" is clicked
- * @param {Function} callbacks.onCleanupCorrupted - Called when "Cleanup Corrupted" is clicked
- * @param {Function} callbacks.onRunDiagnostics - Called when "Run Diagnostics" is clicked
  * @param {Function} callbacks.runNetworkStartup - Re-runs the off-box startup work (src/app/network-startup.js) when
  *     the master switch turns back on
  */
@@ -1002,123 +996,8 @@ export function renderSettings(containerId, settings, callbacks) {
                     </div>
                     `)}
 
-                    <!-- Actions Card -->
-                    ${panelPageMarkup('action', `
-                    <!-- Master switch — global enable/disable for all VectFox runtime work -->
-                    <div class="vectfox-master-switch">
-                        <label class="checkbox_label" for="VectFox_master_enabled" style="font-weight: 600;">
-                            <input type="checkbox" id="VectFox_master_enabled" />
-                            <span>Enable VectFox</span>
-                        </label>
-                        <small class="VectFox_hint" id="VectFox_master_hint">Master switch. When off, VectFox stops all automatic retrieval injection, auto-sync, and lorebook injection. Manual tools (Database Browser, Vectorize Content) stay available.</small>
-                    </div>
-
-                    <div class="vectfox-card">
-                        <div class="vectfox-card-header">
-                            <h3 class="vectfox-card-title">
-                                <span class="vectfox-icon">
-                                    <i class="fa-solid fa-bolt"></i>
-                                </span>
-                                Actions
-                            </h3>
-                            <p class="vectfox-card-subtitle">Run vectorization, sync chat with collections, browse the database, and run diagnostics. Operates on whatever path is currently active (Chunk or EventBase).</p>
-                        </div>
-                        <div class="vectfox-card-body">
-
-                            <div class="vectfox-actions-grid">
-                                <button id="VectFox_vectorize_content" class="vectfox-action-btn vectfox-btn-primary vectfox-action-featured">
-                                    <i class="fa-solid fa-plus-circle"></i>
-                                    <span>Vectorize Content</span>
-                                </button>
-                                <button id="VectFox_vectorize_all" class="vectfox-action-btn vectfox-btn-secondary">
-                                    <i class="fa-solid fa-sync"></i>
-                                    <span>Sync Chat</span>
-                                </button>
-                                <button id="VectFox_database_browser" class="vectfox-action-btn vectfox-btn-secondary">
-                                    <i class="fa-solid fa-folder-open"></i>
-                                    <span>Database Browser</span>
-                                </button>
-                                <button id="VectFox_run_diagnostics" class="vectfox-action-btn vectfox-btn-secondary">
-                                    <i class="fa-solid fa-stethoscope"></i>
-                                    <span>Diagnostics</span>
-                                </button>
-                                <button id="VectFox_view_results" class="vectfox-action-btn vectfox-btn-secondary">
-                                    <i class="fa-solid fa-bug"></i>
-                                    <span>Debug Query</span>
-                                </button>
-                                <button id="VectFox_debug_summarizer" class="vectfox-action-btn vectfox-btn-secondary" title="Preview the exact <VectFoxSummarizer> block that would be injected into the prompt this turn (without injecting it).">
-                                    <i class="fa-solid fa-eye"></i>
-                                    <span>Debug Summarizer</span>
-                                </button>
-                                <button id="VectFox_purge" class="vectfox-action-btn vectfox-btn-danger-outline">
-                                    <i class="fa-solid fa-trash"></i>
-                                    <span>Purge</span>
-                                </button>
-                                <button id="VectFox_cleanup_corrupted" class="vectfox-action-btn vectfox-btn-danger-outline" title="Delete corrupted prefix-stacked collections and ST-native file_* attachments from disk. Irreversible.">
-                                    <i class="fa-solid fa-broom"></i>
-                                    <span>Cleanup Corrupted</span>
-                                </button>
-                                <button id="VectFox_text_cleaning" class="vectfox-action-btn vectfox-btn-secondary">
-                                    <i class="fa-solid fa-broom"></i>
-                                    <span>Text Cleaning</span>
-                                </button>
-                                <button id="VectFox_reopen_progress" class="vectfox-action-btn vectfox-btn-secondary">
-                                    <i class="fa-solid fa-chart-line"></i>
-                                    <span>Progress</span>
-                                </button>
-                                ${getHealthIndicatorHtml()}
-                            </div>
-
-                            <label class="checkbox_label" for="VectFox_debug_verbosity" style="margin-top: 20px; display:block;">
-                                <span>Console verbosity</span>
-                            </label>
-                            <select id="VectFox_debug_verbosity" class="text_pole" style="width: 100%; margin-top: 4px;">
-                                <option value="off">Off — silence (default)</option>
-                                <option value="lifecycle">Lifecycle — major events only (~50 lines / 100 windows)</option>
-                                <option value="verbose">Verbose — + per-batch/window timing (~300 lines / 100 windows)</option>
-                                <option value="trace">Trace — + per-item detail (~700 lines / 100 windows)</option>
-                            </select>
-                            <small class="VectFox_hint">Single noise floor for all EventBase / vectorization / insert logging. Errors and warnings always log regardless. Replaces the old Debug Logging + Vectorizing toggles.</small>
-
-                            <label class="checkbox_label" for="VectFox_injection_debug_logging" style="margin-top: 12px;">
-                                <input type="checkbox" id="VectFox_injection_debug_logging" />
-                                <span>Debug Injection Logging</span>
-                            </label>
-                            <small class="VectFox_hint">Log injection details (ChunkBase + EventBase) to the browser console (useful for diagnosing retrieval/injection issues)</small>
-
-                            <label class="checkbox_label" for="VectFox_debug_domain_raw_llm" style="margin-top: 12px;">
-                                <input type="checkbox" id="VectFox_debug_domain_raw_llm" />
-                                <span>Raw LLM reply (deep-dive)</span>
-                            </label>
-                            <small class="VectFox_hint">Log the raw LLM reply and parser candidate-array diagnostics per window. Very noisy — use only when investigating extraction/parse problems. Independent of the verbosity dropdown.</small>
-
-                            <label class="checkbox_label" for="VectFox_eventbase_debug_qdrant_backend" style="margin-top: 12px;">
-                                <input type="checkbox" id="VectFox_eventbase_debug_qdrant_backend" />
-                                <span>Debug Qdrant backend</span>
-                            </label>
-                            <small class="VectFox_hint">Log native hybrid backend keyword/fusion diagnostics from the Similharity Qdrant backend. Turn this off when not actively debugging to avoid noisy console output.</small>
-
-                            <label class="checkbox_label" for="VectFox_agentic_debug" style="margin-top: 12px;">
-                                <input type="checkbox" id="VectFox_agentic_debug" />
-                                <span>Debug Agent Mode</span>
-                            </label>
-                            <small class="VectFox_hint">Log [VectFox-Agentic] details: mode marker, narrative context preview (~50 words per turn), LLM round-trip ms, planner output JSON, Qdrant fanout ms, total agent overhead ms, per-query hit counts. Only fires when Agent Mode is enabled (AgentMode tab).</small>
-
-                            <label class="checkbox_label" for="VectFox_eventbase_compare_rerank" style="margin-top: 12px;">
-                                <input type="checkbox" id="VectFox_eventbase_compare_rerank" />
-                                <span>Compare native vs JS re-rank (debug)</span>
-                            </label>
-                            <small class="VectFox_hint">Requires native re-rank ON and Debug Logging ON. Runs the JS pipeline in parallel for each (collection, queryText) and logs top-K overlap + Spearman ρ + timings. Doubles per-collection cost — debug only.</small>
-
-                            <label class="checkbox_label" for="VectFox_eventbase_compare_rerank_verbose" style="margin-top: 12px;">
-                                <input type="checkbox" id="VectFox_eventbase_compare_rerank_verbose" />
-                                <span>Verbose compare logs (per-event breakdown)</span>
-                            </label>
-                            <small class="VectFox_hint">Adds per-event score-component breakdowns for events present in both top-K lists. Verbose — enable only when investigating a specific divergence.</small>
-
-                        </div>
-                    </div>
-                    `)}
+                    <!-- Action page (action-page-markup.js) -->
+                    ${panelPageMarkup('action', actionPageMarkup(), { status: `${masterSwitchPillsMarkup()}${getHealthPillHtml()}` })}
 
                     <!-- EventBase Card -->
                     ${panelPageMarkup('eventbase', `
@@ -1260,7 +1139,7 @@ export function renderSettings(containerId, settings, callbacks) {
                     </div>
                     `)}
 
-                    ${storyArcPageMarkup()}
+                    ${storyArcPageMarkup({ notice: vectfoxOffNoticeMarkup() })}
 
                     <!-- AgentMode Card -->
                     ${panelPageMarkup('agentmode', `
@@ -1729,7 +1608,7 @@ async function executeDiagnostics() {
 /** Every page of the panel, with what runs as it shows or hides (panel-shell.js). */
 function panelTabsWithHooks() {
     const hooks = {
-        action: { onOpen: refreshHealthIndicator },
+        action: { onOpen: refreshHealthPill },
         autosync: { onOpen: () => refreshAutoSyncCheckbox(extension_settings.vectfox) },
         worldinfo: { onOpen: refreshWIStatus },
         storyarc: {
@@ -2294,54 +2173,8 @@ function bindSettingsEvents(settings, callbacks) {
     // Injection group on standard+no-plugin (its listChunks returns no metadata).
     let _refreshSummarizerInjectionAvailability = null;
 
-    // Master switch — global enable/disable. Reads src/shared/feature-gate.js::isVectFoxEnabled
-    // so the UI and the runtime gates agree. Dims the rest of the panel when off as a
-    // visual cue.
-    const $masterSwitch = $('#VectFox_master_enabled');
-    const _applyMasterSwitchUI = (on) => {
-        $('#VectFox_settings .vectfox-card')
-            .css({ opacity: on ? '' : '0.5' });
-    };
-    $masterSwitch
-        .prop('checked', isVectFoxEnabled(settings))
-        .on('change', async function() {
-            const on = $(this).prop('checked');
-            settings.enabled = on;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-            _applyMasterSwitchUI(on);
-            toastr.info(on ? 'VectFox enabled' : 'VectFox disabled', 'VectFox');
-            log.lifecycle(`VectFox: master switch ${on ? 'ON' : 'OFF'}`);
-
-            if (!on) {
-                // Take every VectFox block out of the prompt now. ST keeps extension
-                // prompts until they are overwritten, and quiet generations skip the
-                // interceptor that would otherwise clear them.
-                clearInterceptorPrompts(settings);
-                clearLorebookPrompt(settings);
-                await refreshAutoSyncCheckbox(settings); // shows auto-sync as paused
-                return;
-            }
-
-            // Switching back ON: redo the work skipped while off, so VectFox works
-            // without a page reload. The ghosting WI-scan floor goes first — the next
-            // generation may read it.
-            await refreshWorldInfoEntryDepthCache(settings);
-
-            // Off-box startup work. Two of its steps don't self-heal on demand — the
-            // EventBase payload-index backfill is one-shot-per-install, and collection
-            // discovery refreshes the registry that the Database Browser, cross-chat
-            // retrieval and the auto-sync status read. See src/app/network-startup.js for
-            // the full rationale.
-            try {
-                await callbacks.runNetworkStartup(settings);
-            } catch (error) {
-                log.warn('VectFox: backend/network startup after re-enable failed:', error?.message || error);
-            }
-            await refreshAutoSyncCheckbox(settings);
-            await refreshHealthIndicator(); // its load-time probe is skipped while off
-        });
-    _applyMasterSwitchUI(isVectFoxEnabled(settings));
+    // The Action page: the master switch, its tools, the debug switches and the danger zone.
+    wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkStartup: callbacks.runNetworkStartup, openDiagnosticsModal });
 
     /**
      * Turn Summarizer Injection off, because auto-sync — its data source — is not
@@ -3087,14 +2920,6 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    $('#VectFox_agentic_debug')
-        .prop('checked', settings.debug_domain?.agent || false)
-        .on('change', function() {
-            if (!settings.debug_domain) settings.debug_domain = {};
-            settings.debug_domain.agent = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
 
     // ─── Auto-Reformat (Document/URL/Wiki LLM restructuring) ───────────────
     // Mirrors the AgentMode inherit-from-summarizer pattern above. No dedicated
@@ -4389,46 +4214,6 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // ─── Logging (src/sillytavern/log.js) ───────────────────────────────
-    // The verbosity dropdown sets the noise floor for every gated log.* call. A domain checkbox turns on
-    // one log.domain() deep-dive in settings.debug_domain (raw_llm, injection, rerank); the logger reads
-    // no other debug flag. See InternalProject/Vectfox/plans/executed/logging-levels-and-classification.md.
-    const _ensureDebugDomain = () => {
-        if (!settings.debug_domain || typeof settings.debug_domain !== 'object') {
-            settings.debug_domain = {};
-        }
-        return settings.debug_domain;
-    };
-
-    $('#VectFox_debug_verbosity')
-        .val(settings.debug_verbosity || 'off')
-        .on('change', function() {
-            settings.debug_verbosity = $(this).val();
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    // Raw LLM reply domain deep-dive → settings.debug_domain.raw_llm
-    $('#VectFox_debug_domain_raw_llm')
-        .prop('checked', _ensureDebugDomain().raw_llm === true)
-        .on('change', function() {
-            _ensureDebugDomain().raw_llm = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    // Injection debug toggle — drives debug_domain.injection, the unified
-    // log.domain('injection') gate for BOTH ChunkBase (chat-vectorization.js)
-    // and EventBase (eventbase-workflow.js) injection diagnostics.
-    $('#VectFox_injection_debug_logging')
-        .prop('checked', settings.debug_domain?.injection || false)
-        .on('change', function() {
-            if (!settings.debug_domain) settings.debug_domain = {};
-            settings.debug_domain.injection = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
     // Serial / pipelined toggle. Checkbox CHECKED == disable_pipeline == serial.
     // Default to unchecked when the setting is unset (matches the read-site
     // semantics in eventbase-workflow.js: `... === true` means only explicit
@@ -4478,24 +4263,7 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // Compare-mode toggle (debug-only observability for native rerank).
-    // Drives debug_domain.rerank — read by log.domainEnabled('rerank') in eventbase-retrieval.js.
-    $('#VectFox_eventbase_compare_rerank')
-        .prop('checked', _ensureDebugDomain().rerank === true)
-        .on('change', function() {
-            _ensureDebugDomain().rerank = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
 
-    // Compare-mode verbose toggle.
-    $('#VectFox_eventbase_compare_rerank_verbose')
-        .prop('checked', !!settings.eventbase_compare_rerank_verbose)
-        .on('change', function() {
-            settings.eventbase_compare_rerank_verbose = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
 
     // ── EventBase settings ──────────────────────────────────────────────────
 
@@ -4938,13 +4706,6 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    $('#VectFox_eventbase_debug_qdrant_backend')
-        .prop('checked', !!settings.eventbase_debug_qdrant_backend)
-        .on('change', function() {
-            settings.eventbase_debug_qdrant_backend = !!$(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
 
     // VEC-6: Insert Batch Size
     $('#VectFox_insert_batch_size')
@@ -4977,88 +4738,8 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // Action buttons
-    $('#VectFox_vectorize_content').on('click', () => {
-        openContentVectorizer();
-    });
-    $('#VectFox_vectorize_all').on('click', callbacks.onVectorizeAll);
-    $('#VectFox_purge').on('click', callbacks.onPurge);
-    $('#VectFox_cleanup_corrupted').on('click', callbacks.onCleanupCorrupted);
-    $('#VectFox_run_diagnostics').on('click', callbacks.onRunDiagnostics);
-    $('#VectFox_database_browser').on('click', () => {
-        log.lifecycle('VECTFOX: Database Browser button clicked');
-        try {
-            const p = openDatabaseBrowser();
-            if (p && typeof p.catch === 'function') {
-                p.catch(err => log.error('VECTFOX: openDatabaseBrowser rejected:', err));
-            }
-        } catch (err) {
-            log.error('VECTFOX: Database Browser click handler threw synchronously:', err);
-        }
-    });
-    $('#VectFox_view_results').on('click', () => {
-        openQueryTestModal();
-    });
-    $('#VectFox_debug_summarizer').on('click', () => {
-        openSummarizerDebug(settings);
-    });
-    $('#VectFox_text_cleaning').on('click', () => {
-        openTextCleaningModal();
-    });
-    $('#VectFox_reopen_progress').on('click', () => {
-        if (!progressTracker.reopen()) {
-            toastr.info('No active progress to show', 'VectFox');
-        }
-    });
-
     // Initialize provider-specific settings visibility
     toggleProviderSettings(settings.embedding_provider, settings);
-}
-
-/**
- * "Debug Summarizer" action — preview the exact <VectFoxSummarizer> block that the
- * summarizer injection would put into the prompt this turn, WITHOUT injecting it.
- * Runs the same compute path (buildSummarizerInjection); ignores only the enabled
- * flag so the preview works while the feature is off.
- * @param {object} settings - extension_settings.vectfox
- */
-async function openSummarizerDebug(settings) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
-
-    let result;
-    try {
-        const { buildSummarizerInjection } = await import('../eventbase/index.js');
-        result = await buildSummarizerInjection(settings);
-    } catch (err) {
-        result = { text: '', count: 0, reason: 'error', error: err?.message || String(err) };
-    }
-
-    const enabled = !!settings.summarizer_injection_enabled;
-    const REASONS = {
-        'no-chat': 'No chat is open.',
-        'no-collection': 'This chat has no active EventBase collection yet — vectorize it first.',
-        'no-events': 'The collection has no events to inject yet.',
-        'backend-error': `Backend unavailable: ${result.error || ''}`,
-        'listchunks-error': `Could not read the collection: ${result.error || ''}`,
-        'error': `Failed: ${result.error || ''}`,
-    };
-
-    let body;
-    if (result.count > 0) {
-        const reqNote = result.requested ? ` (requested up to ${result.requested})` : '';
-        const offNote = enabled ? '' : ' — <em>feature is currently OFF; this previews what enabling it would inject</em>';
-        body = `<p style="margin:0 0 6px;"><strong>${result.count}</strong> event(s) would be injected${reqNote}${offNote}.</p>`
-            + `<pre style="white-space:pre-wrap; word-break:break-word; max-height:55vh; overflow:auto; text-align:left; background:rgba(0,0,0,0.3); padding:10px; border-radius:6px; margin:0;">${escapeHtml(result.text)}</pre>`;
-    } else {
-        body = `<p style="margin:0;">Nothing would be injected this turn.</p>`
-            + `<p style="margin:6px 0 0; opacity:0.85;">${escapeHtml(REASONS[result.reason] || result.reason || 'No events.')}</p>`;
-    }
-
-    const html = `<div style="text-align:left;">
-        <h3 style="margin:0 0 8px;">Summarizer Injection — preview</h3>
-        ${body}
-    </div>`;
-    await callGenericPopup(html, POPUP_TYPE.TEXT, '', { okButton: 'Close', wide: true, large: true });
 }
 
 // Store current diagnostic results for copy/filter functionality
@@ -5424,7 +5105,7 @@ ${categoryNames[category] || category.toUpperCase()}  ${catStats}
 /**
  * Opens the diagnostics modal (starts at selection phase)
  */
-export function openDiagnosticsModal() {
+function openDiagnosticsModal() {
     showDiagnosticsPhase('selection');
     $('#VectFox_diagnostics_title').text('Run Diagnostics');
     const modal = document.getElementById('VectFox_diagnostics_modal');

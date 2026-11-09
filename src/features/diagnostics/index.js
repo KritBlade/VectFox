@@ -1,14 +1,15 @@
 // features/diagnostics — health checks: the diagnostics runner with its infrastructure, configuration,
-// visualizer and production checks, and the health indicator the settings panel shows.
+// visualizer and production checks, and the backend health pill and dashboard the settings panel shows.
 //
 // runDiagnostics loads the runner and its checks on its first call, so they stay out of startup: a broken check
 // cannot stop VectFox from loading. Everything else here is a re-export. Code outside this folder imports the
 // feature here, never its files (.dependency-cruiser.cjs).
 export {
-    getHealthIndicatorHtml,
     getHealthModalHtml,
+    getHealthPillHtml,
     initializeHealthDashboard,
-    refreshIndicator,
+    openHealthDashboard,
+    refreshHealthPill,
 } from './health-dashboard.js';
 
 /**

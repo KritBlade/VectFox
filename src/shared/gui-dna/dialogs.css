@@ -26,6 +26,11 @@ dialog.popup.vfx-popup.is-panel {
     background: var(--vfx-bg);
 }
 
+/* A dialog whose body holds long lines, such as a preview: wide on a desktop, and on a phone as wide as any dialog. */
+dialog.popup.vfx-popup.is-wide {
+    width: min(1100px, calc(100dvw - 2em));
+}
+
 @media (max-width: 720px) {
     dialog.popup.vfx-popup.is-panel {
         width: calc(100dvw - 16px) !important;

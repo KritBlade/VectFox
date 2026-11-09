@@ -18,7 +18,6 @@ import { extension_settings } from './sillytavern/settings.js';
 import { synchronizeChat, rearrangeChat } from './features/chunkbase/index.js';
 import {
     migrateOldEnabledKeys,
-    cleanupCorruptedCollections,
     registerCollection,
     setDeletedOrImportedCollectionCleanup,
 } from './features/collections/index.js';
@@ -39,7 +38,7 @@ import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
-import { renderSettings, openDiagnosticsModal, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
+import { renderSettings, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
 import { initializeVisualizer, initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { initializeWorldInfoIntegration } from './features/world-info/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
@@ -449,106 +448,6 @@ async function vectfox_rearrangeChat(chat, _contextSize, _abort, type) {
 window['vectfox_rearrangeChat'] = vectfox_rearrangeChat;
 
 /**
- * Action: Sync Chat — shortcut to the Vectorize Content screen.
- *
- * Rather than running a parallel `vectorizeAll` here, this just opens the
- * Vectorize Content modal (chat tab), whose "Resume" button is the single,
- * mobile-tested vectorization path. Keeping Sync Chat as a shortcut to that
- * screen — instead of its own code — removes the risk of the two drifting.
- */
-async function onVectorizeAllClick() {
-    const { openContentVectorizer } = await import('./features/chunkbase/index.js');
-    openContentVectorizer('chat');
-}
-
-/**
- * Action: Full purge - wipes ALL vector data and settings
- */
-async function onPurgeClick() {
-    const confirmed = confirm(
-        'WARNING: This will delete ALL vector data and reset VectFox settings.\n\n' +
-        'This cannot be undone. Continue?'
-    );
-
-    if (!confirmed) {
-        toastr.info('Purge cancelled');
-        return;
-    }
-
-    try {
-        const { getRequestHeaders } = await import('./sillytavern/requests.js');
-
-        // 1. Delete entire vectors folder
-        await fetch('/api/plugins/similharity/purge-all', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-        });
-
-        // 2. Clear extension_settings.vectfox
-        for (const key in extension_settings.vectfox) {
-            if (key !== 'enabled') {
-                delete extension_settings.vectfox[key];
-            }
-        }
-
-        // 3. Save settings
-        const { saveSettingsDebounced } = await import('./sillytavern/settings.js');
-        saveSettingsDebounced();
-
-        toastr.success('All vector data purged', 'Purge Complete');
-
-    } catch (error) {
-        log.error('VectFox: Purge failed:', error);
-        toastr.error('Purge failed: ' + error.message);
-    }
-}
-
-/**
- * Action: Cleanup corrupted/ST-native collections from disk
- */
-async function onCleanupCorruptedClick() {
-    const confirmed = confirm(
-        'This deletes corrupted prefix-stacked collections and ST-native file_* attachments\n' +
-        'from disk. Useful when reply latency is dominated by ghost collections.\n\n' +
-        'Cannot be undone. Continue?'
-    );
-    if (!confirmed) {
-        toastr.info('Cleanup cancelled');
-        return;
-    }
-
-    try {
-        const result = await cleanupCorruptedCollections();
-        if (result.total === 0) {
-            toastr.info('No corrupted or ST-native file collections found');
-            return;
-        }
-
-        const { saveSettingsDebounced } = await import('./sillytavern/settings.js');
-        saveSettingsDebounced();
-
-        const failed = result.purged.filter(p => !p.ok).length;
-        const succeeded = result.purged.length - failed;
-        const summary = `Purged ${succeeded}/${result.total} (${result.corruption} corrupted, ${result.stFile} ST-native file). ${failed > 0 ? failed + ' failed.' : ''}`;
-        if (failed === 0) {
-            toastr.success(summary, 'Cleanup Complete');
-        } else {
-            toastr.warning(summary, 'Cleanup Partial');
-        }
-    } catch (error) {
-        log.error('VectFox: Cleanup failed:', error);
-        toastr.error('Cleanup failed: ' + error.message);
-    }
-}
-
-/**
- * Action: Run diagnostics - opens the diagnostics modal
- */
-function onRunDiagnosticsClick() {
-    openDiagnosticsModal();
-}
-
-/**
  * Initialize VectFox extension
  */
 jQuery(async () => {
@@ -686,13 +585,7 @@ jQuery(async () => {
     }
 
     // Render UI
-    renderSettings('extensions_settings2', settings, {
-        onVectorizeAll: onVectorizeAllClick,
-        onPurge: onPurgeClick,
-        onCleanupCorrupted: onCleanupCorruptedClick,
-        onRunDiagnostics: onRunDiagnosticsClick,
-        runNetworkStartup,
-    });
+    renderSettings('extensions_settings2', settings, { runNetworkStartup });
 
     // Initialize auto-sync checkbox state for current chat (if any)
     refreshAutoSyncCheckbox(settings);

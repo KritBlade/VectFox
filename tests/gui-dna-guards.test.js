@@ -47,8 +47,8 @@ const SELF_DRAWN_FILES = new Set([
 ]);
 const WEB_CHANNEL_COLOUR = /\brgb\(var\(--vfx-web-[\w-]+\)\)/g;
 
-// A file that builds with the gene builders, and the shell's markup, whose page subtitles are data.
-const BUILDS_GENES = /from\s+['"][^'"]*gui-dna\/gui-dna-core\.js['"]/;
+// A file that builds with the gene builders, generated or VectFox's own, and the shell's markup, whose page subtitles are data.
+const BUILDS_GENES = /from\s+['"][^'"]*gui-dna\/(?:gui-dna-core|panel-page-genes)\.js['"]/;
 const SHELL_MARKUP = path.join(SRC, 'features', 'settings-panel', 'panel-shell-markup.js');
 
 // ── G2 ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ const INLINE_STYLES_LEFT = {
     'features/database-browser/chunk-visualizer.js': 4,
     'features/database-browser/database-browser.js': 10,
     'features/query-tester/query-tester.js': 21,
-    'features/settings-panel/settings-panel.js': 213,
+    'features/settings-panel/settings-panel.js': 197,
     'features/text-cleaning/text-cleaning-ui.js': 2,
     'features/text-cleaning/text-cleaning.js': 2,
     'features/vector-backend/tokenizer-lock.js': 1,
@@ -140,14 +140,14 @@ const COLOURS_LEFT = {
     'features/database-browser/collection-badges.css': 37,
     'features/database-browser/database-browser.css': 17,
     'features/diagnostics/diagnostics.css': 1,
-    'features/diagnostics/health-dashboard.css': 19,
+    'features/diagnostics/health-dashboard.css': 12,
     'features/query-tester/query-tester.js': 11,
-    'features/settings-panel/settings-panel.js': 24,
+    'features/settings-panel/settings-panel.js': 23,
     'shared/base.css': 6,
     'shared/forms.css': 7,
     'shared/modals.css': 60,
     'shared/progress-tracker.css': 6,
-    'shared/tabs.css': 6,
+    'shared/tabs.css': 5,
 };
 
 function colourSites() {

@@ -704,6 +704,24 @@ async function discoverViaPlugin() {
 }
 
 /**
+ * Delete SillyTavern's whole vectors folder through Similharity: every local collection, SillyTavern's own Vector
+ * Storage included. A Qdrant server keeps its data.
+ *
+ * @returns {Promise<void>}
+ * @throws {Error} when the plugin does not answer with success, so a caller never reads a failed delete as done
+ */
+export async function deleteVectorsFolder() {
+    const response = await fetch('/api/plugins/similharity/purge-all', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+    });
+    if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Similharity's purge-all returned ${response.status}: ${body.slice(0, 200)}`);
+    }
+}
+
+/**
  * Cleanup corrupted/ST-native collections from disk.
  *
  * Re-fetches the raw plugin discovery list (bypasses the discovery filter so we

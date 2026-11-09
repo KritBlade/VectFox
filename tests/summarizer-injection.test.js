@@ -135,7 +135,7 @@ describe('runSummarizerInjection', () => {
     });
 });
 
-describe('buildSummarizerInjection (Debug Summarizer preview path)', () => {
+describe('buildSummarizerInjection (the Summarizer preview path)', () => {
     it('computes the would-be content even when the feature is DISABLED (never injects)', async () => {
         mocks.listChunks.mockResolvedValue({ items: [ev(4, 'Y'), ev(2, 'X')] });
         const out = await buildSummarizerInjection(SETTINGS({ summarizer_injection_enabled: false, summarizer_injection_count: 5 }));

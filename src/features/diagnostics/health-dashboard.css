@@ -2,47 +2,6 @@
  * VEC-18: Backend Health Dashboard Styles
  */
 
-/* Health Indicator */
-.vectfox-health-indicator {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-    background: transparent;
-    padding: 0;
-    margin-left: 8px;
-}
-
-.vectfox-health-indicator:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.vectfox-health-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    transition: background-color 0.3s;
-}
-
-.vectfox-health-ok .vectfox-health-dot {
-    background-color: #4caf50;
-    box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
-}
-
-.vectfox-health-warning .vectfox-health-dot {
-    background-color: #ff9800;
-    box-shadow: 0 0 6px rgba(255, 152, 0, 0.5);
-}
-
-.vectfox-health-error .vectfox-health-dot {
-    background-color: #f44336;
-    box-shadow: 0 0 6px rgba(244, 67, 54, 0.5);
-}
-
 /* Health Dashboard Modal */
 .vectfox-health-modal {
     max-width: 500px;

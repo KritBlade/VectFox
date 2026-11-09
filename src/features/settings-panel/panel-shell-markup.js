@@ -3,11 +3,14 @@
  * SETTINGS PANEL SHELL, STATIC MARKUP
  * ============================================================================
  * The GUI-DNA shell the settings panel sits in (mvu-helper/devdoc/gui-dna.md §4): the
- * rail with its groups, one nav item per page and the theme switch, and each page's
- * header. A nav item is `VectFox_tab_<name>` and its page `VectFox_panel_<name>`, which
- * panel-shell.js finds by id. Pure: builds strings.
+ * rail with its groups, one nav item per page and the theme switch, each page's header,
+ * and the notice a page shows while VectFox is switched off. A nav item is
+ * `VectFox_tab_<name>` and its page `VectFox_panel_<name>`, which panel-shell.js finds by
+ * id. Pure: builds strings.
  * ============================================================================
  */
+
+import { button, notice } from '../../shared/gui-dna/gui-dna-core.js';
 
 /**
  * The panel's pages, in rail order, each under its group. StoryArc's page draws its own header
@@ -27,6 +30,13 @@ export const PANEL_TABS = Object.freeze([
 
 /** The page the panel opens on. */
 export const FIRST_PANEL_TAB = PANEL_TABS[0].name;
+
+/** The page that holds the master switch, which shows no notice that VectFox is off. */
+const MASTER_SWITCH_PAGE = 'action';
+
+/** The hooks of the notice a page shows while VectFox is off, and of its Turn on button (action-page.js). */
+export const VECTFOX_OFF_NOTICE_HOOK = 'data-vectfox-off-notice';
+export const VECTFOX_TURN_ON_HOOK = 'data-vectfox-turn-on';
 
 export const panelTabId = name => `VectFox_tab_${name}`;
 export const panelPageId = name => `VectFox_panel_${name}`;
@@ -74,12 +84,13 @@ export function panelNavMarkup() {
 }
 
 /**
- * One page's header: its icon, "<group> / <title>", the title and the one-line subtitle.
+ * One page's header: its icon, "<group> / <title>", the title and the one-line subtitle, then its pills.
  *
  * @param {string} name - A name in PANEL_TABS
+ * @param {{status?: string}} [options] - status: the page's pills, as markup
  * @returns {string}
  */
-export function pageHeaderMarkup(name) {
+export function pageHeaderMarkup(name, { status = '' } = {}) {
     const tab = PANEL_TABS.find(each => each.name === name);
     if (!tab) throw new Error(`No panel page is named "${name}"`);
     return `<header class="vfx-page-header">
@@ -89,20 +100,35 @@ export function pageHeaderMarkup(name) {
                     <h2 class="vfx-page-title">${tab.title}</h2>
                     <p class="vfx-page-subtitle">${tab.subtitle}</p>
                 </div>
+                ${status ? `<div class="vfx-page-status">${status}</div>` : ''}
             </header>`;
 }
 
 /**
- * A page of the panel around its content, hidden unless it is the first page.
+ * The notice a page shows while VectFox is switched off, with the button that turns it on. Hidden until
+ * action-page.js shows it.
+ *
+ * @returns {string}
+ */
+export function vectfoxOffNoticeMarkup() {
+    const turnOn = button({ text: 'Turn on', icon: 'fa-power-off', kind: 'primary', data: { 'vectfox-turn-on': '' } });
+    return `<div ${VECTFOX_OFF_NOTICE_HOOK} style="display:none;">${notice({ status: 'warning', icon: 'fa-power-off', text: 'VectFox is off, so nothing reaches the prompt and auto-sync is paused.', action: turnOn })}</div>`;
+}
+
+/**
+ * A page of the panel around its content, hidden unless it is the first page. Every page but the master switch's
+ * carries the notice that VectFox is off.
  *
  * @param {string} name - A name in PANEL_TABS
  * @param {string} content - The page's markup after its header
+ * @param {{status?: string}} [options] - status: the page header's pills, as markup
  * @returns {string}
  */
-export function panelPageMarkup(name, content) {
+export function panelPageMarkup(name, content, { status = '' } = {}) {
     const hidden = name === FIRST_PANEL_TAB ? '' : ' style="display:none;"';
     return `<div id="${panelPageId(name)}" class="vfx-page"${hidden}>
-            ${pageHeaderMarkup(name)}
+            ${pageHeaderMarkup(name, { status })}
+            ${name === MASTER_SWITCH_PAGE ? '' : vectfoxOffNoticeMarkup()}
             ${content}
         </div>`;
 }

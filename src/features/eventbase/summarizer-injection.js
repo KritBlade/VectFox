@@ -256,7 +256,7 @@ export function applyGhosting(chat, settings) {
  * Compute the would-be summarizer injection content WITHOUT injecting it. This is
  * the exact path runSummarizerInjection uses (resolve → listChunks → filter → sort
  * → slice → format) minus the `setExtensionPrompt` and the `enabled` gate, so the
- * "Debug Summarizer" preview shows the real result even while the feature is off.
+ * Action page's Summarizer preview shows the real result even while the feature is off.
  *
  * @param {object} settings - extension_settings.vectfox
  * @returns {Promise<{ text: string, count: number, reason?: string, collectionId?: string, requested?: number, error?: string }>}

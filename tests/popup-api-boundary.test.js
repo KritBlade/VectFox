@@ -23,7 +23,7 @@ const HOST_FOLDER = 'sillytavern/';
 const USES_LEFT = {
     'features/chunkbase/content-vectorizer.js': 12,
     'features/database-browser/database-browser.js': 12,
-    'features/settings-panel/settings-panel.js': 22,
+    'features/settings-panel/settings-panel.js': 18,
     'features/vector-backend/tokenizer-lock.js': 4,
     'features/world-info/lorebook-rename-detector.js': 4,
 };

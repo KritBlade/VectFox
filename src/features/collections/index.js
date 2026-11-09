@@ -23,6 +23,7 @@ export {
     cleanupTestCollections,
     clearCollectionRegistry,
     deleteCollection,
+    deleteVectorsFolder,
     discoverExistingCollections,
     doesChatHaveVectors,
     getCollectionListing,

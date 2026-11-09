@@ -5,7 +5,7 @@
  * Real-time monitoring dashboard for vector backend health and metrics.
  *
  * Features:
- * - Health status indicator
+ * - The health pill on the settings panel's Action page
  * - Query latency statistics
  * - Operation counts (queries, inserts, deletes)
  * - Error tracking and display
@@ -47,16 +47,34 @@ function formatRelativeTime(timestamp) {
 }
 
 /**
+ * The backend's health: down when its last probe failed, warning once any of its calls failed, else ok.
+ * @param {boolean} healthy - Health status
+ * @param {number} errors - Error count
+ * @returns {'ok'|'warning'|'error'}
+ */
+function getHealthLevel(healthy, errors = 0) {
+    if (!healthy) return 'error';
+    if (errors > 0) return 'warning';
+    return 'ok';
+}
+
+/**
  * Get health status class for styling
  * @param {boolean} healthy - Health status
  * @param {number} errors - Error count
  * @returns {string} CSS class name
  */
 function getHealthClass(healthy, errors = 0) {
-    if (!healthy) return 'vectfox-health-error';
-    if (errors > 0) return 'vectfox-health-warning';
-    return 'vectfox-health-ok';
+    return `vectfox-health-${getHealthLevel(healthy, errors)}`;
 }
+
+/** The Action page's pill for each health level: its word and its status colour. */
+const HEALTH_PILLS = {
+    ok: { text: 'Backend healthy', status: 'success' },
+    warning: { text: 'Backend errors', status: 'warning' },
+    error: { text: 'Backend down', status: 'danger' },
+};
+const HEALTH_PILL_ID = 'VectFox_health_pill';
 
 /**
  * Get health status icon
@@ -270,23 +288,11 @@ export function closeHealthDashboard() {
 }
 
 /**
- * Get the health indicator HTML for the main UI
- * @returns {string} HTML for health indicator
+ * The Action page header's health pill, hidden until the first probe answers (refreshHealthPill).
+ * @returns {string} HTML for the pill
  */
-export function getHealthIndicatorHtml() {
-    const metrics = getBackendMetrics();
-    const currentBackend = getCurrentBackend();
-    const currentMetrics = metrics.backends.find(b => b.name === currentBackend);
-
-    const healthy = currentMetrics?.healthy ?? false;
-    const errors = currentMetrics?.errors ?? 0;
-    const healthClass = getHealthClass(healthy, errors);
-
-    return `
-        <button id="VectFox_health_indicator" class="vectfox-health-indicator ${healthClass}" title="Backend Health">
-            <span class="vectfox-health-dot"></span>
-        </button>
-    `;
+export function getHealthPillHtml() {
+    return `<span id="${HEALTH_PILL_ID}" class="vfx-pill is-neutral" style="display:none;"></span>`;
 }
 
 /**
@@ -319,27 +325,25 @@ export function getHealthModalHtml() {
 }
 
 /**
- * Run a health probe and refresh the indicator dot.
+ * Run a health probe and paint the health pill with its answer.
  */
-export async function refreshIndicator() {
-    const indicator = document.getElementById('VectFox_health_indicator');
-    if (!indicator) return;
+export async function refreshHealthPill() {
+    const pill = document.getElementById(HEALTH_PILL_ID);
+    if (!pill) return;
     const currentBackend = getCurrentBackend();
     await probeBackendHealth(currentBackend, extension_settings.vectfox);
     const metrics = getBackendMetrics();
     const currentMetrics = metrics.backends.find(b => b.name === currentBackend);
-    const healthy = currentMetrics?.healthy ?? false;
-    const errors = currentMetrics?.errors ?? 0;
-    indicator.className = `vectfox-health-indicator ${getHealthClass(healthy, errors)}`;
+    const { text, status } = HEALTH_PILLS[getHealthLevel(currentMetrics?.healthy ?? false, currentMetrics?.errors ?? 0)];
+    pill.className = `vfx-pill is-${status}`;
+    pill.textContent = text;
+    pill.style.removeProperty('display');
 }
 
 /**
  * Initialize health dashboard event handlers
  */
 export function initializeHealthDashboard() {
-    // Health indicator click
-    $(document).on('click', '#VectFox_health_indicator', openHealthDashboard);
-
     // Close button
     $(document).on('click', '#VectFox_health_close', closeHealthDashboard);
 
@@ -353,7 +357,7 @@ export function initializeHealthDashboard() {
     // Probe immediately on init too. Skipped while VectFox is disabled: opening the
     // panel probes on demand, and switching VectFox back on refreshes the indicator.
     if (isVectFoxEnabled()) {
-        refreshIndicator();
+        refreshHealthPill();
     }
 }
 

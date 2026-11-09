@@ -23,7 +23,6 @@ const CALLS_LEFT = {
     'features/database-browser/database-browser.js': 7,
     'features/settings-panel/settings-panel.js': 1,
     'features/text-cleaning/text-cleaning-ui.js': 1,
-    'index.js': 2,
 };
 
 // A bare call, or one on the global object. `obj.confirm(…)` and `myConfirm(…)` are other functions.

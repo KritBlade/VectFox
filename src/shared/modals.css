@@ -356,10 +356,6 @@
         padding: 18px;
     }
 
-    .vectfox-actions-grid {
-        grid-template-columns: 1fr;
-    }
-
     .vectfox-action-btn {
         padding: 14px 20px;
         font-size: 0.95em;
@@ -411,10 +407,6 @@
 }
 
 @media (min-width: 481px) and (max-width: 768px) {
-    .vectfox-actions-grid {
-        grid-template-columns: 1fr;
-    }
-
     /* Tablet modal adjustments */
     .vectfox-modal-content {
         width: 92%;
@@ -430,18 +422,6 @@
     }
 }
 
-@media (min-width: 769px) and (max-width: 1024px) {
-    .vectfox-actions-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (min-width: 1025px) {
-    .vectfox-actions-grid {
-        grid-template-columns: repeat(3, 1fr);
-    }
-}
-
 /* Touch device optimizations */
 @media (hover: none) and (pointer: coarse) {
     .vectfox-action-btn {
@@ -452,7 +432,7 @@
         min-height: 52px;
     }
 
-    :is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label {
+    :is(#VectFox_settings .vectfox-card, #VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label {
         min-height: 48px;
     }
 }

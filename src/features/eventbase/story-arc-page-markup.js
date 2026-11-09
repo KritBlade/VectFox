@@ -9,6 +9,7 @@
  */
 
 import { button, detail, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
+import { cardHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
 export const STORY_ARC_PAGE_ID = 'VectFox_panel_storyarc';
@@ -26,19 +27,7 @@ export const STORY_ARC_ELEMENT_ID = Object.freeze({
     entityPager: 'VectFox_story_arc_entity_pager',
 });
 
-const COLLAPSE_BUTTON = '<button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>';
 const CHAT_CHIP = '<span class="vfx-chip"><i class="fa-solid fa-comments"></i><span>This chat</span></span>';
-
-/** A card's header: badge, title, one-line description, then any actions and the chevron. */
-function cardHeader({ icon, title, description, actions = '' }) {
-    return `<header class="vfx-card-header">
-        <span class="vfx-badge"><i class="fa-solid ${icon}"></i></span>
-        <h3 class="vfx-card-title">${title}</h3>
-        <p class="vfx-card-desc">${description}</p>
-        ${actions ? `<div class="vfx-card-actions">${actions}</div>` : ''}
-        ${COLLAPSE_BUTTON}
-    </header>`;
-}
 
 function subnavButton({ tab, icon, text, isActive = false }) {
     return `<button type="button" class="vfx-subnav-item${isActive ? ' is-active' : ''}" role="tab" aria-selected="${isActive}" data-story-arc-tab="${tab}"><i class="fa-solid ${icon}"></i><span>${text}</span></button>`;
@@ -84,11 +73,7 @@ function modeCard() {
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-link', title: 'StoryArc mode', description: 'The switch, and the links it follows.' })}
         <div class="vfx-card-body vfx-stack">
-            <label class="vfx-switch-row">
-                <input type="checkbox" role="switch" id="VectFox_story_arc_mode_enabled" class="vfx-switch">
-                <span class="vfx-switch-title">Enable StoryArc mode</span>
-                <span class="vfx-switch-desc">Adds one small LLM call per message, on the link model. Needs Qdrant.</span>
-            </label>
+            ${switchRow({ id: 'VectFox_story_arc_mode_enabled', title: 'Enable StoryArc mode', description: 'Adds one small LLM call per message, on the link model. Needs Qdrant.' })}
             <div class="vfx-control-row">
                 <button type="button" id="VectFox_story_arc_regenerate_links" class="vfx-btn vfx-btn-primary"><i class="fa-solid fa-link"></i><span>Regenerate links</span></button>
             </div>
@@ -120,11 +105,7 @@ function debugCard() {
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-bug', title: 'Debug', description: 'Console detail for StoryArc. Errors and warnings always show.' })}
         <div class="vfx-card-body">
-            <label class="vfx-switch-row">
-                <input type="checkbox" role="switch" id="VectFox_story_arc_debug" class="vfx-switch">
-                <span class="vfx-switch-title">Route rules</span>
-                <span class="vfx-switch-desc">Each turn's Route rule, and the search text with other names.</span>
-            </label>
+            ${switchRow({ id: 'VectFox_story_arc_debug', title: 'Route rules', description: 'Each turn\'s Route rule, and the search text with other names.' })}
         </div>
     </section>`;
 }
@@ -176,9 +157,10 @@ function entityCard() {
 /**
  * The page, hidden until the rail shows it.
  *
+ * @param {{notice?: string}} [options] - notice: the panel's notice that VectFox is off, as markup, shown under the header
  * @returns {string}
  */
-export function storyArcPageMarkup() {
+export function storyArcPageMarkup({ notice = '' } = {}) {
     return `<div id="${STORY_ARC_PAGE_ID}" class="vfx-page" style="display:none;">
         <header class="vfx-page-header">
             <span class="vfx-page-icon"><i class="fa-solid fa-timeline"></i></span>
@@ -192,6 +174,7 @@ export function storyArcPageMarkup() {
                 <span id="VectFox_story_arc_link_pill" class="vfx-pill is-accent" style="display:none;"></span>
             </div>
         </header>
+        ${notice}
         <nav class="vfx-subnav" role="tablist">
             ${subnavButton({ tab: 'main', icon: 'fa-diagram-project', text: 'Main', isActive: true })}
             ${subnavButton({ tab: 'entity', icon: 'fa-users', text: 'Entity' })}

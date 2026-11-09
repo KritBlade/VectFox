@@ -1,17 +1,9 @@
 /* ============================================================================
- * VECTFOX - MASTER SWITCH AND TAB BUTTONS
+ * VECTFOX - TAB BUTTONS
  * ============================================================================
- * The master switch at the top of the settings panel's Action page, and the tab
- * buttons the Database Browser draws (database-browser.js). The panel's own pages
- * switch on the GUI-DNA rail (settings-panel/panel-shell.js).
+ * The tab buttons the Database Browser draws (database-browser.js). The panel's
+ * own pages switch on the GUI-DNA rail (settings-panel/panel-shell.js).
  * ============================================================================ */
-
-/* Master switch — global enable/disable, first on the Action page */
-.vectfox-master-switch {
-    padding-bottom: 10px;
-    margin-bottom: 10px;
-    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
-}
 
 .vectfox-tab-btn {
     flex: 1;

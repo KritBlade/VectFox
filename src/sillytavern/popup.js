@@ -49,12 +49,15 @@ const OTHER_OPEN_POPUPS = `dialog.popup:not(.${PANEL_DIALOG_CLASS})[open], dialo
 
 /**
  * Open one dialog in the GUI-DNA frame. Its content scrolls once taller than the window: SillyTavern's popup clips it otherwise.
- * Resolves to SillyTavern's answer.
+ * A destructive dialog opens on Cancel: SillyTavern focuses the button of the default answer, and Enter presses the focused
+ * button. Resolves to SillyTavern's answer.
  */
-function showDialog(content, type, { okButton, cancelButton, isPanel = false, popupOptions = {} }) {
-    const popup = new Popup(content, type, '', { okButton, cancelButton, leftAlign: true, allowVerticalScrolling: true, ...popupOptions });
+function showDialog(content, type, { okButton, cancelButton, isDestructive = false, isPanel = false, isWide = false, popupOptions = {} }) {
+    const defaultResult = isDestructive ? POPUP_RESULT.NEGATIVE : POPUP_RESULT.AFFIRMATIVE;
+    const popup = new Popup(content, type, '', { okButton, cancelButton, leftAlign: true, allowVerticalScrolling: true, defaultResult, ...popupOptions });
     popup.dlg.classList.add('vfx-popup', 'vfx-ui');
     if (isPanel) popup.dlg.classList.add(PANEL_DIALOG_CLASS);
+    if (isWide) popup.dlg.classList.add('is-wide');
     return popup.show();
 }
 
@@ -89,16 +92,39 @@ export async function waitForOtherPopupsToClose(maxWaitMs = 1500) {
 /**
  * Ask the user to confirm. Returns truthy only when they press the action button, and never throws.
  *
- * @param {object[]} lines - What is about to happen (popup-core.js)
- * @param {{okButton: string, cancelButton?: string}} options - okButton is the action, as a verb
+ * @param {object[]} lines - What is about to happen (popup-core.js). Say what is lost, not only what is clicked.
+ * @param {object} options
+ * @param {string} options.okButton - The action, as a verb
+ * @param {string} [options.cancelButton]
+ * @param {boolean} [options.isDestructive] - Yes deletes, removes, replaces or resets something: the dialog opens on Cancel,
+ *     so Enter cancels, and its action stays primary
  * @returns {Promise<*>}
  */
-export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel' }) {
+export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel', isDestructive = false }) {
     try {
-        return await showDialog(dialogTextBlock(lines), POPUP_TYPE.CONFIRM, { okButton, cancelButton });
+        return await showDialog(dialogTextBlock(lines), POPUP_TYPE.CONFIRM, { okButton, cancelButton, isDestructive });
     } catch (error) {
         log.warn('A confirm dialog could not open, so it answers no:', error);
         return false;
+    }
+}
+
+/**
+ * Show something that needs no answer: its lines (popup-core.js), then `body`, an element built from the gene builders,
+ * such as a read-only preview. Never throws: a dialog that cannot open logs, and the caller carries on.
+ *
+ * @param {object[]} lines
+ * @param {{body?: HTMLElement, isWide?: boolean}} [options] - isWide for a body of long lines
+ */
+export async function noticePopup(lines, { body = null, isWide = false } = {}) {
+    const content = document.createElement('div');
+    content.className = 'vfx-stack';
+    content.append(dialogTextBlock(lines));
+    if (body) content.append(body);
+    try {
+        await showDialog(content, POPUP_TYPE.TEXT, { okButton: 'Close', cancelButton: false, isWide });
+    } catch (error) {
+        log.warn('A notice dialog could not open:', error);
     }
 }
 

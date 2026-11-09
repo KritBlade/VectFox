@@ -79,7 +79,7 @@ export function isOrdinaryTurn(route) {
     return route?.isKnownShape === true && route.shape === SCENE_SHAPE;
 }
 
-/** Names of the StoryArc Route rules, as logs and Debug Query show them. */
+/** Names of the StoryArc Route rules, as logs and the Query Tester show them. */
 export const STORY_ROUTE_RULE = Object.freeze({
     /** The question's shape chose its recipe, and the recipe found events. */
     SHAPE_RECIPE: 'shape-recipe',

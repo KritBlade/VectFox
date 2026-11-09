@@ -3,7 +3,7 @@
  * VectFox TEXT CLEANING UI
  * ============================================================================
  * Modal for managing the text cleaning regex patterns. Opened from the
- * Actions panel and from the content vectorizer.
+ * settings panel's Action page and from the content vectorizer.
  *
  * @author Kritblade
  * ============================================================================
