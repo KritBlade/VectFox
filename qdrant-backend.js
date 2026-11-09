@@ -14,13 +14,11 @@
  * Note: Qdrant Cloud may have CORS issues when accessed from browser.
  * This backend runs server-side so CORS is not an issue here.
  *
- * Multitenancy Strategy:
- * - ONE collection: "vectfox_main"
- * - Payload fields: type, sourceId, timestamp, etc.
- * - Filters for isolation: {type: "chat", sourceId: "chat_001"}
+ * Collections: VectFox names the collection on each call. With its multitenancy on, every chat shares one collection,
+ * "vectfox_main", told apart by payload fields (type, sourceId) and filters such as {type: "chat", sourceId: "chat_001"}.
+ * With it off, each chat has a collection of its own.
  *
  * @author VectFox
- * @version 3.0.0
  * ============================================================================
  */
 
@@ -561,7 +559,7 @@ class QdrantBackend {
 
     /**
      * Insert vector items into collection (MULTITENANCY)
-     * @param {string} collectionName - Collection name (always "vectfox_main")
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {Array} items - Items with {hash, text, vector, sparseVector?, metadata}
      * @param {object} tenantMetadata - Tenant info {type, sourceId, embeddingSource}
      * @param {object} [opts]
@@ -573,7 +571,7 @@ class QdrantBackend {
         if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         if (items.length === 0) return;
 
-        // MULTITENANCY: Always use vectfox_main collection
+        // The chat's own collection, or vectfox_main with multitenancy on
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
 
@@ -596,24 +594,22 @@ class QdrantBackend {
             throw new Error(`[Qdrant] Vector dimension mismatch. Expected ${expectedDimension}, but found: ${examples}${mismatchedItems.length > 3 ? '...' : ''} (${mismatchedItems.length} total mismatches)`);
         }
 
-        // Check if collection exists and validate dimension matches
+        // A collection holds one vector size, and its points are the user's data, so a different size stops the insert
+        // with the error Qdrant itself gives, and deletes nothing. When the size cannot be read, the insert goes on and
+        // Qdrant refuses a wrong size itself.
+        let storedDimension = null;
         try {
             const collections = await this._request('GET', '/collections');
             const exists = collections.result?.collections?.some(c => c.name === mainCollection);
-
             if (exists) {
                 const collectionInfo = await this._request('GET', `/collections/${mainCollection}`);
-                const existingDimension = collectionInfo.result?.config?.params?.vectors?.size;
-
-                if (existingDimension && existingDimension !== expectedDimension) {
-                    console.warn(`[Qdrant] Vector dimension mismatch. Collection has ${existingDimension} dimensions, but insert requires ${expectedDimension}. Dropping collection to recreate...`);
-                    await this.purgeAll();
-                    // Wait slightly for deletion to propagate (optional but safe)
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
+                storedDimension = collectionInfo.result?.config?.params?.vectors?.size ?? null;
             }
         } catch (error) {
-             console.debug('[Qdrant] Could not check existing collection dimension:', error.message);
+            console.warn(`[Qdrant] Could not read the vector size of ${mainCollection}, so Qdrant checks it on insert:`, error.message);
+        }
+        if (storedDimension && storedDimension !== expectedDimension) {
+            throw new Error(`Vector dimension error: expected dim: ${storedDimension}, got ${expectedDimension}`);
         }
 
         // Ensure collection exists (use first vector's size)
@@ -719,7 +715,7 @@ class QdrantBackend {
 
     /**
      * Query collection for similar vectors (MULTITENANCY)
-     * @param {string} collectionName - Collection name (always "vectfox_main")
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {number[]} queryVector - Query vector
      * @param {number} topK - Number of results
      * @param {object} filters - Payload filters {type, sourceId, minImportance, timestampAfter, etc.}
@@ -1172,7 +1168,7 @@ class QdrantBackend {
 
     /**
      * List all items in a collection (MULTITENANCY)
-     * @param {string} collectionName - Collection name (always "vectfox_main")
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {object} filters - Payload filters {type, sourceId}
      * @param {object} options - Options { includeVectors, scrollLimit }
      * @returns {Promise<Array>} Array of items with {hash, text, metadata, vector?}
@@ -1180,7 +1176,7 @@ class QdrantBackend {
     async listItems(collectionName, filters = {}, options = {}) {
         if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
 
-        // MULTITENANCY: Always use vectfox_main collection
+        // The chat's own collection, or vectfox_main with multitenancy on
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
 
@@ -1255,7 +1251,7 @@ class QdrantBackend {
 
     /**
      * Get all saved hashes from a collection (MULTITENANCY)
-     * @param {string} collectionName - Collection name (always "vectfox_main")
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {object} filters - Payload filters {type, sourceId}
      * @returns {Promise<number[]>} Array of hashes
      */
@@ -1323,7 +1319,7 @@ class QdrantBackend {
 
     /**
      * Delete specific items by hash (MULTITENANCY)
-     * @param {string} collectionName - Collection name (always "vectfox_main")
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {number[]} hashes - Hashes to delete
      * @returns {Promise<void>}
      */
@@ -1365,7 +1361,7 @@ class QdrantBackend {
     /**
      * Purge collection for a specific source (MULTITENANCY)
      * Deletes all points matching type and sourceId filters
-     * @param {string} collectionName - Collection name (always "vectfox_main")
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {object} filters - Payload filters {type, sourceId}
      * @returns {Promise<void>}
      */
@@ -1419,8 +1415,9 @@ class QdrantBackend {
     }
 
     /**
-     * Purge entire vectfox_main collection (MULTITENANCY)
-     * WARNING: Deletes ALL data from ALL sources
+     * Delete a whole collection, "vectfox_main" unless another is named. With multitenancy on, that is every chat's
+     * data.
+     * @param {string} [collectionName] - The collection to delete
      * @returns {Promise<void>}
      */
     async purgeAll(collectionName = MULTITENANCY_COLLECTION) {
@@ -1460,7 +1457,7 @@ class QdrantBackend {
 
     /**
      * Get a single item by hash (MULTITENANCY)
-     * @param {string} collectionName - Collection name (always "vectfox_main")
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {number} hash - Item hash to find
      * @param {object} filters - Payload filters {type, sourceId}
      * @returns {Promise<object|null>} Item or null if not found

@@ -1,9 +1,12 @@
 {
   "name": "similharity",
-  "version": "3.3.4",
+  "version": "3.3.5",
   "description": "Vector database backend extensions for Similharity - Qdrant and enhanced Vectra with full metadata storage",
   "main": "index.js",
   "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "author": "Kritblade",
   "license": "MIT",
   "engines": {

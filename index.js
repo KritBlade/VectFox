@@ -43,7 +43,7 @@
  * see VectFox/plans/review-fix.md §H-4 for the threat-model reasoning.
  * ─────────────────────────────────────────────────────────────────────────
  *
- * @version 3.3.4
+ * @version 3.3.5
  */
 
 import path from 'node:path';
@@ -53,7 +53,7 @@ import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
 
 const pluginName = 'similharity';
-const pluginVersion = '3.3.4';
+const pluginVersion = '3.3.5';
 
 // ─── ST secret_state bridge (server-side API key resolution) ─────────────────
 // The qdrant_api_key migration (2026-05-26) moved the key out of VectFox's
