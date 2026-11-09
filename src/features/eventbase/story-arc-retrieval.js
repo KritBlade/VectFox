@@ -82,15 +82,14 @@ function _mergeHitsByPlace(hitLists) {
 
 /**
  * Cut a long block, after the filters every retrieval applies, so a filtered event
- * takes no seat. `cutRuleName` is empty when the block needed no cut.
+ * takes no seat: by an LLM's choice, or by the fixed rule when `shouldCutByRule` is set.
+ * `cutRuleName` is empty when the block needed no cut, or nothing may cut it.
  */
-async function _cutLongBlock(shape, keptNames, events, poolEvents, storedEvents, chooseBlockEvents, lineCount) {
-    if (!chooseBlockEvents || !isBlockCutNeeded(shape, events.length, lineCount)) return { events, cutRuleName: '' };
-    const chosenEvents = await chooseBlockEvents(events, keptNames, lineCount);
-    return {
-        events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents, lineCount, storedEvents }),
-        cutRuleName: chosenEvents ? STORY_ROUTE_RULE.BLOCK_CUT : STORY_ROUTE_RULE.BLOCK_CUT_FAILED,
-    };
+async function _cutLongBlock({ shape, keptNames, events, poolEvents, storedEvents, chooseBlockEvents, shouldCutByRule, lineCount }) {
+    if ((!chooseBlockEvents && !shouldCutByRule) || !isBlockCutNeeded(shape, events.length, lineCount)) return { events, cutRuleName: '' };
+    const chosenEvents = shouldCutByRule ? null : await chooseBlockEvents(events, keptNames, lineCount);
+    const cutRuleName = shouldCutByRule ? STORY_ROUTE_RULE.BLOCK_CUT_BY_RULE : chosenEvents ? STORY_ROUTE_RULE.BLOCK_CUT : STORY_ROUTE_RULE.BLOCK_CUT_FAILED;
+    return { events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents, lineCount, storedEvents }), cutRuleName };
 }
 
 /**
@@ -129,11 +128,12 @@ export function startStoryRecipeReads(params) {
  * @param {(promise: Promise) => Promise} params.boundQuery - Limits how long one Qdrant call may take
  * @param {ReturnType<typeof startStoryRecipeReads>} [params.startedReads] - Reads started beside the router; started here when absent
  * @param {(storedEvents: object[], keptNames: {question: string, subject: string}) => Promise<string[]|null>} [params.pickThreads] - Asks an LLM which threads could hold the answer; null when that failed
- * @param {(events: object[], keptNames: {question: string, subject: string}, lineCount: number) => Promise<object[]|null>} [params.chooseBlockEvents] - Asks an LLM which of a long block's events answer the question; null when that failed. Without it, no block is cut
+ * @param {(events: object[], keptNames: {question: string, subject: string}, lineCount: number) => Promise<object[]|null>} [params.chooseBlockEvents] - Asks an LLM which of a long block's events answer the question; null when that failed. Without it or shouldCutByRule, no block is cut
+ * @param {boolean} [params.shouldCutByRule] - Cut a long block by the fixed rule, with no LLM, as an ordinary turn does
  * @returns {Promise<{events: object[], blockShape: string, ruleName: string, cutRuleName: string, pickedThreadCount: number, entityNames: {name: string, keptName: string}[], failedSearchCount: number, searchFailureMessage: string}>} blockShape says which block the events suit, entityNames which other names the question used, and failedSearchCount how many of the recipe's searches failed, so its events may be missing some
  */
 export async function retrieveStoryRecipeEvents(route, params) {
-    const { chatLength, settings, liveCollectionIds, additionalCandidates, skipContextDedup, boundQuery, startedReads, pickThreads = async () => [], chooseBlockEvents } = params;
+    const { chatLength, settings, liveCollectionIds, additionalCandidates, skipContextDedup, boundQuery, startedReads, pickThreads = async () => [], chooseBlockEvents, shouldCutByRule = false } = params;
     const reads = hasRecipe(route.shape) ? (startedReads ?? startStoryRecipeReads(params)) : null;
     if (!reads) {
         return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING, cutRuleName: '', pickedThreadCount: 0, entityNames: [] };
@@ -162,7 +162,8 @@ export async function retrieveStoryRecipeEvents(route, params) {
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
     const important = dedupeEventsByIdentity(selection.events).filter(event => event.importance == null || event.importance >= minImportance);
     const block = inTimelineOrder(removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup }));
-    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, storedEvents, chooseBlockEvents, storyBlockLimits(storedEvents.length, blockScale).lineCount);
+    const lineCount = storyBlockLimits(storedEvents.length, blockScale).lineCount;
+    const { events, cutRuleName } = await _cutLongBlock({ shape: route.shape, keptNames, events: block, poolEvents, storedEvents, chooseBlockEvents, shouldCutByRule, lineCount });
     // A current-state question has no recipe without links, which is a different reason from finding nothing.
     const isWaitingForLinks = route.shape === 'current' && selection.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED;
     const ruleName = pickedThreads === null ? STORY_ROUTE_RULE.THREAD_PICK_FAILED : selection.ruleName;

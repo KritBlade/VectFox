@@ -8,9 +8,11 @@
  *
  * A small LLM call, the router, reads the player's message and returns the
  * question's shape and subject. The shape picks a recipe: which events to fetch,
- * which links to walk, and how many to keep. Ordinary turns have no recipe and
- * keep the pre-search. StoryArc Route rules decide the route for each
- * situation, and every turn reports the rule that decided it.
+ * which links to walk, and how many to keep. An ordinary turn takes the chain
+ * block with no thread pick and a fixed-rule cut, so it calls no LLM after the
+ * router, and keeps the pre-search on a chat with too few links. StoryArc Route
+ * rules decide the route for each situation, and every turn reports the rule
+ * that decided it.
  *
  * On a question about a thread, a second LLM call reads the chat's thread names
  * and picks those that could hold the answer, even when they share no word with
@@ -49,7 +51,7 @@ const STORY_SHAPES = {
 
 const SCENE_SHAPE = 'scene';
 
-/** The shapes a recipe answers. Any other shape keeps the pre-search. */
+/** The shapes a recipe answers. An ordinary turn takes ORDINARY_TURN_ROUTE's, and any other shape keeps the pre-search. */
 const RECIPE_SHAPES = new Set(['first_time', 'last_time', 'chain', 'why', 'current', 'bigger_plot']);
 
 /** The shapes that ask for one end of a matter: its first or its last time. */
@@ -58,17 +60,34 @@ const TIME_SHAPES = new Set(['first_time', 'last_time']);
 /** The shape whose block suits any events in time order. */
 const THREAD_SHAPE = 'chain';
 
+/**
+ * The recipe an ordinary turn takes: the chain block with no thread pick, cut by the fixed
+ * rule, so it calls no LLM. It has no subject, since an ordinary turn asks about nothing.
+ */
+export const ORDINARY_TURN_ROUTE = Object.freeze({ shape: THREAD_SHAPE, subject: '' });
+
+/**
+ * Whether the router called the message an ordinary turn. An unknown shape reads as a
+ * scene too, but that is the router failing, not an ordinary turn.
+ *
+ * @param {{shape: string, isKnownShape: boolean}|null} route - From readStoryRoute
+ * @returns {boolean}
+ */
+export function isOrdinaryTurn(route) {
+    return route?.isKnownShape === true && route.shape === SCENE_SHAPE;
+}
+
 /** Names of the StoryArc Route rules, as logs and Debug Query show them. */
 export const STORY_ROUTE_RULE = Object.freeze({
     /** The question's shape chose its recipe, and the recipe found events. */
     SHAPE_RECIPE: 'shape-recipe',
-    /** The router called the message an ordinary turn, so it keeps the pre-search. */
+    /** The router called the message an ordinary turn, so it gets the chain block with no LLM call. */
     ORDINARY_TURN: 'ordinary-turn',
     /** The router failed, has no model, or returned an unknown shape, so the turn keeps the pre-search. */
     ROUTER_UNUSABLE: 'router-unusable',
     /** The collection could not be listed, so the turn keeps the pre-search. */
     LISTING_FAILED: 'listing-failed',
-    /** Too few events are decided to walk, so a recipe searches without links. */
+    /** Too few events are decided to walk, so a recipe searches without links, and an ordinary turn keeps the pre-search. */
     LINKS_NOT_GENERATED: 'links-not-generated',
     /** A recipe ended with no events, so the turn keeps the pre-search. */
     RECIPE_FOUND_NOTHING: 'recipe-found-nothing',
@@ -76,7 +95,7 @@ export const STORY_ROUTE_RULE = Object.freeze({
     FIRST_TIME_SUBJECT_NOT_FOUND: 'first-time-subject-not-found',
     /** A last-time question whose subject is empty or named in no stored event starts from the closest events. */
     LAST_TIME_SUBJECT_NOT_FOUND: 'last-time-subject-not-found',
-    /** An LLM picked threads by name, and their events took seats in the block first. */
+    /** An LLM picked threads by their labels, and their events took seats in the block first. */
     THREAD_PICK: 'thread-pick',
     /** The thread pick failed, so the recipe ran without it. */
     THREAD_PICK_FAILED: 'thread-pick-failed',
@@ -84,13 +103,15 @@ export const STORY_ROUTE_RULE = Object.freeze({
     BLOCK_CUT: 'block-cut',
     /** The cut failed, or its reply named no line, so a long block was cut without it. */
     BLOCK_CUT_FAILED: 'block-cut-failed',
+    /** An ordinary turn's long block was cut by the fixed rule, which needs no LLM. */
+    BLOCK_CUT_BY_RULE: 'block-cut-by-rule',
 });
 
 /** Events a first-time or last-time recipe gathers before the cut. Its closest hits come first and its walk last, so a shorter limit would drop the very events it asks about. */
 const TIME_BLOCK_EVENT_LIMIT = 75;
-/** The fewest lines a block keeps, as many events as a plain search, at about 1,900 tokens. A line is about 180 tokens, against about 470 for a full event. */
+/** The fewest lines a block keeps, as many events as a plain search. A line is about 260 tokens with when and where, against about 470 for a full event. */
 const MIN_BLOCK_LINES = 10;
-/** The most lines a block keeps, about 7,300 tokens, however long the story. */
+/** The most lines a block keeps, about 10,000 tokens, however long the story. */
 const MAX_BLOCK_LINES = 40;
 /** Lines a block keeps per step of its size, the Block size setting × √events, rounded. */
 const BLOCK_LINES_PER_SIZE = 4 / 3;

@@ -134,12 +134,26 @@ export function formatLabelledStoryLine(event, label) {
 }
 
 /**
- * One event as a single line: its position in the conversation, then cause, summary and result.
+ * One event as a single line: its position in the conversation, then cause, summary and
+ * result, then when and where it happened, as far as the event records them.
  * @param {object} event
  * @returns {string}
  */
 export function formatStoryLine(event) {
-    return formatLabelledStoryLine(event, storyLinePosition(event) ?? '?');
+    return `${formatLabelledStoryLine(event, storyLinePosition(event) ?? '?')}${_whenAndWhere(event)}`;
+}
+
+/**
+ * When and where an event happened, as its stored fields say: the story's DateTime and
+ * scene_time, then its locations. Empty when it records none of them.
+ * @param {object} event
+ * @returns {string}
+ */
+function _whenAndWhere(event) {
+    const when = [...new Set([event.DateTime, event.scene_time].filter(Boolean))].join(', ');
+    const where = (Array.isArray(event.locations) ? event.locations : []).filter(Boolean).join(', ');
+    const parts = [when && `when: ${when}`, where && `where: ${where}`].filter(Boolean);
+    return parts.length ? ` (${parts.join('; ')})` : '';
 }
 
 /**
@@ -246,6 +260,7 @@ function _orderEventsForPresentation(events) {
 const STORY_LINE_NOTE = 'Each line starts with its position in the conversation: a smaller # happened earlier. Do not quote these numbers.';
 
 const STORY_ARC_HEADER_BY_SHAPE = {
+    scene: `Earlier events tied to this moment, oldest → newest. ${STORY_LINE_NOTE}`,
     first_time: `The earliest recorded events about this, oldest → newest, with the events closest to what is being asked. ${STORY_LINE_NOTE}`,
     last_time: `The latest recorded events about this, oldest → newest, with the events closest to what is being asked. ${STORY_LINE_NOTE}`,
     chain: `The events of this thread, oldest → newest. ${STORY_LINE_NOTE}`,
@@ -256,7 +271,7 @@ const STORY_ARC_HEADER_BY_SHAPE = {
 
 /**
  * Format a StoryArc recipe's events as one short line each, under a header that
- * says what the block is. 20 short lines take fewer tokens than 10 full events.
+ * says what the block is. A line takes about half the tokens of a full event.
  * Events are expected in time order; each conversation frame stays together, as in
  * the normal block. A current-state block reads newest first.
  *

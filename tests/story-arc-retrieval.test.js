@@ -536,6 +536,51 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
 
     });
 
+    describe('ordinary turn', () => {
+        /** A linked thread of 30 steps at messages 100 to 158, longer than a short story's 10 lines. */
+        const steps = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `step ${i}`, { story_links: i ? [{ event_id: `id${100 + (i - 1) * 2}`, type: 'continues', thread: 'The long road' }] : [] }));
+
+        beforeEach(() => listReturns(steps));
+
+        it('gets the chain block, cut by the fixed rule, with no LLM call after the router', async () => {
+            llmReplies({ shape: 'scene', subject: 'Nora' });
+            queryReturns([steps[29], steps[14]]);
+            const result = await callAgent(storyArcOn);
+            expect(result.events).toHaveLength(10);
+            expect(starts(result.events)).toEqual(expect.arrayContaining([128, 158]));
+            expect(result.storyArcShape).toBe('scene');
+            expect(result.debug.storyArc).toEqual({ ruleName: 'ordinary-turn', cutRuleName: 'block-cut-by-rule', shape: 'scene', subject: 'Nora', finalCount: 10 });
+            expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
+        });
+
+        // The block is the chain recipe with no subject, as the free chain was judged.
+        it('searches with the message alone, not the router\'s subject', async () => {
+            entityMerges = { Nora: ['Oracle'] };
+            listReturns([...steps, event(300, 'The Oracle speaks through a servant'), event(302, 'Nora prays')]);
+            llmReplies({ shape: 'scene', subject: 'Nora' });
+            queryReturns([steps[29]]);
+            await retrieveEventsForTurn({ ...baseParams, keywordQuery: 'How did she get here?', settings: storyArcOn });
+            // With the subject, the search would read "How did she get here? Nora Oracle".
+            expect(queryCollectionMock.mock.calls.map(call => call[1])).toEqual(['How did she get here?']);
+        });
+
+        it('keeps the pre-search when its block finds nothing', async () => {
+            llmReplies({ shape: 'scene', subject: '' });
+            queryReturns([]);
+            const result = await callAgent(storyArcOn);
+            expect(result.events).toBe(preSearch.events);
+            expect(result.debug.storyArc).toMatchObject({ ruleName: 'recipe-found-nothing', finalCount: 0 });
+        });
+
+        it('keeps the pre-search when the router fails, as that is no ordinary turn', async () => {
+            postChatCompletionMock.mockRejectedValueOnce(new Error('provider down'));
+            queryReturns([steps[29]]);
+            const result = await callAgent(storyArcOn);
+            expect(result.events).toBe(preSearch.events);
+            expect(result.debug.storyArc.ruleName).toBe('router-unusable');
+        });
+    });
+
     describe('block cut', () => {
         /** 30 hits at messages 100 to 158, closest last, on a chat with no links. */
         const hits = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `Nora at ${100 + i * 2}`));
@@ -723,12 +768,13 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             expect(queryCollectionMock.mock.calls[0][1]).toBe('How did Nora get here? Oracle');
         });
 
-        it('keeps the pre-search on an ordinary turn, with no planner call, and uses nothing it read', async () => {
+        it('keeps the pre-search on an ordinary turn of a chat with too few links, with no planner call', async () => {
             llmReplies({ shape: 'scene', subject: '' });
             queryReturns([event(200)]);
             const result = await callAgent(storyArcOn);
             expect(result.events).toBe(preSearch.events);
-            expect(result.debug.storyArc.ruleName).toBe('ordinary-turn');
+            expect(result.storyArcShape).toBeUndefined();
+            expect(result.debug.storyArc).toMatchObject({ ruleName: 'links-not-generated', cutRuleName: '', finalCount: 0 });
             expect(result.debug.agenticMode).toBeUndefined();
             expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
         });

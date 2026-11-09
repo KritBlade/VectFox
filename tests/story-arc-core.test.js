@@ -648,6 +648,12 @@ describe('the block cut', () => {
             expect(buildBlockCutMessage(events, 'How did it go?', '')).toBe("Events:\n- #10: Why it began. A first step How it ended.\n- #30: A later step\n\nPlayer's question:\nHow did it go?");
         });
 
+        // The cut was tuned on lines without them, and only the injected block carries them.
+        it('keeps when and where out of the cut\'s lines', () => {
+            const placed = [event(10, 'A first step', { DateTime: '1203-04-02', scene_time: 'dawn', locations: ['Old Mill'] })];
+            expect(buildBlockCutMessage(placed, 'How did it go?', '')).toContain('- #10: A first step\n');
+        });
+
         it('gives the lines of one window their own letters, and any other line its position', () => {
             const shared = [event(30, 'three'), event(10, 'one', { _hash: 1 }), event(10, 'two', { _hash: 2 })];
             expect(buildBlockCutMessage(shared, 'Why?', '')).toBe("Events:\n- #10a: one\n- #10b: two\n- #30: three\n\nPlayer's question:\nWhy?");
