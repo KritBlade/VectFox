@@ -18,12 +18,14 @@
  * and picks those that could hold the answer, even when they share no word with
  * the question. The events of those threads take seats in the block first.
  *
- * A recipe gathers more events than a memory block should hold, so a last LLM call
- * chooses the lines that answer the question, which cuts a long block to 20. A
- * question about the first or last time fills what is left of the 20 from the end
- * of the block it asks about, which needs no LLM and can stand in for the call.
+ * A recipe can gather more events than a memory block should hold, so a last LLM
+ * call, the cut, chooses the lines that answer the question. The Block size setting
+ * and the story's length set how many lines a block keeps, 10 to 40. Seats the cut
+ * leaves free go to lines next to the ones it kept: the same scene for a first or
+ * last time question, the windows right before and after for any other. When the
+ * cut fails, a fixed rule chooses the lines with no LLM.
  *
- * @see InternalProject/Vectfox/plans/story-arc.md
+ * @see InternalProject/Vectfox/plans/executed/story-arc.md
  * ============================================================================
  */
 

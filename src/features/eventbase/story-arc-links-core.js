@@ -13,7 +13,7 @@
  * event by `event_id`, which stays with the event when an import or a text edit
  * gives its point a new hash.
  *
- * @see InternalProject/Vectfox/plans/story-arc.md
+ * @see InternalProject/Vectfox/plans/executed/story-arc.md
  * ============================================================================
  */
 
