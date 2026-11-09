@@ -84,7 +84,7 @@ export async function runBoundedRetrieval(promise, { contextLabel, sourceName, t
         const rawMessage = error?.message || String(error || 'unknown error');
         const detail = TIMEOUT_PATTERN.test(rawMessage)
             ? `${rawMessage} after ${(budgetMs / 1000).toFixed(1)}s. ${describeEmbeddingTimeoutCause(settings)} `
-              + `If it is simply slow rather than broken, raise "Retrieval Timeout" in the Core tab.`
+              + `If it is simply slow rather than broken, raise "Retrieval timeout" on the Core page.`
             : rawMessage;
 
         log.error(

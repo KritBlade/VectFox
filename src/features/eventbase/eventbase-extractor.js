@@ -185,7 +185,7 @@ async function _callOpenRouter(prompt, settings, windowIndex) {
     const apiKey = _getOpenRouterApiKey();
     if (!apiKey) {
         throw new EventBaseFatalError(
-            'EventBase: OpenRouter API key not found. Add it in EventBase settings (or Summarize Before Store settings uses the same key).',
+            'EventBase: OpenRouter API key not found. Add it in Core → Event model.',
             'missing_api_key',
         );
     }
@@ -193,7 +193,7 @@ async function _callOpenRouter(prompt, settings, windowIndex) {
     const model = (settings.chat_model || '').trim();
     if (!model) {
         throw new EventBaseFatalError(
-            'EventBase: No model configured. Set the Summarization Model in Core → LLM Summarization settings.',
+            'EventBase: No model configured. Set the Model in Core → Event model.',
             'missing_model',
         );
     }
@@ -205,7 +205,7 @@ async function _callVLLM(prompt, settings, windowIndex) {
     const baseUrl = (settings.chat_vllm_url || '').trim();
     if (!baseUrl) {
         throw new EventBaseFatalError(
-            'EventBase: vLLM URL not configured. Set the vLLM URL in Core → LLM Summarization settings.',
+            'EventBase: vLLM URL not configured. Set the Base URL in Core → Event model.',
             'missing_url',
         );
     }
@@ -213,7 +213,7 @@ async function _callVLLM(prompt, settings, windowIndex) {
     const model = (settings.chat_model || '').trim();
     if (!model) {
         throw new EventBaseFatalError(
-            'EventBase: No model configured. Set the Summarization Model in Core → LLM Summarization settings.',
+            'EventBase: No model configured. Set the Model in Core → Event model.',
             'missing_model',
         );
     }
@@ -221,7 +221,7 @@ async function _callVLLM(prompt, settings, windowIndex) {
     const apiKey = getCustomApiKey();
     if (!apiKey) {
         throw new EventBaseFatalError(
-            'EventBase: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → LLM Summarization settings.',
+            'EventBase: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → Event model.',
             'missing_api_key',
         );
     }

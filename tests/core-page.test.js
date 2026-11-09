@@ -29,7 +29,8 @@ const WIRED_IDS = [
     'VectFox_vector_backend', 'VectFox_qdrant_plugin_notice', 'VectFox_qdrant_plugin_error', 'VectFox_qdrant_settings', 'VectFox_qdrant_use_cloud',
     'VectFox_qdrant_local_settings', 'VectFox_qdrant_host', 'VectFox_qdrant_port', 'VectFox_qdrant_cloud_settings', 'VectFox_qdrant_url',
     'VectFox_qdrant_api_key', 'VectFox_qdrant_multitenancy', 'VectFox_source', 'VectFox_provider_settings', 'VectFox_ollama_use_alt_endpoint',
-    'VectFox_ollama_alt_endpoint_url', 'VectFox_ollama_model', 'VectFox_ollama_keep', 'VectFox_vllm_use_alt_endpoint', 'VectFox_vllm_alt_endpoint_url',
+    'VectFox_ollama_alt_endpoint_row', 'VectFox_ollama_alt_endpoint_url', 'VectFox_ollama_model', 'VectFox_ollama_keep', 'VectFox_vllm_use_alt_endpoint',
+    'VectFox_vllm_alt_endpoint_row', 'VectFox_vllm_alt_endpoint_url',
     'VectFox_vllm_model', 'VectFox_vllm_api_key', 'VectFox_vllm_api_key_clear', 'VectFox_openrouter_model', 'VectFox_openrouter_model_choose',
     'VectFox_openrouter_model_list', 'VectFox_openrouter_apikey', 'VectFox_openrouter_apikey_clear', 'VectFox_rate_limit_calls', 'VectFox_rate_limit_interval',
     'VectFox_vector_group_embedding_call', 'VectFox_vector_hedge_enabled', 'VectFox_summarize_provider', 'VectFox_summarize_settings',
@@ -60,7 +61,8 @@ describe('Core page markup', () => {
     it('starts every row the wiring shows on demand hidden', () => {
         const startsHidden = ['VectFox_qdrant_plugin_notice', 'VectFox_qdrant_plugin_error', 'VectFox_qdrant_settings', 'VectFox_qdrant_cloud_settings',
             'VectFox_summarize_settings', 'VectFox_summarize_openrouter_row', 'VectFox_summarize_vllm_url_row', 'VectFox_openrouter_model_list',
-            'VectFox_summarize_model_list', 'VectFox_injection_depth_row', 'VectFox_native_hybrid_info', 'VectFox_hybrid_weights'];
+            'VectFox_summarize_model_list', 'VectFox_injection_depth_row', 'VectFox_native_hybrid_info', 'VectFox_hybrid_weights',
+            'VectFox_ollama_alt_endpoint_row', 'VectFox_vllm_alt_endpoint_row'];
         for (const id of startsHidden) expect(document.getElementById(id).style.display, id).toBe('none');
         const providers = [...document.querySelectorAll('#VectFox_provider_settings > [data-provider]')];
         expect(providers.map(block => block.dataset.provider)).toEqual(['ollama', 'vllm', 'openrouter']);

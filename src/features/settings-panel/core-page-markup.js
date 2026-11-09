@@ -10,7 +10,7 @@
  */
 
 import { controlRow, detail, field, fieldLabel, grid, hint, input, notice, select, selectOption, textarea } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 
 const SIMILHARITY_INSTALL_URL = 'https://github.com/KritBlade/VectFox/tree/Similharity-Plugin#step-2-install-plugin-via-git-recommended';
 
@@ -28,16 +28,7 @@ function clearKeyButton(id) {
 
 /** The button that lists a provider's models into the select under it. */
 function chooseModelButton(id) {
-    return `<button type="button" id="${id}" class="vfx-btn"><i class="fa-solid fa-list"></i><span>Choose</span></button>`;
-}
-
-/** A number box with a slider beside it; the box owns the value and the shell keeps the slider on it. */
-function sliderNumber({ id, min, max, step, title }) {
-    const limits = `min="${min}" max="${max}" step="${step}"`;
-    return `<div class="vfx-slider">`
-        + `<input type="range" class="vfx-range" data-vfx-slider-for="${id}" ${limits} title="${title}">`
-        + input({ id, type: 'number', min, max, step })
-        + '</div>';
+    return buttonWithId({ id, text: 'Choose', icon: 'fa-list' });
 }
 
 /** A field of two short numbers side by side at every width, with its hint. */
@@ -97,13 +88,19 @@ function embeddingCard() {
             <div id="VectFox_provider_settings" class="vfx-grid vfx-span">
                 <div class="vfx-grid vfx-span" data-provider="ollama"${HIDDEN}>
                     ${switchRow({ id: 'VectFox_ollama_use_alt_endpoint', title: 'Own Ollama URL', description: 'Off: the Ollama URL in SillyTavern\'s Text Completion settings.', isSpan: true })}
-                    ${field([fieldLabel({ text: 'Ollama URL', forId: 'VectFox_ollama_alt_endpoint_url' }), input({ id: 'VectFox_ollama_alt_endpoint_url', placeholder: 'http://127.0.0.1:11434' })])}
+                    <div id="VectFox_ollama_alt_endpoint_row" class="vfx-field"${HIDDEN}>
+                        ${fieldLabel({ text: 'Ollama URL', forId: 'VectFox_ollama_alt_endpoint_url' })}
+                        ${input({ id: 'VectFox_ollama_alt_endpoint_url', placeholder: 'http://127.0.0.1:11434' })}
+                    </div>
                     ${field([fieldLabel({ text: 'Model', forId: 'VectFox_ollama_model' }), input({ id: 'VectFox_ollama_model', placeholder: 'mxbai-embed-large' }), hint({ text: 'The embedding model\'s name, as Ollama lists it.' })])}
                     ${switchRow({ id: 'VectFox_ollama_keep', title: 'Keep model in memory', description: 'Ollama keeps the model loaded after each call, so the next one starts sooner.', isSpan: true })}
                 </div>
                 <div class="vfx-grid vfx-span" data-provider="vllm"${HIDDEN}>
                     ${switchRow({ id: 'VectFox_vllm_use_alt_endpoint', title: 'Own vLLM URL', description: 'Off: the vLLM URL in SillyTavern\'s Text Completion settings.', isSpan: true })}
-                    ${field([fieldLabel({ text: 'vLLM URL', forId: 'VectFox_vllm_alt_endpoint_url' }), input({ id: 'VectFox_vllm_alt_endpoint_url', placeholder: 'http://127.0.0.1:8000' })])}
+                    <div id="VectFox_vllm_alt_endpoint_row" class="vfx-field"${HIDDEN}>
+                        ${fieldLabel({ text: 'vLLM URL', forId: 'VectFox_vllm_alt_endpoint_url' })}
+                        ${input({ id: 'VectFox_vllm_alt_endpoint_url', placeholder: 'http://127.0.0.1:8000' })}
+                    </div>
                     ${field([fieldLabel({ text: 'Model', forId: 'VectFox_vllm_model' }), input({ id: 'VectFox_vllm_model', placeholder: 'Model name' }), hint({ text: 'The embedding model\'s name on your vLLM server.' })])}
                     ${field([
                         fieldLabel({ text: 'API key', forId: 'VectFox_vllm_api_key', hasHelp: true }),

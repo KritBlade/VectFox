@@ -137,7 +137,7 @@ export function notifyUpstreamRejection(contextLabel, model, detail, isQuotaErro
     const why = isQuotaError
         ? 'Your provider reports the account is out of quota — check billing/credits.'
         : 'Common causes: a parameter this model does not accept (see "Use max_completion_tokens", '
-          + '"Send temperature" and "Turn off model thinking" in Core → LLM Summarization settings), '
+          + '"Send temperature" and "Turn off model thinking" in Core → Event model), '
           + 'a wrong API key, or a prompt the provider refused.';
 
     try {

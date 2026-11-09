@@ -32,7 +32,7 @@
  *     same pattern: POST to `/api/backends/chat-completions/generate` with
  *     `chat_completion_source: 'openrouter'` — ST's server reads the real
  *     key and forwards to OpenRouter. All three VectFox UI inputs
- *     (Embedding / LLM Summarization / AgentMode) write to the same slot
+ *     (Embedding / Event model / AgentMode) write to the same slot
  *     via `writeSecret`, so setting the key in any of them is shared.
  *
  *   - vLLM-style "Custom OpenAI-compatible" (one key for embedding +

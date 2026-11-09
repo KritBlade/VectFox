@@ -113,7 +113,7 @@ describe('notifyUnfinishedWindows', () => {
         notifyUnfinishedWindows(run({ windowsFailed: 0, windowsTimedOut: 3, firstFailureDetail: null }));
 
         const [message] = globalThis.toastr.warning.mock.calls[0];
-        expect(message).toContain('3 timed out: raise "Extraction Timeout"');
+        expect(message).toContain('3 timed out: raise "Extraction timeout" on the EventBase page');
         expect(message).not.toContain('First error');
     });
 

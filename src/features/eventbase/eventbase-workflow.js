@@ -159,7 +159,7 @@ export function countUnfinishedWindows(result) {
 export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize Content sends them again.', toastOptions = { timeOut: 0, extendedTimeOut: 0 }) {
     const unfinishedCount = countUnfinishedWindows(result);
     const timeoutAdvice = result.windowsTimedOut > 0
-        ? ` ${result.windowsTimedOut} timed out: raise "Extraction Timeout" in the EventBase settings, or check that your model or endpoint is responding.`
+        ? ` ${result.windowsTimedOut} timed out: raise "Extraction timeout" on the EventBase page, or check that your model or endpoint is responding.`
         : '';
     const firstError = result.firstFailureDetail ? ` First error: ${result.firstFailureDetail}` : '';
     const message = `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
@@ -234,7 +234,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const CONCURRENCY = Math.min(8, Math.max(1, parallelWindows));
 
     // Coordinator mode: pipelined (default) vs serial (opt-in via the "Serial
-    // extract→insert" checkbox in the EventBase tab).
+    // extract and insert" switch on the EventBase page).
     //
     // - DEFAULT: pipelined — batch N's insert overlaps batch N+1's extract,
     //   ~35% faster wall time.
@@ -553,7 +553,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                         || /aborted|timeout|timed out/i.test(err?.message || '');
                     if (isTimeout) {
                         const secs = Math.round((settings.eventbase_timeout_ms || 60000) / 1000);
-                        log.warn(`[EventBase] Window ${wIdx}: extraction TIMED OUT after ${secs}s (unfinished). Raise "Extraction Timeout" in EventBase settings, or check your model/endpoint is responding.`);
+                        log.warn(`[EventBase] Window ${wIdx}: extraction TIMED OUT after ${secs}s (unfinished). Raise "Extraction timeout" on the EventBase page, or check your model/endpoint is responding.`);
                         return { skipped: false, events: [], timedOut: true };
                     }
                     // `failed: true` keeps an errored window out of the processed
@@ -1025,7 +1025,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // timeouts swallowed the whole run (0 events).
     if (windowsTimedOut > 0) {
         progressTracker.complete(false,
-            `EventBase: ${windowsTimedOut} window(s) timed out — ${eventsExtracted} event(s) extracted. Raise "Extraction Timeout" in the EventBase settings, or check that your model or endpoint is responding.`);
+            `EventBase: ${windowsTimedOut} window(s) timed out — ${eventsExtracted} event(s) extracted. Raise "Extraction timeout" on the EventBase page, or check that your model or endpoint is responding.`);
     } else if (windowsFailed > 0) {
         // A window that errored stored nothing and was never marked extracted, so
         // reporting the run green told the user "this chat has no events" when the

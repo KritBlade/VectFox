@@ -139,7 +139,7 @@ describe('runBoundedRetrieval', () => {
 
         const [, , detail] = notifyRetrievalFailure.mock.calls[0];
         expect(detail).toContain('0.1s');                 // the 50ms mocked budget
-        expect(detail).toContain('Retrieval Timeout');    // the setting's UI label
+        expect(detail).toContain('"Retrieval timeout" on the Core page');    // the setting's UI label and page
     });
 
     // Agent Mode runs a planner LLM call INSIDE this bound, so the EventBase call

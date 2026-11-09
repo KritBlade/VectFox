@@ -356,11 +356,6 @@
         padding: 18px;
     }
 
-    .vectfox-action-btn {
-        padding: 14px 20px;
-        font-size: 0.95em;
-    }
-
     /* Modal responsiveness */
     .vectfox-modal-content {
         width: 95%;
@@ -424,10 +419,6 @@
 
 /* Touch device optimizations */
 @media (hover: none) and (pointer: coarse) {
-    .vectfox-action-btn {
-        min-height: 52px;
-    }
-
     .vectfox-collapsible-header {
         min-height: 52px;
     }

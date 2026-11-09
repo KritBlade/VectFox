@@ -126,7 +126,7 @@ const defaultSettings = {
     // How long one turn may spend on any single retrieval (EventBase, chunk,
     // lorebook, summarizer injection) before it proceeds without that memory.
     // Agent Mode ADDS its own planner + fanout timeouts on top of this for the
-    // EventBase path — see src/shared/retrieval-budget.js. UI: Core tab → Retrieval.
+    // EventBase path — see src/shared/retrieval-budget.js. UI: Core page → Retrieval.
     retrieval_timeout_ms: RETRIEVAL_TIMEOUT_DEFAULT_MS,
     query: 2,
     chunk_size: 500, // For adaptive strategy only
@@ -173,7 +173,6 @@ const defaultSettings = {
     chat_model: '',              // Model ID for summarization (e.g. 'google/gemini-flash-1.5-8b')
     chat_vllm_url: '',           // vLLM base URL for summarization (e.g. 'http://127.0.0.1:8000')
     summarize_prompt: '',             // Custom prompt template (empty = use built-in default)
-    summarize_timeout_ms: 30000,      // Per-call timeout for one "Summarize Before Store" request (ms). Separate from eventbase_timeout_ms (extraction); both share the same model. UI: EventBase tab.
 
     // Chat-completion request shape — applies to EVERY LLM feature (summarizer,
     // EventBase extraction, Auto-Reformat, Agent Mode), because one install talks
@@ -398,7 +397,7 @@ const defaultSettings = {
     // before/after diff. See src/features/chunkbase/reformat-schema.js / reformat-extractor.js
     // / reformat-store.js. Independent from EventBase (chat's LLM pipeline)
     // by design — no shared pipeline code, only generic utilities.
-    reformat_provider: '',              // '' → inherit chat_provider (Core → LLM Summarization)
+    reformat_provider: '',              // '' → inherit chat_provider (Core → Event model)
     reformat_model: '',                 // '' → inherit chat_model
     reformat_vllm_url: '',              // '' → inherit chat_vllm_url
     reformat_batch_chars: 6000,         // Target input chars per LLM call (packer)

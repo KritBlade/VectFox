@@ -400,7 +400,7 @@ export async function postChatCompletion({
             // ST forwards only the upstream STATUS TEXT ("Bad Request"), which names
             // no cause, so print the request-shape switches alongside it — they are
             // the parameters a model rejects while accepting the same prompt, and
-            // the user can act on every one of them from the Core tab.
+            // the user can act on every one of them from the Core page.
             const shapeSent = [
                 `reasoning_effort=${reasoningEffort ?? '(not sent)'}`,
                 `${tokenLimitParameter}=${maxTokens}`,
@@ -411,7 +411,7 @@ export async function postChatCompletion({
                 + `upstream status text "${upstreamDetail}"). Request shape sent: ${shapeSent}. ST forwards only the status `
                 + `text, so the provider's full error is in the SillyTavern server console. A model can reject any of these `
                 + `values: try the switches "Use max_completion_tokens", "Send temperature" and "Turn off model thinking" `
-                + `in Core → LLM Summarization settings. Raw body: ${bodyText.slice(0, 500)}`,
+                + `in Core → Event model. Raw body: ${bodyText.slice(0, 500)}`,
             );
             throw new LlmCallError(
                 `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,

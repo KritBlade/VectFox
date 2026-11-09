@@ -37,7 +37,7 @@ export const VECTOR_LIST_LIMIT = 10000;
 
 /**
  * DEFAULT per-turn retrieval timeout in ms (15 seconds) -- the fallback for the
- * user-facing `retrieval_timeout_ms` setting (Core tab -> Retrieval), not the
+ * user-facing `retrieval_timeout_ms` setting (Core page → Retrieval), not the
  * effective value. Always read the effective budget through
  * resolveRetrievalTimeoutMs() in src/shared/retrieval-budget.js.
  *

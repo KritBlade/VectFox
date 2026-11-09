@@ -120,7 +120,7 @@ export function warnIfEmbeddingSlow(embedMs, settings, label = 'query') {
         `[VectFox] Slow embedding: ${modelLabel} took ${seconds}s to embed the ${label} text. ` +
         `The vector database is NOT the bottleneck — it answers in ~20ms. Semantic retrieval is ` +
         `dropped when embedding exceeds ${budgetSeconds}s, so a provider this slow makes retrieval intermittent. ` +
-        `Consider a faster embedding model or a locally hosted one, or raise "Retrieval Timeout" in the Core tab.`,
+        `Consider a faster embedding model or a locally hosted one, or raise "Retrieval timeout" on the Core page.`,
     );
 
     return true;

@@ -308,8 +308,7 @@ function createModal() {
                                 </div>
                             </div>
 
-                            <!-- Window Size - moved from EventBase tab (Feature A re-home).
-                                 Shown for content types that use the EventBase extraction path
+                            <!-- Window Size. Shown for content types that use the EventBase extraction path
                                  (today: chat history + chat-history file upload). Gated via
                                  _usesEventBaseWindowControls() so future chunk-based summarizer
                                  types can opt in from one place. -->
@@ -326,7 +325,7 @@ function createModal() {
                                 </div>
                             </div>
 
-                            <!-- Window Overlap - moved from EventBase tab (Feature A re-home). -->
+                            <!-- Window Overlap. -->
                             <div class="vectfox-cv-slider-row" id="vectfox_cv_window_overlap_row" style="display:none;">
                                 <label>
                                     Window Overlap
@@ -1521,8 +1520,8 @@ function bindEvents() {
         $('#vectfox_cv_parallel_val').text(val);
     });
 
-    // Window Size / Overlap (moved from the EventBase tab). Bind to the SAME setting
-    // keys so the workflow + Continue path read them unchanged — no migration.
+    // Window Size / Overlap, on the eventbase_window_* setting keys that the workflow
+    // and the Continue path read.
     {
         const vf = extension_settings.vectfox || {};
         const ws = vf.eventbase_window_size ?? 2;
@@ -1615,10 +1614,7 @@ function bindSourceEvents(type) {
         // #vectfox_cv_parallel_windows directly (see handleEventBaseVectorize). So keep
         // the section visible on the Upload sub-tab too. updateChunkingSection() already
         // hid the strategy/size controls and showed the window rows for the chat path,
-        // so a plain show() reveals exactly the right controls.
-        // (Was: hidden on upload — stale, predates the window controls being re-homed
-        //  into this section from the old EventBase tab, which silently dropped Parallel
-        //  Windows / Window Size / Overlap from the chat-upload screen.)
+        // so a plain show() reveals exactly the right controls, on the chat-upload screen too.
         if (currentContentType === 'chat') {
             $('.vectfox-cv-chunking-section').show();
         }
@@ -2885,7 +2881,7 @@ async function startContinueVectorization() {
     }
 
     // currentSettings only carries content-type defaults — merge global VECTFOX settings
-    // so the user's chat_model / API key (set in Core → LLM Summarization) is visible.
+    // so the user's chat_model / API key (set in Core → Event model) is visible.
     const mergedSettings = resolveEffectiveSettings(currentSettings);
     log.verbose('[VectFox] LLM config check (vectorize-content):', {
         provider: mergedSettings.chat_provider,
@@ -2896,7 +2892,7 @@ async function startContinueVectorization() {
     const llmCheck = validateLLMConfig(mergedSettings);
     if (!llmCheck.ok) {
         toastr.error(
-            `${llmCheck.reason} Open VECTFOX → Core → LLM Summarization & EventBase Extraction and fill in the required fields.`,
+            `${llmCheck.reason} Open VectFox → Core → Event model and fill in the required fields.`,
             'Configuration required',
             { timeOut: 8000 }
         );
@@ -3264,7 +3260,7 @@ async function startVectorization() {
     // All vectorization paths (EventBase for chat, chunk pipeline for non-chat) eventually
     // make LLM calls that share the summarize_* settings. Fail fast with a clear message
     // rather than letting it blow up mid-ingest. Merge global settings so the user's
-    // chat_model / API key set in Core → LLM Summarization is visible here.
+    // chat_model / API key set in Core → Event model is visible here.
     const mergedSettings = resolveEffectiveSettings(currentSettings);
     log.verbose('[VectFox] LLM config check (start-vectorization):', {
         provider: mergedSettings.chat_provider,
@@ -3275,7 +3271,7 @@ async function startVectorization() {
     const llmCheck = validateLLMConfig(mergedSettings);
     if (!llmCheck.ok) {
         toastr.error(
-            `${llmCheck.reason} Open VECTFOX → Core → LLM Summarization & EventBase Extraction and fill in the required fields.`,
+            `${llmCheck.reason} Open VectFox → Core → Event model and fill in the required fields.`,
             'Configuration required',
             { timeOut: 8000 }
         );

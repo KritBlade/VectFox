@@ -212,7 +212,7 @@ Three related features sit inside `insertVectorItems` ([`src/features/vector-bac
 |---|---|---|---|
 | Group embedding calls | `vector_group_embedding_call` | ☑ **true** | 1 POST per batch |
 | Hedge slow calls | `vector_hedge_after_ms` | ☑ **15000** | Duplicate fires at 15s if primary stalls |
-| Serial extract→insert | `eventbase_disable_pipeline` | ☐ **false** | Pipelined extract↔insert overlap |
+| Serial extract and insert | `eventbase_disable_pipeline` | ☐ **false** | Pipelined extract↔insert overlap |
 
 Group is on by default: hedge protects against connection-level stalls, and one batched POST is a smaller blast surface (1 connection per wave) than N parallel POSTs (N connections per wave) when the upstream gateway routes by connection. Turning Group off is the one-click rescue if upstream starts returning batch-wide 500s.
 
@@ -263,11 +263,11 @@ Agent Mode is covered by the same `rearrangeChat` outer bound (its fan-out `quer
 
 After 4 fresh-connection attempts in 60s with no success, `callWithHedge` throws an error with `name === 'HedgeFatalError'` and `isHedgeFatal === true`. Both `RETRY_CONFIG.shouldRetry` and `_insertWithRetry` (the outer EventBase retry in `eventbase-workflow.js`) check this flag and skip retrying — more retries would just trigger another 60s of identical hedging against the same broken upstream. User presses Continue button later to resume; the existing window-cache semantics ensure no duplicates on resume thanks to hash-deterministic Qdrant upserts.
 
-### Serial extract→insert (`eventbase_disable_pipeline`)
+### Serial extract and insert (`eventbase_disable_pipeline`)
 
-**Unchecked (default):** pipelined coordinator. Batch N's insert overlaps batch N+1's extract via a single-slot queue — about 35% less wall time when extract dominates insert (the common case).
+**Off (default):** pipelined coordinator. Batch N's insert overlaps batch N+1's extract via a single-slot queue — about 35% less wall time when extract dominates insert (the common case).
 
-**Checked:** serial — each batch finishes embedding before the next batch starts extracting. Slightly higher event yield on very bursty cloud APIs, where pipelining can create per-key contention.
+**On:** serial — each batch finishes embedding before the next batch starts extracting. Slightly higher event yield on very bursty cloud APIs, where pipelining can create per-key contention.
 
 Read-site semantics: `settings?.eventbase_disable_pipeline === true` (`eventbase-workflow.js:201`). Only an explicit `true` enables serial; missing/false/undefined gives pipelined.
 
@@ -300,7 +300,7 @@ So standard-backend users can run all 3 features (Group / Hedge / Pipelined) at 
 - [`src/features/vector-backend/vector-api.js`](../src/features/vector-backend/vector-api.js) — `callWithHedge` helper + `shouldRetry` filter + `makeProcessBatch` wiring + AbortError short-circuit
 - [`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js) `_insertWithRetry` — hedge-fatal short-circuit; `disablePipeline` read-site
 - [`src/features/vector-backend/standard.js`](../src/features/vector-backend/standard.js) — coalesce + per-collection write queue
-- [`src/features/settings-panel/core-page-markup.js`](../src/features/settings-panel/core-page-markup.js) — Core page → Embedding card (Group, Hedge), wired in [`settings-panel.js`](../src/features/settings-panel/settings-panel.js), which also holds the EventBase page (Serial)
+- [`src/features/settings-panel/core-page-markup.js`](../src/features/settings-panel/core-page-markup.js) — Core page → Embedding card (Group, Hedge), wired in [`settings-panel.js`](../src/features/settings-panel/settings-panel.js), which also wires the EventBase page (Serial), drawn by [`eventbase-page-markup.js`](../src/features/settings-panel/eventbase-page-markup.js)
 - [`src/index.js`](../src/index.js) — defaults
 - `InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md` — design, observed failure modes, acceptance criteria
 

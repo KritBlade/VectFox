@@ -1,76 +1,10 @@
 /* ============================================================================
  * VECTFOX BUTTON STYLES
  * ============================================================================
- * Action buttons, primary/secondary/danger variants
+ * Primary, secondary and danger button variants
  *
  * @author Kritblade
  * ============================================================================ */
-
-/* ============================================================================
- * STUNNING ACTION BUTTONS
- * ============================================================================ */
-
-.vectfox-action-btn {
-    padding: 18px 24px;
-    border-radius: 12px;
-    font-weight: 600;
-    font-size: 1em;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    cursor: pointer;
-    border: 2px solid;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 4px 12px color-mix(in srgb, black 15%, transparent);
-}
-
-.vectfox-action-btn::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-radius: 50%;
-    background: color-mix(in srgb, white 20%, transparent);
-    transform: translate(-50%, -50%);
-    transition: width 0.6s ease, height 0.6s ease;
-}
-
-.vectfox-action-btn:hover::before {
-    width: 300px;
-    height: 300px;
-}
-
-.vectfox-action-btn:hover {
-    transform: translateY(-4px);
-    box-shadow:
-        0 8px 24px color-mix(in srgb, currentColor 30%, transparent),
-        0 4px 8px color-mix(in srgb, black 20%, transparent);
-}
-
-.vectfox-action-btn:active {
-    transform: translateY(-2px);
-}
-
-.vectfox-action-btn i {
-    font-size: 1.2em;
-    position: relative;
-    z-index: 1;
-    transition: transform 0.3s ease;
-}
-
-.vectfox-action-btn:hover i {
-    transform: scale(1.2) rotate(5deg);
-}
-
-.vectfox-action-btn span {
-    position: relative;
-    z-index: 1;
-}
 
 .vectfox-btn-primary {
     background: linear-gradient(135deg,

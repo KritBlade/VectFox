@@ -275,7 +275,7 @@ const _candidateSimScore = (candidate) =>
 
 /**
  * Events this many messages apart or more count as distinct. `eventbase_dedup_window_gap`
- * (Core tab slider, 0-200, default 10) sets it. 0 turns the check off, so every distance is
+ * (Core page → Retrieval, 0-200, default 10) sets it. 0 turns the check off, so every distance is
  * kept, including same-window duplicates extracted from one chunk. 1 suppresses only the
  * same window. 10 suppresses distances 0 to 9. 200 is the most aggressive.
  */

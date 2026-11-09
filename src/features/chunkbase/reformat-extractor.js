@@ -47,7 +47,7 @@ const DEFAULT_NAME_FUZZY_THRESHOLD = 0.8;
 
 // ---------------------------------------------------------------------------
 // Config resolution — same inherit chain as Agent Mode (agent_* → chat_*):
-// blank reformat_* fields inherit the Core → LLM Summarization settings, whose
+// blank reformat_* fields inherit the Core → Event model settings, whose
 // storage keys are chat_provider / chat_model / chat_vllm_url.
 // ---------------------------------------------------------------------------
 
@@ -97,7 +97,7 @@ async function _callOpenRouter(prompt, settings, batchIndex) {
     const apiKey = getOpenRouterApiKey();
     if (!apiKey) {
         throw new ReformatFatalError(
-            'Auto-Reformat: OpenRouter API key not found. Add it in Core → LLM Summarization settings (Auto-Reformat inherits it unless overridden in ChunkBase settings).',
+            'Auto-Reformat: OpenRouter API key not found. Add it in Core → Event model.',
             'missing_api_key',
         );
     }
@@ -105,7 +105,7 @@ async function _callOpenRouter(prompt, settings, batchIndex) {
     const model = _resolveModel(settings);
     if (!model) {
         throw new ReformatFatalError(
-            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to inherit the Summarization Model.',
+            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to use the model in Core → Event model.',
             'missing_model',
         );
     }
@@ -146,7 +146,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
     const model = _resolveModel(settings);
     if (!model) {
         throw new ReformatFatalError(
-            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to inherit the Summarization Model.',
+            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to use the model in Core → Event model.',
             'missing_model',
         );
     }
@@ -154,7 +154,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
     const apiKey = getCustomApiKey();
     if (!apiKey) {
         throw new ReformatFatalError(
-            'Auto-Reformat: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → LLM Summarization settings.',
+            'Auto-Reformat: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → Event model.',
             'missing_api_key',
         );
     }
