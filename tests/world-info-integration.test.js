@@ -131,6 +131,7 @@ vi.mock('../../../../openai.js', () => ({}));
 vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
+vi.mock('../../../../popup.js', () => ({}));
 
 import { getContext, extension_settings } from '../../../../extensions.js';
 import { setExtensionPrompt, eventSource } from '../../../../../script.js';

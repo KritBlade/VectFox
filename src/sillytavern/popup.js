@@ -1,10 +1,11 @@
 // popup.js — SillyTavern's popups: the generic popup call, the Popup class, and the popup types and results, which the rest
 // of VectFox imports here, never from SillyTavern (tools/check-host-imports.mjs). Also the doors a GUI-DNA surface opens its
-// dialogs through, which carry .vfx-popup.vfx-ui and are drawn by shared/gui-dna/dialogs.css.
+// dialogs through, which carry .vfx-popup.vfx-ui and are drawn by shared/gui-dna/dialogs.css, and the way an element that
+// floats over the page, such as the progress panel, is shown above an open popup.
 //
 // FAILURE STANCE: a dialog that cannot open answers NO. A caller guards an action, so "the dialog broke" must never read as
 // "the user said yes".
-import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup } from '../../../../../popup.js';
+import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup, getTopmostModalLayer } from '../../../../../popup.js';
 import { log } from './log.js';
 import { dialogLineSegments } from './popup-core.js';
 
@@ -81,4 +82,29 @@ export async function openPanelPopup(panel) {
     } catch (error) {
         log.error('A panel dialog could not open:', error);
     }
+}
+
+/** The watcher that moves an element down when the popup holding it starts closing, by element. */
+const closingPopupWatchers = new WeakMap();
+
+/**
+ * Put an element last on SillyTavern's topmost open popup, or last on the page when no popup is open, as SillyTavern does
+ * with its toasts. An open popup is a modal dialog in the browser's top layer: nothing outside it is drawn above it, at
+ * any z-index, and nothing outside it can be clicked. When that popup starts closing, the element moves down to the next
+ * popup or the page, since SillyTavern removes a closed popup from the page with everything in it.
+ *
+ * @param {HTMLElement} element
+ */
+export function placeOnTopmostModalLayer(element) {
+    closingPopupWatchers.get(element)?.disconnect();
+    closingPopupWatchers.delete(element);
+    const layer = getTopmostModalLayer();
+    layer.appendChild(element);
+    if (layer === document.body) return;
+    const watcher = new MutationObserver(() => {
+        if (layer.hasAttribute('open') && !layer.hasAttribute('closing')) return;
+        placeOnTopmostModalLayer(element);
+    });
+    watcher.observe(layer, { attributes: true, attributeFilter: ['open', 'closing'] });
+    closingPopupWatchers.set(element, watcher);
 }

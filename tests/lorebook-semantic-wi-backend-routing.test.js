@@ -103,6 +103,7 @@ vi.mock('../src/features/world-info/lorebook-rename-detector.js', () => ({
 
 // SillyTavern modules the feature barrels reach; nothing this test runs uses them.
 vi.mock('../../../../utils.js', () => ({}));
+vi.mock('../../../../popup.js', () => ({}));
 
 import { getSemanticWorldInfoEntries } from '../src/features/world-info/world-info-integration.js';
 import { resetBackendHealth } from '../src/features/vector-backend/backend-registry.js';

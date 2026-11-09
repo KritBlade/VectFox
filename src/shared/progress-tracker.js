@@ -10,6 +10,7 @@
  */
 
 import { log } from '../sillytavern/log.js';
+import { placeOnTopmostModalLayer } from '../sillytavern/popup.js';
 
 /**
  * Progress Tracker - Manages progress panel UI
@@ -71,8 +72,9 @@ export class ProgressTracker {
         if (!this.panel) {
             this.createPanel();
         }
-        // Re-append to end of body so it layers above any ST panel opened after it
-        document.body.appendChild(this.panel);
+        // Last on the topmost open popup, so a run started from a popup shows above it, else last on the page, so it
+        // layers above any ST panel opened after it
+        placeOnTopmostModalLayer(this.panel);
 
         // Set the item label using cached element
         if (this.elements?.statLabel) {
@@ -282,10 +284,11 @@ export class ProgressTracker {
      */
     reopen() {
         if (!this.panel) return false;
-        // Just reveal the existing panel — no re-append. The mobile bottom-sheet rides
-        // a max z-index (mobile.css) so it already layers above any ST drawer without
-        // needing to be last in the DOM, and re-appending would replay the slide-in
-        // animation (the "flash at the top" regression). Desktop is unchanged.
+        // Just reveal the existing panel — no re-append, which would replay its slide-in
+        // animation. On a touch device it rides a max z-index (mobile.css), so it already
+        // layers above any ST drawer without needing to be last in the DOM. Only the
+        // settings panel reopens it, and an open popup leaves that unclickable, so the panel
+        // is already on the page: show() put it there, or moved it off a popup that closed.
         this.panel.style.display = 'block';
         this.isVisible = true;
         this.refreshCancelButton();

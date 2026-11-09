@@ -72,6 +72,7 @@ vi.mock('../../../../openai.js', () => ({}));
 vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
+vi.mock('../../../../popup.js', () => ({}));
 
 const { resolveActiveEventBaseCollection, resolveEventBaseWriteTarget } =
     await import('../src/features/eventbase/eventbase-store.js');

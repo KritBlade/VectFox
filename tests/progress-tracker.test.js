@@ -8,8 +8,9 @@
  * cannot reach: that suite runs a desktop viewport with no touch/mobile project,
  * so `matchMedia('(hover: none) and (pointer: coarse)')` is always false there.
  *
- * The tracker is self-contained DOM (its only import is src/sillytavern/log.js), so jsdom +
- * a mocked matchMedia exercises the real createPanel/show/complete/hide logic.
+ * The tracker is self-contained DOM (it imports only src/sillytavern/log.js and src/sillytavern/popup.js),
+ * so jsdom + a mocked matchMedia and SillyTavern popup module exercises the real
+ * createPanel/show/complete/hide logic and where show() places the panel.
  */
 /* global window, document -- this file runs under the jsdom environment */
 
@@ -22,6 +23,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // The tracker only calls log.verbose / log.trace.
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { verbose: () => {}, trace: () => {}, error: () => {}, warn: () => {}, lifecycle: () => {}, log: () => {}, enabled: () => false },
+}));
+
+// SillyTavern's popup.js, as src/sillytavern/popup.js imports it. getTopmostModalLayer is SillyTavern 1.19.0's:
+// the last open dialog that is not closing, else the page.
+vi.mock('../../../../popup.js', () => ({
+    POPUP_RESULT: {},
+    POPUP_TYPE: {},
+    Popup: class {},
+    callGenericPopup: () => {},
+    getTopmostModalLayer: () => Array.from(document.querySelectorAll('dialog[open]:not([closing])')).pop() ?? document.body,
 }));
 
 import { ProgressTracker } from '../src/shared/progress-tracker.js';
@@ -143,5 +154,96 @@ describe('ProgressTracker — desktop (non-touch) floating panel', () => {
         expect(panel.querySelector('.vectfox-modal-overlay')).toBeNull();
         // Close button exists on both layouts (shared header).
         expect(document.getElementById('VectFox_progress_close')).not.toBeNull();
+    });
+});
+
+/**
+ * A popup as SillyTavern's Popup shows one: a dialog on the page, opened. jsdom has no showModal(), so the dialog
+ * gets the `open` attribute showModal() sets. That an open popup hides everything outside it is the browser's top
+ * layer, which jsdom does not draw.
+ */
+function openPopup() {
+    const popup = document.createElement('dialog');
+    popup.className = 'popup';
+    popup.setAttribute('open', '');
+    document.body.appendChild(popup);
+    return popup;
+}
+
+/** What SillyTavern's Popup does first when it hides: it marks the popup closing, and removes it after its animation. */
+function startClosing(popup) {
+    popup.setAttribute('closing', '');
+}
+
+/** Lets a MutationObserver's callback run. */
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+describe('ProgressTracker — over a SillyTavern popup', () => {
+    beforeEach(() => setTouchDevice(false));
+
+    it('shows the panel inside the topmost open popup, the only place drawn above it', () => {
+        const lower = openPopup();
+        const upper = openPopup();
+        tracker = new ProgressTracker();
+        tracker.show('Linking story events', 600, 'Events');
+
+        expect(tracker.panel.parentElement).toBe(upper);
+        expect(lower.contains(tracker.panel)).toBe(false);
+    });
+
+    it('skips a popup that is closing, such as the confirm popup a run starts from', () => {
+        const page = openPopup();
+        const confirm = openPopup();
+        startClosing(confirm);
+        tracker = new ProgressTracker();
+        tracker.show('Linking story events', 600, 'Events');
+
+        expect(tracker.panel.parentElement).toBe(page);
+    });
+
+    it('moves the panel down to the page when its popup starts closing, so removing the popup keeps it', async () => {
+        const popup = openPopup();
+        tracker = new ProgressTracker();
+        tracker.show('Linking story events', 600, 'Events');
+
+        startClosing(popup);
+        await settle();
+        expect(tracker.panel.parentElement).toBe(document.body);
+
+        popup.removeAttribute('open');
+        popup.remove();
+        expect(tracker.panel.isConnected).toBe(true);
+    });
+
+    it('moves the panel to the popup underneath when the top one closes', async () => {
+        const lower = openPopup();
+        const upper = openPopup();
+        tracker = new ProgressTracker();
+        tracker.show('Linking story events', 600, 'Events');
+
+        startClosing(upper);
+        await settle();
+        expect(tracker.panel.parentElement).toBe(lower);
+
+        startClosing(lower);
+        await settle();
+        expect(tracker.panel.parentElement).toBe(document.body);
+    });
+
+    it('stays on the page when no popup is open', () => {
+        tracker = new ProgressTracker();
+        tracker.show('EventBase Extraction', 10, 'Windows');
+
+        expect(tracker.panel.parentElement).toBe(document.body);
+    });
+
+    it('puts the full-page modal a phone shows inside the popup too', () => {
+        setTouchDevice(true);
+        const popup = openPopup();
+        tracker = new ProgressTracker();
+        tracker.show('Linking story events', 600, 'Events');
+
+        expect(tracker.panel.classList.contains('vectfox-progress-modal')).toBe(true);
+        expect(tracker.panel.parentElement).toBe(popup);
     });
 });

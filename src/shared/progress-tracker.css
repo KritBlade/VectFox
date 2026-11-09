@@ -22,6 +22,15 @@
     animation: vectfox-slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* The page's text color and line height, set on the panel itself: above an open popup the panel sits inside that popup
+   (progress-tracker.js), whose GUI-DNA scope would hand it its own. Both layouts, the floating panel and the phone's
+   full-page modal. */
+.vectfox-progress-panel,
+.vectfox-progress-modal {
+    color: var(--SmartThemeBodyColor);
+    line-height: normal;
+}
+
 @keyframes vectfox-slide-in {
     from {
         transform: translateY(100px);

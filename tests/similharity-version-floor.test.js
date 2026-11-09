@@ -32,6 +32,7 @@ vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
 vi.mock('../../../../world-info.js', () => ({}));
+vi.mock('../../../../popup.js', () => ({}));
 
 import { checkSimilharityVersion } from '../src/app/network-startup.js';
 import { checkPluginAvailable, getDetectedPluginVersion } from '../src/shared/similharity-plugin.js';

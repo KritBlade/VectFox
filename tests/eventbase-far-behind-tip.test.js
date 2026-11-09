@@ -24,6 +24,7 @@ vi.mock('../../../../utils.js', () => ({}));
 vi.mock('../../../../openai.js', () => ({}));
 vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
+vi.mock('../../../../popup.js', () => ({}));
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false },
 }));
