@@ -6,7 +6,8 @@
  *   - it stops on an invalid model and on a run of failures, and when asked,
  *   - it can skip events already decided, and shows its cost first,
  *   - a new event is linked only when that spends nothing unasked for,
- *   - a links file reads and writes a collection's links with no LLM call.
+ *   - a links file reads and writes a collection's links with no LLM call,
+ *   - deleting a collection's links leaves its events undecided, with no LLM call.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -69,8 +70,10 @@ vi.mock('../src/sillytavern/log.js', () => ({
 
 const {
     buildCollectionLinksFile,
+    deleteStoryLinks,
     describeStoryLinkPass,
     linkNewStoryEvents,
+    planStoryLinksDelete,
     planStoryLinksImport,
     readCollectionLinkCoverage,
     readStoryLinkCoverage,
@@ -434,7 +437,7 @@ describe('linkNewStoryEvents', () => {
     });
 });
 
-describe('links files', () => {
+describe('links files and deleting links', () => {
     const link = { event_id: 'id1', type: 'continues', thread: 'A' };
     const linked = [stored(1, 10, { story_links: [] }), stored(2, 20, { story_links: [link] })];
     const collection = { id: 'vf_eventbase_other', name: 'Other chat' };
@@ -519,5 +522,35 @@ describe('links files', () => {
         expect(result.writtenCount).toBe(0);
         expect(result.failedCount).toBeLessThan(60);
         expect(progressMock.complete).toHaveBeenCalledWith(false, expect.stringContaining('failed in a row'));
+    });
+
+    it('plans a delete of the decided events only, without writing anything', async () => {
+        listStoryEventsMock.mockResolvedValue([...linked, stored(3, 30)]);
+        const writes = await planStoryLinksDelete(collection.id, settings);
+        expect(listStoryEventsMock).toHaveBeenCalledWith(collection.id, settings);
+        expect(writes.map(write => write.event._hash)).toEqual([1, 2]);
+        expect(updateChunkMetadataMock).not.toHaveBeenCalled();
+        listStoryEventsMock.mockResolvedValue(null);
+        await expect(planStoryLinksDelete(collection.id, settings)).rejects.toThrow('Could not read');
+    });
+
+    it('deletes only the links, on each event\'s own point, with no LLM call', async () => {
+        listStoryEventsMock.mockResolvedValue(linked);
+        const result = await deleteStoryLinks(await planStoryLinksDelete(collection.id, settings), collection.id, settings);
+        expect(result).toEqual({ writtenCount: 2, failedCount: 0, isStopped: false });
+        expect(updateChunkMetadataMock.mock.calls).toEqual([1, 2].map(hash => [collection.id, hash, { story_links: null }, settings]));
+        expect(callLlmForJsonMock).not.toHaveBeenCalled();
+        expect(progressMock.show).toHaveBeenCalledWith('Deleting StoryArc links', 2, 'Events');
+        expect(progressMock.complete).toHaveBeenCalledWith(true, expect.stringContaining('2 of 2 events cleared'));
+    });
+
+    it('says how to finish a delete that did not clear every event', async () => {
+        updateChunkMetadataMock.mockImplementation(async (_, hash) => {
+            if (hash === 1) throw new Error('refused');
+        });
+        const writes = writesFor(3).map(write => ({ ...write, links: null }));
+        const result = await deleteStoryLinks(writes, collection.id, settings);
+        expect(result).toEqual({ writtenCount: 2, failedCount: 1, isStopped: false });
+        expect(progressMock.complete).toHaveBeenCalledWith(false, expect.stringContaining('Press Delete links again to retry those'));
     });
 });

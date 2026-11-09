@@ -21,6 +21,7 @@ import {
     measureStoryLinkCoverage,
     mergeLinkCandidates,
     nearestByVector,
+    planStoryLinkDeletes,
     planStoryLinkWrites,
     readStoryLinks,
     readStoryLinksFile,
@@ -347,6 +348,24 @@ describe('planStoryLinkWrites', () => {
         const plan = planStoryLinkWrites(linksByEventId, [event(2, 20), event(5, 50)]);
         expect(plan.writes).toEqual([{ event: expect.objectContaining({ _hash: 2 }), links: [] }]);
         expect(plan).toMatchObject({ fileEventCount: 2, storedEventCount: 2, leftOutLinkCount: 1 });
+    });
+});
+
+describe('planStoryLinkDeletes', () => {
+    const decidedAndNot = [event(1, 10, { story_links: [] }), event(2, 20, { story_links: [link(1)] }), event(3, 30)];
+
+    it('clears every decided event, one decided to have no links too, and leaves undecided ones alone', () => {
+        expect(planStoryLinkDeletes(decidedAndNot)).toEqual([
+            { event: expect.objectContaining({ _hash: 1 }), links: null },
+            { event: expect.objectContaining({ _hash: 2 }), links: null },
+        ]);
+    });
+
+    it('leaves each event undecided once written, so links are made again only by a pass', () => {
+        const cleared = planStoryLinkDeletes(decidedAndNot).map(write => ({ ...write.event, story_links: write.links }));
+        expect(measureStoryLinkCoverage([...cleared, event(3, 30)])).toMatchObject({ totalCount: 3, decidedCount: 0, linkedCount: 0, hasUsableLinks: false });
+        expect(shouldLinkNewEvents(cleared)).toBe(false);
+        expect(buildStoryLinkGraph(cleared).parents.size).toBe(0);
     });
 });
 
