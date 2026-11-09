@@ -678,6 +678,19 @@ describe('QdrantBackend', () => {
             expect(registrar).toHaveBeenCalledWith(buildRegistryKey('vf_chat_abc123', defaultSettings));
         });
 
+        it('stops with the configuration error, naming both sizes, when the collection holds another vector size', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchError(500, JSON.stringify({ error: 'Vector dimension error: expected dim: 1024, got 768' })));
+
+            const insert = backend.insertVectorItems('vf_chat_abc123', sampleItems, defaultSettings);
+
+            await expect(insert).rejects.toMatchObject({
+                code: 'invalid_model_config',
+                message: 'Embedding: this collection holds vectors of size 1024, but the current embedding model makes size 768, so nothing was stored. '
+                    + 'Don\'t change the embedding model: a different vector size means re-vectorizing the whole collection. Switch back to the model you were using.',
+            });
+            expect(registrar).not.toHaveBeenCalled();
+        });
+
         it('should add content_type in multitenancy mode', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
 
@@ -782,9 +795,9 @@ describe('QdrantBackend', () => {
             expect(fetchMock).toHaveBeenCalledTimes(4);
         });
 
-        it('should still return empty (not throw) on a dimension mismatch', async () => {
-            // Deliberate dead end rather than a fallback: the same mismatch fails on
-            // every path, and _warnDimensionMismatch has already told the user.
+        it('returns empty, not a throw, on a vector size mismatch, and says so in a sticky toast', async () => {
+            // Deliberate dead end rather than a fallback: the same mismatch fails on every path.
+            globalThis.toastr = { error: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn() };
             fetchMock
                 .mockResolvedValueOnce(mockFetchResponse({ payload: null, supported: true }))
                 .mockResolvedValueOnce(mockFetchResponse({ embedding: [0.1, 0.2, 0.3] }))
@@ -794,6 +807,13 @@ describe('QdrantBackend', () => {
             const result = await backend.hybridQuery('test-collection', 'search', 5, defaultSettings);
 
             expect(result).toEqual({ hashes: [], metadata: [] });
+            expect(globalThis.toastr.error).toHaveBeenCalledWith(
+                'Embedding: this collection holds vectors of size 1024, but the current embedding model makes size 768, so this search found nothing. '
+                    + 'Don\'t change the embedding model: a different vector size means re-vectorizing the whole collection. Switch back to the model you were using.',
+                'VectFox — configuration invalid',
+                { timeOut: 0, extendedTimeOut: 0 },
+            );
+            delete globalThis.toastr;
         });
 
         it('reuses a supplied query vector instead of calling /get-embedding', async () => {

@@ -32,7 +32,8 @@ vi.mock('../src/features/vector-backend/vector-api.js', () => ({
 }));
 vi.mock('../src/shared/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));
 vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({
-    EventBaseFatalError: class extends Error {}, EventBaseExtractionError: class extends Error {}, buildEmbedText: (e) => e.summary,
+    EventBaseFatalError: class extends Error { constructor(message, code = 'fatal') { super(message); this.code = code; } },
+    EventBaseExtractionError: class extends Error {}, buildEmbedText: (e) => e.summary,
 }));
 vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({
     extractEvents: vi.fn(async ({ messages, windowStart, windowEnd }) => {
@@ -152,6 +153,18 @@ describe('window re-send', () => {
 
             expect(globalThis.toastr.error).not.toHaveBeenCalled();
             expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+        });
+
+        // A collection holding another vector size refuses every attempt, and the pause needs the code to reach it.
+        it('stops at once, with no retry, on an insert refused for its configuration', async () => {
+            const { insertEvents } = await import('../src/features/eventbase/eventbase-store.js');
+            const sizeError = Object.assign(new Error('Embedding: this collection holds vectors of size 1024, but the current embedding model makes size 768, so nothing was stored.'), { code: 'invalid_model_config' });
+            insertEvents.mockRejectedValueOnce(sizeError);
+            const callsBefore = insertEvents.mock.calls.length;
+
+            await expect(manualRun(buildChat(8), newChatUUID())).rejects.toMatchObject({ code: 'invalid_model_config', message: sizeError.message });
+
+            expect(insertEvents.mock.calls.length - callsBefore).toBe(1);
         });
 
         it('raises no toast for an insert that gets through on a retry', async () => {

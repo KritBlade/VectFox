@@ -53,16 +53,24 @@ afterEach(() => { delete globalThis.toastr; delete globalThis.fetch; });
 
 describe('checkSimilharityVersion', () => {
     it('warns about a plugin far below the floor — the issue #11 case', async () => {
-        // The reporter's plugin era reported 2.0.0. The floor has been 3.3.1 the
-        // whole time; only the unreadable version stopped this from firing.
+        // The reporter's plugin era reported 2.0.0; only the unreadable version stopped this from firing.
         getDetectedPluginVersion.mockReturnValue('2.0.0');
 
         await checkSimilharityVersion();
 
         expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
         expect(toastText()).toContain('2.0.0');
-        expect(toastText()).toContain('3.3.1');
+        expect(toastText()).toContain('3.3.5');
         expect(log.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns on 3.3.4, the last plugin that deletes data on a vector size change', async () => {
+        getDetectedPluginVersion.mockReturnValue('3.3.4');
+
+        await checkSimilharityVersion();
+
+        expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
+        expect(toastText()).toContain('3.3.5');
     });
 
     it('makes no HTTP request of its own — the version rides the /health probe', async () => {
@@ -106,7 +114,7 @@ describe('checkSimilharityVersion', () => {
     });
 
     it('stays silent on the exact floor and on newer builds', async () => {
-        for (const version of ['3.3.1', '3.3.4', '3.4.0', '4.0.0', '3.10.0']) {
+        for (const version of ['3.3.5', '3.4.0', '4.0.0', '3.10.0']) {
             vi.clearAllMocks();
             checkPluginAvailable.mockResolvedValue(true);
             getDetectedPluginVersion.mockReturnValue(version);
@@ -117,8 +125,8 @@ describe('checkSimilharityVersion', () => {
         }
     });
 
-    it('compares numerically, not lexically — 3.10.0 is newer than 3.3.1', async () => {
-        // String comparison would rank '3.10.0' < '3.3.1' and nag an up-to-date user.
+    it('compares numerically, not lexically — 3.10.0 is newer than 3.3.5', async () => {
+        // String comparison would rank '3.10.0' < '3.3.5' and nag an up-to-date user.
         getDetectedPluginVersion.mockReturnValue('3.10.0');
 
         await checkSimilharityVersion();

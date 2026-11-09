@@ -2,8 +2,10 @@
  * ============================================================================
  * MODEL-CONFIG ERROR NOTIFIER
  * ============================================================================
- * Shared UX for "the configured model is no longer valid" failures — the errors
- * tagged with `code === 'invalid_model_config'` by src/shared/model-http-errors.js.
+ * Shared UX for configuration failures: a model that is no longer valid, or a
+ * collection whose vector size differs from what the embedding model makes. They
+ * carry `code === 'invalid_model_config'`, set by src/shared/model-http-errors.js
+ * and by the Qdrant backend.
  *
  * Every model path can hit this (EventBase extraction, summarizer, agent mode,
  * embedding), so the user-facing toast lives here once instead of being
@@ -19,7 +21,7 @@ const _notified = new Set();
 
 /**
  * @param {unknown} err
- * @returns {boolean} true if this is a "model no longer valid" failure.
+ * @returns {boolean} true if this is a configuration failure.
  */
 export function isInvalidModelConfigError(err) {
     return err?.code === 'invalid_model_config';
@@ -35,7 +37,7 @@ export function notifyInvalidModel(message) {
     if (!message || _notified.has(message)) return;
     _notified.add(message);
     try {
-        toastr.error(message, 'VectFox — model no longer valid', {
+        toastr.error(message, 'VectFox — configuration invalid', {
             timeOut: 0,
             extendedTimeOut: 0,
         });

@@ -32,7 +32,7 @@ import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindow
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
-import { notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
+import { isInvalidModelConfigError, notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
 
 // The wait before each extra pass over the windows that failed in a run, one entry
@@ -615,13 +615,14 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     /**
-     * Wraps insertEvents with up to 3 attempts. Backoff between attempts is
-     * short (500ms / 1000ms) — these retries exist for transient Qdrant
-     * hiccups, not for sustained outages. On exhaustion, throws an
-     * EventBaseFatalError tagged "insert_failed_max_retries" so the UI can
-     * popup the underlying Qdrant message (which is what the user actually
-     * needs to debug). Pre-flight abort check before each attempt avoids
-     * pointless retries when the user already pressed Stop.
+     * Wraps insertEvents with up to 3 attempts, 5 then 10 seconds apart, for
+     * transient Qdrant hiccups rather than sustained outages. On exhaustion,
+     * throws an EventBaseFatalError tagged "insert_failed_max_retries" so the UI
+     * can show the underlying Qdrant message. A configuration error, such as a
+     * collection holding another vector size, fails the same way every time, so
+     * it stops the run at once as an EventBaseFatalError tagged
+     * "invalid_model_config", which pauses auto-sync. Pre-flight abort check
+     * before each attempt avoids pointless retries when the user already pressed Stop.
      */
     async function _insertWithRetry(events, batchFirstIdx) {
         let lastErr;
@@ -637,6 +638,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 return; // success
             } catch (err) {
                 if (err?.name === 'AbortError' || abortSignal?.aborted) throw err;
+                if (isInvalidModelConfigError(err)) throw new EventBaseFatalError(err.message, 'invalid_model_config');
                 // Hedge-fatal bypass: the inner hedge already burned ~60s on 4 fresh-connection
                 // attempts in parallel. Outer retry would just trigger another 60s of identical
                 // hedging — same upstream, same routing pool, no new information. Throw up to
@@ -932,9 +934,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             pendingInsert = null;
             insertKey = null;
             if (winner.error) {
-                // _insertWithRetry threw — either max-retries fatal (already
-                // an EventBaseFatalError) or an AbortError. Drain in-flight
-                // extract before surfacing.
+                // _insertWithRetry threw an EventBaseFatalError (a configuration
+                // error at once, anything else after its retries), a hedge-fatal
+                // error, or an AbortError. Drain in-flight extract before surfacing.
                 if (pendingExtract) {
                     try { await pendingExtract; } catch (_) { /* swallow */ }
                 }
