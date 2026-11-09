@@ -1501,9 +1501,6 @@ export function renderSettings(containerId, settings, callbacks) {
     // Bind all events
     bindSettingsEvents(settings, callbacks);
 
-    // Initialize collapsible cards
-    initializeCollapsibleCards();
-
     // The shell: the rail, the theme switch, and the dialog the panel opens in
     wireSettingsPanel(panelTabsWithHooks(), settings);
 
@@ -1727,19 +1724,6 @@ async function executeDiagnostics() {
         showDiagnosticsPhase('selection');
         $('#VectFox_diagnostics_title').text('Run Diagnostics');
     }
-}
-
-/**
- * Initializes collapsible functionality
- */
-function initializeCollapsibleCards() {
-    $('.vectfox-collapsible-header').on('click', function() {
-        const content = $(this).next('.vectfox-collapsible-content');
-        const icon = $(this).find('.vectfox-collapsible-icon');
-
-        content.slideToggle(200);
-        icon.toggleClass('rotated');
-    });
 }
 
 /** Every page of the panel, with what runs as it shows or hides (panel-shell.js). */
