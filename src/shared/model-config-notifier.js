@@ -2,8 +2,10 @@
  * ============================================================================
  * MODEL-CONFIG ERROR NOTIFIER
  * ============================================================================
- * Shared UX for "the configured model is no longer valid" failures — the errors
- * tagged with `code === 'invalid_model_config'` by src/shared/model-http-errors.js.
+ * Shared UX for configuration failures: a model that is no longer valid, or a
+ * collection whose vector size differs from what the embedding model makes. They
+ * carry `code === 'invalid_model_config'`, set by src/shared/model-http-errors.js
+ * and by the Qdrant backend.
  *
  * Every model path can hit this (EventBase extraction, summarizer, agent mode,
  * embedding), so the user-facing toast lives here once instead of being
@@ -19,7 +21,7 @@ const _notified = new Set();
 
 /**
  * @param {unknown} err
- * @returns {boolean} true if this is a "model no longer valid" failure.
+ * @returns {boolean} true if this is a configuration failure.
  */
 export function isInvalidModelConfigError(err) {
     return err?.code === 'invalid_model_config';
@@ -35,7 +37,7 @@ export function notifyInvalidModel(message) {
     if (!message || _notified.has(message)) return;
     _notified.add(message);
     try {
-        toastr.error(message, 'VectFox — model no longer valid', {
+        toastr.error(message, 'VectFox — configuration invalid', {
             timeOut: 0,
             extendedTimeOut: 0,
         });
@@ -203,19 +205,21 @@ export function resetRetrievalFailureNotifications() {
 }
 
 /**
- * Yellow toast for a turn that ends with no memory because a query embedding still
- * failed after its retry. The player can regenerate, so it is a warning, and it is
- * not de-duped: every turn that loses its memory says so.
+ * Yellow toast for a turn whose memory search failed, a query embedding included after
+ * its retry, so the turn's memory is missing or incomplete. The player can regenerate,
+ * so it is a warning, and it is not de-duped: every turn that loses memory says so.
  *
- * @param {string} detail - the embedding error's message
+ * @param {string} detail - the failed search's error message
+ * @param {boolean} hasInjectedMemory - whether the turn still injected what the other searches found
  */
-export function notifyMemoryNotInjected(detail) {
+export function notifyMemoryNotInjected(detail, hasInjectedMemory) {
     const message = String(detail || 'unknown error').replace(/\s+/g, ' ').trim();
+    const outcome = hasInjectedMemory ? 'so this turn\'s memory is incomplete' : 'so no memory was injected this turn';
     // toastr is SillyTavern's page global, absent where no page is loaded.
     globalThis.toastr?.warning(
-        `Query embedding failed after a retry, so no memory was injected this turn. `
+        `A memory search failed, ${outcome}. `
         + `Regenerate to try again. Details: ${message.slice(0, 320)}`,
-        'VectFox — memory not injected',
+        'VectFox — memory not injected correctly',
         { timeOut: 30000, extendedTimeOut: 10000 },
     );
 }

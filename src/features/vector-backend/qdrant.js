@@ -36,6 +36,7 @@ import {
     fetchQueryEmbedding,
 } from '../embedding/index.js';
 import { throwIfModelConfigError } from '../../shared/model-http-errors.js';
+import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { VECTOR_LIST_LIMIT } from '../../shared/constants.js';
 import { getQdrantApiKey } from '../../shared/api-keys.js';
 import { log } from '../../sillytavern/log.js';
@@ -60,15 +61,30 @@ function _isDimensionMismatch(errorBody) {
     return typeof errorBody === 'string' && errorBody.includes('Vector dimension error');
 }
 
+/** What a vector size mismatch stopped, on each path that meets one. */
+const VECTOR_SIZE_MISMATCH_OUTCOME = Object.freeze({ insert: 'nothing was stored', search: 'this search found nothing' });
+
+/**
+ * The message for a collection whose vector size differs from what the embedding model makes, read from Qdrant's
+ * error text, such as "Vector dimension error: expected dim: 1024, got 768".
+ *
+ * @param {string} errorBody
+ * @param {string} outcome - What the mismatch stopped, from VECTOR_SIZE_MISMATCH_OUTCOME
+ * @returns {string}
+ */
+function _vectorSizeMismatchMessage(errorBody, outcome) {
+    const sizes = /expected dim[: ]+(\d+)[^0-9]+(\d+)/i.exec(errorBody);
+    const mismatch = sizes
+        ? `this collection holds vectors of size ${sizes[1]}, but the current embedding model makes size ${sizes[2]}`
+        : 'this collection holds vectors of another size than the current embedding model makes';
+    return `Embedding: ${mismatch}, so ${outcome}. Don't change the embedding model: a different vector size means re-vectorizing the whole collection. Switch back to the model you were using.`;
+}
+
+/** Tells the user a search met a vector size mismatch, in the sticky toast a wrong configuration raises. */
 function _warnDimensionMismatch(errorBody) {
-    const match = errorBody.match(/expected dim[: ]+(\d+)[^0-9]+(\d+)/i);
-    const detail = match ? `Collection needs ${match[1]}-dim vectors; current provider generates ${match[2]}-dim.` : 'Vector dimension mismatch.';
-    const msg = `${detail} Re-index the collection or switch back to the original embedding provider.`;
-    log.error('[VectFox] Dimension mismatch — aborting fallback chain:', msg);
-    // toastr is global in the ST browser context
-    if (typeof toastr !== 'undefined') {
-        toastr.error(msg, 'Embedding Dimension Mismatch', { timeOut: 10000 });
-    }
+    const message = _vectorSizeMismatchMessage(errorBody, VECTOR_SIZE_MISMATCH_OUTCOME.search);
+    log.error('[VectFox] Vector size mismatch:', message);
+    notifyInvalidModel(message);
 }
 
 // A query request sent WITHOUT a queryVector embeds the search text server-side
@@ -379,21 +395,11 @@ export class QdrantBackend extends VectorBackend {
             if (!response.ok) {
                 const errorBody = await response.text().catch(() => 'No response body');
 
-                // Check for dimension mismatch error
-                if (errorBody.includes('Vector dimension error') || errorBody.includes('dimension')) {
-                    const dimensionMatch = errorBody.match(/expected dim: (\d+), got (\d+)/);
-                    if (dimensionMatch) {
-                        const expectedDim = dimensionMatch[1];
-                        const gotDim = dimensionMatch[2];
-                        throw new Error(
-                            `[Qdrant] Vector dimension mismatch: Collection "${actualCollectionId}" expects ${expectedDim}-dimensional vectors, but received ${gotDim}-dimensional vectors. ` +
-                            `This happens when switching embedding models. Solution: Delete the collection in Database Browser or use Qdrant API to drop it, then re-vectorize.`
-                        );
-                    }
-                    throw new Error(
-                        `[Qdrant] Vector dimension mismatch in collection "${actualCollectionId}". ` +
-                        `This typically means you switched embedding models. Solution: Delete the collection and re-vectorize. Error: ${errorBody}`
-                    );
+                // A configuration error, so auto-sync pauses and the sticky toast shows it.
+                if (_isDimensionMismatch(errorBody)) {
+                    const err = new Error(_vectorSizeMismatchMessage(errorBody, VECTOR_SIZE_MISMATCH_OUTCOME.insert));
+                    err.code = 'invalid_model_config';
+                    throw err;
                 }
 
                 throwIfModelConfigError({
@@ -1032,9 +1038,9 @@ export class QdrantBackend extends VectorBackend {
         const errorBody = await response.text().catch(() => '(no body)');
         const failMs = (performance.now() - tNetStart).toFixed(1);
         if (_isDimensionMismatch(errorBody)) {
-            // Deliberate dead end, NOT a fallback: a dimension mismatch fails
+            // Deliberate dead end, NOT a fallback: a vector size mismatch fails
             // identically on every path, so retrying vector-only would just burn
-            // another round-trip. _warnDimensionMismatch already told the user.
+            // another round-trip. _warnDimensionMismatch tells the user.
             _warnDimensionMismatch(errorBody);
             return { hashes: [], metadata: [] };
         }

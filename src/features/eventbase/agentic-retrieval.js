@@ -28,8 +28,8 @@ import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
-import { STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
-import { retrieveStoryRecipeEvents } from './story-arc-retrieval.js';
+import { ORDINARY_TURN_ROUTE, STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isOrdinaryTurn, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
+import { retrieveStoryRecipeEvents, startStoryRecipeReads } from './story-arc-retrieval.js';
 import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
@@ -62,7 +62,8 @@ export async function retrieveEventsForTurn(params) {
 
 /**
  * StoryArc mode: a question about the story's past is answered by its recipe, which
- * skips the rerank. Any other turn keeps the pre-search as it is, and no planner runs.
+ * skips the rerank, and an ordinary turn by the chain block with no LLM call. A turn
+ * whose block finds nothing, or the router fails, keeps the pre-search, and no planner runs.
  *
  * @param {object} params - The retrieval params
  * @returns {Promise<{events: object[], debug: object, storyArcShape?: string, storyArcEntityNames?: object[]}>}
@@ -70,9 +71,13 @@ export async function retrieveEventsForTurn(params) {
 async function _retrieveWithStoryArc(params) {
     const { settings } = params;
     const linkConnection = resolveStoryLinkLlmConfig(settings);
+    const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
+    const boundQuery = promise => _raceWithTimeout(promise, queryTimeoutMs);
 
-    // The router runs alongside the pre-search, so an ordinary turn waits only for the slower of the two.
+    // The router, the pre-search and what a recipe reads all start now, so any turn that takes a block
+    // finds its reads done, or under way, when the router answers. The pre-search stays for the turns that keep it.
     const storyRoutePromise = _routeStoryQuestion(params, linkConnection);
+    const startedReads = linkConnection.ok ? startStoryRecipeReads({ ...params, boundQuery }) : null;
     const preSearch = await retrieveEvents(params);
     const storyRoute = await storyRoutePromise;
     const storyArc = {
@@ -82,24 +87,31 @@ async function _retrieveWithStoryArc(params) {
         subject: storyRoute?.subject ?? '',
         finalCount: 0,
     };
-    if (storyRoute && hasRecipe(storyRoute.shape)) {
-        const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
-        const recalled = await retrieveStoryRecipeEvents(storyRoute, {
-            ...params,
-            boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs),
-            pickThreads: (storedEvents, keptNames) => _pickStoryThreads(storedEvents, { subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection),
-            chooseBlockEvents: (events, keptNames, lineCount) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection, lineCount),
-        });
-        storyArc.ruleName = recalled.ruleName;
-        storyArc.cutRuleName = recalled.cutRuleName;
-        storyArc.finalCount = recalled.events.length;
-        log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} cut=${storyArc.cutRuleName || 'none'} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} threads=${recalled.pickedThreadCount} events=${recalled.events.length}`);
-        if (recalled.events.length) {
+    const isOrdinary = isOrdinaryTurn(storyRoute);
+    if (isOrdinary || (storyRoute && hasRecipe(storyRoute.shape))) {
+        // An ordinary turn takes the chain block with no LLM call: no thread pick, and the fixed rule's cut.
+        const recalled = await retrieveStoryRecipeEvents(isOrdinary ? ORDINARY_TURN_ROUTE : storyRoute, isOrdinary
+            ? { ...params, boundQuery, startedReads, shouldCutByRule: true }
+            : {
+                ...params,
+                boundQuery,
+                startedReads,
+                pickThreads: (storedEvents, keptNames) => _pickStoryThreads(storedEvents, { subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection),
+                chooseBlockEvents: (events, keptNames, lineCount) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection, lineCount),
+            });
+        // Without links the ordinary turn's block is only the closest hits, so it keeps the pre-search.
+        const isBlockKept = recalled.events.length > 0 && !(isOrdinary && recalled.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED);
+        storyArc.ruleName = isOrdinary && isBlockKept ? STORY_ROUTE_RULE.ORDINARY_TURN : recalled.ruleName;
+        storyArc.cutRuleName = isBlockKept ? recalled.cutRuleName : '';
+        storyArc.finalCount = isBlockKept ? recalled.events.length : 0;
+        log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] rule=${storyArc.ruleName} cut=${storyArc.cutRuleName || 'none'} shape=${storyArc.shape} subject="${storyArc.subject}" block=${recalled.blockShape} threads=${recalled.pickedThreadCount} events=${storyArc.finalCount}`);
+        if (isBlockKept) {
             return {
                 events: recalled.events,
-                storyArcShape: recalled.blockShape,
+                storyArcShape: isOrdinary ? storyRoute.shape : recalled.blockShape,
                 storyArcEntityNames: recalled.entityNames,
-                debug: { ...preSearch.debug, storyArc },
+                // The block replaces the pre-search's events, so only the recipe's own failed searches cost this turn memory.
+                debug: { ...preSearch.debug, storyArc, failedSearchCount: recalled.failedSearchCount, searchFailureMessage: recalled.searchFailureMessage },
             };
         }
     } else {
@@ -400,7 +412,11 @@ function _linkModelAtEffort(linkConnection, reasoningEffort) {
     return { ...linkConnection, parameterStyle: { ...linkConnection.parameterStyle, reasoningEffort } };
 }
 
-/** The link model for a quick choice. Low effort found about as much as more thought, in much less time. */
+/**
+ * The link model for the thread pick and the cut, at low effort whatever Core's thinking
+ * switch says. Low effort finds about as much as more thought in much less time, and with no
+ * reasoning the cut keeps far fewer lines.
+ */
 function _linkModelAtLowEffort(linkConnection) {
     return _linkModelAtEffort(linkConnection, 'low');
 }
@@ -440,7 +456,7 @@ async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }
             maxTokens: STORY_CHOICE_MAX_TOKENS,
             contextLabel: 'StoryArc thread pick',
         },
-        read: readThreadPick,
+        read: reply => readThreadPick(reply, threads),
     });
 }
 

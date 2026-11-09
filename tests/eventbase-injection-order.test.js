@@ -142,6 +142,22 @@ describe('formatStoryArcForInjection', () => {
         expect(text.split('\n')[1]).toBe('- #10: alone');
     });
 
+    it('ends a line with when and where the event happened, as it records them, on every shape', () => {
+        const event = line({ summary: 'the blockade', source_window_end: 459, DateTime: '1203-04-02T18:00', scene_time: 'the second evening of the siege', locations: ['Old Mill', 'East Gate'] });
+        for (const shape of ['first_time', 'last_time', 'chain', 'why', 'bigger_plot', 'current', 'scene']) {
+            expect(formatStoryArcForInjection([event], shape).text.split('\n')[1], shape)
+                .toBe('- #458: the blockade (when: 1203-04-02T18:00, the second evening of the siege; where: Old Mill, East Gate)');
+        }
+    });
+
+    it('gives only what the event records, and a time once when both fields hold it', () => {
+        const at = o => formatStoryArcForInjection([line({ summary: 'the blockade', source_window_end: 459, ...o })], 'chain').text.split('\n')[1];
+        expect(at({ scene_time: 'dawn' })).toBe('- #458: the blockade (when: dawn)');
+        expect(at({ locations: ['Old Mill'] })).toBe('- #458: the blockade (where: Old Mill)');
+        expect(at({ DateTime: '1203-04-02', scene_time: '1203-04-02' })).toBe('- #458: the blockade (when: 1203-04-02)');
+        expect(at({ DateTime: null, scene_time: '', locations: [''] })).toBe('- #458: the blockade');
+    });
+
     it('keeps one window\'s events in the order they are given, and sorts windows oldest → newest', () => {
         const { text } = formatStoryArcForInjection([
             line({ summary: 'first_of_window', source_window_end: 101 }),
@@ -173,14 +189,21 @@ describe('formatStoryArcForInjection', () => {
 
     it('says what the block is for each shape, and tells the reader how to read it', () => {
         const events = [line({ summary: 'a', source_window_end: 2 })];
-        const headers = ['first_time', 'chain', 'why', 'bigger_plot', 'current', 'last_time'].map(shape => formatStoryArcForInjection(events, shape).text.split('\n')[0]);
-        expect(new Set(headers).size).toBe(6);
+        const headers = ['first_time', 'chain', 'why', 'bigger_plot', 'current', 'last_time', 'scene'].map(shape => formatStoryArcForInjection(events, shape).text.split('\n')[0]);
+        expect(new Set(headers).size).toBe(7);
         for (const header of headers) {
             expect(header).toContain(header === headers[4] ? 'newest → oldest' : 'oldest → newest');
             expect(header).toContain('smaller # happened earlier');
         }
         expect(headers[0]).toContain('earliest');
         expect(headers[5]).toContain('latest');
+    });
+
+    // An ordinary turn asks about nothing, so its block names no thread or question.
+    it('gives an ordinary turn\'s block a header that names no thread or question', () => {
+        const header = formatStoryArcForInjection([line({ summary: 'a', source_window_end: 2 })], 'scene').text.split('\n')[0];
+        expect(header).toContain('this moment');
+        expect(header).not.toMatch(/thread|asked/);
     });
 
     it('stays near the size of the normal block at 50 events', () => {

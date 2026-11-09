@@ -47,10 +47,11 @@ import { log } from '../sillytavern/log.js';
  * D5: Cross-repo version floor — warn ONLY when the installed similharity is OLDER
  * than the minimum VectFox needs. This is a floor (>=) check, not an exact match:
  * VectFox stays forward-compatible with newer plugin builds, so a plugin-only bugfix
- * bump (e.g. 3.3.1 -> 3.3.2) must not nag users who are, in fact, up to date. Only
- * bump this when VectFox genuinely requires a newer plugin feature.
+ * bump must not nag users who are, in fact, up to date. Raise it only when VectFox
+ * needs a newer plugin: a feature it calls, or a fix that protects data. 3.3.5 is
+ * the first plugin that deletes nothing on a vector size change.
  */
-const SIMILHARITY_MIN_VERSION = '3.3.1';
+const SIMILHARITY_MIN_VERSION = '3.3.5';
 
 /**
  * @param {string} version installed plugin version

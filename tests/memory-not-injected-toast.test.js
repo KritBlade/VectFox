@@ -1,6 +1,7 @@
 /**
- * When a query embedding still fails after its retry and the turn ends with no
- * memory, the player is told with a yellow toast, so they can regenerate.
+ * When a memory search fails, a query embedding included after its retry, the player
+ * is told with a yellow toast, so they can regenerate: no memory, or incomplete memory
+ * when the other searches still found some.
  *
  * Drives the real runEventBaseRetrieval with retrieveEventsForTurn stubbed, and the
  * real notifier against a stubbed toastr.
@@ -38,9 +39,12 @@ vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({ extractEven
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: { execute: (run) => run() }, generationRateLimitSettings: () => ({}) }));
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn(async () => state.turn) }));
-vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn(), formatStoryArcForInjection: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({
+    formatEventsForInjectionDetailed: vi.fn(() => ({ text: '- the duel at the mill', includedCount: 1 })),
+    formatStoryArcForInjection: vi.fn(() => ({ text: '- #120: the duel at the mill', includedCount: 1 })),
+}));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: new Proxy({}, { get: () => () => {} }) }));
-vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false } }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), enabled: () => false, domainEnabled: () => false, domain: vi.fn() } }));
 
 // SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
 // read when embedding/providers.js loads.
@@ -58,22 +62,22 @@ beforeEach(() => {
     globalThis.toastr = { error: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn() };
 });
 
-describe('a turn whose query embedding failed', () => {
+describe('a turn whose memory search failed', () => {
     it('warns in yellow that no memory was injected', async () => {
-        state.turn = { events: [], debug: { failedEmbeddingCount: 2, embeddingFailureMessage: EMBEDDING_ERROR } };
+        state.turn = { events: [], debug: { failedSearchCount: 2, searchFailureMessage: EMBEDDING_ERROR } };
 
         await runTurn();
 
         expect(globalThis.toastr.error).not.toHaveBeenCalled();
         expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
         const [message, title] = globalThis.toastr.warning.mock.calls[0];
-        expect(message).toContain('Query embedding failed after a retry, so no memory was injected this turn');
+        expect(message).toContain('A memory search failed, so no memory was injected this turn');
         expect(message).toContain('API request failed');
-        expect(title).toBe('VectFox — memory not injected');
+        expect(title).toBe('VectFox — memory not injected correctly');
     });
 
     it('warns again on the next turn that fails the same way', async () => {
-        state.turn = { events: [], debug: { failedEmbeddingCount: 1, embeddingFailureMessage: EMBEDDING_ERROR } };
+        state.turn = { events: [], debug: { failedSearchCount: 1, searchFailureMessage: EMBEDDING_ERROR } };
 
         await runTurn();
         await runTurn();
@@ -81,8 +85,29 @@ describe('a turn whose query embedding failed', () => {
         expect(globalThis.toastr.warning).toHaveBeenCalledTimes(2);
     });
 
+    // A StoryArc block can still hold its picked threads when its search failed.
+    it('warns that the memory is incomplete when a search failed but some memory was injected', async () => {
+        state.turn = { events: [{ summary: 'the duel at the mill' }], storyArcShape: 'chain', debug: { failedSearchCount: 1, searchFailureMessage: EMBEDDING_ERROR } };
+
+        await runTurn();
+
+        expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
+        const [message, title] = globalThis.toastr.warning.mock.calls[0];
+        expect(message).toContain('A memory search failed, so this turn\'s memory is incomplete');
+        expect(message).toContain('API request failed');
+        expect(title).toBe('VectFox — memory not injected correctly');
+    });
+
+    it('stays quiet when memory was injected and every search worked', async () => {
+        state.turn = { events: [{ summary: 'the duel at the mill' }], debug: { failedSearchCount: 0, searchFailureMessage: '' } };
+
+        await runTurn();
+
+        expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+    });
+
     it('stays quiet when nothing matched and every embedding worked', async () => {
-        state.turn = { events: [], debug: { failedEmbeddingCount: 0, embeddingFailureMessage: '' } };
+        state.turn = { events: [], debug: { failedSearchCount: 0, searchFailureMessage: '' } };
 
         await runTurn();
 

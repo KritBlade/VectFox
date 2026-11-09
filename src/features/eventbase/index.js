@@ -37,7 +37,9 @@ export { getEventBaseExtractionPrompt } from './prompts-i18n.js';
 export { STORY_LINKS_FILE_TYPE, describeStoryLinkCoverage, describeStoryLinksImport } from './story-arc-links-core.js';
 export {
     buildCollectionLinksFile,
+    deleteStoryLinks,
     describeStoryLinkPass,
+    planStoryLinksDelete,
     planStoryLinksImport,
     readCollectionLinkCoverage,
     readStoryLinkCoverage,

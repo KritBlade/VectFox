@@ -30,6 +30,7 @@ import { resolveEffectiveSettings } from './content-vectorization.js';
 import { buildArchiveEventCollectionId } from '../../shared/collection-ids.js';
 import { openTextCleaningModal, getCleaningSettings, CLEANING_PRESETS } from '../text-cleaning/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
+import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 
 // ============================================================================
 // STATE
@@ -3384,14 +3385,9 @@ async function startVectorization() {
 
         log.error('VectFox: Vectorization failed:', e);
 
-        // Check for dimension mismatch error and provide helpful guidance
-        if (e.message.includes('dimension mismatch') || e.message.includes('Vector dimension error')) {
-            toastr.error(
-                'Vector dimension mismatch detected. You likely switched embedding models. ' +
-                'Please delete this collection in Database Browser and try again.',
-                'VECTFOX - Dimension Mismatch',
-                { timeOut: 10000 }
-            );
+        // A configuration error, such as a collection holding another vector size, already says how to fix it.
+        if (isInvalidModelConfigError(e)) {
+            notifyInvalidModel(e.message);
         } else {
             toastr.error('Vectorization failed: ' + e.message, 'VectFox');
         }

@@ -14,7 +14,7 @@
  */
 
 import { listChunks, queryCollection } from '../vector-backend/index.js';
-import { dedupeEventsByIdentity, removeEventsVisibleInContext } from './eventbase-retrieval.js';
+import { dedupeEventsByIdentity, removeEventsVisibleInContext, searchFailureMessageOf } from './eventbase-retrieval.js';
 import { STORY_POOL_SIZE, STORY_ROUTE_RULE, cutBlockToSeats, hasRecipe, hasThreadPick, isBlockCutNeeded, selectStoryRecipeEvents, storyBlockLimits } from './story-arc-core.js';
 import { buildEntityNameWriter, entityNamesInMessage, entitySearchText, hasEntityMerges, withKeptEntityNames } from './story-arc-entity-core.js';
 import { readEntityMerges } from './story-arc-entities.js';
@@ -29,16 +29,22 @@ const STORY_WEB_CLOSEST_COUNT = 10;
 
 /**
  * One collection's hybrid hits, closest first. A failed query counts as no hits,
- * so the other collections still count.
+ * so the other collections still count, and its error goes to `failedSearches`.
  */
-async function _queryPool(collectionId, queryText, poolSize, settings, boundQuery) {
+async function _queryPool(collectionId, queryText, poolSize, settings, boundQuery, failedSearches) {
     try {
         const { hashes, metadata } = await boundQuery(queryCollection(collectionId, queryText, poolSize, settings));
         return (hashes || []).map((hash, i) => ({ ...(metadata?.[i] || {}), _hash: Number(hash), _sortFrame: collectionId }));
     } catch (err) {
         log.warn(`[VectFox-StoryArc] Query failed (${collectionId}):`, err);
+        failedSearches.push(err);
         return [];
     }
+}
+
+/** Every live collection's hybrid hits, closest first, one list per collection. */
+function _queryPools(collectionIds, queryText, settings, boundQuery, failedSearches) {
+    return Promise.all(collectionIds.map(collectionId => _queryPool(collectionId, queryText, STORY_POOL_SIZE, settings, boundQuery, failedSearches)));
 }
 
 /**
@@ -76,14 +82,40 @@ function _mergeHitsByPlace(hitLists) {
 
 /**
  * Cut a long block, after the filters every retrieval applies, so a filtered event
- * takes no seat. `cutRuleName` is empty when the block needed no cut.
+ * takes no seat: by an LLM's choice, or by the fixed rule when `shouldCutByRule` is set.
+ * `cutRuleName` is empty when the block needed no cut, or nothing may cut it.
  */
-async function _cutLongBlock(shape, keptNames, events, poolEvents, storedEvents, chooseBlockEvents, lineCount) {
-    if (!chooseBlockEvents || !isBlockCutNeeded(shape, events.length, lineCount)) return { events, cutRuleName: '' };
-    const chosenEvents = await chooseBlockEvents(events, keptNames, lineCount);
+async function _cutLongBlock({ shape, keptNames, events, poolEvents, storedEvents, chooseBlockEvents, shouldCutByRule, lineCount }) {
+    if ((!chooseBlockEvents && !shouldCutByRule) || !isBlockCutNeeded(shape, events.length, lineCount)) return { events, cutRuleName: '' };
+    const chosenEvents = shouldCutByRule ? null : await chooseBlockEvents(events, keptNames, lineCount);
+    const cutRuleName = shouldCutByRule ? STORY_ROUTE_RULE.BLOCK_CUT_BY_RULE : chosenEvents ? STORY_ROUTE_RULE.BLOCK_CUT : STORY_ROUTE_RULE.BLOCK_CUT_FAILED;
+    return { events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents, lineCount, storedEvents }), cutRuleName };
+}
+
+/**
+ * Start what any recipe reads, before the router has chosen one: the listing, and the
+ * pool query unless entity merges make its search text wait for the router's subject.
+ * Started beside the router, a question about the past does not wait for them after it
+ * answers. A turn the router keeps on the pre-search reads them and uses nothing.
+ *
+ * @param {object} params - The retrieval params (see retrieveEvents)
+ * @param {(promise: Promise) => Promise} params.boundQuery - Limits how long one Qdrant call may take
+ * @returns {{queryText: string, ebSettings: object, merges: Record<string, string[]>, listing: Promise<(object[]|null)[]>, pools: Promise<object[][]>|null, failedSearches: unknown[]}|null} null when no recipe could run
+ */
+export function startStoryRecipeReads(params) {
+    const { keywordQuery, searchText, settings, liveCollectionIds, skipLiveQuery, boundQuery } = params;
+    const queryText = keywordQuery || searchText;
+    if (skipLiveQuery || !liveCollectionIds?.length || !queryText) return null;
+    const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
+    const merges = readEntityMerges(liveCollectionIds);
+    const failedSearches = [];
     return {
-        events: cutBlockToSeats({ shape, subject: keptNames.subject, events, poolEvents, chosenEvents, lineCount, storedEvents }),
-        cutRuleName: chosenEvents ? STORY_ROUTE_RULE.BLOCK_CUT : STORY_ROUTE_RULE.BLOCK_CUT_FAILED,
+        queryText,
+        ebSettings,
+        merges,
+        listing: Promise.all(liveCollectionIds.map(collectionId => listStoryEvents(collectionId, ebSettings, boundQuery))),
+        pools: hasEntityMerges(merges) ? null : _queryPools(liveCollectionIds, queryText, ebSettings, boundQuery, failedSearches),
+        failedSearches,
     };
 }
 
@@ -94,30 +126,27 @@ async function _cutLongBlock(shape, keptNames, events, poolEvents, storedEvents,
  * @param {{shape: string, subject: string}} route
  * @param {object} params - The retrieval params (see retrieveEvents)
  * @param {(promise: Promise) => Promise} params.boundQuery - Limits how long one Qdrant call may take
+ * @param {ReturnType<typeof startStoryRecipeReads>} [params.startedReads] - Reads started beside the router; started here when absent
  * @param {(storedEvents: object[], keptNames: {question: string, subject: string}) => Promise<string[]|null>} [params.pickThreads] - Asks an LLM which threads could hold the answer; null when that failed
- * @param {(events: object[], keptNames: {question: string, subject: string}, lineCount: number) => Promise<object[]|null>} [params.chooseBlockEvents] - Asks an LLM which of a long block's events answer the question; null when that failed. Without it, no block is cut
- * @returns {Promise<{events: object[], blockShape: string, ruleName: string, cutRuleName: string, pickedThreadCount: number, entityNames: {name: string, keptName: string}[]}>} blockShape says which block the events suit, and entityNames which other names the question used
+ * @param {(events: object[], keptNames: {question: string, subject: string}, lineCount: number) => Promise<object[]|null>} [params.chooseBlockEvents] - Asks an LLM which of a long block's events answer the question; null when that failed. Without it or shouldCutByRule, no block is cut
+ * @param {boolean} [params.shouldCutByRule] - Cut a long block by the fixed rule, with no LLM, as an ordinary turn does
+ * @returns {Promise<{events: object[], blockShape: string, ruleName: string, cutRuleName: string, pickedThreadCount: number, entityNames: {name: string, keptName: string}[], failedSearchCount: number, searchFailureMessage: string}>} blockShape says which block the events suit, entityNames which other names the question used, and failedSearchCount how many of the recipe's searches failed, so its events may be missing some
  */
 export async function retrieveStoryRecipeEvents(route, params) {
-    const { keywordQuery, searchText, chatLength, settings, liveCollectionIds, additionalCandidates, skipLiveQuery, skipContextDedup, boundQuery, pickThreads = async () => [], chooseBlockEvents } = params;
-    const queryText = keywordQuery || searchText;
-    if (!hasRecipe(route.shape) || skipLiveQuery || !liveCollectionIds?.length || !queryText) {
+    const { chatLength, settings, liveCollectionIds, additionalCandidates, skipContextDedup, boundQuery, startedReads, pickThreads = async () => [], chooseBlockEvents, shouldCutByRule = false } = params;
+    const reads = hasRecipe(route.shape) ? (startedReads ?? startStoryRecipeReads(params)) : null;
+    if (!reads) {
         return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING, cutRuleName: '', pickedThreadCount: 0, entityNames: [] };
     }
 
-    const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
-    const merges = readEntityMerges(liveCollectionIds);
+    const { queryText, ebSettings, merges, listing } = reads;
     const isMerging = hasEntityMerges(merges);
-    const listing = Promise.all(liveCollectionIds.map(collectionId => listStoryEvents(collectionId, ebSettings, boundQuery)));
     // Which other names a search can use depends on how rare they are, so with merges the search waits for the listing.
     const poolText = isMerging
         ? entitySearchText({ queryText, subject: route.subject, merges, storedEvents: (await listing).flatMap(events => events ?? []) })
         : queryText;
     if (poolText !== queryText) log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] search text with other names: "${poolText}"`);
-    const [pools, stored] = await Promise.all([
-        Promise.all(liveCollectionIds.map(collectionId => _queryPool(collectionId, poolText, STORY_POOL_SIZE, ebSettings, boundQuery))),
-        listing,
-    ]);
+    const [pools, stored] = await Promise.all([reads.pools ?? _queryPools(liveCollectionIds, poolText, ebSettings, boundQuery, reads.failedSearches), listing]);
     if (stored.includes(null)) {
         return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.LISTING_FAILED, cutRuleName: '', pickedThreadCount: 0, entityNames: [] };
     }
@@ -133,7 +162,8 @@ export async function retrieveStoryRecipeEvents(route, params) {
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
     const important = dedupeEventsByIdentity(selection.events).filter(event => event.importance == null || event.importance >= minImportance);
     const block = inTimelineOrder(removeEventsVisibleInContext(important, { chatLength, settings, skipContextDedup }));
-    const { events, cutRuleName } = await _cutLongBlock(route.shape, keptNames, block, poolEvents, storedEvents, chooseBlockEvents, storyBlockLimits(storedEvents.length, blockScale).lineCount);
+    const lineCount = storyBlockLimits(storedEvents.length, blockScale).lineCount;
+    const { events, cutRuleName } = await _cutLongBlock({ shape: route.shape, keptNames, events: block, poolEvents, storedEvents, chooseBlockEvents, shouldCutByRule, lineCount });
     // A current-state question has no recipe without links, which is a different reason from finding nothing.
     const isWaitingForLinks = route.shape === 'current' && selection.ruleName === STORY_ROUTE_RULE.LINKS_NOT_GENERATED;
     const ruleName = pickedThreads === null ? STORY_ROUTE_RULE.THREAD_PICK_FAILED : selection.ruleName;
@@ -144,6 +174,8 @@ export async function retrieveStoryRecipeEvents(route, params) {
         cutRuleName,
         pickedThreadCount: pickedThreads?.length ?? 0,
         entityNames: entityNamesInMessage(queryText, merges),
+        failedSearchCount: reads.failedSearches.length,
+        searchFailureMessage: searchFailureMessageOf(reads.failedSearches),
     };
 }
 
@@ -163,7 +195,8 @@ export async function findStoryWebEvents({ question, collectionKey, storedEvents
     const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
     const searchText = entitySearchText({ queryText: question, subject: '', merges, storedEvents });
     const writeName = buildEntityNameWriter(merges, storedEvents);
-    const poolEvents = withKeptEntityNames(await _queryPool(collectionKey, searchText, STORY_POOL_SIZE, ebSettings, promise => promise), writeName);
+    // The story web draws what it finds, and a failed search is already reported, so its errors are not kept.
+    const poolEvents = withKeptEntityNames(await _queryPool(collectionKey, searchText, STORY_POOL_SIZE, ebSettings, promise => promise, []), writeName);
     const { events } = selectStoryRecipeEvents({ shape: 'chain', subject: '', storedEvents: withKeptEntityNames(storedEvents, writeName), poolEvents, pickedThreads: [], blockScale: settings.story_arc_block_scale });
     return {
         closestHashes: poolEvents.slice(0, STORY_WEB_CLOSEST_COUNT).map(event => event._hash),

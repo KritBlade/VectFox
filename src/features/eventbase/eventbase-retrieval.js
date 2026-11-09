@@ -230,6 +230,16 @@ async function _runOneLiveQuery({
 }
 
 /**
+ * The message a turn's failed memory searches report: the first failure's, or '' when none failed.
+ *
+ * @param {unknown[]} failedSearches - The errors the searches threw
+ * @returns {string}
+ */
+export function searchFailureMessageOf(failedSearches) {
+    return failedSearches.length ? String(failedSearches[0]?.message || failedSearches[0]) : '';
+}
+
+/**
  * Collapse events that are the SAME physical event (same event_id, or _hash
  * fallback) to a single copy, keeping the highest-scoring instance.
  *
@@ -530,8 +540,8 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     //    Identical strings are deduped so we never pay double cost.
     //    Skipped entirely when no live collection is available.
     let rawCandidates = [];
-    // Query embeddings that still failed after their retry, one per query text.
-    const failedEmbeddings = [];
+    // Live queries that failed, one per collection and query text, an embedding that still failed after its retry included.
+    const failedSearches = [];
     const queryTexts = [keywordQuery, searchText]
         .filter(q => q && String(q).trim())
         .filter((q, i, arr) => arr.indexOf(q) === i);
@@ -549,14 +559,10 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     } else {
         // Embed each query text ONCE for every collection and every fallback inside
         // _runOneLiveQuery (see getQueryVector). If a text's embedding still fails
-        // after its retry, it is counted in failedEmbeddings, and each of its queries
-        // fails into the per-query catch below.
+        // after its retry, each of its queries fails into the per-query catch below.
         const queryVectorByText = new Map(queryTexts.map(text => [
             text,
-            getBackend(settings).then(backend => getQueryVector(backend, text, ebSettings).catch((error) => {
-                failedEmbeddings.push(error);
-                throw error;
-            })),
+            getBackend(settings).then(backend => getQueryVector(backend, text, ebSettings)),
         ]));
         const promises = [];
         for (const colId of liveCollectionIds) {
@@ -582,6 +588,7 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
                         .then(evts => _tagFrame(evts, colId))
                         .catch(err => {
                             log.error(`[EventBase] Live query failed (${colId}):`, err);
+                            failedSearches.push(err);
                             return [];
                         })
                 );
@@ -726,8 +733,8 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
             nativeRerank: useNativeRerank,
             rerankComparison: comparisonLog || undefined,
             rawCount: rawCandidates.length,
-            failedEmbeddingCount: failedEmbeddings.length,
-            embeddingFailureMessage: failedEmbeddings.length ? String(failedEmbeddings[0]?.message || failedEmbeddings[0]) : '',
+            failedSearchCount: failedSearches.length,
+            searchFailureMessage: searchFailureMessageOf(failedSearches),
             archiveCandidates: additionalCandidates?.length || 0,
             afterImportanceFilter: importanceFiltered.length,
             afterDedup: dedupedEvents.length,

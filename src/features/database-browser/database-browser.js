@@ -53,8 +53,10 @@ import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
   STORY_LINKS_FILE_TYPE,
   buildCollectionLinksFile,
+  deleteStoryLinks,
   describeStoryLinkCoverage,
   describeStoryLinksImport,
+  planStoryLinksDelete,
   planStoryLinksImport,
   readCollectionLinkCoverage,
   writeImportedStoryLinks,
@@ -1068,6 +1070,11 @@ function renderStoryLinksRow(collection, safeKey) {
                         title="Put links from a saved file back onto this collection's events, matched event by event. Nothing else about them changes.">
                     📥 Import links
                 </button>
+                <button class="vectfox-btn-sm vectfox-btn-danger vectfox-action-delete-links"
+                        data-collection-key="${safeKey}"
+                        title="Delete this collection's links, after asking. Its events stay as they are, and Regenerate links on the StoryArc tab makes new ones.">
+                    ${icons.trash(16)} Delete links
+                </button>
             </div>
         </div>
     `;
@@ -1136,6 +1143,47 @@ async function importStoryLinksFile(file, collectionKey) {
   } catch (error) {
     log.error("VectFox: Import links failed", error);
     toastr.error(`Import links failed: ${error.message}`, "VectFox StoryArc");
+  }
+}
+
+/**
+ * Deletes a collection's StoryArc links, after showing how many events lose them.
+ * @param {string} collectionKey The collection whose Delete links button was pressed
+ * @returns {Promise<void>}
+ */
+async function deleteCollectionStoryLinks(collectionKey) {
+  const collection = findCollectionByKey(collectionKey);
+  if (!collection) return;
+  try {
+    const writes = await planStoryLinksDelete(collection.id, browserState.settings);
+    if (writes.length === 0) {
+      toastr.info("This collection has no links to delete.", "VectFox StoryArc");
+      return;
+    }
+
+    const { callGenericPopup, POPUP_TYPE } = await import("../../sillytavern/popup.js");
+    const confirmed = await callGenericPopup(
+      `<div style="text-align:left;">
+                    <p><strong>Delete the StoryArc links of ${escapeHtml(collection.name)}?</strong></p>
+                    <p>${writes.length} events lose their links and go back to not decided. The events themselves stay as they are.</p>
+                    <p>StoryArc answers without links, and new events wait, until Regenerate links on the StoryArc tab makes new ones at the link model's cost. Export links first if you may want these back.</p>
+                </div>`,
+      POPUP_TYPE.CONFIRM,
+      "",
+      { okButton: "Delete links", cancelButton: "Cancel" },
+    );
+    if (!confirmed) return;
+
+    const { writtenCount, failedCount, isStopped } = await deleteStoryLinks(writes, collection.id, browserState.settings);
+    if (failedCount === 0 && !isStopped) {
+      toastr.success(`Deleted the links of ${writtenCount} events`, "VectFox StoryArc");
+    }
+    browserState.storyLinkCoverage.delete(collectionKey);
+    await fillStoryLinkRows();
+    document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
+  } catch (error) {
+    log.error("VectFox: Delete links failed", error);
+    toastr.error(`Delete links failed: ${error.message}`, "VectFox StoryArc");
   }
 }
 
@@ -1567,7 +1615,8 @@ function bindCollectionCardEvents() {
 
       const confirmed = confirm(
         `Delete collection "${collection.name}"?\n\n` +
-          `This will remove ${collection.chunkCount} chunks from the vector index.\n` +
+          `This will remove ${collection.chunkCount} chunks from the vector index` +
+          `${hasStoryLinksRow(collection) ? ", and their StoryArc links with them" : ""}.\n` +
           `This action cannot be undone.`,
       );
 
@@ -1591,10 +1640,11 @@ function bindCollectionCardEvents() {
           collection.registryKey,
         );
 
-        // Remove from state
+        // Remove from state, with its links row's count
         browserState.collections = browserState.collections.filter(
           (c) => (c.registryKey || c.id) !== collectionKey,
         );
+        browserState.storyLinkCoverage.delete(collectionKey);
 
         // Re-render
         renderCollections();
@@ -1645,6 +1695,14 @@ function bindCollectionCardEvents() {
       e.stopPropagation();
       browserState.pendingLinksImportKey = $(this).data("collection-key");
       $("#vectfox_import_links_file").click();
+    });
+
+  // Delete a collection's StoryArc links, after asking
+  $(".vectfox-action-delete-links")
+    .off("click")
+    .on("click", async function (e) {
+      e.stopPropagation();
+      await deleteCollectionStoryLinks($(this).data("collection-key"));
     });
 
   // Visualize chunks

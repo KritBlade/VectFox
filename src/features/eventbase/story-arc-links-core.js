@@ -7,12 +7,13 @@
  * thread can be walked to its earliest event. One LLM call per event picks those
  * links from its nearest earlier events and the events just before it.
  *
- * `story_links` is absent until a link pass has decided the event, and an empty
- * array means it decided the event has no earlier step. A link names the earlier
+ * `story_links` is absent until a link pass has decided the event, and null once
+ * its links are deleted, which reads the same. An empty array means a pass decided
+ * the event has no earlier step. A link names the earlier
  * event by `event_id`, which stays with the event when an import or a text edit
  * gives its point a new hash.
  *
- * @see InternalProject/Vectfox/plans/story-arc.md
+ * @see InternalProject/Vectfox/plans/executed/story-arc.md
  * ============================================================================
  */
 
@@ -381,6 +382,18 @@ export function planStoryLinkWrites(linksByEventId, storedEvents) {
         writes.push({ event, links: storableLinks });
     }
     return { writes, fileEventCount: linksByEventId.size, storedEventCount: storedEvents.length, leftOutLinkCount };
+}
+
+/**
+ * What deleting a collection's links would write. Each decided event gets a null
+ * `story_links`, which reads as undecided, since a payload update cannot remove a
+ * field. An undecided event has nothing to delete.
+ *
+ * @param {object[]} storedEvents - The collection's stored events
+ * @returns {{event: object, links: null}[]}
+ */
+export function planStoryLinkDeletes(storedEvents) {
+    return storedEvents.filter(isDecided).map(event => ({ event, links: null }));
 }
 
 /**
