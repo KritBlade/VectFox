@@ -192,8 +192,8 @@ describe('buildThreadPickMessage', () => {
     const threads = [{ name: 'The duel', firstMessage: 50 }, { name: 'The ledger', firstMessage: 100 }];
 
     // The list first lets a provider cache it, since only the question changes.
-    it('puts the list first and the question last', () => {
-        expect(buildThreadPickMessage(threads, 'How did Nora win?', 'Nora')).toBe("Threads:\n#50 The duel\n#100 The ledger\n\nPlayer's question:\nHow did Nora win?");
+    it('puts the list first, each thread with its label, and the question last', () => {
+        expect(buildThreadPickMessage(threads, 'How did Nora win?', 'Nora')).toBe("Threads:\nT1 #50 The duel\nT2 #100 The ledger\n\nPlayer's question:\nHow did Nora win?");
     });
 
     it('adds the subject when the question leaves it out', () => {
@@ -206,28 +206,36 @@ describe('buildThreadPickMessage', () => {
 });
 
 describe('readThreadPick', () => {
-    it('reads thread names in the model\'s order', () => {
-        expect(readThreadPick({ threads: ['The ledger', 'The duel'] })).toEqual(['The ledger', 'The duel']);
+    const threads = [{ name: 'The duel', firstMessage: 50 }, { name: 'The ledger', firstMessage: 100 }, { name: 'The flood', firstMessage: 140 }];
+
+    it('reads labels as thread names, in the model\'s order', () => {
+        expect(readThreadPick({ threads: ['T3', 'T1'] }, threads)).toEqual(['The flood', 'The duel']);
     });
 
-    // The model copies a list line whole more often than not.
-    it('removes a copied message number', () => {
-        expect(readThreadPick({ threads: ['#530 The ledger', ' #1840  The duel '] })).toEqual(['The ledger', 'The duel']);
+    it('reads a label in small letters, in brackets, or at the start of a list line copied whole', () => {
+        expect(readThreadPick({ threads: ['t2', ' [T3] ', 'T1 #50 The duel'] }, threads)).toEqual(['The ledger', 'The flood', 'The duel']);
     });
 
-    it('drops what is not a name', () => {
-        expect(readThreadPick({ threads: ['The duel', 3, null, '', '  '] })).toEqual(['The duel']);
+    // A bare number may be a message number, so it names no thread.
+    it('drops what is not a label on the list', () => {
+        expect(readThreadPick({ threads: ['T2', 'T0', 'T4', 'T1.5', 'T12x', 2, '3', '#50', null, 'The duel'] }, threads)).toEqual(['The ledger']);
     });
 
     it('reads an empty pick as no threads', () => {
-        expect(readThreadPick({ threads: [] })).toEqual([]);
+        expect(readThreadPick({ threads: [] }, threads)).toEqual([]);
     });
 
     // A malformed reply must count as a failed pick, not as "nothing fits".
     it('throws when the reply has no list', () => {
         for (const reply of [{}, null, undefined, { threads: 'The duel' }]) {
-            expect(() => readThreadPick(reply), JSON.stringify(reply)).toThrow('no threads array');
+            expect(() => readThreadPick(reply, threads), JSON.stringify(reply)).toThrow('no threads array');
         }
+    });
+
+    // Names, or numbers in place of labels, would otherwise read as "nothing fits".
+    it('throws when none of its entries is a label on the list', () => {
+        expect(() => readThreadPick({ threads: ['The duel', 'The ledger'] }, threads)).toThrow('no thread label');
+        expect(() => readThreadPick({ threads: [1, 2] }, threads)).toThrow('no thread label');
     });
 });
 

@@ -6,9 +6,11 @@
  *   - a thread question gets a wide pool in chat order, past the top-K trim,
  *   - a first-time question gets the subject's earliest events and closest hits,
  *   - stored links are walked once a chat has them,
- *   - a thread question asks the link model which threads to add, and survives its failure,
+ *   - a thread question asks the link model which threads to add, by label, and survives its failure,
  *   - a long block is cut by the link model with a prompt for its shape, and survives its failure,
  *   - ordinary turns, router failures, a failed listing and empty recipes keep the pre-search, and no planner runs,
+ *   - the listing and the pool query start beside the router, unless entity merges make the pool wait for its subject,
+ *   - the router follows Core's thinking switch, and the thread pick and the cut ask at low effort,
  *   - every StoryArc turn reports the Route rule that decided it,
  *   - StoryArc mode runs on its own switch and Qdrant, with Agent Mode on or off,
  *   - merged entity names reach the search, the recipe, the cut and the block, and nothing stored changes,
@@ -438,8 +440,8 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             queryReturns([hit]);
         });
 
-        it('asks the link model at low effort, and seats the events of the threads it picks', async () => {
-            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['#20 Finding the father'] });
+        it('asks the link model at low effort for thread labels, and seats the events of the threads it picks', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['T1'] });
             const result = await callAgent(storyArcOn);
             expect(starts(result.events)).toEqual([10, 20, 500]);
             expect(result.debug.storyArc.ruleName).toBe('thread-pick');
@@ -447,7 +449,13 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             expect(pickCall.model).toBe('link-model');
             expect(pickCall.reasoningEffort).toBe('low');
             expect(pickCall.sendTemperature).toBe(false);
-            expect(pickCall.messages[1].content).toBe("Threads:\n#20 Finding the father\n\nPlayer's question:\nHow did Nora get here?");
+            expect(pickCall.messages[1].content).toBe("Threads:\nT1 #20 Finding the father\n\nPlayer's question:\nHow did Nora get here?");
+        });
+
+        it('stays at low effort with Core\'s thinking switch off, never the switch\'s minimal', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['T1'] });
+            await callAgent({ ...storyArcOn, should_disable_thinking: false });
+            expect(pickCalls()[0][0].reasoningEffort).toBe('low');
         });
 
         it('asks only for a question about a thread', async () => {
@@ -500,6 +508,32 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
         });
 
+        // The block still holds the picked threads, so the turn says its memory is incomplete.
+        it('reports a failed search with the block the picked threads still give', async () => {
+            queryCollectionMock.mockRejectedValue(new Error('provider down'));
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['T1'] });
+            const result = await callAgent(storyArcOn);
+            expect(starts(result.events)).toEqual([10, 20]);
+            expect(result.debug.failedSearchCount).toBe(1);
+            expect(result.debug.searchFailureMessage).toBe('provider down');
+        });
+
+        // An ordinary turn injects the pre-search, so its failures are the turn's, and the recipe's reads are not.
+        it('reports the pre-search\'s failures on an ordinary turn, not the reads started beside the router', async () => {
+            queryCollectionMock.mockRejectedValue(new Error('provider down'));
+            retrieveEventsMock.mockResolvedValue({ ...preSearch, debug: { rawCount: 1, failedSearchCount: 0, searchFailureMessage: '' } });
+            llmReplies({ shape: 'scene', subject: '' });
+            const result = await callAgent(storyArcOn);
+            expect(starts(result.events)).toEqual([9]);
+            expect(result.debug.failedSearchCount).toBe(0);
+        });
+
+        it('counts a reply of names, with no thread label, as a failed pick', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['Finding the father'] });
+            const result = await callAgent(storyArcOn);
+            expect(result.debug.storyArc.ruleName).toBe('thread-pick-failed');
+        });
+
     });
 
     describe('block cut', () => {
@@ -509,6 +543,12 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         const cutCalls = () => postChatCompletionMock.mock.calls.filter(([call]) => call.messages[0].content.includes('# label of each line'));
 
         beforeEach(() => queryReturns(closestFirst));
+
+        it('stays at low effort with Core\'s thinking switch off, never the switch\'s minimal', async () => {
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [120] });
+            await callAgent({ ...storyArcOn, should_disable_thinking: false });
+            expect(cutCalls()[0][0].reasoningEffort).toBe('low');
+        });
 
         it('asks the link model at low effort, and keeps the lines it chooses', async () => {
             llmReplies({ shape: 'chain', subject: 'Nora' }, { events: [120, '#112', 999] });
@@ -622,7 +662,7 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             const steps = Array.from({ length: 30 }, (_, i) => event(100 + i * 2, `step ${i}`, { story_links: i ? [{ event_id: `id${100 + (i - 1) * 2}`, type: 'continues', thread: 'The long road' }] : [] }));
             listReturns(steps);
             queryReturns([steps[29]]);
-            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['The long road'] }, { events: [100, 158] });
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['T1'] }, { events: [100, 158] });
             const result = await callAgent(storyArcOn);
             // The cut's 2 lines, then the windows right beside them in its free seats.
             expect(starts(result.events)).toEqual([100, 102, 156, 158]);
@@ -644,14 +684,60 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         });
     });
 
-    it('keeps the pre-search on an ordinary turn, with no planner call', async () => {
-        llmReplies({ shape: 'scene', subject: '' });
-        const result = await callAgent(storyArcOn);
-        expect(result.events).toBe(preSearch.events);
-        expect(result.debug.storyArc.ruleName).toBe('ordinary-turn');
-        expect(result.debug.agenticMode).toBeUndefined();
-        expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
-        expect(queryCollectionMock).not.toHaveBeenCalled();
+    describe('what a recipe reads, beside the router', () => {
+        /** The router's call, which answers only when the test says so. */
+        const holdRouter = () => {
+            let answer;
+            postChatCompletionMock.mockImplementationOnce(() => new Promise((resolve) => {
+                answer = reply => resolve({ content: JSON.stringify(reply), usage: {} });
+            }));
+            return reply => answer(reply);
+        };
+        const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+        it('lists the collection and runs the pool query before the router answers, and reads each once', async () => {
+            const answerRouter = holdRouter();
+            queryReturns([event(200), event(100)]);
+            const turn = callAgent(storyArcOn);
+            await settle();
+            expect(listChunksMock).toHaveBeenCalledTimes(1);
+            expect(queryCollectionMock.mock.calls.map(call => call.slice(0, 3))).toEqual([[COLLECTION, 'How did Nora get here?', 200]]);
+            answerRouter({ shape: 'chain', subject: 'Nora' });
+            const result = await turn;
+            expect(starts(result.events)).toEqual([100, 200]);
+            expect(listChunksMock).toHaveBeenCalledTimes(1);
+            expect(queryCollectionMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('waits for the router\'s subject before the pool query when entity merges change its text', async () => {
+            entityMerges = { Nora: ['Oracle'] };
+            listReturns([event(10, 'The Oracle speaks through a servant'), event(100, 'Nora prays')]);
+            const answerRouter = holdRouter();
+            queryReturns([event(100, 'Nora prays')]);
+            const turn = callAgent(storyArcOn);
+            await settle();
+            expect(listChunksMock).toHaveBeenCalledTimes(1);
+            expect(queryCollectionMock).not.toHaveBeenCalled();
+            answerRouter({ shape: 'chain', subject: 'Nora' });
+            await turn;
+            expect(queryCollectionMock.mock.calls[0][1]).toBe('How did Nora get here? Oracle');
+        });
+
+        it('keeps the pre-search on an ordinary turn, with no planner call, and uses nothing it read', async () => {
+            llmReplies({ shape: 'scene', subject: '' });
+            queryReturns([event(200)]);
+            const result = await callAgent(storyArcOn);
+            expect(result.events).toBe(preSearch.events);
+            expect(result.debug.storyArc.ruleName).toBe('ordinary-turn');
+            expect(result.debug.agenticMode).toBeUndefined();
+            expect(postChatCompletionMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('reads nothing without a link model, as no router runs', async () => {
+            await callAgent({ ...storyArcOn, story_arc_link_model: '' });
+            expect(listChunksMock).not.toHaveBeenCalled();
+            expect(queryCollectionMock).not.toHaveBeenCalled();
+        });
     });
 
     it('runs no planner with Agent Mode on as well', async () => {

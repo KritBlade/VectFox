@@ -203,8 +203,8 @@ describe('retrieveEvents', () => {
 
         expect(queryCollectionMock).not.toHaveBeenCalled(); // no route can run without the vector
         expect(debug.archiveCandidates).toBe(1);
-        expect(debug.failedEmbeddingCount).toBe(2);
-        expect(debug.embeddingFailureMessage).toBe("Query embedding via 'openrouter' failed: 500");
+        expect(debug.failedSearchCount).toBe(2);
+        expect(debug.searchFailureMessage).toBe("Query embedding via 'openrouter' failed: 500");
     });
 
     it('still runs the other text\'s queries when one query text fails to embed', async () => {
@@ -226,10 +226,30 @@ describe('retrieveEvents', () => {
 
         expect(queryCollectionMock).toHaveBeenCalledTimes(1);
         expect(queryCollectionMock.mock.calls[0][1]).toBe('story recap');
-        expect(debug.failedEmbeddingCount).toBe(1);
+        expect(debug.failedSearchCount).toBe(1);
     });
 
-    it('counts no failed embedding when every query text embeds', async () => {
+    it('counts a live query that fails after its text embedded', async () => {
+        queryCollectionMock.mockImplementation(async (_collectionId, text) => {
+            if (text === 'story') throw new Error('Qdrant answered 500');
+            return { hashes: [], metadata: [] };
+        });
+
+        const { debug } = await retrieveEvents({
+            searchText: 'story recap',
+            keywordQuery: 'story',
+            chatLength: 100,
+            settings: baseSettings,
+            liveCollectionIds: ['standard:vf_eventbase_a'],
+            additionalCandidates: [],
+            skipLiveQuery: false,
+        });
+
+        expect(debug.failedSearchCount).toBe(1);
+        expect(debug.searchFailureMessage).toBe('Qdrant answered 500');
+    });
+
+    it('counts no failed search when every query text embeds and every query answers', async () => {
         queryCollectionMock.mockResolvedValue({ hashes: [], metadata: [] });
 
         const { debug } = await retrieveEvents({
@@ -242,8 +262,8 @@ describe('retrieveEvents', () => {
             skipLiveQuery: false,
         });
 
-        expect(debug.failedEmbeddingCount).toBe(0);
-        expect(debug.embeddingFailureMessage).toBe('');
+        expect(debug.failedSearchCount).toBe(0);
+        expect(debug.searchFailureMessage).toBe('');
     });
 
     it('skips the live query and folds in archive candidates without calling the backend', async () => {

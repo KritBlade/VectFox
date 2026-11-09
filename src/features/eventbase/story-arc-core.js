@@ -194,9 +194,9 @@ export function hasRecipe(shape) {
 }
 
 export const THREAD_PICK_PROMPT =
-    'A player asks about the past of a long roleplay story. Below is the list of the story\'s threads, oldest first, each with the message number where it starts. '
+    'A player asks about the past of a long roleplay story. Below is the list of the story\'s threads, oldest first. Each line gives the thread\'s label, a T and a number, then the message number where it starts, then its name. '
     + 'Pick every thread that could hold a step of the answer, even when it uses another name for the same person or matter. A question about someone\'s relative or partner is also about that person. Pick at most 30.\n'
-    + 'Reply with JSON only: {"threads": ["..."]}, copying each thread name exactly.';
+    + 'Reply with JSON only, as {"threads": ["T…"]}, giving the label of each thread you pick.';
 
 /**
  * Whether a shape's recipe asks an LLM to pick threads.
@@ -228,9 +228,10 @@ export function listStoryThreads(storedEvents) {
 }
 
 /**
- * The thread pick's user message: the list, then the question, so the list can be
- * a cached prefix. The subject is added when the question leaves it out, as in
- * "how did your father get there?".
+ * The thread pick's user message: the list, each thread with its label, then the question,
+ * so the list can be a cached prefix. The model answers with labels, which it writes far
+ * faster than names, and a label's T keeps it apart from the message number beside it.
+ * The subject is added when the question leaves it out, as in "how did your father get there?".
  *
  * @param {{name: string, firstMessage: number}[]} threads - From listStoryThreads
  * @param {string} question
@@ -238,7 +239,7 @@ export function listStoryThreads(storedEvents) {
  * @returns {string}
  */
 export function buildThreadPickMessage(threads, question, subject) {
-    const list = threads.map(thread => `#${thread.firstMessage} ${thread.name}`).join('\n');
+    const list = threads.map((thread, index) => `T${index + 1} #${thread.firstMessage} ${thread.name}`).join('\n');
     return `Threads:\n${list}\n\nPlayer's question:\n${question}${_aboutSubject(question, subject)}`;
 }
 
@@ -248,21 +249,33 @@ function _aboutSubject(question, subject) {
 }
 
 /**
- * Read an LLM's thread pick. The model may copy a list line whole, with its message
- * number. A name no link carries simply reaches no events.
+ * Read an LLM's thread pick: the labels it gives, as thread names. A bare number may be a
+ * message number, so only a label names a thread, and a label the list does not hold names none.
  *
  * @param {unknown} reply - Parsed JSON from the LLM
+ * @param {{name: string}[]} threads - The list the pick was asked from, in buildThreadPickMessage's order
  * @returns {string[]} thread names, in the model's order
- * @throws {Error} when the reply has no `threads` array, so a malformed reply never reads as "no threads"
+ * @throws {Error} when the reply has no `threads` array, or gives entries of which none is a label on the list,
+ *   so a malformed reply never reads as "no threads"
  */
-export function readThreadPick(reply) {
+export function readThreadPick(reply, threads) {
     if (!Array.isArray(reply?.threads)) {
         throw new Error(`Thread pick reply has no threads array: ${JSON.stringify(reply)?.slice(0, 200)}`);
     }
-    return reply.threads
-        .filter(name => typeof name === 'string')
-        .map(name => name.replace(/^\s*#\d+\s*/, '').trim())
-        .filter(Boolean);
+    const names = reply.threads
+        .map(_labelNumber)
+        .filter(number => number >= 1 && number <= threads.length)
+        .map(number => threads[number - 1].name);
+    if (reply.threads.length && !names.length) {
+        throw new Error(`Thread pick reply gives no thread label: ${JSON.stringify(reply.threads).slice(0, 200)}`);
+    }
+    return names;
+}
+
+/** A label's number, as the model may give the label: "T3", "t3", "[T3]", or a list line copied whole. Anything else is 0, which no thread holds. */
+function _labelNumber(entry) {
+    const match = /^\s*\[?T(\d+)\]?(?:\s|$)/i.exec(typeof entry === 'string' ? entry : '');
+    return match ? Number(match[1]) : 0;
 }
 
 /**

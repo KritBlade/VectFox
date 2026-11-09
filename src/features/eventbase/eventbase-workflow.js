@@ -1260,10 +1260,10 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     });
 
     log.trace('[EventBase] Retrieval debug:', debug);
+    if (debug?.failedSearchCount > 0) notifyMemoryNotInjected(debug.searchFailureMessage, Boolean(events?.length));
 
     if (!events?.length) {
         log.lifecycle('[EventBase] No events to inject');
-        if (debug?.failedEmbeddingCount > 0) notifyMemoryNotInjected(debug.embeddingFailureMessage);
         log.verbose(`[EventBase Popup] no-events branch gate: retrieval_popup_on_result=${settings.retrieval_popup_on_result} → fire=${!!settings.retrieval_popup_on_result}`);
         if (settings.retrieval_popup_on_result) {
             const rawCount = debug?.rawCount ?? 0;

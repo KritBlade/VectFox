@@ -29,7 +29,7 @@ import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '..
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
 import { STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
-import { retrieveStoryRecipeEvents } from './story-arc-retrieval.js';
+import { retrieveStoryRecipeEvents, startStoryRecipeReads } from './story-arc-retrieval.js';
 import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
@@ -70,9 +70,13 @@ export async function retrieveEventsForTurn(params) {
 async function _retrieveWithStoryArc(params) {
     const { settings } = params;
     const linkConnection = resolveStoryLinkLlmConfig(settings);
+    const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
+    const boundQuery = promise => _raceWithTimeout(promise, queryTimeoutMs);
 
-    // The router runs alongside the pre-search, so an ordinary turn waits only for the slower of the two.
+    // The router, the pre-search and what a recipe reads all start now, so an ordinary turn waits only
+    // for the slower of the first two, and a question about the past finds its reads done when the router answers.
     const storyRoutePromise = _routeStoryQuestion(params, linkConnection);
+    const startedReads = linkConnection.ok ? startStoryRecipeReads({ ...params, boundQuery }) : null;
     const preSearch = await retrieveEvents(params);
     const storyRoute = await storyRoutePromise;
     const storyArc = {
@@ -83,10 +87,10 @@ async function _retrieveWithStoryArc(params) {
         finalCount: 0,
     };
     if (storyRoute && hasRecipe(storyRoute.shape)) {
-        const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
         const recalled = await retrieveStoryRecipeEvents(storyRoute, {
             ...params,
-            boundQuery: promise => _raceWithTimeout(promise, queryTimeoutMs),
+            boundQuery,
+            startedReads,
             pickThreads: (storedEvents, keptNames) => _pickStoryThreads(storedEvents, { subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection),
             chooseBlockEvents: (events, keptNames, lineCount) => _chooseBlockEvents(events, { shape: storyRoute.shape, subject: keptNames.subject }, { ...params, keywordQuery: keptNames.question }, linkConnection, lineCount),
         });
@@ -99,7 +103,8 @@ async function _retrieveWithStoryArc(params) {
                 events: recalled.events,
                 storyArcShape: recalled.blockShape,
                 storyArcEntityNames: recalled.entityNames,
-                debug: { ...preSearch.debug, storyArc },
+                // The block replaces the pre-search's events, so only the recipe's own failed searches cost this turn memory.
+                debug: { ...preSearch.debug, storyArc, failedSearchCount: recalled.failedSearchCount, searchFailureMessage: recalled.searchFailureMessage },
             };
         }
     } else {
@@ -400,7 +405,11 @@ function _linkModelAtEffort(linkConnection, reasoningEffort) {
     return { ...linkConnection, parameterStyle: { ...linkConnection.parameterStyle, reasoningEffort } };
 }
 
-/** The link model for a quick choice. Low effort found about as much as more thought, in much less time. */
+/**
+ * The link model for the thread pick and the cut, at low effort whatever Core's thinking
+ * switch says. Low effort finds about as much as more thought in much less time, and with no
+ * reasoning the cut keeps far fewer lines.
+ */
 function _linkModelAtLowEffort(linkConnection) {
     return _linkModelAtEffort(linkConnection, 'low');
 }
@@ -440,7 +449,7 @@ async function _pickStoryThreads(storedEvents, route, { settings, keywordQuery }
             maxTokens: STORY_CHOICE_MAX_TOKENS,
             contextLabel: 'StoryArc thread pick',
         },
-        read: readThreadPick,
+        read: reply => readThreadPick(reply, threads),
     });
 }
 
