@@ -1,0 +1,447 @@
+<!doctype html>
+<!--
+  tools/gui-dna-specimen.html — copied from mvu-helper with the prefix swapped: every GUI-DNA gene rendered from the real stylesheets (palette.css + gui-dna.css), at desktop width and
+  at phone width side by side (the phone frame is a 390px box, so the shell's container query switches it
+  to the phone layout), in both nav placements: the rail with a page of cards, in a box that scrolls like the
+  panel's dialog, and the top bar with a workbench page and a dialog. Repo-only: open it straight from disk to review the palette and the genes; it is never
+  deployed. The markup here is the canonical markup each gene uses.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GUI-DNA specimen</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="../src/shared/gui-dna/palette.css">
+<link rel="stylesheet" href="../src/shared/gui-dna/gui-dna.css">
+<style>
+    body { margin: 0; padding: 24px; background: #d3dbe2; color: #1b2c3b; font-family: "Noto Sans", system-ui, sans-serif; }
+    h1 { margin: 0 0 4px; font-size: 20px; }
+    .specimen-note { margin: 0 0 20px; color: #52667a; font-size: 14px; }
+    .specimen-frames { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+    .specimen-frame { flex: 0 0 auto; border: 1px solid #b7c4cf; border-radius: 12px; overflow: hidden; }
+    .specimen-frame > .specimen-label { padding: 6px 12px; background: #c5d0d9; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #3d5063; }
+    .specimen-desktop { width: 1100px; }
+    .specimen-phone { width: 390px; }
+    .specimen-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .specimen-swatch { display: flex; align-items: center; gap: 8px; font-size: 0.8em; }
+    .specimen-swatch > span:first-child { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--vfx-border); flex: 0 0 auto; }
+    /* The rail frames scroll like the panel's dialog: a box of fixed height, named as the shell's scroller (gui-dna.md §4). */
+    .specimen-rail-box { height: 90vh; overflow-y: auto; container: vfx-scroller / size; }
+    .specimen-topbar-box { height: 560px; }
+    .specimen-phone .specimen-topbar-box { height: 820px; }
+    .specimen-dialog { position: static; margin: 0; }
+</style>
+</head>
+<body>
+<h1>GUI-DNA specimen</h1>
+<p class="specimen-note">Night Slate palette (dark, the default); the switch at the rail's foot swaps every frame to Soft Silver (light). Left: desktop width. Right: the same markup in a 390px box — the phone layout. First the rail, then the top bar.</p>
+
+<div class="specimen-frames">
+    <div class="specimen-frame specimen-desktop"><div class="specimen-label">Desktop · full width</div><div id="specimen_desktop" class="specimen-rail-box">
+
+<div class="vfx-ui vfx-shell">
+    <nav class="vfx-nav">
+        <div class="vfx-nav-inner">
+            <div class="vfx-nav-brand"><i class="fa-solid fa-brain"></i><span>VectFox</span></div>
+            <div class="vfx-nav-group">Settings</div>
+            <button type="button" class="vfx-nav-item is-active"><i class="fa-solid fa-sliders"></i><span>Main</span></button>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-images"></i><span>Image Generation</span></button>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-users"></i><span>Roster</span></button>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-message"></i><span>Extra LLM Calls</span></button>
+            <div class="vfx-nav-group">Game</div>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-gears"></i><span>LogicEngine</span></button>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-calendar-days"></i><span>Event Packs</span></button>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-cubes"></i><span>GameLogic Packs</span></button>
+            <div class="vfx-nav-footer">
+                <div class="vfx-theme-switch" role="group" title="Theme">
+                    <button type="button" class="vfx-theme-option is-active" data-vfx-theme-option="dark" aria-pressed="true"><i class="fa-solid fa-moon"></i><span>Dark</span></button>
+                    <button type="button" class="vfx-theme-option" data-vfx-theme-option="light" aria-pressed="false"><i class="fa-solid fa-sun"></i><span>Light</span></button>
+                </div>
+            </div>
+        </div>
+    </nav>
+    <main class="vfx-main">
+        <div class="vfx-page">
+            <header class="vfx-page-header">
+                <span class="vfx-page-icon"><i class="fa-solid fa-sliders"></i></span>
+                <div class="vfx-page-heading">
+                    <div class="vfx-page-eyebrow">Settings / Main</div>
+                    <h2 class="vfx-page-title">Main</h2>
+                    <p class="vfx-page-subtitle">Language, debugging and this card's saved setup.</p>
+                </div>
+                <div class="vfx-page-status">
+                    <span class="vfx-chip"><i class="fa-solid fa-id-card"></i>Card: ArtificKoi</span>
+                    <span class="vfx-pill is-success">MVU ready</span>
+                </div>
+            </header>
+
+            <div class="vfx-notice is-warning"><i class="fa-solid fa-triangle-exclamation"></i><p class="vfx-notice-text">MVU is not installed — every state feature is off until it is.</p><button type="button" class="vfx-btn vfx-btn-primary">Install MVU</button></div>
+
+            <section class="vfx-card">
+                <header class="vfx-card-header">
+                    <span class="vfx-badge"><i class="fa-solid fa-palette"></i></span>
+                    <h3 class="vfx-card-title">Palette</h3>
+                    <p class="vfx-card-desc">The token block; every colour in the panel is one of these.</p>
+                    <button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>
+                </header>
+                <div class="vfx-card-body">
+                    <div class="specimen-swatches">
+                        <div class="specimen-swatch"><span style="background:var(--vfx-bg)"></span><span>bg</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-nav)"></span><span>nav</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-surface)"></span><span>surface</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-surface-header)"></span><span>surface-header</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-surface-raised)"></span><span>surface-raised</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-border)"></span><span>border</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-text)"></span><span>text</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-text-muted)"></span><span>text-muted</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-accent)"></span><span>accent</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-accent-fill)"></span><span>accent-fill</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-accent-ink)"></span><span>accent-ink</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-control-off)"></span><span>control-off</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-success)"></span><span>success</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-warning)"></span><span>warning</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-danger)"></span><span>danger</span></div>
+                        <div class="specimen-swatch"><span style="background:var(--vfx-neutral)"></span><span>neutral</span></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="vfx-card">
+                <header class="vfx-card-header">
+                    <span class="vfx-badge"><i class="fa-solid fa-images"></i></span>
+                    <h3 class="vfx-card-title">Rendering</h3>
+                    <p class="vfx-card-desc">Fields, slider, switches — the everyday genes.</p>
+                    <div class="vfx-card-actions"><span class="vfx-pill is-success">Images on</span></div>
+                    <button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>
+                </header>
+                <div class="vfx-card-body vfx-grid">
+                    <div class="vfx-field is-help-open">
+                        <div class="vfx-field-label"><label>Image insert type</label><button type="button" class="vfx-help-toggle" aria-expanded="true" title="More about this"><i class="fa-solid fa-circle-question"></i></button></div>
+                        <select class="vfx-select"><option>Insert in current message</option><option>Create new message</option></select>
+                        <p class="vfx-hint">Turns pictures on, and picks where each one goes in the chat.</p>
+                        <p class="vfx-detail">The longer explanation, opened by its (?). Tags only has the narrator write the tags and draws nothing.</p>
+                        <a class="vfx-more" href="#" target="_blank" rel="noopener"><i class="fa-solid fa-book-open"></i><span>More detail</span></a>
+                    </div>
+                    <div class="vfx-field">
+                        <div class="vfx-field-label"><label>Queue concurrency</label><button type="button" class="vfx-help-toggle" aria-expanded="false" title="More about this"><i class="fa-solid fa-circle-question"></i></button></div>
+                        <div class="vfx-slider"><input type="range" class="vfx-range" min="1" max="4" value="2"><input type="number" class="vfx-input" min="1" max="4" value="2"></div>
+                        <p class="vfx-hint">How many pictures draw at once.</p>
+                        <p class="vfx-detail">Send bust multiplier needs 1.</p>
+                    </div>
+                    <div class="vfx-field">
+                        <div class="vfx-field-label"><label>Main character entry</label></div>
+                        <input type="text" class="vfx-input" placeholder="the card normally sets it">
+                        <p class="vfx-hint">Roster entry holding the main character's look. Set only to override the card.</p>
+                    </div>
+                    <div class="vfx-field">
+                        <div class="vfx-field-label"><label>Intimacy latch path</label></div>
+                        <input type="text" class="vfx-input is-missing" value="Root.Field">
+                        <p class="vfx-hint">.is-missing: the path was not found in stat_data.</p>
+                    </div>
+                    <div class="vfx-field">
+                        <div class="vfx-field-label"><label>/sd prompt prefix</label></div>
+                        <div class="vfx-control-row"><select class="vfx-select"><option>Anime base</option><option>— none —</option></select><button type="button" class="vfx-btn vfx-btn-icon" title="New" aria-label="New"><i class="fa-solid fa-plus"></i></button><button type="button" class="vfx-btn vfx-btn-icon" title="Rename" aria-label="Rename"><i class="fa-solid fa-pen"></i></button><button type="button" class="vfx-btn vfx-btn-icon vfx-btn-danger" title="Delete" aria-label="Delete"><i class="fa-solid fa-trash"></i></button></div>
+                        <p class="vfx-hint">.vfx-control-row: the select takes the free width; buttons that do not fit wrap.</p>
+                    </div>
+                    <div class="vfx-divider"></div>
+                    <div class="vfx-group-title">Switches</div>
+                    <label class="vfx-switch-row"><input type="checkbox" role="switch" class="vfx-switch" checked><span class="vfx-switch-title">Strip &lt;pic&gt; tag</span><span class="vfx-switch-desc">Hides the &lt;pic&gt; tag in the reply you read.</span></label>
+                    <label class="vfx-switch-row"><input type="checkbox" role="switch" class="vfx-switch"><span class="vfx-switch-title">Streaming pre-generation</span><span class="vfx-switch-desc">Off: drawing starts when the reply is complete.</span></label>
+                    <label class="vfx-switch-row"><input type="checkbox" role="switch" class="vfx-switch" disabled><span class="vfx-switch-title">Disabled switch</span><span class="vfx-switch-desc">Cannot act now; a pill or notice says why.</span></label>
+                    <div class="vfx-field vfx-span">
+                        <div class="vfx-field-label"><label>Prompt template</label><button type="button" class="vfx-btn vfx-btn-quiet">Reset to default</button></div>
+                        <textarea class="vfx-textarea is-code" rows="3">&lt;pic char="…" outfit="…"&gt; — code textarea</textarea>
+                    </div>
+                    <div class="vfx-field vfx-span">
+                        <div class="vfx-field-label">Members (check list)</div>
+                        <div class="vfx-check-list">
+                            <label class="vfx-check-item"><input type="checkbox" class="vfx-check" checked>PRE</label>
+                            <label class="vfx-check-item"><input type="checkbox" class="vfx-check">POST</label>
+                            <label class="vfx-check-item"><input type="checkbox" class="vfx-check" checked>Harvest</label>
+                        </div>
+                    </div>
+                    <div class="vfx-field vfx-span">
+                        <div class="vfx-field-label">Width × height (pair grid stays two columns on phone)</div>
+                        <div class="vfx-grid-pair"><input type="number" class="vfx-input" value="832"><input type="number" class="vfx-input" value="1216"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="vfx-card">
+                <header class="vfx-card-header">
+                    <span class="vfx-badge"><i class="fa-solid fa-hand-pointer"></i></span>
+                    <h3 class="vfx-card-title">Buttons and status</h3>
+                    <p class="vfx-card-desc">Every button kind, pill and result line.</p>
+                    <button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>
+                </header>
+                <div class="vfx-card-body vfx-grid">
+                    <div class="vfx-field vfx-span">
+                        <div class="vfx-check-list">
+                            <button type="button" class="vfx-btn vfx-btn-primary"><i class="fa-solid fa-download"></i>Install</button>
+                            <button type="button" class="vfx-btn"><i class="fa-solid fa-rotate"></i>Reload</button>
+                            <button type="button" class="vfx-btn vfx-btn-quiet">Reset to default</button>
+                            <button type="button" class="vfx-btn vfx-btn-danger"><i class="fa-solid fa-trash"></i>Remove</button>
+                            <button type="button" class="vfx-btn vfx-btn-icon" title="Edit" aria-label="Edit"><i class="fa-solid fa-pen"></i></button>
+                            <button type="button" class="vfx-btn vfx-btn-icon is-on" title="Story updates on" aria-label="Story updates on" aria-pressed="true"><i class="fa-solid fa-shirt"></i></button>
+                            <button type="button" class="vfx-btn vfx-btn-icon vfx-btn-danger" title="Delete" aria-label="Delete"><i class="fa-solid fa-trash"></i></button>
+                            <button type="button" class="vfx-btn" disabled>Disabled</button>
+                        </div>
+                    </div>
+                    <div class="vfx-field vfx-span">
+                        <div class="vfx-check-list">
+                            <span class="vfx-pill is-success">Installed</span>
+                            <span class="vfx-pill is-warning">No library copy</span>
+                            <span class="vfx-pill is-danger">Entry missing</span>
+                            <span class="vfx-pill is-neutral">Disabled</span>
+                            <span class="vfx-pill is-accent">PRE</span>
+                            <span class="vfx-pill is-success"><i class="fa-solid fa-circle-check"></i>Saved</span>
+                            <span class="vfx-chip"><i class="fa-solid fa-globe"></i>Global</span>
+                        </div>
+                    </div>
+                    <ul class="vfx-result vfx-span">
+                        <li class="vfx-result-heading">Validate</li>
+                        <li class="vfx-result-line is-success"><i class="fa-solid fa-circle-check"></i>Pack is valid</li>
+                        <li class="vfx-result-line is-warning"><i class="fa-solid fa-triangle-exclamation"></i>An unknown section is ignored</li>
+                        <li class="vfx-result-line is-danger"><i class="fa-solid fa-circle-xmark"></i>entries[2] has no comment</li>
+                    </ul>
+                    <div class="vfx-notice is-info vfx-span"><i class="fa-solid fa-circle-info"></i><p class="vfx-notice-text">Open a chat first — installing writes to that card.</p></div>
+                    <div class="vfx-notice is-danger vfx-span"><i class="fa-solid fa-circle-xmark"></i><p class="vfx-notice-text">Could not read the lorebook.</p></div>
+                </div>
+            </section>
+
+            <section class="vfx-card">
+                <header class="vfx-card-header">
+                    <span class="vfx-badge"><i class="fa-solid fa-bolt"></i></span>
+                    <h3 class="vfx-card-title">Card config</h3>
+                    <p class="vfx-card-desc">Action cards: one primary, the rest compact tiles on phone.</p>
+                    <button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>
+                </header>
+                <div class="vfx-card-body">
+                    <div class="vfx-action-grid">
+                        <div class="vfx-action-card is-primary"><i class="fa-solid fa-file-export vfx-action-icon"></i><span class="vfx-action-title">Export config → card</span><p class="vfx-action-desc">Save this card's MVU Helper setup into its [Initmvuhelper] entry.</p><button type="button" class="vfx-btn vfx-btn-primary">Export to card <i class="fa-solid fa-arrow-right"></i></button></div>
+                        <div class="vfx-action-card"><i class="fa-solid fa-rotate vfx-action-icon"></i><span class="vfx-action-title">Re-import from card</span><p class="vfx-action-desc">Refresh what the card owns. Keeps your preferences and connections.</p><button type="button" class="vfx-btn">Re-import</button></div>
+                        <div class="vfx-action-card"><i class="fa-solid fa-file-import vfx-action-icon"></i><span class="vfx-action-title">Load file</span><p class="vfx-action-desc">Read a pack from disk into the box below.</p><button type="button" class="vfx-btn">Load file</button></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="vfx-card">
+                <header class="vfx-card-header">
+                    <span class="vfx-badge"><i class="fa-solid fa-list"></i></span>
+                    <h3 class="vfx-card-title">On this card</h3>
+                    <p class="vfx-card-desc">List rows and record cards.</p>
+                    <div class="vfx-card-actions"><button type="button" class="vfx-btn vfx-btn-icon" title="Refresh" aria-label="Refresh"><i class="fa-solid fa-rotate-right"></i></button></div>
+                    <button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>
+                </header>
+                <div class="vfx-card-body">
+                    <div class="vfx-list">
+                        <div class="vfx-row"><i class="fa-solid fa-calendar-days vfx-row-icon"></i><div class="vfx-row-main"><div class="vfx-row-name">test-series</div><div class="vfx-row-sub">v1.2.0 · 6 events</div></div><div class="vfx-row-pills"><span class="vfx-pill is-success">Installed</span></div><div class="vfx-row-actions"><button type="button" class="vfx-btn vfx-btn-icon" title="Disable" aria-label="Disable"><i class="fa-solid fa-pause"></i></button><button type="button" class="vfx-btn vfx-btn-icon vfx-btn-danger" title="Uninstall" aria-label="Uninstall"><i class="fa-solid fa-trash"></i></button></div></div>
+                        <div class="vfx-row"><i class="fa-solid fa-cube vfx-row-icon"></i><div class="vfx-row-main"><div class="vfx-row-name">lane-probe</div><div class="vfx-row-sub">v0.4.1 · plugin · standalone</div></div><div class="vfx-row-pills"><span class="vfx-pill is-warning">No library copy</span></div><div class="vfx-row-actions"><button type="button" class="vfx-btn">Repair</button><button type="button" class="vfx-btn vfx-btn-icon vfx-btn-danger" title="Uninstall" aria-label="Uninstall"><i class="fa-solid fa-trash"></i></button></div></div>
+                        <div class="vfx-row"><i class="fa-solid fa-gears vfx-row-icon"></i><div class="vfx-row-main"><div class="vfx-row-name">Demo v2.0.0</div><div class="vfx-row-sub">Exports: resolveTurn, onPre, onPost</div><div class="vfx-row-sub">Installed: v2.0.0 · 48.3 KB</div><div class="vfx-row-sub">Turn runner: 3 resolved · 3 saved · 0 fence trips · 0 refires · 0 replays skipped</div></div><div class="vfx-row-pills"><span class="vfx-pill is-success">Loaded</span></div><div class="vfx-row-actions"></div></div>
+                        <div class="vfx-record">
+                            <div class="vfx-record-header"><input type="checkbox" role="switch" class="vfx-switch" checked aria-label="Enabled"><span class="vfx-record-name">PRE</span><span class="vfx-pill is-accent">PRE</span><span class="vfx-pill is-warning">No connection</span><button type="button" class="vfx-btn vfx-btn-icon" title="Test" aria-label="Test"><i class="fa-solid fa-vial"></i></button><button type="button" class="vfx-btn vfx-btn-icon vfx-btn-danger" title="Delete" aria-label="Delete"><i class="fa-solid fa-trash"></i></button><button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button></div>
+                            <div class="vfx-record-body vfx-grid">
+                                <div class="vfx-field"><div class="vfx-field-label"><label>Name</label></div><input type="text" class="vfx-input" value="PRE"><p class="vfx-hint"><span>Reads the lorebook entries tagged</span> <code class="vfx-code">[PRE]</code></p></div>
+                                <div class="vfx-field"><div class="vfx-field-label"><label>Connection</label></div><select class="vfx-select is-missing"><option>— none —</option></select></div>
+                                <div class="vfx-field vfx-span"><div class="vfx-field-label"><label>Input filter</label></div><input type="text" class="vfx-input is-code" value="&lt;gametxt&gt;([\s\S]*?)&lt;/gametxt&gt;"></div>
+                            </div>
+                        </div>
+                        <div class="vfx-record is-collapsed">
+                            <div class="vfx-record-header"><input type="checkbox" role="switch" class="vfx-switch" aria-label="Enabled"><span class="vfx-record-name">POST (collapsed)</span><span class="vfx-pill is-accent">POST</span><button type="button" class="vfx-collapse" aria-expanded="false" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button></div>
+                            <div class="vfx-record-body vfx-grid"></div>
+                        </div>
+                    </div>
+                    <div class="vfx-pager"><button type="button" class="vfx-btn vfx-btn-icon" disabled aria-label="Previous"><i class="fa-solid fa-chevron-left"></i></button><span>1 / 3</span><button type="button" class="vfx-btn vfx-btn-icon" aria-label="Next"><i class="fa-solid fa-chevron-right"></i></button></div>
+                    <div class="vfx-empty"><i class="fa-solid fa-box-open"></i><span>No packs in the library yet.</span><button type="button" class="vfx-btn vfx-btn-primary">Import one</button></div>
+                </div>
+            </section>
+
+            <section class="vfx-card">
+                <header class="vfx-card-header">
+                    <span class="vfx-badge"><i class="fa-solid fa-window-maximize"></i></span>
+                    <h3 class="vfx-card-title">Stack</h3>
+                    <p class="vfx-card-desc">A dialog's form: fields one under another at any width.</p>
+                </header>
+                <div class="vfx-card-body">
+                    <div class="vfx-stack">
+                        <div class="vfx-field"><div class="vfx-field-label"><label for="spec_call_name">Call name</label></div><input type="text" id="spec_call_name" class="vfx-input" placeholder="e.g. PRE2"><p class="vfx-hint">The tag on the lorebook entries it reads, without the brackets.</p></div>
+                        <div class="vfx-field"><div class="vfx-field-label"><label for="spec_call_phase">Phase</label></div><select id="spec_call_phase" class="vfx-select"><option>PRE (before reply)</option><option>POST (after reply)</option></select></div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="vfx-notice is-warning" data-vfx-notice-for="card"><i class="fa-solid fa-triangle-exclamation"></i><p class="vfx-notice-text">Open a chat to change this card's settings.</p></div>
+            <section class="vfx-card" data-vfx-needs="card" inert>
+                <header class="vfx-card-header">
+                    <span class="vfx-badge"><i class="fa-solid fa-user-plus"></i></span>
+                    <h3 class="vfx-card-title">Card gate</h3>
+                    <p class="vfx-card-desc">A region whose need is unmet: inert, greyed whole, its page's notice above.</p>
+                    <button type="button" class="vfx-collapse" aria-expanded="true"><i class="fa-solid fa-chevron-up"></i></button>
+                </header>
+                <div class="vfx-card-body vfx-grid">
+                    <div class="vfx-field"><div class="vfx-field-label"><label for="spec_gate_route">Appearance route</label></div><select id="spec_gate_route" class="vfx-select"><option>Predefined + auto-harvest new</option></select><p class="vfx-hint">No click, no keystroke, no focus until a card is open.</p></div>
+                    <div class="vfx-field"><div class="vfx-field-label"><label for="spec_gate_via">Harvest via</label></div><select id="spec_gate_via" class="vfx-select" disabled><option>Off</option></select><p class="vfx-hint">Its own disabled state stays underneath the gate.</p></div>
+                </div>
+            </section>
+
+            <section class="vfx-card is-advanced is-collapsed">
+                <button type="button" class="vfx-collapse" aria-expanded="false"><i class="fa-solid fa-chevron-down"></i><span class="vfx-card-title">Resolution presets</span><span class="vfx-card-desc">Advanced row: one line until opened.</span></button>
+                <div class="vfx-card-body vfx-grid-pair"><input type="number" class="vfx-input" value="832"><input type="number" class="vfx-input" value="1216"></div>
+            </section>
+
+            <div class="vfx-danger-zone">
+                <i class="fa-solid fa-trash-can vfx-danger-icon"></i>
+                <div><p class="vfx-danger-title">Card setup</p><p class="vfx-danger-desc">Destructive actions. Requires confirmation.</p></div>
+                <div class="vfx-danger-actions"><button type="button" class="vfx-btn vfx-btn-danger"><i class="fa-solid fa-rotate-left"></i>Reset from card</button><button type="button" class="vfx-btn vfx-btn-danger"><i class="fa-solid fa-broom"></i>Reset every card</button></div>
+            </div>
+        </div>
+    </main>
+</div>
+
+    </div></div>
+    <div class="specimen-frame specimen-phone"><div class="specimen-label">Phone · stacked</div><div id="specimen_phone" class="specimen-rail-box"></div></div>
+</div>
+
+<h1>Top bar · workbench</h1>
+<p class="specimen-note">The nav as one row above the main pane; a workbench page whose split panes scroll inside. Drag the divider, or focus it and use the arrow keys.</p>
+
+<div class="specimen-frames">
+    <div class="specimen-frame specimen-desktop"><div class="specimen-label">Desktop · top bar</div><div id="specimen_topbar_desktop" class="specimen-topbar-box">
+
+<div class="vfx-ui vfx-shell is-topbar">
+    <nav class="vfx-nav">
+        <div class="vfx-nav-inner">
+            <div class="vfx-nav-brand"><i class="fa-solid fa-layer-group"></i><span>Status Menu Builder</span></div>
+            <div class="vfx-nav-group">Menu</div>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-pen-ruler"></i><span>Builder</span></button>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-file-code"></i><span>Templates</span></button>
+            <div class="vfx-nav-group">Data</div>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-database"></i><span>Data Configuration</span></button>
+            <button type="button" class="vfx-nav-item is-active"><i class="fa-solid fa-diagram-project"></i><span>Schema Output</span></button>
+            <div class="vfx-nav-group">Export</div>
+            <button type="button" class="vfx-nav-item"><i class="fa-solid fa-file-export"></i><span>Export HTML</span></button>
+            <div class="vfx-nav-footer">
+                <div class="vfx-theme-switch" role="group" title="Theme">
+                    <button type="button" class="vfx-theme-option is-active" data-vfx-theme-option="dark" aria-pressed="true"><i class="fa-solid fa-moon"></i><span>Dark</span></button>
+                    <button type="button" class="vfx-theme-option" data-vfx-theme-option="light" aria-pressed="false"><i class="fa-solid fa-sun"></i><span>Light</span></button>
+                </div>
+            </div>
+        </div>
+    </nav>
+    <main class="vfx-main">
+        <div class="vfx-page is-workbench">
+            <header class="vfx-page-header">
+                <span class="vfx-page-icon"><i class="fa-solid fa-diagram-project"></i></span>
+                <div class="vfx-page-heading">
+                    <div class="vfx-page-eyebrow">Data / Schema Output</div>
+                    <h2 class="vfx-page-title">Schema Output</h2>
+                    <p class="vfx-page-subtitle">A workbench page: it fills the main pane, its panes scroll.</p>
+                </div>
+                <div class="vfx-page-status"><span class="vfx-pill is-success">12 paths</span></div>
+            </header>
+            <div class="vfx-split">
+                <section class="vfx-card is-pane">
+                    <header class="vfx-card-header">
+                        <h3 class="vfx-card-title">Structure</h3>
+                        <div class="vfx-card-actions"><button type="button" class="vfx-btn">Reset</button></div>
+                    </header>
+                    <div class="vfx-card-body">
+                        <div class="vfx-tree">
+                            <div>
+                                <div class="vfx-tree-row"><button type="button" class="vfx-tree-toggle" aria-expanded="true" title="Close"><i class="fa-solid fa-chevron-down"></i></button><input type="checkbox" class="vfx-check" checked aria-label="Include World"><span class="vfx-tree-name">World</span><code class="vfx-code">{}</code><span class="vfx-tree-actions"><button type="button" class="vfx-btn vfx-btn-icon is-on" title="Locked" aria-pressed="true"><i class="fa-solid fa-lock"></i></button></span></div>
+                                <div class="vfx-tree-branch">
+                                    <div class="vfx-tree-row"><span class="vfx-tree-spacer"></span><input type="checkbox" class="vfx-check" checked aria-label="Include Date"><span class="vfx-tree-name">Date</span></div>
+                                    <div class="vfx-tree-row is-off"><span class="vfx-tree-spacer"></span><input type="checkbox" class="vfx-check" aria-label="Include Weather"><span class="vfx-tree-name">Weather</span></div>
+                                </div>
+                            </div>
+                            <div class="vfx-tree-row"><button type="button" class="vfx-tree-toggle" aria-expanded="false" title="Open"><i class="fa-solid fa-chevron-down"></i></button><input type="checkbox" class="vfx-check" checked aria-label="Include Classmate"><span class="vfx-tree-name">Classmate</span><code class="vfx-code">{}</code><span class="vfx-tree-actions"><button type="button" class="vfx-btn vfx-btn-icon is-on" title="Collection" aria-pressed="true"><i class="fa-solid fa-layer-group"></i></button></span></div>
+                            <div class="vfx-tree-row"><button type="button" class="vfx-tree-toggle" aria-expanded="false" title="Open"><i class="fa-solid fa-chevron-down"></i></button><input type="checkbox" class="vfx-check" checked aria-label="Include Mainchar"><span class="vfx-tree-name">Mainchar</span><input type="text" class="vfx-input" value="a key or value control takes the free width"></div>
+                        </div>
+                    </div>
+                </section>
+                <div class="vfx-split-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panes" tabindex="0"></div>
+                <section class="vfx-card is-pane">
+                    <header class="vfx-card-header">
+                        <h3 class="vfx-card-title">Generated schema</h3>
+                        <div class="vfx-card-actions"><button type="button" class="vfx-btn vfx-btn-primary"><i class="fa-solid fa-copy"></i>Copy code</button></div>
+                    </header>
+                    <div class="vfx-card-body is-fill">
+                        <textarea class="vfx-textarea is-code" readonly>const StatDataSchema = z.object({
+  World: worldSchema,
+  Classmate: z.record(z.string(), classmateSchema),
+  Mainchar: maincharSchema,
+}).prefault({});</textarea>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+</div>
+
+    </div></div>
+    <div class="specimen-frame specimen-phone"><div class="specimen-label">Phone · top bar</div><div id="specimen_topbar_phone" class="specimen-topbar-box"></div></div>
+    <div class="specimen-frame"><div class="specimen-label">Dialog · a standalone app's own</div>
+        <dialog open class="vfx-ui vfx-dialog specimen-dialog">
+            <div class="vfx-dialog-body">
+                <div class="vfx-dialog-text">
+                    <p>Delete the template?</p>
+                    <p>Template: <span class="vfx-dialog-value">quest-card</span></p>
+                    <p>Its HTML is lost. Delete removes it; Cancel keeps it.</p>
+                </div>
+            </div>
+            <div class="vfx-dialog-buttons">
+                <button type="button" class="vfx-btn vfx-btn-danger"><i class="fa-solid fa-trash"></i>Delete</button>
+                <button type="button" class="vfx-btn">Cancel</button>
+            </div>
+        </dialog>
+    </div>
+</div>
+
+<script>
+    // One catalogue, two frames: the phone frame is a copy, so both always show the same markup.
+    document.getElementById('specimen_phone').innerHTML = document.getElementById('specimen_desktop').innerHTML;
+    document.getElementById('specimen_topbar_phone').innerHTML = document.getElementById('specimen_topbar_desktop').innerHTML;
+    // The split's divider: drag it, or move it with the arrow keys, 16px a step.
+    document.addEventListener('pointerdown', (event) => {
+        const divider = event.target.closest('.vfx-split-divider');
+        if (!divider) return;
+        const split = divider.parentElement;
+        divider.setPointerCapture(event.pointerId);
+        divider.classList.add('is-dragging');
+        const move = (moveEvent) => split.style.setProperty('--vfx-split-start', `${moveEvent.clientX - split.getBoundingClientRect().left}px`);
+        const stop = () => { divider.classList.remove('is-dragging'); divider.removeEventListener('pointermove', move); divider.removeEventListener('pointerup', stop); };
+        divider.addEventListener('pointermove', move);
+        divider.addEventListener('pointerup', stop);
+    });
+    document.addEventListener('keydown', (event) => {
+        const divider = event.target.closest?.('.vfx-split-divider');
+        if (!divider || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+        const start = divider.previousElementSibling.getBoundingClientRect().width;
+        divider.parentElement.style.setProperty('--vfx-split-start', `${start + (event.key === 'ArrowRight' ? 16 : -16)}px`);
+        event.preventDefault();
+    });
+    // The panel's shared behaviours, mirrored so the specimen can be clicked: the theme switch, (?) detail, collapse, slider.
+    document.addEventListener('click', (event) => {
+        const themeOption = event.target.closest('[data-vfx-theme-option]');
+        if (themeOption) {
+            const theme = themeOption.dataset.vfxThemeOption;
+            document.documentElement.dataset.vfxTheme = theme;
+            for (const option of document.querySelectorAll('[data-vfx-theme-option]')) {
+                const isChosen = option.dataset.vfxThemeOption === theme;
+                option.classList.toggle('is-active', isChosen);
+                option.setAttribute('aria-pressed', String(isChosen));
+            }
+            return;
+        }
+        const help = event.target.closest('.vfx-help-toggle');
+        if (help) { const field = help.closest('.vfx-field'); help.setAttribute('aria-expanded', String(field.classList.toggle('is-help-open'))); return; }
+        const collapse = event.target.closest('.vfx-collapse');
+        if (collapse) { const box = collapse.closest('.vfx-card, .vfx-record'); collapse.setAttribute('aria-expanded', String(!box.classList.toggle('is-collapsed'))); }
+    });
+    document.addEventListener('input', (event) => {
+        if (event.target.classList.contains('vfx-range')) event.target.nextElementSibling.value = event.target.value;
+    });
+</script>
+</body>
+</html>
