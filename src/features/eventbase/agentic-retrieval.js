@@ -14,7 +14,9 @@
  * pre-search keeps every seat it won, and the queries add a few from outside its
  * results (planner-seats-core.js).
  *
- * Every failure path falls back cleanly to the pre-search output.
+ * Every failure path falls back to the pre-search output, and Agent Mode says so:
+ * a setup it cannot run on raises one sticky warning, and a planner or search that
+ * fails on a turn counts as that turn's failed memory search.
  * ============================================================================
  */
 
@@ -30,7 +32,34 @@ import { generationRateLimiter, generationRateLimitSettings } from './generation
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
 import { ORDINARY_TURN_ROUTE, STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isOrdinaryTurn, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
 import { retrieveStoryRecipeEvents, startStoryRecipeReads } from './story-arc-retrieval.js';
+import { isInvalidModelConfigError, notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
+
+const AGENT_MODE = 'Agent Mode';
+const NORMAL_SEARCH_ONLY = 'Until then each turn uses the normal memory search only.';
+const AGENT_MODE_NEEDS_QDRANT = `Agent Mode is on, but it needs the Qdrant backend. Pick Qdrant in Vector Backend on the Core page, or turn Agent Mode off. ${NORMAL_SEARCH_ONLY}`;
+
+// What each reason resolveLlmConnection gives means, and where it is fixed.
+const AGENT_MODE_SETUP_FIXES = {
+    missing_model: 'it has no model. Set Model on the AgentMode page, or the summarizer\'s Model on the Core page.',
+    missing_openrouter_api_key: 'it runs on OpenRouter and no OpenRouter key is saved. Enter the key on the AgentMode or Core page.',
+    missing_vllm_url: 'it runs on vLLM with no URL. Set vLLM Base URL on the AgentMode page, or the summarizer\'s on the Core page.',
+    missing_vllm_api_key: 'it runs on vLLM and no vLLM key is saved. Enter the key on the AgentMode or Core page.',
+};
+const UNKNOWN_PROVIDER_PREFIX = 'unknown_provider_';
+
+/**
+ * The sentence for a planner connection that cannot run: what is wrong and where to fix it.
+ *
+ * @param {string} reason - From resolveLlmConnection
+ * @returns {string}
+ */
+export function describeAgentModeSetupProblem(reason) {
+    const fix = reason.startsWith(UNKNOWN_PROVIDER_PREFIX)
+        ? `its provider "${reason.slice(UNKNOWN_PROVIDER_PREFIX.length)}" is not one VectFox knows. Pick a provider on the AgentMode page.`
+        : AGENT_MODE_SETUP_FIXES[reason] ?? `its connection cannot run (${reason}). Check the AgentMode page.`;
+    return `Agent Mode is on, but ${fix} ${NORMAL_SEARCH_ONLY}`;
+}
 
 // ============================================================================
 // Public API
@@ -52,9 +81,7 @@ export async function retrieveEventsForTurn(params) {
         return retrieveEvents(params);
     }
     if (settings.vector_backend !== 'qdrant') {
-        if (log.domainEnabled('agent')) {
-            log.domain('agent', 'lifecycle', '[VectFox-Agentic] mode=SKIPPED reason=requires_qdrant_backend');
-        }
+        notifySetupIncomplete(AGENT_MODE, AGENT_MODE_NEEDS_QDRANT);
         return retrieveEvents(params);
     }
     return _retrieveWithPlanner(params);
@@ -135,6 +162,9 @@ async function _retrieveWithPlanner(params) {
     if (!planned) {
         return preSearch;
     }
+    if (planned.failureMessage) {
+        return _withFailedSearch(preSearch, planned.failureMessage);
+    }
 
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
     const seatedEvents = preSearch.events;
@@ -172,11 +202,31 @@ async function _retrieveWithPlanner(params) {
 }
 
 /**
- * Ask the planner for queries and run them. Never throws: a failure is reported and
- * returns null, so the turn keeps the pre-search.
+ * The pre-search's result with one more failed memory search, which the turn reports
+ * (eventbase-workflow.js), so the toast names the failure the turn met first.
+ *
+ * @param {{events: object[], debug?: object}} preSearch
+ * @param {string} failureMessage
+ */
+function _withFailedSearch(preSearch, failureMessage) {
+    const debug = preSearch.debug ?? {};
+    return {
+        ...preSearch,
+        debug: {
+            ...debug,
+            failedSearchCount: (debug.failedSearchCount ?? 0) + 1,
+            searchFailureMessage: debug.searchFailureMessage || failureMessage,
+        },
+    };
+}
+
+/**
+ * Ask the planner for queries and run them. Never throws, and every outcome keeps the
+ * pre-search: null adds nothing, and a failure returns its message for the turn to report.
+ * A setup that cannot run raises its own warning and returns null, as does a plan with no query.
  *
  * @param {object} params - The retrieval params
- * @returns {Promise<{queries: string[], rationale: string|null, hitLists: object[][], llmMs: number, fanoutMs: number}|null>} one list of hits per query and collection
+ * @returns {Promise<{queries: string[], rationale: string|null, hitLists: object[][], llmMs: number, fanoutMs: number}|{failureMessage: string}|null>} one list of hits per query and collection
  */
 async function _searchPlannedQueries(params) {
     const { settings, liveCollectionIds, keywordQuery } = params;
@@ -184,6 +234,7 @@ async function _searchPlannedQueries(params) {
 
     const llmConnection = _resolveAgenticLLMConfig(settings);
     if (!llmConnection.ok) {
+        notifySetupIncomplete(AGENT_MODE, describeAgentModeSetupProblem(llmConnection.reason));
         log.warn(`[VectFox-Agentic] mode=SKIPPED reason=${llmConnection.reason}`);
         return null;
     }
@@ -238,8 +289,13 @@ async function _searchPlannedQueries(params) {
             'agent',
         );
     } catch (err) {
-        await _reportAgentLlmFailure(err, 'Planner', tLlmStart, timeoutMs);
-        return null;
+        const failure = _reportAgentLlmFailure(err, 'Planner', tLlmStart, timeoutMs);
+        if (!failure) return null;
+        return {
+            failureMessage: failure.isTimeout
+                ? `Agent Mode's planner timed out after ${timeoutMs} ms. Raise Planner LLM Timeout on the AgentMode page if this repeats.`
+                : `Agent Mode's planner failed: ${failure.detail}`,
+        };
     }
     const tLlmMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tLlmStart));
 
@@ -260,7 +316,11 @@ async function _searchPlannedQueries(params) {
         log.domain('agent', 'verbose', JSON.stringify(plan, null, 2));
     }
 
-    // Validate planner output.
+    // An empty list is a valid "nothing to search"; no list at all is a reply the planner got wrong.
+    if (!Array.isArray(plan?.queries)) {
+        log.warn('[VectFox-Agentic] Planner reply has no queries array, using pre-search only');
+        return { failureMessage: 'Agent Mode\'s planner answered without a list of searches.' };
+    }
     const maxQueries = Math.max(1, Math.min(6, settings.agentic_retrieval_max_queries || 6));
     const validatedQueries = _validateAndTrimQueries(plan?.queries, maxQueries);
     if (validatedQueries.length === 0) {
@@ -292,6 +352,7 @@ async function _searchPlannedQueries(params) {
     const queryTimeoutMs = resolveAgenticQueryTimeoutMs(settings);
     const tFanoutStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const fanoutPromises = [];
+    const failedQueryMessages = [];
     // Query by query, so each one's lists are together and no collection takes every turn at the seats.
     for (const queryText of validatedQueries) {
         for (const colId of liveCollectionIds) {
@@ -308,8 +369,10 @@ async function _searchPlannedQueries(params) {
                     .catch(err => {
                         if (err?.__timeout) {
                             log.warn(`[VectFox-Agentic] Query timed out after ${queryTimeoutMs}ms (${colId}, "${queryText}") — dropped; other queries still count. Raise "Per-query Timeout" in the AgentMode tab if needed.`);
+                            failedQueryMessages.push(`timed out after ${queryTimeoutMs} ms. Raise Per-query Timeout on the AgentMode page if this repeats.`);
                         } else {
                             log.warn(`[VectFox-Agentic] Query failed (${colId}, "${queryText}"): ${err?.message || err}`);
+                            failedQueryMessages.push(`failed: ${err?.message || err}`);
                         }
                         return { queryText, hits: [] };
                     })
@@ -318,6 +381,10 @@ async function _searchPlannedQueries(params) {
     }
     const fanoutResults = await Promise.all(fanoutPromises);
     const tFanoutMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tFanoutStart));
+    // One failed query only loses its own hits; all of them failing loses everything Agent Mode adds.
+    if (failedQueryMessages.length === fanoutPromises.length) {
+        return { failureMessage: `Every Agent Mode search ${failedQueryMessages[0]}` };
+    }
 
     if (isAgentDebugOn) {
         log.domain('agent', 'verbose', `[VectFox-Agentic] Qdrant fanout: ${validatedQueries.length} queries × ${liveCollectionIds.length} collection(s) = ${fanoutPromises.length} parallel calls`);
@@ -365,7 +432,7 @@ async function _askStoryLlm({ settings, label, nextStep, call, read }) {
         );
         return read(reply);
     } catch (err) {
-        await _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep);
+        _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep);
         return null;
     }
 }
@@ -493,20 +560,21 @@ async function _chooseBlockEvents(events, route, { settings, keywordQuery }, lin
 // ============================================================================
 
 /**
- * Report a failed Agent Mode LLM call. A retired or unknown model would otherwise
- * silently degrade to the pre-search forever, so the user is warned (once) to fix
- * it, while retrieval keeps working in the meantime.
+ * Report a failed Agent Mode or StoryArc LLM call in the log. A retired or unknown model
+ * would otherwise silently degrade to the pre-search forever, so it raises the sticky
+ * invalid-model toast instead, while retrieval keeps working in the meantime.
  *
  * @param {unknown} err
  * @param {string} label - Which call failed
  * @param {number} tStart - When the call started
  * @param {number} timeoutMs - The call's configured limit
  * @param {string} [nextStep] - What the turn does without this call
+ * @returns {{isTimeout: boolean, detail: string}|null} what the turn reports, or null when the invalid-model toast already said it
  */
-async function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 'using pre-search only') {
+function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 'using pre-search only') {
     const tLlmMs = Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - tStart));
-    const { isInvalidModelConfigError, notifyInvalidModel } = await import('../../shared/model-config-notifier.js');
-    if (isInvalidModelConfigError(err)) {
+    const isInvalidModel = isInvalidModelConfigError(err);
+    if (isInvalidModel) {
         notifyInvalidModel(err.message);
     }
     // AbortSignal.timeout() throws either a TimeoutError or a generic
@@ -521,12 +589,12 @@ async function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 
     } else {
         log.warn(`[VectFox-Agentic] ${label} LLM call failed after ${tLlmMs}ms, ${nextStep}: ${err?.message || err}`);
     }
+    return isInvalidModel ? null : { isTimeout, detail: String(err?.message || err) };
 }
 
-
 /**
- * Resolve the effective LLM config for the planner. Reads agentic_retrieval_*
- * settings; falls back to summarize_* values when the agentic field is empty.
+ * Resolve the effective LLM config for the planner. Reads the agent_* settings, and
+ * the summarizer's chat_* value for each one left empty.
  *
  * Returns { ok: true, provider, model, apiKey, vllmUrl } on success, or
  * { ok: false, reason } when a required value is missing.
@@ -614,9 +682,8 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
  */
 export async function callLlmForJson({ systemPrompt, userMessage, llmConnection, timeoutMs, maxTokens, contextLabel = 'Agent Mode' }) {
     // Shared HTTP + response classification (llm-provider-call.js). The planner
-    // is a two-message, json_object call. authBranch:false preserves the prior
-    // behavior of folding 401/403 into the model-config / generic paths (Agent
-    // Mode had no dedicated auth branch — it degrades to pre-search upstream).
+    // is a two-message, json_object call. authBranch:false folds 401/403 into the
+    // model-config and generic paths, since the caller degrades to pre-search.
     let content, usage;
     try {
         ({ content, usage } = await postChatCompletion({
@@ -644,10 +711,10 @@ export async function callLlmForJson({ systemPrompt, userMessage, llmConnection,
         throw e;
     }
 
-    // A thinking model emits its reasoning BEFORE the JSON — `<think>…</think>{…}`
-    // — and `response_format: json_object` does not stop it. Left in, that leading
-    // block fails JSON.parse and Agent Mode silently drops to pre-search, which is
-    // the shape GitHub issue #18 was reported in. `should_disable_thinking` sends
+    // A thinking model can emit its reasoning BEFORE the JSON — `<think>…</think>{…}`.
+    // SillyTavern's proxy never forwards `response_format`, so nothing asks the
+    // provider for bare JSON. Left in, that leading block fails JSON.parse and the
+    // turn drops to pre-search (GitHub issue #18). `should_disable_thinking` sends
     // `reasoning_effort: 'none'`, but that is a REQUEST: plenty of models ignore
     // it, and a 200 response never proves the parameter took effect. So strip
     // unconditionally rather than trusting the switch — same reasoning as the
@@ -656,7 +723,7 @@ export async function callLlmForJson({ systemPrompt, userMessage, llmConnection,
     // Runs BEFORE the fence strip: a fenced reply reads ```json…``` only once the
     // reasoning ahead of it is gone.
     const withoutReasoning = stripReasoningBlocks(String(content));
-    // Some providers wrap in markdown fences despite response_format=json_object.
+    // Some models wrap the JSON in markdown fences.
     const cleaned = withoutReasoning.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
     let parsed;
     try {

@@ -225,6 +225,35 @@ export function notifyMemoryNotInjected(detail, hasInjectedMemory) {
 }
 
 // ---------------------------------------------------------------------------
+// "Feature is on but set up so it cannot run" surfacing.
+// ---------------------------------------------------------------------------
+const _setupNotified = new Set();
+
+/**
+ * Sticky, de-duped warning for a feature switched on that cannot run as set up, while each turn
+ * carries on without it: the user must act, and nothing broke. Once per message, since the same
+ * setup fails the same way on every turn.
+ *
+ * @param {string} contextLabel - 'Agent Mode' | …
+ * @param {string} message - What is wrong and where to fix it
+ */
+export function notifySetupIncomplete(contextLabel, message) {
+    const key = `${contextLabel}|${message}`;
+    if (_setupNotified.has(key)) return;
+    _setupNotified.add(key);
+    // toastr is SillyTavern's page global, absent where no page is loaded.
+    globalThis.toastr?.warning(message, `VectFox — ${contextLabel} not running`, { timeOut: 0, extendedTimeOut: 0 });
+}
+
+/**
+ * Forget prior setup notifications.
+ * @internal Resets module state between tests.
+ */
+export function resetSetupIncompleteNotifications() {
+    _setupNotified.clear();
+}
+
+// ---------------------------------------------------------------------------
 // "Feature is on but nothing it needs is active" surfacing.
 // ---------------------------------------------------------------------------
 // Distinct from notifyRetrievalFailure: there, a query ran and broke. Here, no

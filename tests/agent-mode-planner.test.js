@@ -5,7 +5,7 @@
  *   - the pre-search keeps every seat it won, and the planner's searches add up to 5 from outside its results,
  *   - there is no second rerank,
  *   - the planner runs alongside the pre-search, and sees none of its hits,
- *   - a failed planner or query leaves the turn with what still works,
+ *   - a failed planner or query leaves the turn with what still works, and every degrade is announced,
  *   - added events pass the same filters and duplicate rule as the pre-search's.
  */
 
@@ -49,9 +49,12 @@ vi.mock('../src/features/text-cleaning/index.js', () => ({
     // Stands in for a Text Cleaning preset that removes an aside block.
     cleanText: (text) => text.replace(/<aside>[\s\S]*?<\/aside>/g, '').trim(),
 }));
+const notifySetupIncompleteMock = vi.fn();
+const notifyInvalidModelMock = vi.fn();
 vi.mock('../src/shared/model-config-notifier.js', () => ({
-    isInvalidModelConfigError: () => false,
-    notifyInvalidModel: vi.fn(),
+    isInvalidModelConfigError: (err) => err?.code === 'invalid_model_config',
+    notifyInvalidModel: (...args) => notifyInvalidModelMock(...args),
+    notifySetupIncomplete: (...args) => notifySetupIncompleteMock(...args),
 }));
 const logWarnMock = vi.fn();
 vi.mock('../src/sillytavern/log.js', () => ({
@@ -67,7 +70,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     },
 }));
 
-const { retrieveEventsForTurn } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { retrieveEventsForTurn, describeAgentModeSetupProblem } = await import('../src/features/eventbase/agentic-retrieval.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
 const event = (id, extra = {}) => ({ event_id: id, source_window_start: 100, source_window_end: 101, importance: 5, text: `text of ${id}`, ...extra });
@@ -202,40 +205,95 @@ describe('Agent Mode planner', () => {
         expect(userMessage).not.toContain('status');
     });
 
-    it('keeps the pre-search and warns when the planner call fails', async () => {
-        postChatCompletionMock.mockRejectedValue(new Error('provider down'));
-        expect(await callAgent()).toBe(preSearch);
-        expect(queryCollectionMock).not.toHaveBeenCalled();
-        expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Planner LLM call failed');
-    });
-
-    it('keeps the pre-search when the plan has no usable query', async () => {
-        planReturns({ queries: [] });
-        expect(await callAgent()).toBe(preSearch);
-        expect(queryCollectionMock).not.toHaveBeenCalled();
-    });
-
-    it('keeps the pre-search and warns when no model is set', async () => {
-        expect(await callAgent({ ...agentOn, agent_model: '', chat_model: '' })).toBe(preSearch);
-        expect(postChatCompletionMock).not.toHaveBeenCalled();
-        expect(logWarnMock.mock.calls.flat().join(' ')).toContain('reason=missing_model');
-    });
-
     it('loses only a failed query\'s own hits, and warns', async () => {
         planReturns({ queries: ['failing query', 'working query'] });
         hitsReturn({ 'failing query': new Error('search down'), 'working query': [event('new1')] });
         const result = await callAgent();
         expect(ids(result.events)).toEqual(['kept1', 'kept2', 'new1']);
         expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Query failed');
+        expect(result.debug.failedSearchCount).toBeUndefined();
     });
 
     it('does not plan when Agent Mode is off', async () => {
         expect(await callAgent({ ...agentOn, agentic_retrieval_enabled: false })).toBe(preSearch);
         expect(postChatCompletionMock).not.toHaveBeenCalled();
+        expect(notifySetupIncompleteMock).not.toHaveBeenCalled();
     });
+});
 
-    it('does not plan on a backend that is not Qdrant', async () => {
+// Every row of the connection plan's §5: the pre-search still runs, and the degrade is announced.
+describe('Agent Mode failures', () => {
+    const failureOf = result => ({ count: result.debug.failedSearchCount, message: result.debug.searchFailureMessage });
+
+    it('warns once that it needs Qdrant, and keeps the pre-search', async () => {
         expect(await callAgent({ ...agentOn, vector_backend: 'standard' })).toBe(preSearch);
         expect(postChatCompletionMock).not.toHaveBeenCalled();
+        expect(notifySetupIncompleteMock).toHaveBeenCalledWith('Agent Mode', expect.stringContaining('needs the Qdrant backend'));
+    });
+
+    it('warns which setting is missing when the connection cannot run, and keeps the pre-search', async () => {
+        expect(await callAgent({ ...agentOn, agent_model: '', chat_model: '' })).toBe(preSearch);
+        expect(postChatCompletionMock).not.toHaveBeenCalled();
+        expect(notifySetupIncompleteMock).toHaveBeenCalledWith('Agent Mode', describeAgentModeSetupProblem('missing_model'));
+    });
+
+    it('says in plain words what each connection problem is and where to fix it', () => {
+        expect(describeAgentModeSetupProblem('missing_model')).toContain('has no model. Set Model on the AgentMode page');
+        expect(describeAgentModeSetupProblem('missing_openrouter_api_key')).toContain('no OpenRouter key is saved');
+        expect(describeAgentModeSetupProblem('missing_vllm_url')).toContain('vLLM with no URL');
+        expect(describeAgentModeSetupProblem('missing_vllm_api_key')).toContain('no vLLM key is saved');
+        expect(describeAgentModeSetupProblem('unknown_provider_mystery')).toContain('provider "mystery" is not one VectFox knows');
+        for (const reason of ['missing_model', 'unknown_provider_mystery', 'a_reason_added_later']) {
+            expect(describeAgentModeSetupProblem(reason)).toMatch(/^Agent Mode is on, but .+ Until then each turn uses the normal memory search only\.$/);
+        }
+    });
+
+    it('counts a failed planner call as the turn\'s failed memory search, and keeps the pre-search', async () => {
+        postChatCompletionMock.mockRejectedValue(new Error('provider down'));
+        const result = await callAgent();
+        expect(result.events).toBe(kept);
+        expect(queryCollectionMock).not.toHaveBeenCalled();
+        expect(failureOf(result)).toEqual({ count: 1, message: 'Agent Mode\'s planner failed: provider down' });
+        expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Planner LLM call failed');
+    });
+
+    it('names the timeout setting when the planner times out', async () => {
+        postChatCompletionMock.mockRejectedValue(Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }));
+        const { debug } = await callAgent();
+        expect(debug.searchFailureMessage).toMatch(/^Agent Mode's planner timed out after \d+ ms\. Raise Planner LLM Timeout on the AgentMode page/);
+    });
+
+    it('raises only the invalid-model toast for a model that is no longer valid', async () => {
+        postChatCompletionMock.mockRejectedValue(Object.assign(new Error('model gone'), { code: 'invalid_model_config' }));
+        const result = await callAgent();
+        expect(notifyInvalidModelMock).toHaveBeenCalledWith('model gone');
+        expect(result).toBe(preSearch);
+    });
+
+    it('keeps the pre-search\'s own failure first, and adds the planner\'s to the count', async () => {
+        retrieveEventsMock.mockResolvedValue({ ...preSearch, debug: { failedSearchCount: 1, searchFailureMessage: 'embedding down' } });
+        postChatCompletionMock.mockRejectedValue(new Error('provider down'));
+        expect(failureOf(await callAgent())).toEqual({ count: 2, message: 'embedding down' });
+    });
+
+    it('stays quiet on an empty plan, which means nothing to search', async () => {
+        planReturns({ queries: [] });
+        expect(await callAgent()).toBe(preSearch);
+        expect(queryCollectionMock).not.toHaveBeenCalled();
+    });
+
+    it('counts a plan with no queries list as a failure', async () => {
+        planReturns({ rationale: 'no list' });
+        const result = await callAgent();
+        expect(queryCollectionMock).not.toHaveBeenCalled();
+        expect(failureOf(result)).toEqual({ count: 1, message: 'Agent Mode\'s planner answered without a list of searches.' });
+    });
+
+    it('counts one failure when every planned search failed', async () => {
+        planReturns({ queries: ['first query', 'second query'] });
+        hitsReturn({ 'first query': new Error('search down'), 'second query': new Error('search down') });
+        const result = await callAgent();
+        expect(result.events).toBe(kept);
+        expect(failureOf(result)).toEqual({ count: 1, message: 'Every Agent Mode search failed: search down' });
     });
 });
