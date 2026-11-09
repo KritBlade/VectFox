@@ -233,8 +233,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     const CONCURRENCY = Math.min(8, Math.max(1, parallelWindows));
 
-    // Coordinator mode: pipelined (default) vs serial (opt-in via the "Serial
-    // extract and insert" switch on the EventBase page).
+    // Coordinator mode: pipelined (default) vs serial (opt-in via the "Wait for
+    // each batch" switch on the EventBase page).
     //
     // - DEFAULT: pipelined — batch N's insert overlaps batch N+1's extract,
     //   ~35% faster wall time.

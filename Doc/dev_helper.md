@@ -212,7 +212,7 @@ Three related features sit inside `insertVectorItems` ([`src/features/vector-bac
 |---|---|---|---|
 | Group embedding calls | `vector_group_embedding_call` | ☑ **true** | 1 POST per batch |
 | Hedge slow calls | `vector_hedge_after_ms` | ☑ **15000** | Duplicate fires at 15s if primary stalls |
-| Serial extract and insert | `eventbase_disable_pipeline` | ☐ **false** | Pipelined extract↔insert overlap |
+| Wait for each batch | `eventbase_disable_pipeline` | ☐ **false** | Pipelined extract↔insert overlap |
 
 Group is on by default: hedge protects against connection-level stalls, and one batched POST is a smaller blast surface (1 connection per wave) than N parallel POSTs (N connections per wave) when the upstream gateway routes by connection. Turning Group off is the one-click rescue if upstream starts returning batch-wide 500s.
 
@@ -263,7 +263,7 @@ Agent Mode is covered by the same `rearrangeChat` outer bound (its fan-out `quer
 
 After 4 fresh-connection attempts in 60s with no success, `callWithHedge` throws an error with `name === 'HedgeFatalError'` and `isHedgeFatal === true`. Both `RETRY_CONFIG.shouldRetry` and `_insertWithRetry` (the outer EventBase retry in `eventbase-workflow.js`) check this flag and skip retrying — more retries would just trigger another 60s of identical hedging against the same broken upstream. User presses Continue button later to resume; the existing window-cache semantics ensure no duplicates on resume thanks to hash-deterministic Qdrant upserts.
 
-### Serial extract and insert (`eventbase_disable_pipeline`)
+### Wait for each batch (`eventbase_disable_pipeline`)
 
 **Off (default):** pipelined coordinator. Batch N's insert overlaps batch N+1's extract via a single-slot queue — about 35% less wall time when extract dominates insert (the common case).
 

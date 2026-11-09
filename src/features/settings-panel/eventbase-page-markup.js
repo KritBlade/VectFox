@@ -49,7 +49,7 @@ function extractionCard() {
                 input({ id: 'VectFox_eventbase_timeout_ms', type: 'number', min: 5000, max: 300000, step: 1000 }),
                 hint({ text: 'How long one window\'s extraction call may run. Raise it for a slow model.' }),
             ])}
-            ${switchRow({ id: 'VectFox_eventbase_disable_pipeline', title: 'Serial extract and insert', description: 'Each batch is stored before the next is extracted. Off overlaps them, about 35% faster.', isSpan: true })}
+            ${switchRow({ id: 'VectFox_eventbase_disable_pipeline', title: 'Wait for each batch', description: 'Slower: each batch is stored before the next is extracted. Off is the faster default.', isSpan: true })}
         </div>
     </section>`;
 }
