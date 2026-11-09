@@ -158,7 +158,14 @@ export function wireSettingsPanel(tabs, settings) {
     });
     applyPanelTheme();
 
-    // Delegated, so a card a page paints later collapses the same way.
+    // Delegated, so a field or card a page paints later behaves the same way.
+    // The (?) beside a label opens its field's longer explanation in place: a tap, never a hover.
+    $(`#${PANEL_ROOT_ID}`).on('click', '.vfx-help-toggle', function () {
+        const $field = $(this).closest('.vfx-field');
+        const isOpen = !$field.hasClass('is-help-open');
+        $field.toggleClass('is-help-open', isOpen);
+        $(this).attr('aria-expanded', String(isOpen));
+    });
     $(`#${PANEL_ROOT_ID}`).on('click', '.vfx-collapse', function () {
         const $box = $(this).closest('.vfx-card, .vfx-record');
         const isCollapsed = !$box.hasClass('is-collapsed');

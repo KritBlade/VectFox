@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import { button, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
+import { button, detail, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
 export const STORY_ARC_PAGE_ID = 'VectFox_panel_storyarc';
@@ -104,12 +104,13 @@ function blockSizeCard() {
         ${cardHeader({ icon: 'fa-sliders', title: 'Block size', description: 'How much of the story a question about the past reads.' })}
         <div class="vfx-card-body vfx-stack">
             ${field([
-                fieldLabel({ text: 'Block size', forId: 'VectFox_story_arc_block_scale' }),
+                fieldLabel({ text: 'Block size', forId: 'VectFox_story_arc_block_scale', hasHelp: true }),
                 `<div class="vfx-slider">
                     <input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_block_scale" ${limits} title="Block size">
                     <input type="number" id="VectFox_story_arc_block_scale" class="vfx-input" ${limits}>
                 </div>`,
-                hint({ text: 'The cut reads chat windows and keeps lines, and both grow with the square root of the story\'s events. At 1,800 events, 0.5 keeps 28 lines from 53 windows, 0.7 keeps 40 from 75, and 1.0 keeps 40 from 100. A short story keeps at least 10 lines from 40 windows. More lines cost more tokens on those questions, and more windows cost the cut more.' }),
+                hint({ text: 'Higher reads more of the story\'s past, at more tokens per question.' }),
+                detail({ text: 'The cut reads chat windows and keeps lines, both growing with the square root of the story\'s events: at 1,800 events, 0.5 keeps 28 lines from 53 windows, 0.7 keeps 40 from 75 and 1.0 keeps 40 from 100. A short story keeps at least 10 lines from 40 windows. More windows also cost the cut more.' }),
             ])}
         </div>
     </section>`;

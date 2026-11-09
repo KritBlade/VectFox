@@ -168,6 +168,16 @@ describe('settings panel shell', () => {
         expect($('[data-vfx-theme-option="dark"]').attr('aria-pressed')).toBe('false');
     });
 
+    it('opens a field\'s detail from its (?), and closes it again', () => {
+        shell.wireSettingsPanel(tabsWithHooks(), {});
+        $(`#${panelPageId('core')}`).append('<div class="vfx-field" id="a_field"><button type="button" class="vfx-help-toggle" aria-expanded="false"></button><p class="vfx-detail">More.</p></div>');
+        $('#a_field .vfx-help-toggle').trigger('click');
+        expect($('#a_field').hasClass('is-help-open')).toBe(true);
+        expect($('#a_field .vfx-help-toggle').attr('aria-expanded')).toBe('true');
+        $('#a_field .vfx-help-toggle').trigger('click');
+        expect($('#a_field').hasClass('is-help-open')).toBe(false);
+    });
+
     it('collapses a card from its chevron, a card painted later too', () => {
         shell.wireSettingsPanel(tabsWithHooks(), {});
         $(`#${panelPageId('core')}`).append('<section class="vfx-card" id="late_card"><button type="button" class="vfx-collapse" aria-expanded="true"></button></section>');
