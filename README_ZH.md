@@ -634,7 +634,7 @@ VectFox + Similharity 是為**個人使用設計的** — 適合在自己的機�
 
 **"Backend health check failed"** — 如果使用 Qdrant，請確認 Qdrant 伺服器正在執行，且已安裝 Similharity 插件。
 
-**效能緩慢** — 切換到 Qdrant + A3（單次往返、伺服器端融合）。降低 EventBase Top K。使用 API 嵌入供應商（可平行）而不是本地 GPU（通常是串列）。
+**效能緩慢** — 切換到 Qdrant + A3（單次往返、伺服器端融合）。降低 EventBase 頁面的 **Events per reply**。使用 API 嵌入供應商（可平行）而不是本地 GPU（通常是串列）。
 
 **大型聊天記錄的向量化速度緩慢** — VectFox 預設套用 API 速率限制（每 60 秒 60 次呼叫），以保護免費層後端。加快向量化速度：**Core 頁面 → Embedding → Rate limit → 將「Max calls」設為 0 以停用**。若要使用生產環境 Qdrant，可根據伺服器容量增加到 100+ 次呼叫/分鐘。
 

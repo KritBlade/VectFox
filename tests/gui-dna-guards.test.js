@@ -83,7 +83,7 @@ const INLINE_STYLES_LEFT = {
     'features/database-browser/chunk-visualizer.js': 4,
     'features/database-browser/database-browser.js': 10,
     'features/query-tester/query-tester.js': 21,
-    'features/settings-panel/settings-panel.js': 82,
+    'features/settings-panel/settings-panel.js': 61,
     'features/text-cleaning/text-cleaning-ui.js': 2,
     'features/text-cleaning/text-cleaning.js': 2,
     'features/vector-backend/tokenizer-lock.js': 1,

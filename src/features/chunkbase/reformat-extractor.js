@@ -313,7 +313,7 @@ async function _processChain(chain, settings, chainIndex, warnings) {
         try {
             const { reply, finishReason } = await _callProviderWithRetry(prompt, settings, chainIndex);
             if (finishReason === 'length') {
-                warnings.push(`${batchLabel}: response was truncated by the model's output limit — some entries from this section may be missing. Consider lowering "Batch size (chars)" in Auto-Reformat settings.`);
+                warnings.push(`${batchLabel}: response was truncated by the model's output limit — some entries from this section may be missing. Consider lowering "Batch size (chars)" in ChunkBase → Auto-Reformat.`);
             }
 
             const rawArray = parseJsonArrayFromLlm(reply, {

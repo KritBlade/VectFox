@@ -633,7 +633,7 @@ Database Browser 아이콘을 클릭 → 해당 채팅의 컬렉션을 클릭 �
 
 **"Backend health check failed"** — Qdrant에서 Qdrant 서버가 실행 중이고 Similharity 플러그인이 설치되었는지 확인하세요.
 
-**느린 성능** — Qdrant + A3로 전환(단일 왕복, 서버측 융합). EventBase Top K 줄이기. 로컬 GPU(직렬) 대신 API 임베딩 제공자(병렬) 사용.
+**느린 성능** — Qdrant + A3로 전환(단일 왕복, 서버측 융합). EventBase 페이지의 **Events per reply** 줄이기. 로컬 GPU(직렬) 대신 API 임베딩 제공자(병렬) 사용.
 
 **대규모 채팅 기록의 벡터화가 느림** — VectFox는 기본적으로 API 레이트 제한을 적용합니다(60초당 60회 호출). 무료 티어 백엔드를 보호하기 위해 벡터화 속도를 높이려면: **Core 페이지 → Embedding → Rate limit → \"Max calls\"를 0으로 설정하여 비활성화**. 프로덕션 Qdrant의 경우 서버 용량에 따라 100+ 호출/분으로 증가할 수 있습니다.
 

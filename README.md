@@ -657,7 +657,7 @@ A couple of gotchas:
 
 **"Backend health check failed"** — On Qdrant, make sure the Qdrant server is running and the Similharity plugin is installed.
 
-**Slow performance** — Switch to Qdrant + A3 (single round-trip, server-side fusion). Reduce EventBase Top K. Use API embedding providers (parallel) instead of local GPU (sequential).
+**Slow performance** — Switch to Qdrant + A3 (single round-trip, server-side fusion). Lower **Events per reply** on the EventBase page. Use API embedding providers (parallel) instead of local GPU (sequential).
 
 **Vectorization is slow on large chat histories** — VectFox applies API rate limiting by default (60 calls per 60 seconds) to protect free-tier backends. To speed up vectorization: **Core page → Embedding → Rate limit → set "Max calls" to 0 to disable**. For production Qdrant, you can increase it to 100+ calls/min depending on your server capacity.
 

@@ -36,6 +36,7 @@ import { confirmPopup, placeOnTopmostModalLayer } from '../../sillytavern/popup.
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
+import { chunkBasePageMarkup } from './chunkbase-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
 import { eventBasePageMarkup } from './eventbase-page-markup.js';
 import { bindNumberSetting } from './number-setting.js';
@@ -111,134 +112,8 @@ export function renderSettings(containerId, settings, callbacks) {
                         retrievalTimeout: { minMs: RETRIEVAL_TIMEOUT_MIN_MS, maxMs: RETRIEVAL_TIMEOUT_MAX_MS, defaultMs: RETRIEVAL_TIMEOUT_DEFAULT_MS },
                     }))}
 
-                    <!-- ChunkBase Settings Card -->
-                    ${panelPageMarkup('chunkbase', `
-                    <div class="vectfox-card">
-                        <div class="vectfox-card-header">
-                            <h3 class="vectfox-card-title">
-                                <span class="vectfox-icon">
-                                    <i class="fa-solid fa-layer-group"></i>
-                                </span>
-                                ChunkBase Settings
-                            </h3>
-                            <p class="vectfox-card-subtitle">Settings on this tab apply to chunk-based content: <b>Lorebook / World Info</b>, <b>Character Cards</b>, <b>URLs / web pages</b>, <b>custom documents</b>, <b>wiki pages</b>, and <b>YouTube transcripts</b>. Chat history is handled separately under EventBase.</p>
-                        </div>
-                        <div class="vectfox-card-body">
-
-                            <!-- Ingestion -->
-                            <p class="vectfox-section-label" style="font-weight:600; margin-bottom:8px;">Ingestion</p>
-                            <label for="VectFox_insert_batch_size">
-                                <small>Insert Batch Size: <span id="VectFox_insert_batch_size_value">50</span></small>
-                            </label>
-                            <input type="range" id="VectFox_insert_batch_size" class="vectfox-slider" min="10" max="100" step="10" />
-                            <small class="VectFox_hint">Chunks per insert batch (50-100 recommended for faster bulk operations). Local Transformers, Ollama and llama.cpp always send one chunk per request.</small>
-
-                            <label class="checkbox_label" for="VectFox_document_glossary_injection" style="margin-top:12px;">
-                                <input type="checkbox" id="VectFox_document_glossary_injection" />
-                                <span>Acronym Glossary Injection (Documents)</span>
-                            </label>
-                            <small class="VectFox_hint">When vectorizing a <b>Document</b>, scan it once for "Full Name (ACRONYM)" definitions and prepend the matching definition to any chunk that references the bare acronym without it. Fixes retrieval handing the model an ungrounded acronym it then has to guess at.</small>
-
-                            <!-- Auto-Reformat (LLM) -->
-                            <p class="vectfox-section-label" style="font-weight:600; margin-top:16px; margin-bottom:8px;">Auto-Reformat (LLM)</p>
-                            <small class="VectFox_hint" style="display:block; margin-bottom:8px;">
-                                Optional, per-item LLM pass offered in <b>Vectorize Content</b> for Document/URL/Wiki sources. Reads the source, splits it into clean per-entity/per-topic entries, and uses those as the final chunks — you review and accept every entry before anything is stored. Leave Provider/Model blank to use the <b>Core → Event model</b> settings.
-                            </small>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_reformat_provider"><small>Provider</small></label>
-                                <select id="VectFox_reformat_provider" class="vectfox-select">
-                                    <option value="">(Inherit from summarizer)</option>
-                                    <option value="openrouter">OpenRouter</option>
-                                    <option value="vllm">vLLM</option>
-                                </select>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_reformat_model"><small>Model</small></label>
-                                <input type="text" id="VectFox_reformat_model" class="vectfox-input"
-                                    placeholder="(empty → inherit summarizer model)" />
-                            </div>
-
-                            <div class="vectfox-form-group" id="VectFox_reformat_vllm_row" style="display:none;">
-                                <label for="VectFox_reformat_vllm_url"><small>vLLM Base URL</small></label>
-                                <input type="text" id="VectFox_reformat_vllm_url" class="vectfox-input"
-                                    placeholder="(empty → inherit summarize URL)" />
-                                <small class="VectFox_hint">API key is shared with Embedding/Event model/AgentMode — set it in Core → Event model.</small>
-                            </div>
-
-                            <label for="VectFox_reformat_batch_chars">
-                                <small>Batch Size: <span id="VectFox_reformat_batch_chars_val">6000</span> chars</small>
-                            </label>
-                            <input type="range" id="VectFox_reformat_batch_chars" class="vectfox-slider" min="2000" max="12000" step="500" />
-                            <small class="VectFox_hint">Target input size per LLM call. Long documents are split into multiple batches at header boundaries; lower this if a section is so dense the model truncates its output.</small>
-
-                            <label for="VectFox_reformat_max_body_chars" style="margin-top:10px; display:block;">
-                                <small>Max Entry Size: <span id="VectFox_reformat_max_body_chars_val">2000</span> chars</small>
-                            </label>
-                            <input type="range" id="VectFox_reformat_max_body_chars" class="vectfox-slider" min="500" max="5000" step="250" />
-                            <small class="VectFox_hint">Entries longer than this are sub-chunked with the same adaptive splitter used elsewhere, so one oversized entity doesn't become one giant chunk.</small>
-
-                            <label for="VectFox_reformat_name_fuzzy_threshold" style="margin-top:10px; display:block;">
-                                <small>Hallucination Guard Sensitivity: <span id="VectFox_reformat_name_fuzzy_threshold_val">0.8</span></small>
-                            </label>
-                            <input type="range" id="VectFox_reformat_name_fuzzy_threshold" class="vectfox-slider" min="0.5" max="1" step="0.05" />
-                            <small class="VectFox_hint">Minimum name-match confidence before the review screen flags an entry as possibly invented by the model. Higher = stricter (more flags, some false positives on close paraphrases).</small>
-
-                            <label for="VectFox_reformat_concurrency" style="margin-top:10px; display:block;">
-                                <small>Parallel Batches: <span id="VectFox_reformat_concurrency_val">2</span></small>
-                            </label>
-                            <input type="range" id="VectFox_reformat_concurrency" class="vectfox-slider" min="1" max="6" step="1" />
-                            <small class="VectFox_hint">How many LLM calls run at once when a document needs multiple batches.</small>
-
-                            <label for="VectFox_reformat_timeout_ms" style="margin-top:10px; display:block;">
-                                <small>Timeout (ms)</small>
-                            </label>
-                            <input id="VectFox_reformat_timeout_ms" type="number" class="vectfox-input" min="10000" step="1000" style="width:140px;" />
-
-                            <label for="VectFox_reformat_custom_prompt" style="margin-top:10px; display:block;">
-                                <small>Custom Extraction Prompt (advanced)</small>
-                            </label>
-                            <textarea id="VectFox_reformat_custom_prompt" class="vectfox-input" rows="3"
-                                placeholder="Leave blank to use the built-in prompt. Must instruct the model to output a JSON array with entry_type/name/aliases/affiliation/traits/relationships/keywords/body fields."
-                                style="margin-top:4px;"></textarea>
-
-                            <!-- Query (ChunkBase-only) -->
-                            <p class="vectfox-section-label" style="font-weight:600; margin-top:16px; margin-bottom:8px;">Query</p>
-                            <div style="margin-top:4px; display:flex; gap:8px; align-items:center;">
-                                <label for="VectFox_topk" style="margin:0; white-space:nowrap;"><small>Top K</small></label>
-                                <input id="VectFox_topk" type="number" class="vectfox-input" min="1" style="width:90px;" />
-                                <small class="VectFox_hint" style="margin-left:8px;">Up to this many results per collection (may be fewer after filtering/dedup)</small>
-                            </div>
-
-                            <!-- Retrieval Gating (ChunkBase-only) -->
-                            <p class="vectfox-section-label" style="font-weight:600; margin-top:16px; margin-bottom:8px;">Retrieval Gating</p>
-                            <label for="VectFox_score_threshold" style="margin-top:12px;">
-                                <small>Similarity Threshold: <span id="VectFox_threshold_value">0.25</span></small>
-                            </label>
-                            <input type="range" id="VectFox_score_threshold" class="vectfox-slider" min="0" max="1" step="0.05" />
-                            <small class="VectFox_hint">Minimum relevance score for retrieval</small>
-
-                            <!-- Keyword Budget (chunk-only; visible only in A1 Standard+BM25 mode) -->
-                            <p class="vectfox-section-label" style="font-weight:600; margin-top:16px; margin-bottom:8px;">Keyword Budget</p>
-                            <small class="VectFox_hint" style="display: block; margin-bottom: 8px;">
-                                Chunk-path-only setting. Other hybrid/BM25 knobs live under <b>Core → Keyword scoring</b>.
-                            </small>
-                            <div id="VectFox_hybrid_keyword_budget_wrapper" style="margin-top: 8px;">
-                                <label>
-                                    <small>Query Keyword Budget</small>
-                                </label>
-                                <select id="VectFox_hybrid_keyword_level" class="vectfox-select">
-                                    <option value="minimal">30</option>
-                                    <option value="balance">50</option>
-                                    <option value="maximum">70</option>
-                                </select>
-                                <small class="VectFox_hint">Max keywords extracted from your query for BM25 scoring (CJK priority; +10 English overflow when CJK fills budget). Used only when Standard backend + BM25 mode is active.</small>
-                            </div>
-
-                        </div>
-                    </div>
-                    `)}
+                    <!-- ChunkBase page (chunkbase-page-markup.js) -->
+                    ${panelPageMarkup('chunkbase', chunkBasePageMarkup())}
 
                     <!-- RAG Context Card -->
                     ${panelPageMarkup('rag', `
@@ -2208,8 +2083,8 @@ function bindSettingsEvents(settings, callbacks) {
 
 
     // ─── Auto-Reformat (Document/URL/Wiki LLM restructuring) ───────────────
-    // Mirrors the AgentMode inherit-from-summarizer pattern above. No dedicated
-    // API-key fields — reuses the same shared OpenRouter/vLLM key slots.
+    // A blank provider, model or URL uses the Event model's (Core page), as AgentMode
+    // does. No key fields: it uses the shared OpenRouter and vLLM key slots.
     const updateReformatProviderUI = (provider) => {
         const resolved = String(provider || '').trim();
         $('#VectFox_reformat_vllm_row').toggle(resolved === 'vllm');
@@ -2241,46 +2116,16 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    const bindReformatSlider = (inputId, valSpanId, settingKey, defaultVal) => {
-        const startVal = Number(settings[settingKey] ?? defaultVal);
-        $(inputId).val(startVal);
-        $(valSpanId).text(startVal);
-        $(inputId).on('input', function() {
-            const v = Number($(this).val());
-            settings[settingKey] = v;
-            $(valSpanId).text(v);
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    };
-    bindReformatSlider('#VectFox_reformat_batch_chars', '#VectFox_reformat_batch_chars_val', 'reformat_batch_chars', 6000);
-    bindReformatSlider('#VectFox_reformat_max_body_chars', '#VectFox_reformat_max_body_chars_val', 'reformat_max_body_chars', 2000);
-    bindReformatSlider('#VectFox_reformat_name_fuzzy_threshold', '#VectFox_reformat_name_fuzzy_threshold_val', 'reformat_name_fuzzy_threshold', 0.8);
-    bindReformatSlider('#VectFox_reformat_concurrency', '#VectFox_reformat_concurrency_val', 'reformat_concurrency', 2);
-
-    $('#VectFox_reformat_timeout_ms')
-        .val(Number(settings.reformat_timeout_ms ?? 90000))
-        .on('change input', function() {
-            const v = Number($(this).val());
-            settings.reformat_timeout_ms = Math.max(10000, v || 90000);
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
+    bindNumberSetting(settings, { id: 'VectFox_reformat_batch_chars', key: 'reformat_batch_chars', initial: settings.reformat_batch_chars ?? 6000, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_reformat_max_body_chars', key: 'reformat_max_body_chars', initial: settings.reformat_max_body_chars ?? 2000, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_reformat_name_fuzzy_threshold', key: 'reformat_name_fuzzy_threshold', initial: settings.reformat_name_fuzzy_threshold ?? 0.8 });
+    bindNumberSetting(settings, { id: 'VectFox_reformat_concurrency', key: 'reformat_concurrency', initial: settings.reformat_concurrency ?? 2, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_reformat_timeout_ms', key: 'reformat_timeout_ms', initial: settings.reformat_timeout_ms ?? 90000, isInteger: true });
 
     $('#VectFox_reformat_custom_prompt')
         .val(settings.reformat_custom_prompt || '')
         .on('change', function() {
             settings.reformat_custom_prompt = String($(this).val());
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    // Chunk size (for adaptive strategy)
-    $('#VectFox_chunk_size')
-        .val(settings.chunk_size || 500)
-        .on('input', function() {
-            const value = Number($(this).val());
-            settings.chunk_size = value;
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
@@ -2293,7 +2138,6 @@ function bindSettingsEvents(settings, callbacks) {
         const preferNative  = settings.hybrid_native_prefer !== false;
         const nativeActive  = supportsNative && preferNative;        // A3
         const isHybridMode  = !nativeActive && method === 'hybrid';  // A2 (or Qdrant+prefer=false fallback)
-        const isBM25Mode    = !nativeActive && method === 'bm25';    // A1
 
         // Keyword scoring method dropdown vs static "native active" notice
         $('#VectFox_keyword_method_section').toggle(!nativeActive);
@@ -2307,8 +2151,8 @@ function bindSettingsEvents(settings, callbacks) {
         // controls would just confuse Qdrant users.
         $('#VectFox_hybrid_params').toggle(isHybridMode);
 
-        // Query Keyword Budget (lives in ChunkBase tab): visible only in A1
-        $('#VectFox_hybrid_keyword_budget_wrapper').toggle(isBM25Mode);
+        // Query keyword budget (ChunkBase page): read by client-side BM25, so A1 and A2
+        $('#VectFox_hybrid_keyword_budget_wrapper').toggle(!nativeActive);
 
         // Native rerank checkbox: Qdrant only
         $('#VectFox_eventbase_native_rerank_wrapper').toggle(supportsNative);
@@ -2574,18 +2418,8 @@ function bindSettingsEvents(settings, callbacks) {
             resetBackendHealth();
         });
 
-    // Score threshold
-    $('#VectFox_score_threshold')
-        .val(settings.score_threshold)
-        .on('input', function() {
-            const value = parseFloat($(this).val());
-            const safeValue = isNaN(value) ? 0.3 : value;
-            $('#VectFox_threshold_value').text(safeValue.toFixed(2));
-            settings.score_threshold = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_threshold_value').text(settings.score_threshold.toFixed(2));
+    // Similarity threshold (ChunkBase page): Standard's query applies it to every collection, events included
+    bindNumberSetting(settings, { id: 'VectFox_score_threshold', key: 'score_threshold', initial: settings.score_threshold ?? 0.25 });
 
     // "Skip Already-Visible Events" (legacy key name: deduplication_depth).
     // Default 0 = filter disabled. See settings comment in index.js — the assumption
@@ -2674,16 +2508,8 @@ function bindSettingsEvents(settings, callbacks) {
     // Query depth (how many recent messages to include in search query)
     bindNumberSetting(settings, { id: 'VectFox_query_depth', key: 'query', initial: settings.query || 2, isInteger: true });
 
-    // Top K - number of results retrieved per collection (top-K)
-    $('#VectFox_topk')
-        .val((settings.top_k ?? settings.insert) || 3)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? (settings.insert || 3) : value;
-            settings.top_k = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
+    // Results per collection (ChunkBase page): the chunk pipeline's top-K
+    bindNumberSetting(settings, { id: 'VectFox_topk', key: 'top_k', initial: (settings.top_k ?? settings.insert) || 3, isInteger: true });
 
     // Auto-sync independent window (turns). Feature A.
     {
@@ -3843,17 +3669,8 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
 
-    // VEC-6: Insert Batch Size
-    $('#VectFox_insert_batch_size')
-        .val(settings.insert_batch_size || 50)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            $('#VectFox_insert_batch_size_value').text(value);
-            settings.insert_batch_size = value;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_insert_batch_size_value').text(settings.insert_batch_size || 50);
+    // Insert batch size: items per embedding request (vector-api.js insertVectorItems)
+    bindNumberSetting(settings, { id: 'VectFox_insert_batch_size', key: 'insert_batch_size', initial: settings.insert_batch_size || 50, isInteger: true });
 
     // Acronym glossary injection (Documents) — see src/features/chunkbase/glossary-extractor.js
     $('#VectFox_document_glossary_injection')
