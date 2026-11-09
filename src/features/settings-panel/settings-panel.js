@@ -32,10 +32,12 @@ import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthModalHtml, getHealthPillHtml, initializeHealthDashboard, refreshHealthPill, runDiagnostics } from '../diagnostics/index.js';
-import { placeOnTopmostModalLayer } from '../../sillytavern/popup.js';
+import { confirmPopup, placeOnTopmostModalLayer } from '../../sillytavern/popup.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
+import { corePageMarkup } from './core-page-markup.js';
+import { bindNumberSetting } from './number-setting.js';
 import { wireActionPage } from './action-page.js';
 import { getCollectionRegistry, getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
@@ -102,569 +104,11 @@ export function renderSettings(containerId, settings, callbacks) {
                     ${panelNavMarkup()}
                     <main class="vfx-main">
 
-                    <!-- Core Settings Card -->
-                    ${panelPageMarkup('core', `
-                    <div class="vectfox-card">
-                        <div class="vectfox-card-header">
-                            <h3 class="vectfox-card-title">
-                                <span class="vectfox-icon">
-                                    <i class="fa-solid fa-cog"></i>
-                                </span>
-                                Core Settings
-                            </h3>
-                            <p class="vectfox-card-subtitle">Shared settings for embedding, retrieval, and EventBase extraction.</p>
-                        </div>
-                        <div class="vectfox-card-body">
-
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <!-- GROUP 1: Vector Storage                                -->
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <div class="vectfox-subsection">
-                                <div class="vectfox-card-header" style="padding: 0 0 8px 0;">
-                                    <h3 class="vectfox-card-title" style="font-size: 0.95em;">
-                                        <span class="vectfox-icon"><i class="fa-solid fa-database"></i></span>
-                                        Vector Storage
-                                    </h3>
-                                    <p class="vectfox-card-subtitle">Vector database backend</p>
-                                </div>
-
-                                <label for="VectFox_vector_backend">
-                                    <small>Vector Backend</small>
-                                </label>
-                                <select id="VectFox_vector_backend" class="vectfox-select">
-                                    <option value="standard">Standard (ST's Vectra - file-based)</option>
-                                    <option value="qdrant">Qdrant (production vector search)</option>
-                                </select>
-                                <small class="vectfox-help-text" style="display: block; margin-top: -8px; margin-bottom: 16px; opacity: 0.7; font-size: 0.85em; line-height: 1.5;">
-                                    • Standard: ST's built-in Vectra (best for &lt;100k vectors)<br>
-                                    • Qdrant: Production-grade with HNSW, filtering, cloud support
-                                </small>
-                                <!-- Persistent notice shown whenever the Similharity plugin is absent,
-                                     explaining why the Qdrant option is disabled. Distinct from the
-                                     transient red revert alert below. -->
-                                <small id="VectFox_qdrant_plugin_notice" class="VectFox_hint" style="display:none; color:#e0a44a; font-weight:600; margin-top:-8px; margin-bottom:16px; line-height:1.5;">
-                                    ⚠ Similharity plugin not detected. <a href="https://github.com/KritBlade/VectFox/tree/Similharity-Plugin#step-2-install-plugin-via-git-recommended" target="_blank" rel="noopener noreferrer">Install</a> the plugin for Qdrant backend.
-                                </small>
-                                <small id="VectFox_qdrant_plugin_error" class="VectFox_hint" style="display:none; color:#e04a4a; font-weight:600; margin-top:-8px; margin-bottom:16px; line-height:1.5;">
-                                    ⚠ Qdrant requires the Similharity server plugin, which is not installed. Install the plugin to use this backend, or switch to Standard.
-                                </small>
-
-                                <!-- Qdrant Settings (shown only when Qdrant backend is selected) -->
-                                <div id="VectFox_qdrant_settings" style="display: none;">
-                                    <label class="checkbox_label">
-                                        <input type="checkbox" id="VectFox_qdrant_use_cloud" />
-                                        <span>Use Qdrant Cloud</span>
-                                    </label>
-
-                                    <!-- Local Qdrant Settings -->
-                                    <div id="VectFox_qdrant_local_settings">
-                                        <label for="VectFox_qdrant_host">
-                                            <small>Qdrant Host:</small>
-                                        </label>
-                                        <input type="text" id="VectFox_qdrant_host" class="vectfox-input" placeholder="127.0.0.1" />
-
-                                        <label for="VectFox_qdrant_port">
-                                            <small>Qdrant Port:</small>
-                                        </label>
-                                        <input type="number" id="VectFox_qdrant_port" class="vectfox-input" placeholder="6333" />
-                                    </div>
-
-                                    <!-- Cloud Qdrant Settings -->
-                                    <div id="VectFox_qdrant_cloud_settings" style="display: none;">
-                                        <label for="VectFox_qdrant_url">
-                                            <small>Qdrant Cloud URL:</small>
-                                        </label>
-                                        <input type="text" id="VectFox_qdrant_url" class="vectfox-input" placeholder="https://xxx.cloud.qdrant.io" />
-
-                                        <label for="VectFox_qdrant_api_key">
-                                            <small>API Key:</small>
-                                        </label>
-                                        <input type="password" id="VectFox_qdrant_api_key" class="vectfox-input" placeholder="Your Qdrant Cloud API key" />
-                                    </div>
-
-                                    <!-- Qdrant Multitenancy Setting -->
-                                    <div style="margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.1); border-radius: 4px;">
-                                        <label class="checkbox_label" title="When enabled, uses a single Qdrant collection with content_type filtering (multitenancy). When disabled, creates separate collections for each content type (better isolation).">
-                                            <input type="checkbox" id="VectFox_qdrant_multitenancy" />
-                                            <span>Use Multitenancy (Single Collection)</span>
-                                        </label>
-                                        <small class="VectFox_hint" style="display: block; margin-top: 4px;">
-                                            <strong>Multitenancy ON:</strong> Single collection with filtering (saves resources)<br>
-                                            <strong>Multitenancy OFF:</strong> Separate collections per content type (better isolation)
-                                        </small>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <!-- GROUP 2: Embedding                                     -->
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <div class="vectfox-subsection" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--grey30);">
-                                <div class="vectfox-card-header" style="padding: 0 0 8px 0;">
-                                    <h3 class="vectfox-card-title" style="font-size: 0.95em;">
-                                        <span class="vectfox-icon"><i class="fa-solid fa-microchip"></i></span>
-                                        Embedding
-                                    </h3>
-                                    <p class="vectfox-card-subtitle">Embedding provider and model</p>
-                                </div>
-
-                                <div style="margin: 4px 0 12px 0; padding: 8px 10px; border: 1px solid var(--crimson, #c0392b); border-left-width: 3px; border-radius: 4px; background: rgba(192, 57, 43, 0.08);">
-                                    <small style="color: var(--crimson, #e74c3c); font-weight: 600;">
-                                        <i class="fa-solid fa-triangle-exclamation"></i>
-                                        Do NOT change the embedding provider or model after a collection's first vectorization.
-                                    </small>
-                                    <small style="display: block; margin-top: 4px; opacity: 0.85;">
-                                        Existing vectors were built with the original model — mixing models in one collection breaks retrieval. To switch, re-vectorize the collection from scratch.
-                                    </small>
-                                </div>
-
-                                <label for="VectFox_source">
-                                    <small>Embedding Provider</small>
-                                </label>
-                                <select id="VectFox_source" class="vectfox-select">
-                                    <option value="transformers">Transformers (Local)</option>
-                                    <option value="ollama">Ollama</option>
-                                    <option value="openrouter">OpenRouter</option>
-                                    <option value="vllm">vLLM</option>
-                                </select>
-
-                                <!-- Provider-Specific Settings -->
-                                <div id="VectFox_provider_settings">
-
-                                    <!-- Ollama Settings -->
-                                    <div class="VectFox_provider_setting" data-provider="ollama">
-                                        <label class="checkbox_label">
-                                            <input type="checkbox" id="VectFox_ollama_use_alt_endpoint" />
-                                            <span>Use Alternative Endpoint</span>
-                                        </label>
-                                        <input type="text" id="VectFox_ollama_alt_endpoint_url" class="vectfox-input" placeholder="http://127.0.0.1:11434" />
-                                        <small class="VectFox_hint">Override default Ollama API URL</small>
-                                        <label for="VectFox_ollama_model" style="margin-top: 8px;">
-                                            <small>Ollama Model:</small>
-                                        </label>
-                                        <input type="text" id="VectFox_ollama_model" class="vectfox-input" placeholder="mxbai-embed-large" />
-                                        <label class="checkbox_label" style="margin-top: 6px;">
-                                            <input type="checkbox" id="VectFox_ollama_keep" />
-                                            <span>Keep Model in Memory</span>
-                                        </label>
-                                        <small class="VectFox_hint">Enter the model name from your Ollama installation</small>
-                                    </div>
-
-                                    <!-- vLLM Settings -->
-                                    <div class="VectFox_provider_setting" data-provider="vllm">
-                                        <label class="checkbox_label">
-                                            <input type="checkbox" id="VectFox_vllm_use_alt_endpoint" />
-                                            <span>Use Alternative Endpoint</span>
-                                        </label>
-                                        <input type="text" id="VectFox_vllm_alt_endpoint_url" class="vectfox-input" placeholder="http://127.0.0.1:8000" />
-                                        <small class="VectFox_hint">Override default vLLM API URL</small>
-                                        <label for="VectFox_vllm_model" style="margin-top: 8px;">
-                                            <small>vLLM Model:</small>
-                                        </label>
-                                        <input type="text" id="VectFox_vllm_model" class="vectfox-input" placeholder="Model name" />
-                                        <small class="VectFox_hint">Enter the model name from your vLLM deployment</small>
-                                        <label for="VectFox_vllm_api_key" style="margin-top: 8px;">
-                                            <small>vLLM API Key (optional):</small>
-                                        </label>
-                                        <input type="password" id="VectFox_vllm_api_key" class="vectfox-input" placeholder="Leave blank for local / no-auth deployments" autocomplete="off" />
-                                        <button type="button" id="VectFox_vllm_api_key_clear" class="menu_button" style="margin-top:4px; width:auto; white-space:nowrap;"><i class="fa-solid fa-trash-can"></i> Clear saved key</button>
-                                    </div>
-
-                                    <!-- OpenRouter Model -->
-                                    <div class="VectFox_provider_setting" data-provider="openrouter">
-                                        <label for="VectFox_openrouter_model">
-                                            <small>OpenRouter Model:</small>
-                                        </label>
-                                        <div style="display: flex; gap: 6px; align-items: stretch;">
-                                            <input type="text" id="VectFox_openrouter_model" class="vectfox-input" style="flex: 1;" placeholder="openai/text-embedding-3-large" />
-                                            <button id="VectFox_openrouter_model_choose" class="menu_button" type="button" title="Browse OpenRouter's model list (filtered to embedding models)">
-                                                <i class="fa-solid fa-list"></i> Choose
-                                            </button>
-                                        </div>
-                                        <select id="VectFox_openrouter_model_list" class="vectfox-select" style="display:none; margin-top:6px;"></select>
-                                        <small class="VectFox_hint">Enter OpenRouter-compatible model ID, or click <b>Choose</b> to browse. List defaults to embedding models — toggle <i>Show all</i> if you need to pick a non-embedding one.</small>
-                                        <label for="VectFox_openrouter_apikey" style="margin-top: 8px;">
-                                            <small>OpenRouter API Key:</small>
-                                        </label>
-                                        <input type="password" id="VectFox_openrouter_apikey" class="vectfox-input" placeholder="Paste key here to save..." autocomplete="off" />
-                                        <button type="button" id="VectFox_openrouter_apikey_clear" class="menu_button" style="margin-top:4px; width:auto; white-space:nowrap;"><i class="fa-solid fa-trash-can"></i> Clear saved key</button>
-                                    </div>
-
-                                </div>
-
-                                <!-- Embedding API Rate Limiting -->
-                                <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--grey30);">
-                                    <label>
-                                        <small>Embedding API Rate Limiting (0 to disable)</small>
-                                    </label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <div style="flex: 1;">
-                                            <label for="VectFox_rate_limit_calls" style="display: block; margin-bottom: 4px;">
-                                                <small>Max Calls</small>
-                                            </label>
-                                            <input type="number" id="VectFox_rate_limit_calls" class="vectfox-input" min="0" placeholder="5" />
-                                        </div>
-                                        <div style="flex: 1;">
-                                            <label for="VectFox_rate_limit_interval" style="display: block; margin-bottom: 4px;">
-                                                <small>Interval (sec)</small>
-                                            </label>
-                                            <input type="number" id="VectFox_rate_limit_interval" class="vectfox-input" min="1" placeholder="60" />
-                                        </div>
-                                    </div>
-                                    <small class="VectFox_hint">Limit embedding API requests per time interval. Local Transformers, Ollama and llama.cpp are not limited.</small>
-                                </div>
-
-                                <!-- Summarizer / Agent Mode Rate Limiting -->
-                                <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--grey30);">
-                                    <label>
-                                        <small>Summarizer / Agent Mode Rate Limiting (0 to disable)</small>
-                                    </label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <div style="flex: 1;">
-                                            <label for="VectFox_generation_rate_limit_calls" style="display: block; margin-bottom: 4px;">
-                                                <small>Max Calls</small>
-                                            </label>
-                                            <input type="number" id="VectFox_generation_rate_limit_calls" class="vectfox-input" min="0" placeholder="0" />
-                                        </div>
-                                        <div style="flex: 1;">
-                                            <label for="VectFox_generation_rate_limit_interval" style="display: block; margin-bottom: 4px;">
-                                                <small>Interval (sec)</small>
-                                            </label>
-                                            <input type="number" id="VectFox_generation_rate_limit_interval" class="vectfox-input" min="1" placeholder="60" />
-                                        </div>
-                                    </div>
-                                    <small class="VectFox_hint">Throttle summarization (EventBase) and Agent Mode LLM calls (chat-completions) — separate from embeddings above. Prevents 429s when many windows extract at once. 0 = unlimited.</small>
-                                </div>
-
-                                <div class="vectfox-form-group" style="margin-top: 12px;">
-                                    <label class="checkbox_label" for="VectFox_vector_group_embedding_call">
-                                        <input type="checkbox" id="VectFox_vector_group_embedding_call" />
-                                        <span>Group embedding calls</span>
-                                    </label>
-                                    <small class="VectFox_hint">Default (checked): if unchecked, each item becomes its own embedding HTTP call, fired in parallel. One stuck upstream worker blocks only that item; the rest still succeed. More HTTP calls per batch. If checked, send all items in ONE batched call — cheaper (saves API call count) but less robust: ONE stuck item hangs the whole batch.</small>
-                                </div>
-
-                                <div class="vectfox-form-group" style="margin-top: 12px;">
-                                    <label class="checkbox_label" for="VectFox_vector_hedge_enabled">
-                                        <input type="checkbox" id="VectFox_vector_hedge_enabled" />
-                                        <span>Hedge slow embedding calls</span>
-                                    </label>
-                                    <small class="VectFox_hint">Default (checked): when an embedding HTTP call hasn't returned within 15 seconds, fire a duplicate request on a fresh connection. Whichever returns first wins. Cuts routing-stall recovery from 120s (ST's timeout) to under 20s when the upstream gateway fails. Applies only to OpenRouter and vLLM.</small>
-                                </div>
-                            </div>
-
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <!-- GROUP 3: LLM / EventBase Extraction                   -->
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <div class="vectfox-subsection" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--grey30);">
-                                <div class="vectfox-card-header" style="padding: 0 0 8px 0;">
-                                    <h3 class="vectfox-card-title" style="font-size: 0.95em;">
-                                        <span class="vectfox-icon">
-                                            <i class="fa-solid fa-file-lines"></i>
-                                        </span>
-                                        LLM Summarization &amp; EventBase Extraction
-                                    </h3>
-                                    <p class="vectfox-card-subtitle">LLM for EventBase event extraction</p>
-                                </div>
-
-                                <label for="VectFox_summarize_provider">
-                                    <small>Summarization Provider</small>
-                                </label>
-                                <select id="VectFox_summarize_provider" class="vectfox-select">
-                                    <option value="openrouter">OpenRouter</option>
-                                    <option value="vllm">vLLM</option>
-                                </select>
-                                <small class="VectFox_hint">Provider required for summarization / EventBase extraction LLM calls</small>
-
-                                <div id="VectFox_summarize_settings" style="display:none; margin-top:12px;">
-
-                                    <div id="VectFox_summarize_openrouter_row" style="display:none; margin-bottom:10px;">
-                                        <label for="VectFox_summarize_openrouter_apikey">
-                                            <small>OpenRouter API Key</small>
-                                        </label>
-                                        <input type="password" id="VectFox_summarize_openrouter_apikey" class="vectfox-input"
-                                            placeholder="Paste key here to save..." autocomplete="off" />
-                                        <button type="button" id="VectFox_summarize_openrouter_apikey_clear" class="menu_button" style="margin-top:4px; width:auto; white-space:nowrap;"><i class="fa-solid fa-trash-can"></i> Clear saved key</button>
-                                        <small class="VectFox_hint">Stored in VectFox settings (separate from the embedding key)</small>
-                                    </div>
-
-                                    <div id="VectFox_summarize_vllm_url_row" style="display:none; margin-bottom:10px;">
-                                        <label for="VectFox_summarize_vllm_url">
-                                            <small>vLLM Base URL</small>
-                                        </label>
-                                        <input type="text" id="VectFox_summarize_vllm_url" class="vectfox-input"
-                                            placeholder="http://127.0.0.1:8000" />
-                                        <small class="VectFox_hint">Base URL of your vLLM server (OpenAI-compatible)</small>
-                                        <label for="VectFox_summarize_vllm_apikey" style="margin-top:8px;">
-                                            <small>vLLM API Key <span style="opacity:0.6;">(optional — leave blank if not required)</span></small>
-                                        </label>
-                                        <input type="password" id="VectFox_summarize_vllm_apikey" class="vectfox-input"
-                                            placeholder="Paste key here to save..." autocomplete="off" />
-                                        <button type="button" id="VectFox_summarize_vllm_apikey_clear" class="menu_button" style="margin-top:4px; width:auto; white-space:nowrap;"><i class="fa-solid fa-trash-can"></i> Clear saved key</button>
-                                    </div>
-
-                                    <label for="VectFox_summarize_model">
-                                        <small>Summarization / EventBase Model</small>
-                                    </label>
-                                    <div style="display: flex; gap: 6px; align-items: stretch;">
-                                        <input type="text" id="VectFox_summarize_model" class="vectfox-input" style="flex: 1;"
-                                            placeholder="e.g. google/gemini-flash-1.5-8b" />
-                                        <button id="VectFox_summarize_model_choose" class="menu_button" type="button" title="Fetch available models from the configured provider">
-                                            <i class="fa-solid fa-list"></i> Choose
-                                        </button>
-                                    </div>
-                                    <select id="VectFox_summarize_model_list" class="vectfox-select" style="display:none; margin-top:6px;"></select>
-                                    <small class="VectFox_hint">Model ID used for EventBase extraction (separate from embedding model). Required. Click <b>Choose</b> to browse the provider's model list.</small>
-
-                                </div>
-
-                                <div class="vectfox-form-group" style="margin-top: 12px;">
-                                    <label class="checkbox_label" for="VectFox_should_send_temperature">
-                                        <input type="checkbox" id="VectFox_should_send_temperature" />
-                                        <span>Send temperature</span>
-                                    </label>
-                                    <small class="VectFox_hint">Default (checked). Uncheck for reasoning models (gpt-5.x, o1/o3/o4 and hosted builds on them), which accept only their own default temperature and reject anything else with <i>"Unsupported value: 'temperature' does not support 0.2 with this model"</i>. Unchecked = the parameter is left out of the request; the model's default applies. Affects every LLM call: summarization, EventBase, Auto-Reformat, Agent Mode.</small>
-                                </div>
-
-                                <div class="vectfox-form-group" style="margin-top: 12px;">
-                                    <label class="checkbox_label" for="VectFox_should_use_max_completion_tokens">
-                                        <input type="checkbox" id="VectFox_should_use_max_completion_tokens" />
-                                        <span>Use max_completion_tokens</span>
-                                    </label>
-                                    <small class="VectFox_hint">Default (unchecked) sends the classic <code>max_tokens</code>. Check it for the same reasoning models, which reject that key with <i>"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead"</i>. The token limit itself is unchanged — only the parameter name. Affects every LLM call.</small>
-                                </div>
-
-                                <div class="vectfox-form-group" style="margin-top: 12px;">
-                                    <label class="checkbox_label" for="VectFox_should_disable_thinking">
-                                        <input type="checkbox" id="VectFox_should_disable_thinking" />
-                                        <span>Turn off model thinking</span>
-                                    </label>
-                                    <small class="VectFox_hint">Default (checked) sends <code>reasoning_effort: "none"</code>, so a reasoning model answers without thinking first — much faster, and the token limit goes to the answer. Unchecked sends <code>reasoning_effort: "minimal"</code>, which keeps thinking short. <b>Flip this if your model returns <i>"Bad Request"</i> on every call</b> — some models accept only one of the two: newer Gemini (3.5-flash-lite, 3.5-flash, 3.8-flash) rejects <code>"none"</code>, and gpt-6-luna rejects <code>"minimal"</code>. Affects every LLM call but StoryArc's links, thread pick and block cut, which keep their own effort. StoryArc's router follows this switch too, on the link model, with <code>"low"</code> when unchecked.</small>
-                                </div>
-                            </div>
-
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <!-- GROUP 4: Retrieval                                     -->
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <div class="vectfox-subsection" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--grey30);">
-                                <div class="vectfox-card-header" style="padding: 0 0 8px 0;">
-                                    <h3 class="vectfox-card-title" style="font-size: 0.95em;">
-                                        <span class="vectfox-icon"><i class="fa-solid fa-magnifying-glass"></i></span>
-                                        Retrieval
-                                    </h3>
-                                    <p class="vectfox-card-subtitle">Shared retrieval settings (EventBase + ChunkBase)</p>
-                                </div>
-
-                                <label for="VectFox_query_depth" style="margin-top: 4px;">
-                                    <small>Query Depth: <span id="VectFox_query_depth_value">2</span> messages</small>
-                                </label>
-                                <input type="range" id="VectFox_query_depth" class="vectfox-slider" min="1" max="20" step="1" />
-                                <small class="VectFox_hint">How many recent messages to include in the search query</small>
-
-                                <label for="VectFox_min_chat_length" style="margin-top: 12px;">
-                                    <small>Minimum Messages Before Injection</small>
-                                </label>
-                                <input type="number" id="VectFox_min_chat_length" class="vectfox-input" min="0" max="100" step="1" placeholder="0" />
-                                <small class="VectFox_hint">Minimum number of messages in chat before RAG injection starts (0 = inject immediately)</small>
-
-                                <label for="VectFox_deduplication_depth" style="margin-top: 12px;">
-                                    <small>Skip Already-Visible Events: <span id="VectFox_deduplication_depth_value">0</span> messages</small>
-                                </label>
-                                <input type="range" id="VectFox_deduplication_depth" class="vectfox-slider" min="0" max="500" step="10" />
-                                <small class="VectFox_hint">Drop candidate events whose source window is in the last N messages of the chat (assumption: the LLM can already see them in raw context). <b>0 = OFF (recommended)</b> — never skip on this basis. Real raw-context visibility is usually only ~3-6 messages (depends on context budget), so larger values tend to over-filter. Independent from "Dedup Window Gap" below, which is about removing near-duplicate events from the candidate pool.</small>
-
-                                <label for="VectFox_eventbase_dedup_window_gap" style="margin-top: 12px;">
-                                    <small>Dedup Window Gap: <span id="VectFox_eventbase_dedup_window_gap_val">10</span> messages</small>
-                                </label>
-                                <input type="range" id="VectFox_eventbase_dedup_window_gap" class="vectfox-slider" min="0" max="200" step="1" />
-                                <small class="VectFox_hint">EventBase only. Minimum source-window distance at which two same-type/same-cast events are considered <b>distinct</b> (kept). <b>0 = OFF</b> (no temporal-proximity dedup; even same-window duplicates kept). <b>1</b> = only same-window duplicates suppressed. <b>10</b> (default) = events within 9 messages dedup'd; 10+ apart kept. Higher = more aggressive dedup.</small>
-
-                                <label for="VectFox_eventbase_anchor_boost" style="margin-top: 12px;">
-                                    <small>Anchor Boost: <span id="VectFox_eventbase_anchor_boost_val">0.20</span></small>
-                                </label>
-                                <input type="range" id="VectFox_eventbase_anchor_boost" class="vectfox-slider" min="0" max="0.5" step="0.05" />
-                                <small class="VectFox_hint">EventBase only. Flat additive bonus when an event's stored keyword appears verbatim in your last message. Rescues historically-distant events the user explicitly asks about. 0 = disabled. Range 0.00-0.50, default 0.20.</small>
-
-                                <div id="VectFox_eventbase_native_rerank_wrapper" style="margin-top: 12px;">
-                                    <label class="checkbox_label" for="VectFox_eventbase_native_rerank">
-                                        <input id="VectFox_eventbase_native_rerank" type="checkbox" />
-                                        <span>Push EventBase re-rank to Qdrant</span>
-                                    </label>
-                                    <small class="VectFox_hint">A3 (Qdrant) only. Computes importance/persist/recency weighted scoring inside Qdrant via a formula query, in the same /query call as the dense+sparse hybrid. Anchor boost and pairwise dedup still run locally. Requires Qdrant 1.13+; falls back gracefully when unavailable. Re-tune the cosine weight if recall changes.</small>
-                                </div>
-
-                                <label for="VectFox_retrieval_timeout_ms" style="margin-top: 12px;">
-                                    <small>Retrieval Timeout (ms)</small>
-                                </label>
-                                <input type="number" id="VectFox_retrieval_timeout_ms" class="vectfox-input" min="${RETRIEVAL_TIMEOUT_MIN_MS}" max="${RETRIEVAL_TIMEOUT_MAX_MS}" step="1000" />
-                                <small class="VectFox_hint">How long one turn may wait for a lookup — EventBase, chunks, lorebook and summarizer injection alike — before the message sends <b>without</b> that memory. Default <b>${RETRIEVAL_TIMEOUT_DEFAULT_MS} ms (${RETRIEVAL_TIMEOUT_DEFAULT_MS / 1000}s)</b>, range ${RETRIEVAL_TIMEOUT_MIN_MS / 1000}–${RETRIEVAL_TIMEOUT_MAX_MS / 1000}s. Raise it if you see "retrieval timed out" on a provider you know is just slow rather than broken. Cost of raising it: a genuinely hung provider stalls your turn for that much longer. <b>Agent Mode is already accounted for</b> — its planner and per-query timeouts are added on top of this, so you do not need to inflate this value for it.</small>
-
-                                <div style="margin-top: 12px;">
-                                    <label class="checkbox_label" for="VectFox_retrieval_popup_on_start">
-                                        <input id="VectFox_retrieval_popup_on_start" type="checkbox" />
-                                        <span>Popup: show when backend retrieval starts</span>
-                                    </label>
-                                    <label class="checkbox_label" for="VectFox_retrieval_popup_on_result" style="margin-top: 6px; display: flex;">
-                                        <input id="VectFox_retrieval_popup_on_result" type="checkbox" />
-                                        <span>Popup: show retrieved result count</span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <!-- GROUP 5: Injection                                     -->
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <div class="vectfox-subsection" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--grey30);">
-                                <div class="vectfox-card-header" style="padding: 0 0 8px 0;">
-                                    <h3 class="vectfox-card-title" style="font-size: 0.95em;">
-                                        <span class="vectfox-icon"><i class="fa-solid fa-arrow-right-to-bracket"></i></span>
-                                        Injection
-                                    </h3>
-                                    <p class="vectfox-card-subtitle">Prompt injection position</p>
-                                </div>
-
-                                <label style="margin-top: 4px;">
-                                    <small>Injection Position</small>
-                                </label>
-                                <select id="VectFox_injection_position" class="vectfox-select">
-                                    <option value="2">Before Main Prompt</option>
-                                    <option value="0">After Main Prompt</option>
-                                    <option value="1">In-Chat @ Depth</option>
-                                </select>
-                                <small class="VectFox_hint">Where every VectFox block goes — memory, summarizer and lorebook. Their text changes every turn: Before/After Main Prompt puts it near the top of the prompt, so the provider's prompt cache can't reuse anything after it. <strong>In-Chat</strong> keeps everything above the chat history cacheable.</small>
-
-                                <div id="VectFox_injection_depth_row" style="margin-top: 12px; display: none;">
-                                    <label for="VectFox_injection_depth">
-                                        <small>Injection Depth: <span id="VectFox_injection_depth_value">2</span></small>
-                                    </label>
-                                    <input type="range" id="VectFox_injection_depth" class="vectfox-slider" min="0" max="50" step="1" />
-                                    <small class="VectFox_hint">Messages from end of chat to insert at</small>
-                                </div>
-                            </div>
-
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <!-- GROUP 6: Hybrid Search & BM25                          -->
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <div class="vectfox-subsection" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--grey30);">
-                                <div class="vectfox-card-header" style="padding: 0 0 8px 0;">
-                                    <h3 class="vectfox-card-title" style="font-size: 0.95em;">
-                                        <span class="vectfox-icon"><i class="fa-solid fa-bolt"></i></span>
-                                        Hybrid Search &amp; BM25
-                                    </h3>
-                                    <p class="vectfox-card-subtitle">Keyword scoring and result fusion</p>
-                                </div>
-
-                                <!-- Keyword Scoring Method (hidden when native hybrid active) -->
-                                <div id="VectFox_keyword_method_section" style="margin-top: 8px;">
-                                    <label>
-                                        <small>Keyword Scoring Method</small>
-                                    </label>
-                                    <select id="VectFox_keyword_scoring_method" class="vectfox-select">
-                                        <option value="bm25">BM25 (fast re-rank of top-K)</option>
-                                        <option value="hybrid">Hybrid (vector candidates + BM25 fusion)</option>
-                                    </select>
-                                    <small class="VectFox_hint">BM25 re-ranks the vector top-K candidates. Hybrid expands the vector candidate window, scores those candidates with BM25, then fuses both signals. It is broader than BM25 mode, but not a true full-corpus keyword scan.</small>
-                                </div>
-
-                                <!-- Shown instead of above when native hybrid (A3) is active -->
-                                <div id="VectFox_native_hybrid_info" style="display: none; margin-top: 16px;">
-                                    <small class="VectFox_hint"><i class="fa-solid fa-bolt"></i> Native Qdrant hybrid active: dense ANN + sparse BM25 (global IDF) fused server-side via RRF. The CJK Tokenizer Mode below is locked into each collection at upsert.</small>
-                                </div>
-
-                                <!-- BM25 Parameters (visible when client-side BM25 logic runs — A1 or A2) -->
-                                <div id="VectFox_bm25_params" style="margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.1); border-radius: 8px;">
-                                    <label for="VectFox_bm25_k1">
-                                        <small>BM25 k1 (TF saturation): <span id="VectFox_bm25_k1_value">1.5</span></small>
-                                    </label>
-                                    <input type="range" id="VectFox_bm25_k1" class="vectfox-slider" min="0.5" max="3.0" step="0.1" />
-                                    <small class="VectFox_hint">Controls term frequency saturation (1.2-2.0 typical)</small>
-
-                                    <label for="VectFox_bm25_b" style="margin-top: 8px;">
-                                        <small>BM25 b (Length norm): <span id="VectFox_bm25_b_value">0.75</span></small>
-                                    </label>
-                                    <input type="range" id="VectFox_bm25_b" class="vectfox-slider" min="0" max="1" step="0.05" />
-                                    <small class="VectFox_hint">Controls document length normalization (0.75 typical)</small>
-
-                                    <label class="checkbox_label" style="margin-top: 12px;">
-                                        <input type="checkbox" id="VectFox_bm25_use_corpus_idf" />
-                                        <span>Corpus-wide IDF for BM25 scoring &nbsp;<small style="opacity:0.7;">(recommended — default ON)</small></span>
-                                    </label>
-                                    <small class="VectFox_hint">
-                                        <strong>What it does:</strong> Makes BM25 use rarity statistics (IDF weights) computed over <em>every</em> chunk in the collection, so rare keywords keep their discriminative power. Builds once per session per collection and caches in memory. <br><br>
-                                        <strong>What it does NOT do:</strong> It does <em>not</em> search the full corpus. BM25 still only scores the candidates the vector layer surfaced — this just gives those candidates better <em>scoring weights</em>, not more candidates. For true full-corpus retrieval, switch to the Qdrant backend (A3 path). Disable if comptuer slow down.<br><br>
-                                    </small>
-                                </div>
-
-                                <!-- Hybrid Search params (visible in A2 hybrid mode and A3 native) -->
-                                <div style="margin-top: 16px; padding: 12px; background: rgba(0,100,200,0.1); border-radius: 8px; border: 1px solid rgba(0,100,200,0.2);">
-                                    <div id="VectFox_hybrid_params" style="margin-top: 4px;">
-                                        <label style="margin-top: 8px;">
-                                            <small>Fusion Method</small>
-                                        </label>
-                                        <select id="VectFox_hybrid_fusion_method" class="vectfox-select">
-                                            <option value="rrf">RRF (Reciprocal Rank Fusion)</option>
-                                            <option value="weighted">Weighted Linear Combination</option>
-                                        </select>
-                                        <small class="VectFox_hint">RRF is parameter-free and robust; Weighted allows fine-tuning</small>
-
-                                        <div id="VectFox_hybrid_weights" style="display: none; margin-top: 12px;">
-                                            <label for="VectFox_hybrid_vector_weight">
-                                                <small>Vector Weight: <span id="VectFox_hybrid_vector_weight_value">0.5</span></small>
-                                            </label>
-                                            <input type="range" id="VectFox_hybrid_vector_weight" class="vectfox-slider" min="0" max="1" step="0.1" />
-
-                                            <label for="VectFox_hybrid_text_weight" style="margin-top: 8px;">
-                                                <small>Text Weight: <span id="VectFox_hybrid_text_weight_value">0.5</span></small>
-                                            </label>
-                                            <input type="range" id="VectFox_hybrid_text_weight" class="vectfox-slider" min="0" max="1" step="0.1" />
-                                        </div>
-
-                                        <div id="VectFox_hybrid_rrf_settings" style="margin-top: 12px;">
-                                            <label for="VectFox_hybrid_rrf_k">
-                                                <small>RRF K Constant: <span id="VectFox_hybrid_rrf_k_value">60</span></small>
-                                            </label>
-                                            <input type="range" id="VectFox_hybrid_rrf_k" class="vectfox-slider" min="1" max="100" step="1" />
-                                            <small class="VectFox_hint">Higher K = more weight to top-ranked results (60 is typical)</small>
-                                        </div>
-                                    </div>
-                                </div>
-
-                            </div>
-
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <!-- GROUP 7: Keyword Extraction                            -->
-                            <!-- ═══════════════════════════════════════════════════════ -->
-                            <div class="vectfox-subsection" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--grey30);">
-                                <div class="vectfox-card-header" style="padding: 0 0 8px 0;">
-                                    <h3 class="vectfox-card-title" style="font-size: 0.95em;">
-                                        <span class="vectfox-icon"><i class="fa-solid fa-tags"></i></span>
-                                        Keyword Extraction
-                                    </h3>
-                                    <p class="vectfox-card-subtitle">CJK tokenizer and stopwords for BM25</p>
-                                </div>
-
-                                <label for="VectFox_cjk_tokenizer_mode">
-                                    <small><b>CJK Tokenizer Mode</b></small>
-                                </label>
-                                <select id="VectFox_cjk_tokenizer_mode" class="vectfox-select" style="margin-top: 4px;">
-                                    ${LANGUAGE_MODES.map(m => `<option value="${m.value}">${m.label}</option>`).join('')}
-                                </select>
-                                <small class="VectFox_hint">Default mode uses Intl.Segmenter — supports Korean, Chinese, and any Latin-script language (English, French, etc.) with no extra downloads. Jieba WASM loads only when selected. Traditional Chinese also downloads a TW dictionary (~2–5 MB, one-time). TinySegmenter is used for kana-containing Japanese text.</small>
-                            </div>
-
-                            <div style="margin-top: 12px; padding: 12px; background: rgba(100,100,100,0.1); border-radius: 8px;">
-                                <label for="VectFox_custom_stopwords">
-                                    <small><b>Custom Stopwords</b></small>
-                                </label>
-                                <textarea id="VectFox_custom_stopwords" class="vectfox-textarea" rows="2"
-                                    placeholder="{{char}}, {{user}}, character, scene, location..."
-                                    style="margin-top: 4px;"></textarea>
-                                <small class="VectFox_hint">Words to exclude from keyword extraction. Supports ST macros: {{char}}, {{user}}, {{charIfNotGroup}}, etc.</small>
-                            </div>
-
-                        </div>
-                    </div>
-                    `)}
+                    <!-- Core page (core-page-markup.js) -->
+                    ${panelPageMarkup('core', corePageMarkup({
+                        languageModes: LANGUAGE_MODES,
+                        retrievalTimeout: { minMs: RETRIEVAL_TIMEOUT_MIN_MS, maxMs: RETRIEVAL_TIMEOUT_MAX_MS, defaultMs: RETRIEVAL_TIMEOUT_DEFAULT_MS },
+                    }))}
 
                     <!-- ChunkBase Settings Card -->
                     ${panelPageMarkup('chunkbase', `
@@ -2097,15 +1541,9 @@ export function updateWebLlmStatus() {
  * @param {object} settings - VectFox settings object
  */
 function toggleProviderSettings(selectedProvider, settings) {
-    // Hide all provider-specific settings
-    $('.VectFox_provider_setting').hide();
-
-    // Show settings for selected provider
-    $(`.VectFox_provider_setting`).each(function() {
-        const providers = $(this).attr('data-provider').split(',');
-        if (providers.includes(selectedProvider)) {
-            $(this).show();
-        }
+    // Show only the selected provider's rows
+    $('#VectFox_provider_settings > [data-provider]').each(function() {
+        $(this).toggle($(this).attr('data-provider') === selectedProvider);
     });
 
     // Handle WebLLM-specific initialization
@@ -2126,30 +1564,31 @@ function toggleProviderSettings(selectedProvider, settings) {
  * in two slots (CUSTOM for chat-side, VLLM for embedding-side) so both are cleared. The
  * placeholder refresh rides the existing `vectfox:*-key-changed` document events that every
  * placeholder updater already listens to — so all three places re-render from one trigger.
+ * Each slot is also the one SillyTavern's own chat reads, so the confirm says so.
  *
- * @param {{ slots: string[], changedEvent: string, label: string, getCurrent: () => string, sharedWithST?: boolean }} opts
+ * @param {{ slots: string[], changedEvent: string, label: string, getCurrent: () => string }} opts
  */
-async function clearSharedApiKey({ slots, changedEvent, label, getCurrent, sharedWithST = false }) {
+async function clearSharedApiKey({ slots, changedEvent, label, getCurrent }) {
     if (typeof getCurrent === 'function' && !getCurrent()) {
         toastr.info(`No ${label} API key is saved.`);
         return;
     }
-    const warn = sharedWithST
-        ? `\n\nThis is the same secret slot SillyTavern itself uses, so deleting it also affects your main chat if that's set to ${label}.`
-        : '';
-    if (!confirm(`Delete the saved ${label} API key?\n\nIt is shared across Embedding, Summarization, and AgentMode.${warn}\n\nThis cannot be undone.`)) {
-        return;
-    }
+    const isConfirmed = await confirmPopup([
+        { text: 'Delete the saved key?' },
+        { text: 'Provider:', name: label },
+        { text: 'Lost: the key VectFox\'s embedding, event model and Agent Mode send, and SillyTavern\'s own chat on the same provider.' },
+        { text: 'Delete key deletes it. Cancel keeps it.' },
+    ], { okButton: 'Delete key', isDestructive: true });
+    if (!isConfirmed) return;
     const failed = [];
     for (const slot of slots) {
         try {
-            await deleteSecret(slot); // no id → removes the active entry; clears the slot if it was the last
+            await deleteSecret(slot); // no id → removes the active entry and refreshes SillyTavern's secret state
         } catch (err) {
             log.error(`[VectFox] deleteSecret(${slot}) failed:`, err);
             failed.push(slot);
         }
     }
-    try { await readSecretState(); } catch { /* deleteSecret already refreshes secret_state */ }
     $(document).trigger(changedEvent); // every placeholder updater re-renders from this
     if (failed.length) {
         toastr.error(`Failed to delete ${label} key — see console.`);
@@ -2710,22 +2149,7 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // The number box owns the value and the range mirrors it. The range holds a typed value to its limits and steps, and an empty box takes the saved value back.
-    const $blockScale = $('#VectFox_story_arc_block_scale');
-    const $blockScaleRange = $('[data-vfx-slider-for="VectFox_story_arc_block_scale"]');
-    $blockScale.val(settings.story_arc_block_scale);
-    $blockScaleRange.val(settings.story_arc_block_scale);
-    const saveBlockScale = () => {
-        $blockScale.val($blockScaleRange.val());
-        settings.story_arc_block_scale = Number($blockScaleRange.val());
-        Object.assign(extension_settings.vectfox, settings);
-        saveSettingsDebounced();
-    };
-    $blockScaleRange.on('input', saveBlockScale);
-    $blockScale.on('change', function() {
-        if ($(this).val() !== '') $blockScaleRange.val($(this).val());
-        saveBlockScale();
-    });
+    bindNumberSetting(settings, { id: 'VectFox_story_arc_block_scale', key: 'story_arc_block_scale', initial: settings.story_arc_block_scale });
 
     $('#VectFox_story_arc_debug')
         .prop('checked', settings.debug_domain?.story_arc || false)
@@ -2864,14 +2288,12 @@ function bindSettingsEvents(settings, callbacks) {
         changedEvent: 'vectfox:openrouter-key-changed',
         label: 'OpenRouter',
         getCurrent: () => getOpenRouterApiKey(),
-        sharedWithST: true,
     };
     const _vllmClearOpts = {
         slots: [SECRET_KEYS.CUSTOM, SECRET_KEYS.VLLM],
         changedEvent: 'vectfox:vllm-key-changed',
         label: 'vLLM',
         getCurrent: () => getCustomApiKey(),
-        sharedWithST: true,
     };
     ['#VectFox_openrouter_apikey_clear', '#VectFox_summarize_openrouter_apikey_clear', '#VectFox_agentic_openrouter_apikey_clear']
         .forEach(sel => $(sel).on('click', () => clearSharedApiKey(_openRouterClearOpts)));
@@ -3308,49 +2730,17 @@ function bindSettingsEvents(settings, callbacks) {
     // Default 0 = filter disabled. See settings comment in index.js — the assumption
     // that the LLM sees the last N messages in raw form is usually wrong (~3-6 in
     // practice), so this is opt-in only.
-    $('#VectFox_deduplication_depth')
-        .val(settings.deduplication_depth ?? 0)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 0 : Math.max(0, value);
-            $('#VectFox_deduplication_depth_value').text(safeValue);
-            settings.deduplication_depth = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_deduplication_depth_value').text(settings.deduplication_depth ?? 0);
+    bindNumberSetting(settings, { id: 'VectFox_deduplication_depth', key: 'deduplication_depth', initial: settings.deduplication_depth ?? 0, isInteger: true });
 
     // EventBase Dedup Window Gap — temporal proximity threshold for the
     // dedup gate in eventbase-retrieval.js. See settings comment in index.js.
     // 0 = temporal dedup fully disabled.
-    $('#VectFox_eventbase_dedup_window_gap')
-        .val(settings.eventbase_dedup_window_gap ?? 10)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 10 : Math.max(0, Math.min(200, value));
-            $('#VectFox_eventbase_dedup_window_gap_val').text(safeValue);
-            settings.eventbase_dedup_window_gap = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_eventbase_dedup_window_gap_val').text(settings.eventbase_dedup_window_gap ?? 10);
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_dedup_window_gap', key: 'eventbase_dedup_window_gap', initial: settings.eventbase_dedup_window_gap ?? 10, isInteger: true });
 
     // EventBase Anchor Boost — flat additive bonus on keyword-anchored events.
     // See settings comment in index.js and the boost code in
     // eventbase-retrieval.js (around the `_finalScore` formula).
-    $('#VectFox_eventbase_anchor_boost')
-        .val(settings.eventbase_anchor_boost ?? 0.20)
-        .on('input', function() {
-            const value = parseFloat($(this).val());
-            const safeValue = isNaN(value) ? 0.20 : Math.max(0, Math.min(0.5, value));
-            $('#VectFox_eventbase_anchor_boost_val').text(safeValue.toFixed(2));
-            settings.eventbase_anchor_boost = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_eventbase_anchor_boost_val').text(
-        (typeof settings.eventbase_anchor_boost === 'number' ? settings.eventbase_anchor_boost : 0.20).toFixed(2)
-    );
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_anchor_boost', key: 'eventbase_anchor_boost', initial: settings.eventbase_anchor_boost ?? 0.20 });
 
     // Keyword scoring method (bm25 = A1 fast re-rank; hybrid = A2 client-side hybrid fusion, ANN-bound ≤100)
     $('#VectFox_keyword_scoring_method')
@@ -3374,32 +2764,12 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // BM25 k1 parameter
-    $('#VectFox_bm25_k1')
-        .val(settings.bm25_k1 || 1.5)
-        .on('input', function() {
-            const value = parseFloat($(this).val());
-            const safeValue = isNaN(value) ? 1.5 : value;
-            $('#VectFox_bm25_k1_value').text(safeValue.toFixed(1));
-            settings.bm25_k1 = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_bm25_k1_value').text((settings.bm25_k1 || 1.5).toFixed(1));
+    bindNumberSetting(settings, { id: 'VectFox_bm25_k1', key: 'bm25_k1', initial: settings.bm25_k1 || 1.5 });
 
     // BM25 b parameter
-    $('#VectFox_bm25_b')
-        .val(settings.bm25_b || 0.75)
-        .on('input', function() {
-            const value = parseFloat($(this).val());
-            const safeValue = isNaN(value) ? 0.75 : value;
-            $('#VectFox_bm25_b_value').text(safeValue.toFixed(2));
-            settings.bm25_b = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_bm25_b_value').text((settings.bm25_b || 0.75).toFixed(2));
+    bindNumberSetting(settings, { id: 'VectFox_bm25_b', key: 'bm25_b', initial: settings.bm25_b || 0.75 });
 
-    // BM25 corpus-IDF A/B toggle (GUI-only stub; consumer wired up in a follow-up change)
+    // BM25 corpus-wide IDF, read by hybrid-search.js and vector-api.js
     $('#VectFox_bm25_use_corpus_idf')
         .prop('checked', settings.bm25_use_corpus_idf === true)
         .on('change', function() {
@@ -3429,59 +2799,19 @@ function bindSettingsEvents(settings, callbacks) {
     $('#VectFox_hybrid_rrf_settings').toggle(!isWeightedMethod);
 
     // Vector weight slider
-    $('#VectFox_hybrid_vector_weight')
-        .val(settings.hybrid_vector_weight ?? 0.5)
-        .on('input', function() {
-            const value = parseFloat($(this).val());
-            const safeValue = isNaN(value) ? 0.5 : value;
-            $('#VectFox_hybrid_vector_weight_value').text(safeValue.toFixed(1));
-            settings.hybrid_vector_weight = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_hybrid_vector_weight_value').text((settings.hybrid_vector_weight ?? 0.5).toFixed(1));
+    bindNumberSetting(settings, { id: 'VectFox_hybrid_vector_weight', key: 'hybrid_vector_weight', initial: settings.hybrid_vector_weight ?? 0.5 });
 
     // Text weight slider
-    $('#VectFox_hybrid_text_weight')
-        .val(settings.hybrid_text_weight ?? 0.5)
-        .on('input', function() {
-            const value = parseFloat($(this).val());
-            const safeValue = isNaN(value) ? 0.5 : value;
-            $('#VectFox_hybrid_text_weight_value').text(safeValue.toFixed(1));
-            settings.hybrid_text_weight = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_hybrid_text_weight_value').text((settings.hybrid_text_weight ?? 0.5).toFixed(1));
+    bindNumberSetting(settings, { id: 'VectFox_hybrid_text_weight', key: 'hybrid_text_weight', initial: settings.hybrid_text_weight ?? 0.5 });
 
-    // RRF K constant slider
-    $('#VectFox_hybrid_rrf_k')
-        .val(settings.hybrid_rrf_k || 60)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 60 : value;
-            $('#VectFox_hybrid_rrf_k_value').text(safeValue);
-            settings.hybrid_rrf_k = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_hybrid_rrf_k_value').text(settings.hybrid_rrf_k || 60);
+    // RRF K constant
+    bindNumberSetting(settings, { id: 'VectFox_hybrid_rrf_k', key: 'hybrid_rrf_k', initial: settings.hybrid_rrf_k || 60, isInteger: true });
 
     // Initialize native-hybrid-dependent visibility
     updateNativeHybridUI();
 
     // Query depth (how many recent messages to include in search query)
-    $('#VectFox_query_depth')
-        .val(settings.query || 2)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 2 : value;
-            $('#VectFox_query_depth_value').text(safeValue);
-            settings.query = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_query_depth_value').text(settings.query || 2);
+    bindNumberSetting(settings, { id: 'VectFox_query_depth', key: 'query', initial: settings.query || 2, isInteger: true });
 
     // Top K - number of results retrieved per collection (top-K)
     $('#VectFox_topk')
@@ -4065,17 +3395,7 @@ function bindSettingsEvents(settings, callbacks) {
     $('#VectFox_injection_depth_row').toggle(settings.position === 1);
 
     // Injection depth (for in-chat position)
-    $('#VectFox_injection_depth')
-        .val(settings.depth ?? 2)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 2 : value;
-            $('#VectFox_injection_depth_value').text(safeValue);
-            settings.depth = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    $('#VectFox_injection_depth_value').text(settings.depth ?? 2);
+    bindNumberSetting(settings, { id: 'VectFox_injection_depth', key: 'depth', initial: settings.depth ?? 2, isInteger: true });
 
     // RAG Context settings
     $('#VectFox_rag_context')
@@ -4729,14 +4049,7 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // Minimum chat length before injection starts
-    $('#VectFox_min_chat_length')
-        .val(settings.min_chat_length ?? 0)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            settings.min_chat_length = isNaN(value) ? 0 : Math.max(0, value);
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
+    bindNumberSetting(settings, { id: 'VectFox_min_chat_length', key: 'min_chat_length', initial: settings.min_chat_length ?? 0, isInteger: true });
 
     // Initialize provider-specific settings visibility
     toggleProviderSettings(settings.embedding_provider, settings);

@@ -3,8 +3,9 @@
  * SETTINGS PANEL SHELL
  * ============================================================================
  * The settings panel's GUI-DNA shell (mvu-helper/devdoc/gui-dna.md): the rail that
- * switches pages, the theme switch, the collapse every card shares, and the dialog
- * the panel opens in. Each page's content is painted by its own code; the tab table
+ * switches pages, the theme switch, the behaviours every page shares (a field's (?)
+ * detail, collapsing a card, a slider following its number box), and the dialog the
+ * panel opens in. Each page's content is painted by its own code; the tab table
  * (which pages exist and what runs as one shows or hides) is handed in through
  * wireSettingsPanel.
  *
@@ -171,5 +172,25 @@ export function wireSettingsPanel(tabs, settings) {
         const isCollapsed = !$box.hasClass('is-collapsed');
         $box.toggleClass('is-collapsed', isCollapsed);
         $(this).attr('aria-expanded', String(!isCollapsed));
+    });
+    // Dragging a slider writes its number box and fires the box's own input and change, so the box's handler saves
+    // exactly as if the number had been typed; typing a number moves its slider.
+    $(`#${PANEL_ROOT_ID}`).on('input', '.vfx-range[data-vfx-slider-for]', function () {
+        $(document.getElementById(this.dataset.vfxSliderFor)).val(this.value).trigger('input').trigger('change');
+    });
+    $(`#${PANEL_ROOT_ID}`).on('input change', 'input[type="number"]', function () {
+        $(`#${PANEL_ROOT_ID} .vfx-range[data-vfx-slider-for="${this.id}"]`).val(this.value);
+    });
+    syncSliders();
+}
+
+/**
+ * Move every slider to its number box, which owns the value. Setting a number with .val() fires no event, so code
+ * that sets numbers after the panel is wired calls this.
+ */
+export function syncSliders() {
+    $(`#${PANEL_ROOT_ID} .vfx-range[data-vfx-slider-for]`).each(function () {
+        const number = document.getElementById(this.dataset.vfxSliderFor);
+        if (number) this.value = number.value;
     });
 }

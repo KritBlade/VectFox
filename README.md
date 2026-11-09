@@ -532,8 +532,8 @@ Restart SillyTavern.
 
 ### Step 3: Configure VectFox
 
-1. Open **VectFox Settings** (Core tab in the extensions panel).
-2. Choose your vector storage (Standard or Qdrant).
+1. In the extensions panel, click **Open VectFox** and go to the **Core** page.
+2. Choose your vector backend (Standard or Qdrant).
 3. Select your embedding provider (Transformers, vLLM, Ollama, OpenRouter, etc.).
 
    - 💡 **Recommended:** use `baai/bge-m3` or `qwen/qwen3-embedding-8b` through **OpenRouter**. It's extremely cheap ($0.00000015/run), multilingual (excellent CJK + Latin), and produces high-quality dense vectors for the corpus size VectFox targets. The better embedding model you use, the better result you will receive from recall, this is the most important model that you do NOT want to use cheap model.
@@ -541,7 +541,7 @@ Restart SillyTavern.
 
    - 💡 **Recommended OpenRouter models:** for a cheap & fast extraction path, use `openai/gpt-4o-mini` or `google/gemini-3.1-flash-lite` — both keep cost and ingestion latency low. If you want higher extraction quality and don't mind paying more, `x-ai/grok-4.3` is a stronger but more expensive option. Avoid older model IDs such as `x-ai/grok-4.1-fast` if OpenRouter returns a 404/deprecation error; model availability changes over time, so verify the exact ID on OpenRouter before long ingestion runs. The same recommendation applies to the **Agent Mode LLM** (configured separately in the AgentMode tab) — if you leave the AgentMode model field blank it inherits this summarizer setting.
 5. Configure API keys if using cloud providers (OpenRouter / vLLM ).
-6. Under **Keyword Extraction**, choose the language of your story.
+6. Under **Keywords**, choose the language of your story.
 7. Most settings work fine on default — feel free to tweak.
 8. Open your chat in SillyTavern, then click the VectFox extension icon again. You **HAVE** to click "Vectorize Content" and choose **Chat History** to vectorize your first DB.
 9. Enable Auto-Sync if needed in the **AutoSync** tab. Frequency is controlled by the EventBase tab under *Extraction > Window Size*.
@@ -586,8 +586,8 @@ Internally VectFox routes content through one of two retrieval paths, picked by 
 
 They never see each other's content — so the same chat message can't get retrieved twice (once as an event and once as a raw chunk). You don't normally need to think about this; it just means EventBase owns chat, and the standard chunk pipeline owns everything else.
 
-**Can I change the CJK Tokenizer Mode mid-chat?**
-No — don't do it. The CJK Tokenizer Mode is **locked into each Qdrant collection at upsert time** via a sentinel point. Switching modes after you've already vectorized content will trigger a "Tokenizer mismatch" warning modal on the next query, and your only real options are:
+**Can I change the CJK tokenizer mid-chat?**
+No — don't do it. The CJK tokenizer is **locked into each Qdrant collection at upsert time** via a sentinel point. Switching modes after you've already vectorized content will trigger a "Tokenizer mismatch" warning modal on the next query, and your only real options are:
 
 1. **Revert** to the original mode (preserve existing vectors), or
 2. **Re-vectorize the collection from scratch** with the new mode (throw away all extracted events and start over).
@@ -617,7 +617,7 @@ Adding proper RBAC to Qdrant and per-user ACLs to the plugin is significant engi
 Note: SillyTavern itself does support per-user data isolation via `enableUserAccounts = true` — that isolates ST's own data (chats, settings, characters) per user, but does not extend to the shared Qdrant server.
 
 **I keep getting long timeouts or "500" errors while vectorizing. What can I do?**
-Try **unchecking "Group embedding calls"** (Core tab → Embedding section).
+Try **unchecking "Group embedding calls"** (Core page → Embedding card).
 
 By default VectFox packs a whole batch of text into **one** request to your embedding provider — faster and cheaper when everything is healthy. But if the provider, or the gateway in front of it (OpenRouter, a cloud relay, etc.), is having a bad moment, that single big request can hang or come back as a `500`, and the **entire batch fails together**.
 
@@ -625,7 +625,7 @@ Unchecking the box switches VectFox to **one request per item**. Now if a single
 
 > 💡 Leave it **checked** normally. The moment you start seeing batch-wide timeouts or `500`s, **uncheck it** as a quick rescue and re-run.
 
-**What does "Hedge slow embedding calls" do, and do I need it?**
+**What does "Hedge slow calls" do, and do I need it?**
 It's an automatic safety net for **stuck** embedding requests. It's **on by default (15 seconds)** and most people never need to touch it.
 
 The problem it solves: sometimes a request to a cloud embedding provider doesn't fail — it just **hangs**. The connection gets routed to a frozen worker and sits there doing nothing, often until SillyTavern finally gives up about 2 minutes later. That one stuck request can stall your whole vectorization run for no reason.
@@ -663,7 +663,7 @@ A couple of gotchas:
 
 **Slow performance** — Switch to Qdrant + A3 (single round-trip, server-side fusion). Reduce EventBase Top K. Use API embedding providers (parallel) instead of local GPU (sequential).
 
-**Vectorization is slow on large chat histories** — VectFox applies API rate limiting by default (60 calls per 60 seconds) to protect free-tier backends. To speed up vectorization: **Settings → Core Tab → Embedding → API Rate Limiting → set "Max Calls" to 0 to disable**. For production Qdrant, you can increase it to 100+ calls/min depending on your server capacity.
+**Vectorization is slow on large chat histories** — VectFox applies API rate limiting by default (60 calls per 60 seconds) to protect free-tier backends. To speed up vectorization: **Core page → Embedding → Rate limit → set "Max calls" to 0 to disable**. For production Qdrant, you can increase it to 100+ calls/min depending on your server capacity.
 
 ---
 

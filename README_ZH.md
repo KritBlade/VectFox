@@ -511,14 +511,14 @@ enableServerPlugins: true
 重啟 SillyTavern。
 
 ### 步驟 3：設定 VectFox
-1. 開啟 **VectFox Settings**（擴充元件面板中的 Core 分頁）。
+1. 在擴充元件面板按下 **Open VectFox**，開啟 **Core** 頁面。
 2. 選擇你的向量儲存（Standard 或 Qdrant）。
 3. 選擇你的嵌入供應商 (Transformers, vLLM, Ollama, OpenRouter, etc.).
    - 💡 **推薦：** 透過 **OpenRouter** 使用 `qwen/qwen3-embedding-8b`。這個模型非常便宜，多語支援優秀（CJK 與拉丁語系都好），對 VectFox 這種規模的語料庫能產出高品質的密集向量。你使用的嵌入模型越好，召回（recall）的結果就越好——這是最重要的一個模型，千萬不要為了省錢而用便宜的模型。
 4. 選擇你的摘要 LLM（OpenRouter 或 vLLM）—— 向量化時 EventBase 萃取會用到。
    - 💡 **推薦的 OpenRouter 模型：** 如果想要便宜又快速的萃取路徑，使用 `openai/gpt-4o-mini` 或 `google/gemini-3.1-flash-lite`——兩者都能把成本與向量化延遲維持在低點。如果你想要更高的萃取品質且不介意多付一些費用，`x-ai/grok-4.3` 是更強但更貴的選擇。如果 OpenRouter 對較舊的模型 ID（例如 `x-ai/grok-4.1-fast`）回傳 404 或棄用錯誤，請避免使用它；模型可用性會隨時間改變，因此在長時間向量化之前，請先在 OpenRouter 確認確切的模型 ID。**Agent Mode LLM**（在 AgentMode 分頁另外設定）也適用同樣的推薦——如果你把 AgentMode 的模型欄位留空，它會自動繼承這個摘要器設定。
 5. 如果使用雲端供應商（OpenRouter / vLLM ），請設定 API 金鑰。
-6. 在 **Keyword Extraction** 中選擇你故事使用的語言。
+6. 在 **Keywords** 中選擇你故事使用的語言。
 7. 大多數設定維持預設值即可，但你也可以依需求調整。
 8. 在 SillyTavern 中進入你的聊天，然後再次點擊 VectFox 擴充元件圖示。你**必須**點擊 "Vectorize Content"，並選擇 **Chat History** 來向量化你的第一個 DB。
 9. 如有需要，請在 **AutoSync** 分頁啟用 Auto-Sync；頻率則由 EventBase 分頁下的 *Extraction > Window Size* 控制。
@@ -592,7 +592,7 @@ VectFox + Similharity 是為**個人使用設計的** — 適合在自己的機�
 請注意：SillyTavern 本身支援透過 `enableUserAccounts = true` 達到使用者層級的資料隔離——這個功能會把 ST 自己的資料（聊天記錄、設定、角色）按使用者分開儲存，但並不延伸到共用的 Qdrant 伺服器。
 
 **向量化時總是遇到長時間逾時或「500」錯誤，怎麼辦？**
-試試**取消勾選「Group embedding calls（合併嵌入呼叫）」**（Core 分頁 → Embedding 區段）。
+試試**取消勾選「Group embedding calls（合併嵌入呼叫）」**（Core 頁面 → Embedding 卡片）。
 
 預設情況下，VectFox 會把一整批文字打包成**一個**請求送給嵌入提供者——在一切正常時這樣更快也更省。但如果提供者或它前面的閘道（OpenRouter、雲端中繼等）狀態不佳，這一個大請求就可能卡住或回傳 `500`，於是**整批一起失敗**。
 
@@ -600,7 +600,7 @@ VectFox + Similharity 是為**個人使用設計的** — 適合在自己的機�
 
 > 💡 平時請**保持勾選**。一旦開始出現整批逾時或 `500`，就**取消勾選**作為應急處理並重試。
 
-**「Hedge slow embedding calls（對慢速嵌入呼叫進行對沖）」是做什麼的？我需要它嗎？**
+**「Hedge slow calls（對慢速呼叫進行對沖）」是做什麼的？我需要它嗎？**
 它是針對**卡住**的嵌入請求的自動安全網。**預設開啟（15 秒）**，大多數人無需改動。
 
 它解決的問題是：有時候發給雲端嵌入提供者的請求並不會失敗——它只是**卡住**。連線被路由到一個卡死的工作程序上，什麼也不做地乾等著，往往要到 SillyTavern 大約 2 分鐘後最終放棄為止。這一個卡住的請求會無緣無故地拖住整個向量化流程。
@@ -639,7 +639,7 @@ VectFox + Similharity 是為**個人使用設計的** — 適合在自己的機�
 
 **效能緩慢** — 切換到 Qdrant + A3（單次往返、伺服器端融合）。降低 EventBase Top K。使用 API 嵌入供應商（可平行）而不是本地 GPU（通常是串列）。
 
-**大型聊天記錄的向量化速度緩慢** — VectFox 預設套用 API 速率限制（每 60 秒 60 次呼叫），以保護免費層後端。加快向量化速度：**設定 → Core 標籤 → Embedding → API Rate Limiting → 將「Max Calls」設為 0 以停用**。若要使用生產環境 Qdrant，可根據伺服器容量增加到 100+ 次呼叫/分鐘。
+**大型聊天記錄的向量化速度緩慢** — VectFox 預設套用 API 速率限制（每 60 秒 60 次呼叫），以保護免費層後端。加快向量化速度：**Core 頁面 → Embedding → Rate limit → 將「Max calls」設為 0 以停用**。若要使用生產環境 Qdrant，可根據伺服器容量增加到 100+ 次呼叫/分鐘。
 
 ---
 

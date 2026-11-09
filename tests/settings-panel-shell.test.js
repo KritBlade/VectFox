@@ -178,6 +178,31 @@ describe('settings panel shell', () => {
         expect($('#a_field').hasClass('is-help-open')).toBe(false);
     });
 
+    it('moves a number box from its slider, firing the box\'s own input and change, and a slider from its box', () => {
+        $(`#${panelPageId('core')}`).append('<div class="vfx-slider"><input type="range" class="vfx-range" data-vfx-slider-for="a_depth" min="1" max="20" step="1"><input type="number" id="a_depth" min="1" max="20" step="1" value="4"></div>');
+        const fired = [];
+        $('#a_depth').on('input change', event => fired.push(`${event.type} ${event.target.value}`));
+        shell.wireSettingsPanel(tabsWithHooks(), {});
+        const range = document.querySelector('[data-vfx-slider-for="a_depth"]');
+        expect(range.value).toBe('4');
+
+        range.value = '9';
+        $(range).trigger('input');
+        expect($('#a_depth').val()).toBe('9');
+        expect(fired).toEqual(['input 9', 'change 9']);
+
+        $('#a_depth').val('15').trigger('input');
+        expect(range.value).toBe('15');
+    });
+
+    it('moves every slider to its box when asked, after code sets the boxes', () => {
+        $(`#${panelPageId('core')}`).append('<input type="range" class="vfx-range" data-vfx-slider-for="a_weight" min="0" max="1" step="0.1"><input type="number" id="a_weight" min="0" max="1" step="0.1" value="0.5">');
+        shell.wireSettingsPanel(tabsWithHooks(), {});
+        $('#a_weight').val('0.8');
+        shell.syncSliders();
+        expect(document.querySelector('[data-vfx-slider-for="a_weight"]').value).toBe('0.8');
+    });
+
     it('collapses a card from its chevron, a card painted later too', () => {
         shell.wireSettingsPanel(tabsWithHooks(), {});
         $(`#${panelPageId('core')}`).append('<section class="vfx-card" id="late_card"><button type="button" class="vfx-collapse" aria-expanded="true"></button></section>');

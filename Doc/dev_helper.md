@@ -112,8 +112,8 @@ Settings are grouped by which path consumes them:
 | Setting                                                                                  | UI tab                      | EventBase relevant? | What it actually does                                                                                |
 | ---------------------------------------------------------------------------------------- | --------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
 | **Insert Batch Size** (default 50)                                                       | ChunkBase → Ingestion       | **No**              | Max chunks per insert request for API embedding sources (see §6); local Transformers / Ollama / llama.cpp always send 1 chunk per request. Also the client-side embedding batch size for WebLLM / KoboldCpp. EventBase inserts tiny batches (2–10 events per window) so this has no meaningful effect on EventBase. |
-| **Skip Already-Visible Events** (`deduplication_depth`, default 0 = off)                                                    | Core                        | **Yes**             | Used in`eventbase-retrieval.js` as `settings.deduplication_depth`. Filters out retrieved events whose source window falls within the last N messages of the current chat — avoids injecting content already visible in context. 0 = disabled. Also used by chunk-path retrieval in `chat-vectorization.js`. |
-| **Hybrid Search & BM25 block** (Keyword Scoring Method, BM25 k1/b, Fusion Method, RRF K) | Core → Hybrid Search & BM25 | **A1/A2 only**      | These are Vectra (Standard backend) controls. On Qdrant, hybrid is always A3 server-side native — k1/b/RRF K are managed by Qdrant's`modifier: idf` and the `fusion: rrf` API, and these UI knobs have no effect. EventBase callers inject `ebSettings` with `keyword_scoring_method` overridden from `eventbase_keyword_scoring_method` (internal, defaults `'bm25'`, not in UI). See §11 for the full matrix. |
+| **Skip visible events** (`deduplication_depth`, default 0 = off)                                                    | Core                        | **Yes**             | Used in`eventbase-retrieval.js` as `settings.deduplication_depth`. Filters out retrieved events whose source window falls within the last N messages of the current chat — avoids injecting content already visible in context. 0 = disabled. Also used by chunk-path retrieval in `chat-vectorization.js`. |
+| **Keyword scoring card** (Method, BM25 k1/b, Fusion, RRF K) | Core → Keyword scoring | **A1/A2 only**      | These are Vectra (Standard backend) controls. On Qdrant, hybrid is always A3 server-side native — k1/b/RRF K are managed by Qdrant's`modifier: idf` and the `fusion: rrf` API, and these UI knobs have no effect. EventBase callers inject `ebSettings` with `keyword_scoring_method` overridden from `eventbase_keyword_scoring_method` (internal, defaults `'bm25'`, not in UI). See §11 for the full matrix. |
 | **Query Keyword Budget** (`hybrid_keyword_level`)                                        | ChunkBase → Keyword Budget  | **No**              | Read only by`scoreResults()` (A1) and `hybridSearch()` (A2). A3 doesn't use it — the sparse-vector encoder tokenizes the full query and Qdrant handles IDF weighting. EventBase has its own importance/persist/recency re-ranker that dominates the final order anyway. |
 
 ---
@@ -204,14 +204,14 @@ The coordinator lives entirely inside `runEventBaseIngestion`. All 3 production 
 
 ## 6.8) Embedding-Call Resilience — Group / Hedge / Pipelined
 
-Three related features sit inside `insertVectorItems` ([`src/features/vector-backend/vector-api.js`](../src/features/vector-backend/vector-api.js)) and the EventBase coordinator ([`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js)). All three affect every embedding caller — EventBase ingestion AND chunk-based document vectorization in [`src/features/chunkbase/content-vectorization.js`](../src/features/chunkbase/content-vectorization.js). UI lives in the **Core tab → Embedding section** (Group + Hedge) and **EventBase tab** (Serial).
+Three related features sit inside `insertVectorItems` ([`src/features/vector-backend/vector-api.js`](../src/features/vector-backend/vector-api.js)) and the EventBase coordinator ([`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js)). All three affect every embedding caller — EventBase ingestion AND chunk-based document vectorization in [`src/features/chunkbase/content-vectorization.js`](../src/features/chunkbase/content-vectorization.js). UI lives on the **Core page → Embedding card** (Group + Hedge) and the **EventBase page** (Serial).
 
 ### Defaults
 
 | Checkbox | Setting key | Default | Wire shape |
 |---|---|---|---|
 | Group embedding calls | `vector_group_embedding_call` | ☑ **true** | 1 POST per batch |
-| Hedge slow embedding calls | `vector_hedge_after_ms` | ☑ **15000** | Duplicate fires at 15s if primary stalls |
+| Hedge slow calls | `vector_hedge_after_ms` | ☑ **15000** | Duplicate fires at 15s if primary stalls |
 | Serial extract→insert | `eventbase_disable_pipeline` | ☐ **false** | Pipelined extract↔insert overlap |
 
 Group is on by default: hedge protects against connection-level stalls, and one batched POST is a smaller blast surface (1 connection per wave) than N parallel POSTs (N connections per wave) when the upstream gateway routes by connection. Turning Group off is the one-click rescue if upstream starts returning batch-wide 500s.
@@ -224,7 +224,7 @@ Group is on by default: hedge protects against connection-level stalls, and one 
 
 Skipped automatically for local providers (Ollama already uses batch=1) and rate-limited setups (`dynamicRateLimiter` requires serial execution). The setting is independent of hedge — see _Composition_ below.
 
-### Hedge slow embedding calls (`vector_hedge_after_ms`)
+### Hedge slow calls (`vector_hedge_after_ms`)
 
 **Checked (default = 15000ms):** if an embedding POST hasn't returned in 15s, fire a duplicate request on a fresh HTTP connection. Race-first-wins via Promise — whichever finishes first settles the call. Late losers harmlessly upsert the same Qdrant point with identical data (hash-deterministic on event_id). Helps multi-upstream gateways (OpenRouter, SiliconFlow behind the `vllm` slot) recover from connection-level routing stalls in seconds instead of waiting through ST's 120s timeout.
 
@@ -251,7 +251,7 @@ Note that **auto-sync is not a separate path** — it's the same `runEventBaseIn
 3. **A stalled search fails soft; a stalled ingest fails expensive.** If a retrieval embed genuinely hangs, the cost is one turn with degraded/no memory injection — annoying but self-correcting on the next message. A hung ingest wastes minutes of a long batch run and can leave the user staring at a frozen progress bar. Hedge's value is highest exactly where the blast radius is largest.
 4. **Idempotency only holds for writes.** Hedge's "fire a duplicate, race-first-wins, discard the loser" trick is safe because a duplicate **write** is a no-op (hash-deterministic Qdrant upsert overwrites the same point with identical data). A duplicate **query** isn't harmful, but it also buys nothing — you'd just pay for two embeds to shave time off a path that's already fast (see #2). Agent Mode compounds this: it already fans out 1–4 parallel queries, so adding per-query hedging would multiply planner-stage API cost for no latency win on an already-parallel, already-fast stage.
 
-**Read-path timeout.** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. Every per-turn retrieval runs through `runBoundedRetrieval()` ([`src/features/vector-backend/bounded-retrieval.js`](../src/features/vector-backend/bounded-retrieval.js)): in `rearrangeChat()` (the generation interceptor in [`src/features/chunkbase/chat-vectorization.js`](../src/features/chunkbase/chat-vectorization.js), which ST calls as `vectfox_rearrangeChat`, the manifest's `generate_interceptor`) the EventBase retrieval (`runEventBaseRetrieval`), the summarizer injection and the chunk retrieval (`queryAndMergeCollections` → `queryCollection`: chunks, lorebooks, documents); and the Lorebook WI lookup and its dry run in [`src/features/world-info/world-info-integration.js`](../src/features/world-info/world-info-integration.js). The budget is the `retrieval_timeout_ms` setting (Core tab → Retrieval), read through `resolveRetrievalTimeoutMs()` ([src/shared/retrieval-budget.js](../src/shared/retrieval-budget.js)); its default, `RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000` ([src/shared/constants.js](../src/shared/constants.js)), matches the write-side hedge threshold for one consistent "too slow" number. EventBase adds the Agent Mode budget on top (`resolveEventBaseRetrievalTimeoutMs()`).
+**Read-path timeout.** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. Every per-turn retrieval runs through `runBoundedRetrieval()` ([`src/features/vector-backend/bounded-retrieval.js`](../src/features/vector-backend/bounded-retrieval.js)): in `rearrangeChat()` (the generation interceptor in [`src/features/chunkbase/chat-vectorization.js`](../src/features/chunkbase/chat-vectorization.js), which ST calls as `vectfox_rearrangeChat`, the manifest's `generate_interceptor`) the EventBase retrieval (`runEventBaseRetrieval`), the summarizer injection and the chunk retrieval (`queryAndMergeCollections` → `queryCollection`: chunks, lorebooks, documents); and the Lorebook WI lookup and its dry run in [`src/features/world-info/world-info-integration.js`](../src/features/world-info/world-info-integration.js). The budget is the `retrieval_timeout_ms` setting (Core page → Retrieval), read through `resolveRetrievalTimeoutMs()` ([src/shared/retrieval-budget.js](../src/shared/retrieval-budget.js)); its default, `RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000` ([src/shared/constants.js](../src/shared/constants.js)), matches the write-side hedge threshold for one consistent "too slow" number. EventBase adds the Agent Mode budget on top (`resolveEventBaseRetrievalTimeoutMs()`).
 
 It's a **soft** timeout (Promise.race): on expiry the turn proceeds and the message sends WITHOUT that memory source — `runBoundedRetrieval` catches the timeout or error, logs it, toasts the user, and returns the caller's fallback (the chunk path's is `[]`, so downstream injects nothing). The orphaned `fetch` keeps running until ST's server-side timeout reaps it — there is no client `AbortSignal` on the read fetches, so this is a "stop waiting", not a "cancel the request". A stall is not retried: a stalled retrieval fails soft (one turn without memory, self-corrects next message), so a single bounded attempt is the right tradeoff. A query embedding that FAILS (e.g. a provider 429 "The engine is currently overloaded") is different — it fails fast, so `getQueryVector` ([src/features/vector-backend/vector-api.js](../src/features/vector-backend/vector-api.js)) retries it once, then fails the query. That is the only retry on the read path: the query is embedded once and every route and fallback reuses that vector, so a fallback never re-embeds.
 
@@ -300,7 +300,7 @@ So standard-backend users can run all 3 features (Group / Hedge / Pipelined) at 
 - [`src/features/vector-backend/vector-api.js`](../src/features/vector-backend/vector-api.js) — `callWithHedge` helper + `shouldRetry` filter + `makeProcessBatch` wiring + AbortError short-circuit
 - [`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js) `_insertWithRetry` — hedge-fatal short-circuit; `disablePipeline` read-site
 - [`src/features/vector-backend/standard.js`](../src/features/vector-backend/standard.js) — coalesce + per-collection write queue
-- [`src/features/settings-panel/settings-panel.js`](../src/features/settings-panel/settings-panel.js) — Core tab → Embedding section (Group, Hedge) + EventBase tab (Serial)
+- [`src/features/settings-panel/core-page-markup.js`](../src/features/settings-panel/core-page-markup.js) — Core page → Embedding card (Group, Hedge), wired in [`settings-panel.js`](../src/features/settings-panel/settings-panel.js), which also holds the EventBase page (Serial)
 - [`src/index.js`](../src/index.js) — defaults
 - `InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md` — design, observed failure modes, acceptance criteria
 
@@ -533,7 +533,7 @@ VectFox's **retrieval** path (BM25 sparse vectors + query keyword extraction) is
 
 ### Per-mode stop-word selection
 
-Stop-word filtering is **driven by the CJK Tokenizer Mode dropdown**, not a single global union. `src/features/keyword-search/language-modes.js` holds one record per mode with a `stopLocales` array; `tokenize()` (ingest) and `extractQueryKeywords()` (query) both filter via `isStopWord(token, stopLocalesForMode(mode))`. A Korean collection consults `['en','ko']` only, never the Chinese list. Traditional vs Simplified is disambiguated purely by the `jieba_tw`/`jieba` mode split.
+Stop-word filtering is **driven by the CJK tokenizer dropdown**, not a single global union. `src/features/keyword-search/language-modes.js` holds one record per mode with a `stopLocales` array; `tokenize()` (ingest) and `extractQueryKeywords()` (query) both filter via `isStopWord(token, stopLocalesForMode(mode))`. A Korean collection consults `['en','ko']` only, never the Chinese list. Traditional vs Simplified is disambiguated purely by the `jieba_tw`/`jieba` mode split.
 
 - **Adding a language's stop list** = add `ITS_STOP_WORDS` array + one `xx: ITS_STOP_WORDS` line in `STOP_WORDS_BY_LOCALE` (`stop-words.js`) + one record in `LANGUAGE_MODES`. The dropdown, enum, and selection all derive from that array — no other edits.
 - **A stop list is additive, never required** — a mode whose `stopLocales` reference no installed list just skips the filter; text still tokenizes/indexes/searches.
@@ -573,7 +573,7 @@ chatFile: SillyTavern.getContext().chatId,
 
 ---
 
-## 11) Hybrid Search & BM25 — GUI Placement Matrix
+## 11) Keyword scoring — GUI Placement Matrix
 
 Backend determines path; on Qdrant there is only one hybrid path (A3). On Standard, the user picks A1 vs A2.
 
@@ -592,21 +592,21 @@ This ensures ChunkBase's `keyword_scoring_method` never leaks into EventBase que
 
 | Setting                        | Storage key                        | Applies to                   | **A1** — Standard + BM25                               | **A2** — Standard + Hybrid                             | **A3** — Qdrant native sparse + RRF                                                          |
 | ------------------------------ | ---------------------------------- | ---------------------------- | ------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| Keyword Scoring Method         | `keyword_scoring_method`           | **ChunkBase only**           | ✅ selects A1 path                                     | ✅ selects A2 path                                     | ❌ ignored — A3 is the only Qdrant path                                                      |
+| Method (Keyword scoring)       | `keyword_scoring_method`           | **ChunkBase only**           | ✅ selects A1 path                                     | ✅ selects A2 path                                     | ❌ ignored — A3 is the only Qdrant path                                                      |
 | EventBase Scoring Method       | `eventbase_keyword_scoring_method` | **EventBase only**           | ✅ selects A1 path (Standard)                          | ✅ selects A2 path (Standard)                          | ❌ ignored on Qdrant                                                                         |
 | BM25 k1                        | `bm25_k1`                          | Standard only                | ✅ used                                                | ✅ used                                                | ❌ Qdrant`modifier: idf` internal                                                            |
 | BM25 b                         | `bm25_b`                           | Standard only                | ✅ used                                                | ✅ used                                                | ❌ Qdrant`modifier: idf` internal                                                            |
 | Query Keyword Budget           | `hybrid_keyword_level`             | A1 only                      | ✅ used                                                | ❌ full query tokenized                                | ❌ sparse encoder tokenizes everything                                                       |
-| Fusion Method (RRF / Weighted) | `hybrid_fusion_method`             | A2 only                      | ❌ not used (A1 always weighted)                       | ✅ used                                                | ❌ Qdrant always RRF (server-side)                                                           |
+| Fusion (RRF / Weighted)        | `hybrid_fusion_method`             | A2 only                      | ❌ not used (A1 always weighted)                       | ✅ used                                                | ❌ Qdrant always RRF (server-side)                                                           |
 | RRF K                          | `hybrid_rrf_k`                     | A2 RRF mode only             | ❌ not used                                            | ✅ used                                                | ❌ Qdrant uses its own default                                                               |
-| CJK Tokenizer Mode             | `cjk_tokenizer_mode`               | All paths                    | ✅ used for client-side BM25 tokenization (no locking) | ✅ used for client-side BM25 tokenization (no locking) | ✅ locked into collection at upsert via sentinel point; mismatch modal on query if changed   |
+| CJK tokenizer                  | `cjk_tokenizer_mode`               | All paths                    | ✅ used for client-side BM25 tokenization (no locking) | ✅ used for client-side BM25 tokenization (no locking) | ✅ locked into collection at upsert via sentinel point; mismatch modal on query if changed   |
 | Prefer Native Backend Hybrid   | `hybrid_native_prefer`             | Hidden settings escape hatch | n/a                                                    | n/a                                                    | Default`true`. Flip to `false` via settings.json to force Qdrant onto A2 for testing. No UI. |
 
 ### Key observations
 
 1. **Qdrant has exactly one hybrid path — A3**, with no UI to pick another. A3 runs entirely server-side via Qdrant's `/points/query` endpoint with `prefetch: [dense, sparse]` and `fusion: "rrf"`.
 2. **A3 uses globally-accurate IDF.** Qdrant's `modifier: "idf"` computes IDF over the true full corpus (every indexed document), not the ANN-bounded subset. This eliminates the BM25 IDF bias that A1 and A2 carry.
-3. **Path routing is content-type-scoped.** ChunkBase's `keyword_scoring_method` does not affect EventBase. Changing to "Hybrid" in ChunkBase tab only switches lorebook queries.
+3. **Path routing is content-type-scoped.** ChunkBase's `keyword_scoring_method` does not affect EventBase. Changing Method to "Hybrid" on the Core page switches only ChunkBase queries.
 4. **Sparse vectors are tokenizer-locked.** The CJK tokenizer mode at upsert is baked into a sentinel metadata point on each Qdrant collection. Querying after a mode change shows a modal asking the user to revert or re-vectorize.
 5. **A1/A2 quality on Standard depends on the Similharity plugin.** With the plugin installed (the common case), Standard backend gets real `vectorScore` values back, so A2 fuses dense + BM25 like a "lite A3". Without the plugin, ST's native `/api/vector/query` strips scores → A2 falls back to rank-based fusion. The path selection doesn't change, but the fusion quality does. See §15 (plugin dependency policy) and §8 ("vectorScore depends on whether Similharity is installed") for the full split.
 
@@ -614,15 +614,15 @@ This ensures ChunkBase's `keyword_scoring_method` never leaks into EventBase que
 
 | Backend                       | Visible in Core                                                                                      | Visible in ChunkBase   |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------- |
-| **Qdrant** (A3 — only option) | Native-active notice + CJK Tokenizer Mode dropdown (Keyword Extraction subsection).**Fusion Method and RRF K are hidden** — Qdrant ignores them. | *(no hybrid controls)* |
-| **Standard + BM25** (A1)      | Keyword Scoring Method, BM25 k1, BM25 b                                                              | Query Keyword Budget   |
-| **Standard + Hybrid** (A2)    | Keyword Scoring Method, BM25 k1, BM25 b, Fusion Method, RRF K                                        | *(no hybrid controls)* |
+| **Qdrant** (A3 — only option) | Native-active notice + CJK tokenizer dropdown (Keywords card). **Fusion and RRF K are hidden**: Qdrant ignores them. | *(no hybrid controls)* |
+| **Standard + BM25** (A1)      | Method, BM25 k1, BM25 b                                                                              | Query Keyword Budget   |
+| **Standard + Hybrid** (A2)    | Method, BM25 k1, BM25 b, Fusion, RRF K                                                               | *(no hybrid controls)* |
 
 Notes:
 
 - `hybrid_native_prefer` (default `true`) has no UI; it is an escape hatch for testing A2 against Qdrant.
-- Fusion Method and RRF K Constant are hidden on Qdrant because Qdrant runs `fusion: "rrf"` server-side with its own internal k constant; exposing the controls would be misleading. They reappear when the user switches `vector_backend` to Standard (where A2 actually uses them).
-- The CJK Tokenizer Mode dropdown lives in the Keyword Extraction subsection (always visible). It's the **only** Hybrid Search & BM25 control that affects A3 — it drives the sparse-vector encoder.
+- Fusion and RRF K are hidden on Qdrant because Qdrant runs `fusion: "rrf"` server-side with its own internal k constant; exposing the controls would be misleading. They reappear when the user switches `vector_backend` to Standard (where A2 actually uses them).
+- The CJK tokenizer dropdown lives in the Keywords card (always visible). It's the **only** keyword control that affects A3 — it drives the sparse-vector encoder.
 - Visibility is driven by [`updateNativeHybridUI()`](../src/features/settings-panel/settings-panel.js) which fires on changes to `vector_backend` and `keyword_scoring_method`. On Qdrant it always shows the Native-active notice (no toggle).
 
 ### Server-side hybrid fusion — yes, fully supported

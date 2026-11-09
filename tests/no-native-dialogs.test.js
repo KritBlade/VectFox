@@ -21,7 +21,6 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 const CALLS_LEFT = {
     'features/database-browser/chunk-visualizer.js': 5,
     'features/database-browser/database-browser.js': 7,
-    'features/settings-panel/settings-panel.js': 1,
     'features/text-cleaning/text-cleaning-ui.js': 1,
 };
 

@@ -510,14 +510,14 @@ enableServerPlugins: true
 SillyTavern 재시작.
 
 ### 단계 3: VectFox 설정
-1. **VectFox Settings** 열기 (익스텐션 패널의 Core 탭).
+1. 익스텐션 패널에서 **Open VectFox**를 누르고 **Core** 페이지를 엽니다.
 2. 벡터 저장소 선택 (Standard 또는 Qdrant).
 3. 임베딩 제공자 선택 (Transformers, vLLM, Ollama, OpenRouter, etc.).
    - 💡 **권장:** **OpenRouter**를 통해 `qwen/qwen3-embedding-8b`를 사용하세요. 매우 저렴하고 다국어 지원이 뛰어나며 (CJK 및 라틴 문자 모두 우수) VectFox가 대상으로 하는 코퍼스 규모에 대해 고품질 밀집 벡터를 생성합니다. 사용하는 임베딩 모델이 좋을수록 회상(recall) 결과도 좋아집니다 — 이것은 가장 중요한 모델이므로, 절대 저렴한 모델은 쓰지 마세요.
 4. 요약 LLM 선택 (OpenRouter 또는 vLLM) — 벡터화 중 EventBase 추출에 사용됩니다.
    - 💡 **추천 OpenRouter 모델:** 저렴하고 빠른 추출 경로로는 `openai/gpt-4o-mini` 또는 `google/gemini-3.1-flash-lite`를 사용하세요 — 둘 다 비용과 수집 지연을 낮게 유지합니다. 더 높은 추출 품질을 원하고 비용을 더 지불해도 괜찮다면, `x-ai/grok-4.3`이 더 강력하지만 더 비싼 선택지입니다. OpenRouter가 오래된 모델 ID(예: `x-ai/grok-4.1-fast`)에 대해 404 또는 사용 중단 오류를 반환한다면 해당 ID는 피하세요. 모델 가용성은 시간이 지나며 바뀔 수 있으므로, 긴 수집 작업을 실행하기 전에 OpenRouter에서 정확한 모델 ID를 확인하세요. **Agent Mode LLM** (AgentMode 탭에서 별도 설정)에도 같은 권장이 적용됩니다 — AgentMode의 모델 필드를 비워두면 이 요약기 설정을 상속합니다.
 5. 클라우드 제공자(OpenRouter / vLLM )를 사용한다면 API 키를 구성합니다.
-6. **Keyword Extraction**에서 스토리의 언어를 선택합니다.
+6. **Keywords**에서 스토리의 언어를 선택합니다.
 7. 대부분의 설정은 기본값으로 두면 됩니다 — 자유롭게 조정하세요.
 8. SillyTavern에서 채팅을 클릭한 다음 VectFox 익스텐션 아이콘을 다시 클릭하세요. 첫 DB를 벡터화하려면 "Vectorize Content"를 클릭하고 **Chat History**를 선택**해야 합니다**.
 9. 필요시 **AutoSync** 탭에서 Auto-Sync를 활성화합니다. 빈도는 EventBase 탭 아래 *Extraction > Window Size*에서 제어합니다.
@@ -591,7 +591,7 @@ Qdrant에 RBAC를 추가하고 플러그인에 사용자별 ACL을 구현하는 
 참고: SillyTavern 자체는 `enableUserAccounts = true`를 통해 사용자별 데이터 격리를 지원합니다. 이 기능은 ST 자체 데이터(채팅, 설정, 캐릭터)를 사용자별로 분리하지만, 공유 Qdrant 서버에는 적용되지 않습니다.
 
 **벡터화 중에 긴 타임아웃이나 "500" 오류가 계속 발생합니다. 어떻게 해야 하나요?**
-**"Group embedding calls(임베딩 호출 묶기)" 체크를 해제해 보세요**(Core 탭 → Embedding 섹션).
+**"Group embedding calls(임베딩 호출 묶기)" 체크를 해제해 보세요**(Core 페이지 → Embedding 카드).
 
 기본적으로 VectFox는 여러 텍스트를 묶어 **하나의** 요청으로 임베딩 제공자에게 보냅니다. 모든 것이 정상일 때는 이 방식이 더 빠르고 저렴합니다. 하지만 제공자나 그 앞단의 게이트웨이(OpenRouter, 클라우드 릴레이 등)가 상태가 나쁘면, 그 하나의 큰 요청이 멈추거나 `500`으로 돌아올 수 있고, 그러면 **배치 전체가 함께 실패**합니다.
 
@@ -599,7 +599,7 @@ Qdrant에 RBAC를 추가하고 플러그인에 사용자별 ACL을 구현하는 
 
 > 💡 평소에는 **체크된 상태로** 두세요. 배치 전체 타임아웃이나 `500`이 보이기 시작하면 **체크를 해제**하여 응급 처치로 삼고 다시 실행하세요.
 
-**"Hedge slow embedding calls(느린 임베딩 호출 헤지)"는 무엇이고 필요한가요?**
+**"Hedge slow calls(느린 호출 헤지)"는 무엇이고 필요한가요?**
 **멈춘** 임베딩 요청에 대한 자동 안전장치입니다. **기본적으로 켜져 있으며(15초)** 대부분의 사용자는 건드릴 필요가 없습니다.
 
 이것이 해결하는 문제는 이렇습니다. 때때로 클라우드 임베딩 제공자에 대한 요청이 실패하는 것이 아니라 그냥 **멈춥니다**. 연결이 멈춘 워커로 라우팅되어 아무것도 하지 않고 머물러 있다가, SillyTavern이 약 2분 후에 마침내 포기할 때까지 그대로인 경우가 많습니다. 이 하나의 멈춘 요청 때문에 벡터화 전체가 이유 없이 멈춰버립니다.
@@ -638,7 +638,7 @@ Database Browser 아이콘을 클릭 → 해당 채팅의 컬렉션을 클릭 �
 
 **느린 성능** — Qdrant + A3로 전환(단일 왕복, 서버측 융합). EventBase Top K 줄이기. 로컬 GPU(직렬) 대신 API 임베딩 제공자(병렬) 사용.
 
-**대규모 채팅 기록의 벡터화가 느림** — VectFox는 기본적으로 API 레이트 제한을 적용합니다(초당 60회 호출). 무료 티어 백엔드를 보호하기 위해 벡터화 속도를 높이려면: **설정 → Core 탭 → Embedding → API Rate Limiting → \"Max Calls\"를 0으로 설정하여 비활성화**. 프로덕션 Qdrant의 경우 서버 용량에 따라 100+ 호출/분으로 증가할 수 있습니다.
+**대규모 채팅 기록의 벡터화가 느림** — VectFox는 기본적으로 API 레이트 제한을 적용합니다(60초당 60회 호출). 무료 티어 백엔드를 보호하기 위해 벡터화 속도를 높이려면: **Core 페이지 → Embedding → Rate limit → \"Max calls\"를 0으로 설정하여 비활성화**. 프로덕션 Qdrant의 경우 서버 용량에 따라 100+ 호출/분으로 증가할 수 있습니다.
 
 ---
 
