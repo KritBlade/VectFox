@@ -62,10 +62,10 @@ h4 .vectfox-icon {
 }
 
 /* ============================================================================
- * MAIN CONTAINER
+ * MAIN CONTAINER: what is not on the GUI-DNA yet (see forms.css)
  * ============================================================================ */
 
-#VectFox_settings {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) {
     line-height: 1.6;
 }
 

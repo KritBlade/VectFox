@@ -34,8 +34,11 @@ import { progressTracker } from '../../shared/progress-tracker.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { clearLorebookPrompt } from '../world-info/index.js';
-import { describeStoryLinkPass, openStoryArcPage, readStoryLinkCoverage, refreshWorldInfoEntryDepthCache, runStoryLinkPass, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
+import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, refreshWorldInfoEntryDepthCache, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthIndicatorHtml, getHealthModalHtml, initializeHealthDashboard, refreshIndicator as refreshHealthIndicator, runDiagnostics } from '../diagnostics/index.js';
+import { placeOnTopmostModalLayer } from '../../sillytavern/popup.js';
+import { PANEL_TABS, panelNavMarkup, panelPageMarkup } from './panel-shell-markup.js';
+import { wireSettingsPanel } from './panel-shell.js';
 import { getCollectionRegistry, getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { parseRegistryKey } from '../../shared/collection-ids.js';
@@ -87,42 +90,27 @@ export function renderSettings(containerId, settings, callbacks) {
     }
 
     const html = `
-        <div id="VectFox_settings">
+        <div id="VectFox_drawer">
             <div class="inline-drawer">
                 <div class="inline-drawer-toggle inline-drawer-header">
                     <b>VectFox - Advanced RAG</b>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-
-                    <!-- Master switch — global enable/disable for all VectFox runtime work -->
-                    <div class="vectfox-master-switch">
-                        <label class="checkbox_label" for="VectFox_master_enabled" style="font-weight: 600;">
-                            <input type="checkbox" id="VectFox_master_enabled" />
-                            <span>Enable VectFox</span>
-                        </label>
-                        <small class="VectFox_hint" id="VectFox_master_hint">Master switch. When off, VectFox stops all automatic retrieval injection, auto-sync, and lorebook injection. Manual tools (Database Browser, Vectorize Content) stay available.</small>
+                    <div id="VectFox_open_panel" class="menu_button" role="button" tabindex="0">
+                        <i class="fa-solid fa-sliders"></i>
+                        <span>Open VectFox</span>
                     </div>
 
-                    <!-- Tab Navigation -->
-                    <div class="vectfox-tabs">
-                        <div class="vectfox-tab-nav-row">
-                            <button class="vectfox-tab-btn active" data-tab="action">Action</button>
-                            <button class="vectfox-tab-btn" data-tab="core">Core</button>
-                            <button class="vectfox-tab-btn" data-tab="eventbase">EventBase</button>
-                            <button class="vectfox-tab-btn" data-tab="weight">ChunkBase</button>
-                        </div>
-                        <div class="vectfox-tab-nav-row">
-                            <button class="vectfox-tab-btn" data-tab="autosync">AutoSync</button>
-                            <button class="vectfox-tab-btn" data-tab="worldinfo">WorldInfo</button>
-                            <button class="vectfox-tab-btn" data-tab="rag">RAG</button>
-                            <button class="vectfox-tab-btn" data-tab="agentmode">AgentMode</button>
-                            <button class="vectfox-tab-btn" data-tab="storyarc">StoryArc</button>
-                        </div>
-                    </div>
+                    <!-- The GUI-DNA shell, moved into its dialog while open (panel-shell.js) -->
+                    <div id="VectFox_panel_holder">
+                    <div id="VectFox_settings" class="vfx-ui vfx-shell">
+                    ${panelNavMarkup()}
+                    <main class="vfx-main">
 
                     <!-- Core Settings Card -->
-                    <div class="vectfox-card" data-vectfox-tab="core">
+                    ${panelPageMarkup('core', `
+                    <div class="vectfox-card">
                         <div class="vectfox-card-header">
                             <h3 class="vectfox-card-title">
                                 <span class="vectfox-icon">
@@ -682,9 +670,11 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
                     </div>
+                    `)}
 
                     <!-- ChunkBase Settings Card -->
-                    <div class="vectfox-card" data-vectfox-tab="weight">
+                    ${panelPageMarkup('chunkbase', `
+                    <div class="vectfox-card">
                         <div class="vectfox-card-header">
                             <h3 class="vectfox-card-title">
                                 <span class="vectfox-icon">
@@ -809,9 +799,11 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
                     </div>
+                    `)}
 
                     <!-- RAG Context Card -->
-                    <div class="vectfox-card" data-vectfox-tab="rag">
+                    ${panelPageMarkup('rag', `
+                    <div class="vectfox-card">
                         <div class="vectfox-card-header">
                             <h3 class="vectfox-card-title">
                                 <span class="vectfox-icon">
@@ -842,9 +834,11 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
                         </div>
+                    `)}
 
                         <!-- World Info Settings Card -->
-                        <div class="vectfox-card" data-vectfox-tab="worldinfo">
+                    ${panelPageMarkup('worldinfo', `
+                        <div class="vectfox-card">
                             <div class="vectfox-card-header">
                                 <h3 class="vectfox-card-title">
                                     <span class="vectfox-icon">
@@ -914,9 +908,11 @@ export function renderSettings(containerId, settings, callbacks) {
                                 </div>
                             </div>
                         </div>
+                    `)}
 
                         <!-- Chat Auto-Sync Card -->
-                    <div class="vectfox-card" data-vectfox-tab="autosync">
+                    ${panelPageMarkup('autosync', `
+                    <div class="vectfox-card">
                         <div class="vectfox-card-header">
                             <h3 class="vectfox-card-title">
                                 <span class="vectfox-icon">
@@ -1004,9 +1000,20 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
                     </div>
+                    `)}
 
                     <!-- Actions Card -->
-                    <div class="vectfox-card vectfox-tab-active" data-vectfox-tab="action">
+                    ${panelPageMarkup('action', `
+                    <!-- Master switch — global enable/disable for all VectFox runtime work -->
+                    <div class="vectfox-master-switch">
+                        <label class="checkbox_label" for="VectFox_master_enabled" style="font-weight: 600;">
+                            <input type="checkbox" id="VectFox_master_enabled" />
+                            <span>Enable VectFox</span>
+                        </label>
+                        <small class="VectFox_hint" id="VectFox_master_hint">Master switch. When off, VectFox stops all automatic retrieval injection, auto-sync, and lorebook injection. Manual tools (Database Browser, Vectorize Content) stay available.</small>
+                    </div>
+
+                    <div class="vectfox-card">
                         <div class="vectfox-card-header">
                             <h3 class="vectfox-card-title">
                                 <span class="vectfox-icon">
@@ -1111,9 +1118,11 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
                     </div>
+                    `)}
 
                     <!-- EventBase Card -->
-                    <div class="vectfox-card" data-vectfox-tab="eventbase">
+                    ${panelPageMarkup('eventbase', `
+                    <div class="vectfox-card">
                         <div class="vectfox-card-header">
                             <h3 class="vectfox-card-title">
                                 <span class="vectfox-icon"><i class="fa-solid fa-database"></i></span>
@@ -1249,31 +1258,13 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
                     </div>
+                    `)}
 
-                    <!-- StoryArc Card -->
-                    <div class="vectfox-card" data-vectfox-tab="storyarc">
-                        <div class="vectfox-card-header">
-                            <h3 class="vectfox-card-title">
-                                <span class="vectfox-icon"><i class="fa-solid fa-timeline"></i></span>
-                                StoryArc
-                            </h3>
-                            <p class="vectfox-card-subtitle">Helps with questions about the story's past, such as how someone came to be where they are, why something keeps happening, or the first time two characters met. A small LLM call reads each message, and these questions get events in story order instead of the usual top matches. Other messages are handled as usual.</p>
-                        </div>
-                        <div class="vectfox-card-body">
-                            <div class="vectfox-form-group">
-                                <button type="button" id="VectFox_story_arc_open_page" class="menu_button" style="width:auto; white-space:nowrap;">
-                                    <i class="fa-solid fa-diagram-project"></i> Open StoryArc
-                                </button>
-                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    The story web, merged entity names, and StoryArc's settings.
-                                </small>
-                            </div>
-                            ${storyArcPageMarkup()}
-                        </div>
-                    </div>
+                    ${storyArcPageMarkup()}
 
                     <!-- AgentMode Card -->
-                    <div class="vectfox-card" data-vectfox-tab="agentmode">
+                    ${panelPageMarkup('agentmode', `
+                    <div class="vectfox-card">
                         <div class="vectfox-card-header">
                             <h3 class="vectfox-card-title">
                                 <span class="vectfox-icon"><i class="fa-solid fa-robot"></i></span>
@@ -1368,7 +1359,11 @@ export function renderSettings(containerId, settings, callbacks) {
 
                         </div>
                     </div>
+                    `)}
 
+                    </main>
+                    </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1470,37 +1465,6 @@ export function renderSettings(containerId, settings, callbacks) {
             </div>
         </div>
 
-        <!-- Chunk Visualizer Modal -->
-        <div id="VectFox_visualizer_modal" class="vectfox-modal" style="display: none;">
-            <div class="vectfox-modal-overlay"></div>
-            <div class="vectfox-modal-content vectfox-visualizer-content">
-                <div class="vectfox-modal-header">
-                    <h3>
-                        <i class="fa-solid fa-cubes"></i>
-                        Chunk Visualizer
-                    </h3>
-                    <button class="vectfox-modal-close" id="VectFox_visualizer_close">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
-                </div>
-                <div class="vectfox-visualizer-toolbar">
-                    <input type="text" id="VectFox_visualizer_search"
-                           class="vectfox-visualizer-search"
-                           placeholder="Search chunks by text, keywords, or name...">
-                    <div class="vectfox-visualizer-stats">
-                        <span id="VectFox_visualizer_count">0 chunks</span>
-                        <span id="VectFox_visualizer_tiers"></span>
-                    </div>
-                </div>
-                <div class="vectfox-modal-body">
-                    <div id="VectFox_visualizer_content"></div>
-                </div>
-                <div class="vectfox-modal-footer">
-                    <button class="vectfox-btn-secondary" id="VectFox_visualizer_done">Done</button>
-                </div>
-            </div>
-        </div>
-
         ${getHealthModalHtml()}
     `;
 
@@ -1540,8 +1504,8 @@ export function renderSettings(containerId, settings, callbacks) {
     // Initialize collapsible cards
     initializeCollapsibleCards();
 
-    // Initialize tab navigation
-    initializeTabs();
+    // The shell: the rail, the theme switch, and the dialog the panel opens in
+    wireSettingsPanel(panelTabsWithHooks(), settings);
 
     // Initialize modal
     initializeDiagnosticsModal();
@@ -1778,25 +1742,22 @@ function initializeCollapsibleCards() {
     });
 }
 
-    /**
-     * Initializes two-row tab navigation for settings panels.
-     * Each .vectfox-card[data-vectfox-tab] is a panel; only the active one is shown.
-     */
-    function initializeTabs() {
-        $('#VectFox_settings').on('click', '.vectfox-tab-btn', function() {
-            const tab = $(this).data('tab');
-            // Update button active state
-            $('.vectfox-tab-btn', '#VectFox_settings').removeClass('active');
-            $(this).addClass('active');
-            // Show only the matching tab panel
-            $('[data-vectfox-tab]', '#VectFox_settings').removeClass('vectfox-tab-active');
-            $(`[data-vectfox-tab="${tab}"]`, '#VectFox_settings').addClass('vectfox-tab-active');
-            if (tab === 'action') refreshHealthIndicator();
-            if (tab === 'worldinfo') refreshWIStatus();
-            if (tab === 'autosync') refreshAutoSyncCheckbox(extension_settings.vectfox);
-            if (tab === 'storyarc') refreshStoryLinkStatus(extension_settings.vectfox);
-        });
-    }
+/** Every page of the panel, with what runs as it shows or hides (panel-shell.js). */
+function panelTabsWithHooks() {
+    const hooks = {
+        action: { onOpen: refreshHealthIndicator },
+        autosync: { onOpen: () => refreshAutoSyncCheckbox(extension_settings.vectfox) },
+        worldinfo: { onOpen: refreshWIStatus },
+        storyarc: {
+            onOpen: () => {
+                refreshStoryLinkStatus(extension_settings.vectfox);
+                return showStoryArcPage();
+            },
+            onClose: hideStoryArcPage,
+        },
+    };
+    return PANEL_TABS.map(tab => ({ name: tab.name, ...hooks[tab.name] }));
+}
 
 // One shared WebLLM provider (getWebLlmProvider in src/features/embedding/webllm-provider.js): the engine
 // and its loaded model are reused by every caller.
@@ -2354,7 +2315,7 @@ function bindSettingsEvents(settings, callbacks) {
     // visual cue.
     const $masterSwitch = $('#VectFox_master_enabled');
     const _applyMasterSwitchUI = (on) => {
-        $('#VectFox_settings .vectfox-tabs, #VectFox_settings .vectfox-card')
+        $('#VectFox_settings .vectfox-card')
             .css({ opacity: on ? '' : '0.5' });
     };
     $masterSwitch
@@ -2959,10 +2920,6 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     wireStoryArcPage(settings);
-    $('#VectFox_story_arc_open_page').on('click', () => {
-        openStoryArcPage(() => refreshStoryLinkStatus(settings))
-            .catch(err => log.error('VectFox StoryArc: the page could not open:', err));
-    });
 
     $('#VectFox_story_arc_regenerate_links').on('click', async function() {
         const $button = $(this).prop('disabled', true);
@@ -5486,5 +5443,7 @@ ${categoryNames[category] || category.toUpperCase()}  ${catStats}
 export function openDiagnosticsModal() {
     showDiagnosticsPhase('selection');
     $('#VectFox_diagnostics_title').text('Run Diagnostics');
-    $('#VectFox_diagnostics_modal').fadeIn(200);
+    const modal = document.getElementById('VectFox_diagnostics_modal');
+    if (modal) placeOnTopmostModalLayer(modal);
+    $(modal).fadeIn(200);
 }

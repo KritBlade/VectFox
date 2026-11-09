@@ -2,17 +2,16 @@
  * ============================================================================
  * STORY ARC PAGE, STATIC MARKUP
  * ============================================================================
- * VectFox's first page on the GUI-DNA (mvu-helper/devdoc/gui-dna.md). It opens in a
- * wide dialog of its own, and joins the panel's rail when the panel moves to the DNA.
- * Every control the page's handlers look for is found by its id or a data-* hook.
- * Pure: builds a string.
+ * VectFox's first page on the GUI-DNA (mvu-helper/devdoc/gui-dna.md), one page on
+ * the settings panel's rail. Every control the page's handlers look for is found by
+ * its id or a data-* hook. Pure: builds a string.
  * ============================================================================
  */
 
 import { button, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
 
-export const STORY_ARC_PAGE_ID = 'VectFox_story_arc_page';
-export const STORY_ARC_PAGE_HOLDER_ID = 'VectFox_story_arc_page_holder';
+/** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
+export const STORY_ARC_PAGE_ID = 'VectFox_panel_storyarc';
 
 export const STORY_ARC_ELEMENT_ID = Object.freeze({
     webStatus: 'VectFox_story_arc_web_status',
@@ -174,43 +173,37 @@ function entityCard() {
 }
 
 /**
- * The page, hidden in its holder until it opens.
+ * The page, hidden until the rail shows it.
  *
  * @returns {string}
  */
 export function storyArcPageMarkup() {
-    return `<div id="${STORY_ARC_PAGE_HOLDER_ID}">
-    <div id="${STORY_ARC_PAGE_ID}" class="vfx-ui vfx-shell">
-        <main class="vfx-main">
-            <div class="vfx-page">
-                <header class="vfx-page-header">
-                    <span class="vfx-page-icon"><i class="fa-solid fa-timeline"></i></span>
-                    <div class="vfx-page-heading">
-                        <div class="vfx-page-eyebrow">Settings / StoryArc</div>
-                        <h2 class="vfx-page-title">StoryArc</h2>
-                        <p class="vfx-page-subtitle">Follows story threads for questions about the past.</p>
-                    </div>
-                    <div class="vfx-page-status">
-                        <span class="vfx-chip"><i class="fa-solid fa-globe"></i><span>Global</span></span>
-                        <span id="VectFox_story_arc_link_pill" class="vfx-pill is-accent" style="display:none;"></span>
-                    </div>
-                </header>
-                <nav class="vfx-subnav" role="tablist">
-                    ${subnavButton({ tab: 'main', icon: 'fa-diagram-project', text: 'Main', isActive: true })}
-                    ${subnavButton({ tab: 'entity', icon: 'fa-users', text: 'Entity' })}
-                </nav>
-                <div class="vfx-page" data-story-arc-panel="main">
-                    ${storyWebCard()}
-                    ${modeCard()}
-                    ${blockSizeCard()}
-                    ${debugCard()}
-                    ${connectionCard()}
-                </div>
-                <div class="vfx-page" data-story-arc-panel="entity" style="display:none;">
-                    ${entityCard()}
-                </div>
+    return `<div id="${STORY_ARC_PAGE_ID}" class="vfx-page" style="display:none;">
+        <header class="vfx-page-header">
+            <span class="vfx-page-icon"><i class="fa-solid fa-timeline"></i></span>
+            <div class="vfx-page-heading">
+                <div class="vfx-page-eyebrow">Retrieval / StoryArc</div>
+                <h2 class="vfx-page-title">StoryArc</h2>
+                <p class="vfx-page-subtitle">Follows story threads for questions about the past.</p>
             </div>
-        </main>
-    </div>
-</div>`;
+            <div class="vfx-page-status">
+                <span class="vfx-chip"><i class="fa-solid fa-globe"></i><span>Global</span></span>
+                <span id="VectFox_story_arc_link_pill" class="vfx-pill is-accent" style="display:none;"></span>
+            </div>
+        </header>
+        <nav class="vfx-subnav" role="tablist">
+            ${subnavButton({ tab: 'main', icon: 'fa-diagram-project', text: 'Main', isActive: true })}
+            ${subnavButton({ tab: 'entity', icon: 'fa-users', text: 'Entity' })}
+        </nav>
+        <div class="vfx-page" data-story-arc-panel="main">
+            ${storyWebCard()}
+            ${modeCard()}
+            ${blockSizeCard()}
+            ${debugCard()}
+            ${connectionCard()}
+        </div>
+        <div class="vfx-page" data-story-arc-panel="entity" style="display:none;">
+            ${entityCard()}
+        </div>
+    </div>`;
 }

@@ -452,7 +452,7 @@
         min-height: 52px;
     }
 
-    #VectFox_settings .checkbox_label {
+    :is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label {
         min-height: 48px;
     }
 }

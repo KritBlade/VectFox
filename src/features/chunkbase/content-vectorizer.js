@@ -20,7 +20,7 @@ import {
 } from './content-types.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getContext } from '../../sillytavern/chat.js';
-import { callGenericPopup, POPUP_TYPE } from '../../sillytavern/popup.js';
+import { callGenericPopup, POPUP_TYPE, placeMarkupOnTopmostModalLayer } from '../../sillytavern/popup.js';
 import { log } from '../../sillytavern/log.js';
 import { getChatUUID, vectorizeAll } from './chat-vectorization.js';
 import { validateLLMConfig } from '../llm-provider/index.js';
@@ -384,7 +384,7 @@ function createModal() {
         </div>
     `;
 
-    $('body').append(html);
+    placeMarkupOnTopmostModalLayer(html);
 }
 
 // ============================================================================

@@ -6,7 +6,7 @@
  * no longer matches any lorebook in ST (renamed or deleted). Shows a blocking
  * popup so the user can re-vectorize before stale content is injected.
  *
- * Popup close + generation-stop pattern mirrors src/features/vector-backend/tokenizer-lock.js.
+ * Its popup closes through sillytavern/popup.js, as tokenizer-lock.js does.
  * ============================================================================
  */
 
@@ -21,36 +21,9 @@ async function getWorldNames() {
     try {
         const mod = await import('../../sillytavern/world-info.js');
         return Array.isArray(mod.world_names) ? mod.world_names : [];
-    } catch {
+    } catch (error) {
+        log.warn('[LorebookRename] could not read the lorebook names:', error);
         return [];
-    }
-}
-
-/**
- * Wait for ST's dialog.popup fade-out before opening anything behind it.
- * Mirrors the same function in src/features/vector-backend/tokenizer-lock.js — the popup resolves
- * immediately on button click but the CSS close animation runs for ~300ms.
- */
-async function waitForPopupsClosed(maxWaitMs = 1500) {
-    const start = Date.now();
-    while (Date.now() - start < maxWaitMs) {
-        const stillVisible = document.querySelectorAll('dialog.popup[open], dialog.popup[closing]').length;
-        if (stillVisible === 0) return;
-        await new Promise(r => setTimeout(r, 30));
-    }
-    // Last-resort: force-complete any survivors, then strip from DOM.
-    try {
-        const { Popup } = await import('../../sillytavern/popup.js');
-        const survivors = (Popup?.util?.popups || []).slice();
-        for (const p of survivors) {
-            try { await p.completeCancelled(); } catch { /* tolerate */ }
-        }
-        document.querySelectorAll('dialog.popup[open], dialog.popup[closing]').forEach(d => {
-            d.close();
-            d.remove();
-        });
-    } catch (e) {
-        log.warn('[LorebookRename] force-close fallback failed:', e?.message);
     }
 }
 
@@ -120,36 +93,32 @@ export async function showLorebookRenameModal(mismatches) {
  * Must be called AFTER stopGeneration() so the browser opens into a clean state.
  */
 export async function openDatabaseBrowserForRename() {
-    // Wait for the modal's CSS close animation to finish before opening the drawer.
-    // Same timing fix as openCjkTokenizerSetting() in tokenizer-lock.js.
-    await waitForPopupsClosed();
+    // Wait for the modal's close animation to finish before opening the browser behind it.
+    const { waitForOtherPopupsToClose } = await import('../../sillytavern/popup.js');
+    await waitForOtherPopupsToClose();
 
     try {
         const { openDatabaseBrowser } = await import('../database-browser/index.js');
         openDatabaseBrowser();
     } catch (e) {
         log.warn('[LorebookRename] Could not open Database Browser:', e?.message);
-        // Fallback: scroll the Database Browser button into view so user can click it.
+        // Fallback: open the settings panel on its Action page, where the Database Browser button is.
         try {
             if (typeof $ === 'undefined') return;
-            const $extToggle = $('#extensions-settings-button').children('.drawer-toggle').first();
-            const $extIcon = $extToggle.find('.drawer-icon').first();
-            if ($extToggle.length && $extIcon.hasClass('closedIcon')) {
-                $extToggle.trigger('click');
-            }
+            $('#VectFox_tab_action').trigger('click');
+            $('#VectFox_open_panel').trigger('click');
             setTimeout(() => {
                 const $dbBtn = $('#VectFox_database_browser');
                 if ($dbBtn.length) {
                     $dbBtn[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
                     $dbBtn.focus();
                 } else {
-                    try {
-                        toastr.info(
-                            'Open the Extensions drawer and click the VectFox Database Browser button.',
-                            'VectFox',
-                            { timeOut: 8000 },
-                        );
-                    } catch { /* toastr may not be available */ }
+                    // toastr is SillyTavern's page global, absent where no page is loaded.
+                    globalThis.toastr?.info(
+                        'Open VectFox from the Extensions drawer, then Action → Database Browser.',
+                        'VectFox',
+                        { timeOut: 8000 },
+                    );
                 }
             }, 150);
         } catch (navErr) {

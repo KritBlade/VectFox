@@ -26,6 +26,7 @@ import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { escapeHtml } from '../../shared/html-escape.js';
 import { packTimelineSortKey } from '../eventbase/index.js';
 import { log } from '../../sillytavern/log.js';
+import { placeMarkupOnTopmostModalLayer } from '../../sillytavern/popup.js';
 
 // ============================================================================
 // STATE
@@ -538,7 +539,7 @@ function createModal() {
         </div>
     `;
 
-    $('body').append(html);
+    placeMarkupOnTopmostModalLayer(html);
 }
 
 // ============================================================================

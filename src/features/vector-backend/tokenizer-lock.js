@@ -171,7 +171,9 @@ export async function applyTokenizerRevert(savedMode, settings) {
                 $select.trigger('change.eventbasePromptSync');
             }
         }
-    } catch { /* tolerate — UI may not be rendered */ }
+    } catch (error) {
+        log.warn('[TokenizerLock] could not show the saved mode in its dropdown:', error);
+    }
 
     if (savedMode === CJK_TOKENIZER_MODES.jieba) {
         await ensureJiebaTokenizerLoaded();
@@ -181,51 +183,10 @@ export async function applyTokenizerRevert(savedMode, settings) {
 }
 
 /**
- * Handle the "Open Settings" choice from the tokenizer mismatch modal.
- *
- * Expands the VectFox inline drawer if collapsed, switches to the Core tab
- * (which contains the CJK Tokenizer Mode dropdown), scrolls the dropdown
- * into view, and briefly focuses it so the user can find what they came for.
- *
- * Previously this branch only aborted the query, leaving the user nowhere —
- * the modal said "Open Settings" but nothing actually opened.
+ * Handle the "Open Settings" choice from the tokenizer mismatch modal: open the
+ * settings panel on its Core page, which holds the CJK Tokenizer Mode dropdown,
+ * scroll the dropdown into view and focus it.
  */
-/**
- * Wait until ST's <dialog.popup> elements have finished their close animation
- * and been removed from the DOM. callGenericPopup resolves as soon as a button
- * is clicked, but #hide() sets a `closing` attribute and only removes the
- * dialog after a CSS fade animation — so for ~300ms after click the popup is
- * still visually on top of anything we open behind it.
- *
- * If the popup hasn't cleared within maxWaitMs, fall back to calling
- * completeCancelled() on Popup.util.popups survivors and then removing any
- * stragglers from the DOM directly.
- */
-async function waitForPopupsClosed(maxWaitMs = 1500) {
-    const start = Date.now();
-    while (Date.now() - start < maxWaitMs) {
-        const stillVisible = document.querySelectorAll('dialog.popup[open], dialog.popup[closing]').length;
-        if (stillVisible === 0) return;
-        await new Promise(r => setTimeout(r, 30));
-    }
-
-    // Last-resort manual close: walk Popup.util.popups and force completeCancelled on any
-    // that survived. Then strip them from the DOM if they still cling on.
-    try {
-        const { Popup } = await import('../../sillytavern/popup.js');
-        const survivors = (Popup?.util?.popups || []).slice();
-        for (const p of survivors) {
-            try { await p.completeCancelled(); } catch { /* tolerate */ }
-        }
-        document.querySelectorAll('dialog.popup[open], dialog.popup[closing]').forEach(d => {
-            d.close();
-            d.remove();
-        });
-    } catch (e) {
-        log.warn('[TokenizerLock] force-close fallback failed:', e?.message);
-    }
-}
-
 export async function openCjkTokenizerSetting() {
     try {
         if (typeof $ === 'undefined') {
@@ -234,36 +195,16 @@ export async function openCjkTokenizerSetting() {
         }
 
         // The triggering popup is still mid-fade when callGenericPopup resolves.
-        // Wait until it's actually gone before opening drawers behind it.
-        await waitForPopupsClosed();
+        // Wait until it's actually gone before opening the panel behind it.
+        const { waitForOtherPopupsToClose } = await import('../../sillytavern/popup.js');
+        await waitForOtherPopupsToClose();
 
-        // Step 1: open ST's top-bar Extensions drawer if it's collapsed.
-        // ST wraps #extensions_settings2 (where VectFox mounts) inside
-        // #extensions-settings-button, a .drawer with a .drawer-toggle (see
-        // SillyTavern's public/index.html). The drawer-icon carries .closedIcon
-        // while collapsed and .openIcon when open.
-        const $extToggle = $('#extensions-settings-button').children('.drawer-toggle').first();
-        const $extIcon = $extToggle.find('.drawer-icon').first();
-        if ($extToggle.length && $extIcon.hasClass('closedIcon')) {
-            $extToggle.trigger('click');
-        }
+        // The Core page, then the panel's launcher, which opens on the page last shown
+        // and only shows that page when the panel is open already (settings-panel/panel-shell.js).
+        $('#VectFox_tab_core').trigger('click');
+        $('#VectFox_open_panel').trigger('click');
 
-        // Step 2: expand VectFox's own inline drawer if collapsed.
-        const $drawerToggle = $('#VectFox_settings .inline-drawer-toggle').first();
-        if ($drawerToggle.length) {
-            const $icon = $drawerToggle.find('.inline-drawer-icon');
-            const $content = $drawerToggle.closest('.inline-drawer').find('.inline-drawer-content');
-            if ($icon.hasClass('down') || $content.is(':hidden')) {
-                $drawerToggle.trigger('click');
-            }
-        }
-
-        // Step 3: switch to the Core tab.
-        const $coreTab = $('#VectFox_settings .vectfox-tab-btn[data-tab="core"]');
-        if ($coreTab.length) $coreTab.trigger('click');
-
-        // Step 4: scroll the dropdown into view (deferred so panels finish opening first).
-        // 150ms gives ST's slide animations time to settle before we measure positions.
+        // Scroll the dropdown into view, deferred so the dialog has finished opening.
         setTimeout(() => {
             const $select = $('#VectFox_cjk_tokenizer_mode');
             if ($select.length && $select.is(':visible')) {
@@ -271,13 +212,12 @@ export async function openCjkTokenizerSetting() {
                 $select.focus();
             } else {
                 // Couldn't surface the panel automatically — tell the user where to look.
-                try {
-                    toastr.info(
-                        'Open the Extensions drawer and look in VectFox → Core → CJK Tokenizer Mode.',
-                        'VectFox',
-                        { timeOut: 8000 },
-                    );
-                } catch { /* toastr may not be available */ }
+                // toastr is SillyTavern's page global, absent where no page is loaded.
+                globalThis.toastr?.info(
+                    'Open VectFox from the Extensions drawer, then Core → CJK Tokenizer Mode.',
+                    'VectFox',
+                    { timeOut: 8000 },
+                );
             }
         }, 150);
     } catch (error) {

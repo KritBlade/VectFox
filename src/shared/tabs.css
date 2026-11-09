@@ -1,28 +1,16 @@
 /* ============================================================================
- * VECTFOX - SETTINGS TAB NAVIGATION
+ * VECTFOX - MASTER SWITCH AND TAB BUTTONS
+ * ============================================================================
+ * The master switch at the top of the settings panel's Action page, and the tab
+ * buttons the Database Browser draws (database-browser.js). The panel's own pages
+ * switch on the GUI-DNA rail (settings-panel/panel-shell.js).
  * ============================================================================ */
 
-/* Master switch — global enable/disable, sits above the tab nav */
+/* Master switch — global enable/disable, first on the Action page */
 .vectfox-master-switch {
     padding-bottom: 10px;
     margin-bottom: 10px;
     border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
-}
-
-/* Two-row tab nav */
-.vectfox-tabs {
-    margin-bottom: 10px;
-}
-
-.vectfox-tab-nav-row {
-    display: flex;
-    gap: 3px;
-    margin-bottom: 3px;
-}
-
-/* A long tab name takes the room a short one leaves, so a full row never cuts a name. */
-.vectfox-tab-nav-row .vectfox-tab-btn {
-    flex: 1 1 auto;
 }
 
 .vectfox-tab-btn {
@@ -52,13 +40,3 @@
     color: #fff;
     border-color: transparent;
 }
-
-/* Hide all tab panels; show only active */
-[data-vectfox-tab] {
-    display: none;
-}
-
-[data-vectfox-tab].vectfox-tab-active {
-    display: block;
-}
-

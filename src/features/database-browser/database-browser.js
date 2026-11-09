@@ -49,6 +49,7 @@ import {
   convertToPNG,
 } from "../collections/index.js";
 import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
+import { placeMarkupOnTopmostModalLayer, placeOnTopmostModalLayer } from "../../sillytavern/popup.js";
 import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
   STORY_LINKS_FILE_TYPE,
@@ -145,6 +146,7 @@ export async function openDatabaseBrowser() {
       createBrowserModal();
     } else {
       log.trace("VECTFOX Database Browser: modal already in DOM");
+      placeOnTopmostModalLayer(document.getElementById("vectfox_database_browser_modal"));
     }
 
     // Show/hide plugin warning banner
@@ -448,7 +450,7 @@ function createBrowserModal() {
         </div>
     `;
 
-  $("body").append(modalHtml);
+  placeMarkupOnTopmostModalLayer(modalHtml);
 
   // Bind events
   bindBrowserEvents();
@@ -1926,7 +1928,7 @@ function openRenameDialog(collectionId, currentName) {
                 </div>
             </div>
         `;
-    $("body").append(modalHtml);
+    placeMarkupOnTopmostModalLayer(modalHtml);
 
     // Bind events
     $("#vectfox_rename_close, #vectfox_rename_cancel").on(
@@ -2024,7 +2026,7 @@ function openModelSwitcher(collection) {
                 </div>
             </div>
         `;
-    $("body").append(modalHtml);
+    placeMarkupOnTopmostModalLayer(modalHtml);
 
     // Bind close
     $("#vectfox_model_switcher_close").on("click", closeModelSwitcher);
@@ -2229,6 +2231,8 @@ function openActivationEditor(collectionId, collectionName) {
   // Create modal if needed
   if ($("#vectfox_activation_editor_modal").length === 0) {
     createActivationEditorModal();
+  } else {
+    placeOnTopmostModalLayer(document.getElementById("vectfox_activation_editor_modal"));
   }
 
   // Populate with current settings
@@ -2427,7 +2431,7 @@ function createActivationEditorModal() {
         </div>
     `;
 
-  $("body").append(modalHtml);
+  placeMarkupOnTopmostModalLayer(modalHtml);
   bindActivationEditorEvents();
 }
 
@@ -4075,8 +4079,7 @@ function openCollectionLockDialog(collectionId) {
         </div>
     `;
 
-    const $dialog = $(dialogHtml);
-    $('body').append($dialog);
+    const $dialog = $(placeMarkupOnTopmostModalLayer(dialogHtml));
 
     // Handle add lock button (chat)
     $('#vectfox_lock_add_current').on('click', function() {

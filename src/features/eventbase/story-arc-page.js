@@ -2,10 +2,9 @@
  * ============================================================================
  * STORY ARC PAGE
  * ============================================================================
- * Opens the StoryArc page in its dialog and runs its two tabs: Main, with the story
- * web, and Entity, with the merged names. The page is MOVED into the dialog, never
- * cloned, so every handler bound at startup keeps working, and moves back on close.
- * A page reads the chat's events when it opens, and again when asked.
+ * Runs the StoryArc page on the settings panel's rail, and its two tabs: Main, with
+ * the story web, and Entity, with the merged names. The page reads the chat's events
+ * each time it shows, and again when asked; its web stops while it is hidden.
  * ============================================================================
  */
 
@@ -15,7 +14,7 @@ import { saveEntityMerges, readEntityMerges } from './story-arc-entities.js';
 import { buildEntityNameWriter, entityNamesLeftAlone, filterEntities, listEntities, mergeEntityNames, splitEntityName, withKeptEntityNames } from './story-arc-entity-core.js';
 import { ENTITY_MERGE_TARGET_ID, ENTITY_SPLIT_NAME_ID, entityListMarkup } from './story-arc-entity-ui.js';
 import { readChatStoryEvents } from './story-arc-links.js';
-import { STORY_ARC_ELEMENT_ID, STORY_ARC_PAGE_HOLDER_ID, STORY_ARC_PAGE_ID } from './story-arc-page-markup.js';
+import { STORY_ARC_ELEMENT_ID, STORY_ARC_PAGE_ID } from './story-arc-page-markup.js';
 import { findStoryWebEvents } from './story-arc-retrieval.js';
 import { drawStoryWeb } from './story-arc-web.js';
 import { buildStoryWeb, linksOfNode, selectedEventMarkup } from './story-arc-web-core.js';
@@ -26,7 +25,6 @@ const ENTITY_KINDS = ['people', 'factions', 'places'];
 const page = {
     isOpen: false,
     settings: null,
-    onOpen: null,
     collectionKey: '',
     events: [],
     merges: {},
@@ -292,13 +290,6 @@ export function wireStoryArcPage(settings) {
         const target = event.target instanceof Element ? event.target : null;
         const tabButton = target?.closest('[data-story-arc-tab]');
         if (tabButton) showTab(tabButton.dataset.storyArcTab);
-        const collapse = target?.closest('.vfx-collapse');
-        if (collapse) {
-            const card = collapse.closest('.vfx-card');
-            const isCollapsed = !card.classList.contains('is-collapsed');
-            card.classList.toggle('is-collapsed', isCollapsed);
-            collapse.setAttribute('aria-expanded', String(!isCollapsed));
-        }
         const entityButton = target?.closest('[data-entity-action]');
         if (entityButton && !entityButton.disabled) {
             runEntityAction(entityButton.dataset.entityAction, entityButton.dataset.name)
@@ -326,33 +317,16 @@ export function wireStoryArcPage(settings) {
     });
 }
 
-/**
- * Open the page in its dialog, and wait until it closes.
- *
- * @param {() => void} onOpen - Refreshes what the page's other handlers own
- * @returns {Promise<void>}
- */
-export async function openStoryArcPage(onOpen) {
-    const root = elementOf(STORY_ARC_PAGE_ID);
-    const holder = elementOf(STORY_ARC_PAGE_HOLDER_ID);
-    if (!root || !holder) {
-        log.error('[VectFox-StoryArc] The page or its holder is missing, so it cannot open');
-        return;
-    }
-    if (page.isOpen) return;
+/** Show the page: it reads this chat's events and draws its web. Runs when the rail shows it in the open panel. */
+export function showStoryArcPage() {
+    if (page.isOpen) return Promise.resolve();
     page.isOpen = true;
     page.isWebFloating ??= !matchMedia('(prefers-reduced-motion: reduce)').matches;
-    onOpen();
-    const { openPanelPopup } = await import('../../sillytavern/popup.js');
-    const closed = openPanelPopup(root);
-    readAndPaintPage().catch(error => log.error('[VectFox-StoryArc] The page could not read this chat:', error));
-    try {
-        await closed;
-    } finally {
-        // First: SillyTavern has removed the dialog by now, so the page's elements cannot be found until it is back,
-        // and the next open cannot find the page at all if a failure below strands it.
-        holder.appendChild(root);
-        page.isOpen = false;
-        closeWeb();
-    }
+    return readAndPaintPage();
+}
+
+/** Stop the page's web while it is hidden: another page shows, or the panel closes. */
+export function hideStoryArcPage() {
+    page.isOpen = false;
+    closeWeb();
 }

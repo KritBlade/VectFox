@@ -1,0 +1,15 @@
+/* panel-shell.css — the settings panel's own rules beside the GUI-DNA (panel-shell.js): the launcher in the extensions
+ * drawer, which keeps SillyTavern's look, and the holder the panel waits in while its dialog is closed. */
+
+.menu_button#VectFox_open_panel {
+    width: 100%;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+}
+
+/* The panel lives here, hidden, whenever the dialog is closed. It is MOVED between this holder and the dialog, never
+   cloned, so every bound handler survives the trip. */
+#VectFox_panel_holder {
+    display: none;
+}

@@ -47,7 +47,7 @@ export {
     writeImportedStoryLinks,
 } from './story-arc-links.js';
 export { storyArcPageMarkup } from './story-arc-page-markup.js';
-export { openStoryArcPage, wireStoryArcPage } from './story-arc-page.js';
+export { hideStoryArcPage, showStoryArcPage, wireStoryArcPage } from './story-arc-page.js';
 export {
     applyGhosting,
     buildSummarizerInjection,

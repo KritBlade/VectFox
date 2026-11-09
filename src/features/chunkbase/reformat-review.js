@@ -19,6 +19,7 @@
  */
 
 import { escapeHtml } from '../../shared/html-escape.js';
+import { placeMarkupOnTopmostModalLayer } from '../../sillytavern/popup.js';
 
 let _onAccept = null;
 let _onDiscard = null;
@@ -116,7 +117,7 @@ function _createModal({ warnings, sourceText, sourceName, contentType }) {
             </div>
         </div>
     `;
-    $('body').append(html);
+    placeMarkupOnTopmostModalLayer(html);
 
     $('#vectfox_rr_modal').on('mousedown touchstart', function (e) { e.stopPropagation(); });
 }

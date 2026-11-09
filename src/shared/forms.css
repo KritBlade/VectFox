@@ -1,7 +1,10 @@
 /* ============================================================================
  * VECTFOX FORM STYLES
  * ============================================================================
- * Form elements, inputs, selects, range sliders, provider settings
+ * Form elements, inputs, selects, range sliders, provider settings. The rules
+ * scoped by :is(#VectFox_settings ...) reach only what is not on the GUI-DNA yet:
+ * the panel's vectfox cards, its master switch, and the Diagnostics and Health
+ * modals, so a gene inside the panel keeps its own look.
  *
  * @author Kritblade
  * ============================================================================ */
@@ -10,7 +13,7 @@
  * FORM ELEMENTS WITH POLISH
  * ============================================================================ */
 
-#VectFox_settings label:not(.checkbox_label) {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) label:not(.checkbox_label) {
     display: block;
     margin-top: 18px;
     margin-bottom: 8px;
@@ -19,33 +22,33 @@
     font-size: 0.95em;
 }
 
-#VectFox_settings label:not(.checkbox_label):first-child {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) label:not(.checkbox_label):first-child {
     margin-top: 0;
 }
 
-#VectFox_settings .text_pole,
-#VectFox_settings input[type="number"],
-#VectFox_settings select {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .text_pole,
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) input[type="number"],
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) select {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     border-radius: 8px;
 }
 
-#VectFox_settings .text_pole:hover,
-#VectFox_settings input[type="number"]:hover,
-#VectFox_settings select:hover {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .text_pole:hover,
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) input[type="number"]:hover,
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) select:hover {
     border-color: color-mix(in srgb, var(--vectfox-primary) 50%, var(--SmartThemeBorderColor));
 }
 
-#VectFox_settings .text_pole:focus,
-#VectFox_settings input[type="number"]:focus,
-#VectFox_settings select:focus {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .text_pole:focus,
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) input[type="number"]:focus,
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) select:focus {
     border-color: var(--vectfox-primary);
     box-shadow:
         0 0 0 3px color-mix(in srgb, var(--vectfox-primary) 15%, transparent),
         0 2px 8px color-mix(in srgb, var(--vectfox-primary) 10%, transparent);
 }
 
-#VectFox_settings .checkbox_label {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label {
     margin: 14px 0;
     padding: 14px 16px;
     background: linear-gradient(135deg,
@@ -62,7 +65,7 @@
     overflow: hidden;
 }
 
-#VectFox_settings .checkbox_label::before {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label::before {
     content: '';
     position: absolute;
     top: 0;
@@ -74,7 +77,7 @@
     transition: transform 0.2s ease;
 }
 
-#VectFox_settings .checkbox_label:hover {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label:hover {
     background: linear-gradient(135deg,
         color-mix(in srgb, var(--SmartThemeBlurTintColor) 80%, transparent) 0%,
         color-mix(in srgb, var(--SmartThemeBlurTintColor) 60%, transparent) 100%);
@@ -82,11 +85,11 @@
     transform: translateX(2px);
 }
 
-#VectFox_settings .checkbox_label:hover::before {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label:hover::before {
     transform: scaleY(1);
 }
 
-#VectFox_settings input[type="checkbox"]:checked + span {
+:is(#VectFox_settings :is(.vectfox-card, .vectfox-master-switch), #VectFox_diagnostics_modal, #VectFox_health_modal) input[type="checkbox"]:checked + span {
     color: var(--vectfox-primary-bright);
     font-weight: 600;
 }

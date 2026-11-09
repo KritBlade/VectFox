@@ -55,6 +55,9 @@ const defaultSettings = {
     // Single source of truth for reads: src/shared/feature-gate.js::isVectFoxEnabled.
     enabled: true,
 
+    // The palette the settings panel and its dialogs wear: 'dark' (Night Slate) | 'light' (Soft Silver)
+    panel_theme: 'dark',
+
     // Core vector settings
     embedding_provider: 'transformers', // embedding provider selection
     vector_backend: 'qdrant', // Backend: 'standard' (ST Vectra) | 'qdrant'

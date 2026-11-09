@@ -10,6 +10,7 @@
 @import url('./shared/gui-dna/palette.css');
 @import url('./shared/gui-dna/gui-dna.css');
 @import url('./shared/gui-dna/dialogs.css');
+@import url('./features/settings-panel/panel-shell.css');
 @import url('./features/eventbase/story-arc-page.css');
 
 /* Base styles - variables, icons, container */

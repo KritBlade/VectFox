@@ -10,6 +10,7 @@
  */
 
 import { saveSettingsDebounced } from '../../sillytavern/settings.js';
+import { placeMarkupOnTopmostModalLayer } from '../../sillytavern/popup.js';
 import {
     BUILTIN_PATTERNS,
     CLEANING_PRESETS,
@@ -139,7 +140,7 @@ export function openTextCleaningModal() {
         </div>
     `;
 
-    $('body').append(html);
+    placeMarkupOnTopmostModalLayer(html);
     $('#VectFox_text_cleaning_modal').fadeIn(200);
 
     bindEvents();

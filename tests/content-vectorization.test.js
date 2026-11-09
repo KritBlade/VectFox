@@ -25,6 +25,7 @@ vi.mock('../src/features/text-cleaning/text-cleaning.js', () => ({
 // SillyTavern modules the feature barrels reach; nothing this test runs uses them.
 vi.mock('../../../../extensions.js', () => ({}));
 vi.mock('../../../../../script.js', () => ({}));
+vi.mock('../../../../popup.js', () => ({}));
 
 import { prepareLorebookContent } from '../src/features/chunkbase/lorebook-content-preparer.js';
 

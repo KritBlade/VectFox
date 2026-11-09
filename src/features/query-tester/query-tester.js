@@ -11,6 +11,7 @@
  */
 
 import { log } from '../../sillytavern/log.js';
+import { placeMarkupOnTopmostModalLayer } from '../../sillytavern/popup.js';
 
 /**
  * Opens the Query Tester modal. The user types a test message, clicks Run, and
@@ -68,7 +69,7 @@ export function openQueryTestModal() {
         </div>
     `;
 
-    $('body').append(html);
+    placeMarkupOnTopmostModalLayer(html);
 
     $('#VectFox_query_tester_modal').on('mousedown touchstart', e => e.stopPropagation());
     $('#VectFox_qtester_close').on('click', _closeQueryTester);

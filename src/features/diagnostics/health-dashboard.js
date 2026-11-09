@@ -18,6 +18,7 @@
 import { getBackendMetrics, probeBackendHealth } from '../vector-backend/index.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
+import { placeOnTopmostModalLayer } from '../../sillytavern/popup.js';
 
 let refreshInterval = null;
 let isModalOpen = false;
@@ -249,6 +250,7 @@ export function openHealthDashboard() {
     isModalOpen = true;
     const modal = document.getElementById('VectFox_health_modal');
     if (modal) {
+        placeOnTopmostModalLayer(modal);
         modal.style.display = 'flex';
         updateDashboard();
         startAutoRefresh(5000);
@@ -347,16 +349,9 @@ export function initializeHealthDashboard() {
     // Refresh button
     $(document).on('click', '#VectFox_health_refresh', updateDashboard);
 
-    // Probe when the VectFox panel drawer is expanded
-    $(document).on('click', '#VectFox_settings .inline-drawer-toggle', function() {
-        const isOpening = $(this).closest('.inline-drawer').find('.inline-drawer-content').is(':hidden')
-            || $(this).find('.inline-drawer-icon').hasClass('down');
-        if (isOpening) refreshIndicator();
-    });
-
-    // Probe immediately on init (Action tab is the default tab on load). Skipped while
-    // VectFox is disabled: opening the panel probes on demand, and switching VectFox
-    // back on refreshes the indicator.
+    // The panel probes again each time its Action page shows (settings-panel.js).
+    // Probe immediately on init too. Skipped while VectFox is disabled: opening the
+    // panel probes on demand, and switching VectFox back on refreshes the indicator.
     if (isVectFoxEnabled()) {
         refreshIndicator();
     }

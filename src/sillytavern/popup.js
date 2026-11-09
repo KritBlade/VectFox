@@ -1,7 +1,8 @@
 // popup.js — SillyTavern's popups: the generic popup call, the Popup class, and the popup types and results, which the rest
 // of VectFox imports here, never from SillyTavern (tools/check-host-imports.mjs). Also the doors a GUI-DNA surface opens its
-// dialogs through, which carry .vfx-popup.vfx-ui and are drawn by shared/gui-dna/dialogs.css, and the way an element that
-// floats over the page, such as the progress panel, is shown above an open popup.
+// dialogs through, which carry .vfx-popup.vfx-ui and are drawn by shared/gui-dna/dialogs.css; the way an element that floats
+// over the page, such as the progress panel or a modal opened from the settings panel, is shown above an open popup; and the
+// wait for every popup but the settings panel's to finish closing.
 //
 // FAILURE STANCE: a dialog that cannot open answers NO. A caller guards an action, so "the dialog broke" must never read as
 // "the user said yes".
@@ -42,6 +43,10 @@ function dialogTextBlock(lines) {
     return block;
 }
 
+/** The class on the settings panel's own dialog, which shared/gui-dna/dialogs.css sizes near-fullscreen. */
+const PANEL_DIALOG_CLASS = 'is-panel';
+const OTHER_OPEN_POPUPS = `dialog.popup:not(.${PANEL_DIALOG_CLASS})[open], dialog.popup:not(.${PANEL_DIALOG_CLASS})[closing]`;
+
 /**
  * Open one dialog in the GUI-DNA frame. Its content scrolls once taller than the window: SillyTavern's popup clips it otherwise.
  * Resolves to SillyTavern's answer.
@@ -49,8 +54,36 @@ function dialogTextBlock(lines) {
 function showDialog(content, type, { okButton, cancelButton, isPanel = false, popupOptions = {} }) {
     const popup = new Popup(content, type, '', { okButton, cancelButton, leftAlign: true, allowVerticalScrolling: true, ...popupOptions });
     popup.dlg.classList.add('vfx-popup', 'vfx-ui');
-    if (isPanel) popup.dlg.classList.add('is-panel');
+    if (isPanel) popup.dlg.classList.add(PANEL_DIALOG_CLASS);
     return popup.show();
+}
+
+/**
+ * Wait until every SillyTavern popup but the settings panel's has finished closing. callGenericPopup resolves as soon as
+ * a button is clicked, but the dialog stays on top through its ~300ms close animation, over anything opened behind it.
+ * Past maxWaitMs, the popups left are cancelled and removed. The panel's dialog stays open. Never throws.
+ *
+ * @param {number} [maxWaitMs]
+ * @returns {Promise<void>}
+ */
+export async function waitForOtherPopupsToClose(maxWaitMs = 1500) {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+        if (!document.querySelector(OTHER_OPEN_POPUPS)) return;
+        await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    const popupsLeft = (Popup.util?.popups ?? []).filter(popup => !popup.dlg?.classList.contains(PANEL_DIALOG_CLASS));
+    for (const popup of popupsLeft) {
+        try {
+            await popup.completeCancelled();
+        } catch (error) {
+            log.warn('A popup would not close, so it is removed:', error);
+        }
+    }
+    for (const dialog of document.querySelectorAll(OTHER_OPEN_POPUPS)) {
+        dialog.close();
+        dialog.remove();
+    }
 }
 
 /**
@@ -74,11 +107,13 @@ export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel' })
  * so every handler keeps working, and the caller moves it back afterwards. Never throws.
  *
  * @param {HTMLElement} panel
+ * @param {{canClose?: () => boolean}} [options] - canClose answers false to keep the dialog open, on Escape or Close
  * @returns {Promise<void>}
  */
-export async function openPanelPopup(panel) {
+export async function openPanelPopup(panel, { canClose } = {}) {
+    const popupOptions = { large: true, ...(canClose ? { onClosing: () => canClose() } : {}) };
     try {
-        await showDialog(panel, POPUP_TYPE.TEXT, { okButton: 'Close', cancelButton: false, isPanel: true, popupOptions: { large: true } });
+        await showDialog(panel, POPUP_TYPE.TEXT, { okButton: 'Close', cancelButton: false, isPanel: true, popupOptions });
     } catch (error) {
         log.error('A panel dialog could not open:', error);
     }
@@ -103,8 +138,31 @@ export function placeOnTopmostModalLayer(element) {
     if (layer === document.body) return;
     const watcher = new MutationObserver(() => {
         if (layer.hasAttribute('open') && !layer.hasAttribute('closing')) return;
+        // An element its own close removed, or that moved on, stays where it is.
+        if (!layer.contains(element)) {
+            watcher.disconnect();
+            closingPopupWatchers.delete(element);
+            return;
+        }
         placeOnTopmostModalLayer(element);
     });
     watcher.observe(layer, { attributes: true, attributeFilter: ['open', 'closing'] });
     closingPopupWatchers.set(element, watcher);
+}
+
+/**
+ * Build a floating surface from its markup and put it on the topmost modal layer, as placeOnTopmostModalLayer does.
+ *
+ * @param {string} html - Markup with exactly one root element
+ * @returns {HTMLElement} the root element
+ */
+export function placeMarkupOnTopmostModalLayer(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html.trim();
+    if (template.content.childElementCount !== 1) {
+        throw new Error(`A floating surface needs exactly one root element, and its markup has ${template.content.childElementCount}`);
+    }
+    const element = template.content.firstElementChild;
+    placeOnTopmostModalLayer(element);
+    return element;
 }
