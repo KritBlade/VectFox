@@ -9,7 +9,6 @@ VECTOR_LIST.md
 
 node_modules/
 .playwright-auth.json
-docs/
 .claude/
 .github/
 CLAUDE.md
