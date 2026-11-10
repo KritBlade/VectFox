@@ -38,7 +38,7 @@ import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
-import { mountSettingsPanel, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
+import { mountSettingsPanel, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { initializeWorldInfoIntegration } from './features/world-info/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
@@ -105,7 +105,6 @@ const defaultSettings = {
     // vector handler). Not a setting; migrateLegacyApiKeys() moves a plaintext vllm_api_key into both
     // slots. Reader: getCustomApiKey in src/shared/api-keys.js (presence and masked value only; the key
     // stays server-side).
-    webllm_model: '',
     google_model: 'text-embedding-005',
 
     // Chat vectorization
@@ -611,15 +610,6 @@ jQuery(async () => {
     eventSource.on(event_types.MESSAGE_SENT, trigger('MESSAGE_SENT'));
     eventSource.on(event_types.MESSAGE_RECEIVED, trigger('MESSAGE_RECEIVED'));
     eventSource.on(event_types.MESSAGE_SWIPED, trigger('MESSAGE_SWIPED'));
-
-    // When WebLLM extension is loaded, refresh the model list
-    eventSource.on(event_types.EXTENSION_SETTINGS_LOADED, async (manifest) => {
-        if (settings.embedding_provider === 'webllm' && manifest?.display_name === 'WebLLM') {
-            log.lifecycle('VectFox: WebLLM extension loaded, refreshing models...');
-            updateWebLlmStatus();
-            await loadWebLlmModels(settings);
-        }
-    });
 
     // When chat changes, refresh UI state to match settings. Also runs while the master
     // switch is OFF so the panel shows the current chat; refreshAutoSyncCheckbox then

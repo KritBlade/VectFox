@@ -25,7 +25,6 @@ export const EMBEDDING_PROVIDERS = {
         requiresApiKey: false,
         requiresUrl: false,
     },
-    // webllm: { name: 'WebLLM Extension', local: true, requiresModel: true, modelField: 'webllm_model', requiresApiKey: false, requiresUrl: false },
 
     // Local server providers (need URL)
     ollama: {

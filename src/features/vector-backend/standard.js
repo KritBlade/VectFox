@@ -410,7 +410,7 @@ export class StandardBackend extends VectorBackend {
                 })),
                 source: settings.embedding_provider || 'transformers',
                 model: model,
-                // Pass embeddings if pre-computed (for webllm, koboldcpp)
+                // Pass embeddings if pre-computed (for koboldcpp)
                 embeddings: items[0]?.vector ? Object.fromEntries(items.map(i => [
                     i.text || '',
                     i.vector

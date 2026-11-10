@@ -60,8 +60,6 @@ vi.mock('../src/app/network-startup.js', () => ({
 }));
 vi.mock('../src/features/settings-panel/index.js', () => ({
     mountSettingsPanel: (_containerId, settings) => { panel.settings = settings; },
-    loadWebLlmModels: vi.fn(),
-    updateWebLlmStatus: vi.fn(),
     refreshAutoSyncCheckbox: vi.fn(),
 }));
 vi.mock('../src/features/database-browser/index.js', () => ({

@@ -67,12 +67,6 @@ vi.mock('../../../../textgen-settings.js', () => ({
 
 vi.mock('../../../../openai.js', () => ({ oai_settings: {} }));
 
-vi.mock('../../../shared.js', () => ({ isWebLlmSupported: vi.fn(() => false) }));
-
-vi.mock('../src/features/embedding/webllm-provider.js', () => ({
-    getWebLlmProvider: vi.fn(() => ({ embedTexts: vi.fn() })),
-}));
-
 // Collection discovery is exercised by tests/world-info-integration.test.js.
 // Here every test passes `preloadedCollections` explicitly so the subject under
 // test is the query path, not the listing/activation gate.

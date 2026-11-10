@@ -135,7 +135,7 @@ A3 is now true native dense+sparse hybrid.
 * **Global BM25 IDF** — Qdrant's `modifier: 'idf'` makes IDF a true full-corpus
   statistic, not a candidate-subset approximation.
 * **Server-side dense embedding** — the plugin generates the query embedding;
-  no client-side embedding cost (unless the source is webllm/koboldcpp).
+  no client-side embedding cost (unless the source is koboldcpp).
 * **Client-side sparse encoding** — vectfox tokenizes the query text in the
   browser so the CJK tokenizer mode matches what was used at ingest.
 
@@ -280,7 +280,7 @@ strings).
 | Aspect | Client-Side Hybrid (A2) | Server-Side Hybrid (A3)
 | HTTP requests (client→plugin) | 1 (vector) + 0 (BM25 is client-side) | 1 (plugin handles everything internally)
 | HTTP requests (plugin→Qdrant) | 1 (vector search) | **1** native `/points/query` with prefetch (both legs + fusion in one call)
-| Embedding generation | Server-side (or client-side for webllm/koboldcpp) | Dense: server-side; Sparse: client-side encoder, shipped as `{indices, values}`
+| Embedding generation | Server-side (or client-side for koboldcpp) | Dense: server-side; Sparse: client-side encoder, shipped as `{indices, values}`
 | Latency | Lower (no extra network call) | Comparable — single Qdrant call replaces the old search+scroll+JS-fusion
 |===
 

@@ -69,8 +69,6 @@ import {
     RETRY_BACKOFF_MULTIPLIER
 } from '../../shared/constants.js';
 
-// Get shared WebLLM provider singleton (lazy-initialized)
-
 /**
  * VEC-33: Wrapper for backend operations that invalidates health cache on error
  * @param {Function} operation - Async function that performs the backend operation
@@ -446,7 +444,7 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
 /**
  * Inserts vector items into a collection
  * Handles batching and rate limiting.
- * For client-side embedding sources (webllm, koboldcpp), generates embeddings first.
+ * For a client-side embedding source (koboldcpp), generates embeddings first.
  * @param {string} collectionId - The collection to insert into
  * @param {{ hash: number, text: string }[]} items - The items to insert
  * @param {object} settings VectFox settings object
@@ -457,7 +455,7 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
     const backend = await getBackend(settings);
 
     // Sources that require client-side embedding generation
-    const clientSideEmbeddingSources = ['webllm', 'koboldcpp'];
+    const clientSideEmbeddingSources = ['koboldcpp'];
 
     try {
         // If source requires client-side embeddings, use streaming approach
@@ -841,7 +839,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
         : await getBackend(settings);
 
     // Sources that require client-side embedding generation
-    const clientSideEmbeddingSources = ['webllm', 'koboldcpp'];
+    const clientSideEmbeddingSources = ['koboldcpp'];
 
     // If source requires client-side embeddings, generate query vector
     if (!queryVector && clientSideEmbeddingSources.includes(settings.embedding_provider)) {
@@ -1039,7 +1037,7 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
     const backend = await getBackend(settings);
 
     // Sources that require client-side embedding generation
-    const clientSideEmbeddingSources = ['webllm', 'koboldcpp'];
+    const clientSideEmbeddingSources = ['koboldcpp'];
     let queryVector = null;
 
     // Generate query vector once for all collections (efficiency)

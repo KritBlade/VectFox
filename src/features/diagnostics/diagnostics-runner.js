@@ -21,8 +21,7 @@ import {
     checkTransformersMemoryLimits,
     checkApiKeys,
     checkApiUrls,
-    checkProviderConnectivity,
-    checkWebLlmExtension
+    checkProviderConnectivity
 } from './infrastructure-checks.js';
 
 import {
@@ -145,11 +144,6 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
 
     categories.infrastructure.push(await checkProviderConnectivity(settings));
 
-    // WebLLM-specific check (only if WebLLM is selected)
-    const webllmCheck = checkWebLlmExtension(settings);
-    if (webllmCheck.status !== 'skipped') {
-        categories.infrastructure.push(webllmCheck);
-    }
 
     // ========== CONFIGURATION CHECKS ==========
     categories.configuration.push(checkScoreThreshold(settings));

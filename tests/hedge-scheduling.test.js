@@ -23,8 +23,6 @@ vi.mock('../../../../extensions.js', () => ({ extension_settings: { vectfox: {} 
 vi.mock('../../../../secrets.js', () => ({ secret_state: {}, SECRET_KEYS: {}, findSecret: vi.fn(), writeSecret: vi.fn() }));
 vi.mock('../../../../textgen-settings.js', () => ({ textgen_types: {}, textgenerationwebui_settings: {} }));
 vi.mock('../../../../openai.js', () => ({ oai_settings: {} }));
-vi.mock('../../../shared.js', () => ({ isWebLlmSupported: () => false }));
-vi.mock('../src/features/embedding/webllm-provider.js', () => ({ getWebLlmProvider: vi.fn() }));
 vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackend: vi.fn(), getBackendForCollection: vi.fn(), invalidateBackendHealth: vi.fn(),
     recordQuery: vi.fn(), recordInsert: vi.fn(), recordDelete: vi.fn(), recordError: vi.fn(),
