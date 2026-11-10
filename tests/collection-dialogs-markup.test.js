@@ -152,6 +152,8 @@ describe('Manage locks', () => {
         expect(body.textContent).toContain('This chat');
         expect(body.querySelector('[data-lock-action="add-chat"]').disabled).toBe(true);
         expect(body.querySelector('[data-lock-action="add-character"]').disabled).toBe(false);
+        // The dialog's own button is its one primary action (GUI-DNA: at most one per card).
+        expect(body.querySelector('.vfx-btn-primary')).toBeNull();
     });
 
     it('says when there are no locks yet', () => {

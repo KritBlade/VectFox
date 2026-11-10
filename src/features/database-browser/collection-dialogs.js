@@ -77,7 +77,8 @@ function currentCharacterId() {
 }
 
 /**
- * Rename a collection, or give it back its automatic name when the box is left empty.
+ * Rename a collection, or give it back its automatic name when the box is left empty. A name left as it was saves
+ * nothing, so an automatic name is never kept as a typed one.
  *
  * @param {string} collectionId - Its registry key
  * @param {string} currentName
@@ -91,6 +92,7 @@ export async function renameCollection(collectionId, currentName) {
     ], form, { okButton: 'Rename', focusSelector: `#${RENAME_INPUT_ID}`, isSubmittedOnEnter: true });
     if (!isSubmitted) return false;
     const name = form.querySelector(`#${RENAME_INPUT_ID}`).value.trim();
+    if (name === currentName) return false;
     setCollectionMeta(collectionId, { displayName: name || null });
     log.lifecycle(`VectFox Database Browser: ${collectionId} ${name ? `renamed to "${name}"` : 'given back its automatic name'}`);
     return true;

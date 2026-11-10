@@ -387,10 +387,10 @@ export function lockDialogMarkup(view) {
         groupTitle({ icon: 'fa-comments', text: 'Chat locks' }),
         chatRows,
         dynamicHint(view.chatLine),
-        `<div>${button({ text: 'Lock to this chat', icon: 'fa-plus', kind: 'primary', isDisabled: !view.canLockChat, data: { 'lock-action': 'add-chat' } })}</div>`,
+        `<div>${button({ text: 'Lock to this chat', icon: 'fa-plus', isDisabled: !view.canLockChat, data: { 'lock-action': 'add-chat' } })}</div>`,
         groupTitle({ icon: 'fa-user', text: 'Character locks' }),
         characterRows,
         dynamicHint(view.characterLine),
-        `<div>${button({ text: 'Lock to this character', icon: 'fa-plus', kind: 'primary', isDisabled: !view.canLockCharacter, data: { 'lock-action': 'add-character' } })}</div>`,
+        `<div>${button({ text: 'Lock to this character', icon: 'fa-plus', isDisabled: !view.canLockCharacter, data: { 'lock-action': 'add-character' } })}</div>`,
     ]);
 }

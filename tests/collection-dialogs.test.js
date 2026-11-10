@@ -94,6 +94,11 @@ beforeEach(() => {
 });
 
 describe('Rename', () => {
+    it('saves nothing for a name left as it was, so an automatic name is not kept as a typed one', async () => {
+        expect(await renameCollection(KEY, 'Lorebook: harbor')).toBe(false);
+        expect(collections.setCollectionMeta).not.toHaveBeenCalled();
+    });
+
     it('saves the name typed, or the automatic name for an empty box, and nothing on Cancel', async () => {
         host.onForm = form => { form.querySelector('#vectfox_rename_input').value = '  Harbor notes '; };
         expect(await renameCollection(KEY, 'Old name')).toBe(true);
