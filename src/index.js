@@ -109,7 +109,6 @@ const defaultSettings = {
     google_model: 'text-embedding-005',
 
     // Chat vectorization
-    enabled_chats: true,
     depth: 2,
     // Placement of every VectFox block (memory, summarizer, lorebook). Their text changes each
     // turn, so In-Chat keeps it below the static prompt and leaves that prefix cacheable.
@@ -127,7 +126,6 @@ const defaultSettings = {
     // EventBase path — see src/shared/retrieval-budget.js. UI: Core page → Retrieval.
     retrieval_timeout_ms: RETRIEVAL_TIMEOUT_DEFAULT_MS,
     query: 2,
-    chunk_size: 500, // For adaptive strategy only
     score_threshold: 0.25,
 
     // Deduplication settings

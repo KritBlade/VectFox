@@ -30,7 +30,7 @@ export async function checkVectorsExtension() {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                collectionId: 'test',
+                collectionId: 'VectFox_diag',
                 source: 'transformers'
             })
         });

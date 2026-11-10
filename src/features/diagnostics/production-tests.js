@@ -17,7 +17,7 @@ import {
     weightedCombination,
 } from '../vector-backend/index.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/index.js';
-import { unregisterCollection } from '../collections/index.js';
+import { deleteCollection, unregisterCollection } from '../collections/index.js';
 import { applyKeywordBoost, extractTextKeywords, extractLorebookKeywords } from '../keyword-search/index.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
@@ -40,78 +40,50 @@ async function cleanupTestCollection(collectionId, settings) {
     unregisterCollection(collectionId); // Also try without source prefix
 }
 
-// Collection IDs the diagnostic suite touches as probes. Anything matching these
-// is owned by diagnostics and safe to drop. Add new patterns here whenever a
-// new check pokes a fresh collection name.
-const DIAGNOSTIC_TEST_COLLECTION_PATTERNS = [
-    /(^|:)vf_test_/,           // production test temp collections
-    /^VectFox_diag/,           // diagnostic temp collections
-    /(^|:)VectFox_diag(_|$)/, // infrastructure endpoint probes
-    /(^|:)test$/,              // checkVectorsExtension probe
-];
+// The collections diagnostics make, under names reserved for them: the production tests' temporary collections, and
+// the one the endpoint probes query, which SillyTavern's Standard storage creates on first reference.
+const DIAGNOSTIC_COLLECTION_PATTERNS = [/^vf_test_/, /^VectFox_diag(_|$)/];
 
-function isDiagnosticTestCollection(id) {
-    if (!id) return false;
-    return DIAGNOSTIC_TEST_COLLECTION_PATTERNS.some(re => re.test(id));
-}
+const isDiagnosticCollection = (id) => DIAGNOSTIC_COLLECTION_PATTERNS.some(pattern => pattern.test(id ?? ''));
 
 /**
- * Sweep any leftover diagnostic probe collections (`vf_test_*`, `VectFox_diag*`,
- * `test`) that were created by previous diagnostic runs and not cleaned up —
- * either because earlier code lacked try/finally, the process was killed
- * mid-run, or the backend creates the collection on first reference of a
- * non-existent ID (Vectra does this).
+ * Delete the diagnostic collections a run leaves behind: the probes' own, and any production test collection an
+ * earlier run could not clean up. Each goes from the backend and the source folders that hold it, as the Database
+ * Browser deletes, since a probe in Standard storage is not on the backend VectFox uses.
  *
- * Safe to call multiple times — the prefixes above are reserved for diagnostics.
+ * @param {object} settings
+ * @returns {Promise<{name: string, status: string, message: string, category: string}>}
  */
 export async function sweepLeftoverTestCollections(settings) {
-    const sweptIds = [];
+    const result = (status, message) => ({ name: 'Diagnostic Collection Sweep', status, message, category: 'infrastructure' });
     try {
         const response = await fetch('/api/plugins/similharity/collections', {
             method: 'GET',
             headers: getRequestHeaders(),
         });
-        if (!response.ok) {
-            return { name: 'Diagnostic Collection Sweep', status: 'pass', message: 'Could not list collections (skipping sweep)', category: 'infrastructure' };
-        }
+        if (!response.ok) return result('pass', 'Could not list collections (skipping sweep)');
         const data = await response.json();
-        const collections = data.collections || [];
+        const leftovers = (data.collections || []).filter(collection => isDiagnosticCollection(collection.id));
 
-        const leftovers = collections.filter(c => {
-            const id = c.id || c.collectionId || c.name || '';
-            return isDiagnosticTestCollection(id);
-        });
-
-        for (const c of leftovers) {
-            const rawId = c.id || c.collectionId || c.name;
-            // Strip backend/source prefix if present (e.g. "qdrant:transformers:vf_test_..." → "vf_test_...").
-            let cleanId = rawId;
-            for (const re of DIAGNOSTIC_TEST_COLLECTION_PATTERNS) {
-                const match = rawId.match(re);
-                if (match && match.index > 0) {
-                    cleanId = rawId.slice(match.index + (match[1] === ':' ? 1 : 0));
-                    break;
-                }
-            }
-            await cleanupTestCollection(cleanId, settings);
-            sweptIds.push(cleanId);
+        const removed = [];
+        const failed = [];
+        for (const collection of leftovers) {
+            const collectionSettings = {
+                ...settings,
+                vector_backend: collection.backend,
+                _discoveredSources: [{ source: collection.source, models: collection.models || [] }],
+            };
+            const outcome = await deleteCollection(collection.id, collectionSettings, `${collection.source}:${collection.id}`);
+            (outcome.success ? removed : failed).push(`${collection.id} (${collection.backend})`);
         }
 
-        return {
-            name: 'Diagnostic Collection Sweep',
-            status: 'pass',
-            message: sweptIds.length === 0
-                ? 'No leftover diagnostic collections found'
-                : `Cleaned ${sweptIds.length} leftover diagnostic collection(s): ${sweptIds.slice(0, 3).join(', ')}${sweptIds.length > 3 ? '...' : ''}`,
-            category: 'infrastructure'
-        };
+        if (failed.length) return result('warning', `Could not remove: ${failed.join(', ')}`);
+        return result('pass', removed.length === 0
+            ? 'No leftover diagnostic collections found'
+            : `Removed ${removed.length} leftover diagnostic collection(s): ${removed.join(', ')}`);
     } catch (error) {
-        return {
-            name: 'Diagnostic Collection Sweep',
-            status: 'warning',
-            message: `Sweep error: ${error.message}`,
-            category: 'infrastructure'
-        };
+        log.warn('VectFox diagnostics: the collection sweep failed:', error);
+        return result('warning', `Sweep error: ${error.message}`);
     }
 }
 
