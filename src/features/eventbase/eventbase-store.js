@@ -1011,7 +1011,7 @@ export function pauseAutoSyncForChat(chatUUID, backend) {
  * This is the single entry point callers should use when they want one
  * collection (not a list). It is:
  *   - ownership-filtered (via getCollectionListing → drops collections owned by
- *     other personas/users, matching the DB Browser and the auto-sync LED), and
+ *     other personas/users, matching the DB Browser and the auto-sync status), and
  *   - lock-aware (a chat UUID can map to MULTIPLE per-persona collections; the
  *     lock picks the one the rest of the system treats as active — "Active here
  *     only" / the auto-sync write target).

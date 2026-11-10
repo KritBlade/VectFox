@@ -110,8 +110,6 @@ const defaultSettings = {
 
     // Chat vectorization
     enabled_chats: true,
-    chunking_strategy: 'per_message', // per_message, conversation_turns, message_batch, adaptive
-    batch_size: 4, // Messages per batch for message_batch strategy
     depth: 2,
     // Placement of every VectFox block (memory, summarizer, lorebook). Their text changes each
     // turn, so In-Chat keeps it below the static prompt and leaves that prefix cacheable.

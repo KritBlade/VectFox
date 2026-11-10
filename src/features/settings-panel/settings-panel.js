@@ -36,6 +36,7 @@ import { confirmPopup, placeOnTopmostModalLayer } from '../../sillytavern/popup.
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
+import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
 import { chunkBasePageMarkup } from './chunkbase-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
 import { eventBasePageMarkup } from './eventbase-page-markup.js';
@@ -224,97 +225,8 @@ export function renderSettings(containerId, settings, callbacks) {
                         </div>
                     `)}
 
-                        <!-- Chat Auto-Sync Card -->
-                    ${panelPageMarkup('autosync', `
-                    <div class="vectfox-card">
-                        <div class="vectfox-card-header">
-                            <h3 class="vectfox-card-title">
-                                <span class="vectfox-icon">
-                                    <i class="fa-solid fa-comments"></i>
-                                </span>
-                                Chat Auto-Sync
-                            </h3>
-                            <p class="vectfox-card-subtitle">Configure automatic synchronization between the active chat and its vector collection. Per-chat toggle, behavior on new messages, and conflict resolution.</p>
-                        </div>
-                        <div class="vectfox-card-body">
-
-                            <label class="checkbox_label" for="VectFox_autosync_enabled">
-                                <input type="checkbox" id="VectFox_autosync_enabled" />
-                                <span>Enable Auto-Sync</span>
-                            </label>
-                            <small id="VectFox_autosync_hint" class="VectFox_hint">Auto-Sync new messages (requires initial vectorization)</small>
-                            <div id="VectFox_autosync_status" style="margin-top: 6px; font-size: 0.82em;"></div>
-
-                            <div class="vectfox-form-group" style="margin-top: 12px;">
-                                <label class="vectfox-label">
-                                    Auto-sync window: <span id="VectFox_eventbase_autosync_window_turns_val">1</span> turn(s)
-                                    <span class="VectFox_hint" id="VectFox_autosync_window_msg_equiv" style="margin-left:4px;">(= 2 messages)</span>
-                                </label>
-                                <input type="range" id="VectFox_eventbase_autosync_window_turns" min="1" max="20" step="1" class="vectfox-slider" />
-                                <small class="VectFox_hint">Independent of the EventBase "Window Size". 1 turn = 2 messages (1 user + 1 AI reply). Auto-sync extracts a window every this-many turns of new chat.</small>
-                            </div>
-
-                            <!-- Summarizer Injection (Feature B). Whole group hidden on standard+no-plugin. -->
-                            <div class="vectfox-form-group" id="VectFox_summarizer_injection_group" style="margin-top: 12px;">
-                                <label class="checkbox_label" for="VectFox_summarizer_injection_enabled">
-                                    <input type="checkbox" id="VectFox_summarizer_injection_enabled" />
-                                    <span>Summarizer Injection</span>
-                                </label>
-                                <small class="VectFox_hint">Inject the most recent N EventBase summaries into the prompt every turn (wrapped in &lt;VectFoxSummarizer&gt; tags), in addition to semantic retrieval. Enables word-for-word-ish memory of the last few turns. <strong>Turns on auto-sync and forces its window to 1 turn while on</strong> (so the latest reply is always extracted before the next injection).</small>
-                                <div class="vectfox-form-group" id="VectFox_summarizer_injection_count_group" style="margin-top: 8px;">
-                                    <label class="vectfox-label">Inject last <span id="VectFox_summarizer_injection_count_val">20</span> turn(s)</label>
-                                    <input type="range" id="VectFox_summarizer_injection_count" min="1" max="50" step="1" class="vectfox-slider" />
-                                </div>
-                                <label class="checkbox_label" for="VectFox_summarizer_injection_full_detail" style="margin-top: 8px;">
-                                    <input type="checkbox" id="VectFox_summarizer_injection_full_detail" />
-                                    <span>Include full event detail</span>
-                                </label>
-                                <small class="VectFox_hint">Add each event's structured fields (cause, result, characters, locations, items, time, concepts, keywords, open threads, message index) beneath its summary. Off = summary only.</small>
-                                <label for="VectFox_summarizer_injection_max_chars" style="margin-top: 8px; display:block;"><small>Max injection size (characters, 0 = no cap)</small></label>
-                                <input type="number" id="VectFox_summarizer_injection_max_chars" class="vectfox-input" min="0" max="100000" step="500" />
-                                <small class="VectFox_hint">Safety cap on the whole &lt;VectFoxSummarizer&gt; block. If the events exceed it, the OLDEST are dropped (newest always kept) — prevents a huge injection from overflowing the model's context.</small>
-
-                                <!-- Ghosting: wipe oldest N vectorized messages from the OUTGOING prompt only. -->
-                                <div class="vectfox-form-group" id="VectFox_eventbase_ghost_group" style="margin-top: 12px; border-top: 1px dashed var(--SmartThemeBorderColor); padding-top: 10px;">
-                                    <label class="checkbox_label" for="VectFox_eventbase_ghost_enabled">
-                                        <input type="checkbox" id="VectFox_eventbase_ghost_enabled" />
-                                        <span>Ghost vectorized messages (token saver)</span>
-                                    </label>
-                                    <small class="VectFox_hint">Keep the most recent messages raw and blank ALL older already-vectorized messages from the prompt sent to the AI. The chat UI and saved file are <strong>untouched</strong>, and it resets every turn. The wiped turns rely on EventBase memory (the injection above + semantic retrieval) instead of their raw text — so check your recall quality as you <strong>lower</strong> the slider. Scales to any chat length. Requires Summarizer Injection.</small>
-                                    <div class="vectfox-form-group" id="VectFox_eventbase_ghost_keep_recent_group" style="margin-top: 8px;">
-                                        <label class="vectfox-label">Keep last <span id="VectFox_eventbase_ghost_keep_recent_val">10</span> message(s) verbatim</label>
-                                        <input type="range" id="VectFox_eventbase_ghost_keep_recent" min="0" max="100" step="1" class="vectfox-slider" />
-                                        <small class="VectFox_hint">Everything older than this that's been vectorized is wiped (never the recent un-synced tail). Lower = more aggressive (more tokens saved). Even at <strong>0</strong>, ghosting always keeps the current turn and your World Info scan window verbatim — so it never breaks keyword triggers and never sends an empty prompt. "<strong>0</strong>" means "wipe as much as is safe," not literally everything.</small>
-                                    </div>
-                                    <div id="VectFox_eventbase_ghost_readout" class="VectFox_hint" style="margin-top: 8px; display:block; padding: 6px 8px; border-radius: 6px; background: rgba(127,127,127,0.12);">Last turn: no generation yet.</div>
-                                </div>
-                            </div>
-
-                            <!-- Collection lock moved to Database Browser (per-collection settings) -->
-
-                            <div class="vectfox-form-group" style="margin-top: 12px;">
-                                <label class="checkbox_label" for="VectFox_autosync_popup">
-                                    <input type="checkbox" id="VectFox_autosync_popup" />
-                                    <span>Popup: show when auto-sync is extracting</span>
-                                </label>
-                                <small class="VectFox_hint">Show a notification toast each time auto-sync triggers a new EventBase extraction window.</small>
-                            </div>
-
-                            <div class="vectfox-form-group" style="margin-top: 8px;">
-                                <label class="checkbox_label" for="VectFox_autosync_show_progress_modal">
-                                    <input type="checkbox" id="VectFox_autosync_show_progress_modal" />
-                                    <span>Show progress modal during auto-sync</span>
-                                </label>
-                                <small class="VectFox_hint">When unchecked, auto-sync runs silently in the background without opening the progress popup. The Vectorizing Content page always shows the progress modal regardless.</small>
-                            </div>
-
-                            <small class="VectFox_hint" style="display:block; margin-top: 8px;">
-                                Chat Auto-Sync follows the EventBase extraction settings. Legacy chat chunking controls are hidden because chat history no longer uses the old chunk-based retrieval path.
-                            </small>
-
-                        </div>
-                    </div>
-                    `)}
+                    <!-- AutoSync page (autosync-page-markup.js) -->
+                    ${panelPageMarkup('autosync', autoSyncPageMarkup())}
 
                     <!-- Action page (action-page-markup.js) -->
                     ${panelPageMarkup('action', actionPageMarkup(), { status: `${masterSwitchPillsMarkup()}${getHealthPillHtml()}` })}
@@ -1113,11 +1025,11 @@ async function _offerEventBaseFork(settings) {
 
     try {
         const result = await forkEventBaseFromSource(settings, source);
-        toastr.success(`Copied ${result.eventCount} events from the parent chat`, 'EventBase forked');
+        log.lifecycle(`[AutoSync][fork] copied ${result.eventCount} events from the parent chat`);
         return 'forked';
     } catch (err) {
         if (err?.name === 'AbortError') {
-            toastr.info('EventBase fork stopped');
+            log.lifecycle('[AutoSync][fork] stopped by the user');
             return 'cancel';
         }
         log.error('[AutoSync][fork] fork failed:', err);
@@ -1129,7 +1041,6 @@ async function _offerEventBaseFork(settings) {
 export async function refreshAutoSyncCheckbox(settings) {
     const $checkbox = $('#VectFox_autosync_enabled');
     const $status = $('#VectFox_autosync_status');
-    const $hint = $('#VectFox_autosync_hint');
 
     const { getChatAutoSyncStatus } = await import('../eventbase/index.js');
     const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../collections/index.js');
@@ -1145,91 +1056,42 @@ export async function refreshAutoSyncCheckbox(settings) {
     });
     const chatId = getCurrentChatId();
 
-    const LED = {
-        white:  '<i class="fa-solid fa-circle" style="color: var(--muted-color, #8a8a8a);"></i>',
-        yellow: '<i class="fa-solid fa-circle-exclamation" style="color: var(--warning-color, #f39c12);"></i>',
-        green:  '<i class="fa-solid fa-circle-check" style="color: var(--success-color, #27ae60);"></i>',
-    };
-
-    // no-chat: no chat open at all
-    if (status.state === 'no-chat') {
+    // No chat, or a chat with no EventBase collection yet: nothing auto-sync could run on.
+    if (status.state === 'no-chat' || status.state === 'no-collection') {
         $checkbox.prop('checked', false);
-        $hint.show();
-        $status.html(`${LED.yellow} No chat loaded`);
+        $status.html(autoSyncStatusMarkup({ state: status.state, isVectFoxOn }));
         return;
     }
 
-    // no-collection: chat is open but no eventbase collection exists yet
-    if (status.state === 'no-collection') {
-        $checkbox.prop('checked', false);
-        $hint.show();
-        $status.html(`${LED.yellow} Not initialized — vectorize chat first`);
-        return;
-    }
-
-    // Collection exists. The checkbox reflects the per-collection autoSync flag.
-    // The LED reflects whether the chat is fully synced or has a backlog.
-    // Metadata is keyed by registry-key form ("backend:id").
+    // Collection exists. The switch shows the per-collection autoSync flag, for a
+    // collection locked to this chat. Metadata is keyed by registry-key form ("backend:id").
     const lookupKey = status.registryKey || status.collectionId;
-    const isEnabled = isCollectionAutoSyncEnabled(lookupKey);
-    const isLocked = chatId && isCollectionActiveForContextAnyKey(
-        [status.registryKey, status.collectionId], { chatId });
-    $checkbox.prop('checked', Boolean(isEnabled && isLocked));
-    $hint.hide();
+    const isOnForChat = Boolean(isCollectionAutoSyncEnabled(lookupKey)
+        && chatId && isCollectionActiveForContextAnyKey([status.registryKey, status.collectionId], { chatId }));
+    $checkbox.prop('checked', isOnForChat);
 
-    // Helper to format the "chat: N msgs · vectorization: M msgs" tail.
-    // Prefer vectorizationTip (live max(source_window_end)+1 — kept current by
-    // the ingestion loop) over markerValue (frozen enable-time stake, lies as
-    // new windows extract). Falls back to markerValue when the tip cache is
-    // empty AND the probe returned no events (e.g. brand-new collection).
+    // How far vectorization reaches: the live tip (max source_window_end + 1, kept current by
+    // the ingestion loop) before the marker, which stays where auto-sync was turned on. The
+    // marker stands in only while the tip cache is empty and the probe found no events.
     const vectorizedCount = (typeof status.vectorizationTip === 'number')
         ? status.vectorizationTip
         : (typeof status.markerValue === 'number' ? status.markerValue : null);
-    // Settle/commit lag: when fully synced, the active last turn is intentionally
-    // held back (it's already in live context), so "vectorization" can sit one
-    // turn behind "chat" without being a backlog. Label that gap so green + a
-    // small delta reads as intentional, not "behind". See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
+    // Settle/commit lag: when fully synced, the active last turn is held back (it is already in
+    // live context), so vectorization can sit one turn behind the chat without being a backlog.
+    // See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const settleGap = (typeof status.chatMessageCount === 'number' && vectorizedCount !== null)
         ? status.chatMessageCount - vectorizedCount
         : 0;
-    const showSettleNote = status.state === 'fully-vectorized' && settleGap > 0;
-    const counts = (typeof status.chatMessageCount === 'number')
-        ? `<div style="margin-top:4px;font-size:0.85em;opacity:0.8;">chat: ${status.chatMessageCount} msgs` +
-          (vectorizedCount !== null ? ` · vectorization: ${vectorizedCount} msgs` : '') +
-          (showSettleNote ? ` · latest turn pending settle` : '') +
-          `</div>`
-        : '';
-
-    if (!isVectFoxOn) {
-        $status.html(`${LED.white} Auto-sync paused — VectFox is disabled${counts}`);
-    } else if (!isEnabled || !isLocked) {
-        $status.html(`${LED.white} Auto-sync inactive${counts}`);
-    } else if (status.state === 'vectorization-ahead') {
-        // Distinct state — vectorization marker is past the current chat tail.
-        // Common cause: user bound a chat vectorization that ran on a longer
-        // version of this chat (or deleted messages after vectorizing). NO
-        // auto-sync work will happen until the chat catches up to the marker.
-        // Show the gap so the user can tell they probably picked the wrong
-        // vectorization to bind to this chat.
-        const gap = status.markerValue - status.chatMessageCount;
-        $status.html(
-            `${LED.yellow} Vectorization is ahead of current chat — no auto-sync needed. ` +
-            `<div style="margin-top:4px;font-size:0.85em;opacity:0.9;">` +
-            `chat: ${status.chatMessageCount} msgs · vectorization: ${status.markerValue} msgs ` +
-            `(${gap} msg${gap === 1 ? '' : 's'} ahead)` +
-            `</div>` +
-            `<div style="margin-top:4px;font-size:0.82em;opacity:0.75;">` +
-            `If this looks wrong, you may have bound a chat vectorization from a different / longer chat. ` +
-            `Auto-sync will resume once the chat catches up to ${status.markerValue} messages.` +
-            `</div>`
-        );
-    } else if (status.state === 'fully-vectorized') {
-        $status.html(`${LED.green} Ready — fully synced${counts}`);
-    } else if (status.unfinishedWindowCount > 0) {
-        $status.html(`${LED.yellow} ${status.unfinishedWindowCount} window(s) failed and hold no events — Resume in Vectorize Content sends them again${counts}`);
-    } else {
-        $status.html(`${LED.yellow} Locked — will sync to latest history on next auto-sync trigger${counts}`);
-    }
+    $status.html(autoSyncStatusMarkup({
+        state: status.state,
+        isVectFoxOn,
+        isOnForChat,
+        chatMessageCount: typeof status.chatMessageCount === 'number' ? status.chatMessageCount : null,
+        vectorizedCount,
+        isLatestTurnSettling: status.state === 'fully-vectorized' && settleGap > 0,
+        markerValue: status.markerValue,
+        unfinishedWindowCount: status.unfinishedWindowCount,
+    }));
 }
 
 export function updateWebLlmStatus() {
@@ -1347,12 +1209,27 @@ function bindSettingsEvents(settings, callbacks) {
     // are wired up. The optional-call `?.()` at the call site guards against
     // any backend-change event that fires before assignment.
     let _refreshCosineWeightAvailability = null;
-    // Forward-declared like the cosine helper above. Hides the Summarizer
-    // Injection group on standard+no-plugin (its listChunks returns no metadata).
+    // Forward-declared like the cosine helper above. Hides the Summarizer Injection
+    // and Ghosting cards on standard+no-plugin (its listChunks returns no metadata).
     let _refreshSummarizerInjectionAvailability = null;
 
     // The Action page: the master switch, its tools, the debug switches and the danger zone.
     wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkStartup: callbacks.runNetworkStartup, openDiagnosticsModal });
+
+    /**
+     * Chat id whose auto-sync the user asked to turn on, but which had no
+     * collection yet — so they were sent to Vectorize Content first. Consumed
+     * when that vectorization succeeds, cleared if they close the panel instead.
+     *
+     * Needed because the redirect is where the user's intent would otherwise be
+     * lost: they turned the switch on, got taken somewhere else, finished the work
+     * the switch required, and came back to it still off.
+     *
+     * Chat-scoped so an intent from one chat can never enable auto-sync on
+     * another; null when nothing is pending.
+     * @type {string|null}
+     */
+    let _autoSyncEnableAwaitingVectorizeForChat = null;
 
     /**
      * Turn Summarizer Injection off, because auto-sync — its data source — is not
@@ -1362,27 +1239,11 @@ function bindSettingsEvents(settings, callbacks) {
      * the only safe state.
      *
      * Called from every path that leaves auto-sync off, including the two that
-     * REFUSE to turn it on (no chat / no collection). Those return early, so
-     * they used to skip the disable branch below — which is how the summarizer
-     * could sit checked next to an unchecked auto-sync.
+     * refuse to turn it on (no chat / no collection), which return early before
+     * the off branch of the auto-sync switch.
      *
-     * @param {string} reason - shown to the user, completing "Summarizer Injection disabled (…)"
+     * @param {string} reason - why auto-sync is off, for the console
      */
-    /**
-     * Chat id whose auto-sync the user asked to turn on, but which had no
-     * collection yet — so they were sent to Vectorize Content first. Consumed
-     * when that vectorization succeeds, cleared if they close the panel instead.
-     *
-     * Needed because the redirect is where the user's intent would otherwise be
-     * lost: they ticked the box, got taken somewhere else, finished the work the
-     * box required, and came back to it still unticked.
-     *
-     * Chat-scoped so an intent from one chat can never enable auto-sync on
-     * another; null when nothing is pending.
-     * @type {string|null}
-     */
-    let _autoSyncEnableAwaitingVectorizeForChat = null;
-
     const _disableSummarizerInjectionBecauseAutoSyncIsOff = (reason) => {
         if (!settings.summarizer_injection_enabled) return;
         settings.summarizer_injection_enabled = false;
@@ -1390,10 +1251,10 @@ function bindSettingsEvents(settings, callbacks) {
         saveSettingsDebounced();
         $('#VectFox_summarizer_injection_enabled').prop('checked', false);
         _applySummarizerLock();
-        toastr.info(`Summarizer Injection disabled (${reason})`);
+        log.lifecycle(`[AutoSync] Summarizer Injection turned off: ${reason}`);
     };
 
-    // Auto-sync enable/disable - now per-collection instead of global
+    // Auto-sync on or off for the open chat's collection.
     // Initial state is set by refreshAutoSyncCheckbox() after chat loads
     $('#VectFox_autosync_enabled')
         .on('input', async function() {
@@ -1531,22 +1392,15 @@ function bindSettingsEvents(settings, callbacks) {
                     log.warn('[VectFox] Failed to stamp auto-sync marker on enable:', err?.message || err);
                 }
 
-                const message = status.state === 'fully-vectorized'
-                    ? 'Auto-sync enabled — chat is fully synced'
-                    : 'Auto-sync enabled — will catch up on next trigger';
-                toastr.success(message);
                 log.lifecycle(`VectFox: Chat auto-sync ENABLED for ${lockKey} (state=${status.state})`);
             } else {
                 // Reverse of the forward bind in the summarizer checkbox handler; the
                 // injection self-clears on its next (now-disabled) turn.
                 _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
 
-                // Uncheck — clear ONLY the auto-sync flag. Do NOT touch the chat
-                // lock: the lock is a separate concern (it marks the collection
-                // "active for this chat" for retrieval too, and the user may have
-                // set it deliberately via the DB Browser). Removing it here surprised
-                // users by deactivating a collection they only wanted to stop
-                // auto-syncing. Unlocking is the DB Browser's job, not this toggle's.
+                // Off clears ONLY the auto-sync flag, never the chat lock: the lock marks
+                // the collection active for this chat's retrieval too, and the user may
+                // have set it in the DB Browser. Unlocking is the DB Browser's job.
                 if (status.state !== 'no-collection') {
                     const lockKey = status.registryKey || status.collectionId;
                     setCollectionAutoSync(lockKey, false);
@@ -1562,7 +1416,6 @@ function bindSettingsEvents(settings, callbacks) {
                         log.warn('[VectFox] Failed to clear auto-sync marker on disable:', err?.message || err);
                     }
 
-                    toastr.info('Auto-sync disabled for this chat');
                     log.lifecycle(`VectFox: Chat auto-sync DISABLED for ${lockKey}`);
                 }
             }
@@ -1570,14 +1423,6 @@ function bindSettingsEvents(settings, callbacks) {
             await refreshAutoSyncCheckbox(settings);
             document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
         });
-
-        // Collection lock handled inside Database Browser per-collection settings
-
-    // LEGACY CHAT CHUNKING STRATEGIES NOTE:
-    // *** will be remove in future version because no longer used by eventbased path ***
-    // The old chat chunking strategy selector and related batch/group-batch sliders were
-    // removed from the GUI because chat auto-sync now follows EventBase extraction settings.
-    // Keep the underlying settings fields for backward compatibility / migration only.
 
     // Summarization provider
     const updateSummarizeUI = (provider) => {
@@ -2511,51 +2356,25 @@ function bindSettingsEvents(settings, callbacks) {
     // Results per collection (ChunkBase page): the chunk pipeline's top-K
     bindNumberSetting(settings, { id: 'VectFox_topk', key: 'top_k', initial: (settings.top_k ?? settings.insert) || 3, isInteger: true });
 
-    // Auto-sync independent window (turns). Feature A.
-    {
-        const _turns0 = Math.max(1, Math.min(20, settings.eventbase_autosync_window_turns ?? 1));
-        $('#VectFox_eventbase_autosync_window_turns_val').text(_turns0);
-        $('#VectFox_autosync_window_msg_equiv').text(`(= ${_turns0 * 2} messages)`);
-        $('#VectFox_eventbase_autosync_window_turns')
-            .val(_turns0)
-            .on('input', async function() {
-                const val = Math.max(1, Math.min(20, parseInt(this.value, 10) || 1));
-                const prev = settings.eventbase_autosync_window_turns;
-                settings.eventbase_autosync_window_turns = val;
-                $('#VectFox_eventbase_autosync_window_turns_val').text(val);
-                $('#VectFox_autosync_window_msg_equiv').text(`(= ${val * 2} messages)`);
-                Object.assign(extension_settings.vectfox, settings);
-                saveSettingsDebounced();
+    // Auto-sync window (AutoSync page), in turns. A new size re-stamps the chat's auto-sync
+    // marker, so auto-sync starts from the current tip instead of re-extracting the chat.
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_autosync_window_turns', key: 'eventbase_autosync_window_turns', initial: settings.eventbase_autosync_window_turns ?? 1, isInteger: true });
+    let _stampedWindowTurns = settings.eventbase_autosync_window_turns ?? 1;
+    $('#VectFox_eventbase_autosync_window_turns').on('change', async () => {
+        if (settings.eventbase_autosync_window_turns === _stampedWindowTurns) return;
+        _stampedWindowTurns = settings.eventbase_autosync_window_turns;
+        try {
+            const { stampAutoSyncMarker } = await import('../eventbase/index.js');
+            const { getChatUUID } = await import('../../shared/collection-ids.js');
+            const uuid = getChatUUID();
+            if (uuid) await stampAutoSyncMarker(uuid, extension_settings.vectfox);
+        } catch (err) {
+            log.warn('[VectFox] Failed to re-stamp marker on auto-sync window change:', err?.message || err);
+        }
+    });
 
-                // Re-stamp the per-chat auto-sync marker so a new window size starts
-                // from the current high-water mark instead of triggering a backfill
-                // storm. Guarded on real change (input fires on every drag tick).
-                if (prev !== val) {
-                    try {
-                        const { stampAutoSyncMarker } = await import('../eventbase/index.js');
-                        const { getChatUUID } = await import('../../shared/collection-ids.js');
-                        const uuid = getChatUUID();
-                        if (uuid) await stampAutoSyncMarker(uuid, extension_settings.vectfox);
-                    } catch (err) {
-                        log.warn('[VectFox] Failed to re-stamp marker on auto-sync window change:', err?.message || err);
-                    }
-                }
-            });
-    }
-
-    // --- Summarizer Injection (Feature B) ---
-    // Count slider (1-50, default 30).
-    const _summCount0 = Math.max(1, Math.min(50, settings.summarizer_injection_count ?? 20));
-    $('#VectFox_summarizer_injection_count_val').text(_summCount0);
-    $('#VectFox_summarizer_injection_count')
-        .val(_summCount0)
-        .on('input', function() {
-            const val = Math.max(1, Math.min(50, parseInt(this.value, 10) || 20));
-            settings.summarizer_injection_count = val;
-            $('#VectFox_summarizer_injection_count_val').text(val);
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
+    // --- Summarizer Injection (AutoSync page) ---
+    bindNumberSetting(settings, { id: 'VectFox_summarizer_injection_count', key: 'summarizer_injection_count', initial: settings.summarizer_injection_count ?? 20, isInteger: true });
 
     // Full event detail toggle (default ON — includes structured fields per event).
     $('#VectFox_summarizer_injection_full_detail')
@@ -2567,51 +2386,37 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // Max injection size (characters). 0 = no cap.
-    $('#VectFox_summarizer_injection_max_chars')
-        .val(Number(settings.summarizer_injection_max_chars ?? 10000))
-        .on('change input', function() {
-            const v = Number($(this).val());
-            settings.summarizer_injection_max_chars = Number.isFinite(v) ? Math.max(0, v) : 10000;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
+    bindNumberSetting(settings, { id: 'VectFox_summarizer_injection_max_chars', key: 'summarizer_injection_max_chars', initial: settings.summarizer_injection_max_chars ?? 10000, isInteger: true });
 
     // Per-turn token-saved readout, fed by window.VectFox_LastGhost (set inside
     // applyGhosting on every enabled generation). Refreshed on init, on toggle, and
     // after each AI reply / swipe via the event subscriptions below.
     const _refreshGhostReadout = () => {
-        const $el = $('#VectFox_eventbase_ghost_readout');
+        const $el = $('#VectFox_eventbase_ghost_readout .vfx-notice-text');
         if ($el.length === 0) return;
         if (!settings.eventbase_ghost_enabled || !settings.summarizer_injection_enabled) {
-            $el.text('Last turn: ghosting off.');
+            $el.text('Ghosting is off.');
             return;
         }
         const g = window.VectFox_LastGhost;
         if (!g || typeof g.wiped !== 'number') {
-            $el.text('Last turn: no generation yet.');
+            $el.text('Last turn: no reply yet.');
         } else if (g.wiped === 0) {
-            $el.text('Last turn: 0 messages wiped (nothing vectorized below the recent tail yet).');
+            $el.text('Last turn: nothing blanked, as no vectorized message is older than those kept.');
         } else {
-            $el.html(`Last turn: wiped <strong>${g.wiped}</strong> message(s) — ~${g.charsRemoved.toLocaleString()} chars (<strong>~${g.approxTokens.toLocaleString()} tokens</strong>) saved.`);
+            const messages = g.wiped === 1 ? '1 message' : `${g.wiped.toLocaleString()} messages`;
+            $el.html(`Last turn: <strong>${messages}</strong> blanked, about <strong>${g.approxTokens.toLocaleString()} tokens</strong> (${g.charsRemoved.toLocaleString()} characters) saved.`);
         }
     };
 
-    // Ghosting controls depend on Summarizer Injection being on (the wipe self-gates
-    // on it too). Grey out + disable when it's off, with a one-line nudge.
+    // Ghosting needs Summarizer Injection on (the wipe checks it too): its controls are
+    // disabled while it is off, and the Ghosting card says why.
     const _applyGhostAvailability = () => {
         const summOn = !!settings.summarizer_injection_enabled;
         const ghostOn = !!settings.eventbase_ghost_enabled;
         $('#VectFox_eventbase_ghost_enabled').prop('disabled', !summOn);
         $('#VectFox_eventbase_ghost_keep_recent').prop('disabled', !summOn || !ghostOn);
-        const $group = $('#VectFox_eventbase_ghost_group');
-        $group.css('opacity', summOn ? '1' : '0.5');
-        if (!summOn) {
-            if ($group.find('[data-lock="needs-summarizer"]').length === 0) {
-                $group.append('<small class="VectFox_hint" data-lock="needs-summarizer" style="display:block; color: var(--warning, #e0a800);">Enable Summarizer Injection above to use ghosting.</small>');
-            }
-        } else {
-            $group.find('[data-lock="needs-summarizer"]').remove();
-        }
+        $('#VectFox_eventbase_ghost_needs_summarizer').toggle(!summOn);
         _refreshGhostReadout();
     };
 
@@ -2628,38 +2433,19 @@ function bindSettingsEvents(settings, callbacks) {
             _applyGhostAvailability();
         });
 
-    const _ghostKeep0 = Math.max(0, Math.min(100, parseInt(settings.eventbase_ghost_keep_recent ?? 10, 10) || 0));
-    $('#VectFox_eventbase_ghost_keep_recent_val').text(_ghostKeep0);
-    $('#VectFox_eventbase_ghost_keep_recent')
-        .val(_ghostKeep0)
-        .on('input', function() {
-            const val = Math.max(0, Math.min(100, parseInt(this.value, 10) || 0));
-            settings.eventbase_ghost_keep_recent = val;
-            $('#VectFox_eventbase_ghost_keep_recent_val').text(val);
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_ghost_keep_recent', key: 'eventbase_ghost_keep_recent', initial: settings.eventbase_ghost_keep_recent ?? 10, isInteger: true });
 
-    // One-way lock: enabling Summarizer Injection forces + locks the auto-sync
-    // window to 1 turn (so "last N events" == "last N turns"). Flipping the slider
-    // to 1 via .trigger('input') reuses its own handler, which re-stamps the marker
-    // — so the lock can't cause a re-extraction storm.
+    // While Summarizer Injection is on, the auto-sync window is held at 1 turn, so each reply
+    // is extracted before the next injection. The box's own events set it, which saves it and
+    // re-stamps the marker, so the hold never sets off a re-extraction.
     const _applySummarizerLock = () => {
         const enabled = !!settings.summarizer_injection_enabled;
-        const $slider = $('#VectFox_eventbase_autosync_window_turns');
-        const $group = $slider.closest('.vectfox-form-group');
-        if (enabled) {
-            if (settings.eventbase_autosync_window_turns !== 1) {
-                $slider.val(1).trigger('input'); // updates setting + label + re-stamps marker
-            }
-            $slider.prop('disabled', true);
-            if ($group.find('[data-lock="summarizer"]').length === 0) {
-                $group.append('<small class="VectFox_hint" data-lock="summarizer" style="display:block;">Locked to 1 turn by Summarizer Injection (below).</small>');
-            }
-        } else {
-            $slider.prop('disabled', false);
-            $group.find('[data-lock="summarizer"]').remove();
+        const $window = $('#VectFox_eventbase_autosync_window_turns');
+        if (enabled && settings.eventbase_autosync_window_turns !== 1) {
+            $window.val(1).trigger('input').trigger('change');
         }
+        $window.add('[data-vfx-slider-for="VectFox_eventbase_autosync_window_turns"]').prop('disabled', enabled);
+        $('#VectFox_autosync_window_lock_hint').toggle(enabled);
         _applyGhostAvailability(); // ghosting requires summarizer injection — keep in sync
     };
 
@@ -2674,15 +2460,15 @@ function bindSettingsEvents(settings, callbacks) {
 
             // "Most recent N events" is only meaningful if the collection stays current,
             // so turning the summarizer ON also turns auto-sync ON — reusing the auto-sync
-            // checkbox's OWN enable flow (backlog catch-up gate, lock, marker stamp) rather
-            // than duplicating it. Symmetric with the window-lock above: while the
+            // switch's OWN enable flow (backlog catch-up gate, lock, marker stamp) rather
+            // than duplicating it. Symmetric with the window hold above: while the
             // summarizer runs, both the window (1 turn) and auto-sync (on) are bound to it.
             //
             // That flow may REFUSE (no chat, or no collection yet), and being async it
-            // cannot report back to this handler. It therefore revokes the summarizer
-            // itself via _disableSummarizerInjectionBecauseAutoSyncIsOff, so the pair can
-            // never end up disagreeing — which is what left the summarizer checked beside
-            // an unchecked auto-sync, injecting stale events as if they were the latest.
+            // cannot report back to this handler. It therefore turns the summarizer off
+            // itself via _disableSummarizerInjectionBecauseAutoSyncIsOff, so the pair never
+            // disagrees: a summarizer on beside auto-sync off would inject stale events as
+            // if they were the latest.
             if (enabling) {
                 const $autosync = $('#VectFox_autosync_enabled');
                 if (!$autosync.prop('checked')) {
@@ -2702,15 +2488,15 @@ function bindSettingsEvents(settings, callbacks) {
             }
         });
 
-    // Hide the whole group on standard + no plugin (listChunks returns no metadata
-    // there → 0 events → silent no-op, so the feature can't function). Mirror of
+    // Hide the Summarizer Injection and Ghosting cards on Standard without the plugin:
+    // listChunks returns no metadata there, so there are no events to inject. Mirror of
     // _refreshCosineWeightAvailability; also called on vector-backend change.
     _refreshSummarizerInjectionAvailability = async function() {
-        const $group = $('#VectFox_summarizer_injection_group');
-        if ($group.length === 0) return;
+        const $cards = $('#VectFox_summarizer_injection_group, #VectFox_eventbase_ghost_group');
+        if ($cards.length === 0) return;
         const backend = settings.vector_backend || 'standard';
         const pluginUp = await checkPluginAvailable();
-        $group.toggle(!(backend === 'standard' && !pluginUp));
+        $cards.toggle(!(backend === 'standard' && !pluginUp));
     };
 
     _applySummarizerLock();
@@ -2911,11 +2697,10 @@ function bindSettingsEvents(settings, callbacks) {
 
     document.addEventListener('vectfox:eventbase-synced', () => {
         // The chat just gained a collection because the user was sent here by
-        // ticking auto-sync. Finish what they started: re-run the enable flow,
+        // turning auto-sync on. Finish what they started: re-run the enable flow,
         // which now finds a collection and takes the normal path (straight on if
-        // fully synced, catch-up prompt if not). Refreshing alone would only
-        // re-read the stored "off" and leave the box unticked — the bug this
-        // fixes.
+        // fully synced, catch-up prompt if not). Refreshing alone would re-read
+        // the stored off and leave the switch off.
         const pendingChat = _autoSyncEnableAwaitingVectorizeForChat;
         _autoSyncEnableAwaitingVectorizeForChat = null;
         if (pendingChat && pendingChat === getCurrentChatId()) {

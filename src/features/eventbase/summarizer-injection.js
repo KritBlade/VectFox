@@ -268,7 +268,7 @@ export async function buildSummarizerInjection(settings) {
     if (!uuid) return { text: '', count: 0, reason: 'no-chat', requested: n };
 
     // Lock-aware, ownership-filtered active collection (same source of truth as
-    // the auto-sync marker and the LED).
+    // the auto-sync marker and the auto-sync status).
     const active = resolveActiveEventBaseCollection(settings, uuid);
     if (!active) return { text: '', count: 0, reason: 'no-collection', requested: n };
 

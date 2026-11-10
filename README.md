@@ -172,10 +172,10 @@ Because "most recent" only means anything if the database is current, the featur
 
 Once Summarizer Injection guarantees the recent thread is always in the prompt, the raw text of *older* messages becomes redundant — those turns already live in EventBase, and the structured recap above covers the recent ones. **Ghosting** cashes that in: every turn it keeps the most recent N messages verbatim and **blanks all older already-vectorized messages from the outgoing prompt**, so the model leans on EventBase memory (the injection above + semantic retrieval) instead of paying for the same history twice.
 
-- **Nothing is destroyed.** The wipe happens on a throwaway copy of the prompt only — your chat UI and the saved file are **untouched**, and the effect **resets every turn** (nothing to un-ghost, branch-safe). Lower the slider and the recap simply reaches further back next turn.
+- **Nothing is destroyed.** The wipe happens on a throwaway copy of the prompt only — your chat UI and the saved file are **untouched**, and the effect **resets every turn** (nothing to un-ghost, branch-safe). Lower **Messages kept verbatim** and the recap simply reaches further back next turn.
 - **Scales to any chat length.** "Keep the last N raw" auto-scales — a 2,000-message chat sends roughly the same number of raw turns as a 200-message one, with everything older served from memory. Token cost stops growing with chat length.
-- **Recall is the dial.** The fewer raw turns you keep, the more the AI relies on retrieval quality — so **check your recall as you lower the slider** and stop where the model still tracks the scene cleanly.
-- **World Info stays safe.** The wipe is floored so it never blanks a message World Info needs to scan, and it auto-pauses if WI could scan the whole chat — keyword triggers keep firing at any slider value.
+- **Recall is the dial.** The fewer raw turns you keep, the more the AI relies on retrieval quality — so **check your recall as you keep fewer** and stop where the model still tracks the scene cleanly.
+- **World Info stays safe.** The wipe is floored so it never blanks a message World Info needs to scan, and it auto-pauses if WI could scan the whole chat — keyword triggers keep firing at any setting.
 
 Because it leans entirely on EventBase being current, ghosting **requires Summarizer Injection** (which in turn forces the auto-sync window to 1, keeping the database one turn behind the live chat). Enable it right under Summarizer Injection in the **AutoSync** tab; default off.
 
@@ -260,7 +260,7 @@ If you use **AgentMode**, it goes further: it breaks your question into several 
 A3 runs **everything inside Qdrant in a single API call**. The key structural advantage over A1 / A2 isn't just "faster" — it's that **A3 actually searches the full corpus by keywords**, while A1 / A2 only search by dense vectors:
 
 1. **Dense + sparse hybrid retrieval over the FULL corpus** — Qdrant stores a sparse keyword vector on every event at upsert time. At query time it runs the dense index (meaning) and the sparse index (keywords) **in parallel against every event in the collection**, then fuses the two result lists via native RRF. This is the part that genuinely scales: if a rare keyword only appears in one obscure event from 1,500 chats ago, the sparse index finds it directly — no dependence on the dense vector layer happening to surface it. (A1 / A2 only score the ANN top-K candidates the dense layer returned, so events outside that window are invisible no matter how well their keywords match.) BM25 IDF is also computed globally on the server, so rare-word scoring is correct by construction.
-2. **Server-side formula rerank** — Qdrant then applies a 4-weight rerank formula to those hybrid results inside the same call. Each `w_X` is a user-tunable weight slider; the term it multiplies is normalized so weights compose cleanly: `w_cosine × RRF_score + w_importance × (importance/10) + w_persist × (1 if should_persist else 0) + w_recency × exp_decay(source_window_end → chatLength)`. The final ranked list comes back already sorted. No extra round-trip. No browser JavaScript doing the scoring.
+2. **Server-side formula rerank** — Qdrant then applies a 4-weight rerank formula to those hybrid results inside the same call. Each `w_X` is a user-tunable weight; the term it multiplies is normalized so weights compose cleanly: `w_cosine × RRF_score + w_importance × (importance/10) + w_persist × (1 if should_persist else 0) + w_recency × exp_decay(source_window_end → chatLength)`. The final ranked list comes back already sorted. No extra round-trip. No browser JavaScript doing the scoring.
 3. **Server-side filtering** — Minimum importance threshold and context dedup cutoff (events already visible in recent chat) are enforced inside Qdrant, not after the results arrive. Events below the threshold never leave the server.
 4. **AgentMode multi-angle querying** — the planner LLM decomposes the user's question into multiple sub-queries from different angles — not just the surface meaning, but also *how did this happen?*, *what led up to it?*, *what were the consequences?*, *who else was involved?* Each angle runs as a separate search, and the events they find outside the normal results add up to 5 seats beside it.
 
@@ -540,7 +540,7 @@ Restart SillyTavern.
 6. Under **Keywords**, choose the language of your story.
 7. Most settings work fine on default — feel free to tweak.
 8. Open your chat in SillyTavern, then click the VectFox extension icon again. You **HAVE** to click "Vectorize Content" and choose **Chat History** to vectorize your first DB.
-9. Turn on Auto-Sync in the **AutoSync** tab if you need it. Its **Auto-sync window** sets how many turns go into each run.
+9. Turn on **Auto-sync this chat** in the **AutoSync** tab if you need it. Its **Auto-sync window** sets how many turns go into each run.
 10. Vectorize your lorebook / World Info if needed in the **WorldInfo** tab.
 11. (Optional) Turn on **Agent Mode** in the AgentMode tab once everything else works. Leave provider, model and API key blank to use the **Event model** settings. Then the same cheap, fast model from step 4 also drives the planner. See "How It Works → Agent Mode" above for what it does.
 

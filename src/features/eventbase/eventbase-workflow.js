@@ -88,8 +88,8 @@ export function getAutoSyncWindowSize(settings) {
  * Lag is one whole auto-sync window (one turn) so windows tile evenly and the
  * held-back region is exactly the active turn — never a stray incomplete tail.
  * Returns `messages.length` (no lag) when the feature is off. This is the SINGLE
- * source of truth shared by the window-builder, the quick-exit, and the LED /
- * counter so "fully synced" means "all committed windows done", not "the active
+ * source of truth shared by the window-builder, the quick-exit, and the auto-sync
+ * status so "fully synced" means "all committed windows done", not "the active
  * turn done". See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
  *
  * @param {object[]} messages - filtered chat messages
@@ -281,7 +281,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Settle/commit lag: on auto-sync, hold back the active (still-swipeable) last
     // turn — only extract messages up to the commit boundary. Manual Vectorize
     // Content / backfill (isAutoSync=false) covers the whole chat. The boundary is
-    // the SINGLE source of truth for "what is eligible", reused by the LED/counter
+    // the SINGLE source of truth for "what is eligible", reused by the auto-sync status
     // (see getChatAutoSyncStatus) so "fully synced" tracks committed windows, not
     // the active turn. See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const commitBoundary = isAutoSync ? getCommitBoundary(messages, settings) : messages.length;
@@ -323,7 +323,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // ⚠️ Regression coverage: TEST 014 (fingerprint cache, same window size) +
     // TEST 015 (this marker filter, window-size-change protection) in
     // tests/Eventbase-test.spec.js together cover the two-layer auto-sync
-    // safety story. Doc/collection_helper.md → "Chat Auto-Sync" explains the
+    // safety story. Doc/collection_helper.md → "Auto-sync" explains the
     // contract. Any change here — guard, operator (>= vs >), or filter shape
     // — must be reviewed against both tests and the doc. The boundary `>=`
     // is load-bearing: stampAutoSyncMarker uses max(source_window_end)+1,
@@ -1056,7 +1056,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         void linkNewStoryEvents({ collectionId, newEventIds: insertedEventIds, settings });
     }
 
-    // Notify the UI so the Chat Auto-Sync LED can flip from yellow → green.
+    // Notify the UI so the AutoSync page's status can turn to Up to date.
     // Cheap signal; listeners just re-evaluate state, they don't read this payload.
     if (typeof document !== 'undefined' && typeof CustomEvent === 'function') {
         document.dispatchEvent(new CustomEvent('vectfox:eventbase-synced', {
@@ -1393,8 +1393,8 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
 }
 
 /**
- * Evaluate chat auto-sync state for the current chat. Used by the Chat Auto-Sync
- * checkbox + LED and by the checkbox's enable flow.
+ * Evaluate chat auto-sync state for the current chat. Used by the AutoSync page's
+ * switch and status, and by the switch's enable flow.
  *
  * Reads the registry, the eventbase window cache, and extension_settings. The one
  * backend call is the vectorization-tip probe (ensureVectorizationTip), which runs
@@ -1469,14 +1469,14 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     }
 
     // Evaluate auto-sync "fully vectorized" against the AUTO-SYNC window (turns*2,
-    // overlap 0), not the one-off Vectorize Content window — otherwise the LED
+    // overlap 0), not the one-off Vectorize Content window — otherwise the status
     // would read "partial" forever whenever the two window sizes differ.
     //
     // Settle/commit lag: evaluate against the COMMITTED slice (chat minus the
     // active, still-swipeable last turn), matching what runEventBaseIngestion
     // actually extracts. Without this, the deliberately-unextracted active turn
-    // would pin the LED on "partial" forever. After a manual full vectorize the
-    // committed slice's last window is also extracted, so the LED is still green —
+    // would pin the status on "partial" forever. After a manual full vectorize the
+    // committed slice's last window is also extracted, so the status still reads up to date —
     // both modes stay consistent. See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const commitBoundary = getCommitBoundary(messages, settings);
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;

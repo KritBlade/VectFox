@@ -75,7 +75,7 @@ setCollectionCharacterLock(key, String(characterId));
 removeCollectionCharacterLock(key, String(characterId));
 ```
 
-- **Storage-key convention:** pass the registry-key form (`backend:id`). On a `collection` object from `findCollectionByKey` or `getCollectionListing`, use `collection.registryKey || collection.id`. These functions read and write exactly the key they are given — **no fallback to the other form**, so the wrong form gives wrong-state reads, not errors. When a lock may sit under either form (EventBase resolution, the auto-sync LED), use `isCollectionActiveForContextAnyKey`.
+- **Storage-key convention:** pass the registry-key form (`backend:id`). On a `collection` object from `findCollectionByKey` or `getCollectionListing`, use `collection.registryKey || collection.id`. These functions read and write exactly the key they are given — **no fallback to the other form**, so the wrong form gives wrong-state reads, not errors. When a lock may sit under either form (EventBase resolution, the auto-sync status), use `isCollectionActiveForContextAnyKey`.
 - **Scope:** `getCollectionMeta` resolves every collection's scope to `'chat'` or `'character'` (`getEffectiveScope`: the stored value, else parsed from the ID), and `isCollectionActiveForContext` checks the matching list.
 - **Ownership:** the lock functions do not check it. It is applied where collections are listed — `getCollectionListing`'s `isOwn` and the DB browser's persona filter — so lock controls are only offered on the persona's own collections (every collection under `superadmin`).
 - The chat-lock writes keep the `chat_lock_index` reverse map (read by `getChatLockedCollections(chatId)`) in step with `lockedToChatIds`.
@@ -200,7 +200,7 @@ Call the highest tier that covers your use case:
 |---|---|---|
 | **All collections** | `getCollectionListing(settings)` | Render loop, aggregate state. Use `entry.isActive` (and `entry.isOwn`) — no per-card calls needed. |
 | **One collection** | `isCollectionActiveForContext(registryKey, { chatId, characterId })` | One collection — the DB browser's badge, checkbox and activation editor. `getCollectionListing` calls it per entry; do not call it per card in a loop. |
-| **One collection, either key form** | `isCollectionActiveForContextAnyKey([registryKey, collectionId], { chatId, characterId })` | Same single-source check, but tolerant of both key forms when a lock/scope may be stamped under either the registry-key or the bare id (EventBase read/write resolution, auto-sync LED). Returns true if active under ANY form. Use this instead of re-spreading `isCollectionLockedToChat` across call sites. |
+| **One collection, either key form** | `isCollectionActiveForContextAnyKey([registryKey, collectionId], { chatId, characterId })` | Same single-source check, but tolerant of both key forms when a lock/scope may be stamped under either the registry-key or the bare id (EventBase read/write resolution, auto-sync status). Returns true if active under ANY form. Use this instead of re-spreading `isCollectionLockedToChat` across call sites. |
 | **Lock lists** | `getCollectionLocks(registryKey)` / `getCollectionCharacterLocks(registryKey)` | The chats / characters one collection is locked to (the DB browser's lock dialog). |
 
 `isCollectionActiveForContext` returns `true` based on the collection's scope:
@@ -338,7 +338,7 @@ It computes `activeIds` by filtering own-persona lorebooks (creatorHandle stamp)
 | ✓ Check + ≥1 active | Persist `enabled_world_info=true`, show settings panel |
 | ✗ Uncheck | For each currently-active own lorebook, remove the lock making it active (chat or character per scope). Dispatch `vectfox:collections-updated`. Persist `enabled_world_info=false`. |
 
-## Chat Auto-Sync — "Enable Auto-Sync" checkbox
+## Auto-sync — the "Auto-sync this chat" switch
 
 ### The smart marker — what makes auto-sync correct
 
@@ -357,7 +357,7 @@ User scenario the cache makes safe:
 
 1. User vectorizes a chat at 2 messages — window `[0-1]` extracted. `markWindowExtracted` records its fingerprint.
 2. User replies twice — chat now has 6 messages. Two new windows `[2-3]` and `[4-5]` exist on disk but are unmarked in the cache.
-3. User ticks "Enable Auto-Sync". Next trigger calls `runEventBaseIngestion`.
+3. User turns on "Auto-sync this chat". Next trigger calls `runEventBaseIngestion`.
 4. `isLastWindowExtracted` checks `[4-5]` against the cache → not present → returns false → ingestion runs.
 5. The ingestion loop iterates windows. For `[0-1]`, `isWindowAlreadyExtracted` returns true → skipped (no LLM call, no duplicate event). For `[2-3]` and `[4-5]`, returns false → LLM extracts events, `markWindowExtracted` records each fingerprint.
 6. Next trigger: `isLastWindowExtracted` against `[4-5]` returns true → quick-exit → no work done.
@@ -365,7 +365,7 @@ User scenario the cache makes safe:
 **When a window fails.** A failed window is only absent from the cache, while the windows after it are present, so the quick-exit and the tip cannot see it. The unfinished record exists to say so:
 
 1. **Same run.** A window that fails or times out goes on the record and the run carries on. A provider rejection, a parse failure, a reply cut at the token limit, and a reply with no valid event all count as failing. When all windows are through, the run sends the failed ones again, up to 2 more passes, after 5s and 10s. It stops early when a pass got nothing through and more than 8 windows failed, because that points at the provider rather than at those windows.
-2. **Still failing.** The window stays on the record. The progress panel and a sticky toast report it, and the Chat Auto-Sync status names it.
+2. **Still failing.** The window stays on the record. The progress panel and a sticky toast report it, and the auto-sync status on the AutoSync page names it.
 3. **Later runs.** A manual run does not take the quick-exit while its window size has windows on the record, so Resume reaches them. Auto-sync keeps the quick-exit and sends them when the next turn commits, but only those at or after its start marker. Neither run uses the tip fallback while the record has such windows. A window already on the record when a run begins gets one send in that run, so one that always fails does not cost three calls every time.
 4. **Off the record.** Success takes a window off. A manual run also drops windows the chat no longer has, because a message in them was edited or deleted, and `clearExtractionCachesForChat` drops the whole record.
 
@@ -381,7 +381,7 @@ The **auto-sync start marker** is the second gate that catches this case. It's a
 
 | Function | Role |
 |---|---|
-| `stampAutoSyncMarker(chatUUID, settings, options?)` | Called from the Auto-Sync checkbox change handler when the user enables auto-sync (and re-called when the window-size setting changes while auto-sync is on). Smart placement: if the EventBase collection has existing events → `marker = max(source_window_end) + 1`; if empty → `marker = current chat length`. Pass `{ floor: 'chatLength' }` to force from-now-on placement regardless of coverage (the enable-time "Just keep up from here" choice). Persists to `extension_settings.vectfox.eventbase_autosync_start_marker[chatUUID]` and calls `saveSettingsDebounced()`. |
+| `stampAutoSyncMarker(chatUUID, settings, options?)` | Called from the auto-sync switch's handler when the user turns auto-sync on (and re-called when the window-size setting changes while auto-sync is on). Smart placement: if the EventBase collection has existing events → `marker = max(source_window_end) + 1`; if empty → `marker = current chat length`. Pass `{ floor: 'chatLength' }` to force from-now-on placement regardless of coverage (the enable-time "Just keep up from here" choice). Persists to `extension_settings.vectfox.eventbase_autosync_start_marker[chatUUID]` and calls `saveSettingsDebounced()`. |
 | `getAutoSyncMarker(chatUUID)` | Read by `runEventBaseIngestion` to gate the window list. Returns `undefined` when no marker is stamped (manual runs and pre-auto-sync chats). |
 | `clearAutoSyncMarker(chatUUID)` | Called when auto-sync is disabled so re-enabling later re-computes a fresh marker against the current chat state. |
 
@@ -435,7 +435,7 @@ getCommitBoundary(messages, settings)
 //  : max(0, messages.length - getAutoSyncWindowSize(settings))   // hold back one turn
 ```
 
-`runEventBaseIngestion` slices its window-builder **and** its quick-exit to `messages.slice(0, commitBoundary)` on auto-sync runs (`isAutoSync === true`); manual Vectorize Content / backfill ignores the lag and covers the whole chat. Crucially, `getChatAutoSyncStatus` evaluates `isChatFullyVectorized` against the **same committed slice** — so "fully synced" means *all committed windows extracted*, not *the active turn extracted*. Without that, the deliberately-unextracted active turn would pin the LED on yellow forever.
+`runEventBaseIngestion` slices its window-builder **and** its quick-exit to `messages.slice(0, commitBoundary)` on auto-sync runs (`isAutoSync === true`); manual Vectorize Content / backfill ignores the lag and covers the whole chat. Crucially, `getChatAutoSyncStatus` evaluates `isChatFullyVectorized` against the **same committed slice** — so "fully synced" means *all committed windows extracted*, not *the active turn extracted*. Without that, the deliberately-unextracted active turn would keep the status on Behind forever.
 
 Because un-kept swipes only ever live on the active turn (which is past the boundary), they never reach the window-builder → **zero embeddings for discarded generations**. When the user sends the next turn, the previously-active turn falls inside the boundary and extracts exactly once.
 
@@ -552,11 +552,11 @@ State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend =
 { state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount: 0, markerValue?, vectorizationTip? }
 ```
 
-Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the LED reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does no UUID walk of its own; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; ticking the checkbox then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
+Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the status reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does no UUID walk of its own; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; turning the switch on then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
 
 "Fully vectorized" is determined by `isChatFullyVectorized(messages, settings, chatUUID)`, which checks that the last possible window for the current message count is already in `eventbase_extracted_windows[uuid]` and that no window of that size is in `eventbase_unfinished_windows[uuid]`. No DB query, just an O(1) Set lookup and a read of the record.
 
-**`vectorizationTip`** is the tip from "Vectorization tip cache" above. The UI prefers it over `markerValue` for the "vectorization: N msgs" count, because the start marker (`eventbase_autosync_start_marker[uuid]`) is stamped once at enable time and never moves.
+**`vectorizationTip`** is the tip from "Vectorization tip cache" above. The status prefers it over `markerValue` for its "vectorized: N messages" count, because the start marker (`eventbase_autosync_start_marker[uuid]`) is stamped once at enable time and never moves.
 
 **`vectorization-ahead` state** covers the per-chat auto-sync marker (`extension_settings.vectfox.eventbase_autosync_start_marker[uuid]`) being past the current chat's message count. Usual cause: the user bound a chat vectorization extracted from a longer version of the same chat (or deleted messages after vectorizing). The marker filter inside `runEventBaseIngestion` then rejects every window — extraction waits until the chat reaches the marker — and the UI says so instead of reporting a sync that never happens. **No auto-correction on purpose**: no marker clamp / re-stamp / clear. The chat-shrinkage case is rare and user-induced; auto-correcting silently would hide a likely user error (binding the wrong vectorization). UI clarity beats silent recovery.
 
@@ -568,40 +568,42 @@ Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (ret
 - `vectfox:eventbase-synced` custom event (after an ingestion run completes)
 - Master switch toggle (OFF: shows the paused status; ON: after the network startup re-runs)
 
-While the master switch is off, `refreshAutoSyncCheckbox` reads only cached state and logs nothing (`shouldProbeBackend: false`, `shouldLogResolution: false`), and every has-collection state shows the paused status below. It still runs on chat change so the checkbox matches the current chat — the Summarizer Injection toggle reads it.
+While the master switch is off, `refreshAutoSyncCheckbox` reads only cached state and logs nothing (`shouldProbeBackend: false`, `shouldLogResolution: false`), and every has-collection state shows the paused status below. It still runs on chat change so the switch matches the current chat — the Summarizer Injection switch reads it.
 
-Resolution table:
+Resolution table. `autoSyncStatusMarkup` in [autosync-page-markup.js](../src/features/settings-panel/autosync-page-markup.js) builds each status from these states:
 
-| State | autoSync flag | Lock | Checkbox | LED | Status |
+| State | autoSync flag | Lock | Switch | Tone | Status |
 |---|---|---|---|---|---|
-| `no-chat` | — | — | ❎ | 🟡 | "No chat loaded" |
-| `no-collection` | — | — | ❎ | 🟡 | "Not initialized — vectorize chat first" |
-| has-collection, master switch off | any | any | ✅ iff flag + lock | ⚪ | "Auto-sync paused — VectFox is disabled" + counts |
-| has-collection | false OR no lock | — | ❎ | ⚪ | "Auto-sync inactive" + counts |
-| `vectorization-ahead` | true | locked | ✅ | 🟡 | "Vectorization is ahead of current chat — no auto-sync needed." + counts + gap + remediation hint |
-| `partial` | true | locked | ✅ | 🟡 | "Locked — will sync to latest history on next auto-sync trigger" + counts |
-| `fully-vectorized` | true | locked | ✅ | 🟢 | "Ready — fully synced" + counts |
+| `no-chat` | — | — | off | warning | "No chat open." |
+| `no-collection` | — | — | off | warning | "Not vectorized yet. Turning auto-sync on starts it." |
+| has-collection, master switch off | any | any | on iff flag + lock | plain | "Paused while VectFox is off." + counts |
+| has-collection | false OR no lock | — | off | plain | "Off for this chat." + counts |
+| `vectorization-ahead` | true | locked | on | warning | "Vectorization reaches past this chat's end, so there is nothing to sync." + the counts with the gap + what to check |
+| `partial`, failed windows on the record | true | locked | on | warning | "N windows failed and hold no events. Resume in Vectorize Content sends them again." + counts |
+| `partial` | true | locked | on | warning | "Behind. The next auto-sync catches up." + counts |
+| `fully-vectorized` | true | locked | on | success | "Up to date." + counts |
 
-The "counts" suffix shows `chat: N msgs · vectorization: M msgs` when both numbers are available — surfaces the backfill gap in `partial`, confirms parity in `fully-vectorized`, makes the ahead-of-chat condition visually obvious in `vectorization-ahead`.
+The counts line reads `Chat: N messages · vectorized: M messages` when the chat's count is known, the second part when the tip or marker is. A fully vectorized chat whose newest turn the settle lag holds back adds `· the latest turn waits to settle`.
 
-**Change handler** (user clicks):
+**Change handler** (the user turns the switch):
 
 | Action | Behaviour |
 |---|---|
-| ✓ Check + no-chat | Toast warn, uncheck |
-| ✓ Check + no-collection, branch/checkpoint with a fork source | Popup: **Fork from parent** → `forkEventBaseFromSource`, re-read status, continue as partial / fully-vectorized · **Vectorize from scratch** → open Content Vectorizer (`'chat'`) · close → uncheck |
-| ✓ Check + no-collection, otherwise | Open Content Vectorizer (`'chat'`) |
-| ✓ Check + partial | `setCollectionLock(registryKey, chatId)` + `setCollectionAutoSync(registryKey, true)` + toast "will catch up" |
-| ✓ Check + fully-vectorized | `setCollectionLock(registryKey, chatId)` + `setCollectionAutoSync(registryKey, true)` + toast "fully synced" |
-| ✗ Uncheck | `setCollectionAutoSync(registryKey, false)` + `clearAutoSyncMarker(uuid)` only. **Does NOT remove the chat lock** — the lock is a separate concern (retrieval activation / explicit user choice via the DB Browser), so disabling auto-sync must not deactivate the collection. Unlocking is the DB Browser's job. |
+| On + no-chat | Warning toast, switch back off |
+| On + no-collection, branch/checkpoint with a fork source | Popup: **Fork from parent** → `forkEventBaseFromSource`, re-read status, continue as partial / fully-vectorized · **Vectorize from scratch** → open Content Vectorizer (`'chat'`) · close → switch off |
+| On + no-collection, otherwise | Info toast, open Content Vectorizer (`'chat'`); auto-sync turns on when that run finishes |
+| On + partial or fully-vectorized | `setCollectionLock(registryKey, chatId)` + `setCollectionAutoSync(registryKey, true)` + the start-marker stamp. A far-behind chat first asks whether to catch up now or keep up from here; closing that popup leaves auto-sync off |
+| Off | `setCollectionAutoSync(registryKey, false)` + `clearAutoSyncMarker(uuid)` only. **Does NOT remove the chat lock** — the lock is a separate concern (retrieval activation / explicit user choice via the DB Browser), so disabling auto-sync must not deactivate the collection. Unlocking is the DB Browser's job. |
 
-`registryKey` here is `status.registryKey` from `getChatAutoSyncStatus` — the canonical `"backend:id"` form. All four metadata read paths (this table, `refreshAutoSyncCheckbox`, `synchronizeChat`, `getChatAutoSyncStatus`) use the same form. After mutation, dispatches `vectfox:collections-updated` and re-runs `refreshAutoSyncCheckbox` so the LED updates.
+Every path that leaves auto-sync off also turns Summarizer Injection off, since its newest events would go stale.
+
+`registryKey` here is `status.registryKey` from `getChatAutoSyncStatus` — the canonical `"backend:id"` form. All four metadata read paths (this table, `refreshAutoSyncCheckbox`, `synchronizeChat`, `getChatAutoSyncStatus`) use the same form. After mutation, dispatches `vectfox:collections-updated` and re-runs `refreshAutoSyncCheckbox` so the status updates.
 
 ### Branch and checkpoint fork
 
 SillyTavern gives every new branch and checkpoint its own `chat_metadata.integrity` (ST #5943), so it has a new chat UUID and no EventBase collection of its own — the write target resolves to `null` even when the parent's collection is locked here. Writing into the parent's collection is not an option: after the split the two chats' `source_window_end` values describe different stories, and the parent's tip is past the branch's messages. Instead the branch **forks**: the parent's events for the shared messages are copied into the branch's own collection with their stored vectors (no LLM extraction, no re-embedding), and auto-sync extracts only what comes after the split.
 
-**When:** the auto-sync checkbox is ticked, `getChatAutoSyncStatus` reports `no-collection`, and the chat has `chat_metadata.main_chat` (SillyTavern sets it only on branches and checkpoints).
+**When:** the auto-sync switch is turned on, `getChatAutoSyncStatus` reports `no-collection`, and the chat has `chat_metadata.main_chat` (SillyTavern sets it only on branches and checkpoints).
 
 **Finding the parent** — by message content, so it works after the parent chat file is deleted (deleting a chat does not delete its collection):
 1. **Local window record** (`eventbase_extracted_windows`, chat UUID → window fingerprints of source message hashes). No backend reads. The candidate whose hashes match the longest run of this chat's opening messages wins; it needs at least one recorded window made entirely of shared messages, which rules out chats that share only the greeting. Its collection comes from `resolveActiveEventBaseCollection(settings, parentUuid)` and must be on the current backend.
@@ -626,7 +628,7 @@ UI elements that mirror lock state are pulled in two ways. The distinction matte
 | Trigger | Calls `.trigger('change')` | Lock mutation? |
 |---|---|---|
 | User clicks WI checkbox | (browser-native) | **Yes** — change handler removes/checks locks |
-| User clicks Auto-Sync checkbox | (browser-native) | **Yes** — change handler removes/sets chat lock |
+| User turns the auto-sync switch | (browser-native) | **Yes** — change handler removes/sets chat lock |
 | User clicks "Active for current chat" in Collection Settings | (via Save button) | **Yes** — `saveActivation` mutates |
 | `refreshWIStatus` auto-uncheck | **No** — `_setWIEnabled` uses `prop()` only | **No** — pure UI mirror |
 | `refreshAutoSyncCheckbox` auto-state | **No** — direct `prop()` | **No** — pure UI mirror |
@@ -668,7 +670,7 @@ Triggers and conditions narrow a locked collection; neither can activate an unlo
 | `src/features/eventbase/eventbase-workflow.js` | `getChatAutoSyncStatus`, `isChatFullyVectorized`, dispatches `vectfox:eventbase-synced` |
 | `src/features/chunkbase/content-vectorization.js` | Default `scope='character'`, no `'global'` fallback |
 | `src/features/database-browser/database-browser.js` | Listing lock badge, `openActivationEditor`, `renderActivationEditor`, `refreshActivationLockButton`, `saveActivation` |
-| `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, WI checkbox handler, Auto-Sync checkbox handler, event listeners |
+| `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, WI checkbox handler, auto-sync switch handler, event listeners |
 | `src/features/chunkbase/content-vectorizer.js` | Scope picker without global, post-vectorization `refreshWIStatus` call |
 
 ## Things you should NOT do
