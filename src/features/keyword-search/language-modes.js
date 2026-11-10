@@ -37,5 +37,8 @@ const _fallback = _byValue.get('intl');
 /** Returns the stopLocales array for a mode; falls back to ['en'] for unknown/null. */
 export function stopLocalesForMode(mode) { return (_byValue.get(mode) || _fallback).stopLocales; }
 
+/** The name the CJK tokenizer dropdown shows for a mode; the mode as written for one VectFox does not know. */
+export function languageModeLabel(mode) { return _byValue.get(mode)?.label ?? String(mode); }
+
 /** Returns the tokenizer string for a mode; falls back to 'intl' for unknown/null. */
 export function tokenizerForMode(mode) { return (_byValue.get(mode) || _fallback).tokenizer; }

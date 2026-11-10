@@ -1003,34 +1003,6 @@ export class StandardBackend extends VectorBackend {
     }
 
     /**
-     * Update chunk text (plugin-only feature)
-     */
-    async updateChunkText(collectionId, hash, newText, settings) {
-        if (!this.pluginAvailable) {
-            throw new Error('Chunk text editing requires the Similharity plugin');
-        }
-
-        const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}/text`, {
-            method: 'PATCH',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                backend: 'vectra',
-                collectionId: collectionId,
-                text: newText,
-                source: settings.embedding_provider || 'transformers',
-                model: getModelFromSettings(settings),
-            }),
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`Failed to update chunk text: ${response.status} ${response.statusText} - ${errorBody}`);
-        }
-
-        return await response.json();
-    }
-
-    /**
      * Update chunk metadata (plugin-only feature)
      */
     async updateChunkMetadata(collectionId, hash, metadata, settings) {

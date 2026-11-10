@@ -133,6 +133,12 @@ export function savedChunkFields(chunk, stored = {}) {
     };
 }
 
+/** A moment as "2026-11-05 09:30 UTC"; a value that is not one, as written. */
+function minuteText(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
 /**
  * An EventBase event's own fields, which the form shows and never edits.
  *
@@ -148,7 +154,7 @@ export function eventFields(chunk) {
         concepts: asList(payload.concepts),
         items: asList(payload.items),
         openThreads: asList(payload.open_threads),
-        sentAt: String(payload.real_world_date || ''),
+        sentAt: payload.real_world_date ? minuteText(payload.real_world_date) : '',
     };
 }
 
@@ -321,22 +327,47 @@ export function linkTargetLabel(chunks, targetHash) {
 }
 
 /**
- * The collection's own record in Qdrant, as LINEs: the keyword tokenizer its points were made with, and when it was
+ * The collection's own record in Qdrant, as LINEs: the CJK tokenizer its points were made with, and when it was
  * migrated and last updated. Nothing for a collection without one.
  *
  * @param {object|null} record
+ * @param {(mode: string) => string} tokenizerLabel - The name the CJK tokenizer setting shows for a mode
  * @returns {{text: string, name: string}[]}
  */
-export function collectionRecordLines(record) {
+export function collectionRecordLines(record, tokenizerLabel) {
     if (!record || typeof record !== 'object') return [];
-    const when = (value) => {
-        const date = new Date(value);
-        return Number.isNaN(date.getTime()) ? String(value) : `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-    };
     return [
-        record.cjk_tokenizer_mode ? { text: 'Keyword tokenizer', name: String(record.cjk_tokenizer_mode) } : null,
+        record.cjk_tokenizer_mode ? { text: 'CJK tokenizer', name: tokenizerLabel(String(record.cjk_tokenizer_mode)) } : null,
         record.migrated_from ? { text: 'Migrated from', name: String(record.migrated_from) } : null,
-        record.migrated_at ? { text: 'Migrated', name: when(record.migrated_at) } : null,
-        record.updated_at ? { text: 'Updated', name: when(record.updated_at) } : null,
+        record.migrated_at ? { text: 'Migrated', name: minuteText(record.migrated_at) } : null,
+        record.updated_at ? { text: 'Updated', name: minuteText(record.updated_at) } : null,
     ].filter(Boolean);
+}
+
+/**
+ * Whether Similharity refuses new vectors in the collection: it does when the collection was made with another CJK
+ * tokenizer than VectFox is set to, and checks nothing for a collection without the record or a setting without one.
+ *
+ * @param {object|null} record - The collection's own Qdrant record
+ * @param {string|undefined} currentMode - VectFox's CJK tokenizer setting
+ * @returns {{madeWith: string, setTo: string}|null} The two modes, or null when nothing is locked
+ */
+export function tokenizerLockOf(record, currentMode) {
+    const madeWith = record?.cjk_tokenizer_mode;
+    if (!madeWith || !currentMode || madeWith === currentMode) return null;
+    return { madeWith: String(madeWith), setTo: String(currentMode) };
+}
+
+/**
+ * Why the form cannot be saved, or null when it can: a chunk needs text, and a locked collection takes no new vector,
+ * so neither a changed text nor a new summary.
+ *
+ * @param {{textProblem: string|null, text: string|null, addedSummaries: string[]}} changes - From formChanges
+ * @param {object|null} tokenizerLock - From tokenizerLockOf
+ * @returns {string|null}
+ */
+export function saveProblem(changes, tokenizerLock) {
+    if (changes.textProblem) return changes.textProblem;
+    if (tokenizerLock && (changes.text !== null || changes.addedSummaries.length)) return 'A changed text or a new summary can\'t be saved here: see above.';
+    return null;
 }

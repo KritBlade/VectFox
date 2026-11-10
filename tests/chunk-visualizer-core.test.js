@@ -18,8 +18,10 @@ import {
     normalizeKeywords,
     parseKeywordWeight,
     partLabel,
+    saveProblem,
     savedChunkFields,
     textPreview,
+    tokenizerLockOf,
     visibleChunks,
 } from '../src/features/database-browser/chunk-visualizer-core.js';
 
@@ -67,8 +69,8 @@ describe('what a chunk holds', () => {
     });
 
     it('shows an EventBase event\'s own fields', () => {
-        expect(eventFields({ metadata: { event_type: 'decision', importance: 7, concepts: ['trust'], open_threads: ['the map'], real_world_date: '2026-11-05' } }))
-            .toEqual({ type: 'decision', importance: 7, concepts: ['trust'], items: [], openThreads: ['the map'], sentAt: '2026-11-05' });
+        expect(eventFields({ metadata: { event_type: 'decision', importance: 7, concepts: ['trust'], open_threads: ['the map'], real_world_date: '2026-11-05T09:30:12.345Z' } }))
+            .toEqual({ type: 'decision', importance: 7, concepts: ['trust'], items: [], openThreads: ['the map'], sentAt: '2026-11-05 09:30 UTC' });
         expect(eventFields({ metadata: {} }).importance).toBeNull();
         expect(isEventBaseCollection('vf_eventbase_qdrant_harbor')).toBe(true);
         expect(isEventBaseCollection('vf_lorebook_harbor')).toBe(false);
@@ -116,12 +118,22 @@ describe('the list', () => {
         expect(linkTargetLabel(chunks, '77')).toEqual({ label: 'ID 77', isLoaded: false });
     });
 
-    it('reads the collection\'s own Qdrant record', () => {
-        expect(collectionRecordLines({ cjk_tokenizer_mode: 'jieba', updated_at: 1762300000000 })).toEqual([
-            { text: 'Keyword tokenizer', name: 'jieba' },
+    it('reads the collection\'s own Qdrant record, naming its CJK tokenizer as the setting does', () => {
+        const tokenizerLabel = mode => `${mode} label`;
+        expect(collectionRecordLines({ cjk_tokenizer_mode: 'jieba', updated_at: 1762300000000 }, tokenizerLabel)).toEqual([
+            { text: 'CJK tokenizer', name: 'jieba label' },
             { text: 'Updated', name: '2025-11-04 23:46 UTC' },
         ]);
         expect(collectionRecordLines(null)).toEqual([]);
+    });
+
+    it('locks a collection made with another CJK tokenizer than VectFox is set to, as Similharity refuses its new vectors', () => {
+        expect(tokenizerLockOf({ cjk_tokenizer_mode: 'intl' }, 'jieba_tw')).toEqual({ madeWith: 'intl', setTo: 'jieba_tw' });
+        expect(tokenizerLockOf({ cjk_tokenizer_mode: 'jieba_tw' }, 'jieba_tw')).toBeNull();
+        // Similharity checks nothing for a collection without the record or an insert without a mode.
+        expect(tokenizerLockOf({}, 'jieba_tw')).toBeNull();
+        expect(tokenizerLockOf(null, 'jieba_tw')).toBeNull();
+        expect(tokenizerLockOf({ cjk_tokenizer_mode: 'intl' }, undefined)).toBeNull();
     });
 });
 
@@ -164,6 +176,21 @@ describe('what the form changes', () => {
     it('names the summaries added and removed', () => {
         const changes = formChanges(fields, { ...untouchedForm(fields), summaries: ['Low water'] });
         expect(changes).toMatchObject({ addedSummaries: ['Low water'], removedSummaries: ['High water'], summaries: ['Low water'], hasChanges: true });
+    });
+
+    it('saves no new vector in a locked collection, and says why', () => {
+        const lock = { madeWith: 'intl', setTo: 'jieba_tw' };
+        const renamed = formChanges(fields, { ...untouchedForm(fields), name: 'Flood' });
+        const retexted = formChanges(fields, { ...untouchedForm(fields), text: 'The tide went out.' });
+        const summarized = formChanges(fields, { ...untouchedForm(fields), summaries: ['High water', 'Low water'] });
+        const unsummarized = formChanges(fields, { ...untouchedForm(fields), summaries: [] });
+        const emptied = formChanges(fields, { ...untouchedForm(fields), text: '' });
+        expect(saveProblem(renamed, lock)).toBeNull();
+        expect(saveProblem(unsummarized, lock)).toBeNull();
+        expect(saveProblem(retexted, lock)).toBe('A changed text or a new summary can\'t be saved here: see above.');
+        expect(saveProblem(summarized, lock)).toBe('A changed text or a new summary can\'t be saved here: see above.');
+        expect(saveProblem(retexted, null)).toBeNull();
+        expect(saveProblem(emptied, null)).toBe('A chunk needs text.');
     });
 
     it('leaves a field the form does not show unchanged, as an EventBase chunk\'s switch, keywords and links', () => {

@@ -2,10 +2,11 @@
  * ============================================================================
  * MODEL-CONFIG ERROR NOTIFIER
  * ============================================================================
- * Shared UX for configuration failures: a model that is no longer valid, or a
- * collection whose vector size differs from what the embedding model makes. They
- * carry `code === 'invalid_model_config'`, set by src/shared/model-http-errors.js
- * and by the Qdrant backend.
+ * Shared UX for configuration failures: a model that is no longer valid, a
+ * collection whose vector size differs from what the embedding model makes, or a
+ * collection made with another CJK tokenizer than VectFox is set to. They carry
+ * `code === 'invalid_model_config'`, set by src/shared/model-http-errors.js and by
+ * the Qdrant backend.
  *
  * Every model path can hit this (EventBase extraction, summarizer, agent mode,
  * embedding), so the user-facing toast lives here once instead of being

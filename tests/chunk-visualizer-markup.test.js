@@ -19,6 +19,7 @@ import {
     keywordRowsMarkup,
     linkRowsMarkup,
     listFooterMarkup,
+    tokenizerLockMarkup,
 } from '../src/features/database-browser/chunk-visualizer-markup.js';
 
 function parse(html) {
@@ -131,7 +132,16 @@ describe('the chunk form', () => {
     });
 
     it('shows the collection\'s Qdrant record as pills that name each value', () => {
-        expect(pillsOf(parse(collectionRecordMarkup([{ text: 'Keyword tokenizer', name: 'jieba' }])))).toEqual(['Keyword tokenizer: jieba']);
+        expect(pillsOf(parse(collectionRecordMarkup([{ text: 'CJK tokenizer', name: 'Simplified Chinese (Jieba WASM)' }]))))
+            .toEqual(['CJK tokenizer: Simplified Chinese (Jieba WASM)']);
+    });
+
+    it('warns, on a chunk of a collection made with another CJK tokenizer, which two differ and what cannot be saved', () => {
+        const notice = parse(tokenizerLockMarkup({ madeWith: 'Intl.Segmenter (English / Latin)', setTo: 'Traditional Chinese (Jieba WASM)' }));
+        expect(notice.querySelector('.vfx-notice.is-warning')).not.toBeNull();
+        expect(notice.textContent.replace(/\s+/g, ' ').trim()).toBe('This collection was made with the CJK tokenizer Intl.Segmenter (English / Latin), '
+            + 'and VectFox is set to Traditional Chinese (Jieba WASM). A changed text or a new summary can\'t be saved here; the other fields can.');
+        expect(parse(chunkFormMarkup(formView())).querySelector('[data-chunk-tokenizer-notice]').hidden).toBe(true);
     });
 
     it('lists no keyword or link with a line saying so', () => {

@@ -640,8 +640,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             } catch (err) {
                 if (err?.name === 'AbortError' || abortSignal?.aborted) throw err;
                 if (isInvalidModelConfigError(err)) throw new EventBaseFatalError(err.message, 'invalid_model_config');
-                // Hedge-fatal bypass: the inner hedge already burned ~60s on 4 fresh-connection
-                // attempts in parallel. Outer retry would just trigger another 60s of identical
+                // Hedge-fatal bypass: the inner hedge already burned up to 60s on 4 fresh-connection
+                // attempts in parallel. Outer retry would just trigger another round of identical
                 // hedging — same upstream, same routing pool, no new information. Throw up to
                 // the coordinator so user can press Continue later when conditions improve.
                 // See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.5.

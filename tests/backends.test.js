@@ -691,6 +691,23 @@ describe('QdrantBackend', () => {
             expect(registrar).not.toHaveBeenCalled();
         });
 
+        it('stops with the configuration error, naming both CJK tokenizers, when the collection was made with another', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchError(500, JSON.stringify({
+                error: '[Qdrant] Tokenizer mode mismatch: collection "vf_chat_abc123" was built with "intl" but insert is using "jieba_tw". '
+                    + 'Delete the collection and re-vectorize to switch tokenizer modes.',
+            })));
+
+            const insert = backend.insertVectorItems('vf_chat_abc123', sampleItems, { ...defaultSettings, cjk_tokenizer_mode: 'jieba_tw' });
+
+            await expect(insert).rejects.toMatchObject({
+                code: 'invalid_model_config',
+                message: 'Keyword search: this collection was made with the CJK tokenizer "Intl.Segmenter (English / Latin)", and VectFox is set to '
+                    + '"Traditional Chinese (Jieba WASM)", so nothing was stored. Set the CJK tokenizer back to "Intl.Segmenter (English / Latin)", '
+                    + 'or delete this collection and vectorize it again.',
+            });
+            expect(registrar).not.toHaveBeenCalled();
+        });
+
         it('should add content_type in multitenancy mode', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
 

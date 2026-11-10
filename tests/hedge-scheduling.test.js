@@ -146,6 +146,21 @@ describe('callWithHedge — a failure short-circuits the clock', () => {
         expect(err.message).toMatch(/fail 3/); // carries the last error
     });
 
+    // It once said "over 60s" for four attempts that had failed in 2.4s.
+    it('says how long the attempts took, not the longest they could have', async () => {
+        const { fn, calls } = deferredQueue();
+        const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
+        const outcome = race.then(() => 'resolved', (e) => e);
+
+        for (let i = 0; i < MAX_HEDGES + 1; i++) {
+            await vi.advanceTimersByTimeAsync(500);
+            calls[i].rejectIt(new Error(`fail ${i}`));
+            await vi.advanceTimersByTimeAsync(0);
+        }
+
+        expect((await outcome).message).toBe('Hedge fatal: 4 attempts via openrouter failed in 2.0s — last error: Error: fail 3');
+    });
+
     // A late failure must not cancel a hedge that is still running and may yet win.
     it('keeps waiting when attempts are still in flight after a failure', async () => {
         const { fn, calls } = deferredQueue();
@@ -190,6 +205,23 @@ describe('callWithHedge — the WON warning says why a hedge was needed', () => 
         await race;
 
         expect(warnSpy.mock.calls[0][0]).toMatch(/hedge 1\/3 WON .*\(previous attempt still running at t=15s\)/);
+    });
+});
+
+describe('callWithHedge — a configuration error', () => {
+    // A collection made with another CJK tokenizer refused the same insert four times in 2.4s.
+    it('ends the race at once with that error, as a fresh connection cannot change it', async () => {
+        const { fn, calls } = deferredQueue();
+        const race = callWithHedge(fn, THRESHOLD, MAX_HEDGES, ctx);
+        const outcome = race.then(() => 'resolved', (e) => e);
+
+        const configError = Object.assign(new Error('Keyword search: this collection was made with another CJK tokenizer'), { code: 'invalid_model_config' });
+        calls[0].rejectIt(configError);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(await outcome).toBe(configError);
+        await vi.advanceTimersByTimeAsync(THRESHOLD * (MAX_HEDGES + 1));
+        expect(calls).toHaveLength(1);
     });
 });
 

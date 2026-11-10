@@ -31,7 +31,7 @@ import {
     getModelFromSettings,
     resolveProviderApiUrl
 } from '../embedding/index.js';
-import { isConnectionError, notifyConnectionError } from '../../shared/model-config-notifier.js';
+import { isConnectionError, isInvalidModelConfigError, notifyConnectionError } from '../../shared/model-config-notifier.js';
 import {
     getOverfetchAmount,
     applyBM25Scoring,
@@ -180,6 +180,12 @@ function chunkArray(array, size) {
  *     t=15s).
  * Attempts still cap at maxHedges + 1 either way.
  *
+ * A configuration error (code `invalid_model_config`: a model that is no longer valid, a
+ * collection holding another vector size or made with another CJK tokenizer) fails the
+ * same way on every attempt, and a fresh connection cannot change that, so it ends the
+ * race at once, as itself: its code reaches the caller, which pauses auto-sync and shows
+ * the sticky toast.
+ *
  * Hedge-fatal: if all (maxHedges + 1) attempts fail, throw an error with
  * `name === 'HedgeFatalError'` and `isHedgeFatal === true` — immediately once the last
  * one fails, or at the hard cutoff at (maxHedges + 1) × thresholdMs if attempts are
@@ -226,14 +232,16 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
         let hedgesFired = 0;
         let attemptsInFlight = 0;
         const hedgeTimers = new Map();
+        const raceStart = performance.now();
 
         const buildHedgeFatal = () => {
             const lastError = errors.length ? errors[errors.length - 1].error : null;
             const tail = lastError
                 ? `last error: ${lastError?.name || 'Error'}: ${lastError?.message || lastError}`
                 : `${maxHedges + 1} attempts still in-flight at cutoff, none returned`;
+            const elapsed = ((performance.now() - raceStart) / 1000).toFixed(1);
             const fatalErr = new Error(
-                `Hedge fatal: ${maxHedges + 1} attempts to ${provider} over ${((maxHedges + 1) * thresholdMs) / 1000}s — ${tail}`,
+                `Hedge fatal: ${maxHedges + 1} attempts via ${provider} failed in ${elapsed}s — ${tail}`,
             );
             fatalErr.name = 'HedgeFatalError';
             fatalErr.isHedgeFatal = true;
@@ -292,6 +300,11 @@ export async function callWithHedge(fn, thresholdMs, maxHedges, ctx) {
                         settle('err', e);
                         return;
                     }
+                    // A configuration error would fail every hedge the same way (see above).
+                    if (isInvalidModelConfigError(e)) {
+                        settle('err', e);
+                        return;
+                    }
                     // Don't settle on other individual failures — later hedges may still
                     // succeed. But don't idle either: the schedule below measures "this
                     // attempt is slow", and a failure is not slowness. Waiting for the
@@ -342,12 +355,14 @@ const RETRY_CONFIG = {
     backoffFactor: RETRY_BACKOFF_MULTIPLIER,
     shouldRetry: (error) => {
         // Hedge-fatal errors carry an isHedgeFatal flag. After hedge already
-        // burned 4 fresh-connection attempts in ~60s without success, an
-        // immediate outer retry would just trigger another 60s of hedge —
+        // burned 4 fresh-connection attempts, in up to 60s, without success, an
+        // immediate outer retry would just trigger another round of hedge —
         // upstream is genuinely broken for our payload. Throw straight up to
         // the coordinator so the user can press Continue later. See
         // InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.5.
         if (error?.isHedgeFatal === true) return false;
+        // A configuration error fails the same way on every attempt, whatever words its message holds.
+        if (isInvalidModelConfigError(error)) return false;
         // Catch AbortSignal.timeout()'s DOMException ("TimeoutError" / message
         // "signal timed out") before the keyword fallback: "timed out" does not
         // contain "timeout", so the keyword list alone would not retry a request
@@ -588,7 +603,7 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
                     if (failed.length > 0) {
                         const sample = failed[0].reason;
                         // Hedge-fatal propagation: if ANY of the wave's failures hit hedge-fatal
-                        // (4 fresh-connection attempts in 60s with no success), the upstream is
+                        // (4 fresh-connection attempts, in up to 60s, with no success), the upstream is
                         // genuinely broken for our payload. Propagating isHedgeFatal lets the
                         // outer _insertWithRetry (eventbase-workflow.js) stop instead of re-running
                         // a wave that is certain to fail the same way: without it, the composite
@@ -1166,18 +1181,6 @@ export async function purgeVectorIndex(collectionId, settings) {
 export async function listChunks(collectionId, settings, options = {}) {
     const backend = await getBackend(settings);
     return await backend.listChunks(collectionId, settings, options);
-}
-
-/**
- * Update chunk text (triggers re-embedding)
- * @param {string} collectionId - Collection ID
- * @param {number} hash - Chunk hash
- * @param {string} newText - New text content
- * @param {object} settings - VectFox settings
- */
-export async function updateChunkText(collectionId, hash, newText, settings) {
-    const backend = await getBackend(settings);
-    return await backend.updateChunkText(collectionId, hash, newText, settings);
 }
 
 /**

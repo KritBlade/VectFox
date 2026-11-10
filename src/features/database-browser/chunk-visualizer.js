@@ -9,13 +9,16 @@
  * embedding the text again first when it changed. Leaving a chunk or closing
  * with unsaved edits asks first. Ticked chunks are enabled, disabled or deleted
  * together. The backend payload holds a chunk's fields; its summaries live in
- * VectFox's settings and each is a vector of its own pointing at the chunk.
+ * VectFox's settings and each is a vector of its own pointing at the chunk. A
+ * Qdrant collection made with another CJK tokenizer than VectFox is set to takes
+ * no new vector, so there a chunk's text and new summaries are locked.
  * ============================================================================
  */
 
 import { deleteChunkMetadata, getChunkMetadata, saveChunkMetadata } from '../collections/index.js';
 import { deleteVectorItems, insertVectorItems, updateChunkMetadata } from '../vector-backend/index.js';
 import { packTimelineSortKey } from '../eventbase/index.js';
+import { languageModeLabel } from '../keyword-search/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
@@ -33,8 +36,10 @@ import {
     linkTargetOptions,
     messageLine,
     partLabel,
+    saveProblem,
     savedChunkFields,
     textPreview,
+    tokenizerLockOf,
     visibleChunks,
 } from './chunk-visualizer-core.js';
 import {
@@ -52,6 +57,7 @@ import {
     noChunksMarkup,
     noMatchingChunksMarkup,
     summaryRowsMarkup,
+    tokenizerLockMarkup,
 } from './chunk-visualizer-markup.js';
 import { IN_CHAT_POSITION, sanitizeXmlTag } from './collection-settings-core.js';
 import { counted } from './counted.js';
@@ -88,6 +94,7 @@ export async function openChunkVisualizer(collection, settings) {
         isBusy: false,
         isAsking: false,
         loadCount: 0,
+        tokenizerLock: null,
     };
     const template = document.createElement('template');
     template.innerHTML = chunkVisualizerMarkup({
@@ -180,7 +187,10 @@ async function loadChunks(root, session) {
     }
 }
 
-/** The collection's own Qdrant record under the list, when it has one. */
+/**
+ * The collection's own Qdrant record under the list, when it has one, and the lock on what Similharity would refuse
+ * when the record names another CJK tokenizer than VectFox is set to.
+ */
 async function showCollectionRecord(root, session) {
     if ((session.settings?.vector_backend || 'standard') !== 'qdrant') return;
     const id = String(session.collection.id);
@@ -196,7 +206,11 @@ async function showCollectionRecord(root, session) {
             log.verbose(`VectFox Chunk Visualizer: no collection record for ${collectionId} (${response.status})`);
             return;
         }
-        const lines = collectionRecordLines((await response.json())?.payload);
+        const payload = (await response.json())?.payload;
+        session.tokenizerLock = tokenizerLockOf(payload, session.settings.cjk_tokenizer_mode);
+        paintTokenizerLock(root, session);
+        refreshFormState(root, session);
+        const lines = collectionRecordLines(payload, languageModeLabel);
         if (!lines.length) return;
         const record = root.querySelector(`#${ids.record}`);
         record.innerHTML = collectionRecordMarkup(lines);
@@ -309,7 +323,23 @@ function renderPane(root, session) {
     if (enabledSwitch) enabledSwitch.checked = chunk.fields.enabled;
     pane.querySelector('.vfx-card-body').scrollTop = 0;
     markOpenRow(root, session);
+    paintTokenizerLock(root, session);
     refreshFormState(root, session);
+}
+
+/**
+ * In a collection whose new vectors Similharity refuses, the open chunk's text and the box for a new summary are
+ * locked, under a warning that names both CJK tokenizers.
+ */
+function paintTokenizerLock(root, session) {
+    const slot = root.querySelector('[data-chunk-tokenizer-notice]');
+    if (!slot) return;
+    const lock = session.tokenizerLock;
+    slot.innerHTML = lock ? tokenizerLockMarkup({ madeWith: languageModeLabel(lock.madeWith), setTo: languageModeLabel(lock.setTo) }) : '';
+    slot.hidden = !lock;
+    root.querySelector(`#${ids.text}`).readOnly = Boolean(lock);
+    root.querySelector(`#${ids.summaryNew}`).disabled = Boolean(lock);
+    root.querySelector('[data-chunk-action="add-summary"]').disabled = Boolean(lock);
 }
 
 const linkViews = session => session.draft.chunkLinks.map(link => ({ ...linkTargetLabel(session.chunks, link.targetHash), mode: link.mode }));
@@ -342,9 +372,9 @@ function refreshFormState(root, session) {
     const pane = root.querySelector(`#${ids.pane}`);
     const characters = root.querySelector(`#${ids.text}`).value.trim().length;
     pane.querySelector('[data-chunk-text-count]').textContent = `${formatCount(characters)} ${characters === 1 ? 'character' : 'characters'}.`;
-    pane.querySelector('[data-chunk-save-state]').textContent = changes.textProblem
-        || (changes.hasChanges ? 'Unsaved changes.' : 'No changes.');
-    pane.querySelector('[data-chunk-action="save"]').disabled = session.isBusy || !changes.hasChanges || Boolean(changes.textProblem);
+    const problem = saveProblem(changes, session.tokenizerLock);
+    pane.querySelector('[data-chunk-save-state]').textContent = problem || (changes.hasChanges ? 'Unsaved changes.' : 'No changes.');
+    pane.querySelector('[data-chunk-action="save"]').disabled = session.isBusy || !changes.hasChanges || Boolean(problem);
     pane.querySelector('[data-chunk-action="delete"]').disabled = session.isBusy;
 }
 
@@ -488,7 +518,7 @@ function setBusy(root, session, isBusy) {
 async function saveOpenChunk(root, session) {
     const chunk = openChunkOf(session);
     const changes = changesOf(root, session);
-    if (!chunk || !changes?.hasChanges || changes.textProblem || session.isBusy) return;
+    if (!chunk || !changes?.hasChanges || saveProblem(changes, session.tokenizerLock) || session.isBusy) return;
     setBusy(root, session, true);
     let isSaved = false;
     try {

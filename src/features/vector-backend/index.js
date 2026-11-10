@@ -33,5 +33,4 @@ export {
     queryCollection,
     queryMultipleCollections,
     updateChunkMetadata,
-    updateChunkText,
 } from './vector-api.js';

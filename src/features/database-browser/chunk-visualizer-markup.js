@@ -383,9 +383,27 @@ function eventFieldsMarkup(event) {
 }
 
 /**
- * The open chunk's form: where it came from, its name and text, for an EventBase chunk its event, else its switch;
- * where it goes in the prompt; for any but an EventBase chunk its keywords and links; its summaries; then Delete and
- * Save. The form shows what is saved; chunk-visualizer.js keeps the edits on it until Save.
+ * The warning over a chunk of a collection made with another CJK tokenizer than VectFox is set to, which takes no new
+ * vector: the two tokenizers by the names the setting shows, and what cannot be saved.
+ *
+ * @param {{madeWith: string, setTo: string}} labels
+ * @returns {string}
+ */
+export function tokenizerLockMarkup({ madeWith, setTo }) {
+    return notice({ status: 'warning', parts: [
+        { text: 'This collection was made with the CJK tokenizer' },
+        { name: ` ${madeWith}, ` },
+        { text: 'and VectFox is set to' },
+        { name: ` ${setTo}. ` },
+        { text: 'A changed text or a new summary can\'t be saved here; the other fields can.' },
+    ] });
+}
+
+/**
+ * The open chunk's form: the place of tokenizerLockMarkup; where it came from, its name and text, for an EventBase
+ * chunk its event, else its switch; where it goes in the prompt; for any but an EventBase chunk its keywords and links;
+ * its summaries; then Delete and Save. The form shows what is saved; chunk-visualizer.js keeps the edits on it until
+ * Save.
  *
  * @param {{number: number, hash: string|number, isEventBase: boolean, message: {text: string, name: string},
  *   part: string, fields: ReturnType<import('./chunk-visualizer-core.js').savedChunkFields>,
@@ -402,6 +420,8 @@ export function chunkFormMarkup(view) {
         linePill({ text: 'ID', name: String(view.hash) }),
     ].filter(Boolean));
     const parts = [
+        // tokenizerLockMarkup's place, filled once the collection's record says it takes no new vector.
+        '<div data-chunk-tokenizer-notice hidden></div>',
         origin,
         field([
             fieldLabel({ text: 'Name', forId: ids.name }),

@@ -80,6 +80,29 @@ function _vectorSizeMismatchMessage(errorBody, outcome) {
     return `Embedding: ${mismatch}, so ${outcome}. Don't change the embedding model: a different vector size means re-vectorizing the whole collection. Switch back to the model you were using.`;
 }
 
+function _isTokenizerMismatch(errorBody) {
+    return typeof errorBody === 'string' && errorBody.includes('Tokenizer mode mismatch');
+}
+
+/**
+ * The message for an insert into a collection made with another CJK tokenizer than VectFox is set to, which
+ * Similharity refuses, read from its error text, such as 'was built with "intl" but insert is using "jieba_tw"'.
+ *
+ * @param {string} errorBody
+ * @returns {Promise<string>}
+ */
+async function _tokenizerMismatchMessage(errorBody) {
+    const { languageModeLabel } = await import('../keyword-search/index.js');
+    const modes = /built with \\?"([^"\\]+)\\?" but insert is using \\?"([^"\\]+)\\?"/.exec(errorBody);
+    if (!modes) {
+        return 'Keyword search: this collection was made with another CJK tokenizer than VectFox is set to, so nothing was stored. '
+            + 'Set the CJK tokenizer back to the one it was made with, or delete this collection and vectorize it again.';
+    }
+    const madeWith = languageModeLabel(modes[1]);
+    return `Keyword search: this collection was made with the CJK tokenizer "${madeWith}", and VectFox is set to "${languageModeLabel(modes[2])}", `
+        + `so nothing was stored. Set the CJK tokenizer back to "${madeWith}", or delete this collection and vectorize it again.`;
+}
+
 /** Tells the user a search met a vector size mismatch, in the sticky toast a wrong configuration raises. */
 function _warnDimensionMismatch(errorBody) {
     const message = _vectorSizeMismatchMessage(errorBody, VECTOR_SIZE_MISMATCH_OUTCOME.search);
@@ -395,9 +418,14 @@ export class QdrantBackend extends VectorBackend {
             if (!response.ok) {
                 const errorBody = await response.text().catch(() => 'No response body');
 
-                // A configuration error, so auto-sync pauses and the sticky toast shows it.
+                // Configuration errors, so auto-sync pauses and the sticky toast shows them.
                 if (_isDimensionMismatch(errorBody)) {
                     const err = new Error(_vectorSizeMismatchMessage(errorBody, VECTOR_SIZE_MISMATCH_OUTCOME.insert));
+                    err.code = 'invalid_model_config';
+                    throw err;
+                }
+                if (_isTokenizerMismatch(errorBody)) {
+                    const err = new Error(await _tokenizerMismatchMessage(errorBody));
                     err.code = 'invalid_model_config';
                     throw err;
                 }
@@ -727,31 +755,6 @@ export class QdrantBackend extends VectorBackend {
         if (!response.ok) {
             const errorBody = await response.text().catch(() => 'No response body');
             throw new Error(`[Qdrant] Failed to list chunks in ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
-        }
-
-        return await response.json();
-    }
-
-    /**
-     * Update chunk text (triggers re-embedding)
-     */
-    async updateChunkText(collectionId, hash, newText, settings) {
-        const actualCollectionId = this._stripRegistryPrefix(collectionId);
-        const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}/text`, {
-            method: 'PATCH',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                backend: BACKEND_TYPE,
-                collectionId: actualCollectionId, // Use separate collection per content type
-                text: newText,
-                source: settings.embedding_provider || 'transformers',
-                model: getModelFromSettings(settings),
-            }),
-        });
-
-        if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
-            throw new Error(`[Qdrant] Failed to update chunk text in ${collectionId} (hash: ${hash}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
         return await response.json();

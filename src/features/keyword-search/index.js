@@ -22,5 +22,5 @@ export {
     extractTextKeywords,
     getOverfetchAmount,
 } from './keyword-boost.js';
-export { LANGUAGE_MODES } from './language-modes.js';
+export { LANGUAGE_MODES, languageModeLabel } from './language-modes.js';
 export { RETRIEVAL_KEYWORD_LEVELS, extractQueryKeywords, isCJKToken } from './query-keyword-extractor.js';

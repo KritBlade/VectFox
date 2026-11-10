@@ -26,6 +26,9 @@ vi.mock('../src/features/collections/index.js', () => ({
     deleteChunkMetadata: (hash) => { delete host.stored[String(hash)]; },
 }));
 vi.mock('../src/features/eventbase/index.js', () => ({ packTimelineSortKey: (message, order) => message * 1000 + order }));
+vi.mock('../src/features/keyword-search/index.js', () => ({
+    languageModeLabel: mode => ({ intl: 'Intl.Segmenter (English / Latin)', jieba_tw: 'Traditional Chinese (Jieba WASM)' })[mode] ?? String(mode),
+}));
 vi.mock('../src/sillytavern/identifiers.js', () => ({ getStringHash: text => [...String(text)].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000003, 7) }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({}) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
@@ -59,8 +62,8 @@ const change = (element, value) => {
     element.dispatchEvent(new Event('change', { bubbles: true }));
 };
 
-async function openHarbor() {
-    void openChunkVisualizer(COLLECTION, SETTINGS);
+async function openHarbor(settings = SETTINGS) {
+    void openChunkVisualizer(COLLECTION, settings);
     // The visualizer keeps its order and filter from one opening to the next; each test starts from the defaults.
     change($id('vectfox_chunk_sort'), 'index');
     change($id('vectfox_chunk_filter'), 'all');
@@ -159,6 +162,60 @@ describe('saving a chunk', () => {
         expect(backend.updateChunkMetadata.mock.calls[0][2]).toEqual({ keywords: [{ text: 'tide', weight: 1 }] });
         expect(backend.insertVectorItems.mock.calls[0][1][0]).toMatchObject({ text: 'Water rising', metadata: { parentHash: 1001 } });
         expect(host.stored[1001].summaries).toEqual(['High water', 'Water rising']);
+    });
+});
+
+describe('a collection made with another CJK tokenizer than VectFox is set to', () => {
+    // Similharity refuses any new vector in such a collection, so a changed text or a new summary cannot be saved.
+    const QDRANT_SETTINGS = { vector_backend: 'qdrant', cjk_tokenizer_mode: 'jieba_tw' };
+    const isRecordRequest = url => String(url).endsWith('/chunks/collection-metadata');
+    const answer = body => ({ ok: true, json: async () => body });
+    const chunksAnswer = () => answer({ items: host.items, total: 3 });
+    const tokenizerNotice = () => document.querySelector('[data-chunk-tokenizer-notice]');
+
+    it('says so on the open chunk, locks its text and new summaries, and still saves its other fields', async () => {
+        fetch.mockImplementation(async url => (isRecordRequest(url) ? answer({ payload: { cjk_tokenizer_mode: 'intl' } }) : chunksAnswer()));
+        await openHarbor(QDRANT_SETTINGS);
+        await openChunk('1');
+        await vi.waitFor(() => expect(tokenizerNotice().hidden).toBe(false));
+        expect(tokenizerNotice().textContent).toContain('Intl.Segmenter (English / Latin)');
+        expect(tokenizerNotice().textContent).toContain('Traditional Chinese (Jieba WASM)');
+        expect($id('vectfox_chunk_text').readOnly).toBe(true);
+        expect($id('vectfox_chunk_summary_new').disabled).toBe(true);
+        expect(actionButton('add-summary').disabled).toBe(true);
+        expect(document.querySelector('#vectfox_chunk_record').textContent).toContain('Intl.Segmenter (English / Latin)');
+
+        type($id('vectfox_chunk_name'), 'High tide');
+        actionButton('save').click();
+        await vi.waitFor(() => expect(backend.updateChunkMetadata).toHaveBeenCalledTimes(1));
+        expect(backend.insertVectorItems).not.toHaveBeenCalled();
+    });
+
+    it('will not save a text typed before the collection\'s record came, and says why', async () => {
+        let sendRecord;
+        const recordArrives = new Promise(resolve => { sendRecord = resolve; });
+        fetch.mockImplementation(async url => (isRecordRequest(url)
+            ? recordArrives.then(() => answer({ payload: { cjk_tokenizer_mode: 'intl' } }))
+            : chunksAnswer()));
+        await openHarbor(QDRANT_SETTINGS);
+        await openChunk('1');
+        type($id('vectfox_chunk_text'), 'The tide went out.');
+        expect(actionButton('save').disabled).toBe(false);
+
+        sendRecord();
+        await vi.waitFor(() => expect(actionButton('save').disabled).toBe(true));
+        expect(document.querySelector('[data-chunk-save-state]').textContent).toBe('A changed text or a new summary can\'t be saved here: see above.');
+        expect(backend.insertVectorItems).not.toHaveBeenCalled();
+    });
+
+    it('locks nothing in a collection made with the CJK tokenizer VectFox is set to', async () => {
+        fetch.mockImplementation(async url => (isRecordRequest(url) ? answer({ payload: { cjk_tokenizer_mode: 'jieba_tw' } }) : chunksAnswer()));
+        await openHarbor(QDRANT_SETTINGS);
+        await openChunk('1');
+        await vi.waitFor(() => expect(document.querySelector('#vectfox_chunk_record').hidden).toBe(false));
+        expect(tokenizerNotice().hidden).toBe(true);
+        expect($id('vectfox_chunk_text').readOnly).toBe(false);
+        expect($id('vectfox_chunk_summary_new').disabled).toBe(false);
     });
 });
 
