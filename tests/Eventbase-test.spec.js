@@ -642,7 +642,7 @@ test('TEST 001 — Qdrant lorebook: lock + query isolation', async () => {
 
             // Dry-run with a query that should match the Tesseract Crystal entry.
             // Force enabled_world_info=true: we're testing the retrieval path
-            // itself, not whether the user toggled "Enable Semantic WI Activation"
+            // itself, not whether the user turned on "Use in this chat" (WorldInfo page)
             // in their settings. Without this override, the test would silently
             // fail in any environment where that toggle is off — which is the
             // common case for a fresh install or a user who only uses EventBase.

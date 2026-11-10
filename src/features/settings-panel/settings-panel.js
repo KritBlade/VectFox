@@ -40,11 +40,11 @@ import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup
 import { chunkBasePageMarkup } from './chunkbase-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
 import { eventBasePageMarkup } from './eventbase-page-markup.js';
+import { worldInfoPageMarkup, worldInfoStatusMarkup } from './worldinfo-page-markup.js';
 import { bindNumberSetting } from './number-setting.js';
 import { wireActionPage } from './action-page.js';
-import { getCollectionRegistry, getCollectionListing, getCollectionMeta } from '../collections/index.js';
+import { getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
-import { parseRegistryKey } from '../../shared/collection-ids.js';
 import {
     CJK_TOKENIZER_MODES,
     setCjkTokenizerMode,
@@ -151,79 +151,8 @@ export function renderSettings(containerId, settings, callbacks) {
                         </div>
                     `)}
 
-                        <!-- World Info Settings Card -->
-                    ${panelPageMarkup('worldinfo', `
-                        <div class="vectfox-card">
-                            <div class="vectfox-card-header">
-                                <h3 class="vectfox-card-title">
-                                    <span class="vectfox-icon">
-                                        <i class="fa-solid fa-globe"></i>
-                                    </span>
-                                    World Info settings
-                                </h3>
-                                <p class="vectfox-card-subtitle">Semantic World Info / Lorebook activation — uses vector similarity instead of keyword matching to decide which entries to inject. Operates on chunk-based lorebook collections.</p>
-                            </div>
-                            <div class="vectfox-card-body">
-                                <label class="checkbox_label" for="VectFox_enabled_world_info">
-                                    <input id="VectFox_enabled_world_info" type="checkbox" class="checkbox">
-                                    <span>Enable Semantic WI Activation</span>
-                                </label>
-                                <small class="VectFox_hint">Activates lorebook entries based on meaning, not just keywords — so relevant lore shows up even when the exact words aren't mentioned.</small>
-                                <div id="VectFox_wi_status" style="margin-top: 6px; font-size: 0.82em;"></div>
-
-                                <div id="VectFox_world_info_settings" style="margin-top:10px; display:none;">
-                                    <small style="display:block; margin-bottom:8px; opacity:0.85;">
-                                        Activates World Info entries from <strong>vectorized lorebooks</strong> based on semantic similarity to recent chat messages. Complements keyword-based activation.
-                                    </small>
-
-                                    <div style="display:flex; gap:12px;">
-                                        <div style="flex:1;">
-                                            <label for="VectFox_world_info_threshold"><small>Score Threshold</small></label>
-                                            <input id="VectFox_world_info_threshold" type="number" class="vectfox-input" min="0" max="1" step="0.01" />
-                                        </div>
-                                        <div style="flex:1;">
-                                            <label for="VectFox_world_info_top_k"><small>Top-K per Lorebook</small></label>
-                                            <input id="VectFox_world_info_top_k" type="number" class="vectfox-input" min="1" max="20" />
-                                        </div>
-                                        <div style="flex:1;">
-                                            <label for="VectFox_world_info_query_depth"><small>Query Depth</small></label>
-                                            <input id="VectFox_world_info_query_depth" type="number" class="vectfox-input" min="1" max="10" />
-                                        </div>
-                                    </div>
-
-                                    <div style="margin-top:10px;">
-                                        <label for="VectFox_wi_test_input"><small>Test Messages (one per line)</small></label>
-                                        <textarea id="VectFox_wi_test_input" class="vectfox-textarea" rows="3" placeholder="Enter test messages, one per line..."></textarea>
-                                        <div style="display:flex; gap:8px; margin-top:8px;">
-                                            <button id="VectFox_wi_test_btn" class="vectfox-btn-secondary">Test Semantic WI</button>
-                                            <button id="VectFox_wi_dump_registry" class="vectfox-btn-secondary">Dump Registry</button>
-                                            <button id="VectFox_wi_apply_first" class="vectfox-btn-primary">Apply First Semantic Hit</button>
-                                        </div>
-                                    </div>
-
-                                    <div style="margin-top:10px; display:flex; gap:12px; align-items:center;">
-                                        <label class="checkbox_label" for="VectFox_enabled_for_all">
-                                            <input id="VectFox_enabled_for_all" type="checkbox" />
-                                            <span>Enabled for all entries</span>
-                                        </label>
-                                        <div style="flex:1"></div>
-                                        <div style="width:160px;">
-                                            <label for="VectFox_max_entries"><small>Max Entries</small></label>
-                                            <input id="VectFox_max_entries" type="number" class="vectfox-input" min="1" max="9999" />
-                                        </div>
-                                    </div>
-
-                                    <div class="vectfox-form-group" style="margin-top:10px;">
-                                        <label class="checkbox_label" for="VectFox_world_info_retrieval_popup">
-                                            <input type="checkbox" id="VectFox_world_info_retrieval_popup" />
-                                            <span>Popup: show when lorebook entries are retrieved</span>
-                                        </label>
-                                        <small class="VectFox_hint">Show a notification toast each time semantic WI activation retrieves lorebook entries.</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `)}
+                    <!-- WorldInfo page (worldinfo-page-markup.js) -->
+                    ${panelPageMarkup('worldinfo', worldInfoPageMarkup())}
 
                     <!-- AutoSync page (autosync-page-markup.js) -->
                     ${panelPageMarkup('autosync', autoSyncPageMarkup())}
@@ -857,13 +786,8 @@ export async function loadWebLlmModels(settings) {
 }
 
 /**
- * Updates the WebLLM status display based on availability
- * @returns {boolean} True if WebLLM is available
- */
-/**
- * Refreshes the auto-sync checkbox state from current chat's collection
- * Call this when chat changes to keep UI in sync
- * @param {object} settings - VectFox settings object (unused, kept for API compatibility)
+ * Paint the WorldInfo page's switch and status for the open chat. The switch is on iff at least
+ * one own-persona lorebook is active for this chat, and enabled_world_info is kept in step with it.
  */
 export async function refreshWIStatus() {
     const $status = $('#VectFox_wi_status');
@@ -872,9 +796,7 @@ export async function refreshWIStatus() {
     const settings = extension_settings.vectfox || {};
     const $wiCheckbox = $('#VectFox_enabled_world_info');
 
-    // The WI checkbox mirrors the activation state: checked iff at least one own-persona
-    // lorebook is active for the current chat. Two helpers to keep the persist/UI sync identical
-    // across the three exit paths below.
+    // One helper keeps the setting and the switch identical across the three exit paths below.
     const _setWIEnabled = (enabled) => {
         if (settings.enabled_world_info !== enabled) {
             settings.enabled_world_info = enabled;
@@ -893,7 +815,7 @@ export async function refreshWIStatus() {
         .filter(e => e.isOwn && e.collectionId.startsWith('vf_lorebook_'));
 
     if (ownLorebookEntries.length === 0) {
-        $status.html('<i class="fa-solid fa-circle-exclamation" style="color: var(--warning-color, #f39c12);"></i> No lorebooks vectorized — vectorize one first');
+        $status.html(worldInfoStatusMarkup({ state: 'no-lorebooks' }));
         _setWIEnabled(false);
         return;
     }
@@ -903,33 +825,15 @@ export async function refreshWIStatus() {
         .map(e => e.collectionId);
 
     if (activeIds.length === 0) {
-        $status.html(
-            '<i class="fa-solid fa-circle-exclamation" style="color: var(--warning-color, #f39c12);"></i> ' +
-            'Lorebook vectorized but not active for this chat — lock it in Database Browser → Collection Settings'
-        );
+        $status.html(worldInfoStatusMarkup({ state: 'none-active' }));
         _setWIEnabled(false);
         return;
     }
 
-    const names = activeIds.map(id => getCollectionMeta(id)?.sourceName || id);
-    const nameList = names.map(n => `<span style="font-style:italic;">${escapeHtml(n)}</span>`).join(', ');
-    $status.html(
-        `<i class="fa-solid fa-circle-check" style="color: var(--success-color, #27ae60);"></i> ` +
-        `Active for this chat: ${nameList}`
-    );
+    $status.html(worldInfoStatusMarkup({ state: 'active', names: activeIds.map(id => getCollectionMeta(id)?.sourceName || id) }));
     _setWIEnabled(true);
 }
 
-/**
- * Offer to fork a branch or checkpoint chat's EventBase from its parent, for the
- * auto-sync enable flow when the chat has no collection of its own yet.
- *
- * @param {object} settings
- * @returns {Promise<'forked'|'vectorize'|'cancel'>}
- *   'forked' — this chat now has its own collection; continue enabling.
- *   'vectorize' — no parent to fork from, or the user chose to start over.
- *   'cancel' — the user closed the popup, stopped the fork, or it failed.
- */
 /** Show how far this chat's link pass has got, in the StoryArc tab. */
 async function refreshStoryLinkStatus(settings) {
     const $status = $('#VectFox_story_arc_link_status');
@@ -991,6 +895,16 @@ async function _runStoryLinkButton(settings) {
     await runStoryLinkPass({ collectionId, settings, shouldRelinkDecided: choice === 2 || !hasUndecided });
 }
 
+/**
+ * Offer to fork a branch or checkpoint chat's EventBase from its parent, for the
+ * auto-sync enable flow when the chat has no collection of its own yet.
+ *
+ * @param {object} settings
+ * @returns {Promise<'forked'|'vectorize'|'cancel'>}
+ *   'forked' — this chat now has its own collection; continue enabling.
+ *   'vectorize' — no parent to fork from, or the user chose to start over.
+ *   'cancel' — the user closed the popup, stopped the fork, or it failed.
+ */
 async function _offerEventBaseFork(settings) {
     const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../eventbase/index.js');
 
@@ -2547,7 +2461,8 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // World Info Integration settings
+    // Semantic activation (WorldInfo page). On needs an own-persona lorebook locked to this
+    // chat; off removes the lock that makes each active one active.
     $('#VectFox_enabled_world_info')
         .prop('checked', settings.enabled_world_info || false)
         .on('change', async function() {
@@ -2566,7 +2481,7 @@ function bindSettingsEvents(settings, callbacks) {
             if (enabled) {
                 if (ownLorebookEntries.length === 0) {
                     $checkbox.prop('checked', false);
-                    toastr.info('Vectorize a lorebook first to use Semantic WI Activation');
+                    toastr.info('Vectorize a lorebook first to use semantic activation');
                     openContentVectorizer('lorebook');
                     return;
                 }
@@ -2605,35 +2520,10 @@ function bindSettingsEvents(settings, callbacks) {
             $('#VectFox_world_info_settings').toggle(enabled);
         });
 
-    $('#VectFox_world_info_threshold')
-        .val(settings.world_info_threshold ?? 0.3)
-        .on('input', function() {
-            const value = parseFloat($(this).val());
-            const safeValue = isNaN(value) ? 0.3 : Math.max(0, Math.min(1, value));
-            settings.world_info_threshold = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    $('#VectFox_world_info_top_k')
-        .val(settings.world_info_top_k ?? 3)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 3 : Math.max(1, Math.min(20, value));
-            settings.world_info_top_k = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    $('#VectFox_world_info_query_depth')
-        .val(settings.world_info_query_depth ?? 3)
-        .on('input', function() {
-            const value = parseInt($(this).val());
-            const safeValue = isNaN(value) ? 3 : Math.max(1, Math.min(10, value));
-            settings.world_info_query_depth = safeValue;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
+    // Matching (WorldInfo page). The threshold's floor is 0.01: retrieval reads 0 as its 0.3 default.
+    bindNumberSetting(settings, { id: 'VectFox_world_info_threshold', key: 'world_info_threshold', initial: settings.world_info_threshold ?? 0.3 });
+    bindNumberSetting(settings, { id: 'VectFox_world_info_top_k', key: 'world_info_top_k', initial: settings.world_info_top_k ?? 3, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_world_info_query_depth', key: 'world_info_query_depth', initial: settings.world_info_query_depth ?? 3, isInteger: true });
 
     $('#VectFox_world_info_retrieval_popup')
         .prop('checked', settings.world_info_retrieval_popup === true)
@@ -2714,142 +2604,6 @@ function bindSettingsEvents(settings, callbacks) {
     // intent rather than enabling auto-sync off some later unrelated run.
     document.addEventListener('vectfox:content-vectorizer-closed', () => {
         _autoSyncEnableAwaitingVectorizeForChat = null;
-    });
-
-    // Debug buttons: Test semantic WI and dump registry
-    $('#VectFox_wi_test_btn').on('click', async function() {
-        try {
-            const raw = $('#VectFox_wi_test_input').val() || '';
-            const recentMessages = raw.split('\n').map(s => s.trim()).filter(Boolean);
-            const activeEntries = [];
-            const cfg = window.extension_settings?.vectfox || settings;
-
-            log.trace('VectFox: Running semantic WI test with messages:', recentMessages);
-
-            // Primary: use initialized hooks if available
-            if (window.VectFox_WorldInfo && typeof window.VectFox_WorldInfo.getSemanticEntries === 'function') {
-                const entries = await window.VectFox_WorldInfo.getSemanticEntries(recentMessages, activeEntries, cfg);
-                log.trace('VectFox: Semantic WI test results (via window hooks):', entries);
-                if (cfg.world_info_retrieval_popup) toastr.info(`Semantic WI test completed - ${entries.length} entries (see console)`);
-
-                // If no entries found, provide extended diagnostics to help debug
-                if (!entries || entries.length === 0) {
-                    try {
-                        log.trace('VectFox: No semantic entries — dumping registry and per-collection query info...');
-                        const registry = getCollectionRegistry();
-                        log.trace('VectFox: Collection registry:', registry);
-
-                        const coreApi = await import('../vector-backend/index.js');
-                        const metaMod = await import('../collections/index.js');
-
-                        for (const registryKey of registry) {
-                            try {
-                                const collKey = parseRegistryKey(registryKey).collectionId;
-                                if (!collKey.startsWith('vf_lorebook_')) continue; // focus on lorebooks
-                                const meta = metaMod.getCollectionMeta(collKey);
-                                log.trace(`VectFox: Collection meta for ${collKey}:`, meta);
-
-                                // Check saved hashes (true=include metadata)
-                                if (coreApi.getSavedHashes) {
-                                    try {
-                                        const saved = await coreApi.getSavedHashes(collKey, cfg, true);
-                                        log.trace(`VectFox: getSavedHashes for ${collKey}:`, saved && saved.hashes ? saved.hashes.length + ' hashes' : saved);
-                                    } catch (hErr) {
-                                        log.warn(`VectFox: getSavedHashes failed for ${collKey}:`, hErr.message);
-                                    }
-                                }
-
-                                // Run a direct vector query against this collection
-                                const diagQueryText = recentMessages.join('\n');
-                                if (!diagQueryText.trim()) {
-                                    log.trace(`VectFox: skipping queryCollection for ${collKey} — no test messages provided`);
-                                } else {
-                                    try {
-                                        const qres = await coreApi.queryCollection(collKey, diagQueryText, cfg.world_info_top_k || 3, cfg);
-                                        log.trace(`VectFox: queryCollection result for ${collKey}:`, qres);
-                                    } catch (qErr) {
-                                        log.warn(`VectFox: queryCollection failed for ${collKey}:`, qErr.message);
-                                    }
-                                }
-                            } catch (inner) {
-                                log.warn(`VectFox: Error inspecting collection ${registryKey}:`, inner);
-                            }
-                        }
-
-                        if (cfg.world_info_retrieval_popup) toastr.info('Extended WI diagnostics written to console (registry + per-collection queries)');
-                    } catch (diagErr) {
-                        log.error('VectFox: Failed to run extended WI diagnostics', diagErr);
-                        toastr.error('Failed to run WI diagnostics: ' + (diagErr.message || diagErr));
-                    }
-                }
-
-                return;
-            }
-
-            // Fallback: try dynamic import of module (in case initialization order differed)
-            try {
-                const { getSemanticWorldInfoEntries } = await import('../world-info/index.js');
-                const entries = await getSemanticWorldInfoEntries(recentMessages, activeEntries, cfg);
-                log.trace('VectFox: Semantic WI test results (via dynamic import):', entries);
-                if (cfg.world_info_retrieval_popup) toastr.info(`Semantic WI test completed - ${entries.length} entries (see console)`);
-                return;
-            } catch (impErr) {
-                log.warn('VectFox: Dynamic import fallback failed:', impErr.message);
-                toastr.error('VectFox: WorldInfo hooks not initialized and dynamic import failed: ' + impErr.message);
-                return;
-            }
-
-        } catch (e) {
-            log.error('VectFox: Semantic WI test failed', e);
-            globalThis.toastr?.error('Semantic WI test failed: ' + (e.message || String(e)));
-        }
-    });
-
-    $('#VectFox_wi_dump_registry').on('click', function() {
-        try {
-            const registry = getCollectionRegistry();
-            log.trace('VectFox: Collection registry dump:', registry);
-            toastr.info(`Collection registry dumped to console (${registry.length} items)`);
-        } catch (e) {
-            log.error('VectFox: Failed to dump registry', e);
-            toastr.error('Failed to dump registry: ' + e.message);
-        }
-    });
-
-    // Copy the first semantic hit's text to the clipboard, for pasting into SillyTavern's World Info editor
-    $('#VectFox_wi_apply_first').on('click', async function() {
-        try {
-            const raw = $('#VectFox_wi_test_input').val() || '';
-            const recentMessages = raw.split('\n').map(s => s.trim()).filter(Boolean);
-            const cfg = window.extension_settings?.vectfox || settings;
-
-            if (!window.VectFox_WorldInfo || !window.VectFox_WorldInfo.getSemanticEntries) {
-                toastr.error('VectFox: WorldInfo hooks not initialized');
-                return;
-            }
-
-            const entries = await window.VectFox_WorldInfo.getSemanticEntries(recentMessages, [], cfg);
-            if (!entries || entries.length === 0) {
-                toastr.info('No semantic entries found');
-                return;
-            }
-
-            const first = entries[0];
-            log.trace('VectFox: First semantic WI entry:', first);
-
-            const text = first.content || (Array.isArray(first.key) ? first.key.join(', ') : String(first.key));
-            try {
-                await navigator.clipboard.writeText(text);
-                toastr.info('Semantic entry copied to clipboard. Paste into World Info editor to activate.');
-            } catch (e) {
-                log.warn('VectFox: Clipboard write failed; semantic entry content:', text, e);
-                toastr.info('Semantic entry logged to console. Paste into World Info editor to activate.');
-            }
-
-        } catch (e) {
-            log.error('VectFox: Apply semantic WI failed', e);
-            toastr.error('Failed to apply semantic WI entry: ' + e.message);
-        }
     });
 
     // Injection position (where every VectFox block goes in the prompt)

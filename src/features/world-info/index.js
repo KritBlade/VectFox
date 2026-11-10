@@ -4,7 +4,6 @@
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export {
     clearLorebookPrompt,
-    getSemanticWorldInfoEntries,
     initializeWorldInfoIntegration,
     runLorebookWIDryRun,
 } from './world-info-integration.js';

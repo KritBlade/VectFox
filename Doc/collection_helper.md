@@ -308,9 +308,9 @@ scope='character' + unchecked →  removeCollectionCharacterLock(state.collectio
 
 Each call only touches the lock for the **current** chat/character. Other chats or characters that have this collection locked keep their entries intact — `removeCollectionLock` filters by id, doesn't wipe the list.
 
-## WI Panel — "Enable Semantic WI Activation" checkbox
+## WorldInfo page — the "Use in this chat" switch
 
-In `src/features/settings-panel/settings-panel.js`.
+In `src/features/settings-panel/settings-panel.js`; [worldinfo-page-markup.js](../src/features/settings-panel/worldinfo-page-markup.js) builds the page and its status.
 
 **`refreshWIStatus`** (auto-sync from events) fires on:
 - WorldInfo tab click
@@ -319,24 +319,24 @@ In `src/features/settings-panel/settings-panel.js`.
 - `CHAT_CHANGED` event
 - Initial load
 
-It computes `activeIds` by filtering own-persona lorebooks (creatorHandle stamp) through `isCollectionActiveForContext`, then drives the checkbox + status via an inline `_setWIEnabled(bool)` helper:
+It computes `activeIds` by filtering own-persona lorebooks (creatorHandle stamp) through `isCollectionActiveForContext`, then drives the switch through an inline `_setWIEnabled(bool)` helper and the status through `worldInfoStatusMarkup`:
 
-| Result | Checkbox | LED | Status |
+| Result | Switch | Tone | Status |
 |---|---|---|---|
-| 0 lorebooks (this persona) | ❎ | 🟡 | "No lorebooks vectorized — vectorize one first" |
-| 0 active | ❎ | 🟡 | "Lorebook vectorized but not active for this chat — lock it…" |
-| ≥1 active | ✅ | 🟢 | "Active for this chat: <names>" |
+| 0 lorebooks (this persona) | off | warning | "No lorebook vectorized yet. Vectorize Content on the Action page stores one." |
+| 0 active | off | warning | "No lorebook is locked to this chat. Lock one in Database Browser → Collection Settings." |
+| ≥1 active | on | success | "Active for this chat: <names>" |
 
 **Critical:** `_setWIEnabled` calls `prop('checked', enabled)` directly. It does **not** call `.trigger('change')`. This is load-bearing — see "Manual vs auto-sync paths" below.
 
-**Manual change handler** (user clicks the checkbox):
+**Manual change handler** (the user turns the switch):
 
 | Action | Behaviour |
 |---|---|
-| ✓ Check + no own lorebooks | Uncheck, redirect to Content Vectorizer (`'lorebook'`) |
-| ✓ Check + no active | Uncheck, redirect to DB Browser |
-| ✓ Check + ≥1 active | Persist `enabled_world_info=true`, show settings panel |
-| ✗ Uncheck | For each currently-active own lorebook, remove the lock making it active (chat or character per scope). Dispatch `vectfox:collections-updated`. Persist `enabled_world_info=false`. |
+| On + no own lorebooks | Back off, info toast, open Content Vectorizer (`'lorebook'`) |
+| On + no active | Back off, info toast, open DB Browser |
+| On + ≥1 active | Persist `enabled_world_info=true`, show the Matching card |
+| Off | For each currently-active own lorebook, remove the lock making it active (chat or character per scope). Dispatch `vectfox:collections-updated`. Persist `enabled_world_info=false`, hide the Matching card. |
 
 ## Auto-sync — the "Auto-sync this chat" switch
 
@@ -627,20 +627,20 @@ UI elements that mirror lock state are pulled in two ways. The distinction matte
 
 | Trigger | Calls `.trigger('change')` | Lock mutation? |
 |---|---|---|
-| User clicks WI checkbox | (browser-native) | **Yes** — change handler removes/checks locks |
+| User turns the semantic activation switch | (browser-native) | **Yes** — change handler removes/checks locks |
 | User turns the auto-sync switch | (browser-native) | **Yes** — change handler removes/sets chat lock |
 | User clicks "Active for current chat" in Collection Settings | (via Save button) | **Yes** — `saveActivation` mutates |
 | `refreshWIStatus` auto-uncheck | **No** — `_setWIEnabled` uses `prop()` only | **No** — pure UI mirror |
 | `refreshAutoSyncCheckbox` auto-state | **No** — direct `prop()` | **No** — pure UI mirror |
 | `refreshActivationLockButton` after Manage Locks | **No** — direct `prop()` | **No** — re-reads state set by the dialog |
 
-**Rule:** auto-sync paths must never invoke the change handler. Otherwise, opening the WI panel could trigger lock removal as a side effect of the UI sync.
+**Rule:** auto-sync paths must never invoke the change handler. Otherwise, opening the WorldInfo page could trigger lock removal as a side effect of the UI sync.
 
 ## Custom events
 
 | Event | Fired by | Listeners |
 |---|---|---|
-| `vectfox:collections-updated` | `saveActivation`, WI uncheck handler, Auto-Sync change handler | `refreshWIStatus`, `refreshAutoSyncCheckbox` |
+| `vectfox:collections-updated` | `saveActivation`, the semantic activation switch turned off, the auto-sync switch | `refreshWIStatus`, `refreshAutoSyncCheckbox` |
 | `vectfox:eventbase-synced` | `runEventBaseIngestion` at end of run | `refreshAutoSyncCheckbox` |
 
 Plus ST's `CHAT_CHANGED` — same two refresh handlers re-run.
@@ -670,7 +670,7 @@ Triggers and conditions narrow a locked collection; neither can activate an unlo
 | `src/features/eventbase/eventbase-workflow.js` | `getChatAutoSyncStatus`, `isChatFullyVectorized`, dispatches `vectfox:eventbase-synced` |
 | `src/features/chunkbase/content-vectorization.js` | Default `scope='character'`, no `'global'` fallback |
 | `src/features/database-browser/database-browser.js` | Listing lock badge, `openActivationEditor`, `renderActivationEditor`, `refreshActivationLockButton`, `saveActivation` |
-| `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, WI checkbox handler, auto-sync switch handler, event listeners |
+| `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, the semantic activation and auto-sync switch handlers, event listeners |
 | `src/features/chunkbase/content-vectorizer.js` | Scope picker without global, post-vectorization `refreshWIStatus` call |
 
 ## Things you should NOT do
