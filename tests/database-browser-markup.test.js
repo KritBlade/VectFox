@@ -52,6 +52,7 @@ const VIEW = {
 
 const actionsOf = fragment => [...fragment.querySelectorAll('[data-collection-action]')].map(button => button.dataset.collectionAction);
 const pillsOf = fragment => [...fragment.querySelectorAll('.vfx-pill')].map(pill => pill.textContent);
+const subLines = fragment => [...fragment.querySelectorAll('.vfx-row-sub')].map(line => line.textContent);
 
 describe('the browser shell', () => {
     it('is a top bar with one nav item and one page per page, the first one shown', () => {
@@ -192,8 +193,7 @@ describe('the Size page', () => {
     it('ranks a collection with Show entries, and a failed one without', () => {
         const summary = parse(sizeSummaryRowMarkup(row));
         expect(summary.querySelector('[data-size-action="show"]').dataset.sizeKey).toBe('qdrant:vf_x');
-        expect(summary.textContent).toContain('3 entries, largest 900 characters');
-        expect(summary.textContent).toContain('average 400, 1.5 MB in all');
+        expect(subLines(summary)).toEqual(['3 entries, 1.5 MB in all', 'Characters per entry: largest 900, average 400', 'Largest entry: A long event']);
         const failed = parse(sizeSummaryRowMarkup({ ...row, count: 0, error: true, worstPreview: 'Could not read it: boom' }));
         expect(failed.querySelector('[data-size-action]')).toBeNull();
         expect(pillsOf(failed)).toContain('Failed');

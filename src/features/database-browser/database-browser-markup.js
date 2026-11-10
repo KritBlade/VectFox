@@ -457,12 +457,17 @@ export function sizeStatusMarkup({ text, isFailed = false }) {
  * @returns {string}
  */
 export function sizeSummaryRowMarkup(row) {
-    const sizes = `${counted(row.count, 'entry', 'entries')}, largest ${row.maxChars} characters, average ${row.avgChars}, ${formatBytes(row.totalBytes)} in all`;
+    const sizes = `${counted(row.count, 'entry', 'entries')}, ${formatBytes(row.totalBytes)} in all`;
+    const characters = `largest ${row.maxChars}, average ${row.avgChars}`;
     const canShow = !row.error && row.count > 0;
     return listRow({
         icon: row.error ? 'fa-circle-exclamation' : 'fa-database',
         name: row.collectionId,
-        sub: row.error ? [{ name: row.worstPreview }] : [{ name: sizes }, row.count > 0 ? { text: 'Largest', name: row.worstPreview } : null],
+        sub: row.error ? [{ name: row.worstPreview }] : [
+            { name: sizes },
+            row.count > 0 ? { text: 'Characters per entry', name: characters } : null,
+            row.count > 0 ? { text: 'Largest entry', name: row.worstPreview } : null,
+        ],
         pills: [statusPill({ name: row.backend }), row.error ? statusPill({ text: 'Failed', status: 'danger' }) : ''].filter(Boolean),
         actions: canShow ? [iconButton({ icon: 'fa-list-ol', title: 'Show entries', data: { 'size-action': 'show', 'size-key': row.key } })] : [],
     });
