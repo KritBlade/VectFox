@@ -2,8 +2,9 @@
  * @vitest-environment jsdom
  *
  * Vectorize Content's rules (src/features/chunkbase/content-vectorizer-core.js): the chunking controls a page shows, the
- * values its boxes take, and how files and fetched pages become sources, including the old dialog's faults: a PNG card's
- * non-ASCII name decoded byte by byte, and a web page read as JSON when SillyTavern returns its HTML.
+ * values its boxes take, what the dialog does once an EventBase run ends, and how files and fetched pages become
+ * sources, including the old dialog's faults: a PNG card's non-ASCII name decoded byte by byte, and a web page read as
+ * JSON when SillyTavern returns its HTML.
  */
 /* global DOMParser -- this file runs under the jsdom environment */
 
@@ -13,6 +14,7 @@ import {
     characterStats,
     chatCharacterName,
     chunkingControls,
+    eventBaseRunEnding,
     extractCharNameFromArchiveFilename,
     extractCharaFromPng,
     extractFandomId,
@@ -149,5 +151,27 @@ describe('preview', () => {
         expect(preview.rows[0]).toEqual({ number: 1, text: 'Chunk 0', length: 7 });
         const entry = previewOf([{ text: 'Rules the harbor.', metadata: { strategy: 'llm_reformat', entry_type: 'character', name: 'Keeper' } }], 17);
         expect(entry.rows[0].text).toBe('[character] Keeper: Rules the harbor.');
+    });
+});
+
+describe('the end of an EventBase run', () => {
+    it('closes after a clean read of something new', () => {
+        expect(eventBaseRunEnding({ windowsProcessed: 4 }, { unfinishedWindowCount: 0 })).toEqual({ shouldClose: true, message: '' });
+    });
+
+    it('stays open saying so when nothing was new, a message short of a window included', () => {
+        const ending = eventBaseRunEnding({ windowsProcessed: 0 }, { unfinishedWindowCount: 0 });
+        expect(ending.shouldClose).toBe(false);
+        expect(ending.message).toBe('Nothing new to read. A message that does not fill a window waits for the next one.');
+    });
+
+    it('stays open on a stop, with or without a result, pointing at Resume', () => {
+        expect(eventBaseRunEnding({ windowsProcessed: 2 }, { isStopped: true }).message).toContain('Resume');
+        expect(eventBaseRunEnding(null, { isStopped: true }).shouldClose).toBe(false);
+    });
+
+    it('stays open quietly when windows were left, whose notice says the rest, or when the run never started', () => {
+        expect(eventBaseRunEnding({ windowsProcessed: 3 }, { unfinishedWindowCount: 1 })).toEqual({ shouldClose: false, message: '' });
+        expect(eventBaseRunEnding(null)).toEqual({ shouldClose: false, message: '' });
     });
 });

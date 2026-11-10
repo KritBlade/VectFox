@@ -18,7 +18,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { closePanelPopup, confirmPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
-import { getChatUUID, vectorizeAll } from './chat-vectorization.js';
+import { getChatUUID, runEventBaseOnOpenChat } from './chat-vectorization.js';
 import { resolveInheritedConnection, validateLLMConfig } from '../llm-provider/index.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { resolveEffectiveSettings } from './content-vectorization.js';
@@ -34,6 +34,7 @@ import {
     characterStats,
     chatCharacterName,
     chunkingControls,
+    eventBaseRunEnding,
     extractCharNameFromArchiveFilename,
     extractCharaFromPng,
     extractFandomId,
@@ -446,7 +447,9 @@ async function fetchTranscript() {
     const response = await postToSillyTavern('/api/search/transcript', { id: videoId, lang: lang || undefined });
     if (!response.ok) throw new Error(await failedResponseReason(response));
     const transcript = await response.text();
-    if (transcript.length < 50) throw new Error('This video has no transcript.');
+    // SillyTavern answers empty when its server got no caption lines; YouTube withholds them from many servers, so a video
+    // with captions can come back empty too.
+    if (transcript.length < 50) throw new Error('SillyTavern got no transcript for this video. YouTube often withholds transcripts from servers, even for videos with captions.');
     paint('youtube', 'fetched', loadedSourceMarkup({ state: 'done', lines: [
         { text: 'Video', name: videoId },
         { text: 'Text', name: `${formatCount(transcript.length)} characters` },
@@ -707,9 +710,11 @@ function hasLlmConfig(settings) {
     return check.ok;
 }
 
+const isTouchScreen = () => window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+
 /** On a touch screen the dialog covers the progress panel, so it closes while the run goes on. */
 function closeForProgressOnTouch() {
-    if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) void closeContentVectorizer();
+    if (isTouchScreen()) void closeContentVectorizer();
 }
 
 function startRun(typeId) {
@@ -719,17 +724,22 @@ function startRun(typeId) {
     return activeRun.abortController.signal;
 }
 
-function endRun() {
+/** @param {string} [message] - What the run's page says once it ends, where nothing else has said it */
+function endRun(message = '') {
     progressTracker.clearCancelHandler();
-    const { isFromDialog } = activeRun;
+    const { isFromDialog, typeId } = activeRun;
     activeRun = null;
-    showRunState();
+    showRunState(message, typeId);
     // The auto-sync catch-up runs with no dialog, so there is no close to announce.
     if (isFromDialog) announceClosedWhenIdle();
 }
 
+/** The progress panel's Stop and the page's call it; the run ends once what was already sent comes back. */
 function stopRun() {
-    if (activeRun && !activeRun.abortController.signal.aborted) activeRun.abortController.abort('user-stop');
+    if (!activeRun || activeRun.abortController.signal.aborted) return;
+    activeRun.abortController.abort('user-stop');
+    const line = hintOf(activeRun.typeId, 'run-state');
+    if (line) line.textContent = 'Stopping: what was already sent finishes first.';
 }
 
 const isStoppedError = error => error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('stopped by user');
@@ -838,19 +848,16 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
     const signal = startRun(typeId);
     // On a touch screen the panel shows at once and the dialog closes, so the quick exits below still leave the
     // Progress button a panel to open.
-    if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) progressTracker.show('EventBase Extraction', 0, 'Windows');
+    const isPanelShownAtStart = isTouchScreen();
+    if (isPanelShownAtStart) progressTracker.show('EventBase Extraction', 0, 'Windows');
     closeForProgressOnTouch();
+    let endMessage = '';
 
     try {
         const { runEventBaseIngestion, countUnfinishedWindows, notifyUnfinishedWindows, prepareForFreshExtraction } = await import('../eventbase/index.js');
         const settings = extension_settings.vectfox || {};
-        const resetCachesOf = async (uuid) => {
-            // Forget what was read of the chat, so ingestion starts from startFromMessage instead of fast-forwarding past
-            // a tip a deleted collection left; skipTipFallback below keeps the workflow from finding that tip again in
-            // Qdrant.
-            if (resetCaches && uuid) await prepareForFreshExtraction(uuid);
-        };
 
+        let result = null;
         if (source?.type === 'file') {
             const allMessages = (source.messages || []).filter(message => message.mes && message.mes.trim().length > 0);
             if (!allMessages.length) {
@@ -862,76 +869,32 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
             const messages = allMessages.slice(skipped);
             const chatUUID = source.archiveUUID;
             const collectionIdOverride = buildArchiveEventCollectionId({ filenameCharName: source.filenameCharName, archiveUUID: chatUUID, backend: settings.vector_backend });
-            await resetCachesOf(chatUUID);
+            // As on the open chat: Vectorize forgets what was read, and skipTipFallback keeps the Qdrant tip from
+            // fast-forwarding past it.
+            if (resetCaches && chatUUID) await prepareForFreshExtraction(chatUUID);
             log.lifecycle(`[EventBase] Archive upload route — collection: ${collectionIdOverride}, messages: ${messages.length}`);
 
-            const result = await runEventBaseIngestion({ messages, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride, skipTipFallback: resetCaches });
-            if (signal.aborted) {
-                progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
-            } else if (countUnfinishedWindows(result) > 0) {
-                // The workflow's complete(false, …) stays: the windows left are not a success.
-                notifyUnfinishedWindows(result);
-                await closeContentVectorizer();
-            } else {
-                progressTracker.complete(true, `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows`);
-                await closeContentVectorizer();
-            }
-            return;
+            result = await runEventBaseIngestion({ messages, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride, skipTipFallback: resetCaches });
+        } else {
+            result = await runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches });
         }
+        // No result: the run could not start, and said why.
+        if (!result) return;
 
-        const context = getContext();
-        if (!Array.isArray(context.chat) || !context.chat.length) {
-            toastr.warning('The open chat has no messages to read.', 'EventBase');
-            return;
-        }
-        const chatUUID = getChatUUID();
-        await resetCachesOf(chatUUID);
-
-        // EventBase remembers the windows it read by their size, so a new size reads the whole chat again, paying
-        // for every window. Ask first. checkWindowSizeChanged and prepareForFreshExtraction are the one rule for it.
-        const { checkWindowSizeChanged, setLastUsedWindowSize } = await import('../eventbase/index.js');
-        const sizeCheck = checkWindowSizeChanged(chatUUID, Math.max(2, settings.eventbase_window_size || 2));
-        let freshExtraction = null;
-        if (sizeCheck.changed) {
-            const messageCount = context.chat.filter(message => message.mes && message.mes.trim().length > 0).length;
-            const isConfirmed = await confirmPopup([
-                { text: 'The window size changed since EventBase last read this chat.' },
-                { text: 'Then:', name: `${sizeCheck.oldSize} messages` },
-                { text: 'Now:', name: `${sizeCheck.newSize} messages` },
-                { text: 'EventBase reads the chat again from the Start From message, about this many LLM calls:', name: formatCount(Math.floor(messageCount / sizeCheck.newSize)) },
-                { text: 'The events it has stay, so the collection holds events at both sizes.' },
-            ], { okButton: 'Read again', isDestructive: true });
-            if (!isConfirmed) {
-                progressTracker.complete(false, 'Cancelled — window size mismatch');
-                return;
-            }
-            // Stamped now, as the answer, not at the run's end: a run that fails midway would ask again otherwise.
-            setLastUsedWindowSize(chatUUID, sizeCheck.newSize);
-            log.lifecycle(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
-            freshExtraction = await prepareForFreshExtraction(chatUUID);
-        }
-
-        const plan = getContentTypeDefaults('chat');
-        const batchSize = Number(plan.batchSize) || 4;
-        const { chunkText } = await import('./chunking.js');
-        const plannedChunks = await chunkText(context.chat.filter(message => message.mes && message.mes.trim().length > 0), {
-            strategy: plan.strategy || 'per_message',
-            chunkSize: plan.chunkSize || 1000,
-            chunkOverlap: plan.chunkOverlap || 200,
-            batchSize,
-        });
-        await vectorizeAll(settings, batchSize, signal, {
-            startFromMessage,
-            parallelWindows,
-            progressPlan: { strategy: plan.strategy || 'per_message', batchSize, totalChunks: Array.isArray(plannedChunks) ? plannedChunks.length : 0 },
-            // Both a Vectorize and a Yes to the window-size question asked to read the chat again, which the
-            // workflow's Qdrant-side tip would otherwise fast-forward past.
-            skipTipFallback: resetCaches || Boolean(freshExtraction?.skipTipFallback),
-        });
-        if (!signal.aborted) await closeContentVectorizer();
+        const unfinishedWindowCount = countUnfinishedWindows(result);
+        const ending = eventBaseRunEnding(result, { isStopped: signal.aborted, unfinishedWindowCount });
+        // The workflow put its verdict on the progress panel; a stop gets the count saved, and windows left a sticky
+        // notice, as they are the user's to send again.
+        if (signal.aborted) progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
+        else if (unfinishedWindowCount > 0) notifyUnfinishedWindows(result);
+        else if (!ending.shouldClose && isPanelShownAtStart) progressTracker.complete(true, ending.message);
+        log.lifecycle(`[EventBase] Run ended: ${result.eventsExtracted} events from ${result.windowsProcessed} windows, ${result.windowsSkipped ?? 0} skipped, ${unfinishedWindowCount} unfinished`);
+        endMessage = ending.message;
+        if (ending.shouldClose) await closeContentVectorizer();
     } catch (error) {
         if (isStoppedError(error)) {
             log.lifecycle('[EventBase] Ingestion stopped by user');
+            endMessage = eventBaseRunEnding(null, { isStopped: true }).message;
             return;
         }
         // Insert failures carry Qdrant's own words, too long for a toast; a dialog lets the user read and copy them.
@@ -955,10 +918,75 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
             return;
         }
         log.error('[EventBase] Backfill failed:', error);
-        toastr.error(`EventBase failed: ${error.message}`, 'VectFox');
+        progressTracker.complete(false, `EventBase failed: ${error.message}`);
+        // A configuration error, such as a model the provider does not offer, already says how to fix it.
+        if (isInvalidModelConfigError(error)) notifyInvalidModel(error.message);
+        else toastr.error(`EventBase failed: ${error.message}`, 'VectFox');
     } finally {
-        endRun();
+        endRun(endMessage);
     }
+}
+
+/**
+ * Run EventBase over the open chat, asking first when its window size changed since EventBase last read it.
+ *
+ * @param {AbortSignal} signal - Stops the run
+ * @param {{startFromMessage: number, parallelWindows: number, resetCaches: boolean}} run
+ * @returns {Promise<object|null>} The run's result, or null when it did not run, having said why
+ */
+async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches }) {
+    const { prepareForFreshExtraction, checkWindowSizeChanged, setLastUsedWindowSize } = await import('../eventbase/index.js');
+    const settings = extension_settings.vectfox || {};
+    const context = getContext();
+    if (!Array.isArray(context.chat) || !context.chat.length) {
+        toastr.warning('The open chat has no messages to read.', 'EventBase');
+        return null;
+    }
+    const chatUUID = getChatUUID();
+    // Vectorize forgets what was read of the chat, so ingestion starts from startFromMessage instead of fast-forwarding
+    // past a tip a deleted collection left; skipTipFallback below keeps the workflow from finding that tip in Qdrant.
+    if (resetCaches && chatUUID) await prepareForFreshExtraction(chatUUID);
+
+    // EventBase remembers the windows it read by their size, so a new size reads the whole chat again, paying for every
+    // window. Ask first. checkWindowSizeChanged and prepareForFreshExtraction are the one rule for it.
+    const sizeCheck = checkWindowSizeChanged(chatUUID, Math.max(2, settings.eventbase_window_size || 2));
+    let freshExtraction = null;
+    if (sizeCheck.changed) {
+        const messageCount = context.chat.filter(message => message.mes && message.mes.trim().length > 0).length;
+        const isConfirmed = await confirmPopup([
+            { text: 'The window size changed since EventBase last read this chat.' },
+            { text: 'Then:', name: `${sizeCheck.oldSize} messages` },
+            { text: 'Now:', name: `${sizeCheck.newSize} messages` },
+            { text: 'EventBase reads the chat again from the Start From message, about this many LLM calls:', name: formatCount(Math.floor(messageCount / sizeCheck.newSize)) },
+            { text: 'The events it has stay, so the collection holds events at both sizes.' },
+        ], { okButton: 'Read again', isDestructive: true });
+        if (!isConfirmed) {
+            progressTracker.complete(false, 'Cancelled — window size mismatch');
+            return null;
+        }
+        // Stamped now, as the answer, not at the run's end: a run that fails midway would ask again otherwise.
+        setLastUsedWindowSize(chatUUID, sizeCheck.newSize);
+        log.lifecycle(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
+        freshExtraction = await prepareForFreshExtraction(chatUUID);
+    }
+
+    const plan = getContentTypeDefaults('chat');
+    const batchSize = Number(plan.batchSize) || 4;
+    const { chunkText } = await import('./chunking.js');
+    const plannedChunks = await chunkText(context.chat.filter(message => message.mes && message.mes.trim().length > 0), {
+        strategy: plan.strategy || 'per_message',
+        chunkSize: plan.chunkSize || 1000,
+        chunkOverlap: plan.chunkOverlap || 200,
+        batchSize,
+    });
+    return runEventBaseOnOpenChat(settings, signal, {
+        startFromMessage,
+        parallelWindows,
+        progressPlan: { strategy: plan.strategy || 'per_message', batchSize, totalChunks: Array.isArray(plannedChunks) ? plannedChunks.length : 0 },
+        // Both a Vectorize and a Yes to the window-size question asked to read the chat again, which the workflow's
+        // Qdrant-side tip would otherwise fast-forward past.
+        skipTipFallback: resetCaches || Boolean(freshExtraction?.skipTipFallback),
+    });
 }
 
 /**
@@ -999,7 +1027,10 @@ function runAction(typeId, name) {
         case 'preview': return previewChunks(typeId);
         case 'resume': return resumeChat(typeId);
         case 'vectorize': return startVectorization(typeId);
-        case 'stop': return stopRun();
+        // Through the panel first, so it says Stopping too; stopRun covers a run whose panel has not shown yet.
+        case 'stop':
+            progressTracker.requestCancel();
+            return stopRun();
         default: return undefined;
     }
 }
@@ -1082,21 +1113,35 @@ function bindVectorizer(root) {
         }
         if (control.id) void readControl(control);
     });
-    // A file dropped on a page's Source card loads as one picked there.
+    // A file dropped on the Source card of a page that takes files loads as one picked there. Any file drag stops at the
+    // dialog: SillyTavern's own drop on the page body imports a dropped PNG, JSON or YAML as a character.
     root.addEventListener('dragover', (event) => {
-        if (event.target.closest('[id$="_source_card"]') && event.dataTransfer?.types?.includes('Files')) event.preventDefault();
+        if (!event.dataTransfer?.types?.includes('Files')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = fileDropPageOf(event.target) ? 'copy' : 'none';
     });
     root.addEventListener('drop', (event) => {
-        const sourceCard = event.target.closest('[id$="_source_card"]');
-        const file = event.dataTransfer?.files?.[0];
-        if (!sourceCard || !file) return;
+        if (!event.dataTransfer?.types?.includes('Files')) return;
         event.preventDefault();
-        const typeId = typeOfElement(sourceCard);
+        event.stopPropagation();
+        const typeId = fileDropPageOf(event.target);
+        const file = event.dataTransfer.files?.[0];
+        if (!typeId || !file) return;
         const control = controlOf(typeId, 'source_choice');
-        if (control && control.value !== 'file' && [...control.options].some(option => option.value === 'file')) {
+        if (control.value !== 'file') {
             control.value = 'file';
             chooseSource(typeId);
         }
         void loadFile(typeId, file);
     });
+}
+
+/** The page whose Source card an element sits in, when that page can take a file; null otherwise. */
+function fileDropPageOf(element) {
+    const sourceCard = element.closest?.('[id$="_source_card"]');
+    if (!sourceCard) return null;
+    const typeId = typeOfElement(sourceCard);
+    const control = controlOf(typeId, 'source_choice');
+    return control && [...control.options].some(option => option.value === 'file') ? typeId : null;
 }

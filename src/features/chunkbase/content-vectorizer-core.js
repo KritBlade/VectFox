@@ -70,6 +70,23 @@ export function startFromMessageOf(text) {
     return Number.isFinite(message) && message >= 1 ? message : 1;
 }
 
+/**
+ * What the dialog does once an EventBase run ends: it closes after a clean read of something new, and otherwise stays
+ * open, its page saying why where nothing else has. Windows left unread get a sticky notice of their own.
+ *
+ * @param {{windowsProcessed: number}|null} result - The run's result; null when a stop threw before it had one
+ * @param {{isStopped?: boolean, unfinishedWindowCount?: number}} ending
+ * @returns {{shouldClose: boolean, message: string}}
+ */
+export function eventBaseRunEnding(result, { isStopped = false, unfinishedWindowCount = 0 } = {}) {
+    if (isStopped) return { shouldClose: false, message: 'Stopped. Resume adds what EventBase has not read yet.' };
+    if (!result || unfinishedWindowCount > 0) return { shouldClose: false, message: '' };
+    if (result.windowsProcessed === 0) {
+        return { shouldClose: false, message: 'Nothing new to read. A message that does not fill a window waits for the next one.' };
+    }
+    return { shouldClose: true, message: '' };
+}
+
 /** A file's name without its extension. */
 export const fileStem = name => String(name).replace(/\.[^/.]+$/, '');
 

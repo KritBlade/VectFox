@@ -5,7 +5,8 @@
  * type's page and each page keeps what was typed on it; a run says on its page what it needs; a fetch carries
  * SillyTavern's CSRF token, which the old dialog left out so every fetch got a 403; the Character fields and the
  * Lorebook's Include disabled entries, which nothing read, reach the run; a chat's Vectorize asks before reading again;
- * the close is announced once, after any run.
+ * the dialog closes after a clean read of something new and otherwise stays open saying why; the close is announced
+ * once, after any run.
  */
 /* global document, window -- this file runs under the jsdom environment */
 
@@ -19,6 +20,7 @@ const host = vi.hoisted(() => ({
     context: {},
     fetched: [],
     priorWindows: false,
+    runResult: null,
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root, saveSettingsDebounced: vi.fn() }));
@@ -46,7 +48,18 @@ vi.mock('../src/sillytavern/popup.js', () => ({
     confirmPopup: vi.fn(async () => host.answer),
     noticePopup: vi.fn(async () => {}),
 }));
-vi.mock('../src/features/chunkbase/chat-vectorization.js', () => ({ getChatUUID: () => 'chat-uuid', vectorizeAll: vi.fn(async () => {}) }));
+vi.mock('../src/features/chunkbase/chat-vectorization.js', () => ({
+    getChatUUID: () => 'chat-uuid',
+    runEventBaseOnOpenChat: vi.fn(async (settings, signal) => {
+        if (host.runResult instanceof Error) throw host.runResult;
+        // A run that goes on until stopped, then returns what it saved.
+        if (host.runResult === 'until-stopped') {
+            await new Promise(resolve => signal.addEventListener('abort', resolve));
+            return { eventsExtracted: 1, windowsProcessed: 1, windowsSkipped: 0 };
+        }
+        return host.runResult;
+    }),
+}));
 vi.mock('../src/features/chunkbase/content-vectorization.js', () => ({
     resolveEffectiveSettings: settings => ({ ...settings }),
     vectorizeContent: vi.fn(async () => ({ chunkCount: 3 })),
@@ -62,7 +75,8 @@ vi.mock('../src/features/text-cleaning/index.js', () => ({
     saveCleaningSettings: vi.fn(),
     openTextCleaningModal: vi.fn(),
 }));
-vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { setCancelHandler: vi.fn(), clearCancelHandler: vi.fn(), show: vi.fn(), complete: vi.fn() } }));
+// requestCancel does nothing here, as on a panel still holding the last run's verdict.
+vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { setCancelHandler: vi.fn(), clearCancelHandler: vi.fn(), show: vi.fn(), complete: vi.fn(), requestCancel: vi.fn() } }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ isInvalidModelConfigError: () => false, notifyInvalidModel: vi.fn() }));
 vi.mock('../src/shared/pick-files.js', () => ({ pickFiles: vi.fn(async () => []) }));
 vi.mock('../src/features/eventbase/index.js', () => ({
@@ -77,7 +91,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
 
 const { openContentVectorizer, backfillCurrentChatWithProgress } = await import('../src/features/chunkbase/content-vectorizer.js');
 const { vectorizeContent } = await import('../src/features/chunkbase/content-vectorization.js');
-const { vectorizeAll } = await import('../src/features/chunkbase/chat-vectorization.js');
+const { runEventBaseOnOpenChat } = await import('../src/features/chunkbase/chat-vectorization.js');
 const { confirmPopup, closePanelPopup } = await import('../src/sillytavern/popup.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 
@@ -107,6 +121,7 @@ beforeEach(async () => {
     closed.length = 0;
     host.answer = true;
     host.priorWindows = false;
+    host.runResult = { eventsExtracted: 3, windowsProcessed: 1, windowsSkipped: 0 };
     host.root.vectfox = { eventbase_window_size: 4, eventbase_window_overlap: 1 };
     host.context = {
         chatId: 'chat.jsonl',
@@ -156,6 +171,43 @@ describe('the rail', () => {
         const select = $id('vectfox_cv_character_source_select');
         await vi.waitFor(() => expect(select.value).toBe('keeper.png'));
         expect(select.options[1].textContent).toBe('Harbor Keeper (open now)');
+    });
+});
+
+describe('a dropped file', () => {
+    // jsdom has no DataTransfer and its File no text(), so the drop carries plain ones; SillyTavern listens for drops on
+    // the page body.
+    const fileOf = (name, text) => ({ name, text: async () => text });
+    const dropOn = (element, file) => {
+        const event = new Event('drop', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files: [file] } });
+        element.dispatchEvent(event);
+    };
+    const reachedBody = [];
+    const recordBodyDrop = () => reachedBody.push('drop');
+    beforeEach(() => {
+        reachedBody.length = 0;
+        document.body.addEventListener('drop', recordBodyDrop);
+        return () => document.body.removeEventListener('drop', recordBodyDrop);
+    });
+
+    it('loads on a Source card as a picked file, and SillyTavern never sees it', async () => {
+        openContentVectorizer('document');
+        dropOn($id('vectfox_cv_document_source_card'), fileOf('docks.md', '# Docks\n\nBoats unload at dawn.'));
+        await vi.waitFor(() => expect(page('document').querySelector('[data-cv-region="file"]').textContent).toContain('docks.md'));
+        expect($id('vectfox_cv_document_source_choice').value).toBe('file');
+        expect($id('vectfox_cv_document_doc_name').value).toBe('docks');
+        expect(reachedBody).toEqual([]);
+    });
+
+    it('loads nothing on a page that takes no file, and still stops at the dialog', async () => {
+        openContentVectorizer('url');
+        dropOn($id('vectfox_cv_url_source_card'), fileOf('gull.json', '{"name":"Gull"}'));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        actionOn('url', 'vectorize').click();
+        await vi.waitFor(() => expect(runState('url')).not.toBe(''));
+        expect(vectorizeContent).not.toHaveBeenCalled();
+        expect(reachedBody).toEqual([]);
     });
 });
 
@@ -219,7 +271,7 @@ describe('a chat\'s Vectorize', () => {
         actionOn('chat', 'vectorize').click();
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
         await new Promise(resolve => setTimeout(resolve, 0));
-        expect(vectorizeAll).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
         expect(host.dialogs).toHaveLength(1);
     });
 
@@ -227,12 +279,11 @@ describe('a chat\'s Vectorize', () => {
         host.priorWindows = true;
         openContentVectorizer('chat');
         actionOn('chat', 'vectorize').click();
-        await vi.waitFor(() => expect(vectorizeAll).toHaveBeenCalledTimes(1));
-        expect(vectorizeAll.mock.calls[0][3]).toMatchObject({ startFromMessage: 1, parallelWindows: 3, skipTipFallback: true });
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 3, skipTipFallback: true });
         await vi.waitFor(() => expect(host.dialogs).toHaveLength(0));
         await vi.waitFor(() => expect(closed).toEqual(['closed']));
     });
-
     it('closes without a run with one announcement', async () => {
         openContentVectorizer('chat');
         await closeEveryDialog();
@@ -240,10 +291,57 @@ describe('a chat\'s Vectorize', () => {
     });
 });
 
+describe('a chat run that reads nothing new, stops or fails', () => {
+    it('stays open after a Resume with nothing new, saying so, and announces no close', async () => {
+        host.runResult = { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
+        openContentVectorizer('chat');
+        actionOn('chat', 'resume').click();
+        await vi.waitFor(() => expect(runState('chat')).toContain('Nothing new to read'));
+        expect(host.dialogs).toHaveLength(1);
+        expect(actionOn('chat', 'resume').disabled).toBe(false);
+        expect(globalThis.toastr.success).not.toHaveBeenCalled();
+        expect(closed).toEqual([]);
+    });
+
+    it('stays open after a failed run, which says what broke in red', async () => {
+        host.runResult = new Error('The provider refused the key');
+        openContentVectorizer('chat');
+        actionOn('chat', 'resume').click();
+        await vi.waitFor(() => expect(globalThis.toastr.error).toHaveBeenCalledWith('EventBase failed: The provider refused the key', 'VectFox'));
+        expect(host.dialogs).toHaveLength(1);
+        expect(actionOn('chat', 'resume').disabled).toBe(false);
+    });
+
+    it('stops on the page\'s Stop, saying it is stopping, then stays open pointing at Resume', async () => {
+        host.runResult = 'until-stopped';
+        openContentVectorizer('chat');
+        actionOn('chat', 'resume').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        const stop = page('chat').querySelector('[data-cv-part="stop"]');
+        expect(stop.style.display).toBe('');
+        (stop.matches('button') ? stop : stop.querySelector('button')).click();
+        expect(runState('chat')).toBe('Stopping: what was already sent finishes first.');
+        await vi.waitFor(() => expect(runState('chat')).toBe('Stopped. Resume adds what EventBase has not read yet.'));
+        expect(host.dialogs).toHaveLength(1);
+        expect(closed).toEqual([]);
+    });
+
+    it('stays open after a run that could not start, which said why itself', async () => {
+        host.runResult = null;
+        openContentVectorizer('chat');
+        actionOn('chat', 'resume').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(actionOn('chat', 'resume').disabled).toBe(false));
+        expect(host.dialogs).toHaveLength(1);
+        expect(runState('chat')).toBe('');
+    });
+
+});
+
 describe('the auto-sync catch-up', () => {
     it('reads the open chat\'s new messages with no dialog, and announces no close', async () => {
         expect(await backfillCurrentChatWithProgress()).toEqual({ ran: true });
-        expect(vectorizeAll.mock.calls[0][3]).toMatchObject({ startFromMessage: 1, parallelWindows: 1, skipTipFallback: false });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 1, skipTipFallback: false });
         expect(closed).toEqual([]);
     });
 });

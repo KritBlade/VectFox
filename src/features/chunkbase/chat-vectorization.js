@@ -1239,97 +1239,67 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
 }
 
 /**
- * Vectorizes entire chat
- * @param {object} settings VECTFOX settings
- * @param {number} batchSize Batch size
+ * Run EventBase over the open chat from startFromMessage. The workflow puts its verdict on the progress panel; the
+ * caller says the rest, as a failure throws to it.
+ *
+ * @param {object} settings - VectFox settings
+ * @param {AbortSignal|null} abortSignal - Stops the run
+ * @param {{startFromMessage?: number, parallelWindows?: number, progressPlan?: object|null, skipTipFallback?: boolean}} [run]
+ * @returns {Promise<object|null>} runEventBaseIngestion's result, or null when the run could not start, having said why
+ * @throws When the run fails, or the chat changes while it runs
  */
-export async function vectorizeAll(settings, batchSize, abortSignal = null, {
+export async function runEventBaseOnOpenChat(settings, abortSignal = null, {
     startFromMessage = 1,
     parallelWindows = 1,
     progressPlan = null,
     skipTipFallback = false,
 } = {}) {
-    try {
-        const chatId = getCurrentChatId();
-        if (!chatId) {
-            toastr.info('No chat selected', 'Vectorization aborted');
-            return;
-        }
-
-        // Pre-flight check: verify backend is available before starting
-        const backendName = settings.vector_backend || 'standard';
-        const backendAvailable = await isBackendAvailable(backendName, settings);
-        if (!backendAvailable) {
-            toastr.error(
-                `Backend "${backendName}" is not available. Check your settings or start the backend service.`,
-                'Vectorization aborted'
-            );
-            log.error(`VectFox: Backend ${backendName} failed health check before vectorization`);
-            return;
-        }
-
-        if (abortSignal?.aborted) {
-            return;
-        }
-        if (is_send_press) {
-            toastr.info('Message generation is in progress.', 'Vectorization aborted');
-            throw new Error('Message generation in progress');
-        }
-
-        const context = getContext();
-        if (!Array.isArray(context.chat)) return;
-
-        const allMessages = context.chat.filter(m => m.mes && m.mes.trim().length > 0);
-        const messages = startFromMessage > 1
-            ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
-            : allMessages;
-
-        const { runEventBaseIngestion, countUnfinishedWindows, notifyUnfinishedWindows } = await import('../eventbase/index.js');
-        const result = await runEventBaseIngestion({
-            messages,
-            chatUUID: getChatUUID(),
-            settings,
-            abortSignal,
-            isAutoSync: false,
-            parallelWindows,
-            progressPlan,
-            skipTipFallback,
-        });
-
-        if (chatId !== getCurrentChatId()) {
-            progressTracker.complete(false, 'Chat changed during vectorization');
-            throw new Error('Chat changed');
-        }
-
-        if (abortSignal?.aborted) {
-            progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
-            return;
-        }
-
-        // runEventBaseIngestion has already set the progress verdict, and when a
-        // window timed out or failed that verdict is complete(false, …) naming the
-        // reason. Leave it standing — the unconditional green tick that used to be
-        // here overwrote it, so a run that extracted nothing still looked clean.
-        const unfinishedWindows = countUnfinishedWindows(result);
-        if (unfinishedWindows > 0) {
-            notifyUnfinishedWindows(result);
-            log.warn(`VectFox: Vectorization finished with gaps — ${result.eventsExtracted} events, ${result.windowsProcessed} windows processed, ${unfinishedWindows} unfinished`);
-            return;
-        }
-
-        progressTracker.complete(true, `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows`);
-        toastr.success(`EventBase: extracted ${result.eventsExtracted} events across ${result.windowsProcessed} windows`, 'VectFox');
-        log.lifecycle(`VectFox: ✅ Vectorization complete — ${result.eventsExtracted} events, ${result.windowsProcessed} windows processed, ${result.windowsSkipped} skipped`);
-    } catch (error) {
-        log.error('VectFox: Failed to vectorize all', error);
-        progressTracker.addError(error.message);
-        progressTracker.complete(false, 'Vectorization failed');
-        const { isInvalidModelConfigError, notifyInvalidModel } = await import('../../shared/model-config-notifier.js');
-        if (isInvalidModelConfigError(error)) {
-            notifyInvalidModel(error.message);
-        } else {
-            toastr.error(`Vectorization failed: ${error.message}`, 'VectFox');
-        }
+    const chatId = getCurrentChatId();
+    if (!chatId) {
+        toastr.info('No chat selected', 'Vectorization aborted');
+        return null;
     }
+
+    const backendName = settings.vector_backend || 'standard';
+    if (!(await isBackendAvailable(backendName, settings))) {
+        toastr.error(
+            `Backend "${backendName}" is not available. Check your settings or start the backend service.`,
+            'Vectorization aborted',
+        );
+        log.error(`VectFox: Backend ${backendName} failed health check before vectorization`);
+        return null;
+    }
+
+    if (abortSignal?.aborted) return null;
+    if (is_send_press) {
+        toastr.info('Message generation is in progress.', 'Vectorization aborted');
+        return null;
+    }
+
+    const context = getContext();
+    if (!Array.isArray(context.chat)) return null;
+
+    const allMessages = context.chat.filter(m => m.mes && m.mes.trim().length > 0);
+    const messages = startFromMessage > 1
+        ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
+        : allMessages;
+
+    const { runEventBaseIngestion } = await import('../eventbase/index.js');
+    const result = await runEventBaseIngestion({
+        messages,
+        chatUUID: getChatUUID(),
+        settings,
+        abortSignal,
+        isAutoSync: false,
+        parallelWindows,
+        progressPlan,
+        skipTipFallback,
+    });
+
+    if (chatId !== getCurrentChatId()) {
+        progressTracker.complete(false, 'Chat changed during vectorization');
+        throw new Error('Chat changed during vectorization');
+    }
+    return result;
 }
 

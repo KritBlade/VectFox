@@ -673,7 +673,7 @@ export function shouldUseTipFallback({ skipTipFallback, fastForwardSkipped, hasC
  *
  * Does TWO things, both required:
  *   1. Clears the local extraction caches (window fingerprint cache + tip)
- *   2. Returns options block to spread into vectorizeAll / runEventBaseIngestion
+ *   2. Returns options block to spread into runEventBaseOnOpenChat / runEventBaseIngestion
  *      so the workflow's Qdrant-side tip fallback ALSO skips this run
  *
  * Without step 2 the workflow re-derives the tip from existing Qdrant points and

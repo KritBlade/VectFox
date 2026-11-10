@@ -192,7 +192,7 @@ Pressing Stop mid-pipeline waits for the in-flight insert to complete before exi
 
 ### Compatibility with other code paths
 
-The coordinator lives entirely inside `runEventBaseIngestion`. All 3 production callers (auto-sync via `synchronizeChat`, manual backfill via `vectorizeAll`, archive file upload) hit the same helper and get the pipelined behavior — they pass different flags (`isAutoSync`, `suppressAutoSyncPopup`, `parallelWindows`, `collectionIdOverride`). None of those flags interact with the extract/insert ordering. The chunk-base pipeline (lorebook / character / document / URL / wiki / YouTube via `vectorizeContent`) does not use it — it has no extract phase to overlap (chunking is synchronous and instant, and the entire chunk list is inserted in one call).
+The coordinator lives entirely inside `runEventBaseIngestion`. All 3 production callers (auto-sync via `synchronizeChat`, manual backfill via `runEventBaseOnOpenChat`, archive file upload) hit the same helper and get the pipelined behavior — they pass different flags (`isAutoSync`, `suppressAutoSyncPopup`, `parallelWindows`, `collectionIdOverride`). None of those flags interact with the extract/insert ordering. The chunk-base pipeline (lorebook / character / document / URL / wiki / YouTube via `vectorizeContent`) does not use it — it has no extract phase to overlap (chunking is synchronous and instant, and the entire chunk list is inserted in one call).
 
 ### Key files
 
