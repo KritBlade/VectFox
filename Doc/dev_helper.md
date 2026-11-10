@@ -151,7 +151,7 @@ Three private helpers inside `runEventBaseIngestion` hold the logic — no separ
 | Helper | Role |
 |---|---|
 | `_runOneExtractBatch(slice, batchFirstIdx)` | The per-window extract logic (Promise.allSettled on 8 LLM calls), as a function the coordinator calls as a black box. Returns `{ allEvents, hashesToMark, endsExtracted, batchResults, ... }`. |
-| `_insertWithRetry(events, batchFirstIdx)` | Wraps `insertEvents` with up to 3 attempts and exponential-ish backoff (500ms / 1000ms). On exhaustion throws `EventBaseFatalError` with `code: 'insert_failed_max_retries'` carrying Qdrant's error text. UI catch in `src/features/chunkbase/content-vectorizer.js::_runEventBaseBackfill` surfaces it via `callGenericPopup`. |
+| `_insertWithRetry(events, batchFirstIdx)` | Wraps `insertEvents` with up to 3 attempts and exponential-ish backoff (500ms / 1000ms). On exhaustion throws `EventBaseFatalError` with `code: 'insert_failed_max_retries'` carrying Qdrant's error text. UI catch in `src/features/chunkbase/content-vectorizer.js::runEventBaseBackfill` surfaces it via `noticePopup`. |
 | `_finalizeBatch(extractResult)` | Calls `_insertWithRetry`, then `markWindowExtracted` + `setVectorizationTip` in that order, then tally + progress updates. The state-mutation order is the "no corrupted state" invariant — we never mark a window as covered before its events are durable in Qdrant. |
 
 ### The coordinator (state machine)

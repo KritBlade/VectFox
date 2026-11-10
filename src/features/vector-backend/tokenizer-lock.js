@@ -14,7 +14,6 @@
  * ============================================================================
  */
 
-import { escapeHtml } from '../../shared/html-escape.js';
 import { log } from '../../sillytavern/log.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
@@ -106,7 +105,7 @@ export async function settleTokenizerMismatch(settings, actualCollectionId) {
 async function askAboutMismatch(mismatch, actualCollectionId) {
     const debugLog = log.enabled('lifecycle');
     if (debugLog) log.lifecycle(`[TokenizerLock] Mismatch: collection=${mismatch.saved}, current=${mismatch.current} — prompting user`);
-    const choice = await showTokenizerMismatchModal(mismatch, actualCollectionId);
+    const choice = await askTokenizerMismatchQuestion(mismatch, actualCollectionId);
     if (debugLog) log.lifecycle(`[TokenizerLock] User chose: ${choice}`);
     if (choice === 'revert') {
         await applyTokenizerRevert(mismatch.saved);
@@ -123,53 +122,31 @@ async function askAboutMismatch(mismatch, actualCollectionId) {
 }
 
 /**
- * Show the tokenizer mismatch modal. Returns the user's choice:
- *   'revert'   — revert setting to `saved` and retry
- *   'settings' — keep current setting, do not retry (user will purge/re-vector manually)
- *   'cancel'   — abort the operation
+ * Ask what to do about a collection made with another CJK tokenizer than the one set:
+ *   'revert'   — set the CJK tokenizer back to the collection's, and go on
+ *   'settings' — keep the setting and show it, to delete the collection and vectorize it again
+ *   'cancel'   — stop, which Cancel and Escape answer
  *
  * @param {{saved: string, current: string}} mismatch
  * @param {string} actualCollectionId
  * @returns {Promise<'revert'|'settings'|'cancel'>}
  */
-async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
-
-    const html = `
-        <h3>Tokenizer Mode Mismatch</h3>
-        <p>This Qdrant collection (<code>${escapeHtml(actualCollectionId)}</code>) was vectorized with the
-        <code>${escapeHtml(mismatch.saved)}</code> CJK tokenizer.</p>
-        <p>Your current setting is <code>${escapeHtml(mismatch.current)}</code>.</p>
-        <p>Querying with a different tokenizer produces inaccurate BM25 results because
-        sparse-vector indices are tokenizer-specific.</p>
-        <p>To switch tokenizer modes for this collection you must
-        <strong>delete the collection and re-vectorize from scratch.</strong></p>
-        <p style="margin-top:1em;">Choose:</p>
-        <ul>
-            <li><strong>Revert</strong> — switch CJK mode back to <code>${escapeHtml(mismatch.saved)}</code> and continue.</li>
-            <li><strong>Open Settings</strong> — keep current mode; you will purge and re-vectorize this collection.</li>
-            <li><strong>Cancel</strong> — abort this query.</li>
-        </ul>
-    `;
-
-    const choice = await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
-        okButton: `Revert to ${mismatch.saved}`,
-        cancelButton: 'Cancel',
-        customButtons: ['Open Settings'],
-        wide: false,
-    });
-
-    // callGenericPopup returns:
-    //   true (or 1)  for OK / first button
-    //   false / null for cancel
-    //   2+           for customButtons (index in array, 1-based after ok)
-    if (choice === true || choice === 1) return 'revert';
-    if (choice === 2) return 'settings';
-    return 'cancel';
+async function askTokenizerMismatchQuestion(mismatch, actualCollectionId) {
+    const { choicePopup } = await import('../../sillytavern/popup.js');
+    const { languageModeLabel } = await import('../keyword-search/index.js');
+    const choice = await choicePopup([
+        { icon: 'fa-language', text: 'This collection was vectorized with another CJK tokenizer.' },
+        { text: 'Collection:', name: actualCollectionId },
+        { text: 'Vectorized with:', name: languageModeLabel(mismatch.saved) },
+        { text: 'Set now:', name: languageModeLabel(mismatch.current) },
+        { text: 'BM25 finds its words only with the tokenizer it was made with. To use another, delete the collection and vectorize it again.' },
+        { text: 'Revert sets the CJK tokenizer back and goes on. Open Settings and Cancel stop this reply.' },
+    ], { choices: [{ text: 'Revert', value: 'revert' }, { text: 'Open Settings', value: 'settings' }] });
+    return choice ?? 'cancel';
 }
 
 /**
- * Apply the "Revert to <saved>" answer: save the collection's mode as the CJK tokenizer setting, and nothing else of
+ * Apply the Revert answer: save the collection's mode as the CJK tokenizer setting, and nothing else of
  * the search's settings, show it in the dropdown, sync the EventBase extraction prompt to its language, and load the
  * Jieba tokenizer it needs before the search encodes its query.
  *
@@ -219,7 +196,7 @@ async function openCjkTokenizerSetting() {
             return;
         }
 
-        // The triggering popup is still mid-fade when callGenericPopup resolves.
+        // The question is still mid-fade when its answer arrives.
         // Wait until it's actually gone before opening the panel behind it.
         const { waitForOtherPopupsToClose } = await import('../../sillytavern/popup.js');
         await waitForOtherPopupsToClose();

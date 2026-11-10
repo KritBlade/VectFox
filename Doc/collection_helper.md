@@ -401,9 +401,9 @@ if (isAutoSync) {
 Auto-sync **catches up the whole gap** (tip → now) on its next trigger — it does *not* "start from now" by default. For a large gap that next trigger is a surprise burst of LLM calls, so the enable handler ([settings-panel.js](../src/features/settings-panel/settings-panel.js) → `#VectFox_autosync_enabled` `input`) gates it:
 
 1. Compute pending windows: `countWindowsBehind(commitBoundary, getVectorizationTip(uuid), getAutoSyncWindowSize(settings))`, where `commitBoundary` is `status.commitBoundary` (chat length minus the held-back active turn — see the settle/commit lag layer). Clamping the backlog to the committed boundary keeps the deliberately-unextracted active turn from being counted as backfill.
-2. If at least `FAR_BEHIND_WINDOW_COUNT` (5) windows, `callGenericPopup(CONFIRM, …)` — **Catch up now** vs **Just keep up from here** (X/Esc reverts):
-   - *Catch up now* → `backfillCurrentChatWithProgress()` ([content-vectorizer.js](../src/features/chunkbase/content-vectorizer.js)) runs the Continue path with the standard progress UI (full-screen on mobile), then the marker lands at the freshly-advanced tip (smart placement).
-   - *Just keep up from here* → `stampAutoSyncMarker(uuid, settings, { floor: 'chatLength' })` skips the backlog.
+2. If at least `FAR_BEHIND_WINDOW_COUNT` (5) windows, `choicePopup` asks: **Catch up now**, **Keep up from here** or **Cancel** (Cancel and Escape leave auto-sync off):
+   - *Catch up now* → `backfillCurrentChatWithProgress()` ([content-vectorizer.js](../src/features/chunkbase/content-vectorizer.js)) runs the Continue path with the progress panel, then the marker lands at the freshly-advanced tip (smart placement).
+   - *Keep up from here* → `stampAutoSyncMarker(uuid, settings, { floor: 'chatLength' })` skips the backlog.
 3. Below threshold → enable silently (a small gap catches up on the next trigger).
 
 The catch-up backfill runs at `eventbase_window_size` while auto-sync runs at `getAutoSyncWindowSize` — **safe** because the marker/tip gate is index-based: catch-up advances the tip, the marker is stamped there, and auto-sync only processes windows *above* it at its own size. No fingerprint collision, no duplicate coverage. Floor-override behavior is asserted by TEST 016 Phase 5.

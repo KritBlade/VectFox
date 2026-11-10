@@ -24,7 +24,6 @@ vi.mock('../../../../popup.js', () => ({
     POPUP_RESULT: {},
     POPUP_TYPE: {},
     Popup: class {},
-    callGenericPopup: () => {},
     getTopmostModalLayer: () => Array.from(document.querySelectorAll('dialog[open]:not([closing])')).pop() ?? document.body,
 }));
 

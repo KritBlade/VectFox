@@ -3,9 +3,7 @@
  *
  * Only src/sillytavern/ touches SillyTavern's popup API (`Popup`, `callGenericPopup`, `POPUP_TYPE`, `POPUP_RESULT`).
  * Everything else opens a dialog through sillytavern/popup.js, so how every dialog behaves, looks and fails can be
- * changed in that one file. The uses left are in surfaces whose phase has not run yet; each phase moves its own, and
- * its file's count drops in the same change. A new use fails. Every dialog the door opens scrolls once it is taller
- * than the window.
+ * changed in that one file. Every dialog the door opens scrolls once it is taller than the window.
  *
  * Code only: a mention in a comment or a string is not a use.
  */
@@ -14,17 +12,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { codeOnly, countsByFile, jsFilesUnder, relativePath } from './code-scan.mjs';
+import { codeOnly, jsFilesUnder, relativePath } from './code-scan.mjs';
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const HOST_FOLDER = 'sillytavern/';
-
-// The uses left, by file, until their phase moves them behind sillytavern/popup.js.
-const USES_LEFT = {
-    'features/settings-panel/settings-panel.js': 18,
-    'features/vector-backend/tokenizer-lock.js': 4,
-    'features/world-info/lorebook-rename-detector.js': 4,
-};
 
 // `new Popup(`, `callGenericPopup(`, `POPUP_TYPE`, `POPUP_RESULT` — but not popup.js's own doors, whose names merely
 // end in "Popup" (confirmPopup(…) has no word boundary before "Popup").
@@ -35,7 +26,7 @@ function popupApiUses(code) {
 }
 
 describe('SillyTavern popup API boundary (G9)', () => {
-    it('no file outside src/sillytavern/ uses the popup API beyond the uses left', () => {
+    it('no file outside src/sillytavern/ uses the popup API', () => {
         const offenders = [];
         for (const file of jsFilesUnder(SRC)) {
             const relative = relativePath(SRC, file);
@@ -44,7 +35,7 @@ describe('SillyTavern popup API boundary (G9)', () => {
                 for (const use of popupApiUses(line)) offenders.push(`${relative}:${index + 1} ${use}`);
             });
         }
-        expect(countsByFile(offenders)).toEqual(USES_LEFT);
+        expect(offenders).toEqual([]);
     });
 
     it('sees the API in code, and ignores the doors, comments and strings', () => {

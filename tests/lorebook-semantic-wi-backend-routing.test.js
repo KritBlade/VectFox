@@ -97,7 +97,7 @@ vi.mock('../src/features/collections/collection-metadata.js', () => ({
 
 vi.mock('../src/features/world-info/lorebook-rename-detector.js', () => ({
     detectLorebookRenames: vi.fn(async () => []),
-    showLorebookRenameModal: vi.fn(),
+    askLorebookRenameQuestion: vi.fn(),
     openDatabaseBrowserForRename: vi.fn(),
 }));
 

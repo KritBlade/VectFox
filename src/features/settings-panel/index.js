@@ -4,7 +4,7 @@
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export {
     loadWebLlmModels,
+    mountSettingsPanel,
     refreshAutoSyncCheckbox,
-    renderSettings,
     updateWebLlmStatus,
 } from './settings-panel.js';

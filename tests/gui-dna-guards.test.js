@@ -5,11 +5,10 @@
  *   G3  no inline style except display:none
  *   G4  every class a JS selector looks for is still emitted somewhere
  *   G5  colours live only in palette.css's token blocks, and both themes name every role
+ *   G6  every class VectFox writes is its own (vfx-, is-, fa-): no SillyTavern style class, no bare name
  *   G7  an element the code paints into carries no translation key
- * G3 and G5 start as exact per-file counts, since the pages not yet on the DNA hold styles and colours of their own:
- * each phase clears its page's, its files' counts drop in the same change, and they reach zero at P13. A new one
- * fails. G1 does not apply, as VectFox ships one language; G6 arrives with P13, G8 to G10 and G12 have files of their
- * own, and G11 does not apply, as VectFox has no per-card profile.
+ * G1 does not apply, as VectFox ships one language; G8 to G10 and G12 have files of their own, and G11 does not apply,
+ * as VectFox has no per-card profile.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -78,12 +77,10 @@ function oneLineTexts() {
 }
 
 // ── G3 ─────────────────────────────────────────────────────────────────────────────────────────────
-// The styles left, by file, until their page's phase moves them to GUI-DNA classes.
-const INLINE_STYLES_LEFT = {
-    'features/settings-panel/settings-panel.js': 7,
+// Not styles of ours: Text Cleaning's built-in patterns that find inline styles in chat text, which the scan reads as
+// style attributes.
+const STYLE_PATTERNS = {
     'features/text-cleaning/text-cleaning.js': 2,
-    'features/vector-backend/tokenizer-lock.js': 1,
-    'features/world-info/lorebook-rename-detector.js': 1,
 };
 
 function inlineStyleSites() {
@@ -104,7 +101,7 @@ function inlineStyleSites() {
 const SELECTOR_CALL = /(?:\$|\.find|\.closest|\.children|\.parents?|\.filter|\.is|\.not|\.has|querySelector(?:All)?)\(\s*(['"`])((?:(?!\1)[^\n])*)\1/g;
 // A delegated handler's selector: .on('click', '.x', …).
 const DELEGATED_SELECTOR = /\.on\(\s*['"`][^'"`\n]*['"`]\s*,\s*(['"`])((?:(?!\1)[^\n])*)\1/g;
-// VectFox's own classes: the DNA's, and those of the pages not on it yet, whose hooks a phase can strand.
+// VectFox's own classes, and the retired vectfox- prefix, so a lookup left from the old pages fails.
 const CLASS_TOKEN = /\.((?:vfx|vectfox)-[\w-]+)/g;
 const mentions = (text, token) => new RegExp(`(?<![\\w-])${token}(?![\\w-])`).test(text);
 
@@ -128,14 +125,6 @@ function selectorClassesAndEmittedText() {
 // A hex colour (not an HTML entity such as &#039;), or an rgb/hsl call.
 const COLOUR = /(?<![&\w])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![\w-])|\b(?:rgba?|hsla?)\(/g;
 const TOKEN_DECLARATION = /^\s*--vfx-[\w-]+\s*:/;
-// The colours left, by file, until their page's phase moves them to --vfx- tokens.
-const COLOURS_LEFT = {
-    'features/settings-panel/settings-panel.js': 4,
-    'shared/base.css': 6,
-    'shared/forms.css': 7,
-    'shared/modals.css': 9,
-};
-
 function colourSites() {
     const sites = [];
     for (const file of ourFiles(['.js', '.css', '.html'])) {
@@ -161,6 +150,56 @@ function themeRoles(css) {
         roles.set(match[1].trim(), new Set([...match[2].matchAll(/^\s*(--vfx-[\w-]+)\s*:/gm)].map((role) => role[1])));
     }
     return roles;
+}
+
+// ── G6 ─────────────────────────────────────────────────────────────────────────────────────────────
+// Every class VectFox writes is its own: the prefix (vfx-), a state (is-) or a Font Awesome icon (fa-), the icon set
+// SillyTavern bundles. Any other name reaches into a stylesheet that is not ours: a SillyTavern style class
+// (menu_button, text_pole, flex-container, …) repaints a surface in the user's theme, and a bare name can meet another
+// extension's rule on the same page. The scan reads every class attribute (markup, a template, .className) and every
+// class call (addClass, toggleClass, classList.add, …) in src, and a ${…} part by its quoted words. It leaves out the
+// files that draw what the DNA does not style.
+const OWN_CLASS = /^(?:vfx|is|fa)-(?:[\w-]+|[\w-]*\*)$/;
+const OUTSIDE_THE_DNA = new Map([
+    ['src/features/settings-panel/drawer-launcher-markup.js', "SillyTavern's drawer frame and the launcher in it, in SillyTavern's look"],
+]);
+const CLASS_ATTRIBUTE = /\bclass(?:Name)?\s*=\s*(["'`])([^\n]*?)\1/g;
+const CLASS_CALL = /\.(?:addClass|removeClass|toggleClass)\(\s*(["'`])([^"'`\n]*)\1|\.classList\.(?:add|remove|toggle|replace)\(([^)\n]*)\)/g;
+const quotedWords = (code) => [...code.matchAll(/(["'`])([^"'`]*)\1/g)].map((match) => match[2]).join(' ');
+
+// The class names in an attribute's value: its words, and the quoted words in each ${…}. A word glued to a ${…}
+// (`is-${status}`) is judged by the part written out, kept as `is-*`; a word that starts with one has nothing to judge.
+function classNames(value) {
+    const names = [];
+    const literal = value.replace(/\$\{([^}]*)\}/g, (_, expression) => {
+        names.push(...quotedWords(expression).split(/\s+/));
+        return '*';
+    });
+    for (const word of literal.split(/\s+/)) {
+        const writtenPart = word.split('*')[0];
+        if (writtenPart) names.push(word.includes('*') ? `${writtenPart}*` : writtenPart);
+    }
+    return names.filter((name) => /^[\w-]+\*?$/.test(name));
+}
+
+function writtenClasses() {
+    const written = new Set();
+    const foreign = [];
+    for (const file of ourJsFiles()) {
+        if (OUTSIDE_THE_DNA.has(relative(file))) continue;
+        read(file).split(/\r?\n/).forEach((line, index) => {
+            if (isCommentLine(line)) return;
+            const names = [
+                ...[...line.matchAll(CLASS_ATTRIBUTE)].flatMap((match) => classNames(match[2])),
+                ...[...line.matchAll(CLASS_CALL)].flatMap((match) => classNames(match[2] ?? quotedWords(match[3]))),
+            ];
+            for (const name of names) {
+                written.add(name);
+                if (!OWN_CLASS.test(name)) foreign.push(`${relative(file)}:${index + 1} "${name}"`);
+            }
+        });
+    }
+    return { written, foreign };
 }
 
 // ── G7 ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -206,8 +245,8 @@ describe('GUI-DNA guards', () => {
         expect(tooLong).toEqual([]);
     });
 
-    it('G3 — no inline style beyond the styles left (display:none excepted)', () => {
-        expect(countsByFile(inlineStyleSites())).toEqual(INLINE_STYLES_LEFT);
+    it('G3 — no inline style (display:none excepted)', () => {
+        expect(countsByFile(inlineStyleSites())).toEqual(STYLE_PATTERNS);
     });
 
     it('G4 — every class a JS selector looks for is still emitted somewhere', () => {
@@ -219,9 +258,9 @@ describe('GUI-DNA guards', () => {
         expect(orphaned).toEqual([]);
     });
 
-    it('G5 — colours live only in palette.css, beyond the colours left', () => {
+    it('G5 — colours live only in palette.css', () => {
         expect(read(PALETTE_CSS).match(COLOUR).length).toBeGreaterThan(20);   // a palette that moved would pass anything
-        expect(countsByFile(colourSites())).toEqual(COLOURS_LEFT);
+        expect(colourSites()).toEqual([]);
     });
 
     it('G5 — the dark and the light theme name the same colour roles', () => {
@@ -233,6 +272,19 @@ describe('GUI-DNA guards', () => {
         expect([...light].filter((role) => !dark.has(role)).map((role) => `${role}: light only`)).toEqual([]);
         // The light block's attribute is the one the shell writes.
         expect(read(path.join(SRC, 'features', 'settings-panel', 'panel-shell.js'))).toContain('document.documentElement.dataset.vfxTheme = theme');
+    });
+
+    it('G6 — every class VectFox writes is its own: no SillyTavern style class', () => {
+        expect(classNames("vfx-row is-${status} ${isPair ? 'vfx-grid-pair' : ''}${extraClass} fa-solid"))
+            .toEqual(['vfx-grid-pair', 'vfx-row', 'is-*', 'fa-solid']);
+        const { written, foreign } = writtenClasses();
+        // The scan sees the markup, a dialog's .className and a classList call (a scan that found nothing would pass
+        // anything), and not the launcher, which keeps SillyTavern's look.
+        expect(written.has('vfx-shell')).toBe(true);
+        expect(written.has('vfx-dialog-text')).toBe(true);
+        expect(written.has('vfx-popup')).toBe(true);
+        expect(written.has('menu_button')).toBe(false);
+        expect(foreign.map((where) => `${where} — not vfx-, is- or fa-: use a GUI-DNA class`)).toEqual([]);
     });
 
     it('G7 — an element the code paints into carries no translation key', () => {

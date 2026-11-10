@@ -3,14 +3,11 @@
  * VectFox LOREBOOK RENAME DETECTOR
  * ============================================================================
  * Detects when a vectorized lorebook collection references a sourceName that
- * no longer matches any lorebook in ST (renamed or deleted). Shows a blocking
- * popup so the user can re-vectorize before stale content is injected.
- *
- * Its popup closes through sillytavern/popup.js, as tokenizer-lock.js does.
+ * no longer matches any lorebook in ST (renamed or deleted), and asks the user
+ * whether to fix it in the Database Browser or inject the stale content.
  * ============================================================================
  */
 
-import { escapeHtml } from '../../shared/html-escape.js';
 import { log } from '../../sillytavern/log.js';
 
 // ============================================================================
@@ -47,45 +44,22 @@ export async function detectLorebookRenames(collections) {
 }
 
 /**
- * Show a blocking center-screen popup listing mismatched lorebook collections.
- *
- * Returns:
- *   'open_browser' — user wants to open the Database Browser (caller must stop generation)
- *   'continue'     — user chose to proceed with stale content
+ * Ask what to do about vectorized lorebooks whose lorebook is gone from SillyTavern:
+ *   'open_browser' — open the Database Browser (the caller stops the reply first)
+ *   'continue'     — use their stale content this turn, which Escape answers too
  *
  * @param {Array<{id: string, sourceName: string}>} mismatches
  * @returns {Promise<'open_browser'|'continue'>}
  */
-export async function showLorebookRenameModal(mismatches) {
-    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
-
-    const list = mismatches
-        .map(m => `<li><code>${escapeHtml(m.sourceName)}</code></li>`)
-        .join('');
-
-    const html = `
-        <h3>Lorebook Mismatch Detected</h3>
-        <p>The following vectorized lorebook(s) no longer match any lorebook in SillyTavern.
-        The lorebook may have been <strong>renamed or deleted</strong> after vectorization:</p>
-        <ul>${list}</ul>
-        <p>VectFox will inject stale vectorized content. To fix this, delete the stale
-        collection and re-vectorize the current lorebook.</p>
-        <hr style="margin: 1em 0;">
-        <ul>
-            <li><strong>Open Database Browser</strong> — stop generation and manage collections.</li>
-            <li><strong>Continue Anyway</strong> — inject stale content for this turn only.</li>
-        </ul>
-    `;
-
-    const choice = await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
-        okButton: 'Continue Anyway',
-        cancelButton: null,
-        customButtons: ['Open Database Browser'],
-    });
-
-    // callGenericPopup: true/1 = okButton (Continue Anyway), 2 = customButtons[0] (Open DB Browser)
-    if (choice === 2) return 'open_browser';
-    return 'continue';
+export async function askLorebookRenameQuestion(mismatches) {
+    const { choicePopup } = await import('../../sillytavern/popup.js');
+    const choice = await choicePopup([
+        { icon: 'fa-book', text: 'These vectorized lorebooks match no lorebook in SillyTavern, so they were renamed or deleted:' },
+        ...mismatches.map(mismatch => ({ name: mismatch.sourceName })),
+        { text: 'VectFox injects what they held when vectorized. To fix it, delete the collection and vectorize the lorebook again.' },
+        { text: 'Open Database Browser stops this reply. Continue anyway uses the old content this turn.' },
+    ], { choices: [{ text: 'Continue anyway', value: 'continue' }, { text: 'Open Database Browser', value: 'open_browser' }], cancelButton: false });
+    return choice ?? 'continue';
 }
 
 /**

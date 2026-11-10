@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  *
  * The dialog doors in src/sillytavern/popup.js: a destructive confirm opens on Cancel, so Enter never says yes to it,
- * and any other dialog opens on its action; a confirm that cannot open answers no; a notice shows its lines, then its
+ * and any other dialog opens on its action; a confirm that cannot open answers no; a choice answers the value of the
+ * button pressed, null on Cancel, Escape or a dialog that cannot open; a notice shows its lines, then its
  * body, and a wide one carries .is-wide; a form shows its lines, then the form, focuses the control it names, and
  * submits on Enter in a one-line box only when asked.
  */
@@ -16,7 +17,7 @@ vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: () => {}, error: () =
 
 // SillyTavern's Popup, as src/sillytavern/popup.js builds it: the content, the type and the options it was given.
 vi.mock('../../../../popup.js', () => ({
-    POPUP_RESULT: { AFFIRMATIVE: 1, NEGATIVE: 0 },
+    POPUP_RESULT: { AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 1001 },
     POPUP_TYPE: { TEXT: 1, CONFIRM: 2 },
     Popup: class {
         constructor(content, type, inputValue, options) {
@@ -29,11 +30,10 @@ vi.mock('../../../../popup.js', () => ({
             return Promise.resolve(host.answer);
         }
     },
-    callGenericPopup: () => {},
     getTopmostModalLayer: () => document.body,
 }));
 
-const { confirmPopup, formPopup, noticePopup } = await import('../src/sillytavern/popup.js');
+const { choicePopup, confirmPopup, formPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 
 beforeEach(() => {
     host.opened = [];
@@ -56,6 +56,37 @@ describe('confirmPopup', () => {
     it('answers no when the dialog cannot open', async () => {
         host.failToOpen = true;
         expect(await confirmPopup([{ text: 'Delete it?' }], { okButton: 'Delete', isDestructive: true })).toBe(false);
+    });
+});
+
+describe('choicePopup', () => {
+    const choices = [{ text: 'Fork from parent', value: 'fork' }, { text: 'Vectorize from scratch', value: 'vectorize' }];
+
+    it('shows the first action as the primary button and the others beside it, with Cancel', async () => {
+        await choicePopup([{ text: 'This chat is a branch.' }], { choices });
+        const { content, type, options, dialog } = host.opened[0];
+        expect(type).toBe(2);
+        expect(content.textContent).toBe('This chat is a branch.');
+        expect(options).toMatchObject({ okButton: 'Fork from parent', cancelButton: 'Cancel', defaultResult: 1, customButtons: [{ text: 'Vectorize from scratch', result: 1001 }] });
+        expect(dialog.classList.contains('vfx-popup')).toBe(true);
+    });
+
+    it('answers the value of the button pressed, and null on Cancel or Escape', async () => {
+        host.answer = 1;
+        expect(await choicePopup([], { choices })).toBe('fork');
+        host.answer = 1001;
+        expect(await choicePopup([], { choices })).toBe('vectorize');
+        host.answer = 0;
+        expect(await choicePopup([], { choices })).toBeNull();
+        host.answer = null;
+        expect(await choicePopup([], { choices })).toBeNull();
+    });
+
+    it('leaves Cancel out when asked, and answers null when it cannot open', async () => {
+        await choicePopup([], { choices, cancelButton: false });
+        expect(host.opened[0].options.cancelButton).toBe(false);
+        host.failToOpen = true;
+        expect(await choicePopup([], { choices })).toBeNull();
     });
 });
 

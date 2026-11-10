@@ -2,7 +2,8 @@
  * ============================================================================
  * VectFox SETTINGS PANEL
  * ============================================================================
- * Renders the extension settings panel and binds its controls and action buttons
+ * Mounts the settings panel in SillyTavern's Extensions drawer and binds every
+ * page's controls and action buttons
  *
  * @author Kritblade
  * ============================================================================
@@ -23,7 +24,6 @@ import {
 import {
     getWebLlmProvider as getSharedWebLlmProvider,
 } from '../embedding/index.js';
-import { escapeHtml } from '../../shared/html-escape.js';
 import { openDatabaseBrowser } from '../database-browser/index.js';
 import { openContentVectorizer } from '../chunkbase/index.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
@@ -31,8 +31,10 @@ import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
+import { notice } from '../../shared/gui-dna/gui-dna-core.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
+import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
 import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
 import { agentModePageMarkup } from './agentmode-page-markup.js';
 import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
@@ -66,108 +68,46 @@ import {
 import { log } from '../../sillytavern/log.js';
 
 /**
- * Renders the VectFox settings UI
- * @param {string} containerId - The container element ID to render into
+ * The GUI-DNA shell: the rail and every page, each built by its own markup file.
+ *
+ * @returns {string}
+ */
+function panelMarkup() {
+    const pages = [
+        panelPageMarkup('core', corePageMarkup({
+            languageModes: LANGUAGE_MODES,
+            retrievalTimeout: { minMs: RETRIEVAL_TIMEOUT_MIN_MS, maxMs: RETRIEVAL_TIMEOUT_MAX_MS, defaultMs: RETRIEVAL_TIMEOUT_DEFAULT_MS },
+        })),
+        panelPageMarkup('chunkbase', chunkBasePageMarkup()),
+        panelPageMarkup('rag', ragPageMarkup()),
+        panelPageMarkup('worldinfo', worldInfoPageMarkup()),
+        panelPageMarkup('autosync', autoSyncPageMarkup()),
+        panelPageMarkup('action', actionPageMarkup(), { status: `${masterSwitchPillsMarkup()}${getHealthPillHtml()}` }),
+        panelPageMarkup('eventbase', eventBasePageMarkup()),
+        storyArcPageMarkup({ notice: vectfoxOffNoticeMarkup() }),
+        panelPageMarkup('agentmode', agentModePageMarkup()),
+    ];
+    return `<div id="VectFox_settings" class="vfx-ui vfx-shell">${panelNavMarkup()}<main class="vfx-main">${pages.join('')}</main></div>`;
+}
+
+/**
+ * Put VectFox's launcher in SillyTavern's Extensions drawer, with the panel closed in its holder, and wire every page
+ * and the shell.
+ *
+ * @param {string} containerId - The drawer column the launcher joins
  * @param {object} settings - VectFox settings object
  * @param {object} callbacks - Object containing callback functions
  * @param {Function} callbacks.runNetworkStartup - Re-runs the off-box startup work (src/app/network-startup.js) when
  *     the master switch turns back on
  */
-export function renderSettings(containerId, settings, callbacks) {
-    log.lifecycle('VectFox UI: Rendering settings...');
-
+export function mountSettingsPanel(containerId, settings, callbacks) {
     // Ensure extension_settings.vectfox exists before any UI event handlers fire
     if (!extension_settings.vectfox) {
         extension_settings.vectfox = {};
     }
 
-    const html = `
-        <div id="VectFox_drawer">
-            <div class="inline-drawer">
-                <div class="inline-drawer-toggle inline-drawer-header">
-                    <b>VectFox - Advanced RAG</b>
-                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                </div>
-                <div class="inline-drawer-content">
-                    <div id="VectFox_open_panel" class="menu_button" role="button" tabindex="0">
-                        <i class="fa-solid fa-sliders"></i>
-                        <span>Open VectFox</span>
-                    </div>
+    $(`#${containerId}`).append(drawerLauncherMarkup(panelMarkup()));
 
-                    <!-- The GUI-DNA shell, moved into its dialog while open (panel-shell.js) -->
-                    <div id="VectFox_panel_holder">
-                    <div id="VectFox_settings" class="vfx-ui vfx-shell">
-                    ${panelNavMarkup()}
-                    <main class="vfx-main">
-
-                    <!-- Core page (core-page-markup.js) -->
-                    ${panelPageMarkup('core', corePageMarkup({
-                        languageModes: LANGUAGE_MODES,
-                        retrievalTimeout: { minMs: RETRIEVAL_TIMEOUT_MIN_MS, maxMs: RETRIEVAL_TIMEOUT_MAX_MS, defaultMs: RETRIEVAL_TIMEOUT_DEFAULT_MS },
-                    }))}
-
-                    <!-- ChunkBase page (chunkbase-page-markup.js) -->
-                    ${panelPageMarkup('chunkbase', chunkBasePageMarkup())}
-
-                    <!-- RAG page (rag-page-markup.js) -->
-                    ${panelPageMarkup('rag', ragPageMarkup())}
-
-                    <!-- WorldInfo page (worldinfo-page-markup.js) -->
-                    ${panelPageMarkup('worldinfo', worldInfoPageMarkup())}
-
-                    <!-- AutoSync page (autosync-page-markup.js) -->
-                    ${panelPageMarkup('autosync', autoSyncPageMarkup())}
-
-                    <!-- Action page (action-page-markup.js) -->
-                    ${panelPageMarkup('action', actionPageMarkup(), { status: `${masterSwitchPillsMarkup()}${getHealthPillHtml()}` })}
-
-                    <!-- EventBase page (eventbase-page-markup.js) -->
-                    ${panelPageMarkup('eventbase', eventBasePageMarkup())}
-
-                    ${storyArcPageMarkup({ notice: vectfoxOffNoticeMarkup() })}
-
-                    <!-- AgentMode page (agentmode-page-markup.js) -->
-                    ${panelPageMarkup('agentmode', agentModePageMarkup())}
-
-                    </main>
-                    </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    // Sanity debug: confirm the generated HTML contains the lock button marker
-    try {
-        log.trace(`VectFox: renderSettings built HTML contains lock marker:`, String(html).indexOf('VectFox_lock_collection') >= 0);
-        const target = document.getElementById(containerId);
-        log.trace(`VectFox: renderSettings target container exists:`, !!target, 'containerId=', containerId);
-    } catch (e) {
-        log.warn('VectFox: renderSettings pre-append debug failed', e);
-    }
-
-    $(`#${containerId}`).append(html);
-
-    // Debug: log presence of lock button after rendering and observe for later appearance
-    try {
-        log.trace(`VectFox: renderSettings appended to ${containerId}. lock button present:`, !!document.getElementById('VectFox_lock_collection'));
-        if (!document.getElementById('VectFox_lock_collection')) {
-            const containerEl = document.getElementById(containerId);
-            if (containerEl && window.MutationObserver) {
-                const mo = new MutationObserver((mutations, obs) => {
-                    if (document.getElementById('VectFox_lock_collection')) {
-                        log.trace('VectFox: lock button appeared in DOM');
-                        obs.disconnect();
-                    }
-                });
-                mo.observe(containerEl, { childList: true, subtree: true });
-            }
-        }
-    } catch (e) {
-        log.warn('VectFox: debug check failed', e);
-    }
-
-    // Bind all events
     bindSettingsEvents(settings, callbacks);
 
     // The shell: the rail, the theme switch, and the dialog the panel opens in
@@ -176,7 +116,7 @@ export function renderSettings(containerId, settings, callbacks) {
     // The Action page's health pill answers once at load; while VectFox is off, switching it on probes.
     if (isVectFoxEnabled()) void refreshHealthPill();
 
-    log.lifecycle('VectFox UI: Settings rendered');
+    log.lifecycle('VectFox UI: settings panel mounted');
 }
 
 /** Every page of the panel, with what runs as it shows or hides (panel-shell.js). */
@@ -422,27 +362,21 @@ async function _runStoryLinkButton(settings) {
     const { collectionId, coverage, allEstimate, undecidedEstimate, model } = pass;
     const hasUndecided = undecidedEstimate.eventCount > 0;
     const hasDecided = coverage.decidedCount > 0;
-    const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
-    const choice = await callGenericPopup(
-        `<h3>Regenerate StoryArc links</h3>
-        <p>Each event's text goes to <code>${escapeHtml(model)}</code>, once per event, along with up to 13 earlier events.</p>
-        <ul style="text-align:left;">
-            ${hasUndecided ? `<li>Events with no decision yet. ${escapeHtml(_describeLinkEstimate(undecidedEstimate))}</li>` : ''}
-            ${hasDecided ? `<li>All events, replacing their links. ${escapeHtml(_describeLinkEstimate(allEstimate))}</li>` : ''}
-        </ul>
-        <p><small>Estimated from one chat on GPT-6 Luna, and a model that thinks more costs more. You can stop at any time, and finished events keep their links.</small></p>`,
-        POPUP_TYPE.TEXT,
-        '',
-        {
-            okButton: hasUndecided ? `Link ${undecidedEstimate.eventCount} events` : `Relink all ${allEstimate.eventCount} events`,
-            cancelButton: 'Cancel',
-            customButtons: hasUndecided && hasDecided ? [`Relink all ${allEstimate.eventCount} events`] : [],
-        },
-    );
-    // callGenericPopup returns true or 1 for the OK button, and 2 for the first custom button.
-    const isOkButton = choice === true || choice === 1;
-    if (!isOkButton && choice !== 2) return;
-    await runStoryLinkPass({ collectionId, settings, shouldRelinkDecided: choice === 2 || !hasUndecided });
+    const { choicePopup } = await import('../../sillytavern/popup.js');
+    const choice = await choicePopup([
+        { icon: 'fa-diagram-project', text: 'Regenerate StoryArc links?' },
+        { parts: [{ text: "Each event's text goes to " }, { name: model }, { text: ' once, along with up to 13 earlier events.' }] },
+        ...(hasUndecided ? [{ text: 'Events with no decision yet:', name: _describeLinkEstimate(undecidedEstimate) }] : []),
+        ...(hasDecided ? [{ text: 'All events, replacing their links:', name: _describeLinkEstimate(allEstimate) }] : []),
+        { text: 'Estimated from one chat on GPT-6 Luna, and a model that thinks more costs more. You can stop at any time, and finished events keep their links.' },
+    ], {
+        choices: [
+            ...(hasUndecided ? [{ text: `Link ${undecidedEstimate.eventCount} events`, value: 'undecided' }] : []),
+            ...(hasDecided || !hasUndecided ? [{ text: `Relink all ${allEstimate.eventCount} events`, value: 'all' }] : []),
+        ],
+    });
+    if (!choice) return;
+    await runStoryLinkPass({ collectionId, settings, shouldRelinkDecided: choice === 'all' });
 }
 
 /**
@@ -469,23 +403,19 @@ async function _offerEventBaseFork(settings) {
     if (!source) return 'vectorize';
 
     const remainingCount = Math.max(0, source.chatMessageCount - source.sharedPrefixLength);
-    const remainingText = remainingCount > 0
-        ? ` The ${remainingCount} message${remainingCount === 1 ? '' : 's'} after them still need extraction.`
-        : '';
-    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../../sillytavern/popup.js');
-    const choice = await callGenericPopup(
-        `<div style="text-align:left">
-            <p><strong>This chat is a branch or checkpoint.</strong> Its first ${source.sharedPrefixLength} messages match the EventBase <em>${escapeHtml(source.collectionId)}</em>.</p>
-            <p><strong>Fork from parent</strong> copies the events for those messages into this chat's own EventBase — no LLM calls, no re-embedding.${remainingText} If the parent's EventBase is locked to this chat, it is unlocked: its later events belong to the parent's story.</p>
-            <p><strong>Vectorize from scratch</strong> extracts this chat's whole history again.</p>
-        </div>`,
-        POPUP_TYPE.CONFIRM,
-        '',
-        { okButton: 'Fork from parent', cancelButton: 'Vectorize from scratch' },
-    );
+    const { choicePopup } = await import('../../sillytavern/popup.js');
+    const choice = await choicePopup([
+        { icon: 'fa-code-branch', text: 'This chat is a branch or checkpoint.' },
+        { text: 'Messages it shares with its parent:', name: String(source.sharedPrefixLength) },
+        { text: "The parent's EventBase:", name: source.collectionId },
+        { text: "Fork from parent copies the events for those messages into this chat's own EventBase, with no LLM calls and no embedding." },
+        ...(remainingCount > 0 ? [{ text: 'Messages after them, still to read:', name: String(remainingCount) }] : []),
+        { text: "If the parent's EventBase is locked to this chat, it is unlocked, as its later events belong to the parent's story." },
+        { text: "Vectorize from scratch reads this chat's whole history again." },
+    ], { choices: [{ text: 'Fork from parent', value: 'fork' }, { text: 'Vectorize from scratch', value: 'vectorize' }] });
 
-    if (choice === POPUP_RESULT.NEGATIVE) return 'vectorize';
-    if (choice !== POPUP_RESULT.AFFIRMATIVE) return 'cancel';
+    if (choice === 'vectorize') return 'vectorize';
+    if (choice !== 'fork') return 'cancel';
 
     try {
         const result = await forkEventBaseFromSource(settings, source);
@@ -566,7 +496,7 @@ export function updateWebLlmStatus() {
 
     // Check browser support
     if (!('gpu' in navigator)) {
-        $status.html('<i class="fa-solid fa-exclamation-triangle" style="color: var(--warning-color, #f39c12);"></i> Your browser does not support WebGPU. Use Chrome 113+ or Edge 113+.');
+        $status.html(notice({ status: 'warning', text: 'Your browser does not support WebGPU. Use Chrome 113+ or Edge 113+.' }));
         $installBtn.hide();
         $loadBtn.prop('disabled', true);
         $modelSelect.prop('disabled', true);
@@ -575,7 +505,7 @@ export function updateWebLlmStatus() {
 
     // Check extension installed
     if (!Object.hasOwn(SillyTavern, 'llm')) {
-        $status.html('<i class="fa-solid fa-exclamation-circle" style="color: var(--error-color, #e74c3c);"></i> WebLLM extension not installed. Click "Install Extension" below.');
+        $status.html(notice({ status: 'danger', text: 'WebLLM extension not installed. Click Install Extension below.' }));
         $installBtn.show();
         $loadBtn.prop('disabled', true);
         $modelSelect.prop('disabled', true);
@@ -584,7 +514,7 @@ export function updateWebLlmStatus() {
 
     // Check extension supports embeddings
     if (typeof SillyTavern.llm.generateEmbedding !== 'function') {
-        $status.html('<i class="fa-solid fa-exclamation-triangle" style="color: var(--warning-color, #f39c12);"></i> WebLLM extension is outdated. Please update it to support embeddings.');
+        $status.html(notice({ status: 'warning', text: 'WebLLM extension is outdated. Update it to support embeddings.' }));
         $installBtn.show().find('i').removeClass('fa-puzzle-piece').addClass('fa-rotate');
         $installBtn.find('span, text').text(' Update Extension');
         $loadBtn.prop('disabled', true);
@@ -593,7 +523,7 @@ export function updateWebLlmStatus() {
     }
 
     // All good!
-    $status.html('<i class="fa-solid fa-check-circle" style="color: var(--success-color, #2ecc71);"></i> WebLLM extension is installed and ready.');
+    $status.html(notice({ status: 'info', text: 'WebLLM extension is installed and ready.' }));
     $installBtn.hide();
     $loadBtn.prop('disabled', false);
     $modelSelect.prop('disabled', false);
@@ -804,27 +734,23 @@ function bindSettingsEvents(settings, callbacks) {
                     const pendingWindows = countWindowsBehind(boundary, tip, windowSize);
 
                     if (pendingWindows >= FAR_BEHIND_WINDOW_COUNT) {
-                        const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = await import('../../sillytavern/popup.js');
-                        const choice = await callGenericPopup(
-                            `<div style="text-align:left">
-                                <p><strong>${pendingMsgs} messages aren't vectorized yet</strong> (~${pendingWindows} extraction call${pendingWindows === 1 ? '' : 's'}).</p>
-                                <p>Auto-sync will catch up this backlog. Run it now — with a progress bar you can cancel — or just keep up from here on?</p>
-                            </div>`,
-                            POPUP_TYPE.CONFIRM,
-                            '',
-                            { okButton: 'Catch up now', cancelButton: 'Just keep up from here' },
-                        );
-                        if (choice === POPUP_RESULT.AFFIRMATIVE) {
-                            // Run the backfill now with the standard progress UI (full-screen
-                            // on mobile). Resolves at extraction completion; the marker then
-                            // lands at the freshly-advanced tip (smart placement below).
+                        const { choicePopup } = await import('../../sillytavern/popup.js');
+                        const choice = await choicePopup([
+                            { icon: 'fa-clock-rotate-left', text: 'Messages not vectorized yet:', name: String(pendingMsgs) },
+                            { text: 'Extraction calls, about:', name: String(pendingWindows) },
+                            { text: 'Catch up now reads them with a progress bar you can stop. Keep up from here skips them. Cancel leaves auto-sync off.' },
+                        ], { choices: [{ text: 'Catch up now', value: 'catch-up' }, { text: 'Keep up from here', value: 'keep-up' }] });
+                        if (choice === 'catch-up') {
+                            // Run the backfill now with the progress panel. Resolves at
+                            // extraction completion; the marker then lands at the
+                            // freshly-advanced tip (smart placement below).
                             const { backfillCurrentChatWithProgress } = await import('../chunkbase/index.js');
                             await backfillCurrentChatWithProgress();
-                        } else if (choice === POPUP_RESULT.NEGATIVE) {
+                        } else if (choice === 'keep-up') {
                             // Keep up from here — skip the backlog (floor the marker at "now").
                             markerFloorOverride = 'chatLength';
                         } else {
-                            // X / Esc — abort enabling entirely.
+                            // Cancel or Escape — abort enabling entirely.
                             $checkbox.prop('checked', false);
                             _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
                             await refreshAutoSyncCheckbox(settings);

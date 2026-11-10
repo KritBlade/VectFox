@@ -1,16 +1,13 @@
-// popup.js — SillyTavern's popups: the generic popup call, the Popup class, and the popup types and results, which the rest
-// of VectFox imports here, never from SillyTavern (tools/check-host-imports.mjs). Also the doors a GUI-DNA surface opens its
-// dialogs through, which carry .vfx-popup.vfx-ui and are drawn by shared/gui-dna/dialogs.css; the way an element that floats
-// over the page, such as the progress panel or a modal opened from the settings panel, is shown above an open popup; and the
-// wait for every popup but the settings panel's to finish closing.
+// popup.js — the one door to SillyTavern's popups (guard G9): the dialogs every VectFox surface opens, which carry
+// .vfx-popup.vfx-ui and are drawn by shared/gui-dna/dialogs.css; the way an element that floats over the page, such as
+// the progress panel, is shown above an open popup; and the wait for every popup but the settings panel's to finish
+// closing.
 //
 // FAILURE STANCE: a dialog that cannot open answers NO. A caller guards an action, so "the dialog broke" must never read as
 // "the user said yes".
-import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup, getTopmostModalLayer } from '../../../../../popup.js';
+import { POPUP_RESULT, POPUP_TYPE, Popup, getTopmostModalLayer } from '../../../../../popup.js';
 import { log } from './log.js';
 import { dialogLineSegments } from './popup-core.js';
-
-export { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup };
 
 /** A dialog's lines as paragraphs (popup-core.js). */
 function dialogTextBlock(lines) {
@@ -62,7 +59,7 @@ function showDialog(content, type, { okButton, cancelButton, isDestructive = fal
 }
 
 /**
- * Wait until every SillyTavern popup but the settings panel's has finished closing. callGenericPopup resolves as soon as
+ * Wait until every SillyTavern popup but the settings panel's has finished closing. A dialog answers as soon as
  * a button is clicked, but the dialog stays on top through its ~300ms close animation, over anything opened behind it.
  * Past maxWaitMs, the popups left are cancelled and removed. The panel's dialog stays open. Never throws.
  *
@@ -106,6 +103,30 @@ export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel', i
     } catch (error) {
         log.warn('A confirm dialog could not open, so it answers no:', error);
         return false;
+    }
+}
+
+/**
+ * Ask the user to pick one of several actions. Returns the picked action's value, or null when they cancel or close the
+ * dialog. Never throws: a dialog that cannot open logs and answers null, so it never reads as a pick.
+ *
+ * @param {object[]} lines - What each action does (popup-core.js)
+ * @param {object} options
+ * @param {{text: string, value: string}[]} options.choices - The actions, each as a verb; the first is the primary
+ *     button and the one Enter presses
+ * @param {string|false} [options.cancelButton] - false leaves only the actions, for a question Escape alone may skip
+ * @returns {Promise<string|null>}
+ */
+export async function choicePopup(lines, { choices, cancelButton = 'Cancel' }) {
+    const [primary, ...others] = choices;
+    const customButtons = others.map((choice, index) => ({ text: choice.text, result: POPUP_RESULT.CUSTOM1 + index }));
+    try {
+        const answer = await showDialog(dialogTextBlock(lines), POPUP_TYPE.CONFIRM, { okButton: primary.text, cancelButton, popupOptions: { customButtons } });
+        if (answer === POPUP_RESULT.AFFIRMATIVE) return primary.value;
+        return others[answer - POPUP_RESULT.CUSTOM1]?.value ?? null;
+    } catch (error) {
+        log.warn('A choice dialog could not open, so it answers none:', error);
+        return null;
     }
 }
 

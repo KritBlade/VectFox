@@ -28,7 +28,7 @@ import {
 } from '../collections/index.js';
 import { LOREBOOK_PROMPT_TAG } from '../../shared/constants.js';
 import { notifyRetrievalFailure, notifyNoActiveCollections } from '../../shared/model-config-notifier.js';
-import { detectLorebookRenames, showLorebookRenameModal, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
+import { askLorebookRenameQuestion, detectLorebookRenames, openDatabaseBrowserForRename } from './lorebook-rename-detector.js';
 // Lorebook collection ID lookup uses registry scan (see _findLorebookRegistryEntry below);
 // the builder is intentionally not imported here because lookups can't reconstruct the
 // exact ID (backend + handle + timestamp segments are not known at lookup time).
@@ -685,7 +685,7 @@ async function handleGenerationStarted(type, options, dryRun) {
         const mismatches = await detectLorebookRenames(lorebookCollections);
         if (mismatches.length) {
             log.warn(`VectFox: Lorebook rename detected — ${mismatches.map(m => m.sourceName).join(', ')}`);
-            const choice = await showLorebookRenameModal(mismatches);
+            const choice = await askLorebookRenameQuestion(mismatches);
             if (choice === 'open_browser') {
                 try {
                     const { stopGeneration } = await import('../../sillytavern/generation.js');

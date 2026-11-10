@@ -63,9 +63,15 @@ dialog.popup.vfx-popup.is-panel .vfx-shell.is-topbar .vfx-nav-inner {
     min-height: 0;
 }
 
+/* A dialog line's leading icon (sillytavern/popup-core.js), apart from its words. */
+dialog.popup.vfx-popup .vfx-dialog-icon {
+    margin-inline-end: 6px;
+}
+
 /* The buttons on a bar of their own, right-aligned: each a DNA secondary button, the action the primary one. The panel's
-   Close stays secondary: it performs nothing. */
+   Close stays secondary: it performs nothing. Buttons too wide for one row wrap to the next, each label whole. */
 dialog.popup.vfx-popup .popup-controls {
+    flex-wrap: wrap;
     align-self: stretch;
     justify-content: flex-end;
     gap: 8px;
@@ -88,6 +94,7 @@ dialog.popup.vfx-popup .popup-controls .menu_button {
     background-color: var(--vfx-surface-raised);
     color: var(--vfx-text);
     font-weight: 500;
+    white-space: nowrap;
     box-shadow: none;
     filter: none;
 }

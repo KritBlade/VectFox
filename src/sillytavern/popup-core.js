@@ -6,8 +6,8 @@
 //   { name }          a value shown as written: a name, an id, a version, a path;
 //   { text, name }    a keyed lead-in, then the value;
 //   { parts: [...] }  segments in order, each { text } or { name }, for a line that mixes fixed words and values.
-// Any of them may lead with `icon`, a Font Awesome solid icon's class (`fa-circle-exclamation`); a danger dialog,
-// which asks a safety question, draws it red (settings-panel.css). A line with nothing else to show shows no icon.
+// Any of them may lead with `icon`, a Font Awesome solid icon's class (`fa-circle-exclamation`). A line with nothing
+// else to show shows no icon.
 // A fixed word is never built from a value, so the locale pass can translate it; a value is never translated.
 
 const isShown = (value) => value !== undefined && value !== null && String(value) !== '';

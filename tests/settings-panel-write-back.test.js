@@ -59,7 +59,7 @@ vi.mock('../src/app/network-startup.js', () => ({
     runNetworkStartup: vi.fn(),
 }));
 vi.mock('../src/features/settings-panel/index.js', () => ({
-    renderSettings: (_containerId, settings) => { panel.settings = settings; },
+    mountSettingsPanel: (_containerId, settings) => { panel.settings = settings; },
     loadWebLlmModels: vi.fn(),
     updateWebLlmStatus: vi.fn(),
     refreshAutoSyncCheckbox: vi.fn(),

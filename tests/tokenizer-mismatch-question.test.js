@@ -27,9 +27,8 @@ vi.mock('../src/shared/constants.js', () => ({
 
 const host = vi.hoisted(() => ({ answers: [], root: { vectfox: {} } }));
 vi.mock('../src/sillytavern/popup.js', () => ({
-    POPUP_TYPE: { TEXT: 1 },
     // Each question waits until the test answers it, as the user does.
-    callGenericPopup: vi.fn(() => new Promise(resolve => host.answers.push(resolve))),
+    choicePopup: vi.fn(() => new Promise(resolve => host.answers.push(resolve))),
     waitForOtherPopupsToClose: vi.fn(async () => {}),
 }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root, saveSettingsDebounced: vi.fn() }));
@@ -42,18 +41,19 @@ vi.mock('../src/features/keyword-search/index.js', () => ({
     ensureJiebaTokenizerLoaded: vi.fn(async () => true),
     ensureJiebaTwLoaded: vi.fn(async () => true),
     tokenize: vi.fn(text => String(text).toLowerCase().split(/\s+/).filter(Boolean)),
+    languageModeLabel: vi.fn(mode => mode),
 }));
 
 const { QdrantBackend } = await import('../src/features/vector-backend/qdrant.js');
 const { invalidateCollectionMetadata } = await import('../src/features/vector-backend/tokenizer-lock.js');
-const { callGenericPopup } = await import('../src/sillytavern/popup.js');
+const { choicePopup } = await import('../src/sillytavern/popup.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 const { stopGeneration } = await import('../src/sillytavern/generation.js');
 const { setCjkTokenizerMode, ensureJiebaTwLoaded } = await import('../src/features/keyword-search/index.js');
 
 const COLLECTION_ID = 'vf_eventbase_qdrant_rabbit_harbor_67d28099-167f-4c07-a7cb-1b62e44f43d0';
-const REVERT = 1;
-const CANCEL = 0;
+const REVERT = 'revert';
+const CANCEL = null;
 const SAVED_SETTINGS = { cjk_tokenizer_mode: 'intl', score_threshold: 0.25, keyword_scoring_method: 'keyword_boost', eventbase_score_threshold: 0 };
 // What EventBase search hands each search: a copy with its own threshold and keyword method (eventSearchSettings).
 const searchCopy = () => ({ ...host.root.vectfox, keyword_scoring_method: 'bm25', score_threshold: host.root.vectfox.eventbase_score_threshold });
@@ -81,7 +81,7 @@ describe('a reply whose searches meet a collection made with another CJK tokeniz
         const searches = [search(searchCopy()), search(searchCopy())];
         await vi.waitFor(() => expect(host.answers.length).toBeGreaterThan(0));
         await settle();
-        expect(callGenericPopup).toHaveBeenCalledTimes(1);
+        expect(choicePopup).toHaveBeenCalledTimes(1);
 
         host.answers.forEach(answer => answer(REVERT));
         const results = await Promise.all(searches);
@@ -100,7 +100,7 @@ describe('a reply whose searches meet a collection made with another CJK tokeniz
         await first;
 
         expect((await search(staleCopy)).hashes).toEqual([7]);
-        expect(callGenericPopup).toHaveBeenCalledTimes(1);
+        expect(choicePopup).toHaveBeenCalledTimes(1);
     });
 
     it('stops every search and the reply once on Cancel', async () => {

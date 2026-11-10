@@ -1,12 +1,7 @@
-/* ============================================================================
- * VECTFOX - ADVANCED RAG SYSTEM
- * ============================================================================
- * Main stylesheet - imports all component styles
- *
- * @author Kritblade
- * ============================================================================ */
+/* vectfox.css — VectFox's stylesheet (manifest.json loads it): the GUI-DNA, generated from mvu-helper, then VectFox's
+ * own rules beside it. Every rule sits under .vfx-ui or a VectFox id, so none reaches SillyTavern's page or another
+ * extension. */
 
-/* GUI-DNA: every rule sits under .vfx-ui, so these reach only the surfaces moved to it */
 @import url('./shared/gui-dna/palette.css');
 @import url('./shared/gui-dna/gui-dna.css');
 @import url('./shared/gui-dna/dialogs.css');
@@ -14,18 +9,4 @@
 @import url('./shared/progress-tracker.css');
 @import url('./features/settings-panel/panel-shell.css');
 @import url('./features/eventbase/story-arc-page.css');
-
-/* Base styles: CSS variables and the main container */
-@import url('./shared/base.css');
-
-/* Component styles */
-@import url('./features/settings-panel/settings-panel.css');
-@import url('./shared/forms.css');
-@import url('./shared/buttons.css');
-@import url('./shared/modals.css');
-
-/* UI component styles */
 @import url('./features/database-browser/database-browser.css');
-
-/* Mobile responsive styles - must be last to override */
-@import url('./shared/mobile.css');

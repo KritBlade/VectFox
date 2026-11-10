@@ -113,7 +113,7 @@ vi.mock('../src/shared/constants.js', () => ({
 
 vi.mock('../src/features/world-info/lorebook-rename-detector.js', () => ({
     detectLorebookRenames: vi.fn(() => []),
-    showLorebookRenameModal: vi.fn(),
+    askLorebookRenameQuestion: vi.fn(),
     openDatabaseBrowserForRename: vi.fn(),
 }));
 

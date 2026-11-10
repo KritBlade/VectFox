@@ -38,7 +38,7 @@ import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
-import { renderSettings, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
+import { mountSettingsPanel, loadWebLlmModels, updateWebLlmStatus, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { initializeWorldInfoIntegration } from './features/world-info/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
@@ -577,8 +577,8 @@ jQuery(async () => {
         });
     }
 
-    // Render UI
-    renderSettings('extensions_settings2', settings, { runNetworkStartup });
+    // The settings panel, in SillyTavern's Extensions drawer
+    mountSettingsPanel('extensions_settings2', settings, { runNetworkStartup });
 
     // Initialize auto-sync checkbox state for current chat (if any)
     refreshAutoSyncCheckbox(settings);
