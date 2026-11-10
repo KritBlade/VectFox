@@ -72,7 +72,7 @@ export function panelNavMarkup() {
     }
     return `<nav class="vfx-nav">
             <div class="vfx-nav-inner">
-                <div class="vfx-nav-brand"><i class="fa-solid fa-brain"></i><span>VectFox</span></div>
+                <div class="vfx-nav-brand"><i class="fa-brands fa-wolf-pack-battalion"></i><span>VectFox</span></div>
                 ${items.join('\n                ')}
                 <div class="vfx-nav-footer">
                     <div class="vfx-theme-switch" role="group" title="Theme">
