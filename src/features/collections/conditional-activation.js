@@ -441,8 +441,8 @@ export function processChunkLinks(chunks, chunkMetadataMap, softBoost = 0.15) {
     const softBoosts = new Map(); // hash -> total boost
 
     // First pass: collect all force links and soft boosts.
-    // Links use the visualizer's shape: chunkLinks: [{ targetHash, mode: 'force'|'soft' }]
-    // (the link editor radio writes exactly these values — see chunk-visualizer.js).
+    // Links use the Chunk Visualizer's shape: chunkLinks: [{ targetHash, mode: 'force'|'soft' }],
+    // which its link editor writes (database-browser/chunk-visualizer.js).
     for (const chunk of chunks) {
         const meta = chunkMetadataMap[chunk.hash];
         if (!meta?.chunkLinks || meta.chunkLinks.length === 0) continue;

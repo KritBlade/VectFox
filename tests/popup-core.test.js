@@ -60,9 +60,6 @@ describe('isModalOpenOnDialogOf', () => {
         expect(isModalOpenOnDialogOf(inside)).toBe(true);
         document.getElementById('rename').style.display = 'none';
         expect(isModalOpenOnDialogOf(inside)).toBe(false);
-
-        document.getElementById('browser').insertAdjacentHTML('beforeend', '<div class="vectfox-visualizer-modal"></div>');
-        expect(isModalOpenOnDialogOf(inside)).toBe(true);
     });
 
     it('a modal on another dialog does not count, and an element in no dialog has none', () => {

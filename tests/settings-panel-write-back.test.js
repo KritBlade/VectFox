@@ -65,7 +65,6 @@ vi.mock('../src/features/settings-panel/index.js', () => ({
     refreshAutoSyncCheckbox: vi.fn(),
 }));
 vi.mock('../src/features/database-browser/index.js', () => ({
-    initializeVisualizer: vi.fn(),
     initializeDatabaseBrowser: vi.fn(),
 }));
 vi.mock('../src/features/world-info/index.js', () => ({

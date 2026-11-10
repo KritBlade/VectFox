@@ -5,12 +5,11 @@
  * Full before/after review for Auto-Reformat output. Runs BEFORE any
  * collection/hash/backend exists for the content being vectorized, so this
  * is its own fixed modal — not injected into content-vectorizer.js's DOM and
- * not wired to a live collection (unlike src/features/database-browser/chunk-visualizer.js, whose state
- * is keyed to an already-inserted collection's hashes).
+ * not wired to a live collection (unlike src/features/database-browser/chunk-visualizer.js, which
+ * edits chunks already stored in one).
  *
- * Reuses chunk-visualizer.js's dirty-tracking idiom (capture the original
- * value, flip a visual flag when the user edits a field) applied per-record
- * instead of per-stored-chunk — see _bindDirtyTracking() below.
+ * Each record card marks itself edited once a field differs from its value
+ * at render time — see _bindDirtyTracking() below.
  *
  * This module only renders and collects user decisions; it does not touch
  * the reformat cache, sourceHash, or vector DB. The caller (content-vectorizer.js)
@@ -186,10 +185,8 @@ function _renderRecords() {
 
 /**
  * Flags a card as edited (visual only) the moment any field differs from its
- * value at render time — mirrors chunk-visualizer.js's originalText/
- * hasUnsavedChanges pattern, applied per-record instead of per-stored-chunk.
- * Accept & Continue always serializes current field values regardless of
- * this flag; it's a review aid, not a save gate.
+ * value at render time. Accept & Continue always serializes current field
+ * values regardless of this flag; it's a review aid, not a save gate.
  */
 function _bindDirtyTracking() {
     $('.vectfox-rr-card').each(function () {

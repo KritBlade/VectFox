@@ -1,15 +1,25 @@
 /**
  * @vitest-environment jsdom
  *
- * shared/gui-dna/gene-behaviours.js: setCollapsed folds a card as its chevron does, leaving a card inside it alone, and
+ * shared/gui-dna/gene-behaviours.js: setCollapsed folds a card as its chevron does, leaving a card inside it alone;
  * scrollPageToTop opens a page the nav switches to at its top, whichever box of its dialog scrolls it, while nothing
- * outside the dialog moves.
+ * outside the dialog moves; and a split's divider moves with the keys within each pane's minimum, writing the width
+ * into a stylesheet rule and never onto the split.
  */
 
-/* global document -- this file runs under the jsdom environment */
+/* global document, Element, KeyboardEvent -- this file runs under the jsdom environment */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { scrollPageToTop, setCollapsed } from '../src/shared/gui-dna/gene-behaviours.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import $ from 'jquery';
+import {
+    SPLIT_KEY_STEP,
+    SPLIT_MIN_PANE,
+    bindGeneBehaviours,
+    scrollPageToTop,
+    setCollapsed,
+    splitLimits,
+    splitWidthAfterKey,
+} from '../src/shared/gui-dna/gene-behaviours.js';
 
 describe('setCollapsed', () => {
     const chevron = '<button type="button" class="vfx-collapse" aria-expanded="true"></button>';
@@ -52,5 +62,39 @@ describe('scrollPageToTop', () => {
         scrollPageToTop(document.getElementById('loose-page'));
         scrollPageToTop(null);
         expect(document.getElementById('holder').scrollTop).toBe(300);
+    });
+});
+
+describe('a split divider', () => {
+    it('keeps each pane its minimum, and moves a step for an arrow and to a limit for Home and End', () => {
+        expect(splitLimits(1000, 12)).toEqual({ min: SPLIT_MIN_PANE, max: 1000 - 12 - SPLIT_MIN_PANE });
+        expect(splitLimits(300, 12)).toEqual({ min: SPLIT_MIN_PANE, max: SPLIT_MIN_PANE });
+        const limits = { min: 240, max: 748 };
+        expect(splitWidthAfterKey(400, 'ArrowRight', limits)).toBe(400 + SPLIT_KEY_STEP);
+        expect(splitWidthAfterKey(250, 'ArrowLeft', limits)).toBe(240);
+        expect(splitWidthAfterKey(400, 'Home', limits)).toBe(240);
+        expect(splitWidthAfterKey(400, 'End', limits)).toBe(748);
+        expect(splitWidthAfterKey(400, 'a', limits)).toBeNull();
+    });
+
+    it('writes the width into a stylesheet rule for the split, never onto it, and tells a screen reader', () => {
+        vi.stubGlobal('$', $);
+        document.head.innerHTML = '';
+        document.body.innerHTML = '<div id="root"><div id="test_split" class="vfx-split"><section></section>'
+            + '<div class="vfx-split-divider" role="separator" tabindex="0"></div><section></section></div></div>';
+        // The split is 1000 wide, its divider 12 and its start pane 400.
+        const rects = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+            const width = this.id === 'test_split' ? 1000 : (this.classList.contains('vfx-split-divider') ? 12 : 400);
+            return { width, left: 0, top: 0, right: width, bottom: 0, height: 0, x: 0, y: 0 };
+        });
+        bindGeneBehaviours(document.getElementById('root'));
+        const divider = document.querySelector('.vfx-split-divider');
+        divider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        expect(divider.getAttribute('aria-valuenow')).toBe(String(400 + SPLIT_KEY_STEP));
+        expect(divider.getAttribute('aria-valuemax')).toBe(String(1000 - 12 - SPLIT_MIN_PANE));
+        expect(document.getElementById('test_split').hasAttribute('style')).toBe(false);
+        const rule = [...document.querySelector('style[data-vfx-split-widths]').sheet.cssRules].find(each => each.selectorText === '#test_split');
+        expect(rule.style.getPropertyValue('--vfx-split-start')).toBe(`${400 + SPLIT_KEY_STEP}px`);
+        rects.mockRestore();
     });
 });

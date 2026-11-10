@@ -19,7 +19,6 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
 // The calls left, by file, until their phase moves them to sillytavern/popup.js.
 const CALLS_LEFT = {
-    'features/database-browser/chunk-visualizer.js': 5,
     'features/text-cleaning/text-cleaning-ui.js': 1,
 };
 

@@ -150,32 +150,6 @@ describe('Live code remains intact (regression guard)', () => {
         });
     });
 
-    describe('Chunk visualizer conditional rendering (per content type)', () => {
-        it('isEventBaseCollection helper exists', () => {
-            expect(readRel('src/features/database-browser/chunk-visualizer.js'))
-                .toMatch(/function\s+isEventBaseCollection/);
-        });
-
-        it('renderDetailPanel computes per-section visibility flags', () => {
-            const src = readRel('src/features/database-browser/chunk-visualizer.js');
-            expect(src).toContain('showEnabledToggle');
-            expect(src).toContain('showKeywords');
-            expect(src).toContain('showChunkLinks');
-        });
-
-        it('Prompt Context section is unconditional (still works for EventBase)', () => {
-            // The XML tag textarea must NOT be wrapped in a feature flag — it's
-            // the one piece that EventBase still uses (post-retrieval injection).
-            const src = readRel('src/features/database-browser/chunk-visualizer.js');
-            const xmlTagBlock = src.match(/Prompt Context Section[\s\S]{0,400}/);
-            expect(xmlTagBlock, 'Prompt Context comment marker still present').toBeTruthy();
-            // The 100 chars BEFORE the comment marker should NOT contain a feature flag opener
-            const startIdx = src.indexOf('Prompt Context Section');
-            const preamble = src.slice(Math.max(0, startIdx - 200), startIdx);
-            expect(preamble).not.toMatch(/\$\{show\w+\s*\?\s*`\s*$/);
-        });
-    });
-
     describe('Critical settings defaults', () => {
         it('keyword_scoring_method default is "hybrid"', () => {
             expect(readRel('src/index.js'))
@@ -199,9 +173,9 @@ describe('Live code remains intact (regression guard)', () => {
             expect(existsRel('src/features/database-browser/chunk-visualizer.js')).toBe(true);
         });
 
-        it('openVisualizer is exported', () => {
+        it('openChunkVisualizer is exported', () => {
             expect(readRel('src/features/database-browser/chunk-visualizer.js'))
-                .toMatch(/export\s+(?:default\s+)?function\s+openVisualizer|export\s*\{\s*openVisualizer/);
+                .toMatch(/export\s+(?:async\s+)?function\s+openChunkVisualizer/);
         });
     });
 });

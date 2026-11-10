@@ -38,9 +38,9 @@ export function dialogLineSegments(line) {
     return segments;
 }
 
-// The modals VectFox places on an open dialog (popup.js placeOnTopmostModalLayer): the tools a panel page opens, the
-// Database Browser's own dialogs and the Chunk Visualizer.
-const PLACED_MODAL_SELECTOR = '.vectfox-modal, .vectfox-visualizer-modal';
+// The modals VectFox places on an open dialog (popup.js placeOnTopmostModalLayer): the tools not yet on GUI-DNA that a
+// panel page opens, such as the Content Vectorizer and the Query Tester.
+const PLACED_MODAL_SELECTOR = '.vectfox-modal';
 
 /**
  * Whether a modal VectFox placed on the dialog holding `element` is shown there now. That dialog then stays open on

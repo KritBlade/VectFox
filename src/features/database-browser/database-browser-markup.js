@@ -35,6 +35,7 @@ import {
 import { buttonWithId, cardHeader, dangerZone, navBrand, navItem, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
 import { formatBytes } from '../../shared/byte-size.js';
+import { counted } from './counted.js';
 
 export const BROWSER_ROOT_ID = 'vectfox_database_browser';
 
@@ -60,7 +61,7 @@ const SIZE_ENTRIES_PER_PAGE = 50;
 const HIDDEN = ' style="display:none;"';
 const SIMILHARITY_INSTALL_URL = 'https://github.com/KritBlade/VectFox/tree/Similharity-Plugin#step-2-install-plugin-via-git-recommended';
 
-// The icon for each collection type; a type not listed gets a cube.
+// The icon for each collection type; a type not listed gets a cube (collectionTypeIcon).
 const TYPE_ICONS = Object.freeze({
     chat: 'fa-message',
     file: 'fa-file-lines',
@@ -76,10 +77,18 @@ const TYPE_ICONS = Object.freeze({
     youtube: 'fa-globe',
 });
 
+/**
+ * A collection type's icon, as its row and the Chunk Visualizer show it.
+ *
+ * @param {string} type
+ * @returns {string}
+ */
+export function collectionTypeIcon(type) {
+    return TYPE_ICONS[type] || 'fa-cube';
+}
+
 const SCOPE_PILL_TEXT = Object.freeze({ character: 'Character', chat: 'Chat' });
 
-// "1 result", "2 results"; `plural` for a word that does not take an s.
-const counted = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
 const ACTIVATION_PILLS = Object.freeze({
     triggers: { text: 'Triggers', icon: 'fa-key' },
     conditions: { text: 'Conditions', icon: 'fa-filter' },
@@ -236,7 +245,7 @@ export function collectionEntryMarkup(view) {
         iconButton({ icon: 'fa-trash-can', title: 'Delete', isDanger: true, data: data('delete') }),
     ].filter(Boolean);
     const row = listRow({
-        icon: TYPE_ICONS[view.type] || 'fa-cube',
+        icon: collectionTypeIcon(view.type),
         name: view.name,
         sub: [
             { text: 'Chunks', name: view.chunkCount },

@@ -59,18 +59,19 @@ export function pageHeader({ icon, eyebrow, title, subtitle, status = '' }) {
 }
 
 /**
- * A card's header: its badge, title and one-line description, then any actions and the collapse chevron.
+ * A card's header: its badge, title and one-line description, then any actions and the collapse chevron. A pane of a
+ * split is not `isCollapsible`: folded, it would leave its half of the split empty.
  *
- * @param {{icon: string, title: string, description?: string, actions?: string}} card
+ * @param {{icon: string, title: string, description?: string, actions?: string, isCollapsible?: boolean}} card
  * @returns {string}
  */
-export function cardHeader({ icon, title, description = '', actions = '' }) {
+export function cardHeader({ icon, title, description = '', actions = '', isCollapsible = true }) {
     return '<header class="vfx-card-header">'
         + `<span class="vfx-badge">${iconTag(icon)}</span>`
         + `<h3 class="vfx-card-title">${escape(title)}</h3>`
         + (description ? `<p class="vfx-card-desc">${escape(description)}</p>` : '')
         + (actions ? `<div class="vfx-card-actions">${actions}</div>` : '')
-        + COLLAPSE_BUTTON
+        + (isCollapsible ? COLLAPSE_BUTTON : '')
         + '</header>';
 }
 

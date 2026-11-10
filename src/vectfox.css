@@ -13,7 +13,7 @@
 @import url('./features/settings-panel/panel-shell.css');
 @import url('./features/eventbase/story-arc-page.css');
 
-/* Base styles - variables, icons, container */
+/* Base styles: CSS variables and the main container */
 @import url('./shared/base.css');
 
 /* Component styles */
@@ -28,13 +28,10 @@
 /* UI component styles */
 @import url('./features/diagnostics/diagnostics.css');
 @import url('./features/database-browser/database-browser.css');
-@import url('./features/database-browser/chunk-visualizer.css');
 @import url('./features/chunkbase/content-vectorizer.css');
 @import url('./features/chunkbase/reformat-review.css');
 @import url('./features/text-cleaning/text-cleaning-ui.css');
 @import url('./features/diagnostics/health-dashboard.css');
-
-/* Tab navigation styles */
 
 /* Mobile responsive styles - must be last to override */
 @import url('./shared/mobile.css');

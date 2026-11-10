@@ -9,8 +9,8 @@
  * own (sillytavern/popup.js openPanelPopup), drawn fresh on each open from
  * database-browser-markup.js, and its handlers are delegated on its root. Rename,
  * Switch model and Collection Settings, which opens Manage locks, are dialogs of
- * their own over it (collection-dialogs.js). View chunks opens the Chunk Visualizer
- * on the browser's dialog, and Escape closes only that while it is open.
+ * their own over it (collection-dialogs.js), and so is the Chunk Visualizer that
+ * View chunks opens (chunk-visualizer.js).
  *
  * @author Kritblade
  * ============================================================================
@@ -65,7 +65,7 @@ import {
 import { getRequestHeaders } from "../../sillytavern/requests.js";
 import { getCurrentChatId, getContext } from "../../sillytavern/chat.js";
 import { log } from "../../sillytavern/log.js";
-import { openVisualizer } from "./chunk-visualizer.js";
+import { openChunkVisualizer } from "./chunk-visualizer.js";
 import { bindSizeInspector } from "./size-inspector.js";
 import { editCollectionSettings, renameCollection, switchCollectionModel } from "./collection-dialogs.js";
 import { formatBytes, utf8ByteLength } from "../../shared/byte-size.js";
@@ -911,7 +911,7 @@ async function runCollectionAction(action, key) {
     case "switch-model":
       if (collection.models?.length > 1 && await switchCollectionModel(collection)) renderCollections();
       return;
-    case "view-chunks": return openChunkVisualizer(collection);
+    case "view-chunks": return viewCollectionChunks(collection);
     case "export-json": return exportCollectionJson(collection);
     case "export-png": return exportCollectionPng(collection);
     case "delete": return deleteOneCollection(collection);
@@ -1164,90 +1164,20 @@ function updateStats(collectionCount, chunkCount) {
 }
 
 /**
- * Loads and opens the chunk visualizer for a collection.
+ * Open a collection's chunks in the Chunk Visualizer, over the browser.
  * Opened by View chunks on the Collections page and on each Search result.
  */
-async function openChunkVisualizer(collection) {
-  try {
-    toastr.info("Loading chunks...", "VectFox");
-
-    if (!collection.backend) {
-      toastr.error("Collection has no backend defined - this is a bug", "VectFox");
-      log.error("VectFox: Collection missing backend:", collection);
-      return;
-    }
-
-    if (!browserState.pluginAvailable) {
-      toastr.warning(
-        "The Similharity plugin is required to view chunks. Install the plugin to use this feature.",
-        "VectFox",
-        { timeOut: 6000 },
-      );
-      return;
-    }
-
-    const collectionSettings = {
-      ...browserState.settings,
-      vector_backend: collection.backend,
-    };
-
-    const doLoad = async (limit) => {
-      const requestBody = {
-        backend: collection.backend || "vectra",
-        collectionId: collection.id,
-        source: collection.source || "transformers",
-        model: collection.model || "",
-        ...(limit ? { limit } : {}),
-      };
-
-      log.verbose("VECTFOX DB Browser: Requesting chunks with:", requestBody);
-
-      const response = await fetch("/api/plugins/similharity/chunks/list", {
-        method: "POST",
-        headers: getRequestHeaders(),
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to list chunks: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const results = data.items || data.chunks || data.results || [];
-      const dbChunkCount = Number(
-        data.total ?? data.totalCount ?? data.count ?? collection.chunkCount ?? results.length,
-      );
-
-      if (!results || results.length === 0) {
-        toastr.warning("No chunks found in this collection", "VectFox");
-        return;
-      }
-
-      const chunks = results.map((item, idx) => ({
-        hash: item.hash,
-        index: (item.index != null && item.index >= 0) ? item.index : idx,
-        text: item.text || item.metadata?.text || "No text available",
-        score: 1.0,
-        similarity: 1.0,
-        messageAge: item.metadata?.messageAge,
-        decayApplied: false,
-        decayMultiplier: 1.0,
-        metadata: item.metadata,
-      }));
-
-      openVisualizer(
-        { chunks, collectionType: collection.type, dbChunkCount },
-        collection.id,
-        collectionSettings,
-        doLoad,
-      );
-    };
-
-    await doLoad(null);
-  } catch (error) {
-    log.error("VectFox: Failed to load chunks", error);
-    toastr.error(`Failed to load chunks: ${error.message}`, "VectFox");
+function viewCollectionChunks(collection) {
+  if (!collection.backend) {
+    toastr.error("This collection names no backend, so its chunks cannot be read. The console has its details.", "VectFox");
+    log.error("VectFox: Collection missing backend:", collection);
+    return;
   }
+  if (!browserState.pluginAvailable) {
+    toastr.warning("Viewing chunks needs the Similharity plugin. Install it to read them.", "VectFox", { timeOut: 6000 });
+    return;
+  }
+  void openChunkVisualizer(collection, { ...browserState.settings, vector_backend: collection.backend });
 }
 
 // ============================================================================

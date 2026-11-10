@@ -63,29 +63,6 @@
         flex-direction: column !important;
     }
 
-    /* CHUNK VISUALIZER - NUCLEAR FULL SCREEN */
-    .vectfox-visualizer-container,
-    div.vectfox-visualizer-container,
-    #vectfox_visualizer_modal .vectfox-visualizer-container {
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        width: 100vw !important;
-        max-width: 100vw !important;
-        height: 100vh !important;
-        max-height: 100vh !important;
-        min-width: 100vw !important;
-        min-height: 100vh !important;
-        margin: 0 !important;
-        border-radius: 0 !important;
-        border: none !important;
-        transform: none !important;
-        display: flex !important;
-        flex-direction: column !important;
-    }
-
     /* DIAGNOSTICS - NUCLEAR FULL SCREEN */
     .vectfox-diagnostics-content,
     div.vectfox-diagnostics-content,
@@ -112,7 +89,6 @@
      * ======================================================================== */
 
     .vectfox-modal-header,
-    .vectfox-visualizer-header,
     .vectfox-cv-header {
         position: sticky !important;
         top: 0 !important;
@@ -127,8 +103,7 @@
         row-gap: 8px !important;
     }
 
-    .vectfox-modal-header h3,
-    .vectfox-visualizer-title {
+    .vectfox-modal-header h3 {
         font-size: 0.66em !important;
         max-width: 60%;
         order: 1 !important;
@@ -146,7 +121,6 @@
        .vectfox-btn-icon is only a close button when it sits directly in a modal
        header; elsewhere it is a small inline row action that must stay small. */
     .vectfox-modal-close,
-    .vectfox-visualizer-close,
     .vectfox-modal-header > .vectfox-btn-icon,
     #vectfox_visualizer_close {
         width: 48px !important;
@@ -189,114 +163,6 @@
         width: 100% !important;
         min-height: 44px !important;
         justify-content: center !important;
-    }
-
-    /* ========================================================================
-     * CHUNK VISUALIZER INTERNALS
-     * ======================================================================== */
-
-    .vectfox-visualizer-body {
-        flex: 1 !important;
-        display: flex !important;
-        flex-direction: column !important;
-        overflow: hidden !important;
-        min-height: 0 !important;
-    }
-
-    /* Chunk list - collapsible top section */
-    .vectfox-chunk-list-panel {
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 100% !important;
-        max-height: 35vh !important;
-        border-right: none !important;
-        border-bottom: 1px solid var(--SmartThemeBorderColor) !important;
-        flex-shrink: 0 !important;
-        overflow: hidden !important;
-        display: flex !important;
-        flex-direction: column !important;
-    }
-
-    .vectfox-list-toolbar {
-        padding: 8px !important;
-        flex-shrink: 0 !important;
-    }
-
-    .vectfox-list-toolbar .vectfox-list-search {
-        min-height: 32px !important;
-        font-size: 0.88em !important;
-        padding: 4px 10px;
-    }
-
-    .vectfox-list-controls {
-        flex-wrap: wrap !important;
-        gap: 6px !important;
-    }
-
-    .vectfox-list-controls select {
-        min-height: 36px !important;
-        font-size: 0.85em !important;
-    }
-
-    .vectfox-chunk-list {
-        flex-grow: 3 !important;
-        flex-basis: 100px !important;
-        flex-shrink: 0 !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        padding: 8px !important;
-        min-height: 0 !important;
-        display: flex;
-        flex-direction: column;
-    }
-    .vectfox-chunk-list .vectfox-load-more {
-        padding: 6px;
-        font-size: 0.6em;
-    }
-
-    .vectfox-chunk-item {
-        padding: 10px !important;
-        min-height: 44px !important;
-    }
-
-    /* Detail panel - takes remaining space */
-    .vectfox-chunk-detail-panel {
-        flex: 1 !important;
-        min-height: 0 !important;
-        overflow: hidden !important;
-        display: flex !important;
-        flex-direction: column !important;
-    }
-
-    .vectfox-detail-header {
-        padding: 4px 10px !important;
-        flex-shrink: 0 !important;
-        max-height: 48px;
-    }
-    .vectfox-detail-header
-        .vectfox-detail-name-section
-        .vectfox-chunk-name-input {
-        padding: 8px 10px;
-        font-size: 0.88em;
-        max-height: 32px !important;
-    }
-
-    .vectfox-detail-content {
-        flex: 1 !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        padding: 12px !important;
-        min-height: 0 !important;
-    }
-
-    .vectfox-bulk-actions {
-        padding: 8px 12px !important;
-        flex-shrink: 0 !important;
-    }
-
-    .vectfox-list-status {
-        padding: 6px 12px !important;
-        flex-shrink: 0 !important;
     }
 
     /* ========================================================================
@@ -458,45 +324,9 @@
         width: 100% !important;
     }
 
-    /* Smaller chunk list area */
-    .vectfox-chunk-list-panel {
-        max-height: 40vh !important;
-    }
-
     /* Compact headers */
-    .vectfox-modal-header,
-    .vectfox-visualizer-header {
+    .vectfox-modal-header {
         padding: 10px 12px !important;
-    }
-
-    .vectfox-visualizer-header .vectfox-visualizer-title:nth-child(1) {
-        font-size: 0.66em !important;
-        width: 80%;
-        word-wrap: break-word;
-    }
-}
-
-/* ============================================================================
- * LANDSCAPE MOBILE
- * ============================================================================ */
-
-@media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
-    /* Side-by-side for visualizer in landscape */
-    .vectfox-visualizer-body {
-        flex-direction: row !important;
-    }
-
-    .vectfox-chunk-list-panel {
-        width: 40% !important;
-        max-width: 300px !important;
-        min-width: 200px !important;
-        max-height: none !important;
-        border-right: 1px solid var(--SmartThemeBorderColor) !important;
-        border-bottom: none !important;
-    }
-
-    .vectfox-chunk-detail-panel {
-        flex: 1 !important;
     }
 }
 
@@ -515,31 +345,6 @@
         min-height: auto !important;
         min-width: auto !important;
         border-radius: 16px !important;
-    }
-
-    /* Visualizer - restore desktop sizing */
-    .vectfox-visualizer-container {
-        max-width: 1400px !important;
-        width: 95% !important;
-        max-height: 90vh !important;
-        height: auto !important;
-        min-height: auto !important;
-        min-width: auto !important;
-        border-radius: 16px !important;
-    }
-
-    /* Side-by-side in visualizer on desktop */
-    .vectfox-visualizer-body {
-        flex-direction: row !important;
-    }
-
-    .vectfox-chunk-list-panel {
-        width: 350px !important;
-        max-width: 350px !important;
-        min-width: 280px !important;
-        max-height: none !important;
-        border-right: 1px solid var(--SmartThemeBorderColor) !important;
-        border-bottom: none !important;
     }
 }
 

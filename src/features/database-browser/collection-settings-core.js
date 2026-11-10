@@ -11,6 +11,8 @@
  * ============================================================================
  */
 
+import { counted } from './counted.js';
+
 /** Each kind of condition rule, in the order the Kind select lists them. */
 export const CONDITION_KINDS = [
     { value: 'pattern', label: 'Pattern match', icon: 'fa-magnifying-glass' },
@@ -156,8 +158,6 @@ export function lockSwitchState({ isCharacterScope, hasChat, hasCharacter }) {
         isDisabled: false,
     };
 }
-
-const counted = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
 
 /**
  * A collection's locks in a few words: how many, and whether one matches here. A collection with only character locks

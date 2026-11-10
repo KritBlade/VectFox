@@ -4,5 +4,4 @@
 // world-info opens the browser when a vectorized lorebook was renamed or deleted.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
-export { initializeVisualizer } from './chunk-visualizer.js';
 export { initializeDatabaseBrowser, openDatabaseBrowser } from './database-browser.js';

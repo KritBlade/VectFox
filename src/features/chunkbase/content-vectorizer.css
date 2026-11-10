@@ -1445,3 +1445,63 @@
     }
 }
 
+/* The toggle switch beside a source's options: content-vectorizer.js still draws it. */
+.vectfox-toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.vectfox-toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.vectfox-toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 20%, transparent);
+    transition: all 0.25s ease;
+    border-radius: 24px;
+}
+
+.vectfox-toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background: var(--SmartThemeBodyColor);
+    transition: all 0.25s ease;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.vectfox-toggle-switch input:checked + .vectfox-toggle-slider {
+    background: var(--vectfox-primary);
+}
+
+.vectfox-toggle-switch input:checked + .vectfox-toggle-slider:before {
+    transform: translateX(20px);
+    background: white;
+}
+
+.vectfox-toggle-switch input:focus + .vectfox-toggle-slider {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vectfox-primary) 30%, transparent);
+}
+
+.vectfox-toggle-switch:hover .vectfox-toggle-slider {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 30%, transparent);
+}
+
+.vectfox-toggle-switch:hover input:checked + .vectfox-toggle-slider {
+    background: var(--vectfox-primary-bright);
+}
