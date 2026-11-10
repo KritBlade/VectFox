@@ -126,22 +126,6 @@ describe('settings panel shell', () => {
         host.closeDialog();
     });
 
-    it('stays open while a modal is open over it, so Escape closes only the modal', async () => {
-        shell.wireSettingsPanel(tabsWithHooks(), {});
-        const closed = shell.openSettingsPanel();
-        const [, { canClose }] = host.openPanelPopup.mock.calls[0];
-        expect(canClose()).toBe(true);
-
-        const dialog = document.querySelector('dialog');
-        dialog.insertAdjacentHTML('beforeend', '<div class="vectfox-modal" id="a_modal"></div>');
-        expect(canClose()).toBe(false);
-        document.getElementById('a_modal').style.display = 'none';
-        expect(canClose()).toBe(true);
-
-        host.closeDialog();
-        await closed;
-    });
-
     it('moves the panel back and logs it when a page\'s close hook fails', async () => {
         const tabs = PANEL_TABS.map(tab => ({ name: tab.name, onClose: () => { throw new Error('the web could not close'); } }));
         shell.wireSettingsPanel(tabs, {});

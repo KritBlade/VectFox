@@ -1,10 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * The doors src/sillytavern/popup.js gives a VectFox modal opened over SillyTavern's popups, such as the settings
- * panel's dialog: a modal built from markup goes into the topmost popup, the only place drawn above it; one its own
- * close removed stays removed when that popup closes; and a wait for the other popups to close leaves the panel's
- * dialog open.
+ * The doors src/sillytavern/popup.js gives a floating surface opened over SillyTavern's popups, such as the progress
+ * panel over a dialog: it goes into the topmost popup, the only place drawn above it; one its own close removed stays
+ * removed when that popup closes; and a wait for the other popups to close leaves the panel's dialog open.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -26,7 +25,7 @@ vi.mock('../../../../popup.js', () => ({
     getTopmostModalLayer: () => Array.from(document.querySelectorAll('dialog[open]:not([closing])')).pop() ?? document.body,
 }));
 
-const { placeMarkupOnTopmostModalLayer, waitForOtherPopupsToClose } = await import('../src/sillytavern/popup.js');
+const { placeOnTopmostModalLayer, waitForOtherPopupsToClose } = await import('../src/sillytavern/popup.js');
 
 function openPopup({ isPanel = false } = {}) {
     const dialog = document.createElement('dialog');
@@ -38,47 +37,50 @@ function openPopup({ isPanel = false } = {}) {
 
 const startClosing = dialog => dialog.setAttribute('closing', '');
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
-const MODAL = '<div id="a_modal" class="vectfox-modal"><button type="button">Close</button></div>';
+function floatingSurface() {
+    const surface = document.createElement('div');
+    surface.id = 'a_surface';
+    return surface;
+}
 
 beforeEach(() => {
     document.body.innerHTML = '';
     host.popups = [];
 });
 
-describe('placeMarkupOnTopmostModalLayer', () => {
-    it('builds the modal inside the topmost open popup, and returns its root', () => {
+describe('placeOnTopmostModalLayer', () => {
+    it('puts the surface inside the topmost open popup', () => {
         openPopup();
         const panel = openPopup({ isPanel: true });
-        const modal = placeMarkupOnTopmostModalLayer(`\n    ${MODAL}\n`);
-        expect(modal.id).toBe('a_modal');
-        expect(modal.parentElement).toBe(panel);
+        const surface = floatingSurface();
+        placeOnTopmostModalLayer(surface);
+        expect(surface.parentElement).toBe(panel);
     });
 
-    it('builds it on the page when no popup is open', () => {
-        expect(placeMarkupOnTopmostModalLayer(MODAL).parentElement).toBe(document.body);
+    it('puts it on the page when no popup is open', () => {
+        const surface = floatingSurface();
+        placeOnTopmostModalLayer(surface);
+        expect(surface.parentElement).toBe(document.body);
     });
 
-    it('refuses markup without exactly one root element', () => {
-        expect(() => placeMarkupOnTopmostModalLayer(`${MODAL}${MODAL}`)).toThrow('exactly one root element');
-        expect(() => placeMarkupOnTopmostModalLayer('   ')).toThrow('exactly one root element');
-    });
-
-    it('moves an open modal down to the page when its popup starts closing', async () => {
+    it('moves an open surface down to the page when its popup starts closing', async () => {
         const panel = openPopup({ isPanel: true });
-        const modal = placeMarkupOnTopmostModalLayer(MODAL);
+        const surface = floatingSurface();
+        placeOnTopmostModalLayer(surface);
         startClosing(panel);
         await settle();
-        expect(modal.parentElement).toBe(document.body);
+        expect(surface.parentElement).toBe(document.body);
     });
 
-    it('leaves a modal its own close removed off the page when its popup closes', async () => {
+    it('leaves a surface its own close removed off the page when its popup closes', async () => {
         const panel = openPopup({ isPanel: true });
-        const modal = placeMarkupOnTopmostModalLayer(MODAL);
-        modal.remove();
+        const surface = floatingSurface();
+        placeOnTopmostModalLayer(surface);
+        surface.remove();
         startClosing(panel);
         await settle();
-        expect(modal.isConnected).toBe(false);
-        expect(document.getElementById('a_modal')).toBeNull();
+        expect(surface.isConnected).toBe(false);
+        expect(document.getElementById('a_surface')).toBeNull();
     });
 });
 

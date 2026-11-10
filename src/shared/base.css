@@ -19,7 +19,7 @@
  * MAIN CONTAINER: what is not on the GUI-DNA yet (see forms.css)
  * ============================================================================ */
 
-:is(#VectFox_settings .vectfox-card, #VectFox_diagnostics_modal, #VectFox_health_modal) {
+#VectFox_settings .vectfox-card {
     line-height: 1.6;
 }
 

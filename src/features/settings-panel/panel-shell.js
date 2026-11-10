@@ -23,7 +23,6 @@
  */
 
 import { openPanelPopup } from '../../sillytavern/popup.js';
-import { isModalOpenOnDialogOf } from '../../sillytavern/popup-core.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { log } from '../../sillytavern/log.js';
 import { panelThemeOf } from '../../shared/gui-dna/gui-dna-core.js';
@@ -97,9 +96,8 @@ export async function openSettingsPanel(name = shownTabName) {
     }
     showPanelTab(name);
     isPanelOpen = true;
-    // Opened first, so the page is in the dialog and has its size when its hook runs. A modal a page opens over the
-    // panel (Vectorize Content, Diagnostics, ...) sits on its dialog, and Escape belongs to it while it is open.
-    const closed = openPanelPopup(panel, { canClose: () => !isModalOpenOnDialogOf(panel) });
+    // Opened first, so the page is in the dialog and has its size when its hook runs.
+    const closed = openPanelPopup(panel);
     runTabHook(shownTabName, 'onOpen');
     try {
         await closed;   // logs its own failure and resolves; never throws

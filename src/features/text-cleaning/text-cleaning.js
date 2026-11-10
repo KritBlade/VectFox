@@ -9,7 +9,7 @@
  * ============================================================================
  */
 
-import { extension_settings } from '../../sillytavern/settings.js';
+import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { uuidv4 } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -319,6 +319,36 @@ export function saveCleaningSettings(settings) {
     extension_settings.vectfox.cleaning = settings;
 }
 
+/** The preset that cleans with the built-ins and custom patterns the user picks. */
+export const CUSTOM_PRESET_ID = 'custom';
+
+/** The presets a select offers: VectFox's, then Custom. */
+export function cleaningPresetChoices() {
+    return [...Object.values(CLEANING_PRESETS), { id: CUSTOM_PRESET_ID, name: 'Custom', description: 'Your own built-ins and custom patterns.' }];
+}
+
+/** Make a preset the one that cleans, saved at once. */
+export function chooseCleaningPreset(presetId) {
+    const settings = getCleaningSettings();
+    settings.selectedPreset = presetId;
+    saveCleaningSettings(settings);
+    saveSettingsDebounced();
+}
+
+/**
+ * Whether a pattern compiles. An invalid custom pattern stays as typed, flagged in the editor, and cleaning skips it.
+ * @returns {string} '' when it compiles, else the reason it does not
+ */
+export function patternProblem(pattern, flags) {
+    try {
+        new RegExp(pattern, flags || 'g');
+        return '';
+    } catch (error) {
+        // EXPECTED: a pattern half typed or mistyped; the editor shows the reason.
+        return error.message;
+    }
+}
+
 /**
  * Gets all active patterns (builtin + custom)
  * @returns {Array<object>} Array of active pattern objects
@@ -344,8 +374,9 @@ export function getActivePatterns() {
                 patterns.push(BUILTIN_PATTERNS[patternId]);
             }
         }
+        // A pattern that does not compile is flagged in the editor and left out here, so it warns once, not per text.
         for (const custom of (settings.customPatterns || [])) {
-            if (custom.enabled !== false) {
+            if (custom.enabled !== false && custom.pattern && !patternProblem(custom.pattern, custom.flags)) {
                 patterns.push(custom);
             }
         }
@@ -581,12 +612,22 @@ export function removeCustomPattern(id) {
 // ============================================================================
 
 /**
- * Exports custom patterns as JSON
- * @returns {string} JSON string of custom patterns
+ * The whole cleaning setup as a file: the preset, the ticked built-ins and the custom patterns. importPatterns reads it,
+ * and a file of custom patterns alone.
+ *
+ * @param {string} name - The setup's name, shown when it is imported
+ * @returns {string} JSON
  */
-export function exportPatterns() {
+export function cleaningSetupFile(name) {
     const settings = getCleaningSettings();
-    return JSON.stringify(settings.customPatterns || [], null, 2);
+    return JSON.stringify({
+        name,
+        version: '1.0',
+        createdAt: new Date().toISOString(),
+        preset: settings.selectedPreset,
+        enabledBuiltins: settings.enabledBuiltins || [],
+        customPatterns: settings.customPatterns || [],
+    }, null, 2);
 }
 
 /** Length cap on imported regex patterns. Legitimate patterns are well

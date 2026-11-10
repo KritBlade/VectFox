@@ -18,10 +18,9 @@ import { textarea } from '../../shared/gui-dna/gui-dna-core.js';
 import { clearInterceptorPrompts, openContentVectorizer } from '../chunkbase/index.js';
 import { cleanupCorruptedCollections, deleteVectorsFolder } from '../collections/index.js';
 import { openDatabaseBrowser } from '../database-browser/index.js';
-import { openHealthDashboard, refreshHealthPill } from '../diagnostics/index.js';
+import { openDiagnostics, refreshHealthPill } from '../diagnostics/index.js';
 import { buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../eventbase/index.js';
-import { openQueryTestModal } from '../query-tester/index.js';
-import { openTextCleaningModal } from '../text-cleaning/index.js';
+import { openTextCleaningDialog } from '../text-cleaning/index.js';
 import { clearLorebookPrompt } from '../world-info/index.js';
 import { ACTION_PAGE_ELEMENT_ID as ID, DEBUG_SWITCHES } from './action-page-markup.js';
 import { VECTFOX_OFF_NOTICE_HOOK, VECTFOX_TURN_ON_HOOK } from './panel-shell-markup.js';
@@ -156,9 +155,8 @@ async function previewSummarizerInjection(settings) {
  * @param {(settings: object) => Promise<void>} actions.refreshAutoSyncCheckbox - Paints the AutoSync page's switch for the open chat
  * @param {(settings: object) => Promise<void>} actions.runNetworkStartup - Re-runs the off-box startup work (src/app/network-startup.js)
  *     when the master switch turns back on
- * @param {() => void} actions.openDiagnosticsModal - Opens the Diagnostics dialog
  */
-export function wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkStartup, openDiagnosticsModal }) {
+export function wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkStartup }) {
     const save = () => {
         Object.assign(extension_settings.vectfox, settings);
         saveSettingsDebounced();
@@ -207,13 +205,14 @@ export function wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkSt
     $(`#${ID.databaseBrowser}`).on('click', () => {
         openDatabaseBrowser().catch(error => log.error('VectFox: the Database Browser failed to open:', error));
     });
-    $(`#${ID.textCleaning}`).on('click', () => openTextCleaningModal());
+    $(`#${ID.textCleaning}`).on('click', () => openTextCleaningDialog());
     $(`#${ID.reopenProgress}`).on('click', () => {
         if (!progressTracker.reopen()) toastr.info('No active progress to show', TOAST_TITLE);
     });
-    $(`#${ID.runDiagnostics}`).on('click', () => openDiagnosticsModal());
-    $(`#${ID.openHealthDashboard}`).on('click', () => openHealthDashboard());
-    $(`#${ID.openQueryTester}`).on('click', () => openQueryTestModal());
+    // Diagnostics is one dialog of three pages; each button opens its page.
+    $(`#${ID.openChecks}`).on('click', () => openDiagnostics('checks'));
+    $(`#${ID.openBackendHealth}`).on('click', () => openDiagnostics('health'));
+    $(`#${ID.openQueryTester}`).on('click', () => openDiagnostics('query'));
     $(`#${ID.previewSummarizer}`).on('click', () => previewSummarizerInjection(settings));
 
     $(`#${ID.debugVerbosity}`)

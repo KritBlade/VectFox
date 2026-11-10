@@ -4,8 +4,7 @@
  * The settings panel lives in a SillyTavern popup, and the popup closes on any `cancel` event that reaches its
  * <dialog>. Dismissing a file picker fires one at the file input, and it bubbles, so an input inside the panel or a
  * modal on it closes the whole panel. Every picker opens through the one door, src/shared/pick-files.js (copied from
- * mvu-helper's), whose input never joins the page. The inputs left are in surfaces whose phase has not run yet; each
- * phase moves its own, and its file's count drops in the same change. A new input fails.
+ * mvu-helper's), whose input never joins the page. None is left elsewhere, and a new one fails.
  *
  * Comments are not uses.
  */
@@ -19,10 +18,8 @@ import { countsByFile, filesUnder, relativePath, withoutComments } from './code-
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const THE_DOOR = 'shared/pick-files.js';
 
-// The inputs left, by file, until their phase moves them to the door. A selector naming one counts too.
-const INPUTS_LEFT = {
-    'features/text-cleaning/text-cleaning-ui.js': 1,
-};
+// None are left: every file is picked through the door. A selector naming one would count too.
+const INPUTS_LEFT = {};
 
 // type="file" in markup or a selector, or `.type = 'file'` in code.
 const FILE_INPUT = /\btype\s*=\s*(["'])file\1/g;

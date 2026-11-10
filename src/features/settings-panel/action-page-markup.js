@@ -21,8 +21,8 @@ export const ACTION_PAGE_ELEMENT_ID = Object.freeze({
     databaseBrowser: 'VectFox_database_browser',
     textCleaning: 'VectFox_text_cleaning',
     reopenProgress: 'VectFox_reopen_progress',
-    runDiagnostics: 'VectFox_run_diagnostics',
-    openHealthDashboard: 'VectFox_open_health_dashboard',
+    openChecks: 'VectFox_open_checks',
+    openBackendHealth: 'VectFox_open_backend_health',
     openQueryTester: 'VectFox_open_query_tester',
     previewSummarizer: 'VectFox_preview_summarizer',
     debugVerbosity: 'VectFox_debug_verbosity',
@@ -91,8 +91,8 @@ function checksCard() {
         ${cardHeader({ icon: 'fa-stethoscope', title: 'Checks', description: 'Test the setup, the backend, and what a turn would retrieve or inject.' })}
         <div class="vfx-card-body">
             <div class="vfx-action-grid">
-                ${actionCard({ icon: 'fa-stethoscope', title: 'Diagnostics', description: 'Checks every part of the setup and lists what passes, warns or fails.', button: { id: ID.runDiagnostics, text: 'Run diagnostics', icon: 'fa-play' } })}
-                ${actionCard({ icon: 'fa-heart-pulse', title: 'Backend health', description: 'Live counts of the vector backend\'s queries, inserts and errors, and its latency.', button: { id: ID.openHealthDashboard, text: 'Open dashboard', icon: 'fa-gauge' } })}
+                ${actionCard({ icon: 'fa-stethoscope', title: 'Diagnostics', description: 'Checks every part of the setup and lists what passes, warns or fails.', button: { id: ID.openChecks, text: 'Open Checks', icon: 'fa-stethoscope' } })}
+                ${actionCard({ icon: 'fa-heart-pulse', title: 'Backend health', description: 'Live counts of the vector backend\'s queries, inserts and errors, and its latency.', button: { id: ID.openBackendHealth, text: 'Open Backend health', icon: 'fa-gauge' } })}
                 ${actionCard({ icon: 'fa-magnifying-glass', title: 'Query Tester', description: 'Type a message and see what each retrieval would inject for it. Nothing is sent.', button: { id: ID.openQueryTester, text: 'Test a query', icon: 'fa-vial' } })}
                 ${actionCard({ icon: 'fa-eye', title: 'Summarizer preview', description: 'The summarizer block this turn would inject, shown and not injected.', button: { id: ID.previewSummarizer, text: 'Preview block', icon: 'fa-eye' } })}
             </div>

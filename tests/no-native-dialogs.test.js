@@ -3,8 +3,7 @@
  *
  * On the SillyTavern page, confirm(), alert() and prompt() block the page thread and freeze generation. Every question
  * goes through src/sillytavern/popup.js instead, which answers NO when a dialog cannot open, so a broken popup never
- * reads as consent. The calls left are in surfaces whose phase has not run yet; each phase clears its own, and its
- * file's count drops in the same change. A new call fails.
+ * reads as consent. None is left, and a new call fails.
  *
  * Code only: a call inside a comment or a string is not a call.
  */
@@ -17,10 +16,8 @@ import { codeOnly, countsByFile, jsFilesUnder, relativePath } from './code-scan.
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
-// The calls left, by file, until their phase moves them to sillytavern/popup.js.
-const CALLS_LEFT = {
-    'features/text-cleaning/text-cleaning-ui.js': 1,
-};
+// None are left: every question goes through sillytavern/popup.js.
+const CALLS_LEFT = {};
 
 // A bare call, or one on the global object. `obj.confirm(…)` and `myConfirm(…)` are other functions.
 const NATIVE_DIALOG_CALL = /(?:^|[^\w$.])(?:(?:window|globalThis|self)\s*\.\s*)?(confirm|alert|prompt)\s*\(/g;

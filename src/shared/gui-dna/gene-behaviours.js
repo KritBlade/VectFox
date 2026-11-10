@@ -4,12 +4,13 @@
  * ============================================================================
  * The behaviours every VectFox surface on GUI-DNA shares (mvu-helper/devdoc/gui-dna.md
  * §7), for its shell: the settings panel (settings-panel/panel-shell.js), the
- * Database Browser, its Chunk Visualizer and Vectorize Content. The (?) and
- * chevron toggles, a split's divider and a slider beside its number box are
- * bound once on the surface's root, delegated, so a field, card or split painted
- * later behaves the same way, and no such state is saved. Code folds a card as
- * its chevron does, moves sliders to boxes it set, and shows a page the nav
- * switches to from its top.
+ * Database Browser, its Chunk Visualizer, Vectorize Content, Diagnostics, Text
+ * Cleaning and the progress panel. The (?) and chevron toggles, a split's divider
+ * and a slider beside its number box are bound once on the surface's root,
+ * delegated, so a field, card or split painted later behaves the same way, and no
+ * such state is saved. Code folds a card as its chevron does, moves sliders to
+ * boxes it set, shows a page the nav switches to from its top, and shows or hides
+ * a part with as few style writes as it can.
  * ============================================================================
  */
 
@@ -179,6 +180,20 @@ export function setCollapsed(box, isCollapsed) {
     for (const chevron of box.querySelectorAll('.vfx-collapse')) {
         if (chevron.closest('.vfx-card, .vfx-record') === box) chevron.setAttribute('aria-expanded', String(!isCollapsed));
     }
+}
+
+/**
+ * Show or hide an element by its inline display, writing the style only when that changes: on SillyTavern's page each
+ * inline style write costs a style pass. A DNA page, button or pill draws its own display, so `hidden` would not hide it.
+ *
+ * @param {HTMLElement|null} element
+ * @param {boolean} isShown
+ */
+export function setShown(element, isShown) {
+    if (!element) return;
+    const isHiddenNow = element.style.display === 'none';
+    if (isShown && isHiddenNow) element.style.removeProperty('display');
+    else if (!isShown && !isHiddenNow) element.style.display = 'none';
 }
 
 /**

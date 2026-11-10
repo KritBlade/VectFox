@@ -149,7 +149,7 @@ export async function forkEventBaseFromSource(settings, source) {
             throw Object.assign(new Error('Fork stopped by user'), { name: 'AbortError' });
         }
     };
-    progressTracker.show('Forking EventBase', 3, 'Steps');
+    progressTracker.show('Forking EventBase', 3, 'Steps', { unitLabel: 'Events' });
     progressTracker.updateCurrentItem(targetCollectionId);
     progressTracker.setCancelHandler(() => abortController.abort('user-stop'));
 

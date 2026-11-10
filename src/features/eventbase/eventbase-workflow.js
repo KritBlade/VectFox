@@ -301,6 +301,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         if (msgs.length < windowSize) break; // tail is incomplete — wait for more messages
         windows.push({ start, end, msgs });
     }
+    // The messages after the last full window wait for the next one; the run's verdict names them.
+    const messagesWaitingForWindow = commitBoundary - (windows.length > 0 ? windows[windows.length - 1].end + 1 : 0);
 
     if (shouldSendUnfinishedWindows) {
         const chatFingerprints = new Set(windows.map(win => windowFingerprint(win.msgs.map(hashSourceMessage))));
@@ -348,7 +350,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     const showProgressModal = !isAutoSync || settings.autosync_show_progress_modal === true;
     if (showProgressModal) {
-        progressTracker.show('EventBase Extraction', windows.length, 'Windows');
+        progressTracker.show('EventBase Extraction', windows.length, 'Windows', { unitLabel: 'Messages', foundLabel: 'Events' });
     }
 
     const totalLegacyChunks = Number(progressPlan?.totalChunks) || 0;
@@ -1036,7 +1038,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             `EventBase: ${windowsFailed} window(s) failed — ${eventsExtracted} event(s) extracted.`
             + (firstFailureDetail ? ` First error: ${firstFailureDetail}` : ' See the console for details.'));
     } else {
-        progressTracker.complete(true, `EventBase: extracted ${eventsExtracted} event(s) from ${windowsProcessed} window(s)`);
+        const waitingNote = messagesWaitingForWindow > 0
+            ? `; ${messagesWaitingForWindow === 1 ? '1 message waits' : `${messagesWaitingForWindow} messages wait`} for the next window`
+            : '';
+        progressTracker.complete(true, `EventBase: extracted ${eventsExtracted} event(s) from ${windowsProcessed} window(s)${waitingNote}`);
     }
 
     log.lifecycle(`[EventBase] Ingestion complete: extracted=${eventsExtracted}, processed=${windowsProcessed}, skipped=${windowsSkipped}, timedOut=${windowsTimedOut}, failed=${windowsFailed}`);

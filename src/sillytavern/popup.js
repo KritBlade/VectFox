@@ -230,20 +230,3 @@ export function placeOnTopmostModalLayer(element) {
     watcher.observe(layer, { attributes: true, attributeFilter: ['open', 'closing'] });
     closingPopupWatchers.set(element, watcher);
 }
-
-/**
- * Build a floating surface from its markup and put it on the topmost modal layer, as placeOnTopmostModalLayer does.
- *
- * @param {string} html - Markup with exactly one root element
- * @returns {HTMLElement} the root element
- */
-export function placeMarkupOnTopmostModalLayer(html) {
-    const template = document.createElement('template');
-    template.innerHTML = html.trim();
-    if (template.content.childElementCount !== 1) {
-        throw new Error(`A floating surface needs exactly one root element, and its markup has ${template.content.childElementCount}`);
-    }
-    const element = template.content.firstElementChild;
-    placeOnTopmostModalLayer(element);
-    return element;
-}

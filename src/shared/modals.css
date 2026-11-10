@@ -199,49 +199,12 @@
     .vectfox-modal-body {
         padding: 18px 20px;
     }
-
-    /* Diagnostics responsiveness */
-    .diagnostic-item {
-        padding: 12px 14px;
-    }
-
-    .diagnostic-main {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-
-    .diagnostic-label {
-        min-width: auto;
-        font-size: 0.9em;
-    }
-
-    .diagnostic-message {
-        font-size: 0.88em;
-    }
 }
 
 @media (min-width: 481px) and (max-width: 768px) {
     /* Tablet modal adjustments */
     .vectfox-modal-content {
         width: 92%;
-    }
-
-    /* Keep diagnostic layout vertical on tablet for clarity */
-    .diagnostic-main {
-        flex-wrap: wrap;
-    }
-
-    .diagnostic-label {
-        min-width: 130px;
-    }
-}
-
-/* Touch device optimizations */
-@media (hover: none) and (pointer: coarse) {
-
-    :is(#VectFox_diagnostics_modal, #VectFox_health_modal) .checkbox_label {
-        min-height: 48px;
     }
 }
 

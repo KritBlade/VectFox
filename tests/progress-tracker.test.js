@@ -1,26 +1,19 @@
 /**
  * @vitest-environment jsdom
  *
- * ProgressTracker — mobile full-screen vs desktop floating panel.
+ * The progress panel (src/shared/progress-tracker.js) on GUI-DNA: a compact card in the corner, or on a touch screen
+ * over a backdrop covering the page; its pills name their units, so an EventBase run counts messages and events where
+ * the old panel said "Chunks 12/13 (1 left)"; Stop and close; the verdict stays on the panel; and where show() places
+ * it over SillyTavern's popups.
  *
- * Covers the mobile path exercised by the auto-sync "Catch up now" backfill
- * (settings-panel.js → backfillCurrentChatWithProgress), which the Playwright e2e
- * cannot reach: that suite runs a desktop viewport with no touch/mobile project,
- * so `matchMedia('(hover: none) and (pointer: coarse)')` is always false there.
- *
- * The tracker is self-contained DOM (it imports only src/sillytavern/log.js and src/sillytavern/popup.js),
- * so jsdom + a mocked matchMedia and SillyTavern popup module exercises the real
- * createPanel/show/complete/hide logic and where show() places the panel.
+ * The touch layout serves the auto-sync catch-up (backfillCurrentChatWithProgress), which the Playwright e2e cannot
+ * reach: it runs a desktop viewport, so `matchMedia('(hover: none) and (pointer: coarse)')` is always false there.
  */
 /* global window, document -- this file runs under the jsdom environment */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// progress-tracker.js imports src/sillytavern/log.js, which imports ../../../../extensions.js
-// (a SillyTavern host path that doesn't resolve under vitest — and under the jsdom
-// environment vite's import-analysis errors on it rather than externalizing).
-// Mock log.js directly so its real source (and that import) is never transformed.
-// The tracker only calls log.verbose / log.trace.
+// progress-tracker.js imports src/sillytavern/log.js, whose host import does not resolve under vitest.
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { verbose: () => {}, trace: () => {}, error: () => {}, warn: () => {}, lifecycle: () => {}, log: () => {}, enabled: () => false },
 }));
@@ -37,123 +30,142 @@ vi.mock('../../../../popup.js', () => ({
 
 import { ProgressTracker } from '../src/shared/progress-tracker.js';
 
-/**
- * Mock window.matchMedia. jsdom does not implement it, and the tracker keys its
- * mobile/desktop layout off `(hover: none) and (pointer: coarse)`.
- */
+/** jsdom has no matchMedia, and the tracker keys its layout off `(hover: none) and (pointer: coarse)`. */
 function setTouchDevice(isTouch) {
-    window.matchMedia = (query) => ({
-        matches: isTouch && /pointer:\s*coarse/.test(query),
-        media: query,
-        onchange: null,
-        addListener: () => {},
-        removeListener: () => {},
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        dispatchEvent: () => false,
-    });
+    window.matchMedia = (query) => ({ matches: isTouch && /pointer:\s*coarse/.test(query), media: query });
 }
 
 let tracker;
+const panel = () => document.getElementById('VectFox_progress_panel');
+const part = name => panel().querySelector(`[data-progress-part="${name}"]`);
+const isShown = element => element.style.display !== 'none';
+const shownPills = () => ['items', 'units', 'found', 'time', 'speed'].map(part).filter(isShown).map(pill => pill.textContent);
+const click = action => panel().querySelector(`[data-progress-action="${action}"]`).click();
 
 beforeEach(() => {
     document.body.innerHTML = '';
+    setTouchDevice(false);
 });
 
 afterEach(() => {
-    // startTimeUpdater() runs a setInterval; clear it so no handle leaks between tests.
-    if (tracker?.timeIntervalId) {
-        clearInterval(tracker.timeIntervalId);
-        tracker.timeIntervalId = null;
-    }
+    tracker?.stopTimeUpdater();
     tracker = undefined;
     document.body.innerHTML = '';
 });
 
-describe('ProgressTracker — mobile (touch) full-screen modal', () => {
-    beforeEach(() => setTouchDevice(true));
+describe('the progress panel', () => {
+    it('floats in the corner as a DNA card, and on a touch screen sits over a backdrop', () => {
+        tracker = new ProgressTracker();
+        tracker.show('EventBase Extraction', 10, 'Windows');
+        expect(panel().classList.contains('vfx-ui')).toBe(true);
+        expect(panel().classList.contains('is-touch')).toBe(false);
+        expect(isShown(panel())).toBe(true);
 
-    it('renders a full-screen modal with its own close button', () => {
+        document.body.innerHTML = '';
+        setTouchDevice(true);
+        tracker.stopTimeUpdater();
         tracker = new ProgressTracker();
         tracker.show('EventBase Catch-Up', 26, 'Windows');
-
-        expect(tracker.isModal).toBe(true);
-
-        const panel = document.getElementById('VectFox_progress_panel');
-        expect(panel).not.toBeNull();
-        // Full-screen modal layout (mirrors the Text Cleaning modal), not the
-        // floating corner panel.
-        expect(panel.classList.contains('vectfox-modal')).toBe(true);
-        expect(panel.classList.contains('vectfox-progress-modal')).toBe(true);
-        expect(panel.querySelector('.vectfox-modal-overlay')).not.toBeNull();
-
-        // Self-contained dismissal — its own close button, no dependency on any
-        // other modal being open.
-        expect(document.getElementById('VectFox_progress_close')).not.toBeNull();
-
-        expect(tracker.isVisible).toBe(true);
-        expect(panel.style.display).toBe('block');
+        expect(tracker.isTouchLayout).toBe(true);
+        expect(panel().classList.contains('is-touch')).toBe(true);
     });
 
-    it('complete() leaves the panel visible (user closes manually)', () => {
+    it('counts an EventBase run in windows, messages and events, with units on its speed', () => {
         tracker = new ProgressTracker();
-        tracker.show('EventBase Catch-Up', 26, 'Windows');
-        tracker.complete(true, 'extracted 75 events from 26 windows');
+        tracker.show('EventBase Extraction', 6, 'Windows', { unitLabel: 'Messages', foundLabel: 'Events' });
+        tracker.updateEmbeddingProgress(0, 13);
+        tracker.stats.lastBatchStartTime = Date.now() - 2000;
+        tracker.updateEmbeddingProgress(6, 13);
+        tracker.updateChunks(4);
+        tracker.updateProgress(3, '4 events found, processing windows...');
 
-        const panel = document.getElementById('VectFox_progress_panel');
-        expect(tracker.isComplete).toBe(true);
-        // Deliberately NOT auto-hidden — the headless catch-up relies on the user
-        // dismissing the full-screen panel themselves.
-        expect(panel.style.display).toBe('block');
-        expect(tracker.isVisible).toBe(true);
+        expect(part('title').textContent).toBe('EventBase Extraction');
+        expect(part('status').textContent).toBe('4 events found, processing windows...');
+        expect(part('percent').textContent).toBe('46%');
+        expect(part('bar').value).toBe(46);
+        const pills = shownPills();
+        expect(pills.slice(0, 3)).toEqual(['Windows 3 / 6', 'Messages 6 of 13', 'Events 4']);
+        expect(pills[3]).toMatch(/^\d+\.\d s$/);
+        expect(pills[4]).toMatch(/^\d+\.\d messages\/s$/);
     });
 
-    it('the close button tears the panel down (hide)', () => {
+    it('says a count once when the items are the units, as a links run counts events', () => {
         tracker = new ProgressTracker();
-        tracker.show('EventBase Catch-Up', 26, 'Windows');
+        tracker.show('Linking story events', 10, 'Events', { unitLabel: 'Events' });
+        tracker.updateProgress(3);
+        tracker.updateEmbeddingProgress(3, 10);
+        expect(shownPills().filter(text => text.startsWith('Events'))).toEqual(['Events 3 / 10']);
+    });
 
-        document.getElementById('VectFox_progress_close').click();
+    it('shows Stop while a run can stop, Stopping once asked, and stops through its handler', () => {
+        tracker = new ProgressTracker();
+        const stop = vi.fn();
+        tracker.show('EventBase Extraction', 6, 'Windows');
+        expect(isShown(part('stop'))).toBe(false);
+        tracker.setCancelHandler(stop);
+        expect(isShown(part('stop'))).toBe(true);
 
-        const panel = document.getElementById('VectFox_progress_panel');
-        expect(panel.style.display).toBe('none');
+        click('stop');
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(part('stop').textContent).toContain('Stopping…');
+        expect(part('stop').querySelector('button').disabled).toBe(true);
+        expect(part('status').textContent).toBe('Stopping…');
+    });
+
+    it('keeps the verdict on the panel until the user closes it, through a repaint', () => {
+        tracker = new ProgressTracker();
+        tracker.show('EventBase Extraction', 6, 'Windows');
+        tracker.setCancelHandler(() => {});
+        tracker.complete(true, 'EventBase: extracted 9 event(s) from 6 window(s); 1 message waits for the next window');
+        tracker.updateProgress(6);
+
+        expect(part('status').textContent).toMatch(/^EventBase: extracted 9 event\(s\) from 6 window\(s\); 1 message waits for the next window \(\d+\.\d s\)$/);
+        expect(panel().dataset.progressOutcome).toBe('success');
+        expect(part('bar').value).toBe(100);
+        expect(isShown(part('stop'))).toBe(false);
+        expect(isShown(panel())).toBe(true);
+
+        click('close');
+        expect(isShown(panel())).toBe(false);
         expect(tracker.isVisible).toBe(false);
+        expect(tracker.reopen()).toBe(true);
+        expect(part('status').textContent).toContain('1 message waits for the next window');
     });
 
-    it('never touches the content-vectorizer modal (headless catch-up cannot strand on it)', () => {
-        // Simulate the auto-sync enable flow: the vectorizer modal is NOT open.
-        // A stray, hidden modal element shouldn't be revealed/removed by the tracker.
+    it('lists the errors a run met as text, never as markup', () => {
+        tracker = new ProgressTracker();
+        tracker.show('Importing Collection', 3, 'Steps');
+        tracker.addError('<img src=x onerror=alert(1)> refused');
+        expect(isShown(part('errors'))).toBe(true);
+        expect(part('errors').querySelector('img')).toBeNull();
+        expect(part('errors').textContent).toContain('<img src=x onerror=alert(1)> refused');
+    });
+
+    it('starts the next run clean: no verdict, no errors, no item line', () => {
+        tracker = new ProgressTracker();
+        tracker.show('Importing Collection', 3, 'Steps');
+        tracker.updateCurrentItem('vf_lorebook_harbor');
+        tracker.addError('refused');
+        tracker.complete(false, 'Import failed');
+        tracker.show('Exporting Collection', 3, 'Steps');
+
+        expect(panel().dataset.progressOutcome).toBeUndefined();
+        expect(isShown(part('errors'))).toBe(false);
+        expect(isShown(part('current'))).toBe(false);
+        expect(part('status').textContent).toBe('Starting…');
+    });
+
+    it('never touches the content-vectorizer dialog, so the headless catch-up cannot strand on it', () => {
         const stray = document.createElement('div');
         stray.id = 'vectfox_content_vectorizer';
         stray.style.display = 'none';
         document.body.appendChild(stray);
-
+        setTouchDevice(true);
         tracker = new ProgressTracker();
         tracker.show('EventBase Catch-Up', 26, 'Windows');
         tracker.complete(true, 'done');
-        document.getElementById('VectFox_progress_close').click();
-
-        const after = document.getElementById('vectfox_content_vectorizer');
-        expect(after).not.toBeNull();
-        expect(after.style.display).toBe('none'); // untouched
-    });
-});
-
-describe('ProgressTracker — desktop (non-touch) floating panel', () => {
-    beforeEach(() => setTouchDevice(false));
-
-    it('renders the floating corner panel, not a modal', () => {
-        tracker = new ProgressTracker();
-        tracker.show('EventBase Extraction', 10, 'Windows');
-
-        expect(tracker.isModal).toBe(false);
-
-        const panel = document.getElementById('VectFox_progress_panel');
-        expect(panel).not.toBeNull();
-        expect(panel.classList.contains('vectfox-progress-panel')).toBe(true);
-        expect(panel.classList.contains('vectfox-modal')).toBe(false);
-        expect(panel.querySelector('.vectfox-modal-overlay')).toBeNull();
-        // Close button exists on both layouts (shared header).
-        expect(document.getElementById('VectFox_progress_close')).not.toBeNull();
+        click('close');
+        expect(document.getElementById('vectfox_content_vectorizer').style.display).toBe('none');
     });
 });
 
@@ -178,10 +190,8 @@ function startClosing(popup) {
 /** Lets a MutationObserver's callback run. */
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
-describe('ProgressTracker — over a SillyTavern popup', () => {
-    beforeEach(() => setTouchDevice(false));
-
-    it('shows the panel inside the topmost open popup, the only place drawn above it', () => {
+describe('the progress panel over a SillyTavern popup', () => {
+    it('shows inside the topmost open popup, the only place drawn above it', () => {
         const lower = openPopup();
         const upper = openPopup();
         tracker = new ProgressTracker();
@@ -201,7 +211,7 @@ describe('ProgressTracker — over a SillyTavern popup', () => {
         expect(tracker.panel.parentElement).toBe(page);
     });
 
-    it('moves the panel down to the page when its popup starts closing, so removing the popup keeps it', async () => {
+    it('moves down to the page when its popup starts closing, so removing the popup keeps it', async () => {
         const popup = openPopup();
         tracker = new ProgressTracker();
         tracker.show('Linking story events', 600, 'Events');
@@ -215,7 +225,7 @@ describe('ProgressTracker — over a SillyTavern popup', () => {
         expect(tracker.panel.isConnected).toBe(true);
     });
 
-    it('moves the panel to the popup underneath when the top one closes', async () => {
+    it('moves to the popup underneath when the top one closes', async () => {
         const lower = openPopup();
         const upper = openPopup();
         tracker = new ProgressTracker();
@@ -237,13 +247,13 @@ describe('ProgressTracker — over a SillyTavern popup', () => {
         expect(tracker.panel.parentElement).toBe(document.body);
     });
 
-    it('puts the full-page modal a phone shows inside the popup too', () => {
+    it('puts the touch layout inside the popup too', () => {
         setTouchDevice(true);
         const popup = openPopup();
         tracker = new ProgressTracker();
         tracker.show('Linking story events', 600, 'Events');
 
-        expect(tracker.panel.classList.contains('vectfox-progress-modal')).toBe(true);
+        expect(tracker.panel.classList.contains('is-touch')).toBe(true);
         expect(tracker.panel.parentElement).toBe(popup);
     });
 });

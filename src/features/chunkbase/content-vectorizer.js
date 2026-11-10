@@ -23,7 +23,7 @@ import { resolveInheritedConnection, validateLLMConfig } from '../llm-provider/i
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { resolveEffectiveSettings } from './content-vectorization.js';
 import { buildArchiveEventCollectionId } from '../../shared/collection-ids.js';
-import { CLEANING_PRESETS, getCleaningSettings, openTextCleaningModal } from '../text-cleaning/index.js';
+import { chooseCleaningPreset, cleaningPresetChoices, getCleaningSettings, openTextCleaningDialog } from '../text-cleaning/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { formatBytes, utf8ByteLength } from '../../shared/byte-size.js';
@@ -87,11 +87,6 @@ function currentChatView() {
     const context = getContext();
     if (!context?.chatId) return null;
     return { messageCount: context.chat?.length || 0, characterName: context.name2 || 'Unknown', chatId: getChatUUID() || 'unknown' };
-}
-
-/** The cleaning presets: VectFox's, then Custom. */
-function cleaningPresetChoices() {
-    return [...Object.values(CLEANING_PRESETS), { id: 'custom', name: 'Custom', description: 'Your own pattern selection.' }];
 }
 
 /**
@@ -849,7 +844,7 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
     // On a touch screen the panel shows at once and the dialog closes, so the quick exits below still leave the
     // Progress button a panel to open.
     const isPanelShownAtStart = isTouchScreen();
-    if (isPanelShownAtStart) progressTracker.show('EventBase Extraction', 0, 'Windows');
+    if (isPanelShownAtStart) progressTracker.show('EventBase Extraction', 0, 'Windows', { unitLabel: 'Messages', foundLabel: 'Events' });
     closeForProgressOnTouch();
     let endMessage = '';
 
@@ -1023,7 +1018,8 @@ function runAction(typeId, name) {
         case 'reformat-discard':
             pageStateOf(typeId).settings.reformat = null;
             return showReformat(typeId);
-        case 'manage-cleaning': return openTextCleaningModal();
+        // Text Cleaning may change the preset, which every page shows.
+        case 'manage-cleaning': return void openTextCleaningDialog().then(() => showCleaningPreset(getCleaningSettings().selectedPreset || 'custom'));
         case 'preview': return previewChunks(typeId);
         case 'resume': return resumeChat(typeId);
         case 'vectorize': return startVectorization(typeId);
@@ -1035,8 +1031,9 @@ function runAction(typeId, name) {
     }
 }
 
-/** The cleaning preset is VectFox's one setting, so every page's select follows the one changed. */
-async function chooseCleaningPreset(typeId, presetId) {
+/** The cleaning preset is VectFox's one setting, so every page's select shows the one chosen, on a page or in Text Cleaning. */
+function showCleaningPreset(presetId) {
+    if (!session) return;
     const description = cleaningPresetChoices().find(preset => preset.id === presetId)?.description || '';
     for (const each of ALL_TYPE_IDS) {
         pageStateOf(each).settings.cleaningPreset = presetId;
@@ -1045,11 +1042,6 @@ async function chooseCleaningPreset(typeId, presetId) {
         const note = hintOf(each, 'cleaning-note');
         if (note) note.textContent = description;
     }
-    const { saveCleaningSettings } = await import('../text-cleaning/index.js');
-    const cleaning = getCleaningSettings();
-    cleaning.selectedPreset = presetId;
-    saveCleaningSettings(cleaning);
-    saveSettingsDebounced();
 }
 
 /** Each control writes its page's settings; the window size and overlap are VectFox's saved settings. */
@@ -1074,7 +1066,9 @@ function readControl(control) {
             return saveSettingsDebounced();
         case 'start_from': control.value = String(startFromMessageOf(control.value)); return undefined;
         case 'scope': settings.scope = control.value; return undefined;
-        case 'cleaning_preset': return chooseCleaningPreset(typeId, control.value);
+        case 'cleaning_preset':
+            chooseCleaningPreset(control.value);
+            return showCleaningPreset(control.value);
         case 'keyword_level': settings.keywordLevel = control.value; return undefined;
         case 'keyword_weight':
             settings.keywordBaseWeight = keywordWeightFrom(control.value);

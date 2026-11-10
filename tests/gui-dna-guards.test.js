@@ -80,13 +80,10 @@ function oneLineTexts() {
 // ── G3 ─────────────────────────────────────────────────────────────────────────────────────────────
 // The styles left, by file, until their page's phase moves them to GUI-DNA classes.
 const INLINE_STYLES_LEFT = {
-    'features/query-tester/query-tester.js': 21,
-    'features/settings-panel/settings-panel.js': 13,
-    'features/text-cleaning/text-cleaning-ui.js': 2,
+    'features/settings-panel/settings-panel.js': 7,
     'features/text-cleaning/text-cleaning.js': 2,
     'features/vector-backend/tokenizer-lock.js': 1,
     'features/world-info/lorebook-rename-detector.js': 1,
-    'shared/progress-tracker.js': 1,
 };
 
 function inlineStyleSites() {
@@ -133,14 +130,10 @@ const COLOUR = /(?<![&\w])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![\
 const TOKEN_DECLARATION = /^\s*--vfx-[\w-]+\s*:/;
 // The colours left, by file, until their page's phase moves them to --vfx- tokens.
 const COLOURS_LEFT = {
-    'features/diagnostics/diagnostics.css': 1,
-    'features/diagnostics/health-dashboard.css': 12,
-    'features/query-tester/query-tester.js': 11,
     'features/settings-panel/settings-panel.js': 4,
     'shared/base.css': 6,
     'shared/forms.css': 7,
     'shared/modals.css': 9,
-    'shared/progress-tracker.css': 6,
 };
 
 function colourSites() {

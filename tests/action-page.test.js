@@ -23,12 +23,11 @@ const host = vi.hoisted(() => ({
     cleanupCorruptedCollections: vi.fn(),
     deleteVectorsFolder: vi.fn(),
     openDatabaseBrowser: vi.fn(),
-    openHealthDashboard: vi.fn(),
+    openDiagnostics: vi.fn(),
     refreshHealthPill: vi.fn(),
     buildSummarizerInjection: vi.fn(),
     refreshWorldInfoEntryDepthCache: vi.fn(),
-    openQueryTestModal: vi.fn(),
-    openTextCleaningModal: vi.fn(),
+    openTextCleaningDialog: vi.fn(),
     clearLorebookPrompt: vi.fn(),
 }));
 
@@ -42,10 +41,9 @@ vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { reopen:
 vi.mock('../src/features/chunkbase/index.js', () => ({ clearInterceptorPrompts: host.clearInterceptorPrompts, openContentVectorizer: host.openContentVectorizer }));
 vi.mock('../src/features/collections/index.js', () => ({ cleanupCorruptedCollections: host.cleanupCorruptedCollections, deleteVectorsFolder: host.deleteVectorsFolder }));
 vi.mock('../src/features/database-browser/index.js', () => ({ openDatabaseBrowser: host.openDatabaseBrowser }));
-vi.mock('../src/features/diagnostics/index.js', () => ({ openHealthDashboard: host.openHealthDashboard, refreshHealthPill: host.refreshHealthPill }));
+vi.mock('../src/features/diagnostics/index.js', () => ({ openDiagnostics: host.openDiagnostics, refreshHealthPill: host.refreshHealthPill }));
 vi.mock('../src/features/eventbase/index.js', () => ({ buildSummarizerInjection: host.buildSummarizerInjection, refreshWorldInfoEntryDepthCache: host.refreshWorldInfoEntryDepthCache }));
-vi.mock('../src/features/query-tester/index.js', () => ({ openQueryTestModal: host.openQueryTestModal }));
-vi.mock('../src/features/text-cleaning/index.js', () => ({ openTextCleaningModal: host.openTextCleaningModal }));
+vi.mock('../src/features/text-cleaning/index.js', () => ({ openTextCleaningDialog: host.openTextCleaningDialog }));
 vi.mock('../src/features/world-info/index.js', () => ({ clearLorebookPrompt: host.clearLorebookPrompt }));
 
 const { ACTION_PAGE_ELEMENT_ID: ID, DEBUG_SWITCHES, actionPageMarkup, masterSwitchPillsMarkup } = await import('../src/features/settings-panel/action-page-markup.js');
@@ -72,7 +70,7 @@ describe('Action page', () => {
         </div>`;
         settings = { enabled: true, embedding_provider: 'openrouter', debug_domain: { story_arc: true } };
         host.extensionSettings.vectfox = settings;
-        actions = { refreshAutoSyncCheckbox: vi.fn(), runNetworkStartup: vi.fn(), openDiagnosticsModal: vi.fn() };
+        actions = { refreshAutoSyncCheckbox: vi.fn(), runNetworkStartup: vi.fn() };
         ({ wireActionPage } = await import('../src/features/settings-panel/action-page.js'));
     });
 
@@ -132,10 +130,10 @@ describe('Action page', () => {
             [ID.vectorizeContent, host.openContentVectorizer, []],
             [ID.syncChat, host.openContentVectorizer, ['chat']],
             [ID.databaseBrowser, host.openDatabaseBrowser, []],
-            [ID.textCleaning, host.openTextCleaningModal, []],
-            [ID.runDiagnostics, actions.openDiagnosticsModal, []],
-            [ID.openHealthDashboard, host.openHealthDashboard, []],
-            [ID.openQueryTester, host.openQueryTestModal, []],
+            [ID.textCleaning, host.openTextCleaningDialog, []],
+            [ID.openChecks, host.openDiagnostics, ['checks']],
+            [ID.openBackendHealth, host.openDiagnostics, ['health']],
+            [ID.openQueryTester, host.openDiagnostics, ['query']],
         ];
         for (const [id, opener, args] of opened) {
             opener.mockClear();

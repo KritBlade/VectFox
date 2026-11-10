@@ -552,7 +552,7 @@ describe('links files and deleting links', () => {
         expect(result).toEqual({ writtenCount: 2, failedCount: 0, isStopped: false });
         expect(updateChunkMetadataMock.mock.calls).toEqual([1, 2].map(hash => [collection.id, hash, { story_links: null }, settings]));
         expect(callLlmForJsonMock).not.toHaveBeenCalled();
-        expect(progressMock.show).toHaveBeenCalledWith('Deleting StoryArc links', 2, 'Events');
+        expect(progressMock.show).toHaveBeenCalledWith('Deleting StoryArc links', 2, 'Events', { unitLabel: 'Events' });
         expect(progressMock.complete).toHaveBeenCalledWith(true, expect.stringContaining('2 of 2 events cleared'));
     });
 

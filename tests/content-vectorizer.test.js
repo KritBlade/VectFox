@@ -70,10 +70,13 @@ vi.mock('../src/features/llm-provider/index.js', () => ({ validateLLMConfig: () 
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => '' }));
 vi.mock('../src/shared/collection-ids.js', () => ({ buildArchiveEventCollectionId: () => 'vf_archive' }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({
-    CLEANING_PRESETS: { light: { id: 'light', name: 'Light', description: 'Strips markup.' } },
+    cleaningPresetChoices: () => [
+        { id: 'light', name: 'Light', description: 'Strips markup.' },
+        { id: 'custom', name: 'Custom', description: 'Your own built-ins and custom patterns.' },
+    ],
     getCleaningSettings: () => ({ selectedPreset: 'light' }),
-    saveCleaningSettings: vi.fn(),
-    openTextCleaningModal: vi.fn(),
+    chooseCleaningPreset: vi.fn(),
+    openTextCleaningDialog: vi.fn(async () => {}),
 }));
 // requestCancel does nothing here, as on a panel still holding the last run's verdict.
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { setCancelHandler: vi.fn(), clearCancelHandler: vi.fn(), show: vi.fn(), complete: vi.fn(), requestCancel: vi.fn() } }));

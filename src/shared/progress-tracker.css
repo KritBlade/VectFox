@@ -1,314 +1,106 @@
-/* ============================================================================
- * PROGRESS PANEL
- * ============================================================================ */
+/* progress-tracker.css — the progress panel's own rules beside the GUI-DNA (progress-tracker-markup.js): a compact
+ * card floating in the page's corner, or on a touch screen centred over a backdrop that covers the page, where nothing
+ * of SillyTavern's can sit above it; its status line, the bar and the row of pills. Colours are the palette's. */
 
-.vectfox-progress-panel {
+.vfx-ui.vfx-progress {
     position: fixed;
-    bottom: 20px;
     right: 20px;
-    width: 420px;
-    background: linear-gradient(135deg,
-        color-mix(in srgb, var(--vectfox-primary) 12%, var(--SmartThemeBlurTintColor)) 0%,
-        color-mix(in srgb, var(--vectfox-primary) 6%, var(--SmartThemeBlurTintColor)) 100%);
-    border: 2px solid color-mix(in srgb, var(--vectfox-primary) 30%, var(--SmartThemeBorderColor));
-    border-radius: 16px;
-    box-shadow:
-        0 10px 40px color-mix(in srgb, black 25%, transparent),
-        0 4px 12px color-mix(in srgb, var(--vectfox-primary) 20%, transparent),
-        inset 0 1px 2px color-mix(in srgb, white 8%, transparent);
-    backdrop-filter: blur(20px);
+    bottom: 20px;
     z-index: 10000;
-    overflow: hidden;
-    animation: vectfox-slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    width: min(380px, calc(100vw - 24px));
+    line-height: 1.45;
 }
 
-/* The page's text color and line height, set on the panel itself: above an open popup the panel sits inside that popup
-   (progress-tracker.js), whose GUI-DNA scope would hand it its own. Both layouts, the floating panel and the phone's
-   full-page modal. */
-.vectfox-progress-panel,
-.vectfox-progress-modal {
-    color: var(--SmartThemeBodyColor);
-    line-height: normal;
-}
-
-@keyframes vectfox-slide-in {
-    from {
-        transform: translateY(100px);
-        opacity: 0;
-    }
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
-}
-
-.vectfox-progress-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    background: color-mix(in srgb, var(--vectfox-primary) 15%, var(--SmartThemeBlurTintColor));
-    border-bottom: 1px solid color-mix(in srgb, var(--vectfox-primary) 20%, var(--SmartThemeBorderColor));
-}
-
-.vectfox-progress-header h3 {
-    margin: 0;
-    font-size: 1.1em;
-    font-weight: 700;
-    color: var(--SmartThemeBodyColor);
+.vfx-ui.vfx-progress.is-touch {
+    inset: 0;
+    z-index: 2147483647;
     display: flex;
     align-items: center;
+    justify-content: center;
+    width: auto;
+    padding: 12px;
+    background: var(--vfx-dialog-backdrop);
+}
+
+.vfx-ui .vfx-progress-card {
+    display: flex;
+    flex-direction: column;
     gap: 10px;
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid var(--vfx-border);
+    border-radius: var(--vfx-radius-card);
+    background: var(--vfx-surface-solid);
+    box-shadow: var(--vfx-dialog-shadow);
 }
 
-.vectfox-progress-actions {
+.vfx-ui.vfx-progress.is-touch .vfx-progress-card {
+    max-width: 420px;
+}
+
+.vfx-ui .vfx-progress-header {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.vectfox-progress-stop {
-    background: color-mix(in srgb, #ef4444 20%, transparent);
-    border: 1px solid color-mix(in srgb, #ef4444 40%, var(--SmartThemeBorderColor));
-    color: #fecaca;
-    font-size: 0.85em;
-    font-weight: 600;
-    cursor: pointer;
-    padding: 6px 10px;
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    display: inline-flex;
-    align-items: center;
+.vfx-ui .vfx-progress-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.vfx-ui .vfx-progress-status {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--vfx-text-muted);
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+
+/* The percent keeps its width, however long the status beside it. */
+.vfx-ui .vfx-progress-percent {
+    flex: none;
+}
+
+.vfx-ui.vfx-progress[data-progress-outcome="success"] .vfx-progress-status {
+    color: var(--vfx-success-ink);
+}
+
+.vfx-ui.vfx-progress[data-progress-outcome="failure"] .vfx-progress-status {
+    color: var(--vfx-danger-ink);
+}
+
+.vfx-ui .vfx-progress-bar {
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--vfx-neutral-soft);
+    overflow: hidden;
+}
+
+.vfx-ui .vfx-progress-bar::-webkit-progress-bar {
+    border-radius: 999px;
+    background: var(--vfx-neutral-soft);
+}
+
+.vfx-ui .vfx-progress-bar::-webkit-progress-value {
+    border-radius: 999px;
+    background: var(--vfx-accent-fill);
+    transition: width var(--vfx-motion);
+}
+
+.vfx-ui .vfx-progress-bar::-moz-progress-bar {
+    border-radius: 999px;
+    background: var(--vfx-accent-fill);
+}
+
+.vfx-ui .vfx-progress-pills {
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
 }
-
-.vectfox-progress-stop:hover:not(:disabled) {
-    background: color-mix(in srgb, #ef4444 30%, transparent);
-    border-color: color-mix(in srgb, #ef4444 55%, var(--SmartThemeBorderColor));
-    color: #fee2e2;
-}
-
-.vectfox-progress-stop:disabled {
-    opacity: 0.7;
-    cursor: default;
-}
-
-.vectfox-progress-close {
-    background: none;
-    border: none;
-    color: var(--SmartThemeBodyColor);
-    font-size: 1.2em;
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    opacity: 0.7;
-}
-
-.vectfox-progress-close:hover {
-    opacity: 1;
-    background: color-mix(in srgb, var(--vectfox-primary) 20%, transparent);
-}
-
-.vectfox-progress-body {
-    padding: 20px;
-}
-
-.vectfox-progress-section {
-    margin-bottom: 20px;
-}
-
-.vectfox-progress-label {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    font-size: 0.95em;
-    font-weight: 600;
-    color: var(--SmartThemeBodyColor);
-}
-
-.vectfox-progress-percent {
-    color: var(--vectfox-primary-bright);
-    font-weight: 700;
-}
-
-.vectfox-progress-bar-container {
-    width: 100%;
-    height: 12px;
-    background: color-mix(in srgb, black 20%, var(--SmartThemeBlurTintColor));
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: inset 0 2px 4px color-mix(in srgb, black 20%, transparent);
-}
-
-.vectfox-progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg,
-        var(--vectfox-primary) 0%,
-        var(--vectfox-primary-bright) 100%);
-    border-radius: 10px;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--vectfox-primary) 40%, transparent);
-    position: relative;
-    overflow: hidden;
-}
-
-.vectfox-progress-bar::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(90deg,
-        transparent 0%,
-        color-mix(in srgb, white 30%, transparent) 50%,
-        transparent 100%);
-    animation: vectfox-shimmer 2s infinite;
-}
-
-@keyframes vectfox-shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-}
-
-.vectfox-progress-stats {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.vectfox-progress-stat {
-    background: color-mix(in srgb, var(--vectfox-primary) 8%, var(--SmartThemeBlurTintColor));
-    border: 1px solid color-mix(in srgb, var(--vectfox-primary) 15%, var(--SmartThemeBorderColor));
-    border-radius: 10px;
-    padding: 12px;
-    text-align: center;
-}
-
-.vectfox-progress-stat-label {
-    font-size: 0.8em;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.7;
-    margin-bottom: 6px;
-    font-weight: 600;
-}
-
-.vectfox-progress-stat-value {
-    font-size: 1.3em;
-    font-weight: 700;
-    color: var(--vectfox-primary-bright);
-}
-
-.vectfox-progress-current {
-    text-align: center;
-    padding: 8px 12px;
-    margin-bottom: 12px;
-    background: color-mix(in srgb, var(--vectfox-primary) 10%, var(--SmartThemeBlurTintColor));
-    border: 1px solid color-mix(in srgb, var(--vectfox-primary) 20%, var(--SmartThemeBorderColor));
-    border-radius: 8px;
-    font-size: 0.9em;
-    color: var(--vectfox-primary-bright);
-    font-family: var(--monoFontFamily);
-}
-
-.vectfox-progress-errors {
-    background: color-mix(in srgb, var(--vectfox-danger) 10%, var(--SmartThemeBlurTintColor));
-    border: 1px solid color-mix(in srgb, var(--vectfox-danger) 30%, var(--SmartThemeBorderColor));
-    border-radius: 10px;
-    padding: 12px;
-    margin-top: 16px;
-}
-
-.vectfox-progress-errors-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 700;
-    color: var(--vectfox-danger);
-    margin-bottom: 10px;
-    font-size: 0.95em;
-}
-
-.vectfox-progress-errors-list {
-    max-height: 120px;
-    overflow-y: auto;
-}
-
-.vectfox-progress-error-item {
-    padding: 8px;
-    background: color-mix(in srgb, var(--vectfox-danger) 5%, var(--SmartThemeBlurTintColor));
-    border-left: 3px solid var(--vectfox-danger);
-    border-radius: 4px;
-    margin-bottom: 6px;
-    font-size: 0.9em;
-    color: var(--SmartThemeBodyColor);
-}
-
-.vectfox-progress-error-item:last-child {
-    margin-bottom: 0;
-}
-
-/* Mobile responsiveness */
-@media (max-width: 768px) {
-    .vectfox-progress-panel {
-        position: fixed !important;
-        bottom: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        width: 100% !important;
-        max-width: 100vw !important;
-        border-radius: 16px 16px 0 0 !important;
-        border-left: none !important;
-        border-right: none !important;
-        border-bottom: none !important;
-        animation: vectfox-slide-up-mobile 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        z-index: 10001 !important;
-    }
-
-    @keyframes vectfox-slide-up-mobile {
-        from {
-            transform: translateY(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateY(0);
-            opacity: 1;
-        }
-    }
-
-    .vectfox-progress-header {
-        padding: 12px 16px !important;
-    }
-
-    .vectfox-progress-header h3 {
-        font-size: 0.9em !important;
-    }
-
-    .vectfox-progress-body {
-        padding: 10px 14px !important;
-        max-height: 35vh !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-    }
-
-    .vectfox-progress-stats {
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 8px !important;
-    }
-
-    .vectfox-progress-stat-value {
-        font-size: 1.1em !important;
-    }
-
-    .vectfox-progress-close,
-    .vectfox-progress-stop {
-        min-width: 44px !important;
-        min-height: 44px !important;
-    }
-}
-
-

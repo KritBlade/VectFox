@@ -653,7 +653,7 @@ A couple of gotchas:
 
 **Events/chunks not retrieved** — Open the chat first, not SillyTavern's lobby. Open the Database Browser and find the chat's collection. Its row should say "Locked to this chat". If it doesn't, open the collection's settings and switch on "Active for this chat".
 
-**"What would the AI actually recall for this message?"** — Use the **Query Tester** on the Action page for "what-if" testing. Type any text and run it against the live database to see exactly which events would be retrieved and their scores, without sending a real chat message. Useful for tuning thresholds and verifying that important events are indexed correctly.
+**"What would the AI actually recall for this message?"** — Press **Test a query** on the Action page. Type any message and run it: Diagnostics shows what EventBase, ChunkBase and Lorebook WI would inject for it, and why one finds nothing, without sending anything to the chat. Useful for tuning thresholds and checking that important events are in.
 
 **"Backend health check failed"** — On Qdrant, make sure the Qdrant server is running and the Similharity plugin is installed.
 

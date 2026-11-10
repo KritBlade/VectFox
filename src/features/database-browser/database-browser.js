@@ -44,7 +44,6 @@ import {
 } from "../collections/index.js";
 import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
 import { confirmPopup, openPanelPopup } from "../../sillytavern/popup.js";
-import { isModalOpenOnDialogOf } from "../../sillytavern/popup-core.js";
 import { pickFiles } from "../../shared/pick-files.js";
 import { bindGeneBehaviours, scrollPageToTop, setCollapsed } from "../../shared/gui-dna/gene-behaviours.js";
 import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
@@ -145,9 +144,8 @@ export async function openDatabaseBrowser() {
     browserState.pluginAvailable = await checkPluginAvailable();
     resetBrowserState();
     const root = createBrowser();
-    // Opened first, so the list paints into the dialog. While one of the browser's own modals is open on the
-    // dialog, Escape and Close leave the browser open, and Escape closes only that modal.
-    const closed = openPanelPopup(root, { canClose: () => !isModalOpenOnDialogOf(root) });
+    // Opened first, so the list paints into the dialog.
+    const closed = openPanelPopup(root);
     foldFiltersOnPhone(root);
     $("#vectfox_plugin_warning_banner").toggle(!browserState.pluginAvailable);
 

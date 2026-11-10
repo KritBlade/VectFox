@@ -232,7 +232,7 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
     if (!llmConnection.ok) throw new Error(`StoryArc link model is not ready: ${llmConnection.reason}`);
 
     let isStopRequested = false;
-    progressTracker.show('Linking story events', 0, 'Events');
+    progressTracker.show('Linking story events', 0, 'Events', { unitLabel: 'Events' });
     progressTracker.setCancelHandler(() => { isStopRequested = true; });
     progressTracker.updateProgress(0, 'Reading stored events and their vectors...');
     try {
@@ -247,7 +247,7 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
             })));
         const toLink = shouldRelinkDecided ? events : events.filter(event => !Array.isArray(event.story_links));
 
-        progressTracker.show('Linking story events', toLink.length, 'Events');
+        progressTracker.show('Linking story events', toLink.length, 'Events', { unitLabel: 'Events' });
         progressTracker.setCancelHandler(() => { isStopRequested = true; });
 
         const { finishedCount, linkedCount, failedCount, droppedLinkCount, stopReason } = await _linkEvents({
@@ -430,7 +430,7 @@ async function _storeLinksOnEvents(writes, collectionId, settings, wording) {
     let failedCount = 0;
     let consecutiveFailures = 0;
     let next = 0;
-    progressTracker.show(wording.title, writes.length, 'Events');
+    progressTracker.show(wording.title, writes.length, 'Events', { unitLabel: 'Events' });
     progressTracker.setCancelHandler(() => { isStopRequested = true; });
     const runWorker = async () => {
         while (next < writes.length && !isStopRequested && !stopReason) {

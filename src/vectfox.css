@@ -11,6 +11,7 @@
 @import url('./shared/gui-dna/gui-dna.css');
 @import url('./shared/gui-dna/dialogs.css');
 @import url('./shared/gui-dna/workbench.css');
+@import url('./shared/progress-tracker.css');
 @import url('./features/settings-panel/panel-shell.css');
 @import url('./features/eventbase/story-arc-page.css');
 
@@ -23,14 +24,8 @@
 @import url('./shared/buttons.css');
 @import url('./shared/modals.css');
 
-/* Progress panel */
-@import url('./shared/progress-tracker.css');
-
 /* UI component styles */
-@import url('./features/diagnostics/diagnostics.css');
 @import url('./features/database-browser/database-browser.css');
-@import url('./features/text-cleaning/text-cleaning-ui.css');
-@import url('./features/diagnostics/health-dashboard.css');
 
 /* Mobile responsive styles - must be last to override */
 @import url('./shared/mobile.css');

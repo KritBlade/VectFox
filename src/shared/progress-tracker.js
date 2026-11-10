@@ -2,8 +2,9 @@
  * ============================================================================
  * VectFox PROGRESS TRACKER
  * ============================================================================
- * Real-time progress panel for vectorization operations
- * Shows detailed status, progress bars, and live updates
+ * The progress panel a long run shows (progress-tracker-markup.js draws it): its title, Stop and close, a status line
+ * over the bar, and pills for the items done, the units written, what was found, the time and the speed. The panel
+ * stays after the run ends, until the user closes it; the Action page's Progress button shows it again.
  *
  * @author VectFox
  * ============================================================================
@@ -11,6 +12,35 @@
 
 import { log } from '../sillytavern/log.js';
 import { placeOnTopmostModalLayer } from '../sillytavern/popup.js';
+import { PROGRESS_PANEL_ID, PROGRESS_PILLS, progressErrorsMarkup, progressPanelMarkup, stopButtonMarkup } from './progress-tracker-markup.js';
+import { setShown as showPart } from './gui-dna/gene-behaviours.js';
+
+/** How often the time pill counts on. */
+const TIME_TICK_MS = 250;
+
+/** A speed taken over less time than this is a queue flushing at once, not work, so the run's average stands in. */
+const MIN_BATCH_TIME_MS = 100;
+
+const DEFAULT_UNIT_LABEL = 'Chunks';
+
+const freshStats = (totalItems) => ({
+    totalItems,
+    processedItems: 0,
+    currentBatch: 0,
+    totalBatches: 0,
+    totalChunks: 0,
+    embeddedChunks: 0,
+    totalChunksToEmbed: 0,
+    startTime: Date.now(),
+    lastBatchTime: null,
+    lastBatchSize: 0,
+    lastBatchStartTime: Date.now(),
+    errors: [],
+});
+
+function setText(element, text) {
+    if (element && element.textContent !== text) element.textContent = text;
+}
 
 /**
  * Progress Tracker - Manages progress panel UI
@@ -18,92 +48,63 @@ import { placeOnTopmostModalLayer } from '../sillytavern/popup.js';
 export class ProgressTracker {
     constructor() {
         this.panel = null;
-        this.isModal = false; // true on touch devices — panel renders as a full-screen modal
+        // On a touch screen the card sits over a backdrop covering the page; elsewhere it floats in the corner.
+        this.isTouchLayout = false;
         this.isVisible = false;
         this.currentOperation = null;
         this.timeIntervalId = null;
         this.isComplete = false;
+        this.completedSuccess = false;
+        // The verdict complete() wrote, which stands on the status line however often the panel repaints after.
+        this.finalStatus = '';
         this.isCancelling = false;
         this.cancelHandler = null;
-        // PERF: Cache DOM element references to avoid repeated getElementById calls
+        this.labels = { itemLabel: 'Progress', unitLabel: DEFAULT_UNIT_LABEL, foundLabel: '' };
         this.elements = null;
-        this.stats = {
-            totalItems: 0,
-            processedItems: 0,
-            currentBatch: 0,
-            totalBatches: 0,
-            totalChunks: 0,
-            embeddedChunks: 0,
-            totalChunksToEmbed: 0,
-            startTime: null,
-            lastBatchTime: null,
-            lastBatchSize: 0,
-            lastBatchStartTime: null,
-            errors: [],
-        };
+        this.stats = freshStats(0);
     }
 
     /**
-     * Show progress panel
-     * @param {string} operation - Operation name (e.g., "Vectorizing Chat", "Purging Index")
-     * @param {number} totalItems - Total number of items to process
-     * @param {string} itemLabel - Label for items (e.g., "Messages", "Steps", "Entries")
+     * Show the panel for a new run.
+     *
+     * @param {string} operation - The run's title, such as "EventBase Extraction"
+     * @param {number} totalItems - How many items the run has
+     * @param {string} itemLabel - What an item is: "Windows", "Steps", "Events"
+     * @param {{unitLabel?: string, foundLabel?: string}} [labels] - unitLabel names what updateEmbeddingProgress counts
+     *   ("Chunks" unless said; "Messages" on EventBase); foundLabel, when given, names what updateChunks counts ("Events")
      */
-    show(operation, totalItems = 0, itemLabel = 'Progress') {
+    show(operation, totalItems = 0, itemLabel = 'Progress', { unitLabel = DEFAULT_UNIT_LABEL, foundLabel = '' } = {}) {
         this.currentOperation = operation;
         this.isComplete = false;
         this.completedSuccess = false;
+        this.finalStatus = '';
         this.isCancelling = false;
-        this.stats = {
-            totalItems: totalItems,
-            processedItems: 0,
-            currentBatch: 0,
-            totalBatches: 0,
-            totalChunks: 0,
-            embeddedChunks: 0,
-            totalChunksToEmbed: 0,
-            startTime: Date.now(),
-            lastBatchTime: null,
-            lastBatchSize: 0,
-            lastBatchStartTime: Date.now(),
-            errors: [],
-        };
+        this.labels = { itemLabel, unitLabel, foundLabel };
+        this.stats = freshStats(totalItems);
 
-        if (!this.panel) {
-            this.createPanel();
-        }
+        if (!this.panel) this.createPanel();
         // Last on the topmost open popup, so a run started from a popup shows above it, else last on the page, so it
         // layers above any ST panel opened after it
         placeOnTopmostModalLayer(this.panel);
+        this.panel.removeAttribute('data-progress-outcome');
+        showPart(this.elements.errors, false);
+        showPart(this.elements.current, false);
 
-        // Set the item label using cached element
-        if (this.elements?.statLabel) {
-            this.elements.statLabel.textContent = itemLabel;
-        }
-
-        // Start/restart time updater
         this.startTimeUpdater();
-
-        this.updateDisplay();
-        this.panel.style.display = 'block';
+        showPart(this.panel, true);
         this.isVisible = true;
-
-        // Reflect current cancel capability whenever panel is shown.
+        this.updateDisplay();
         this.refreshCancelButton();
     }
 
     /**
-     * Hide progress panel
+     * Hide the panel. A run still going keeps its Stop handler; complete() clears it.
      */
     hide() {
-        if (this.panel) {
-            this.panel.style.display = 'none';
-        }
+        showPart(this.panel, false);
         this.isVisible = false;
         this.currentOperation = null;
         this.isCancelling = false;
-        // Do NOT clear cancelHandler here — an operation may still be running.
-        // clearCancelHandler() is called by complete() when the operation finishes.
         this.refreshCancelButton();
     }
 
@@ -130,11 +131,12 @@ export class ProgressTracker {
     requestCancel() {
         if (!this.cancelHandler || this.isComplete || this.isCancelling) return;
         this.isCancelling = true;
-        this.updateDisplay('Stopping...');
+        this.updateDisplay('Stopping…');
 
         try {
             this.cancelHandler();
         } catch (error) {
+            log.warn('[ProgressTracker] Stop failed:', error);
             this.addError(`Stop failed: ${error?.message || error}`);
             this.isCancelling = false;
         }
@@ -143,18 +145,15 @@ export class ProgressTracker {
     }
 
     /**
-     * Show/hide and enable/disable the Stop button based on operation state.
+     * Show Stop while a run that can stop is on the panel, and Stopping once asked.
      */
     refreshCancelButton() {
-        const stopBtn = this.elements?.stopBtn;
-        if (!stopBtn) return;
-
-        const canStop = !!this.cancelHandler && this.isVisible && !this.isComplete;
-        stopBtn.style.display = canStop ? 'inline-flex' : 'none';
-        stopBtn.disabled = !canStop || this.isCancelling;
-        stopBtn.innerHTML = this.isCancelling
-            ? '<i class="fa-solid fa-spinner fa-spin"></i> Stopping...'
-            : '<i class="fa-solid fa-stop"></i> Stop';
+        const slot = this.elements?.stop;
+        if (!slot) return;
+        const canStop = Boolean(this.cancelHandler) && this.isVisible && !this.isComplete;
+        showPart(slot, canStop);
+        const isStoppingShown = slot.querySelector('[data-progress-action="stop"]') === null;
+        if (canStop && isStoppingShown !== this.isCancelling) slot.innerHTML = stopButtonMarkup({ isStopping: this.isCancelling });
     }
 
     /**
@@ -179,8 +178,8 @@ export class ProgressTracker {
     }
 
     /**
-     * Update chunk count (for showing message → chunk splitting)
-     * @param {number} totalChunks - Total chunks created from messages
+     * Update what the run found or made: the chunks a source cut into, or the events EventBase found (foundLabel).
+     * @param {number} totalChunks
      */
     updateChunks(totalChunks) {
         this.stats.totalChunks = totalChunks;
@@ -188,53 +187,31 @@ export class ProgressTracker {
     }
 
     /**
-     * Update embedding progress (for showing embedded/remaining chunks)
-     * @param {number} embeddedChunks - Number of chunks embedded so far
-     * @param {number} totalChunksToEmbed - Total chunks to embed
+     * Update how many units are written of how many, which the bar and the speed follow.
+     * @param {number} embeddedChunks - Units written so far
+     * @param {number} totalChunksToEmbed - Units to write
      */
     updateEmbeddingProgress(embeddedChunks, totalChunksToEmbed) {
         log.verbose(`[ProgressTracker] updateEmbeddingProgress: ${embeddedChunks}/${totalChunksToEmbed}`);
-
-        // Track batch timing for speed calculation
-        const previousEmbedded = this.stats.embeddedChunks || 0;
-        const batchSize = embeddedChunks - previousEmbedded;
-        
+        const batchSize = embeddedChunks - (this.stats.embeddedChunks || 0);
         if (batchSize > 0 && this.stats.lastBatchStartTime) {
             const now = Date.now();
             this.stats.lastBatchTime = now - this.stats.lastBatchStartTime;
             this.stats.lastBatchSize = batchSize;
-            this.stats.lastBatchStartTime = now; // Reset for next batch
-            log.verbose(`[ProgressTracker] Batch completed: ${batchSize} chunks in ${this.stats.lastBatchTime}ms`);
+            this.stats.lastBatchStartTime = now;
         }
-        
         this.stats.embeddedChunks = embeddedChunks;
         this.stats.totalChunksToEmbed = totalChunksToEmbed;
         this.updateDisplay();
     }
 
     /**
-     * Update current item being processed (e.g., "Message 3, Chunk 2/5")
-        this.stats.embeddedChunks = embeddedChunks;
-        this.stats.totalChunksToEmbed = totalChunksToEmbed;
-        this.updateDisplay();
-    }
-
-    /**
-     * Update current item being processed (e.g., "Message 3, Chunk 2/5")
-     * @param {string} text - Current item description
+     * Show the item at work under the pills, such as the collection a run writes; empty hides it.
+     * @param {string} text
      */
     updateCurrentItem(text) {
-        // PERF: Use cached element references
-        const el = this.elements?.current;
-        const textEl = this.elements?.currentText;
-        if (el && textEl) {
-            if (text) {
-                textEl.textContent = text;
-                el.style.display = 'block';
-            } else {
-                el.style.display = 'none';
-            }
-        }
+        setText(this.elements?.current, text || '');
+        showPart(this.elements?.current, Boolean(text));
     }
 
     /**
@@ -242,15 +219,15 @@ export class ProgressTracker {
      * @param {string} error - Error message
      */
     addError(error) {
-        this.stats.errors.push({
-            message: error,
-            timestamp: Date.now(),
-        });
-        this.updateDisplay();
+        this.stats.errors.push({ message: String(error), timestamp: Date.now() });
+        if (this.elements?.errors) {
+            this.elements.errors.innerHTML = progressErrorsMarkup(this.stats.errors.map(each => each.message));
+            showPart(this.elements.errors, true);
+        }
     }
 
     /**
-     * Complete operation
+     * End the run on the panel, which stays until the user closes it.
      * @param {boolean} success - Whether operation succeeded
      * @param {string} message - Completion message
      */
@@ -259,255 +236,114 @@ export class ProgressTracker {
         this.completedSuccess = success;
         this.isCancelling = false;
         this.clearCancelHandler();
+        this.stopTimeUpdater();
 
-        // Stop the time updater
-        if (this.timeIntervalId) {
-            clearInterval(this.timeIntervalId);
-            this.timeIntervalId = null;
-        }
-
-        const duration = Date.now() - this.stats.startTime;
-        const seconds = (duration / 1000).toFixed(1);
-
-        const completionMessage = success
-            ? `✅ ${message || 'Operation completed successfully'} (${seconds}s)`
-            : `❌ ${message || 'Operation failed'} (${seconds}s)`;
-
-        this.updateDisplay(completionMessage);
-
-        // Don't auto-hide - let user close manually
+        const seconds = ((Date.now() - this.stats.startTime) / 1000).toFixed(1);
+        const words = message || (success ? 'Done' : 'Failed');
+        this.panel?.setAttribute('data-progress-outcome', success ? 'success' : 'failure');
+        this.finalStatus = `${words} (${seconds} s)`;
+        this.updateDisplay();
     }
 
     /**
-     * Reopen the progress panel if it was previously created.
-     * @returns {boolean} true if the panel was reopened
+     * Show the panel again after it was closed.
+     * @returns {boolean} true if there was a panel to show
      */
     reopen() {
         if (!this.panel) return false;
-        // Just reveal the existing panel — no re-append, which would replay its slide-in
-        // animation. On a touch device it rides a max z-index (mobile.css), so it already
-        // layers above any ST drawer without needing to be last in the DOM. Only the
-        // settings panel reopens it, and an open popup leaves that unclickable, so the panel
-        // is already on the page: show() put it there, or moved it off a popup that closed.
-        this.panel.style.display = 'block';
+        // Only revealed: show() put it on the page, or moved it off a popup that closed.
+        showPart(this.panel, true);
         this.isVisible = true;
+        this.updateDisplay();
         this.refreshCancelButton();
         return true;
     }
 
     /**
-     * Create progress panel HTML
+     * Build the panel once; later runs reuse it.
      */
     createPanel() {
-        // Detect touch devices. On mobile the floating bottom-sheet panel proved
-        // unreliable (it would not surface above the ST UI), so mobile gets a
-        // full-screen modal instead — the same proven, always-visible pattern as the
-        // Text Cleaning modal. Desktop keeps the original floating corner panel,
-        // completely unchanged. Both layouts share identical inner element IDs so all
-        // of updateDisplay()'s cached element references work without any branching.
-        this.isModal = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+        this.isTouchLayout = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+        // A panel a previous load left behind goes, so its handlers do not answer twice.
+        document.getElementById(PROGRESS_PANEL_ID)?.remove();
 
-        const headerHTML = `
-            <div class="vectfox-progress-header">
-                <h3 id="VectFox_progress_title">VectFox Progress</h3>
-                <div class="vectfox-progress-actions">
-                    <button id="VectFox_progress_stop" class="vectfox-progress-stop" style="display: none;">
-                        <i class="fa-solid fa-stop"></i> Stop
-                    </button>
-                    <button id="VectFox_progress_close" class="vectfox-progress-close">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
-                </div>
-            </div>`;
+        const template = document.createElement('template');
+        template.innerHTML = progressPanelMarkup({ isTouchLayout: this.isTouchLayout });
+        this.panel = template.content.firstElementChild;
+        document.body.appendChild(this.panel);
 
-        const bodyHTML = `
-            <div class="vectfox-progress-body">
-                <!-- Main Progress Bar -->
-                <div class="vectfox-progress-section">
-                    <div class="vectfox-progress-label">
-                        <span id="VectFox_progress_status">Initializing...</span>
-                        <span id="VectFox_progress_percent">0%</span>
-                    </div>
-                    <div class="vectfox-progress-bar-container">
-                        <div id="VectFox_progress_bar" class="vectfox-progress-bar" style="width: 0%"></div>
-                    </div>
-                </div>
-
-                <!-- Current Item Progress -->
-                <div id="VectFox_progress_current" class="vectfox-progress-current" style="display: none;">
-                    <span id="VectFox_progress_current_text">Processing...</span>
-                </div>
-
-                <!-- Stats Grid -->
-                <div class="vectfox-progress-stats">
-                    <div class="vectfox-progress-stat">
-                        <div id="VectFox_progress_stat_label" class="vectfox-progress-stat-label">Progress</div>
-                        <div id="VectFox_progress_processed" class="vectfox-progress-stat-value">0 / 0</div>
-                    </div>
-                    <div class="vectfox-progress-stat">
-                        <div class="vectfox-progress-stat-label">Chunks</div>
-                        <div id="VectFox_progress_chunks" class="vectfox-progress-stat-value">0</div>
-                    </div>
-                    <div class="vectfox-progress-stat">
-                        <div class="vectfox-progress-stat-label">Time</div>
-                        <div id="VectFox_progress_time" class="vectfox-progress-stat-value">0.0s</div>
-                    </div>
-                    <div class="vectfox-progress-stat">
-                        <div class="vectfox-progress-stat-label">Speed</div>
-                        <div id="VectFox_progress_speed" class="vectfox-progress-stat-value">0/s</div>
-                    </div>
-                </div>
-
-                <!-- Errors (hidden by default) -->
-                <div id="VectFox_progress_errors" class="vectfox-progress-errors" style="display: none;">
-                    <div class="vectfox-progress-errors-header">
-                        <i class="fa-solid fa-exclamation-triangle"></i>
-                        <span>Errors</span>
-                    </div>
-                    <div id="VectFox_progress_errors_list" class="vectfox-progress-errors-list"></div>
-                </div>
-            </div>`;
-
-        // Mobile: full-screen modal (mirrors the Text Cleaning modal). Desktop: the
-        // original floating panel. The outer element keeps the same id either way so
-        // the stale-element cleanup, this.panel lookup, and reopen() all stay generic.
-        const panelHTML = this.isModal
-            ? `
-            <div id="VectFox_progress_panel" class="vectfox-modal vectfox-progress-modal" style="display: none;">
-                <div class="vectfox-modal-overlay"></div>
-                <div class="vectfox-modal-content vectfox-progress-modal-content">
-                    ${headerHTML}
-                    ${bodyHTML}
-                </div>
-            </div>`
-            : `
-            <div id="VectFox_progress_panel" class="vectfox-progress-panel">
-                ${headerHTML}
-                ${bodyHTML}
-            </div>`;
-
-        // Remove any stale element left over from a previous session/hot-reload
-        document.getElementById('VectFox_progress_panel')?.remove();
-
-        // Insert panel into DOM
-        const container = document.createElement('div');
-        container.innerHTML = panelHTML.trim();
-        document.body.appendChild(container.firstElementChild);
-
-        this.panel = document.getElementById('VectFox_progress_panel');
-
-        // PERF: Cache all DOM element references to avoid repeated getElementById calls
+        const part = name => this.panel.querySelector(`[data-progress-part="${name}"]`);
         this.elements = {
-            title: document.getElementById('VectFox_progress_title'),
-            status: document.getElementById('VectFox_progress_status'),
-            percent: document.getElementById('VectFox_progress_percent'),
-            bar: document.getElementById('VectFox_progress_bar'),
-            processed: document.getElementById('VectFox_progress_processed'),
-            chunks: document.getElementById('VectFox_progress_chunks'),
-            time: document.getElementById('VectFox_progress_time'),
-            speed: document.getElementById('VectFox_progress_speed'),
-            current: document.getElementById('VectFox_progress_current'),
-            currentText: document.getElementById('VectFox_progress_current_text'),
-            statLabel: document.getElementById('VectFox_progress_stat_label'),
-            errors: document.getElementById('VectFox_progress_errors'),
-            errorsList: document.getElementById('VectFox_progress_errors_list'),
-            stopBtn: document.getElementById('VectFox_progress_stop'),
-            closeBtn: document.getElementById('VectFox_progress_close'),
+            title: part('title'),
+            stop: part('stop'),
+            status: part('status'),
+            percent: part('percent'),
+            bar: part('bar'),
+            current: part('current'),
+            errors: part('errors'),
+            pills: Object.fromEntries(PROGRESS_PILLS.map(name => [name, part(name)])),
         };
 
-        if (this.elements.stopBtn) {
-            this.elements.stopBtn.addEventListener('click', () => this.requestCancel());
-        }
-
-        // Bind close button
-        this.elements.closeBtn.addEventListener('click', () => {
-            this.hide();
+        this.panel.addEventListener('click', (event) => {
+            const action = event.target.closest('[data-progress-action]')?.dataset.progressAction;
+            if (action === 'stop') this.requestCancel();
+            else if (action === 'close') this.hide();
         });
+    }
 
-        // Start time update interval
-        this.startTimeUpdater();
+    /** The bar's share done: the units written when the run counts them, else its items. */
+    percentDone() {
+        if (this.isComplete && this.completedSuccess) return 100;
+        const { embeddedChunks, totalChunksToEmbed, processedItems, totalItems } = this.stats;
+        if (totalChunksToEmbed > 0) return Math.round((embeddedChunks / totalChunksToEmbed) * 100);
+        if (totalItems > 0) return Math.round((processedItems / totalItems) * 100);
+        return 0;
     }
 
     /**
-     * Update display with current stats
-     * @param {string} statusOverride - Override status message
+     * Units written a second: over the last batch, or the run's average when that batch took no real time. Under a
+     * second in, an average says nothing, so there is none.
+     */
+    unitsPerSecond() {
+        const { lastBatchTime, lastBatchSize, embeddedChunks, startTime } = this.stats;
+        if (lastBatchTime >= MIN_BATCH_TIME_MS && lastBatchSize > 0) return lastBatchSize / (lastBatchTime / 1000);
+        const elapsed = (Date.now() - startTime) / 1000;
+        return embeddedChunks > 0 && elapsed >= 1 ? embeddedChunks / elapsed : 0;
+    }
+
+    /** What each pill says, '' for a pill with nothing to say. */
+    pillTexts() {
+        const { itemLabel, unitLabel, foundLabel } = this.labels;
+        const { totalItems, processedItems, totalChunks, embeddedChunks, totalChunksToEmbed, startTime } = this.stats;
+        const units = totalChunksToEmbed > 0 ? `${unitLabel} ${embeddedChunks} of ${totalChunksToEmbed}`
+            : (!foundLabel && totalChunks > 0 ? `${unitLabel} ${totalChunks}` : '');
+        const speed = this.unitsPerSecond();
+        return {
+            items: totalItems > 0 ? `${itemLabel} ${processedItems} / ${totalItems}` : '',
+            // A run whose items are its units says it once.
+            units: unitLabel === itemLabel ? '' : units,
+            found: foundLabel ? `${foundLabel} ${totalChunks}` : '',
+            time: `${((Date.now() - startTime) / 1000).toFixed(1)} s`,
+            speed: speed > 0 ? `${speed.toFixed(1)} ${unitLabel.toLowerCase()}/s` : '',
+        };
+    }
+
+    /**
+     * Paint the panel from the run's numbers.
+     * @param {string} statusOverride - Words for the status line instead of the ones the numbers give
      */
     updateDisplay(statusOverride = '') {
         if (!this.panel || !this.isVisible || !this.elements) return;
-
-        // Calculate progress percentage
-        // Prioritize embedding progress if available, otherwise use processed items
-        let percent = 0;
-        if (this.isComplete && this.completedSuccess) {
-            percent = 100;
-        } else if (this.stats.totalChunksToEmbed > 0 && this.stats.embeddedChunks >= 0) {
-            percent = Math.round((this.stats.embeddedChunks / this.stats.totalChunksToEmbed) * 100);
-            log.trace(`[ProgressTracker] Progress bar: ${this.stats.embeddedChunks}/${this.stats.totalChunksToEmbed} = ${percent}%`);
-        } else if (this.stats.totalItems > 0) {
-            percent = Math.round((this.stats.processedItems / this.stats.totalItems) * 100);
-        }
-
-        // PERF: Use cached element references instead of repeated getElementById calls
         const els = this.elements;
-
-        // Update title
-        if (els.title) els.title.textContent = this.currentOperation || 'VectFox Progress';
-
-        // Update status
-        const status = statusOverride || this.generateStatusMessage();
-        if (els.status) els.status.textContent = status;
-
-        // Update progress bar
-        if (els.percent) els.percent.textContent = `${percent}%`;
-        if (els.bar) els.bar.style.width = `${percent}%`;
-
-        // Update stats
-        if (els.processed) {
-            els.processed.textContent = `${this.stats.processedItems} / ${this.stats.totalItems}`;
-        }
-
-        // Show chunks - with embedding progress if available
-        if (els.chunks) {
-            if (this.stats.totalChunksToEmbed > 0) {
-                // Show embedding progress: "45/100 (55 left)"
-                const remaining = this.stats.totalChunksToEmbed - this.stats.embeddedChunks;
-                const displayText = `${this.stats.embeddedChunks}/${this.stats.totalChunksToEmbed} (${remaining} left)`;
-                log.trace(`[ProgressTracker] Updating chunks display with embedding progress: "${displayText}"`);
-                els.chunks.textContent = displayText;
-            } else if (this.stats.totalChunks > this.stats.processedItems && this.stats.processedItems > 0) {
-                // Messages are being split into multiple chunks
-                const avgChunks = (this.stats.totalChunks / this.stats.processedItems).toFixed(1);
-                els.chunks.textContent = `${this.stats.totalChunks} (~${avgChunks}/msg)`;
-            } else {
-                els.chunks.textContent = `${this.stats.totalChunks}`;
-            }
-        }
-
-        // Calculate speed based on last batch timing (more accurate for streaming).
-        // Guard against tiny `lastBatchTime` values caused by back-to-back progress
-        // callbacks (e.g. when a queued insert flushes microseconds after the
-        // previous one). Those produce display spikes like "2000/s" for one tick.
-        // Anything faster than 100ms isn't real work — fall back to cumulative
-        // average for that tick.
-        const MIN_BATCH_TIME_MS = 100;
-        let speed = '0.0';
-        if (this.stats.lastBatchTime >= MIN_BATCH_TIME_MS && this.stats.lastBatchSize > 0) {
-            // Use last batch performance for real-time speed
-            const batchSpeed = (this.stats.lastBatchSize / (this.stats.lastBatchTime / 1000)).toFixed(1);
-            speed = batchSpeed;
-        } else if (this.stats.embeddedChunks > 0 && this.stats.startTime) {
-            // Fallback to average speed (also used for queue-flush artifact ticks)
-            const elapsed = (Date.now() - this.stats.startTime) / 1000;
-            speed = elapsed > 0 ? (this.stats.embeddedChunks / elapsed).toFixed(1) : '0.0';
-        }
-        if (els.speed) els.speed.textContent = `${speed}/s`;
-
-        // Show/hide errors
-        if (this.stats.errors.length > 0) {
-            this.updateErrorsList();
-            if (els.errors) els.errors.style.display = 'block';
-        } else {
-            if (els.errors) els.errors.style.display = 'none';
+        const percent = this.percentDone();
+        setText(els.title, this.currentOperation || 'VectFox Progress');
+        setText(els.status, statusOverride || this.finalStatus || this.generateStatusMessage());
+        setText(els.percent, `${percent}%`);
+        if (els.bar.value !== percent) els.bar.value = percent;
+        const texts = this.pillTexts();
+        for (const name of PROGRESS_PILLS) {
+            setText(els.pills[name], texts[name]);
+            showPart(els.pills[name], Boolean(texts[name]));
         }
     }
 
@@ -515,60 +351,30 @@ export class ProgressTracker {
      * Generate status message based on current state
      */
     generateStatusMessage() {
-        if (this.stats.processedItems === 0) {
-            return 'Starting...';
-        } else if (this.stats.totalChunksToEmbed > 0 && this.stats.embeddedChunks >= 0) {
-            // Streaming approach: embedding and writing happen together
-            const progressPercent = (this.stats.embeddedChunks / this.stats.totalChunksToEmbed) * 100;
-            if (this.isCancelling) {
-                return 'Stopping...';
-            }
-            if (progressPercent < 100) {
-                return 'Processing chunks...';
-            } else {
-                return 'Finalizing...';
-            }
-        } else if (this.stats.processedItems >= this.stats.totalItems) {
-            return 'Finalizing...';
-        } else if (this.stats.totalBatches > 0) {
-            return `Processing batch ${this.stats.currentBatch}/${this.stats.totalBatches}`;
-        } else {
-            return `Processing items...`;
-        }
+        const { processedItems, totalItems, totalChunksToEmbed, embeddedChunks, currentBatch, totalBatches } = this.stats;
+        if (this.isCancelling) return 'Stopping…';
+        if (processedItems === 0) return 'Starting…';
+        if (totalChunksToEmbed > 0) return embeddedChunks < totalChunksToEmbed ? 'Processing…' : 'Finishing…';
+        if (processedItems >= totalItems) return 'Finishing…';
+        if (totalBatches > 0) return `Batch ${currentBatch} of ${totalBatches}`;
+        return 'Processing…';
     }
 
     /**
-     * Update errors list display
-     */
-    updateErrorsList() {
-        // PERF: Use cached element reference
-        const errorsList = this.elements?.errorsList;
-        if (errorsList) {
-            errorsList.innerHTML = this.stats.errors
-                .map(err => `<div class="vectfox-progress-error-item">${err.message}</div>`)
-                .join('');
-        }
-    }
-
-    /**
-     * Start interval to update elapsed time
+     * Count the time pill on while the run goes.
      */
     startTimeUpdater() {
-        // Clear any existing interval first
+        this.stopTimeUpdater();
+        this.timeIntervalId = setInterval(() => {
+            if (this.isVisible && !this.isComplete) setText(this.elements?.pills.time, this.pillTexts().time);
+        }, TIME_TICK_MS);
+    }
+
+    stopTimeUpdater() {
         if (this.timeIntervalId) {
             clearInterval(this.timeIntervalId);
+            this.timeIntervalId = null;
         }
-
-        this.timeIntervalId = setInterval(() => {
-            // Only update if visible, not complete, and has start time
-            if (this.isVisible && !this.isComplete && this.stats.startTime) {
-                const elapsed = ((Date.now() - this.stats.startTime) / 1000).toFixed(1);
-                // PERF: Use cached element reference
-                if (this.elements?.time) {
-                    this.elements.time.textContent = `${elapsed}s`;
-                }
-            }
-        }, 100);
     }
 }
 

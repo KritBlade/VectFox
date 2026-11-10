@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * The Action page's backend health pill (src/features/diagnostics/health-dashboard.js): hidden until a probe answers,
+ * The Action page's backend health pill (src/features/diagnostics/backend-health.js): hidden until a probe answers,
  * then a word in its status colour, never a bare dot: healthy, errors once a call failed, down when the probe failed.
  */
 /* global document -- this file runs under the jsdom environment */
@@ -18,9 +18,8 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     getBackendMetrics: () => ({ backends: host.backends, activeBackends: [] }),
 }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: { vector_backend: 'qdrant' } } }));
-vi.mock('../src/sillytavern/popup.js', () => ({ placeOnTopmostModalLayer: () => {} }));
 
-const { getHealthPillHtml, refreshHealthPill } = await import('../src/features/diagnostics/health-dashboard.js');
+const { getHealthPillHtml, refreshHealthPill } = await import('../src/features/diagnostics/backend-health.js');
 
 const pill = () => document.getElementById('VectFox_health_pill');
 
