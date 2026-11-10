@@ -82,7 +82,6 @@ function oneLineTexts() {
 const INLINE_STYLES_LEFT = {
     'features/chunkbase/content-vectorizer.js': 22,
     'features/database-browser/chunk-visualizer.js': 4,
-    'features/database-browser/database-browser.js': 1,
     'features/query-tester/query-tester.js': 21,
     'features/settings-panel/settings-panel.js': 13,
     'features/text-cleaning/text-cleaning-ui.js': 2,
@@ -138,16 +137,14 @@ const TOKEN_DECLARATION = /^\s*--vfx-[\w-]+\s*:/;
 const COLOURS_LEFT = {
     'features/chunkbase/content-vectorizer.css': 1,
     'features/database-browser/chunk-visualizer.css': 77,
-    'features/database-browser/database-browser.css': 1,
     'features/diagnostics/diagnostics.css': 1,
     'features/diagnostics/health-dashboard.css': 12,
     'features/query-tester/query-tester.js': 11,
     'features/settings-panel/settings-panel.js': 4,
     'shared/base.css': 6,
     'shared/forms.css': 7,
-    'shared/modals.css': 60,
+    'shared/modals.css': 9,
     'shared/progress-tracker.css': 6,
-    'shared/tabs.css': 5,
 };
 
 function colourSites() {

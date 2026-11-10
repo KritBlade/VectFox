@@ -36,6 +36,12 @@ dialog.popup.vfx-popup.is-wide {
         width: calc(100dvw - 16px) !important;
         max-width: calc(100dvw - 16px) !important;
     }
+
+    /* A grid of fields in a dialog is one column on a phone, as in a shell: the DNA draws that by the shell's width
+       (gui-dna.css), and a dialog of fields holds no shell. */
+    dialog.popup.vfx-popup:not(.is-panel) .vfx-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* The canvas is painted on the dialog's scroller instead of the shell: a scroller's own background stays put while its

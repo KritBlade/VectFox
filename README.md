@@ -380,7 +380,7 @@ Stop button, pause/resume, fingerprint cache that survives Chrome restarts mid-r
 
 ### 🔒 Per-chat collection scoping
 
-New collections auto-activate for the current chat. "Active for current chat" checkbox controls the chat lock. Lock button in the Database Browser shows whether a lock is for *this* chat or another.
+New collections auto-activate for the current chat. In a collection's settings, the "Active for this chat" switch controls its chat lock. The settings also show how many locks it has and whether one matches this chat.
 
 ### 📡 Smarter status indicators
 
@@ -419,7 +419,7 @@ Numerous bug fixes around mixed-backend search, handle ID filtering, and other e
 Each collection has activation settings: Edit collection settings on its row in the Database Browser. Activation is a chain of gates; every gate that applies must pass:
 
 1. **Disabled** (pause button) → never queries
-2. **Active for current chat / Character lock** → required; a collection not locked to this chat or character never queries
+2. **Active for this chat / Active for this character** → required. A collection not locked to this chat or character never queries
 3. **Triggers**, if set → a keyword must match recent messages this turn
 4. **Advanced Conditions**, if set → the condition rules must also pass this turn
 5. **Locked, nothing else set** → queries every turn
@@ -428,7 +428,7 @@ Triggers and conditions only narrow a locked collection; neither can switch one 
 
 Conditions support keywords/patterns, speaker, character-present, message/turn count, time of day, and combined AND/OR rules.
 
-> ⚠️ **Legacy feature note:** Triggers and condition-based activation are **inherited from VectHare** and kept here for backward compatibility only. **Always make collections "Active for current chat" or use Character lock**: that is what switches a collection on, and triggers/conditions can only narrow it further. The whole point of vector search is to let the search engine search everything — narrowing it with keyword triggers defeats that purpose.
+> ⚠️ **Legacy feature note:** Triggers and condition-based activation are **inherited from VectHare** and kept here for backward compatibility only. **Always switch on "Active for this chat" or "Active for this character"**. That is what switches a collection on, and triggers and conditions can only narrow it further. The whole point of vector search is to let the search engine search everything. Narrowing it with keyword triggers defeats that purpose.
 >
 > **CJK note:** Triggers and condition-based activation are **language-neutral** — keyword/pattern matching uses plain substring search, which works for Chinese/Japanese/Korean the same as English. (Only user-written regex with ASCII `\b` boundaries won't fire across CJK — use plain substrings or `\p{L}` + the `u` flag.)
 
@@ -651,7 +651,7 @@ A couple of gotchas:
 
 **"No embeddings available"** — Click the Vectorize Content icon, Enable Vectors extension in main ST settings, select an embedding provider, add API key if needed, run Diagnostics.
 
-**Events/chunks not retrieved** — Make sure you are already in the chat, not in the lobby of Sillytavern, Click Database Browser icon, click on the collection of the chat, confirm the collection is "Active for current chat".
+**Events/chunks not retrieved** — Open the chat first, not SillyTavern's lobby. Open the Database Browser and find the chat's collection. Its row should say "Locked to this chat". If it doesn't, open the collection's settings and switch on "Active for this chat".
 
 **"What would the AI actually recall for this message?"** — Use the **Query Tester** on the Action page for "what-if" testing. Type any text and run it against the live database to see exactly which events would be retrieved and their scores, without sending a real chat message. Useful for tuning thresholds and verifying that important events are indexed correctly.
 

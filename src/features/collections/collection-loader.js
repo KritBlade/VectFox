@@ -1075,7 +1075,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
 
             // One-time migration: scope='global' is no longer supported. Rewrite to 'character'
             // so the rest of the codebase only has to handle 'character' and 'chat'. The collection
-            // stays inactive until the user locks it ("Active for current character" or 🔒 Manage Locks).
+            // stays inactive until the user locks it in Collection Settings (its lock switch, or Manage locks).
             if (storedMeta.scope === 'global') {
                 const collectionsMap = extension_settings?.vectfox?.collections || {};
                 const writeKey = collectionsMap[registryKey] ? registryKey : collectionId;

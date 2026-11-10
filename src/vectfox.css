@@ -35,7 +35,6 @@
 @import url('./features/diagnostics/health-dashboard.css');
 
 /* Tab navigation styles */
-@import url('./shared/tabs.css');
 
 /* Mobile responsive styles - must be last to override */
 @import url('./shared/mobile.css');

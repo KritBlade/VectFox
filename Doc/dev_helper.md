@@ -28,7 +28,7 @@ The pipelines never see each other's content. There is no overlap in collection 
 | **A — EventBase** | `Chat → Upload` tab     | `vf_archiveevent_*`      | Event-shaped (same schema as live EventBase) | Phase A (EventBase re-ranker) |
 | **B — Chunk**     | `Document` content type | `vf_document_*`          | Chunk-shaped                                 | Phase B (standard pipeline)   |
 
-Archive event collections are **not** auto-locked to any chat after ingestion. Users must manually check "Active for current chat" on the collection card to activate retrieval for a given chat.
+Archive event collections are **not** auto-locked to any chat after ingestion. To retrieve from one in a chat, switch on "Active for this chat" in its Collection Settings, or lock it with Manage locks.
 
 ### Why this matters
 
@@ -659,7 +659,7 @@ A3 leverages **all four** of Qdrant's relevant server-side features:
 
 ## 12) Trigger / Condition Activation — Language-Neutral
 
-Activation Triggers and Advanced Conditions (Collection Settings → Activation panel) are **language-neutral**. They work for CJK (Chinese / Japanese / Korean) stories the same as for English.
+Activation Triggers and Advanced Conditions (in a collection's Collection Settings) are **language-neutral**. They work for CJK (Chinese / Japanese / Korean) stories the same as for English.
 
 ### Why it works for any language
 
@@ -667,7 +667,7 @@ Activation Triggers and Advanced Conditions (Collection Settings → Activation 
 
 **Numeric / structural conditions** — Message Count, Swipe Count, Time of Day, Generation Type, Group Chat, Random Chance — never inspect text and are trivially language-independent.
 
-**Manual always-on** — "Active for current chat" and Character lock have no language dependency.
+**Manual always-on** — the lock switch ("Active for this chat" or "Active for this character") and Manage locks have no language dependency.
 
 ### One caveat: user-supplied regex
 

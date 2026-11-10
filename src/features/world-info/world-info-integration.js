@@ -350,7 +350,7 @@ function _describeSkipped(skipped) {
     const labels = {
         disabled: 'paused by user',
         foreignPersona: 'owned by another persona',
-        not_locked: 'not locked to any chat or character — tick "Active for current chat" to switch it on',
+        not_locked: 'not locked to any chat or character, so lock it in its Collection Settings',
         locked_elsewhere: 'locked to a different chat/character',
         trigger_unmatched: 'locked, but its trigger keywords did not match this turn',
         conditions_failed: 'locked, but its advanced conditions did not pass this turn',

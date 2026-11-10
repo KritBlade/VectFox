@@ -1,7 +1,7 @@
 /* ============================================================================
  * VECTFOX BASE STYLES
  * ============================================================================
- * CSS variables, icons, main container
+ * CSS variables and the main container
  *
  * @author Kritblade
  * ============================================================================ */
@@ -13,52 +13,6 @@
     --vectfox-success: #10b981;
     --vectfox-warning: #f59e0b;
     --vectfox-danger: #ef4444;
-}
-
-/* ============================================================================
- * BASE ICON STYLES (SVG icons from icons.js)
- * ============================================================================ */
-
-.vectfox-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    vertical-align: middle;
-    flex-shrink: 0;
-}
-
-/* Icons in buttons */
-button .vectfox-icon,
-.vectfox-btn .vectfox-icon,
-.vectfox-btn-sm .vectfox-icon {
-    margin-right: 4px;
-}
-
-/* Icons in badges */
-.vectfox-badge .vectfox-icon {
-    margin-right: 3px;
-}
-
-/* Icons in headers */
-h3 .vectfox-icon,
-h4 .vectfox-icon {
-    margin-right: 8px;
-}
-
-/* Icons in tabs */
-.vectfox-tab-btn .vectfox-icon {
-    margin-right: 6px;
-    opacity: 0.85;
-}
-
-.vectfox-tab-btn.active .vectfox-icon {
-    opacity: 1;
-}
-
-/* Icons in filter labels */
-.vectfox-type-filters label .vectfox-icon {
-    margin-right: 4px;
-    opacity: 0.8;
 }
 
 /* ============================================================================

@@ -3,9 +3,10 @@
  *
  * The dialog doors in src/sillytavern/popup.js: a destructive confirm opens on Cancel, so Enter never says yes to it,
  * and any other dialog opens on its action; a confirm that cannot open answers no; a notice shows its lines, then its
- * body, and a wide one carries .is-wide.
+ * body, and a wide one carries .is-wide; a form shows its lines, then the form, focuses the control it names, and
+ * submits on Enter in a one-line box only when asked.
  */
-/* global document -- this file runs under the jsdom environment */
+/* global document, KeyboardEvent -- this file runs under the jsdom environment */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -32,7 +33,7 @@ vi.mock('../../../../popup.js', () => ({
     getTopmostModalLayer: () => document.body,
 }));
 
-const { confirmPopup, noticePopup } = await import('../src/sillytavern/popup.js');
+const { confirmPopup, formPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 
 beforeEach(() => {
     host.opened = [];
@@ -77,5 +78,51 @@ describe('noticePopup', () => {
         expect(host.opened[0].content.children).toHaveLength(1);
         host.failToOpen = true;
         await expect(noticePopup([{ text: 'Hello' }])).resolves.toBeUndefined();
+    });
+});
+
+describe('formPopup', () => {
+    const formWith = (html) => {
+        const form = document.createElement('div');
+        form.innerHTML = html;
+        return form;
+    };
+
+    it('shows its lines, then the form, with the action and Cancel', async () => {
+        const form = formWith('<input id="name" value="Mira">');
+        expect(await formPopup([{ text: 'Rename the collection' }], form, { okButton: 'Rename', isWide: true })).toBe(true);
+        const { content, options, dialog } = host.opened[0];
+        expect(content.firstElementChild.textContent).toBe('Rename the collection');
+        expect(content.lastElementChild).toBe(form);
+        expect(options).toMatchObject({ okButton: 'Rename', cancelButton: 'Cancel', defaultResult: 1 });
+        expect(dialog.classList.contains('is-wide')).toBe(true);
+    });
+
+    it('focuses and selects the control it names once open, and submits on Enter in a one-line box when asked', async () => {
+        const form = formWith('<input id="name" value="Mira"><textarea id="notes"></textarea>');
+        await formPopup([{ text: 'Rename the collection' }], form, { okButton: 'Rename', focusSelector: '#name', isSubmittedOnEnter: true });
+        // SillyTavern puts the content in its dialog on the page before onOpen runs.
+        document.body.append(host.opened[0].content);
+        const popup = { complete: vi.fn() };
+        host.opened[0].options.onOpen(popup);
+        const box = form.querySelector('#name');
+        expect(document.activeElement).toBe(box);
+        expect([box.selectionStart, box.selectionEnd]).toEqual([0, 4]);
+        form.querySelector('#notes').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(popup.complete).not.toHaveBeenCalled();
+        box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(popup.complete).toHaveBeenCalledWith(1);
+        host.opened[0].content.remove();
+    });
+
+    it('leaves Enter alone unless asked, and answers no when it cannot open', async () => {
+        const form = formWith('<input id="name">');
+        await formPopup([{ text: 'Collection settings' }], form, { okButton: 'Save' });
+        const popup = { complete: vi.fn() };
+        host.opened[0].options.onOpen(popup);
+        form.querySelector('#name').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(popup.complete).not.toHaveBeenCalled();
+        host.failToOpen = true;
+        expect(await formPopup([{ text: 'Collection settings' }], form, { okButton: 'Save' })).toBe(false);
     });
 });

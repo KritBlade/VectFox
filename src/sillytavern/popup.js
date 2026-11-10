@@ -110,6 +110,44 @@ export async function confirmPopup(lines, { okButton, cancelButton = 'Cancel', i
 }
 
 /**
+ * Show a form built from the gene builders under its lines (popup-core.js), and wait for the user to submit or cancel it.
+ * Returns truthy only on the action button; the caller then reads its own controls from `form`, which stays its element
+ * after the dialog closes. Never throws: a dialog that cannot open logs and answers no, so it never reads as a submit.
+ *
+ * @param {object[]} lines - The form's title, then the things it changes
+ * @param {HTMLElement} form
+ * @param {object} options
+ * @param {string} options.okButton - The action, as a verb
+ * @param {string} [options.cancelButton]
+ * @param {boolean} [options.isWide] - A long form: wide on a desktop, and on a phone as wide as any dialog
+ * @param {string} [options.focusSelector] - The control focused, its text selected, once the dialog is open
+ * @param {boolean} [options.isSubmittedOnEnter] - Enter in a one-line box presses the action, as in a one-field form
+ * @returns {Promise<*>}
+ */
+export async function formPopup(lines, form, { okButton, cancelButton = 'Cancel', isWide = false, focusSelector = '', isSubmittedOnEnter = false }) {
+    const content = document.createElement('div');
+    content.className = 'vfx-stack';
+    content.append(dialogTextBlock(lines), form);
+    const onOpen = (popup) => {
+        const control = focusSelector ? form.querySelector(focusSelector) : null;
+        control?.focus();
+        control?.select?.();
+        if (!isSubmittedOnEnter) return;
+        form.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.target.tagName !== 'INPUT') return;
+            event.preventDefault();
+            void popup.complete(POPUP_RESULT.AFFIRMATIVE);
+        });
+    };
+    try {
+        return await showDialog(content, POPUP_TYPE.CONFIRM, { okButton, cancelButton, isWide, popupOptions: { onOpen } });
+    } catch (error) {
+        log.warn('A form dialog could not open, so it answers no:', error);
+        return false;
+    }
+}
+
+/**
  * Show something that needs no answer: its lines (popup-core.js), then `body`, an element built from the gene builders,
  * such as a read-only preview. Never throws: a dialog that cannot open logs, and the caller carries on.
  *

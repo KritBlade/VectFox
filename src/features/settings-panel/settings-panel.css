@@ -70,32 +70,6 @@
     z-index: 1;
 }
 
-.vectfox-card-title .vectfox-icon {
-    width: 40px;
-    height: 40px;
-    background: linear-gradient(135deg,
-        color-mix(in srgb, var(--vectfox-primary) 20%, transparent) 0%,
-        color-mix(in srgb, var(--vectfox-primary) 10%, transparent) 100%);
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--vectfox-primary-bright);
-    font-size: 1.1em;
-    border: 1px solid color-mix(in srgb, var(--vectfox-primary) 25%, transparent);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--vectfox-primary) 15%, transparent);
-}
-
-.vectfox-card:hover .vectfox-icon {
-    transform: scale(1.1) rotate(5deg);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--vectfox-primary) 25%, transparent);
-    background: linear-gradient(135deg,
-        color-mix(in srgb, var(--vectfox-primary) 30%, transparent) 0%,
-        color-mix(in srgb, var(--vectfox-primary) 15%, transparent) 100%);
-}
-
 .vectfox-card-subtitle {
     margin: 8px 0 0 0;
     color: color-mix(in srgb, var(--SmartThemeBodyColor) 75%, transparent);

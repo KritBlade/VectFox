@@ -209,8 +209,8 @@ export function getCollectionMeta(collectionId) {
     // Always return a usable scope. Cheap when stored is already valid
     // (single string comparison); only parses the ID when stored is null/
     // undefined/'unknown'. This is the single place that fixes every
-    // downstream consumer of meta.scope — saveActivation, refreshWIStatus,
-    // the badge renderer, the activation editor — without each of them
+    // downstream consumer of meta.scope (the Collection Settings lock switch,
+    // refreshWIStatus, the Database Browser's rows) without each of them
     // needing their own defensive read.
     merged.scope = getEffectiveScope(collectionId, merged);
 
@@ -727,8 +727,8 @@ export function getCollectionCharacterLockCount(collectionId) {
 }
 
 /**
- * Single source of truth for "Active for current chat" — the UI checkbox state and the
- * Database Browser's Active here pill both derive from this. Scope decides which lock list is consulted:
+ * Single source of truth for whether a collection is active here: the Collection Settings
+ * lock switch and the Database Browser's Active here pill both derive from this. Scope decides which lock list is consulted:
  *   - scope='chat'      → chat-lock list, match against current chat
  *   - scope='character' → character-lock list, match against current character
  * @param {string} collectionId
@@ -756,7 +756,7 @@ export function isCollectionActiveForContext(collectionId, { chatId, characterId
  *
  * Lock + scope metadata can live under EITHER key form: the DB Browser pause
  * toggle and the registry write under the registry-key ("backend:id"), while the
- * "Active for current chat" checkbox can write under the bare collectionId. So a
+ * Collection Settings lock switch can write under the bare collectionId. So a
  * caller that has a collection object must check both forms; this collapses that
  * into one call so the active-resolution logic stays in one place. Returns true
  * if active under ANY supplied form.

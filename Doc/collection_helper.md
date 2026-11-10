@@ -199,9 +199,9 @@ Call the highest tier that covers your use case:
 | Tier | Function | Use when |
 |---|---|---|
 | **All collections** | `getCollectionListing(settings)` | Render loop, aggregate state. Use `entry.isActive` (and `entry.isOwn`) — no per-card calls needed. |
-| **One collection** | `isCollectionActiveForContext(registryKey, { chatId, characterId })` | One collection — the DB browser's badge, checkbox and activation editor. `getCollectionListing` calls it per entry; do not call it per card in a loop. |
+| **One collection** | `isCollectionActiveForContext(registryKey, { chatId, characterId })` | One collection: the lock switch in Collection Settings (`collection-dialogs.js`). `getCollectionListing` calls it per entry; do not call it per card in a loop. |
 | **One collection, either key form** | `isCollectionActiveForContextAnyKey([registryKey, collectionId], { chatId, characterId })` | Same single-source check, but tolerant of both key forms when a lock/scope may be stamped under either the registry-key or the bare id (EventBase read/write resolution, auto-sync status). Returns true if active under ANY form. Use this instead of re-spreading `isCollectionLockedToChat` across call sites. |
-| **Lock lists** | `getCollectionLocks(registryKey)` / `getCollectionCharacterLocks(registryKey)` | The chats / characters one collection is locked to (the DB browser's lock dialog). |
+| **Lock lists** | `getCollectionLocks(registryKey)` / `getCollectionCharacterLocks(registryKey)` | The chats / characters one collection is locked to (Manage locks, `collection-dialogs.js`). |
 
 `isCollectionActiveForContext` returns `true` based on the collection's scope:
 - `scope='chat'` → `chatId` is in `lockedToChatIds`
@@ -210,7 +210,7 @@ Call the highest tier that covers your use case:
 
 ## Scope handling — `getEffectiveScope` is the canonical resolver
 
-The scope of a collection (`'chat'` vs `'character'`) controls which lock kind `saveActivation` writes, which list `isCollectionActiveForContext` reads, and which UI elements appear in the activation editor. Get it wrong and locks silently fail to persist.
+The scope of a collection (`'chat'` vs `'character'`) controls which lock kind the Collection Settings lock switch writes (`writeLockHere`), which list `isCollectionActiveForContext` reads, and what the switch is called (`lockSwitchState`). Get it wrong and locks silently fail to persist.
 
 **Use the canonical resolver, never branch on bare `meta.scope`:**
 
@@ -272,7 +272,7 @@ TEST 005/006/007 cover the standard-backend no-plugin path, including the lock c
    ```
    It is the only `'global'` check in the code, kept for user data that still holds the value. Do not remove it.
 
-A rewritten collection has no character lock — it stops activating until the user re-checks "Active for current chat" in Collection Settings (which then calls `setCollectionCharacterLock(currentCharacterId)`).
+A rewritten collection has no character lock. It stops activating until the user switches "Active for this character" on again in Collection Settings, which calls `setCollectionCharacterLock(collectionKey, String(currentCharacterId))`.
 
 **Rule for new code:** never reintroduce `scope === 'global'` branches anywhere. If you need to handle stored data that *might* contain `'global'`, route it through `getEffectiveScope` — the canonical resolver folds every invalid value into `'character'` or `'chat'`.
 
@@ -280,27 +280,29 @@ A rewritten collection has no character lock — it stops activating until the u
 
 In `src/features/database-browser/database-browser.js`, `renderCollections` calls `getCollectionListing(settings)` once and keys each entry's `isActive` (computed there with `isCollectionActiveForContext(registryKey, ...)`) by registry key and by bare ID. The "Active here only" filter and every row read that lookup; no row calls `isCollectionActiveForContext` itself. An active row shows the Active here pill and a line from `activeHereLine` naming the lock that matched: this chat, this character, or both, and how many other chats it is locked to. It names the lock that matched, not the one its scope implies, since `shouldCollectionActivate()` takes either lock whatever the scope.
 
-## DB Browser → Collection Settings → "Active for current chat" checkbox
+## DB Browser → Collection Settings → the lock switch
 
-In `src/features/database-browser/database-browser.js`:
+In `src/features/database-browser/collection-dialogs.js`:
 
 | Function | Role |
 |---|---|
-| `openActivationEditor` | Computes `state.alwaysActive` via `isCollectionActiveForContext` |
-| `renderActivationEditor` | Sets `prop('checked', state.alwaysActive)` |
-| `refreshActivationLockButton` | Re-syncs checkbox after Manage Locks dialog — same helper |
-| `saveActivation` | Mutates locks on Save based on scope |
+| `lockAreaView` | The switch's state (`isCollectionActiveForContext`), its wording by scope (`lockSwitchState`) and the lock summary (`lockSummary`), the last two in `collection-settings-core.js` |
+| `editCollectionSettings` | Sets the switch from that view, and again after Manage locks closes |
+| `saveCollectionSettings` | Writes the lock on Save, only when the switch was moved |
+| `writeLockHere` | The lock it writes, by scope |
 
-**`saveActivation` lock mutation:**
+**`writeLockHere` lock mutation:**
 
 ```
-scope='chat'      + checked   →  setCollectionLock(state.collectionId, currentChatId)
-scope='chat'      + unchecked →  removeCollectionLock(state.collectionId, currentChatId)
-scope='character' + checked   →  setCollectionCharacterLock(state.collectionId, currentCharacterId)
-scope='character' + unchecked →  removeCollectionCharacterLock(state.collectionId, currentCharacterId)
+scope='chat'      + on  →  setCollectionLock(collectionKey, currentChatId)
+scope='chat'      + off →  removeCollectionLock(collectionKey, currentChatId)
+scope='character' + on  →  setCollectionCharacterLock(collectionKey, String(currentCharacterId))
+scope='character' + off →  removeCollectionCharacterLock(collectionKey, String(currentCharacterId))
 ```
 
-`state.collectionId` is the registry-key form (`backend:id`) — set when `openActivationEditor` is called with `collection.registryKey || collection.id`. Key form is correct.
+The switch shows on when any lock matches here, a chat lock or a character lock, so Save writes only when the user moved it. A switch shown on for a lock of the other kind must not add one of its own. Without the chat or character its scope locks to, the switch is off limits and Manage locks is the way in. Character 0 is a character: only a missing id means none.
+
+`collectionKey` is the registry-key form (`backend:id`): the browser passes `collection.registryKey || collection.id`.
 
 Each call only touches the lock for the **current** chat/character. Other chats or characters that have this collection locked keep their entries intact — `removeCollectionLock` filters by id, doesn't wipe the list.
 
@@ -625,10 +627,10 @@ UI elements that mirror lock state are pulled in two ways. The distinction matte
 |---|---|---|
 | User turns the semantic activation switch | (browser-native) | **Yes** — change handler removes/checks locks |
 | User turns the auto-sync switch | (browser-native) | **Yes** — change handler removes/sets chat lock |
-| User clicks "Active for current chat" in Collection Settings | (via Save button) | **Yes** — `saveActivation` mutates |
+| User moves the lock switch in Collection Settings | (via Save button) | **Yes** — `writeLockHere` mutates |
 | `refreshWIStatus` auto-uncheck | **No** — `_setWIEnabled` uses `prop()` only | **No** — pure UI mirror |
 | `refreshAutoSyncCheckbox` auto-state | **No** — direct `prop()` | **No** — pure UI mirror |
-| `refreshActivationLockButton` after Manage Locks | **No** — direct `prop()` | **No** — re-reads state set by the dialog |
+| Collection Settings after Manage locks | **No** — the switch is set directly | **No** — re-reads the locks Manage locks set |
 
 **Rule:** auto-sync paths must never invoke the change handler. Otherwise, opening the WorldInfo page could trigger lock removal as a side effect of the UI sync.
 
@@ -636,7 +638,7 @@ UI elements that mirror lock state are pulled in two ways. The distinction matte
 
 | Event | Fired by | Listeners |
 |---|---|---|
-| `vectfox:collections-updated` | `saveActivation`, the semantic activation switch turned off, the auto-sync switch | `refreshWIStatus`, `refreshAutoSyncCheckbox` |
+| `vectfox:collections-updated` | `editCollectionSettings` on a save or a lock change, the semantic activation switch turned off, the auto-sync switch | `refreshWIStatus`, `refreshAutoSyncCheckbox` |
 | `vectfox:eventbase-synced` | `runEventBaseIngestion` at end of run | `refreshAutoSyncCheckbox` |
 
 Plus ST's `CHAT_CHANGED` — same two refresh handlers re-run.
@@ -665,7 +667,8 @@ Triggers and conditions narrow a locked collection; neither can activate an unlo
 | `src/features/vector-backend/vector-api.js` | `queryCollection` — the canonical per-collection-backend routing entry point |
 | `src/features/eventbase/eventbase-workflow.js` | `getChatAutoSyncStatus`, `isChatFullyVectorized`, dispatches `vectfox:eventbase-synced` |
 | `src/features/chunkbase/content-vectorization.js` | Default `scope='character'`, no `'global'` fallback |
-| `src/features/database-browser/database-browser.js` | The Active here pill (`activeHereLine`), `openActivationEditor`, `renderActivationEditor`, `refreshActivationLockButton`, `saveActivation` |
+| `src/features/database-browser/database-browser.js` | The Active here pill (`activeHereLine`) |
+| `src/features/database-browser/collection-dialogs.js` | Collection Settings' lock switch (`lockAreaView`, `saveCollectionSettings`, `writeLockHere`) and Manage locks (`manageCollectionLocks`) |
 | `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, the semantic activation and auto-sync switch handlers, event listeners |
 | `src/features/chunkbase/content-vectorizer.js` | Scope picker without global, post-vectorization `refreshWIStatus` call |
 
