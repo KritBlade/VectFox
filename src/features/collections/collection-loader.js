@@ -23,10 +23,7 @@ import {
 import { log } from '../../sillytavern/log.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
-    getChatUUID,
     parseCollectionId,
-    buildChatSearchPatterns,
-    matchesPatterns,
     parseRegistryKey,
     COLLECTION_PREFIXES,
     buildRegistryKey,
@@ -945,90 +942,6 @@ export async function discoverExistingCollections(settings) {
         log.lifecycle('VectFox: Plugin not available, using fallback discovery');
         return await discoverViaFallback(settings);
     }
-}
-
-/**
- * SINGLE SOURCE OF TRUTH: Check if a specific chat has vectors
- * This runs discovery if needed and checks all possible locations
- * @param {object} settings VECTFOX settings
- * @param {string} [overrideChatId] Optional chat ID override
- * @param {string} [overrideUUID] Optional UUID override
- * @returns {Promise<{hasVectors: boolean, collectionId: string|null, chunkCount: number}>}
- */
-export async function doesChatHaveVectors(settings, overrideChatId, overrideUUID) {
-    // Always run discovery first to ensure registry is current
-    await discoverExistingCollections(settings);
-
-    const registry = getCollectionRegistry();
-
-    // Get current chat identifiers
-    const uuid = overrideUUID || getChatUUID();
-    const chatId = overrideChatId || (getContext().chatId);
-
-    // Use unified pattern builder from collection-ids.js
-    const searchPatterns = buildChatSearchPatterns(chatId, uuid);
-
-    log.verbose(`VectFox: Searching for chat vectors. UUID: ${uuid}, Patterns:`, searchPatterns);
-
-    // Collect ALL matching collections, then pick the best one
-    // This handles ghost collections (empty) vs real collections (has chunks)
-    const matchingCollections = [];
-
-    for (const registryKey of registry) {
-        // Use unified registry key parser from collection-ids.js
-        const parsed = parseRegistryKey(registryKey);
-        const collectionId = parsed.collectionId;
-
-        // Use unified pattern matching from collection-ids.js
-        const matches = matchesPatterns(registryKey, searchPatterns) ||
-                       matchesPatterns(collectionId, searchPatterns);
-
-        if (matches) {
-            // Get chunk count, source, and backend from plugin cache if available
-            let chunkCount = 0;
-            let source = parsed.source || 'unknown';
-            let backend = parsed.backend || 'standard';
-            let sources = [];
-
-            if (pluginCollectionData && pluginCollectionData[registryKey]) {
-                const cacheData = pluginCollectionData[registryKey];
-                chunkCount = cacheData.chunkCount || 0;
-                source = cacheData.source || source;
-                backend = cacheData.backend || backend;
-                sources = cacheData.sources || [];
-            }
-
-            matchingCollections.push({
-                collectionId,
-                registryKey,
-                chunkCount,
-                source,
-                backend,
-                sources
-            });
-            log.verbose(`VectFox: Found matching collection ${collectionId} (${chunkCount} chunks, backend: ${backend})`);
-        }
-    }
-
-    // If we found matches, return ALL of them sorted by chunk count (best first)
-    if (matchingCollections.length > 0) {
-        // Sort by chunk count descending
-        matchingCollections.sort((a, b) => b.chunkCount - a.chunkCount);
-
-        const best = matchingCollections[0];
-        log.verbose(`VectFox: Found ${matchingCollections.length} matching collection(s), best is ${best.collectionId} with ${best.chunkCount} chunks`);
-
-        return {
-            hasVectors: true,
-            collectionId: best.collectionId,
-            registryKey: best.registryKey,
-            chunkCount: best.chunkCount,
-            allMatches: matchingCollections  // Return ALL matches for user selection
-        };
-    }
-
-    log.verbose('VectFox: No vectors found for current chat');
-    return { hasVectors: false, collectionId: null, registryKey: null, chunkCount: 0 };
 }
 
 /**

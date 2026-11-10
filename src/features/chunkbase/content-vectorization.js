@@ -130,7 +130,7 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
             const currentHash = getStringHash(normalizedText);
 
             if (currentHash !== settings.reformat.sourceHash) {
-                log.warn(`VectFox: Auto-Reformat was accepted for different content than what's loaded now (hash mismatch) — falling back to mechanical chunking. Re-run Auto-Reformat if you want it applied to the current content.`);
+                log.warn(`VectFox: Auto-Reformat was accepted for different content than what's loaded now (hash mismatch) — falling back to mechanical chunking. Run Auto-Reformat again to apply it to the current content.`);
             } else {
                 const frozen = getReformatCache(settings.reformat.sourceHash);
                 if (frozen?.chunks?.length) {

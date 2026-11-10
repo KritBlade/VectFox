@@ -198,3 +198,17 @@ describe('prepareLorebookContent — combined strategy', () => {
         expect(result.entryCount).toBe(2);
     });
 });
+
+// ============================================================================
+// Disabled entries: Vectorize Content's Include Disabled Entries switch
+// ============================================================================
+
+describe('prepareLorebookContent — entries disabled in World Info', () => {
+    const entries = [withComment('Gate', 'The gate stood open.'), { comment: 'Tide', content: 'The tide came in.', disable: true }];
+
+    it('skips them unless the switch is on, as the switch says', () => {
+        expect(prepareLorebookContent({ entries }, { strategy: 'per_entry' }).text).toEqual(['# Gate\nThe gate stood open.']);
+        expect(prepareLorebookContent({ entries }, { strategy: 'per_entry', includeDisabled: true }).entryCount).toBe(2);
+        expect(prepareLorebookContent({ entries }, { strategy: 'paragraph' }).entryCount).toBe(1);
+    });
+});

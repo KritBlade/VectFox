@@ -1,0 +1,31 @@
+/* workbench.css — VectFox's two workbench dialogs, the Chunk Visualizer (database-browser/chunk-visualizer-markup.js) and
+ * the Auto-Reformat review (chunkbase/reformat-review-markup.js): a top bar holding only the brand over one page whose
+ * split fills the dialog. */
+
+/* Each title is a collection's or source's name, often one long word ("qdrant_..."): it breaks anywhere rather than
+   push the dialog sideways. */
+#vectfox_chunk_visualizer .vfx-page-title,
+#vectfox_reformat_review .vfx-page-title {
+    overflow-wrap: anywhere;
+}
+
+/* On a phone the DNA stacks a split's panes, each half of the height the page header and controls leave, which here is
+   a fifth of the screen each. The page scrolls instead, with each pane most of the dialog tall; and the bar goes, as
+   it holds only the brand the DNA hides on a phone. */
+@container vfx-shell (max-width: 720px) {
+    #vectfox_chunk_visualizer > .vfx-nav,
+    #vectfox_reformat_review > .vfx-nav {
+        display: none;
+    }
+
+    #vectfox_chunk_visualizer .vfx-page.is-workbench,
+    #vectfox_reformat_review .vfx-page.is-workbench {
+        height: auto;
+    }
+
+    #vectfox_chunk_visualizer .vfx-split > .vfx-card.is-pane,
+    #vectfox_reformat_review .vfx-split > .vfx-card.is-pane {
+        flex: none;
+        height: 80cqh;
+    }
+}

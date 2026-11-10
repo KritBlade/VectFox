@@ -19,6 +19,7 @@ import {
     setCollapsed,
     splitLimits,
     splitWidthAfterKey,
+    syncSliders,
 } from '../src/shared/gui-dna/gene-behaviours.js';
 
 describe('setCollapsed', () => {
@@ -96,5 +97,30 @@ describe('a split divider', () => {
         const rule = [...document.querySelector('style[data-vfx-split-widths]').sheet.cssRules].find(each => each.selectorText === '#test_split');
         expect(rule.style.getPropertyValue('--vfx-split-start')).toBe(`${400 + SPLIT_KEY_STEP}px`);
         rects.mockRestore();
+    });
+});
+
+describe('a slider beside its number box', () => {
+    beforeEach(() => {
+        document.body.innerHTML = '<div id="root"><div class="vfx-slider"><input type="range" class="vfx-range" data-vfx-slider-for="depth" min="1" max="20" step="1"><input type="number" id="depth" min="1" max="20" step="1" value="4"></div></div>';
+    });
+
+    it('writes its box, firing the box\'s own input and change, and follows a typed number', () => {
+        globalThis.$ = $;
+        bindGeneBehaviours(document.getElementById('root'));
+        const fired = [];
+        $('#depth').on('input change', event => fired.push(`${event.type} ${event.target.value}`));
+        const range = document.querySelector('.vfx-range');
+        range.value = '9';
+        $(range).trigger('input');
+        expect(fired).toEqual(['input 9', 'change 9']);
+        $('#depth').val('15').trigger('input');
+        expect(range.value).toBe('15');
+    });
+
+    it('moves to a box code set', () => {
+        document.getElementById('depth').value = '12';
+        syncSliders(document.getElementById('root'));
+        expect(document.querySelector('.vfx-range').value).toBe('12');
     });
 });

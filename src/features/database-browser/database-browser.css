@@ -1,7 +1,7 @@
 /* database-browser.css — the Database Browser's own rules beside the GUI-DNA (database-browser-markup.js and
  * chunk-visualizer-markup.js): each collection's or chunk's selection box beside its row, the StoryArc links row drawn
- * as a branch under a collection, the open chunk's row, a keyword's boost box, and the Chunk Visualizer's title and
- * phone layout. */
+ * as a branch under a collection, the open chunk's row and a keyword's boost box. The Chunk Visualizer's title and
+ * phone layout are in shared/gui-dna/workbench.css. */
 
 .vfx-ui .vfx-pick-row {
     display: flex;
@@ -51,28 +51,4 @@
 .vfx-ui .vfx-boost-box {
     flex: none;
     width: 6em;
-}
-
-/* The Chunk Visualizer's title is a collection's name, often one long word ("qdrant_..."): it breaks anywhere rather
-   than push the dialog sideways. */
-#vectfox_chunk_visualizer .vfx-page-title {
-    overflow-wrap: anywhere;
-}
-
-/* On a phone the DNA stacks a split's panes, each half of the height the page header and controls leave, which here is
-   a fifth of the screen each. The page scrolls instead, with each pane most of the dialog tall; and the bar goes, as
-   it holds only the brand the DNA hides on a phone. */
-@container vfx-shell (max-width: 720px) {
-    #vectfox_chunk_visualizer > .vfx-nav {
-        display: none;
-    }
-
-    #vectfox_chunk_visualizer .vfx-page.is-workbench {
-        height: auto;
-    }
-
-    #vectfox_chunk_visualizer .vfx-split > .vfx-card.is-pane {
-        flex: none;
-        height: 80cqh;
-    }
 }

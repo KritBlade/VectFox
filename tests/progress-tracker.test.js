@@ -123,7 +123,7 @@ describe('ProgressTracker — mobile (touch) full-screen modal', () => {
         // Simulate the auto-sync enable flow: the vectorizer modal is NOT open.
         // A stray, hidden modal element shouldn't be revealed/removed by the tracker.
         const stray = document.createElement('div');
-        stray.id = 'vectfox_content_vectorizer_modal';
+        stray.id = 'vectfox_content_vectorizer';
         stray.style.display = 'none';
         document.body.appendChild(stray);
 
@@ -132,7 +132,7 @@ describe('ProgressTracker — mobile (touch) full-screen modal', () => {
         tracker.complete(true, 'done');
         document.getElementById('VectFox_progress_close').click();
 
-        const after = document.getElementById('vectfox_content_vectorizer_modal');
+        const after = document.getElementById('vectfox_content_vectorizer');
         expect(after).not.toBeNull();
         expect(after.style.display).toBe('none'); // untouched
     });

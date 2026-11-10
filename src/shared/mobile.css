@@ -88,8 +88,7 @@
      * MODAL HEADER - Always visible and touchable
      * ======================================================================== */
 
-    .vectfox-modal-header,
-    .vectfox-cv-header {
+    .vectfox-modal-header {
         position: sticky !important;
         top: 0 !important;
         z-index: 100 !important;
@@ -146,8 +145,7 @@
      * MODAL BODY - Scrollable content area
      * ======================================================================== */
 
-    .vectfox-modal-body,
-    .vectfox-cv-body {
+    .vectfox-modal-body {
         flex: 1 !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch !important;
@@ -163,45 +161,6 @@
         width: 100% !important;
         min-height: 44px !important;
         justify-content: center !important;
-    }
-
-    /* ========================================================================
-     * CONTENT VECTORIZER INTERNALS
-     * ======================================================================== */
-
-    .vectfox-cv-body {
-        flex: 1 !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        padding: 12px !important;
-        min-height: 0 !important;
-    }
-
-    .vectfox-cv-type-dropdown {
-        min-height: 44px !important;
-    }
-
-    .vectfox-cv-scope-options {
-        grid-template-columns: 1fr !important;
-    }
-
-    .vectfox-cv-scope-card {
-        min-height: 44px !important;
-    }
-
-    .vectfox-cv-footer {
-        position: sticky !important;
-        bottom: 0 !important;
-        padding: 12px !important;
-        flex-shrink: 0 !important;
-        gap: 8px !important;
-        flex-wrap: wrap !important;
-    }
-
-    .vectfox-cv-footer button {
-        flex: 1 1 auto !important;
-        min-height: 44px !important;
-        min-width: 100px !important;
     }
 
     /* All buttons need good touch targets */
@@ -313,16 +272,6 @@
  * ============================================================================ */
 
 @media (max-width: 480px) {
-
-    /* Stack search box and "Active here only" vertically */
-
-    .vectfox-cv-footer {
-        flex-direction: column !important;
-    }
-
-    .vectfox-cv-footer button {
-        width: 100% !important;
-    }
 
     /* Compact headers */
     .vectfox-modal-header {

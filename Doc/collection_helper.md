@@ -260,7 +260,7 @@ TEST 005/006/007 cover the standard-backend no-plugin path, including the lock c
 
 ## No global scope
 
-`scope='global'` is not a valid value. The Vectorize Content modal offers only `Character` (default) and `This Chat`.
+`scope='global'` is not a valid value. Vectorize Content's Scope offers only `Character` (default) and `This chat`.
 
 1. **`COLLECTION_SCOPES`** in `src/shared/collection-ids.js` holds `CHARACTER`, `CHAT` and `UNKNOWN` (the unparseable-input sentinel).
 2. **`parseCollectionId` returns the canonical scope:**
@@ -467,7 +467,7 @@ A saved tip can also be older than its collection, because SillyTavern saves the
 
 ### Last-used window size — window-size-change detection for Continue
 
-Persists the `windowSize` of the last ingestion run that extracted windows. Vectorize Content → Continue checks it through `checkWindowSizeChanged` to warn before a window-size change re-extracts, and the branch fork carries it over to the new collection.
+Persists the `windowSize` of the last ingestion run that extracted windows. Vectorize Content's Vectorize and Resume on a chat check it through `checkWindowSizeChanged` to warn before a window-size change re-extracts, and the branch fork carries it over to the new collection.
 
 | Function | File | Notes |
 |---|---|---|

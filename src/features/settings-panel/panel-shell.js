@@ -27,7 +27,7 @@ import { isModalOpenOnDialogOf } from '../../sillytavern/popup-core.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { log } from '../../sillytavern/log.js';
 import { panelThemeOf } from '../../shared/gui-dna/gui-dna-core.js';
-import { bindGeneBehaviours, scrollPageToTop } from '../../shared/gui-dna/gene-behaviours.js';
+import { bindGeneBehaviours, scrollPageToTop, syncSliders as syncSlidersUnder } from '../../shared/gui-dna/gene-behaviours.js';
 import { FIRST_PANEL_TAB, panelPageId, panelTabId } from './panel-shell-markup.js';
 
 const PANEL_ROOT_ID = 'VectFox_settings';
@@ -152,15 +152,8 @@ export function wireSettingsPanel(tabs, settings) {
     });
     applyPanelTheme();
 
+    // The shared behaviours keep each slider on its number box (gene-behaviours.js).
     bindGeneBehaviours(document.getElementById(PANEL_ROOT_ID));
-    // Dragging a slider writes its number box and fires the box's own input and change, so the box's handler saves
-    // exactly as if the number had been typed; typing a number moves its slider.
-    $(`#${PANEL_ROOT_ID}`).on('input', '.vfx-range[data-vfx-slider-for]', function () {
-        $(document.getElementById(this.dataset.vfxSliderFor)).val(this.value).trigger('input').trigger('change');
-    });
-    $(`#${PANEL_ROOT_ID}`).on('input change', 'input[type="number"]', function () {
-        $(`#${PANEL_ROOT_ID} .vfx-range[data-vfx-slider-for="${this.id}"]`).val(this.value);
-    });
     syncSliders();
 }
 
@@ -169,8 +162,5 @@ export function wireSettingsPanel(tabs, settings) {
  * that sets numbers after the panel is wired calls this.
  */
 export function syncSliders() {
-    $(`#${PANEL_ROOT_ID} .vfx-range[data-vfx-slider-for]`).each(function () {
-        const number = document.getElementById(this.dataset.vfxSliderFor);
-        if (number) this.value = number.value;
-    });
+    syncSlidersUnder(document.getElementById(PANEL_ROOT_ID));
 }

@@ -25,7 +25,6 @@ export {
     deleteCollection,
     deleteVectorsFolder,
     discoverExistingCollections,
-    doesChatHaveVectors,
     getCollectionListing,
     getCollectionRegistry,
     isCollectionEmpty,

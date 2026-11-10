@@ -566,7 +566,7 @@ export function parseCollectionId(collectionId) {
 
 /**
  * Builds search patterns for finding a chat's collections
- * Used by doesChatHaveVectors and similar discovery functions
+ * Used by EventBase to find a chat's collections (eventbase-store.js)
  *
  * @param {string} [chatId] Chat ID (filename)
  * @param {string} [chatUUID] Chat UUID

@@ -21,7 +21,6 @@ const THE_DOOR = 'shared/pick-files.js';
 
 // The inputs left, by file, until their phase moves them to the door. A selector naming one counts too.
 const INPUTS_LEFT = {
-    'features/chunkbase/content-vectorizer.js': 5,
     'features/text-cleaning/text-cleaning-ui.js': 1,
 };
 

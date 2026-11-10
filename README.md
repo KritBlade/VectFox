@@ -390,11 +390,11 @@ Auto-Sync card shows whether the current chat is vectorized and how many events 
 
 Settings split into **Core** (backend, embedding, hybrid), **EventBase** (chat hsitory/archive chat file .jsonl), **ChunkBase** (lorebook/docs/URLs/wiki), **Action** (diagnostics, dev tools).
 
-### ⚡ Parallel Windows — Vectorization Speedup
+### ⚡ Windows at once — Vectorization Speedup
 
 Vectorizing a long chat normally processes one window at a time: send window 1 to the LLM → wait → embed → send window 2 → wait → embed → ... For a 2000-message chat that's a lot of serialized waiting.
 
-The **Parallel Windows** slider (Chunking Strategy section in Vectorize Content) lets you spawn up to **8 LLM extraction + embedding calls at the same time**. Window 1 is being extracted while windows 2–8 are also in flight, dramatically cutting total ingestion time.
+The **Windows at once** slider (the Chunking card on Vectorize Content's Chat page) lets you spawn up to **8 LLM extraction + embedding calls at the same time**. Window 1 is being extracted while windows 2–8 are also in flight, dramatically cutting total ingestion time.
 
 | Slider value   | Behavior                                                                                             |
 | -------------- | ---------------------------------------------------------------------------------------------------- |

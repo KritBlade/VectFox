@@ -32,7 +32,7 @@ import { utf8ByteLength } from '../../shared/byte-size.js';
  * @property {string} providerModel - e.g. "openrouter:openai/gpt-4o-mini"
  * @property {number} schemaVersion
  * @property {string} runId - `${sourceHash}_${acceptedAt}` — stamped onto every
- *        chunk's metadata so a later "Re-run Auto-Reformat" can purge exactly
+ *        chunk's metadata so a later Auto-Reformat "Run again" can purge exactly
  *        this generation's chunks from a live collection without touching
  *        anything from a different generation.
  */

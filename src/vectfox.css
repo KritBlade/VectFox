@@ -10,6 +10,7 @@
 @import url('./shared/gui-dna/palette.css');
 @import url('./shared/gui-dna/gui-dna.css');
 @import url('./shared/gui-dna/dialogs.css');
+@import url('./shared/gui-dna/workbench.css');
 @import url('./features/settings-panel/panel-shell.css');
 @import url('./features/eventbase/story-arc-page.css');
 
@@ -28,8 +29,6 @@
 /* UI component styles */
 @import url('./features/diagnostics/diagnostics.css');
 @import url('./features/database-browser/database-browser.css');
-@import url('./features/chunkbase/content-vectorizer.css');
-@import url('./features/chunkbase/reformat-review.css');
 @import url('./features/text-cleaning/text-cleaning-ui.css');
 @import url('./features/diagnostics/health-dashboard.css');
 

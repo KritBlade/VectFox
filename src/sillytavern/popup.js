@@ -183,6 +183,23 @@ export async function openPanelPopup(panel, { canClose } = {}) {
     }
 }
 
+/**
+ * Close the panel dialog that holds `panel`, as its Close button does, its canClose asked first. Does nothing when no
+ * open dialog holds it. Never throws.
+ *
+ * @param {HTMLElement} panel
+ * @returns {Promise<void>}
+ */
+export async function closePanelPopup(panel) {
+    const popup = (Popup.util?.popups ?? []).find(open => open.dlg?.contains(panel));
+    if (!popup) return;
+    try {
+        await popup.completeAffirmative();
+    } catch (error) {
+        log.warn('A panel dialog would not close:', error);
+    }
+}
+
 /** The watcher that moves an element down when the popup holding it starts closing, by element. */
 const closingPopupWatchers = new WeakMap();
 

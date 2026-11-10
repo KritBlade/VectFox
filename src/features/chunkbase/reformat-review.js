@@ -1,249 +1,118 @@
 /**
  * ============================================================================
- * AUTO-REFORMAT REVIEW MODAL
+ * AUTO-REFORMAT REVIEW
  * ============================================================================
- * Full before/after review for Auto-Reformat output. Runs BEFORE any
- * collection/hash/backend exists for the content being vectorized, so this
- * is its own fixed modal — not injected into content-vectorizer.js's DOM and
- * not wired to a live collection (unlike src/features/database-browser/chunk-visualizer.js, which
- * edits chunks already stored in one).
- *
- * Each record card marks itself edited once a field differs from its value
- * at render time — see _bindDirtyTracking() below.
- *
- * This module only renders and collects user decisions; it does not touch
- * the reformat cache, sourceHash, or vector DB. The caller (content-vectorizer.js)
- * owns that — see openReformatReview()'s onAccept/onDiscard/onRerun callbacks.
+ * The review of Auto-Reformat's entries before anything is stored, in its own
+ * dialog over Vectorize Content (reformat-review-markup.js draws it, reformat-
+ * review-core.js holds its rules). It runs before any collection exists, so it
+ * only collects the user's decisions: Accept hands the kept, edited entries to
+ * Vectorize Content, which freezes them; Chunk by strategy and closing drop the
+ * draft; Run again asks for a new one. Leaving a draft with edits asks first.
  * ============================================================================
  */
 
-import { escapeHtml } from '../../shared/html-escape.js';
-import { placeMarkupOnTopmostModalLayer } from '../../sillytavern/popup.js';
+import { closePanelPopup, confirmPopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
+import { acceptedEntries, entryFromForm, isEntryEdited } from './reformat-review-core.js';
+import { REVIEW_IDS, entryFieldId, reformatReviewMarkup } from './reformat-review-markup.js';
 
-let _onAccept = null;
-let _onDiscard = null;
-let _onRerun = null;
-let _records = []; // working copy: validated reformatted chunks + _accepted/_grounded flags
-
-function _csv(arr) {
-    return Array.isArray(arr) ? arr.join(', ') : '';
-}
-
-function _parseCsv(text) {
-    return String(text || '')
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean);
-}
+const FORM_FIELDS = ['entry_type', 'name', 'aliases', 'affiliation', 'traits', 'relationships', 'keywords', 'body'];
 
 /**
- * Opens the Auto-Reformat review modal.
+ * Open the review of Auto-Reformat's entries. Resolves once the dialog is open.
  *
  * @param {object} params
- * @param {object[]} params.chunks - Validated reformatted records from reformatDocument()
- *        (each carries entry_type/name/aliases/affiliation/traits/relationships/keywords/body
- *        plus _nameGrounded/_ungroundedAliases from the hallucination guardrail)
- * @param {string[]} params.warnings - Batch-level warnings (truncation, per-batch failures)
- * @param {string} params.sourceText - Full prepared source text, shown read-only for reference
- * @param {string} params.sourceName
- * @param {string} params.contentType
- * @param {(acceptedRecords: object[]) => void} params.onAccept - Called with the
- *        kept (accepted, possibly edited) records, NOT yet expanded for oversized
- *        bodies — caller runs expandOversizedChunk() and freezes the cache.
- * @param {() => void} params.onDiscard - User chose to fall back to manual chunking.
- * @param {() => void} params.onRerun - User wants to discard this draft and re-run the LLM pass.
+ * @param {object[]} params.chunks - Validated records from reformatDocument(), each with entry_type, name, aliases,
+ *   affiliation, traits, relationships, keywords and body, and _nameGrounded/_ungroundedAliases from its guard
+ * @param {string[]} [params.warnings] - The run's warnings: truncation, failed batches
+ * @param {string} [params.sourceText] - The source as Auto-Reformat read it
+ * @param {string} [params.sourceName]
+ * @param {string} [params.contentType] - The content type's name, for the header
+ * @param {(acceptedRecords: object[]) => void} params.onAccept - The kept entries, edited, not yet split for size
+ * @param {() => void} params.onDiscard - The draft was dropped: chunk by strategy
+ * @param {() => void} params.onRerun - Make a new draft
  */
 export function openReformatReview({ chunks, warnings = [], sourceText = '', sourceName = '', contentType = '', onAccept, onDiscard, onRerun }) {
-    _onAccept = onAccept;
-    _onDiscard = onDiscard;
-    _onRerun = onRerun;
-    _records = (chunks || []).map((c, i) => ({ ...c, _id: i, _accepted: true }));
+    const records = (chunks || []).map((chunk, index) => ({ ...chunk, _id: index, _accepted: true }));
+    const template = document.createElement('template');
+    template.innerHTML = reformatReviewMarkup({ sourceName, contentType, sourceText, warnings, records });
+    const root = template.content.firstElementChild;
+    root.querySelector(`#${REVIEW_IDS.source}`).readOnly = true;
+    const review = { root, records, leaving: null };
+    bindGeneBehaviours(root);
+    bindReview(review, { onAccept, onDiscard, onRerun });
 
-    _createModal({ warnings, sourceText, sourceName, contentType });
-    _renderRecords();
-    _bindEvents();
-
-    $('#vectfox_rr_modal').fadeIn(200);
-}
-
-export function closeReformatReview() {
-    $('#vectfox_rr_modal').fadeOut(200, function () { $(this).remove(); });
-}
-
-function _createModal({ warnings, sourceText, sourceName, contentType }) {
-    $('#vectfox_rr_modal').remove();
-
-    const warningsHtml = warnings.length
-        ? `<div class="vectfox-rr-run-warnings">
-             <i class="fa-solid fa-triangle-exclamation"></i>
-             <div>${warnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
-           </div>`
-        : '';
-
-    const html = `
-        <div id="vectfox_rr_modal" class="vectfox-modal">
-            <div class="vectfox-modal-overlay"></div>
-            <div class="vectfox-modal-content vectfox-rr-modal">
-                <div class="vectfox-modal-header">
-                    <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Review Auto-Reformat — ${escapeHtml(sourceName)}</h3>
-                    <button class="vectfox-modal-close" id="vectfox_rr_close"><i class="fa-solid fa-times"></i></button>
-                </div>
-                <div class="vectfox-rr-body">
-                    ${warningsHtml}
-                    <div class="vectfox-rr-summary">
-                        <span><strong id="vectfox_rr_count">0</strong> entries extracted from <strong>${escapeHtml(sourceName)}</strong> (${escapeHtml(contentType)})</span>
-                        <span class="vectfox-rr-hint">Review each entry below. Uncheck to drop one, edit any field to correct it, then Accept &amp; Continue.</span>
-                    </div>
-                    <div class="vectfox-rr-columns">
-                        <div class="vectfox-rr-source-panel">
-                            <div class="vectfox-rr-panel-title">Original source</div>
-                            <pre class="vectfox-rr-source-text">${escapeHtml(sourceText)}</pre>
-                        </div>
-                        <div class="vectfox-rr-records-panel" id="vectfox_rr_records"></div>
-                    </div>
-                </div>
-                <div class="vectfox-rr-footer">
-                    <button class="vectfox-btn vectfox-btn-secondary" id="vectfox_rr_discard">
-                        <i class="fa-solid fa-rotate-left"></i> Discard &amp; Chunk Manually
-                    </button>
-                    <button class="vectfox-btn vectfox-btn-secondary" id="vectfox_rr_rerun">
-                        <i class="fa-solid fa-arrows-rotate"></i> Re-run Auto-Reformat
-                    </button>
-                    <button class="vectfox-btn vectfox-btn-primary" id="vectfox_rr_accept">
-                        <i class="fa-solid fa-check"></i> Accept &amp; Continue
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    placeMarkupOnTopmostModalLayer(html);
-
-    $('#vectfox_rr_modal').on('mousedown touchstart', function (e) { e.stopPropagation(); });
-}
-
-function _recordCardHtml(record) {
-    const ungrounded = !record._nameGrounded || (record._ungroundedAliases?.length > 0);
-    const warningHtml = ungrounded
-        ? `<div class="vectfox-rr-hallucination-warning">
-             <i class="fa-solid fa-triangle-exclamation"></i>
-             ${!record._nameGrounded ? `"${escapeHtml(record.name)}" wasn't found in the source text — verify this wasn't invented.` : ''}
-             ${record._ungroundedAliases?.length ? `Alias(es) not found in source: ${escapeHtml(record._ungroundedAliases.join(', '))}.` : ''}
-           </div>`
-        : '';
-
-    return `
-        <div class="vectfox-rr-card ${ungrounded ? 'vectfox-rr-card-flagged' : ''}" data-id="${record._id}">
-            <div class="vectfox-rr-card-header">
-                <label class="checkbox_label">
-                    <input type="checkbox" class="vectfox-rr-accept-toggle" ${record._accepted ? 'checked' : ''} />
-                    <span>Keep this entry</span>
-                </label>
-                <select class="vectfox-rr-field vectfox-rr-entry-type" data-field="entry_type">
-                    ${['character', 'organization', 'concept', 'location', 'item', 'other'].map(t =>
-                        `<option value="${t}" ${t === record.entry_type ? 'selected' : ''}>${t}</option>`).join('')}
-                </select>
-            </div>
-            ${warningHtml}
-            <div class="vectfox-rr-field-row">
-                <label>Name</label>
-                <input type="text" class="vectfox-rr-field" data-field="name" value="${escapeHtml(record.name)}" />
-            </div>
-            <div class="vectfox-rr-field-row">
-                <label>Aliases</label>
-                <input type="text" class="vectfox-rr-field" data-field="aliases" value="${escapeHtml(_csv(record.aliases))}" placeholder="comma-separated" />
-            </div>
-            <div class="vectfox-rr-field-row">
-                <label>Affiliation</label>
-                <input type="text" class="vectfox-rr-field" data-field="affiliation" value="${escapeHtml(record.affiliation)}" />
-            </div>
-            <div class="vectfox-rr-field-row">
-                <label>Traits</label>
-                <input type="text" class="vectfox-rr-field" data-field="traits" value="${escapeHtml(_csv(record.traits))}" placeholder="comma-separated" />
-            </div>
-            <div class="vectfox-rr-field-row">
-                <label>Relationships</label>
-                <input type="text" class="vectfox-rr-field" data-field="relationships" value="${escapeHtml(_csv(record.relationships))}" placeholder="comma-separated" />
-            </div>
-            <div class="vectfox-rr-field-row">
-                <label>Keywords</label>
-                <input type="text" class="vectfox-rr-field" data-field="keywords" value="${escapeHtml(_csv(record.keywords))}" placeholder="comma-separated" />
-            </div>
-            <div class="vectfox-rr-field-row vectfox-rr-field-row-body">
-                <label>Body</label>
-                <textarea class="vectfox-rr-field" data-field="body" rows="4">${escapeHtml(record.body)}</textarea>
-            </div>
-        </div>
-    `;
-}
-
-function _renderRecords() {
-    const container = $('#vectfox_rr_records');
-    container.html(_records.map(_recordCardHtml).join(''));
-    $('#vectfox_rr_count').text(_records.length);
-    _bindDirtyTracking();
-}
-
-/**
- * Flags a card as edited (visual only) the moment any field differs from its
- * value at render time. Accept & Continue always serializes current field
- * values regardless of this flag; it's a review aid, not a save gate.
- */
-function _bindDirtyTracking() {
-    $('.vectfox-rr-card').each(function () {
-        const card = $(this);
-        const originals = new Map();
-        card.find('.vectfox-rr-field').each(function () {
-            originals.set(this, $(this).val());
-        });
-        card.find('.vectfox-rr-field').on('input change', function () {
-            const isDirty = $(this).val() !== originals.get(this);
-            card.toggleClass('vectfox-rr-card-dirty', isDirty || card.find('.vectfox-rr-field').toArray().some(el => $(el).val() !== originals.get(el)));
-        });
+    void openPanelPopup(root, { canClose: () => (review.leaving ? true : confirmLosingEdits(review)) }).then(() => {
+        // Closing without one of the three ways out drops the draft, as Chunk by strategy does.
+        (review.leaving ?? onDiscard)?.();
     });
 }
 
-function _collectRecordFromCard(cardEl) {
-    const card = $(cardEl);
-    const id = Number(card.data('id'));
-    const original = _records.find(r => r._id === id) || {};
-    const get = (field) => card.find(`[data-field="${field}"]`).val();
+/** An entry's form as it stands. */
+function formOf(root, id) {
+    const form = {};
+    for (const name of FORM_FIELDS) form[name] = root.querySelector(`#${entryFieldId(id, name)}`)?.value ?? '';
+    form.isKept = root.querySelector(`[data-rr-keep="${id}"]`)?.checked ?? true;
+    return form;
+}
 
-    return {
-        ...original,
-        entry_type: get('entry_type'),
-        name: String(get('name') || '').trim(),
-        aliases: _parseCsv(get('aliases')),
-        affiliation: String(get('affiliation') || '').trim(),
-        traits: _parseCsv(get('traits')),
-        relationships: _parseCsv(get('relationships')),
-        keywords: _parseCsv(get('keywords')),
-        body: String(get('body') || '').trim(),
-        _accepted: card.find('.vectfox-rr-accept-toggle').prop('checked'),
+const isAnyEntryEdited = review => review.records.some(record => isEntryEdited(record, formOf(review.root, record._id)));
+
+/** Whether the draft may be left: yes with no edits, else when the user lets the edits go. */
+async function confirmLosingEdits(review) {
+    if (!isAnyEntryEdited(review)) return true;
+    return Boolean(await confirmPopup([
+        { text: 'Leave this review without accepting?' },
+        { text: 'Lost: the edits made to its entries.' },
+        { text: 'Leave drops the draft. Cancel goes back to it.' },
+    ], { okButton: 'Leave', isDestructive: true }));
+}
+
+/** Close the review the way the user chose, after asking when edits would be lost. */
+async function leaveReview(review, then) {
+    if (!(await confirmLosingEdits(review))) return;
+    review.leaving = then;
+    await closePanelPopup(review.root);
+}
+
+function accept(review, onAccept) {
+    const entries = review.records.map(record => entryFromForm(record, formOf(review.root, record._id)));
+    const { kept, problem } = acceptedEntries(entries);
+    const state = review.root.querySelector('[data-rr-state]');
+    if (problem) {
+        state.textContent = problem;
+        return;
+    }
+    review.leaving = () => onAccept?.(kept);
+    void closePanelPopup(review.root);
+}
+
+/** Mark an entry edited, and keep its card's name on its Name box. */
+function refreshEntry(review, id) {
+    const record = review.records.find(each => each._id === id);
+    const form = formOf(review.root, id);
+    // The pill is hidden as the DNA hides it, by display; written only when it changes, as each write costs a style pass.
+    const editedPill = review.root.querySelector(`[data-rr-edited="${id}"]`);
+    const display = isEntryEdited(record, form) ? '' : 'none';
+    if (editedPill.style.display !== display) editedPill.style.display = display;
+    review.root.querySelector(`[data-rr-name="${id}"]`).textContent = form.name.trim() || 'No name';
+    review.root.querySelector('[data-rr-state]').textContent = '';
+}
+
+function bindReview(review, { onAccept, onDiscard, onRerun }) {
+    const { root } = review;
+    root.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-rr-action]');
+        if (!button) return;
+        const name = button.dataset.rrAction;
+        if (name === 'accept') accept(review, onAccept);
+        if (name === 'discard') void leaveReview(review, () => onDiscard?.());
+        if (name === 'rerun') void leaveReview(review, () => onRerun?.());
+    });
+    const onEdit = (event) => {
+        const entry = event.target.closest('[data-rr-entry]');
+        if (entry) refreshEntry(review, Number(entry.dataset.rrEntry));
     };
-}
-
-function _bindEvents() {
-    $('#vectfox_rr_close, #vectfox_rr_discard').off('click').on('click', () => {
-        closeReformatReview();
-        _onDiscard?.();
-    });
-
-    $('#vectfox_rr_rerun').off('click').on('click', () => {
-        closeReformatReview();
-        _onRerun?.();
-    });
-
-    $('#vectfox_rr_accept').off('click').on('click', () => {
-        const accepted = $('.vectfox-rr-card').toArray()
-            .map(_collectRecordFromCard)
-            .filter(r => r._accepted && r.name && r.body);
-
-        if (accepted.length === 0) {
-            toastr.warning('No entries were kept — nothing to accept. Uncheck none, or use Discard.', 'VectFox');
-            return;
-        }
-
-        closeReformatReview();
-        _onAccept?.(accepted);
-    });
+    root.addEventListener('input', onEdit);
+    root.addEventListener('change', onEdit);
 }

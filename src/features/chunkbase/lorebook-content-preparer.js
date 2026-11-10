@@ -15,7 +15,7 @@ import { cleanContentOrNull } from '../text-cleaning/index.js';
  *              title prefix per entry.
  *
  * @param {{ entries?: object[], content?: object[]|object }} rawContent
- * @param {{ strategy?: string }} settings
+ * @param {{ strategy?: string, includeDisabled?: boolean }} settings - includeDisabled keeps entries disabled in World Info
  * @returns {{ text: string|string[], type: string, entries?: object[], entryCount?: number }}
  */
 export function prepareLorebookContent(rawContent, settings) {
@@ -35,8 +35,9 @@ export function prepareLorebookContent(rawContent, settings) {
     // user regex. The post-clean drop is load-bearing: without it the
     // entry's `comment` header + auto-appended `[KEYWORDS: ...]` survives
     // as a "valid-looking" chunk with no real payload (see cleanContentOrNull).
+    // An entry disabled in World Info is left out unless Vectorize Content's Include disabled entries is on.
     const validEntries = entries
-        .filter(e => e && e.content)
+        .filter(e => e && e.content && (settings.includeDisabled || !e.disable))
         .map(e => ({ ...e, content: cleanContentOrNull(e.content) }))
         .filter(e => e.content !== null);
 

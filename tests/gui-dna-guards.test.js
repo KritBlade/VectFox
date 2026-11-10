@@ -80,7 +80,6 @@ function oneLineTexts() {
 // ── G3 ─────────────────────────────────────────────────────────────────────────────────────────────
 // The styles left, by file, until their page's phase moves them to GUI-DNA classes.
 const INLINE_STYLES_LEFT = {
-    'features/chunkbase/content-vectorizer.js': 22,
     'features/query-tester/query-tester.js': 21,
     'features/settings-panel/settings-panel.js': 13,
     'features/text-cleaning/text-cleaning-ui.js': 2,
@@ -134,7 +133,6 @@ const COLOUR = /(?<![&\w])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![\
 const TOKEN_DECLARATION = /^\s*--vfx-[\w-]+\s*:/;
 // The colours left, by file, until their page's phase moves them to --vfx- tokens.
 const COLOURS_LEFT = {
-    'features/chunkbase/content-vectorizer.css': 2,
     'features/diagnostics/diagnostics.css': 1,
     'features/diagnostics/health-dashboard.css': 12,
     'features/query-tester/query-tester.js': 11,

@@ -21,7 +21,6 @@ const HOST_FOLDER = 'sillytavern/';
 
 // The uses left, by file, until their phase moves them behind sillytavern/popup.js.
 const USES_LEFT = {
-    'features/chunkbase/content-vectorizer.js': 12,
     'features/settings-panel/settings-panel.js': 18,
     'features/vector-backend/tokenizer-lock.js': 4,
     'features/world-info/lorebook-rename-detector.js': 4,

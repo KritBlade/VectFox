@@ -4,11 +4,12 @@
  * ============================================================================
  * The behaviours every VectFox surface on GUI-DNA shares (mvu-helper/devdoc/gui-dna.md
  * §7), for its shell: the settings panel (settings-panel/panel-shell.js), the
- * Database Browser and its Chunk Visualizer. The (?) and chevron toggles and a
- * split's divider are bound once on the surface's root, delegated, so a field,
- * card or split painted later behaves the same way, and no such state is saved.
- * Code folds a card as its chevron does, and a page the nav switches to is shown
- * from its top.
+ * Database Browser, its Chunk Visualizer and Vectorize Content. The (?) and
+ * chevron toggles, a split's divider and a slider beside its number box are
+ * bound once on the surface's root, delegated, so a field, card or split painted
+ * later behaves the same way, and no such state is saved. Code folds a card as
+ * its chevron does, moves sliders to boxes it set, and shows a page the nav
+ * switches to from its top.
  * ============================================================================
  */
 
@@ -143,6 +144,27 @@ export function bindGeneBehaviours(root) {
         event.preventDefault();
         setSplitWidth(context.split, this, width, context.limits);
     });
+    // Dragging a slider writes its number box and fires the box's own input and change, so the box's handler saves
+    // exactly as if the number had been typed; typing a number moves its slider.
+    $root.on('input', '.vfx-range[data-vfx-slider-for]', function () {
+        $(document.getElementById(this.dataset.vfxSliderFor)).val(this.value).trigger('input').trigger('change');
+    });
+    $root.on('input change', 'input[type="number"]', function () {
+        $root.find(`.vfx-range[data-vfx-slider-for="${this.id}"]`).val(this.value);
+    });
+}
+
+/**
+ * Move every slider under `root` to its number box, which owns the value. Setting a number with .val() fires no
+ * event, so code that sets numbers after the surface is wired calls this. A box's id is a plain identifier.
+ *
+ * @param {HTMLElement|null} root
+ */
+export function syncSliders(root) {
+    for (const slider of root?.querySelectorAll('.vfx-range[data-vfx-slider-for]') ?? []) {
+        const number = root.querySelector(`#${slider.dataset.vfxSliderFor}`);
+        if (number) slider.value = number.value;
+    }
 }
 
 /**

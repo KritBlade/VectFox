@@ -379,13 +379,6 @@ export function getContentType(typeId) {
 }
 
 /**
- * Get all content types as array
- */
-export function getAllContentTypes() {
-    return Object.values(CONTENT_TYPES);
-}
-
-/**
  * Get chunking strategies for a content type (with full metadata)
  */
 export function getChunkingStrategies(typeId) {
