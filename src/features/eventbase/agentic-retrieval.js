@@ -27,7 +27,7 @@ import { searchEventCollection } from './eventbase-search.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { cleanText, stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
-import { postChatCompletion, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
+import { postChatCompletion, resolveInheritedConnection, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
 import { ORDINARY_TURN_ROUTE, STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isOrdinaryTurn, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
@@ -41,9 +41,9 @@ const AGENT_MODE_NEEDS_QDRANT = `Agent Mode is on, but it needs the Qdrant backe
 
 // What each reason resolveLlmConnection gives means, and where it is fixed.
 const AGENT_MODE_SETUP_FIXES = {
-    missing_model: 'it has no model. Set Model on the AgentMode page, or under Event model on the Core page.',
+    missing_model: 'it has no model. Set Model on the AgentMode page, or under EventBase model on the Core page.',
     missing_openrouter_api_key: 'it runs on OpenRouter and no OpenRouter key is saved. Enter the key on the AgentMode or Core page.',
-    missing_vllm_url: 'it runs on vLLM with no URL. Set Base URL on the AgentMode page, or under Event model on the Core page.',
+    missing_vllm_url: 'it runs on vLLM with no URL. Set Base URL on the AgentMode page, or under EventBase model on the Core page.',
     missing_vllm_api_key: 'it runs on vLLM and no vLLM key is saved. Enter the key on the AgentMode or Core page.',
 };
 const UNKNOWN_PROVIDER_PREFIX = 'unknown_provider_';
@@ -589,18 +589,17 @@ function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 'using
 }
 
 /**
- * Resolve the effective LLM config for the planner. Reads the agent_* settings, and
- * the summarizer's chat_* value for each one left empty.
+ * Resolve the planner's connection: the AgentMode page's boxes, with Same as EventBase model and each blank box
+ * taken from the EventBase model (resolveInheritedConnection).
  *
  * Returns { ok: true, provider, model, apiKey, vllmUrl } on success, or
  * { ok: false, reason } when a required value is missing.
  */
 export function _resolveAgenticLLMConfig(settings = {}) {
-    const connection = resolveLlmConnection({
-        provider: settings.agent_provider || settings.chat_provider || 'openrouter',
-        model: settings.agent_model || settings.chat_model,
-        vllmUrl: settings.agent_vllm_url || settings.chat_vllm_url,
-    });
+    const connection = resolveLlmConnection(resolveInheritedConnection(
+        { provider: settings.agent_provider, model: settings.agent_model, vllmUrl: settings.agent_vllm_url },
+        settings,
+    ));
     return connection.ok ? { ...connection, parameterStyle: resolveModelParameterStyle(settings) } : connection;
 }
 
@@ -643,7 +642,7 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
     }
 
     if (provider === 'openrouter') {
-        // One shared OpenRouter key (SECRET_KEYS.OPENROUTER): the Embedding, Event model and
+        // One shared OpenRouter key (SECRET_KEYS.OPENROUTER): the Embedding, EventBase model and
         // Agent Mode key boxes all write that slot. See src/shared/api-keys.js.
         const apiKey = getOpenRouterApiKey();
         if (!apiKey) {

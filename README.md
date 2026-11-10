@@ -332,7 +332,7 @@ It's the useful half of a rolling summary — *"always remind the AI what just h
 
 A small planner LLM reads your recent chat, then emits 1–6 follow-up Qdrant queries each targeting a different angle of what you asked about. They run in parallel alongside the normal search, which keeps every result it found, and the events they find outside its results add up to 5 seats. Falls back cleanly to the standard flow on any failure, and does not run while StoryArc mode is on.
 
-- **Provider/model inheritance** — leave blank in AgentMode tab to use the Core → **Event model** settings; override with a cheaper model (e.g. Haiku 4.5, GPT-4o-mini) to cut planner cost.
+- **Provider/model inheritance** — leave blank in AgentMode tab to use the Core → **EventBase model** settings; override with a cheaper model (e.g. Haiku 4.5, GPT-4o-mini) to cut planner cost.
 - **Language-matching prompt** — planner emits queries in the chat language (Chinese, Japanese, Korean, Latin-script, English), preserving proper nouns. No cross-language pollution.
 - **Configurable sliders** — past chat turns sent to planner (1–10), max queries (1–6), timeout (1–60s), debug logging.
 - **Real cost** — about $0.0004 per turn on GPT-6 Luna, about 2 seconds of planning, and up to 5 more events in the prompt. Disabled by default — opt in when long-form recall matters.
@@ -533,16 +533,16 @@ Restart SillyTavern.
 3. Select your embedding provider (Transformers, vLLM, Ollama, OpenRouter, etc.).
 
    - 💡 **Recommended:** use `baai/bge-m3` or `qwen/qwen3-embedding-8b` through **OpenRouter**. It's extremely cheap ($0.00000015/run), multilingual (excellent CJK + Latin), and produces high-quality dense vectors for the corpus size VectFox targets. The better embedding model you use, the better result you will receive from recall, this is the most important model that you do NOT want to use cheap model.
-4. Under **Event model**, pick OpenRouter or vLLM and a model. It writes the events when you vectorize.
+4. Under **EventBase model**, pick OpenRouter or vLLM and a model. It writes the events when you vectorize.
 
-   - 💡 **Recommended OpenRouter models:** for a cheap & fast extraction path, use `openai/gpt-4o-mini` or `google/gemini-3.1-flash-lite` — both keep cost and ingestion latency low. If you want higher extraction quality and don't mind paying more, `x-ai/grok-4.3` is a stronger but more expensive option. Avoid older model IDs such as `x-ai/grok-4.1-fast` if OpenRouter returns a 404/deprecation error; model availability changes over time, so verify the exact ID on OpenRouter before long ingestion runs. The same recommendation applies to the **Agent Mode LLM** (configured separately in the AgentMode tab). If you leave the AgentMode model field blank, it uses the **Event model** settings.
+   - 💡 **Recommended OpenRouter models:** for a cheap & fast extraction path, use `openai/gpt-4o-mini` or `google/gemini-3.1-flash-lite` — both keep cost and ingestion latency low. If you want higher extraction quality and don't mind paying more, `x-ai/grok-4.3` is a stronger but more expensive option. Avoid older model IDs such as `x-ai/grok-4.1-fast` if OpenRouter returns a 404/deprecation error; model availability changes over time, so verify the exact ID on OpenRouter before long ingestion runs. The same recommendation applies to the **Agent Mode LLM** (configured separately in the AgentMode tab). If you leave the AgentMode model field blank, it uses the **EventBase model** settings.
 5. Configure API keys if using cloud providers (OpenRouter / vLLM ).
 6. Under **Keywords**, choose the language of your story.
 7. Most settings work fine on default — feel free to tweak.
 8. Open your chat in SillyTavern, then click the VectFox extension icon again. You **HAVE** to click "Vectorize Content" and choose **Chat History** to vectorize your first DB.
 9. Turn on **Auto-sync this chat** in the **AutoSync** tab if you need it. Its **Auto-sync window** sets how many turns go into each run.
 10. Vectorize your lorebook / World Info if needed in the **WorldInfo** tab.
-11. (Optional) Turn on **Agent Mode** in the AgentMode tab once everything else works. Leave Provider on **Same as Event model** and Model blank, and it uses the **Event model** settings. Then the same cheap, fast model from step 4 also drives the planner. See "How It Works → Agent Mode" above for what it does.
+11. (Optional) Turn on **Agent Mode** in the AgentMode tab once everything else works. Leave Provider on **Same as EventBase model** and Model blank, and it uses the **EventBase model** settings. Then the same cheap, fast model from step 4 also drives the planner. See "How It Works → Agent Mode" above for what it does.
 
 ---
 

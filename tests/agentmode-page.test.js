@@ -40,7 +40,7 @@ describe('AgentMode page markup', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it('offers Same as Event model first, and starts both provider rows hidden', () => {
+    it('offers Same as EventBase model first, and starts both provider rows hidden', () => {
         expect([...document.getElementById('VectFox_agentic_provider').options].map(option => option.value)).toEqual(['', 'openrouter', 'vllm']);
         for (const id of ['VectFox_agentic_openrouter_row', 'VectFox_agentic_vllm_row']) {
             expect(document.getElementById(id).style.display, id).toBe('none');

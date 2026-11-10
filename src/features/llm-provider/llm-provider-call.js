@@ -411,7 +411,7 @@ export async function postChatCompletion({
                 + `upstream status text "${upstreamDetail}"). Request shape sent: ${shapeSent}. ST forwards only the status `
                 + `text, so the provider's full error is in the SillyTavern server console. A model can reject any of these `
                 + `values: try the switches "Use max_completion_tokens", "Send temperature" and "Turn off model thinking" `
-                + `in Core → Event model. Raw body: ${bodyText.slice(0, 500)}`,
+                + `in Core → EventBase model. Raw body: ${bodyText.slice(0, 500)}`,
             );
             throw new LlmCallError(
                 `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,

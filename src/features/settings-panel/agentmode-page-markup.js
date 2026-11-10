@@ -49,17 +49,17 @@ function agentModeCard() {
 
 function plannerModelCard() {
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-microchip', title: 'Planner model', description: 'The LLM that writes the searches. A blank field uses the Event model\'s, on Core.' })}
+        ${cardHeader({ icon: 'fa-microchip', title: 'Planner model', description: 'The LLM that writes the searches. A blank field uses the EventBase model\'s, on Core.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_agentic_provider' }),
                 inheritedProviderSelect('VectFox_agentic_provider'),
-                hint({ text: 'Same as Event model uses the provider set in Core → Event model.' }),
+                hint({ text: 'Same as EventBase model uses its provider, URL and key. A typed Model still applies.' }),
             ])}
             ${field([
                 fieldLabel({ text: 'Model', forId: 'VectFox_agentic_model' }),
-                input({ id: 'VectFox_agentic_model', placeholder: 'Blank uses the Event model\'s' }),
-                hint({ text: 'Blank uses the model set in Core → Event model.' }),
+                input({ id: 'VectFox_agentic_model', placeholder: 'Blank uses the EventBase model\'s' }),
+                hint({ text: 'Blank uses the model set in Core → EventBase model.' }),
             ])}
             <div id="VectFox_agentic_openrouter_row" class="vfx-grid vfx-span"${HIDDEN}>
                 ${field([
@@ -71,8 +71,8 @@ function plannerModelCard() {
             <div id="VectFox_agentic_vllm_row" class="vfx-grid vfx-span"${HIDDEN}>
                 ${field([
                     fieldLabel({ text: 'Base URL', forId: 'VectFox_agentic_vllm_url', hasHelp: true }),
-                    input({ id: 'VectFox_agentic_vllm_url', placeholder: 'Blank uses the Event model\'s' }),
-                    hint({ text: 'Blank uses the Event model\'s URL.' }),
+                    input({ id: 'VectFox_agentic_vllm_url', placeholder: 'Blank uses the EventBase model\'s' }),
+                    hint({ text: 'Blank uses the EventBase model\'s URL.' }),
                     detail({ text: 'StoryArc\'s link model uses this URL too when it runs on vLLM.' }),
                 ])}
                 ${field([

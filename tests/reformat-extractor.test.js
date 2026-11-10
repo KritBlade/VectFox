@@ -260,3 +260,21 @@ describe('expandOversizedChunk', () => {
         }
     });
 });
+
+describe('reformatDocument — Same as EventBase model', () => {
+    it('sends to the EventBase model\'s Base URL, not the hidden one Auto-Reformat saved', async () => {
+        const fetchMock = vi.fn(async () => mockChatCompletionResponse([
+            { entry_type: 'character', name: 'Hero', aliases: [], affiliation: '', traits: [], relationships: [], keywords: [], body: 'Body.' },
+        ]));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await reformatDocument({
+            text: '# Roster\n\n***Hero*** leads a squad.',
+            contentType: 'document',
+            settings: baseSettings({ chat_provider: 'vllm', chat_vllm_url: 'http://eventbase-host:8000/v1', reformat_provider: '', reformat_vllm_url: 'http://old-host:8000/v1' }),
+        });
+
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect([body.custom_url, body.model]).toEqual(['http://eventbase-host:8000/v1', 'test/mock-model']);
+    });
+});

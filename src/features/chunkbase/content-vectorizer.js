@@ -23,7 +23,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { callGenericPopup, POPUP_TYPE, placeMarkupOnTopmostModalLayer } from '../../sillytavern/popup.js';
 import { log } from '../../sillytavern/log.js';
 import { getChatUUID, vectorizeAll } from './chat-vectorization.js';
-import { validateLLMConfig } from '../llm-provider/index.js';
+import { resolveInheritedConnection, validateLLMConfig } from '../llm-provider/index.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { escapeHtml } from '../../shared/html-escape.js';
 import { resolveEffectiveSettings } from './content-vectorization.js';
@@ -1064,7 +1064,8 @@ async function _finalizeReformatAccept({ acceptedRecords, sourceHash, text, sour
         }
         shapedChunks.forEach(c => { c.metadata.totalChunks = shapedChunks.length; });
 
-        const providerModel = `${mergedSettings.reformat_provider || mergedSettings.chat_provider || 'openrouter'}:${mergedSettings.reformat_model || mergedSettings.chat_model || ''}`;
+        const reformatConnection = resolveInheritedConnection({ provider: mergedSettings.reformat_provider, model: mergedSettings.reformat_model }, mergedSettings);
+        const providerModel = `${reformatConnection.provider}:${reformatConnection.model}`;
 
         if (previous?.chunks?.length) {
             // Re-running Auto-Reformat produces a new, non-deterministic generation.
@@ -2881,7 +2882,7 @@ async function startContinueVectorization() {
     }
 
     // currentSettings only carries content-type defaults — merge global VECTFOX settings
-    // so the user's chat_model / API key (set in Core → Event model) is visible.
+    // so the user's chat_model / API key (set in Core → EventBase model) is visible.
     const mergedSettings = resolveEffectiveSettings(currentSettings);
     log.verbose('[VectFox] LLM config check (vectorize-content):', {
         provider: mergedSettings.chat_provider,
@@ -2892,7 +2893,7 @@ async function startContinueVectorization() {
     const llmCheck = validateLLMConfig(mergedSettings);
     if (!llmCheck.ok) {
         toastr.error(
-            `${llmCheck.reason} Open VectFox → Core → Event model and fill in the required fields.`,
+            `${llmCheck.reason} Open VectFox → Core → EventBase model and fill in the required fields.`,
             'Configuration required',
             { timeOut: 8000 }
         );
@@ -3260,7 +3261,7 @@ async function startVectorization() {
     // All vectorization paths (EventBase for chat, chunk pipeline for non-chat) eventually
     // make LLM calls that share the summarize_* settings. Fail fast with a clear message
     // rather than letting it blow up mid-ingest. Merge global settings so the user's
-    // chat_model / API key set in Core → Event model is visible here.
+    // chat_model / API key set in Core → EventBase model is visible here.
     const mergedSettings = resolveEffectiveSettings(currentSettings);
     log.verbose('[VectFox] LLM config check (start-vectorization):', {
         provider: mergedSettings.chat_provider,
@@ -3271,7 +3272,7 @@ async function startVectorization() {
     const llmCheck = validateLLMConfig(mergedSettings);
     if (!llmCheck.ok) {
         toastr.error(
-            `${llmCheck.reason} Open VectFox → Core → Event model and fill in the required fields.`,
+            `${llmCheck.reason} Open VectFox → Core → EventBase model and fill in the required fields.`,
             'Configuration required',
             { timeOut: 8000 }
         );

@@ -958,7 +958,7 @@ async function clearSharedApiKey({ slots, changedEvent, label, getCurrent }) {
     const isConfirmed = await confirmPopup([
         { text: 'Delete the saved key?' },
         { text: 'Provider:', name: label },
-        { text: 'Lost: the key VectFox\'s embedding, event model and Agent Mode send, and SillyTavern\'s own chat on the same provider.' },
+        { text: 'Lost: the key VectFox\'s embedding, EventBase model and Agent Mode send, and SillyTavern\'s own chat on the same provider.' },
         { text: 'Delete key deletes it. Cancel keeps it.' },
     ], { okButton: 'Delete key', isDestructive: true });
     if (!isConfirmed) return;
@@ -1473,8 +1473,8 @@ function bindSettingsEvents(settings, callbacks) {
     });
 
     // ─── AgentMode page ────────────────────────────────────────────────────
-    // Shows the planner's provider rows. An empty provider is "Same as Event model",
-    // so both rows hide and the Event model's connection is used.
+    // Shows the planner's provider rows. An empty provider is "Same as EventBase model",
+    // so both rows hide and the EventBase model's connection is used.
     const updateAgenticUI = (provider) => {
         const resolved = String(provider || '').trim();
         $('#VectFox_agentic_openrouter_row').toggle(resolved === 'openrouter');
@@ -1695,8 +1695,8 @@ function bindSettingsEvents(settings, callbacks) {
 
 
     // ─── Auto-Reformat (Document/URL/Wiki LLM restructuring) ───────────────
-    // A blank provider, model or URL uses the Event model's (Core page), as AgentMode
-    // does. No key fields: it uses the shared OpenRouter and vLLM key slots.
+    // Same as EventBase model, and a blank model or URL, use the EventBase model's (Core page), as on
+    // the AgentMode page (resolveInheritedConnection). No key fields: it uses the shared OpenRouter and vLLM key slots.
     const updateReformatProviderUI = (provider) => {
         const resolved = String(provider || '').trim();
         $('#VectFox_reformat_vllm_row').toggle(resolved === 'vllm');

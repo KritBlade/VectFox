@@ -28,9 +28,11 @@ vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOrigina
 }));
 
 const postChatCompletionMock = vi.fn();
-vi.mock('../src/features/llm-provider/index.js', () => ({
+vi.mock('../src/features/llm-provider/index.js', async () => ({
     postChatCompletion: (...args) => postChatCompletionMock(...args),
     resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
+    // The real rule, so the tests of the planner's connection read what ships.
+    resolveInheritedConnection: (await import('../src/features/llm-provider/inherited-connection.js')).resolveInheritedConnection,
     LlmCallError: class LlmCallError extends Error {},
 }));
 
@@ -70,7 +72,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     },
 }));
 
-const { retrieveEventsForTurn, describeAgentModeSetupProblem } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { retrieveEventsForTurn, describeAgentModeSetupProblem, _resolveAgenticLLMConfig } = await import('../src/features/eventbase/agentic-retrieval.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
 const event = (id, extra = {}) => ({ event_id: id, source_window_start: 100, source_window_end: 101, importance: 5, text: `text of ${id}`, ...extra });
@@ -295,5 +297,19 @@ describe('Agent Mode failures', () => {
         const result = await callAgent();
         expect(result.events).toBe(kept);
         expect(failureOf(result)).toEqual({ count: 1, message: 'Every Agent Mode search failed: search down' });
+    });
+});
+
+describe('the planner\'s connection', () => {
+    const eventBaseModel = { chat_provider: 'vllm', chat_model: 'eventbase-model', chat_vllm_url: 'http://eventbase-host:8000/v1' };
+
+    it('runs Same as EventBase model on the EventBase model\'s Base URL, not the hidden one this page saved', () => {
+        const connection = _resolveAgenticLLMConfig({ ...eventBaseModel, agent_provider: '', agent_model: '', agent_vllm_url: 'http://old-host:8000/v1' });
+        expect([connection.ok, connection.provider, connection.model, connection.vllmUrl]).toEqual([true, 'vllm', 'eventbase-model', 'http://eventbase-host:8000/v1']);
+    });
+
+    it('takes the EventBase model\'s model when Model is blank, and a typed one otherwise', () => {
+        expect(_resolveAgenticLLMConfig({ ...eventBaseModel, agent_provider: 'openrouter', agent_model: '' }).model).toBe('eventbase-model');
+        expect(_resolveAgenticLLMConfig({ ...eventBaseModel, agent_provider: '', agent_model: 'planner-model' }).model).toBe('planner-model');
     });
 });

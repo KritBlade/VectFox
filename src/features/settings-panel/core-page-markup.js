@@ -130,7 +130,7 @@ function embeddingCard() {
 
 function eventModelCard() {
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-file-lines', title: 'Event model', description: 'The LLM that writes EventBase events, which Agent Mode and Auto-Reformat can inherit.' })}
+        ${cardHeader({ icon: 'fa-file-lines', title: 'EventBase model', description: 'The LLM that writes EventBase events, which Agent Mode and Auto-Reformat can inherit.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_summarize_provider' }),
@@ -165,7 +165,7 @@ function eventModelCard() {
                     { id: 'VectFox_generation_rate_limit_calls', text: 'Max calls', min: 0, placeholder: '0' },
                     { id: 'VectFox_generation_rate_limit_interval', text: 'Per seconds', min: 1, placeholder: '60' },
                 ],
-                hintMarkup: hint({ text: 'Most event model and Agent Mode calls per interval. 0: no limit.' }),
+                hintMarkup: hint({ text: 'Most EventBase model and Agent Mode calls per interval. 0: no limit.' }),
             })}
             ${switchRow({ id: 'VectFox_should_send_temperature', title: 'Send temperature', description: 'Turn off for a model that answers "Unsupported value: \'temperature\'".' })}
             ${switchRow({ id: 'VectFox_should_use_max_completion_tokens', title: 'Use max_completion_tokens', description: 'Turn on for a model that says to use max_completion_tokens.' })}

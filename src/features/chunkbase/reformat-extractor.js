@@ -22,7 +22,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
-import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
+import { postChatCompletion, parseJsonArrayFromLlm, resolveInheritedConnection, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { chunkText } from './chunking.js';
 import { retry } from '../../shared/retry.js';
 import {
@@ -46,21 +46,16 @@ const DEFAULT_CONCURRENCY = 2;
 const DEFAULT_NAME_FUZZY_THRESHOLD = 0.8;
 
 // ---------------------------------------------------------------------------
-// Config resolution — same inherit chain as Agent Mode (agent_* → chat_*):
-// blank reformat_* fields inherit the Core → Event model settings, whose
-// storage keys are chat_provider / chat_model / chat_vllm_url.
+// Config resolution: the ChunkBase page's Auto-Reformat boxes, with Same as
+// EventBase model and each blank box taken from the EventBase model, the rule
+// Agent Mode follows too (resolveInheritedConnection).
 // ---------------------------------------------------------------------------
 
-function _resolveProvider(settings) {
-    return (settings.reformat_provider || settings.chat_provider || 'openrouter').toLowerCase();
-}
-
-function _resolveModel(settings) {
-    return (settings.reformat_model || settings.chat_model || '').trim();
-}
-
-function _resolveVllmUrl(settings) {
-    return (settings.reformat_vllm_url || settings.chat_vllm_url || '').trim();
+function _resolveConnection(settings) {
+    return resolveInheritedConnection(
+        { provider: settings.reformat_provider, model: settings.reformat_model, vllmUrl: settings.reformat_vllm_url },
+        settings,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -97,15 +92,15 @@ async function _callOpenRouter(prompt, settings, batchIndex) {
     const apiKey = getOpenRouterApiKey();
     if (!apiKey) {
         throw new ReformatFatalError(
-            'Auto-Reformat: OpenRouter API key not found. Add it in Core → Event model.',
+            'Auto-Reformat: OpenRouter API key not found. Add it in Core → EventBase model.',
             'missing_api_key',
         );
     }
 
-    const model = _resolveModel(settings);
+    const { model } = _resolveConnection(settings);
     if (!model) {
         throw new ReformatFatalError(
-            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to use the model in Core → Event model.',
+            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to use the model in Core → EventBase model.',
             'missing_model',
         );
     }
@@ -135,18 +130,17 @@ async function _callOpenRouter(prompt, settings, batchIndex) {
  * @returns {Promise<{reply: string, finishReason: string|null}>}
  */
 async function _callVLLM(prompt, settings, batchIndex) {
-    const baseUrl = _resolveVllmUrl(settings);
+    const { vllmUrl: baseUrl, model } = _resolveConnection(settings);
     if (!baseUrl) {
         throw new ReformatFatalError(
-            'Auto-Reformat: vLLM URL not configured. Set it in ChunkBase → Auto-Reformat, or leave it blank to inherit the Summarization vLLM URL.',
+            'Auto-Reformat: vLLM URL not configured. Set Base URL in ChunkBase → Auto-Reformat, or in Core → EventBase model.',
             'missing_url',
         );
     }
 
-    const model = _resolveModel(settings);
     if (!model) {
         throw new ReformatFatalError(
-            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to use the model in Core → Event model.',
+            'Auto-Reformat: No model configured. Set a model in ChunkBase → Auto-Reformat, or leave it blank to use the model in Core → EventBase model.',
             'missing_model',
         );
     }
@@ -154,7 +148,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
     const apiKey = getCustomApiKey();
     if (!apiKey) {
         throw new ReformatFatalError(
-            'Auto-Reformat: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → Event model.',
+            'Auto-Reformat: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → EventBase model.',
             'missing_api_key',
         );
     }
@@ -184,7 +178,7 @@ async function _callVLLM(prompt, settings, batchIndex) {
  * a retry can't fix).
  */
 async function _callProviderWithRetry(prompt, settings, batchIndex) {
-    const provider = _resolveProvider(settings);
+    const { provider } = _resolveConnection(settings);
     const callFn = provider === 'vllm' ? _callVLLM : _callOpenRouter;
     return retry(() => callFn(prompt, settings, batchIndex), {
         maxAttempts: 3,

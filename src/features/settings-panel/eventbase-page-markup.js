@@ -2,7 +2,7 @@
  * ============================================================================
  * EVENTBASE PAGE, STATIC MARKUP
  * ============================================================================
- * The settings panel's EventBase page on GUI-DNA: how the event model turns the chat
+ * The settings panel's EventBase page on GUI-DNA: how the EventBase model turns the chat
  * into events, which stored events retrieval brings back, how they are scored, and the
  * prompt that extracts them. Every control keeps the id settings-panel.js wires it by.
  * Pure: builds strings.
@@ -14,14 +14,14 @@ import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/
 
 const HIDDEN = ' style="display:none;"';
 
-/** A 1-to-10 importance, as the event model rates each event. */
+/** A 1-to-10 importance, as the EventBase model rates each event. */
 function importanceSlider(id) {
     return sliderNumber({ id, min: 1, max: 10, step: 1, title: 'Importance' });
 }
 
 function extractionCard() {
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-wand-magic-sparkles', title: 'Extraction', description: 'How the event model turns each window of the chat into events.' })}
+        ${cardHeader({ icon: 'fa-wand-magic-sparkles', title: 'Extraction', description: 'How the EventBase model turns each window of the chat into events.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Min importance to store', forId: 'VectFox_eventbase_min_importance_store' }),
@@ -36,7 +36,7 @@ function extractionCard() {
             ${field([
                 fieldLabel({ text: 'Temperature', forId: 'VectFox_eventbase_temperature' }),
                 input({ id: 'VectFox_eventbase_temperature', type: 'number', min: 0, max: 2, step: 0.05 }),
-                hint({ text: 'Sent only while Send temperature is on (Core → Event model).' }),
+                hint({ text: 'Sent only while Send temperature is on (Core → EventBase model).' }),
             ])}
             ${field([
                 fieldLabel({ text: 'Max output tokens', forId: 'VectFox_eventbase_max_tokens', hasHelp: true }),

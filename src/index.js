@@ -367,14 +367,14 @@ const defaultSettings = {
     story_arc_link_provider: 'openrouter',             // StoryArc's own model: a link needs a model that thinks,
     story_arc_link_model: 'openai/gpt-6-luna',         // which AgentMode's planner does not
     story_arc_block_scale: 0.5,                        // Block size slider, 0.4 to 1.0: a block has 2.5 × this × √events seats, and keeps 4/3 × this × √events lines
-    agent_provider: '',                    // '' → inherit chat_provider
-    agent_model: '',                       // '' → inherit chat_model
+    agent_provider: '',                    // '' → Same as EventBase model: chat_provider and chat_vllm_url
+    agent_model: '',                       // '' → chat_model, whichever provider runs the planner
     // agentic_retrieval_openrouter_api_key and agentic_retrieval_vllm_api_key
     // are NOT in defaults — same Object.assign re-introduction reason as the
     // other legacy *_api_key slots above. Migration drains them into
     // SECRET_KEYS.OPENROUTER and SECRET_KEYS.CUSTOM + SECRET_KEYS.VLLM
     // (dual-write for vLLM, see embedding/chat split in api-keys.js header).
-    agent_vllm_url: '',                    // '' → inherit chat_vllm_url
+    agent_vllm_url: '',                    // read only while agent_provider is 'vllm' ('' → chat_vllm_url); StoryArc's link model on vLLM reads it first too
     agentic_retrieval_chat_depth: 3,                   // # of past chat turns sent to planner (slider 1-10)
     agentic_retrieval_max_queries: 6,                  // Hard ceiling on planner output (slider 1-6)
     // Both timeouts run INSIDE the EventBase retrieval bound and are ADDED to it
@@ -396,9 +396,9 @@ const defaultSettings = {
     // before/after diff. See src/features/chunkbase/reformat-schema.js / reformat-extractor.js
     // / reformat-store.js. Independent from EventBase (chat's LLM pipeline)
     // by design — no shared pipeline code, only generic utilities.
-    reformat_provider: '',              // '' → inherit chat_provider (Core → Event model)
-    reformat_model: '',                 // '' → inherit chat_model
-    reformat_vllm_url: '',              // '' → inherit chat_vllm_url
+    reformat_provider: '',              // '' → Same as EventBase model: chat_provider and chat_vllm_url
+    reformat_model: '',                 // '' → chat_model, whichever provider runs Auto-Reformat
+    reformat_vllm_url: '',              // read only while reformat_provider is 'vllm' ('' → chat_vllm_url)
     reformat_batch_chars: 6000,         // Target input chars per LLM call (packer)
     reformat_max_output_tokens: 8000,
     reformat_temperature: 0.2,

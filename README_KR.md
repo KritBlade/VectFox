@@ -327,7 +327,7 @@ open_threads:  [Gauntlet of Shar 준비]
 ### 🤖 Agent Mode — LLM이 계획하는 다각도 검색 (Qdrant / A3 전용)
 작은 플래너 LLM이 최근 대화를 읽고, 사용자의 질문의 서로 다른 각도를 노린 1–6개의 후속 Qdrant 쿼리를 출력합니다. 쿼리는 일반 검색과 동시에 병렬로 실행되고, 일반 검색의 결과는 모두 남으며, 그 밖에서 찾은 이벤트가 최대 5자리까지 추가됩니다. 어떤 실패에서도 표준 흐름으로 깔끔히 폴백하며, StoryArc 모드가 켜져 있는 동안에는 실행되지 않습니다.
 
-- **프로바이더/모델 상속** — AgentMode 탭에서 비워두면 Core → **Event model** 설정을 사용합니다. 더 저렴한 모델(예: Haiku 4.5, GPT-4o-mini)로 오버라이드하여 플래너 비용을 줄일 수 있습니다.
+- **프로바이더/모델 상속** — AgentMode 탭에서 비워두면 Core → **EventBase model** 설정을 사용합니다. 더 저렴한 모델(예: Haiku 4.5, GPT-4o-mini)로 오버라이드하여 플래너 비용을 줄일 수 있습니다.
 - **언어 매칭 프롬프트** — 플래너는 대화 언어(중국어, 일본어, 한국어, 라틴 문자, 영어)로 쿼리를 출력하고 고유명사는 원형을 유지합니다. 언어 간 오염이 없습니다.
 - **설정 가능한 슬라이더** — 플래너에 보낼 과거 턴 수(1–10), 최대 쿼리 수(1–6), 타임아웃(1–60초), 디버그 로깅.
 - **실제 비용** — GPT-6 Luna 기준 턴당 약 $0.0004, 계획에 약 2초, 프롬프트는 최대 5개 이벤트만큼 늘어납니다. 기본값 꺼짐 — 장편 회상이 필요할 때 켜십시오.
@@ -511,15 +511,15 @@ SillyTavern 재시작.
 2. 벡터 저장소 선택 (Standard 또는 Qdrant).
 3. 임베딩 제공자 선택 (Transformers, vLLM, Ollama, OpenRouter, etc.).
    - 💡 **권장:** **OpenRouter**를 통해 `qwen/qwen3-embedding-8b`를 사용하세요. 매우 저렴하고 다국어 지원이 뛰어나며 (CJK 및 라틴 문자 모두 우수) VectFox가 대상으로 하는 코퍼스 규모에 대해 고품질 밀집 벡터를 생성합니다. 사용하는 임베딩 모델이 좋을수록 회상(recall) 결과도 좋아집니다 — 이것은 가장 중요한 모델이므로, 절대 저렴한 모델은 쓰지 마세요.
-4. **Event model**에서 OpenRouter 또는 vLLM과 모델을 고릅니다. 벡터화할 때 이 모델이 이벤트를 씁니다.
-   - 💡 **추천 OpenRouter 모델:** 저렴하고 빠른 추출 경로로는 `openai/gpt-4o-mini` 또는 `google/gemini-3.1-flash-lite`를 사용하세요 — 둘 다 비용과 수집 지연을 낮게 유지합니다. 더 높은 추출 품질을 원하고 비용을 더 지불해도 괜찮다면, `x-ai/grok-4.3`이 더 강력하지만 더 비싼 선택지입니다. OpenRouter가 오래된 모델 ID(예: `x-ai/grok-4.1-fast`)에 대해 404 또는 사용 중단 오류를 반환한다면 해당 ID는 피하세요. 모델 가용성은 시간이 지나며 바뀔 수 있으므로, 긴 수집 작업을 실행하기 전에 OpenRouter에서 정확한 모델 ID를 확인하세요. **Agent Mode LLM** (AgentMode 탭에서 별도 설정)에도 같은 권장이 적용됩니다. AgentMode의 모델 필드를 비워두면 **Event model** 설정을 사용합니다.
+4. **EventBase model**에서 OpenRouter 또는 vLLM과 모델을 고릅니다. 벡터화할 때 이 모델이 이벤트를 씁니다.
+   - 💡 **추천 OpenRouter 모델:** 저렴하고 빠른 추출 경로로는 `openai/gpt-4o-mini` 또는 `google/gemini-3.1-flash-lite`를 사용하세요 — 둘 다 비용과 수집 지연을 낮게 유지합니다. 더 높은 추출 품질을 원하고 비용을 더 지불해도 괜찮다면, `x-ai/grok-4.3`이 더 강력하지만 더 비싼 선택지입니다. OpenRouter가 오래된 모델 ID(예: `x-ai/grok-4.1-fast`)에 대해 404 또는 사용 중단 오류를 반환한다면 해당 ID는 피하세요. 모델 가용성은 시간이 지나며 바뀔 수 있으므로, 긴 수집 작업을 실행하기 전에 OpenRouter에서 정확한 모델 ID를 확인하세요. **Agent Mode LLM** (AgentMode 탭에서 별도 설정)에도 같은 권장이 적용됩니다. AgentMode의 모델 필드를 비워두면 **EventBase model** 설정을 사용합니다.
 5. 클라우드 제공자(OpenRouter / vLLM )를 사용한다면 API 키를 구성합니다.
 6. **Keywords**에서 스토리의 언어를 선택합니다.
 7. 대부분의 설정은 기본값으로 두면 됩니다 — 자유롭게 조정하세요.
 8. SillyTavern에서 채팅을 클릭한 다음 VectFox 익스텐션 아이콘을 다시 클릭하세요. 첫 DB를 벡터화하려면 "Vectorize Content"를 클릭하고 **Chat History**를 선택**해야 합니다**.
 9. 필요시 **AutoSync** 탭에서 **Auto-sync this chat**을 활성화합니다. 한 번 실행에 들어가는 턴 수는 **Auto-sync window**로 정합니다.
 10. 필요시 **WorldInfo** 탭에서 로어북 / World Info를 벡터화합니다.
-11. (선택) 다른 설정이 모두 작동하면 **AgentMode** 탭에서 **Agent Mode**를 켤 수 있습니다. Provider를 **Same as Event model**로 두고 Model을 비워두면 **Event model** 설정을 사용합니다. 즉 단계 4에서 고른 저렴하고 빠른 모델이 플래너도 구동합니다. 자세한 작동 방식은 위의 "작동 방식 → Agent Mode" 섹션을 참조하세요.
+11. (선택) 다른 설정이 모두 작동하면 **AgentMode** 탭에서 **Agent Mode**를 켤 수 있습니다. Provider를 **Same as EventBase model**로 두고 Model을 비워두면 **EventBase model** 설정을 사용합니다. 즉 단계 4에서 고른 저렴하고 빠른 모델이 플래너도 구동합니다. 자세한 작동 방식은 위의 "작동 방식 → Agent Mode" 섹션을 참조하세요.
 
 
 ---

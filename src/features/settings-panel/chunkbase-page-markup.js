@@ -37,17 +37,17 @@ function autoReformatCard() {
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_reformat_provider' }),
                 inheritedProviderSelect('VectFox_reformat_provider'),
-                hint({ text: 'Same as Event model uses the provider set in Core → Event model.' }),
+                hint({ text: 'Same as EventBase model uses its provider, URL and key. A typed Model still applies.' }),
             ])}
             ${field([
                 fieldLabel({ text: 'Model', forId: 'VectFox_reformat_model' }),
-                input({ id: 'VectFox_reformat_model', placeholder: 'Blank uses the Event model\'s' }),
-                hint({ text: 'Blank uses the model set in Core → Event model.' }),
+                input({ id: 'VectFox_reformat_model', placeholder: 'Blank uses the EventBase model\'s' }),
+                hint({ text: 'Blank uses the model set in Core → EventBase model.' }),
             ])}
             <div id="VectFox_reformat_vllm_row" class="vfx-field vfx-span"${HIDDEN}>
                 ${fieldLabel({ text: 'Base URL', forId: 'VectFox_reformat_vllm_url' })}
-                ${input({ id: 'VectFox_reformat_vllm_url', placeholder: 'Blank uses the Event model\'s' })}
-                ${hint({ text: 'Blank uses the Event model\'s URL. The key is the one saved there.' })}
+                ${input({ id: 'VectFox_reformat_vllm_url', placeholder: 'Blank uses the EventBase model\'s' })}
+                ${hint({ text: 'Blank uses the EventBase model\'s URL. The key is the one saved there.' })}
             </div>
             ${field([
                 fieldLabel({ text: 'Batch size (chars)', forId: 'VectFox_reformat_batch_chars' }),

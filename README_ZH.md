@@ -328,7 +328,7 @@ open_threads:  [Gauntlet of Shar 的準備]
 ### 🤖 Agent Mode —— 由 LLM 規劃的多角度檢索（僅限 Qdrant / A3）
 一個小型規劃師 LLM 會讀你最近的聊天紀錄，然後輸出 1–6 個後續 Qdrant 查詢，每個查詢都瞄準你問題的不同角度。它們與正常搜尋同時平行執行，正常搜尋的結果全部保留，而它們在結果之外找到的事件最多再加入 5 個席位。任何失敗都會乾淨地回退到標準流程，StoryArc 模式開啟時不會執行。
 
-- **提供者/模型繼承** —— AgentMode 頁籤的欄位若留空，就會使用 Core → **Event model** 的設定；也可以另外指定更便宜的模型（例如 Haiku 4.5、GPT-4o-mini）以節省規劃師成本。
+- **提供者/模型繼承** —— AgentMode 頁籤的欄位若留空，就會使用 Core → **EventBase model** 的設定；也可以另外指定更便宜的模型（例如 Haiku 4.5、GPT-4o-mini）以節省規劃師成本。
 - **語言匹配的提示詞** —— 規劃師會以聊天語言輸出查詢（中文、日文、韓文、拉丁語系、英文皆可），同時保留專有名詞原始形式。不會跨語言污染。
 - **可調整滑桿** —— 送進規劃師的歷史輪數（1–10）、最大查詢數（1–6）、逾時時間（1–60 秒）、除錯日誌。
 - **實際成本** —— 以 GPT-6 Luna 約每輪 $0.0004，規劃約 2 秒，提示詞最多多 5 個事件。預設關閉——需要長篇回憶能力時再開啟。
@@ -512,15 +512,15 @@ enableServerPlugins: true
 2. 選擇你的向量儲存（Standard 或 Qdrant）。
 3. 選擇你的嵌入供應商 (Transformers, vLLM, Ollama, OpenRouter, etc.).
    - 💡 **推薦：** 透過 **OpenRouter** 使用 `qwen/qwen3-embedding-8b`。這個模型非常便宜，多語支援優秀（CJK 與拉丁語系都好），對 VectFox 這種規模的語料庫能產出高品質的密集向量。你使用的嵌入模型越好，召回（recall）的結果就越好——這是最重要的一個模型，千萬不要為了省錢而用便宜的模型。
-4. 在 **Event model** 選擇 OpenRouter 或 vLLM 以及模型。向量化時，由這個模型寫出事件。
-   - 💡 **推薦的 OpenRouter 模型：** 如果想要便宜又快速的萃取路徑，使用 `openai/gpt-4o-mini` 或 `google/gemini-3.1-flash-lite`——兩者都能把成本與向量化延遲維持在低點。如果你想要更高的萃取品質且不介意多付一些費用，`x-ai/grok-4.3` 是更強但更貴的選擇。如果 OpenRouter 對較舊的模型 ID（例如 `x-ai/grok-4.1-fast`）回傳 404 或棄用錯誤，請避免使用它；模型可用性會隨時間改變，因此在長時間向量化之前，請先在 OpenRouter 確認確切的模型 ID。**Agent Mode LLM**（在 AgentMode 分頁另外設定）也適用同樣的推薦。如果你把 AgentMode 的模型欄位留空，它會使用 **Event model** 的設定。
+4. 在 **EventBase model** 選擇 OpenRouter 或 vLLM 以及模型。向量化時，由這個模型寫出事件。
+   - 💡 **推薦的 OpenRouter 模型：** 如果想要便宜又快速的萃取路徑，使用 `openai/gpt-4o-mini` 或 `google/gemini-3.1-flash-lite`——兩者都能把成本與向量化延遲維持在低點。如果你想要更高的萃取品質且不介意多付一些費用，`x-ai/grok-4.3` 是更強但更貴的選擇。如果 OpenRouter 對較舊的模型 ID（例如 `x-ai/grok-4.1-fast`）回傳 404 或棄用錯誤，請避免使用它；模型可用性會隨時間改變，因此在長時間向量化之前，請先在 OpenRouter 確認確切的模型 ID。**Agent Mode LLM**（在 AgentMode 分頁另外設定）也適用同樣的推薦。如果你把 AgentMode 的模型欄位留空，它會使用 **EventBase model** 的設定。
 5. 如果使用雲端供應商（OpenRouter / vLLM ），請設定 API 金鑰。
 6. 在 **Keywords** 中選擇你故事使用的語言。
 7. 大多數設定維持預設值即可，但你也可以依需求調整。
 8. 在 SillyTavern 中進入你的聊天，然後再次點擊 VectFox 擴充元件圖示。你**必須**點擊 "Vectorize Content"，並選擇 **Chat History** 來向量化你的第一個 DB。
 9. 如有需要，請在 **AutoSync** 分頁啟用 **Auto-sync this chat**。每次執行包含幾個回合，由 **Auto-sync window** 決定。
 10. 如有需要，請在 **WorldInfo** 分頁向量化你的世界書/World Info。
-11. （選用）在其他設定都正常後，可以到 **AgentMode** 分頁開啟 **Agent Mode**。把 Provider 留在 **Same as Event model**、Model 留空，就會使用 **Event model** 的設定，這樣步驟 4 中那個便宜快速的模型也會用來驅動規劃師。完整功能說明請見上方「它是怎麼運作的 → Agent Mode」章節。
+11. （選用）在其他設定都正常後，可以到 **AgentMode** 分頁開啟 **Agent Mode**。把 Provider 留在 **Same as EventBase model**、Model 留空，就會使用 **EventBase model** 的設定，這樣步驟 4 中那個便宜快速的模型也會用來驅動規劃師。完整功能說明請見上方「它是怎麼運作的 → Agent Mode」章節。
 
 
 ---

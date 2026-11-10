@@ -710,9 +710,9 @@ The result is the pre-search's events, then the added ones. There is no second r
 
 ```js
 agentic_retrieval_enabled                false       // master toggle
-agent_provider                           ''          // '' → inherit chat_provider
-agent_model                              ''          // '' → inherit chat_model
-agent_vllm_url                           ''          // '' → inherit chat_vllm_url
+agent_provider                           ''          // '' → Same as EventBase model: chat_provider and chat_vllm_url
+agent_model                              ''          // '' → chat_model, whichever provider runs the planner
+agent_vllm_url                           ''          // read only while agent_provider is 'vllm' ('' → chat_vllm_url)
 agentic_retrieval_chat_depth             3           // past chat turns sent to the planner (slider 1-10)
 agentic_retrieval_max_queries            6           // ceiling on planner queries (slider 1-6)
 agentic_retrieval_timeout_ms             30000       // planner LLM call timeout
@@ -720,7 +720,7 @@ agentic_retrieval_query_timeout_ms       10000       // per-query fan-out timeou
 agentic_retrieval_max_tokens             2000        // planner output-token cap
 ```
 
-API keys are SillyTavern's own secrets (`SECRET_KEYS.OPENROUTER`, and `CUSTOM` / `VLLM` for vLLM); VectFox has no key settings. Both timeouts run inside the EventBase retrieval bound and are added to it. Inheritance is centralized in `_resolveAgenticLLMConfig(settings)` — read it once, no scattered `||` checks elsewhere.
+API keys are SillyTavern's own secrets (`SECRET_KEYS.OPENROUTER`, and `CUSTOM` / `VLLM` for vLLM); VectFox has no key settings. Both timeouts run inside the EventBase retrieval bound and are added to it. Inheritance is one rule, `resolveInheritedConnection` in [inherited-connection.js](../src/features/llm-provider/inherited-connection.js), which Auto-Reformat follows too: Same as EventBase model takes the EventBase model's provider and Base URL, a blank model takes its model on any provider, and the page's own Base URL counts only while the page picks vLLM itself. `_resolveAgenticLLMConfig(settings)` is its one caller for the planner.
 
 ### Debug log shape
 
