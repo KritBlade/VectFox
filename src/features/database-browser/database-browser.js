@@ -58,7 +58,7 @@ import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
 import { confirmPopup, openPanelPopup, placeMarkupOnTopmostModalLayer, placeOnTopmostModalLayer } from "../../sillytavern/popup.js";
 import { isModalOpenOnDialogOf } from "../../sillytavern/popup-core.js";
 import { pickFiles } from "../../shared/pick-files.js";
-import { bindGeneBehaviours } from "../../shared/gui-dna/gene-behaviours.js";
+import { bindGeneBehaviours, scrollPageToTop } from "../../shared/gui-dna/gene-behaviours.js";
 import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
   STORY_LINKS_FILE_TYPE,
@@ -200,15 +200,17 @@ function createBrowser() {
 }
 
 /**
- * Shows one page and marks its nav item.
+ * Shows one page and marks its nav item. A page that replaces another is shown from its top.
  * @param {string} name A page in BROWSER_PAGES
  */
 function showBrowserPage(name) {
+  const isAnotherPage = !$(`#${browserTabId(name)}`).hasClass("is-active");
   for (const page of BROWSER_PAGES) {
     const isShown = page.name === name;
     $(`#${browserPageId(page.name)}`).toggle(isShown);
     $(`#${browserTabId(page.name)}`).toggleClass("is-active", isShown).attr("aria-current", isShown ? "page" : null);
   }
+  if (isAnotherPage) scrollPageToTop(document.getElementById(browserPageId(name)));
 }
 
 /**

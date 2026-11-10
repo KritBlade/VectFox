@@ -27,7 +27,7 @@ import { isModalOpenOnDialogOf } from '../../sillytavern/popup-core.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { log } from '../../sillytavern/log.js';
 import { panelThemeOf } from '../../shared/gui-dna/gui-dna-core.js';
-import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
+import { bindGeneBehaviours, scrollPageToTop } from '../../shared/gui-dna/gene-behaviours.js';
 import { FIRST_PANEL_TAB, panelPageId, panelTabId } from './panel-shell-markup.js';
 
 const PANEL_ROOT_ID = 'VectFox_settings';
@@ -58,8 +58,8 @@ function runTabHook(name, hookName) {
 }
 
 /**
- * Show one page and mark its nav item. In the open panel, the page it replaces closes
- * and the new one opens.
+ * Show one page and mark its nav item. A page that replaces another is shown from its top,
+ * and in the open panel the page it replaces closes and the new one opens.
  *
  * @param {string} name - A page in the tab table
  */
@@ -71,6 +71,7 @@ export function showPanelTab(name) {
         $(`#${panelPageId(tab.name)}`).toggle(isShown);
         $(`#${panelTabId(tab.name)}`).toggleClass('is-active', isShown).attr('aria-current', isShown ? 'page' : null);
     }
+    if (previousName !== name) scrollPageToTop(document.getElementById(panelPageId(name)));
     if (!isPanelOpen || previousName === name) return;
     runTabHook(previousName, 'onClose');
     runTabHook(name, 'onOpen');
