@@ -245,7 +245,7 @@ async function _searchPlannedQueries(params) {
 
     const recentTurns = _getRecentChatTurns(settings);
     if (isAgentDebugOn) {
-        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Past chat turns sent to planner: ${recentTurns.length}`);
+        log.domain('agent', 'lifecycle', `[VectFox-Agentic] Chat turns read: ${recentTurns.length}`);
         log.domain('agent', 'verbose', '[VectFox-Agentic] Narrative context preview (one ~50-word snippet per turn):');
         recentTurns.forEach((turn, idx) => {
             const label = `[-${recentTurns.length - idx}]`;
@@ -339,7 +339,7 @@ async function _searchPlannedQueries(params) {
 
     const topK = (settings.eventbase_retrieval_top_k || 8) * 2;
 
-    // Per-query timeout: the fanout runs in parallel, so the whole retrieval
+    // Search timeout: the fanout runs in parallel, so the whole retrieval
     // waits on the SLOWEST query. A single embed/search latency spike (e.g. the
     // shared embedding provider stalling) could otherwise freeze the turn for
     // tens of seconds. Cap each query; a straggler is dropped and the other

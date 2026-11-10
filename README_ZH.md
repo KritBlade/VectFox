@@ -328,9 +328,9 @@ open_threads:  [Gauntlet of Shar 的準備]
 ### 🤖 Agent Mode —— 由 LLM 規劃的多角度檢索（僅限 Qdrant / A3）
 一個小型規劃師 LLM 會讀你最近的聊天紀錄，然後輸出 1–6 個後續 Qdrant 查詢，每個查詢都瞄準你問題的不同角度。它們與正常搜尋同時平行執行，正常搜尋的結果全部保留，而它們在結果之外找到的事件最多再加入 5 個席位。任何失敗都會乾淨地回退到標準流程，StoryArc 模式開啟時不會執行。
 
-- **提供者/模型繼承** —— AgentMode 頁籤的欄位若留空，就會使用 Core → **EventBase model** 的設定；也可以另外指定更便宜的模型（例如 Haiku 4.5、GPT-4o-mini）以節省規劃師成本。
+- **提供者/模型繼承** —— 在 AgentMode 頁籤把 Provider 留在 **Same as EventBase model**、Model 留空，規劃師就會使用 Core → **EventBase model**。想節省規劃師成本，可以在 Model 填入更便宜的模型（例如 Haiku 4.5、GPT-4o-mini）。
 - **語言匹配的提示詞** —— 規劃師會以聊天語言輸出查詢（中文、日文、韓文、拉丁語系、英文皆可），同時保留專有名詞原始形式。不會跨語言污染。
-- **可調整滑桿** —— 送進規劃師的歷史輪數（1–10）、最大查詢數（1–6）、逾時時間（1–60 秒）、除錯日誌。
+- **可調整項目** —— Chat turns read（1–10）、Searches per reply（1–6）、Planner timeout 與 Search timeout（各 1–60 秒）。除錯日誌在 Action 頁籤開啟。
 - **實際成本** —— 以 GPT-6 Luna 約每輪 $0.0004，規劃約 2 秒，提示詞最多多 5 個事件。預設關閉——需要長篇回憶能力時再開啟。
 
 請參考設定中的 **AgentMode** 頁籤，或上方「它是怎麼運作的 → Agent Mode」章節了解完整架構。

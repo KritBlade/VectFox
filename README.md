@@ -332,9 +332,9 @@ It's the useful half of a rolling summary — *"always remind the AI what just h
 
 A small planner LLM reads your recent chat, then emits 1–6 follow-up Qdrant queries each targeting a different angle of what you asked about. They run in parallel alongside the normal search, which keeps every result it found, and the events they find outside its results add up to 5 seats. Falls back cleanly to the standard flow on any failure, and does not run while StoryArc mode is on.
 
-- **Provider/model inheritance** — leave blank in AgentMode tab to use the Core → **EventBase model** settings; override with a cheaper model (e.g. Haiku 4.5, GPT-4o-mini) to cut planner cost.
+- **Provider/model inheritance** — leave Provider on **Same as EventBase model** and Model blank in the AgentMode tab, and the planner uses the Core → **EventBase model**. Type a cheaper model (e.g. Haiku 4.5, GPT-4o-mini) in Model to cut planner cost.
 - **Language-matching prompt** — planner emits queries in the chat language (Chinese, Japanese, Korean, Latin-script, English), preserving proper nouns. No cross-language pollution.
-- **Configurable sliders** — past chat turns sent to planner (1–10), max queries (1–6), timeout (1–60s), debug logging.
+- **Tuning** — Chat turns read (1–10), Searches per reply (1–6), and a Planner timeout and Search timeout (1–60 s each). Its debug log is switched on in the Action tab.
 - **Real cost** — about $0.0004 per turn on GPT-6 Luna, about 2 seconds of planning, and up to 5 more events in the prompt. Disabled by default — opt in when long-form recall matters.
 
 See the **AgentMode** tab in settings, or the "How It Works → Agent Mode" section above for the full architecture.

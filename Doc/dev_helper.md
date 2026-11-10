@@ -729,7 +729,7 @@ Lines go through `log.domain('agent', level, …)` with the `[VectFox-Agentic]` 
 Per retrieval round emits, in order:
 
 1. `mode=ON trigger=user_message_len=<N>`
-2. `Past chat turns sent to planner: <depth>`
+2. `Chat turns read: <depth>`
 3. `Narrative context preview` — one ~50-word snippet per turn (matches what the planner actually sees, and the count equals `agentic_retrieval_chat_depth`)
 4. `LLM prompt size: system+user approx <T> tokens (<a>+<b> chars)` — size only, not the prompt text (the static system prompt is in `prompts-i18n.js`; the narrative-context preview at step 3 shows the dynamic part)
 5. `LLM call complete: <ms>ms` — with prompt / completion / total tokens when the provider returns usage

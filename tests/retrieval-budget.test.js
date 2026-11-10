@@ -113,13 +113,13 @@ describe('agent mode timeouts', () => {
         expect(retrievalModeExtraBudgetMs({ ...agentOn, vector_backend: 'standard' })).toBe(0);
     });
 
-    it('adds planner + one per-query timeout when agent mode is live', () => {
+    it('adds a Planner timeout and one Search timeout when agent mode is live', () => {
         expect(retrievalModeExtraBudgetMs(agentOn))
             .toBe(AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
     });
 
     // The StoryArc router can outlast the pre-search, and the thread pick and block cut run after the recipe's searches.
-    it('adds a planner timeout each for the StoryArc router, thread pick and block cut, and one per-query timeout', () => {
+    it('adds a planner timeout each for the StoryArc router, thread pick and block cut, and one Search timeout', () => {
         expect(retrievalModeExtraBudgetMs({ vector_backend: 'qdrant', story_arc_mode_enabled: true }))
             .toBe(3 * AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS + AGENTIC_QUERY_TIMEOUT_DEFAULT_MS);
     });

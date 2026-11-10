@@ -144,7 +144,7 @@ export function resolveAgenticMaxTokens(settings) {
  * Agent Mode's planner runs alongside the ordinary pre-search and can outlast it,
  * and its query fanout follows. The base budget already covers the pre-search (it
  * IS an ordinary retrieval), so the extra is planner + fanout. The fanout runs in
- * parallel, so it costs one per-query timeout regardless of how many queries the
+ * parallel, so it costs one Search timeout regardless of how many queries the
  * planner emitted.
  *
  * StoryArc mode replaces the planner. Its router runs alongside the pre-search and
