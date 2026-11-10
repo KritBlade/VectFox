@@ -65,7 +65,7 @@ function retrievalCard() {
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Events per reply', forId: 'VectFox_eventbase_retrieval_top_k' }),
-                input({ id: 'VectFox_eventbase_retrieval_top_k', type: 'number', min: 1, max: 32, step: 1 }),
+                sliderNumber({ id: 'VectFox_eventbase_retrieval_top_k', min: 1, max: 32, step: 1, title: 'Events' }),
                 hint({ text: 'How many events go into the prompt for each reply, after the re-rank.' }),
             ])}
             ${field([

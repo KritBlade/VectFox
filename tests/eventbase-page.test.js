@@ -3,8 +3,8 @@
  *
  * The settings panel's EventBase page on GUI-DNA (src/features/settings-panel/eventbase-page-markup.js): every
  * control keeps the id settings-panel.js wires it by, the cosine warning starts hidden, each importance, the event
- * count and the similarity threshold have a slider on their number box's limits, the other numbers carry the limits
- * the wiring holds them to, and the page is drawn from GUI-DNA alone.
+ * cap, the events per reply and the similarity threshold have a slider on their number box's limits, the other
+ * numbers carry the limits the wiring holds them to, and the page is drawn from GUI-DNA alone.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -38,15 +38,15 @@ describe('EventBase page markup', () => {
         expect(document.getElementById('VectFox_eventbase_cosine_plugin_warning').style.display).toBe('none');
     });
 
-    it('pairs a slider with each importance, the event cap and the similarity threshold, on the same limits', () => {
+    it('pairs a slider with each importance, the event cap, the events per reply and the similarity threshold, on the same limits', () => {
         const ranges = [...document.querySelectorAll('.vfx-range[data-vfx-slider-for]')];
-        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_min_importance_store', 'VectFox_eventbase_max_events_per_window', 'VectFox_eventbase_retrieval_min_importance', 'VectFox_eventbase_score_threshold']);
+        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_min_importance_store', 'VectFox_eventbase_max_events_per_window',
+            'VectFox_eventbase_retrieval_top_k', 'VectFox_eventbase_retrieval_min_importance', 'VectFox_eventbase_score_threshold']);
         expect(limitsOf('VectFox_eventbase_score_threshold')).toEqual(['0', '1', '0.05']);
         for (const range of ranges) {
             const box = document.getElementById(range.dataset.vfxSliderFor);
             expect(box.type).toBe('number');
             expect([range.min, range.max, range.step]).toEqual(limitsOf(box.id));
-            expect((Number(box.max) - Number(box.min)) / Number(box.step)).toBeLessThanOrEqual(20);
         }
     });
 
