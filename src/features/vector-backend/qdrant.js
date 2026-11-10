@@ -40,7 +40,7 @@ import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { VECTOR_LIST_LIMIT } from '../../shared/constants.js';
 import { getQdrantApiKey } from '../../shared/api-keys.js';
 import { log } from '../../sillytavern/log.js';
-import { invalidateCollectionMetadata } from './tokenizer-lock.js';
+import { invalidateCollectionMetadata, settleTokenizerMismatch } from './tokenizer-lock.js';
 import { buildRegistryKey } from '../../shared/collection-ids.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
@@ -878,34 +878,11 @@ export class QdrantBackend extends VectorBackend {
         //
         // Tokenizer-mode lock: indexed sparse vectors carry the CJK tokenizer mode that was
         // active at upsert. A mode change between upsert and query silently breaks BM25
-        // matching, so we read the collection's sentinel and prompt the user to revert if
-        // they differ.
+        // matching, so settleTokenizerMismatch reads the collection's sentinel and asks the
+        // user to revert when they differ, one question for every search meeting it.
         let sparseQueryVector;
         try {
-            const { detectTokenizerMismatch, showTokenizerMismatchModal, applyTokenizerRevert, openCjkTokenizerSetting } = await import('./tokenizer-lock.js');
-            const mismatch = await detectTokenizerMismatch(settings, actualCollectionId);
-            if (mismatch) {
-                const debugLog = log.enabled('lifecycle');
-                if (debugLog) log.lifecycle(`[TokenizerLock] Mismatch: collection=${mismatch.saved}, current=${mismatch.current} — prompting user`);
-                const choice = await showTokenizerMismatchModal(mismatch, actualCollectionId);
-                if (choice === 'revert') {
-                    if (debugLog) log.lifecycle(`[TokenizerLock] User chose: Revert to ${mismatch.saved}`);
-                    await applyTokenizerRevert(mismatch.saved, settings);
-                } else if (choice === 'settings' || choice === 'cancel') {
-                    if (debugLog) log.lifecycle(`[TokenizerLock] User chose: ${choice === 'settings' ? 'Open Settings' : 'Cancel'} — aborting query`);
-                    // Abort the in-flight ST generation so it doesn't continue with
-                    // a broken query. Without this the user has to hit ST's Stop
-                    // button manually after dismissing the modal.
-                    try {
-                        const { stopGeneration } = await import('../../sillytavern/generation.js');
-                        stopGeneration();
-                    } catch (e) {
-                        log.warn('[Qdrant] stopGeneration() failed:', e?.message);
-                    }
-                    if (choice === 'settings') openCjkTokenizerSetting();
-                    return { hashes: [], metadata: [] };
-                }
-            }
+            if (!(await settleTokenizerMismatch(settings, actualCollectionId))) return { hashes: [], metadata: [] };
             const { encodeSparseQuery } = await import('./sparse-vector-encoder.js');
             sparseQueryVector = encodeSparseQuery(searchText);
         } catch (error) {
@@ -1086,30 +1063,7 @@ export class QdrantBackend extends VectorBackend {
         // (matches the legacy behavior).
         let sparseQueryVector;
         try {
-            const { detectTokenizerMismatch, showTokenizerMismatchModal, applyTokenizerRevert, openCjkTokenizerSetting } = await import('./tokenizer-lock.js');
-            const mismatch = await detectTokenizerMismatch(settings, actualCollectionId);
-            if (mismatch) {
-                const debugLog = log.enabled('lifecycle');
-                if (debugLog) log.lifecycle(`[TokenizerLock] Mismatch: collection=${mismatch.saved}, current=${mismatch.current} — prompting user`);
-                const choice = await showTokenizerMismatchModal(mismatch, actualCollectionId);
-                if (choice === 'revert') {
-                    if (debugLog) log.lifecycle(`[TokenizerLock] User chose: Revert to ${mismatch.saved}`);
-                    await applyTokenizerRevert(mismatch.saved, settings);
-                } else if (choice === 'settings' || choice === 'cancel') {
-                    if (debugLog) log.lifecycle(`[TokenizerLock] User chose: ${choice === 'settings' ? 'Open Settings' : 'Cancel'} — aborting query`);
-                    // Abort the in-flight ST generation so it doesn't continue with
-                    // a broken query. Without this the user has to hit ST's Stop
-                    // button manually after dismissing the modal.
-                    try {
-                        const { stopGeneration } = await import('../../sillytavern/generation.js');
-                        stopGeneration();
-                    } catch (e) {
-                        log.warn('[Qdrant] stopGeneration() failed:', e?.message);
-                    }
-                    if (choice === 'settings') openCjkTokenizerSetting();
-                    return { hashes: [], metadata: [] };
-                }
-            }
+            if (!(await settleTokenizerMismatch(settings, actualCollectionId))) return { hashes: [], metadata: [] };
             const { encodeSparseQuery } = await import('./sparse-vector-encoder.js');
             sparseQueryVector = encodeSparseQuery(searchText);
         } catch (error) {

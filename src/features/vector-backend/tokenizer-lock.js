@@ -6,27 +6,23 @@
  * is baked into the indexed sparse vectors via FNV-1a hashes. A later mode
  * switch silently breaks query→indexed token matching.
  *
- * This module:
- *   - Reads the per-collection sentinel metadata (cached per session)
- *   - Compares the saved mode against the current setting
- *   - Shows a blocking modal so the user can revert the mode or accept the cost
- *
- * Returns null when the collection has no sentinel (legacy / non-migrated collections).
- *
- * @author VectFox
- * @since Phase 2 — Qdrant native sparse vectors
+ * Before a search, settleTokenizerMismatch reads the collection's sentinel
+ * metadata (cached per session) and compares its mode with the saved setting.
+ * When they differ it asks the user, in one blocking question for every search
+ * that meets the mismatch while it is open, to revert the setting or stop the
+ * reply. A collection with no sentinel (legacy or non-sparse) is never locked.
  * ============================================================================
  */
 
 import { escapeHtml } from '../../shared/html-escape.js';
 import { log } from '../../sillytavern/log.js';
+import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 
 const metadataCache = new Map();
 
-async function getRequestHeadersImport() {
-    const mod = await import('../../sillytavern/requests.js');
-    return mod.getRequestHeaders;
-}
+/** The question open now, as a promise of its answer, shared by every search that meets a mismatch meanwhile. */
+let openQuestion = null;
 
 /**
  * Fetch the sentinel metadata for a Qdrant collection. Cached per-session.
@@ -38,7 +34,6 @@ export async function fetchCollectionMetadata(actualCollectionId) {
         return metadataCache.get(actualCollectionId);
     }
     try {
-        const getRequestHeaders = await getRequestHeadersImport();
         const resp = await fetch('/api/plugins/similharity/chunks/collection-metadata', {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -67,19 +62,64 @@ export function invalidateCollectionMetadata(actualCollectionId) {
 }
 
 /**
- * Compare saved tokenizer mode to the current setting. Returns null when no mismatch,
- * or `{ saved, current }` when the user must take action.
+ * Settle a Qdrant collection's CJK tokenizer lock before a search. The search goes on when the collection was made
+ * with the tokenizer VectFox is set to, or once the user answers Revert; it stops on Open Settings or Cancel, which
+ * also stop the reply. One question at a time: Agent Mode sends a reply's searches together, so a search that meets a
+ * mismatch while the question is open waits for that answer instead of asking again.
  *
- * @param {object} settings - VectFox settings (reads `cjk_tokenizer_mode`)
- * @param {string} actualCollectionId
- * @returns {Promise<{saved: string, current: string} | null>}
+ * @param {object} settings - The search's settings, often its own copy (EventBase search's carries its own threshold);
+ *   its CJK tokenizer is set to the saved setting, so a copy made before a Revert follows it
+ * @param {string} actualCollectionId - The resolved Qdrant collection name
+ * @returns {Promise<boolean>} Whether the search goes on
  */
-export async function detectTokenizerMismatch(settings, actualCollectionId) {
-    const payload = await fetchCollectionMetadata(actualCollectionId);
-    if (!payload || !payload.cjk_tokenizer_mode) return null; // collection has no sentinel (legacy / non-sparse)
-    const current = settings.cjk_tokenizer_mode;
-    if (payload.cjk_tokenizer_mode === current) return null;
-    return { saved: payload.cjk_tokenizer_mode, current };
+export async function settleTokenizerMismatch(settings, actualCollectionId) {
+    for (;;) {
+        if (openQuestion && (await openQuestion) !== 'revert') return false;
+        const madeWith = (await fetchCollectionMetadata(actualCollectionId))?.cjk_tokenizer_mode;
+        // Read once the record has arrived, so a Revert answered meanwhile counts.
+        const current = extension_settings.vectfox?.cjk_tokenizer_mode;
+        if (current) settings.cjk_tokenizer_mode = current;
+        if (!madeWith || madeWith === current) return true;
+        // Another search asked while this one read the collection's record: its answer serves this one too.
+        if (openQuestion) continue;
+        openQuestion = askAboutMismatch({ saved: madeWith, current }, actualCollectionId);
+        let choice;
+        try {
+            choice = await openQuestion;
+        } finally {
+            openQuestion = null;
+        }
+        if (choice !== 'revert') return false;
+        settings.cjk_tokenizer_mode = madeWith;
+        return true;
+    }
+}
+
+/**
+ * Ask about a mismatch and carry out the answer: Revert saves the collection's mode as the setting; Open Settings and
+ * Cancel stop the reply, so it does not go on with a search that found nothing, and Open Settings shows the setting.
+ *
+ * @param {{saved: string, current: string}} mismatch
+ * @param {string} actualCollectionId
+ * @returns {Promise<'revert'|'settings'|'cancel'>}
+ */
+async function askAboutMismatch(mismatch, actualCollectionId) {
+    const debugLog = log.enabled('lifecycle');
+    if (debugLog) log.lifecycle(`[TokenizerLock] Mismatch: collection=${mismatch.saved}, current=${mismatch.current} — prompting user`);
+    const choice = await showTokenizerMismatchModal(mismatch, actualCollectionId);
+    if (debugLog) log.lifecycle(`[TokenizerLock] User chose: ${choice}`);
+    if (choice === 'revert') {
+        await applyTokenizerRevert(mismatch.saved);
+        return choice;
+    }
+    try {
+        const { stopGeneration } = await import('../../sillytavern/generation.js');
+        stopGeneration();
+    } catch (error) {
+        log.warn('[TokenizerLock] could not stop the reply:', error);
+    }
+    if (choice === 'settings') void openCjkTokenizerSetting();
+    return choice;
 }
 
 /**
@@ -92,7 +132,7 @@ export async function detectTokenizerMismatch(settings, actualCollectionId) {
  * @param {string} actualCollectionId
  * @returns {Promise<'revert'|'settings'|'cancel'>}
  */
-export async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
+async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
     const { callGenericPopup, POPUP_TYPE } = await import('../../sillytavern/popup.js');
 
     const html = `
@@ -129,34 +169,22 @@ export async function showTokenizerMismatchModal(mismatch, actualCollectionId) {
 }
 
 /**
- * Apply the "Revert to <saved>" action from the tokenizer mismatch modal.
+ * Apply the "Revert to <saved>" answer: save the collection's mode as the CJK tokenizer setting, and nothing else of
+ * the search's settings, show it in the dropdown, sync the EventBase extraction prompt to its language, and load the
+ * Jieba tokenizer it needs before the search encodes its query.
  *
- * Symptom this exists to fix: the original revert path only mutated the
- * `settings` reference and the module-local mode, leaving the actual setting
- * unpersisted, the UI dropdown out of sync, and (for jieba modes) the WASM
- * tokenizer not loaded. From the user's perspective the language never
- * actually changed.
- *
- * Mirrors the work the #VectFox_cjk_tokenizer_mode change handler in
- * src/features/settings-panel/settings-panel.js does: persist via saveSettingsDebounced, update
- * the dropdown, fire the namespaced eventbasePromptSync handler so the
- * EventBase extraction prompt matches the reverted language, and await
- * WASM loading for jieba / jieba_tw so the imminent sparse encoding step
- * uses the correct tokenizer.
+ * Mirrors the work the #VectFox_cjk_tokenizer_mode change handler in src/features/settings-panel/settings-panel.js
+ * does; the dropdown fires only its namespaced eventbasePromptSync handler, as the main handler would redo the rest.
  *
  * @param {string} savedMode - The collection's locked tokenizer mode
- * @param {object} settings - VectFox settings reference (caller's copy)
  */
-export async function applyTokenizerRevert(savedMode, settings) {
+async function applyTokenizerRevert(savedMode) {
     const { setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded, CJK_TOKENIZER_MODES } =
         await import('../keyword-search/index.js');
-    const { saveSettingsDebounced, extension_settings } = await import('../../sillytavern/settings.js');
 
-    settings.cjk_tokenizer_mode = savedMode;
     setCjkTokenizerMode(savedMode);
-
-    if (extension_settings?.vectfox) {
-        Object.assign(extension_settings.vectfox, settings);
+    if (extension_settings.vectfox) {
+        extension_settings.vectfox.cjk_tokenizer_mode = savedMode;
     }
     saveSettingsDebounced();
 
@@ -165,9 +193,6 @@ export async function applyTokenizerRevert(savedMode, settings) {
             const $select = $('#VectFox_cjk_tokenizer_mode');
             if ($select.length) {
                 $select.val(savedMode);
-                // Fire only the namespaced prompt-sync handler; the main
-                // change handler would redundantly redo everything above
-                // (and would re-await WASM, doubling the wait).
                 $select.trigger('change.eventbasePromptSync');
             }
         }
@@ -187,7 +212,7 @@ export async function applyTokenizerRevert(savedMode, settings) {
  * settings panel on its Core page, which holds the CJK Tokenizer Mode dropdown,
  * scroll the dropdown into view and focus it.
  */
-export async function openCjkTokenizerSetting() {
+async function openCjkTokenizerSetting() {
     try {
         if (typeof $ === 'undefined') {
             log.warn('[TokenizerLock] jQuery ($) is undefined — cannot navigate');
