@@ -49,8 +49,9 @@ export function switchRow({ id, title, description, isSpan = false }) {
 }
 
 /**
- * A slider beside its number box, for a range of at most 20 steps. The box owns the value and the id; the shell
- * keeps the slider on it (panel-shell.js). `title` names the slider for a screen reader.
+ * A slider beside its number box. The box owns the value and the id; the shell keeps the slider on it
+ * (panel-shell.js), and the box takes an exact value where a long range is hard to hit by dragging. `title` names
+ * the slider for a screen reader. Disabling the box does not disable the slider: the wiring disables both.
  *
  * @param {{id: string, min: number, max: number, step: number, title: string}} slider
  * @returns {string}

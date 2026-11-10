@@ -3,8 +3,8 @@
  *
  * The settings panel's AutoSync page on GUI-DNA (src/features/settings-panel/autosync-page-markup.js): every control
  * keeps the id settings-panel.js wires it by, the window hold and the ghosting note start hidden, the cards the wiring
- * hides on Standard without the plugin carry their ids, only the window has a slider, the other numbers carry the
- * limits the wiring holds them to, the page is drawn from GUI-DNA alone, and the auto-sync status says what auto-sync
+ * hides on Standard without the plugin carry their ids, the window, the event count and the messages kept have a
+ * slider on their box's limits, the size cap carries its own, the page is drawn from GUI-DNA alone, and the auto-sync status says what auto-sync
  * is doing in each state with the tone that state takes.
  */
 /* global document -- this file runs under the jsdom environment */
@@ -50,14 +50,14 @@ describe('AutoSync page markup', () => {
         expect(document.getElementById('VectFox_eventbase_ghost_keep_recent').closest('#VectFox_eventbase_ghost_group')).not.toBeNull();
     });
 
-    it('gives only the window a slider, on its box\'s limits, and holds the other numbers to theirs', () => {
+    it('pairs a slider with the window, the event count and the messages kept, on their boxes\' limits', () => {
         const ranges = [...document.querySelectorAll('.vfx-range[data-vfx-slider-for]')];
-        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_autosync_window_turns']);
-        expect([ranges[0].min, ranges[0].max, ranges[0].step]).toEqual(limitsOf('VectFox_eventbase_autosync_window_turns'));
+        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_autosync_window_turns', 'VectFox_summarizer_injection_count', 'VectFox_eventbase_ghost_keep_recent']);
+        for (const range of ranges) expect([range.min, range.max, range.step], range.dataset.vfxSliderFor).toEqual(limitsOf(range.dataset.vfxSliderFor));
         expect(limitsOf('VectFox_eventbase_autosync_window_turns')).toEqual(['1', '20', '1']);
         expect(limitsOf('VectFox_summarizer_injection_count')).toEqual(['1', '50', '1']);
+        expect(limitsOf('VectFox_eventbase_ghost_keep_recent')).toEqual(['1', '50', '1']);
         expect(limitsOf('VectFox_summarizer_injection_max_chars')).toEqual(['0', '100000', '500']);
-        expect(limitsOf('VectFox_eventbase_ghost_keep_recent')).toEqual(['0', '100', '1']);
         for (const id of ['VectFox_autosync_enabled', 'VectFox_autosync_popup', 'VectFox_autosync_show_progress_modal', 'VectFox_summarizer_injection_enabled',
             'VectFox_summarizer_injection_full_detail', 'VectFox_eventbase_ghost_enabled']) {
             expect(document.getElementById(id).getAttribute('role'), id).toBe('switch');

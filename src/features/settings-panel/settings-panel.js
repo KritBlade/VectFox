@@ -2415,7 +2415,7 @@ function bindSettingsEvents(settings, callbacks) {
         const summOn = !!settings.summarizer_injection_enabled;
         const ghostOn = !!settings.eventbase_ghost_enabled;
         $('#VectFox_eventbase_ghost_enabled').prop('disabled', !summOn);
-        $('#VectFox_eventbase_ghost_keep_recent').prop('disabled', !summOn || !ghostOn);
+        $('#VectFox_eventbase_ghost_keep_recent, [data-vfx-slider-for="VectFox_eventbase_ghost_keep_recent"]').prop('disabled', !summOn || !ghostOn);
         $('#VectFox_eventbase_ghost_needs_summarizer').toggle(!summOn);
         _refreshGhostReadout();
     };

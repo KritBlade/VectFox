@@ -42,7 +42,7 @@ function summarizerCard() {
             ${switchRow({ id: 'VectFox_summarizer_injection_enabled', title: 'Inject recent events', description: 'Turns auto-sync on and holds its window at 1 turn while on.', isSpan: true })}
             ${field([
                 fieldLabel({ text: 'Events to inject', forId: 'VectFox_summarizer_injection_count' }),
-                input({ id: 'VectFox_summarizer_injection_count', type: 'number', min: 1, max: 50, step: 1 }),
+                sliderNumber({ id: 'VectFox_summarizer_injection_count', min: 1, max: 50, step: 1, title: 'Events' }),
                 hint({ text: 'The newest events, in story order, each marked with how many turns ago.' }),
             ])}
             ${field([
@@ -64,9 +64,9 @@ function ghostingCard() {
             ${switchRow({ id: 'VectFox_eventbase_ghost_enabled', title: 'Ghost vectorized messages', description: 'Blanks them from the prompt sent. The chat and its saved file stay untouched.', isSpan: true })}
             ${field([
                 fieldLabel({ text: 'Messages kept verbatim', forId: 'VectFox_eventbase_ghost_keep_recent', hasHelp: true }),
-                input({ id: 'VectFox_eventbase_ghost_keep_recent', type: 'number', min: 0, max: 100, step: 1 }),
+                sliderNumber({ id: 'VectFox_eventbase_ghost_keep_recent', min: 1, max: 50, step: 1, title: 'Messages' }),
                 hint({ text: 'Older vectorized messages are blanked. Lower saves more tokens.' }),
-                detail({ text: 'Even at 0 it keeps the current turn and every message World Info scans, so keyword triggers still fire. The blanked turns live on only as events, so check recall as you lower it.' }),
+                detail({ text: 'Every message World Info scans is kept as well, so keyword triggers still fire. The blanked turns live on only as events, so check recall as you lower it.' }),
             ])}
             <div id="VectFox_eventbase_ghost_readout">${notice({ status: 'info', text: 'Last turn: no reply yet.' })}</div>
         </div>
