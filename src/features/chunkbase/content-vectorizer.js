@@ -1084,7 +1084,7 @@ async function _finalizeReformatAccept({ acceptedRecords, sourceHash, text, sour
 
         if (text.length > 200000) {
             toastr.warning(
-                `Auto-Reformat retains the original source text for audit (~${Math.round(text.length / 1024)} KB), adding to your settings storage size. Use "Clear Auto-Reformat originals" in Database Browser if this grows large.`,
+                `Auto-Reformat retains the original source text for audit (~${Math.round(text.length / 1024)} KB), adding to your settings storage size. Use Clear originals at the foot of the Database Browser's Collections page if this grows large.`,
                 'VectFox',
                 { timeOut: 10000 },
             );

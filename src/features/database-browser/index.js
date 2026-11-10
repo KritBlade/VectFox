@@ -1,5 +1,5 @@
-// features/database-browser — the database browser: collection cards and their actions, the chunk viewer, the
-// size inspector, and the icons they share.
+// features/database-browser — the Database Browser: its Collections page with each collection's actions, its Search
+// page, the Size Inspector, and the Chunk Visualizer it opens.
 //
 // world-info opens the browser when a vectorized lorebook was renamed or deleted.
 //

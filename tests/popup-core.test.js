@@ -1,9 +1,12 @@
 /**
- * sillytavern/popup-core.js: a dialog's lines. A fixed word comes out as a key the locale pass
- * translates; a value comes out as written.
+ * @vitest-environment jsdom
+ *
+ * sillytavern/popup-core.js: a dialog's lines, where a fixed word comes out as a key the locale pass translates and a
+ * value comes out as written; and whether a modal VectFox placed on a dialog is open on it.
  */
+/* global document -- this file runs under the jsdom environment */
 import { describe, it, expect } from 'vitest';
-import { dialogLineSegments } from '../src/sillytavern/popup-core.js';
+import { dialogLineSegments, isModalOpenOnDialogOf } from '../src/sillytavern/popup-core.js';
 
 describe('dialogLineSegments', () => {
     it('a fixed sentence is one key', () => {
@@ -44,5 +47,27 @@ describe('dialogLineSegments', () => {
         expect(dialogLineSegments('Delete?')).toEqual([]);
         expect(dialogLineSegments(null)).toEqual([]);
         expect(dialogLineSegments({ parts: [null, { name: '' }, { text: 'x' }] })).toEqual([{ key: 'x' }]);
+    });
+});
+
+describe('isModalOpenOnDialogOf', () => {
+    it('is true only while a modal placed on the same dialog is shown', () => {
+        document.body.innerHTML = '<dialog id="browser"><div id="inside"></div></dialog>';
+        const inside = document.getElementById('inside');
+        expect(isModalOpenOnDialogOf(inside)).toBe(false);
+
+        document.getElementById('browser').insertAdjacentHTML('beforeend', '<div class="vectfox-modal" id="rename"></div>');
+        expect(isModalOpenOnDialogOf(inside)).toBe(true);
+        document.getElementById('rename').style.display = 'none';
+        expect(isModalOpenOnDialogOf(inside)).toBe(false);
+
+        document.getElementById('browser').insertAdjacentHTML('beforeend', '<div class="vectfox-visualizer-modal"></div>');
+        expect(isModalOpenOnDialogOf(inside)).toBe(true);
+    });
+
+    it('a modal on another dialog does not count, and an element in no dialog has none', () => {
+        document.body.innerHTML = '<dialog id="panel"><div id="inside"></div></dialog><dialog><div class="vectfox-modal"></div></dialog><p id="loose"></p>';
+        expect(isModalOpenOnDialogOf(document.getElementById('inside'))).toBe(false);
+        expect(isModalOpenOnDialogOf(document.getElementById('loose'))).toBe(false);
     });
 });

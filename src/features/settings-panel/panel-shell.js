@@ -23,9 +23,11 @@
  */
 
 import { openPanelPopup } from '../../sillytavern/popup.js';
+import { isModalOpenOnDialogOf } from '../../sillytavern/popup-core.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { log } from '../../sillytavern/log.js';
 import { panelThemeOf } from '../../shared/gui-dna/gui-dna-core.js';
+import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import { FIRST_PANEL_TAB, panelPageId, panelTabId } from './panel-shell-markup.js';
 
 const PANEL_ROOT_ID = 'VectFox_settings';
@@ -43,17 +45,6 @@ const PANEL_LAUNCHER_ID = 'VectFox_open_panel';
 let panelTabs = [];
 let shownTabName = FIRST_PANEL_TAB;
 let isPanelOpen = false;
-
-// The modals a page opens over the panel (Database Browser, Vectorize Content, Diagnostics, ...). Each sits on the
-// panel's dialog while open (sillytavern/popup.js placeOnTopmostModalLayer), and Escape belongs to it.
-const MODAL_SELECTOR = '.vectfox-modal, .vectfox-visualizer-modal';
-
-/** Whether a modal is open over the panel, so Escape or Close leaves the panel open under it. */
-function isModalOpenOverPanel(panel) {
-    const dialog = panel.closest('dialog');
-    if (!dialog) return false;
-    return [...dialog.children].some(child => child.matches(MODAL_SELECTOR) && getComputedStyle(child).display !== 'none');
-}
 
 /** Run one of a page's hooks. A hook that fails is logged, and the panel carries on. */
 function runTabHook(name, hookName) {
@@ -105,8 +96,9 @@ export async function openSettingsPanel(name = shownTabName) {
     }
     showPanelTab(name);
     isPanelOpen = true;
-    // Opened first, so the page is in the dialog and has its size when its hook runs.
-    const closed = openPanelPopup(panel, { canClose: () => !isModalOpenOverPanel(panel) });
+    // Opened first, so the page is in the dialog and has its size when its hook runs. A modal a page opens over the
+    // panel (Vectorize Content, Diagnostics, ...) sits on its dialog, and Escape belongs to it while it is open.
+    const closed = openPanelPopup(panel, { canClose: () => !isModalOpenOnDialogOf(panel) });
     runTabHook(shownTabName, 'onOpen');
     try {
         await closed;   // logs its own failure and resolves; never throws
@@ -159,20 +151,7 @@ export function wireSettingsPanel(tabs, settings) {
     });
     applyPanelTheme();
 
-    // Delegated, so a field or card a page paints later behaves the same way.
-    // The (?) beside a label opens its field's longer explanation in place: a tap, never a hover.
-    $(`#${PANEL_ROOT_ID}`).on('click', '.vfx-help-toggle', function () {
-        const $field = $(this).closest('.vfx-field');
-        const isOpen = !$field.hasClass('is-help-open');
-        $field.toggleClass('is-help-open', isOpen);
-        $(this).attr('aria-expanded', String(isOpen));
-    });
-    $(`#${PANEL_ROOT_ID}`).on('click', '.vfx-collapse', function () {
-        const $box = $(this).closest('.vfx-card, .vfx-record');
-        const isCollapsed = !$box.hasClass('is-collapsed');
-        $box.toggleClass('is-collapsed', isCollapsed);
-        $(this).attr('aria-expanded', String(!isCollapsed));
-    });
+    bindGeneBehaviours(document.getElementById(PANEL_ROOT_ID));
     // Dragging a slider writes its number box and fires the box's own input and change, so the box's handler saves
     // exactly as if the number had been typed; typing a number moves its slider.
     $(`#${PANEL_ROOT_ID}`).on('input', '.vfx-range[data-vfx-slider-for]', function () {

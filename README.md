@@ -416,7 +416,7 @@ Numerous bug fixes around mixed-backend search, handle ID filtering, and other e
 
 ## 🎭 Activation Rules
 
-Each collection card has an Activation panel. Activation is a chain of gates; every gate that applies must pass:
+Each collection has activation settings: Edit collection settings on its row in the Database Browser. Activation is a chain of gates; every gate that applies must pass:
 
 1. **Disabled** (pause button) → never queries
 2. **Active for current chat / Character lock** → required; a collection not locked to this chat or character never queries
@@ -594,7 +594,7 @@ Pick your tokenizer mode *before* you start vectorizing a chat and stick with it
 Yes. Keyword/pattern matching uses plain substring search, so it works for CJK the same as English. The only caveat is user-written regex using ASCII `\b` word boundaries (which don't fire between CJK characters) — use plain substrings or Unicode `\p{L}` with the `u` flag. Numeric conditions (Message Count / Turn Count) are always language-independent.
 
 **How do I delete a collection safely?**
-**ALWAYS use the Database Browser inside VectFox** (Action page → Database Browser → "Open browser") to delete collections. Click the red "Delete" button on the collection card. This properly cleans up both the vector database **and** VectFox's internal registry + metadata. Never delete collections manually from Qdrant's web UI or by editing SillyTavern's `settings.json` — doing so leaves orphaned metadata that causes sync conflicts, "collection not found" errors, and other strange behavior.
+**ALWAYS use the Database Browser inside VectFox** (Action page → Database Browser → "Open browser") to delete collections. Click the red trash button on the collection's row. This properly cleans up both the vector database **and** VectFox's internal registry + metadata. Never delete collections manually from Qdrant's web UI or by editing SillyTavern's `settings.json` — doing so leaves orphaned metadata that causes sync conflicts, "collection not found" errors, and other strange behavior.
 
 **Why "scene" settings can't be found?  It was in the original VectHare**
 Scene support was removed (it was a chunk-based-chat-era feature, and chat now runs through EventBase). Grouping events together is not quite logical, so the feature was removed.

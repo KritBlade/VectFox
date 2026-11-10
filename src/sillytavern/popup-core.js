@@ -1,5 +1,6 @@
-// sillytavern/popup-core.js — a dialog's text as lines, pure: what each line shows. popup.js renders the segments;
-// tests/popup-core.test.js holds the shapes to it.
+// sillytavern/popup-core.js — the parts of the dialog door that need no SillyTavern import: a dialog's text as lines
+// (what each line shows; popup.js renders the segments), and whether a modal VectFox placed on a dialog is open on it.
+// tests/popup-core.test.js holds both to their shapes.
 //
 // A LINE is one of:
 //   { text }          a fixed sentence, keyed with its English source;
@@ -35,4 +36,21 @@ export function dialogLineSegments(line) {
     }
     if (segments.length && typeof line.icon === 'string' && ICON_CLASS.test(line.icon)) segments.unshift({ icon: line.icon });
     return segments;
+}
+
+// The modals VectFox places on an open dialog (popup.js placeOnTopmostModalLayer): the tools a panel page opens, the
+// Database Browser's own dialogs and the Chunk Visualizer.
+const PLACED_MODAL_SELECTOR = '.vectfox-modal, .vectfox-visualizer-modal';
+
+/**
+ * Whether a modal VectFox placed on the dialog holding `element` is shown there now. That dialog then stays open on
+ * Escape or Close, so Escape closes only the modal.
+ *
+ * @param {HTMLElement} element - Anything inside the dialog
+ * @returns {boolean}
+ */
+export function isModalOpenOnDialogOf(element) {
+    const dialog = element?.closest('dialog');
+    if (!dialog) return false;
+    return [...dialog.children].some(child => child.matches(PLACED_MODAL_SELECTOR) && getComputedStyle(child).display !== 'none');
 }

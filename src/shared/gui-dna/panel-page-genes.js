@@ -2,12 +2,13 @@
  * ============================================================================
  * PANEL PAGE GENES
  * ============================================================================
- * The genes with parts that a page of the settings panel writes as static markup and
- * that gui-dna-core.js, generated from mvu-helper, does not build: a card's header, a
- * switch row, a slider with its number box, a button found by its id, an action card and
- * the danger zone (mvu-helper/devdoc/gui-dna.md §5). Each takes the id its page's wiring
- * finds the control by. Every word passed in is escaped; `actions` is markup from the
- * builders. Pure: builds strings.
+ * The genes with parts that a page of a VectFox shell (the settings panel, the Database
+ * Browser) writes as static markup and that gui-dna-core.js, generated from mvu-helper,
+ * does not build: a nav item, a page's header, a card's header, a switch row, a slider
+ * with its number box, a button found by its id, an action card and the danger zone
+ * (mvu-helper/devdoc/gui-dna.md §5). Each takes the id its page's wiring finds the
+ * control by. Every word passed in is escaped; `actions` and `status` are markup from
+ * the builders. Pure: builds strings.
  * ============================================================================
  */
 
@@ -17,6 +18,45 @@ import { input } from './gui-dna-core.js';
 const COLLAPSE_BUTTON = '<button type="button" class="vfx-collapse" aria-expanded="true" title="Show or hide"><i class="fa-solid fa-chevron-up"></i></button>';
 
 const iconTag = (icon, extraClass = '') => `<i class="fa-solid ${escape(icon)}${extraClass}"></i>`;
+
+/**
+ * The nav's brand: VectFox's wolf (Font Awesome has no fox) and the shell's name.
+ *
+ * @param {string} title - VectFox, or the tool the shell holds
+ * @returns {string}
+ */
+export function navBrand(title) {
+    return `<div class="vfx-nav-brand"><i class="fa-brands fa-wolf-pack-battalion"></i><span>${escape(title)}</span></div>`;
+}
+
+/**
+ * A nav item: its icon and title. The shown page's item is `isActive`, marked as the current page.
+ *
+ * @param {{id: string, icon: string, title: string, isActive?: boolean}} item
+ * @returns {string}
+ */
+export function navItem({ id, icon, title, isActive = false }) {
+    return `<button type="button" id="${escape(id)}" class="vfx-nav-item${isActive ? ' is-active' : ''}"${isActive ? ' aria-current="page"' : ''}>`
+        + `${iconTag(icon)}<span>${escape(title)}</span></button>`;
+}
+
+/**
+ * A page's header: its icon, "<group> / <title>" as the eyebrow, the title and the one-line subtitle, then its pills.
+ *
+ * @param {{icon: string, eyebrow: string, title: string, subtitle: string, status?: string}} header
+ * @returns {string}
+ */
+export function pageHeader({ icon, eyebrow, title, subtitle, status = '' }) {
+    return '<header class="vfx-page-header">'
+        + `<span class="vfx-page-icon">${iconTag(icon)}</span>`
+        + '<div class="vfx-page-heading">'
+        + `<div class="vfx-page-eyebrow">${escape(eyebrow)}</div>`
+        + `<h2 class="vfx-page-title">${escape(title)}</h2>`
+        + `<p class="vfx-page-subtitle">${escape(subtitle)}</p>`
+        + '</div>'
+        + (status ? `<div class="vfx-page-status">${status}</div>` : '')
+        + '</header>';
+}
 
 /**
  * A card's header: its badge, title and one-line description, then any actions and the collapse chevron.

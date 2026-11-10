@@ -20,7 +20,6 @@
 @import url('./features/settings-panel/settings-panel.css');
 @import url('./shared/forms.css');
 @import url('./shared/buttons.css');
-@import url('./features/database-browser/collection-badges.css');
 @import url('./shared/modals.css');
 
 /* Progress panel */

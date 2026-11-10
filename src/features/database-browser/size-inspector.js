@@ -2,12 +2,11 @@
  * ============================================================================
  * VECTFOX SIZE INSPECTOR
  * ============================================================================
- * Diagnostic tool: surveys every collection on disk + Qdrant and reports
- * per-collection chunk-size distribution. Click a row to drill into the
- * largest entries of that single collection.
- *
- * Used to diagnose runaway injection (e.g. GitHub issue #3 — 1M+ token
- * injections) by finding bloated metadata or oversized event payloads.
+ * The Database Browser's Size page: surveys every collection on disk and in
+ * Qdrant, ranks them by their largest entry, and lists one collection's entries,
+ * the largest first. Used to find what bloats an injection (GitHub issue #3, 1M+
+ * token injections), such as oversized metadata or event payloads. The page's
+ * markup is database-browser-markup.js; this paints its rows.
  *
  * @author Kritblade
  * ============================================================================
@@ -17,163 +16,71 @@ import { extension_settings } from "../../sillytavern/settings.js";
 import { loadAllCollections } from "../collections/index.js";
 import { buildRegistryKey } from "../../shared/collection-ids.js";
 import { listChunks } from "../vector-backend/index.js";
-import { icons } from "./icons.js";
-import { escapeHtml } from "../../shared/html-escape.js";
 import { log } from '../../sillytavern/log.js';
+import { sizeEntriesMarkup, sizeStatusMarkup, sizeSummaryRowMarkup } from "./database-browser-markup.js";
 
-// Cache of last scan so the detail view can reuse already-fetched items
-// without re-hitting the backend.
-const _cache = {
-    summaries: [],         // array of summary rows
-    itemsByKey: new Map(), // key = registryKey (`backend:collectionId`) -> items[]
+// The last scan, so a collection's entry list reuses the items it already fetched.
+const lastScan = {
+    summaries: [],         // one summary row per collection
+    itemsByKey: new Map(), // registry key (`backend:collectionId`) -> items[]
 };
 
+// The entries of the collection shown, largest first.
+let shownEntries = [];
+
 /**
- * Renders the Size Inspector tab content into the given container.
- * Idempotent — safe to call multiple times.
- * @param {jQuery|HTMLElement} container
+ * Bind the Size page's buttons, delegated on the browser's root, so rows painted later answer too.
+ *
+ * @param {HTMLElement} root - The Database Browser's root
  */
-export function renderSizeInspectorTab(container) {
-    const $c = window.jQuery ? window.jQuery(container) : null;
-    if (!$c || !$c.length) return;
-
-    if ($c.find(".vectfox-size-inspector").length) {
-        // Already rendered — just rebind in case events were lost.
-        bindEvents();
-        return;
-    }
-
-    $c.html(`
-        <div class="vectfox-size-inspector">
-            <div class="vectfox-size-toolbar">
-                <button id="vectfox_size_scan_btn" class="vectfox-btn vectfox-btn-primary">
-                    ${icons.refreshCw(14)} Scan all collections
-                </button>
-                <span class="vectfox-size-hint">
-                    Surveys every collection (FS + Qdrant) and reports the largest entries.
-                    Use this to diagnose oversized injections.
-                </span>
-            </div>
-
-            <div id="vectfox_size_status" class="vectfox-size-status"></div>
-
-            <div id="vectfox_size_summary_wrap" class="vectfox-size-summary-wrap" style="display:none;">
-                <h4>Per-collection summary <span class="vectfox-size-sort-hint">(sorted by max chars, click a row to drill in)</span></h4>
-                <div class="vectfox-size-table-scroll">
-                    <table class="vectfox-size-table" id="vectfox_size_summary_table">
-                        <thead>
-                            <tr>
-                                <th>Collection</th>
-                                <th>Backend</th>
-                                <th class="num">Count</th>
-                                <th class="num">Max chars</th>
-                                <th class="num">Avg chars</th>
-                                <th class="num">Total KB</th>
-                                <th>Worst preview</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div id="vectfox_size_detail_wrap" class="vectfox-size-detail-wrap" style="display:none;">
-                <div class="vectfox-size-detail-header">
-                    <button id="vectfox_size_back_btn" class="vectfox-btn-sm">
-                        ${icons.chevronLeft(14)} Back to summary
-                    </button>
-                    <h4 id="vectfox_size_detail_title">Collection detail</h4>
-                </div>
-                <div class="vectfox-size-table-scroll">
-                    <table class="vectfox-size-table" id="vectfox_size_detail_table">
-                        <thead>
-                            <tr>
-                                <th class="num">#</th>
-                                <th class="num">Chars</th>
-                                <th>Hash</th>
-                                <th>Preview</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    `);
-
-    bindEvents();
+export function bindSizeInspector(root) {
+    const $root = $(root);
+    $root.on("click", "#vectfox_size_scan_btn", () => void runScan());
+    $root.on("click", '[data-size-action="show"]', function () {
+        showCollectionEntries(this.dataset.sizeKey);
+    });
+    $root.on("click", '[data-size-action="back"]', showRanking);
+    $root.on("click", "[data-size-page]", function () {
+        showEntriesPage(Number(this.dataset.sizePage));
+    });
 }
 
-function bindEvents() {
-    const $ = window.jQuery;
-    if (!$) return;
-
-    $("#vectfox_size_scan_btn").off("click").on("click", async function (e) {
-        e.stopPropagation();
-        e.preventDefault();
-        await runScan();
-    });
-
-    $("#vectfox_size_back_btn").off("click").on("click", function (e) {
-        e.stopPropagation();
-        e.preventDefault();
-        $("#vectfox_size_detail_wrap").hide();
-        $("#vectfox_size_summary_wrap").show();
-    });
-
-    // Delegate row clicks (rows are re-rendered after scan)
-    $("#vectfox_size_summary_table tbody").off("click", "tr.clickable").on("click", "tr.clickable", function () {
-        const key = $(this).attr("data-key");
-        if (key) showCollectionDetail(key);
-    });
+function paintStatus(text, isFailed = false) {
+    $("#vectfox_size_status").html(sizeStatusMarkup({ text, isFailed }));
 }
 
 async function runScan() {
-    const $ = window.jQuery;
-    const $btn = $("#vectfox_size_scan_btn");
-    const $status = $("#vectfox_size_status");
-    const $wrap = $("#vectfox_size_summary_wrap");
-    const $tbody = $("#vectfox_size_summary_table tbody");
-
-    $btn.prop("disabled", true);
-    $status.removeClass("error").text("Listing collections…");
-    $wrap.hide();
-    $("#vectfox_size_detail_wrap").hide();
-    $tbody.empty();
-    _cache.summaries = [];
-    _cache.itemsByKey.clear();
+    const $button = $("#vectfox_size_scan_btn");
+    $button.prop("disabled", true);
+    paintStatus("Listing collections…");
+    $("#vectfox_size_summary_wrap, #vectfox_size_detail_wrap").hide();
+    $("#vectfox_size_summary_list").empty();
+    lastScan.summaries = [];
+    lastScan.itemsByKey.clear();
 
     try {
-        // Single source of truth for collection listing — same path the Database
-        // Browser, WI panel, and auto-sync use. loadAllCollections() handles plugin
-        // discovery, dedup of (backend, collectionId) collisions, scope migration,
-        // and per-entry source/model resolution. Each returned entry already
-        // carries { id, registryKey, backend, source, model, chunkCount } — no
-        // local fetch + dedup needed here. See Doc/collection_helper.md.
+        // One path lists collections for the Database Browser, the WorldInfo page and auto-sync:
+        // loadAllCollections handles plugin discovery, (backend, collectionId) collisions, scope
+        // migration and each entry's source and model, so each entry carries
+        // { id, registryKey, backend, source, model, chunkCount }. See Doc/collection_helper.md.
         const settings = extension_settings?.vectfox;
         if (!settings) {
             throw new Error("VectFox settings not initialized");
         }
-        $status.text("Listing collections via loadAllCollections…");
         const collections = await loadAllCollections(settings, false);
-
-        $status.text(`Found ${collections.length} collections. Probing chunks…`);
-
         if (!collections.length) {
-            $btn.prop("disabled", false);
+            paintStatus("Found no collections.");
             return;
         }
+        paintStatus(`Found ${collections.length} collections. Reading their entries…`);
 
         const summaries = [];
         let done = 0;
-
         for (const entry of collections) {
             const collectionId = entry.id;
             const backend = entry.backend || "qdrant";
-            // loadAllCollections already resolved source + primary model from
-            // plugin discovery. Vectra/standard indexes are partitioned by
-            // (source, model) on disk, so forwarding the discovered values is
-            // mandatory — defaults would silently hit an empty new index.
+            // Vectra and Standard indexes are partitioned by (source, model) on disk, so the
+            // discovered values must be forwarded: defaults would silently read an empty index.
             const source = entry.source || "transformers";
             const registryKey = entry.registryKey || buildRegistryKey(collectionId, backend);
             if (!collectionId) {
@@ -190,10 +97,10 @@ async function runScan() {
                 const data = await listChunks(collectionId, entrySettings, { limit: 5000 });
                 const items = data.items || [];
 
-                const row = summarize(collectionId, backend, items, registryKey);
-                summaries.push(row);
-                _cache.itemsByKey.set(registryKey, items);
+                summaries.push(summarize(collectionId, backend, items, registryKey));
+                lastScan.itemsByKey.set(registryKey, items);
             } catch (err) {
+                log.warn(`[VectFox SizeInspector] could not read ${collectionId}:`, err);
                 summaries.push({
                     key: registryKey,
                     collectionId,
@@ -202,26 +109,26 @@ async function runScan() {
                     maxChars: 0,
                     avgChars: 0,
                     totalKB: 0,
-                    worstPreview: `(error: ${err.message})`,
+                    worstPreview: `Could not read it: ${err.message}`,
                     error: true,
                 });
             }
 
             done++;
-            $status.text(`Probing chunks… (${done}/${collections.length})`);
+            paintStatus(`Reading entries… (${done}/${collections.length})`);
         }
 
         summaries.sort((a, b) => b.maxChars - a.maxChars);
-        _cache.summaries = summaries;
+        lastScan.summaries = summaries;
 
-        renderSummaryRows(summaries);
-        $wrap.show();
-        $status.text(`Done. ${summaries.length} collections scanned. Click a row to see its largest entries.`);
+        $("#vectfox_size_summary_list").html(summaries.map(sizeSummaryRowMarkup).join(""));
+        $("#vectfox_size_summary_wrap").show();
+        paintStatus(`Done: ${summaries.length} collections read. Show entries lists one collection's entries.`);
     } catch (err) {
         log.error("[VectFox SizeInspector] scan failed", err);
-        $status.addClass("error").text(`Scan failed: ${err.message}`);
+        paintStatus(err.message, true);
     } finally {
-        $btn.prop("disabled", false);
+        $button.prop("disabled", false);
     }
 }
 
@@ -257,71 +164,31 @@ function summarize(collectionId, backend, items, registryKey) {
     };
 }
 
-function renderSummaryRows(rows) {
-    const $tbody = window.jQuery("#vectfox_size_summary_table tbody");
-    $tbody.empty();
-    for (const r of rows) {
-        const cls = r.error ? "error" : (r.count > 0 ? "clickable" : "");
-        $tbody.append(`
-            <tr class="${cls}" data-key="${escapeHtml(r.key)}">
-                <td class="collection-cell" title="${escapeHtml(r.collectionId)}">${escapeHtml(truncateMid(r.collectionId, 60))}</td>
-                <td>${escapeHtml(r.backend)}</td>
-                <td class="num">${r.count}</td>
-                <td class="num">${r.maxChars}</td>
-                <td class="num">${r.avgChars}</td>
-                <td class="num">${r.totalKB}</td>
-                <td class="preview-cell" title="${escapeHtml(r.worstPreview)}">${escapeHtml(r.worstPreview.slice(0, 60))}</td>
-            </tr>
-        `);
-    }
-}
+function showCollectionEntries(key) {
+    const items = lastScan.itemsByKey.get(key) || [];
+    const summary = lastScan.summaries.find(s => s.key === key);
+    shownEntries = items
+        .map((item) => {
+            const metadataText = JSON.stringify(item.metadata || {});
+            const text = item.metadata?.text || item.metadata?.summary || metadataText;
+            return { chars: metadataText.length, hash: String(item.hash ?? item.id ?? ""), preview: String(text).slice(0, 200) };
+        })
+        .sort((a, b) => b.chars - a.chars)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
 
-function showCollectionDetail(key) {
-    const $ = window.jQuery;
-    const items = _cache.itemsByKey.get(key) || [];
-    const summary = _cache.summaries.find(s => s.key === key);
-
-    $("#vectfox_size_detail_title").text(
-        summary ? `${summary.collectionId} — ${items.length} entries` : "Collection detail"
-    );
-
-    const $tbody = $("#vectfox_size_detail_table tbody");
-    $tbody.empty();
-
-    const rows = items.map((it, idx) => {
-        const metaStr = JSON.stringify(it.metadata || {});
-        const text = it.metadata?.text || it.metadata?.summary || metaStr;
-        return {
-            origIdx: idx,
-            chars: metaStr.length,
-            hash: it.hash ?? it.id ?? "",
-            preview: String(text).slice(0, 200),
-        };
-    });
-    rows.sort((a, b) => b.chars - a.chars);
-
-    for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        $tbody.append(`
-            <tr>
-                <td class="num">${i + 1}</td>
-                <td class="num">${r.chars}</td>
-                <td class="hash-cell">${escapeHtml(String(r.hash))}</td>
-                <td class="preview-cell" title="${escapeHtml(r.preview)}">${escapeHtml(r.preview.slice(0, 120))}</td>
-            </tr>
-        `);
-    }
-
+    $("#vectfox_size_detail_title").text(`${summary?.collectionId ?? key}: ${items.length} entries`);
+    showEntriesPage(0);
     $("#vectfox_size_summary_wrap").hide();
     $("#vectfox_size_detail_wrap").show();
 }
 
-// ---------- small helpers ----------
+function showEntriesPage(page) {
+    const { list, pager } = sizeEntriesMarkup(shownEntries, page);
+    $("#vectfox_size_detail_list").html(list);
+    $("#vectfox_size_detail_pager").html(pager);
+}
 
-function truncateMid(s, max) {
-    s = String(s);
-    if (s.length <= max) return s;
-    const head = Math.ceil(max / 2) - 1;
-    const tail = Math.floor(max / 2) - 2;
-    return `${s.slice(0, head)}…${s.slice(-tail)}`;
+function showRanking() {
+    $("#vectfox_size_detail_wrap").hide();
+    $("#vectfox_size_summary_wrap").show();
 }

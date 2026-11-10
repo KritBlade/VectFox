@@ -276,13 +276,9 @@ A rewritten collection has no character lock — it stops activating until the u
 
 **Rule for new code:** never reintroduce `scope === 'global'` branches anywhere. If you need to handle stored data that *might* contain `'global'`, route it through `getEffectiveScope` — the canonical resolver folds every invalid value into `'character'` or `'chat'`.
 
-## DB Browser — lock badge in the listing
+## DB Browser — the Active here pill in the listing
 
-In `src/features/database-browser/database-browser.js`, the main render loop calls `getCollectionListing(settings)` once and iterates its entries. Each entry carries `entry.isActive` (pre-computed by `getCollectionListing` via `isCollectionActiveForContext(registryKey, ...)` internally). The badge renderer receives the entry and reads `entry.isActive` — there is no per-card `isCollectionActiveForContext` call in the loop. The badge displays a scope-appropriate tooltip:
-- `scope='chat'` → "Active for current chat" (with chat-count suffix if locked to multiple chats)
-- `scope='character'` → "Active for current chat (locked to current character)"
-
-The badge helper keeps one direct `isCollectionActiveForContext` call for callers that pass a raw collection ID instead of an entry; it is internal plumbing, not the pattern to copy.
+In `src/features/database-browser/database-browser.js`, `renderCollections` calls `getCollectionListing(settings)` once and keys each entry's `isActive` (computed there with `isCollectionActiveForContext(registryKey, ...)`) by registry key and by bare ID. The "Active here only" filter and every row read that lookup; no row calls `isCollectionActiveForContext` itself. An active row shows the Active here pill and a line from `activeHereLine` naming the lock that matched: this chat, this character, or both, and how many other chats it is locked to. It names the lock that matched, not the one its scope implies, since `shouldCollectionActivate()` takes either lock whatever the scope.
 
 ## DB Browser → Collection Settings → "Active for current chat" checkbox
 
@@ -669,7 +665,7 @@ Triggers and conditions narrow a locked collection; neither can activate an unlo
 | `src/features/vector-backend/vector-api.js` | `queryCollection` — the canonical per-collection-backend routing entry point |
 | `src/features/eventbase/eventbase-workflow.js` | `getChatAutoSyncStatus`, `isChatFullyVectorized`, dispatches `vectfox:eventbase-synced` |
 | `src/features/chunkbase/content-vectorization.js` | Default `scope='character'`, no `'global'` fallback |
-| `src/features/database-browser/database-browser.js` | Listing lock badge, `openActivationEditor`, `renderActivationEditor`, `refreshActivationLockButton`, `saveActivation` |
+| `src/features/database-browser/database-browser.js` | The Active here pill (`activeHereLine`), `openActivationEditor`, `renderActivationEditor`, `refreshActivationLockButton`, `saveActivation` |
 | `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, the semantic activation and auto-sync switch handlers, event listeners |
 | `src/features/chunkbase/content-vectorizer.js` | Scope picker without global, post-vectorization `refreshWIStatus` call |
 

@@ -54,9 +54,10 @@ const SHELL_MARKUP = path.join(SRC, 'features', 'settings-panel', 'panel-shell-m
 // ── G2 ─────────────────────────────────────────────────────────────────────────────────────────────
 const ONE_LINE_MAX = 90;
 const ONE_LINE_ELEMENT = /<(p|span|div|small)\b[^>]*\bclass="[^"]*\b(vfx-hint|vfx-card-desc|vfx-switch-desc|vfx-page-subtitle)\b[^"]*"[^>]*>([\s\S]*?)<\/\1>/g;
-// A hint a renderer builds, hint({ text: '…' }), and a card description handed to a card header builder: the kind,
-// the quote, then the string, escapes included.
-const BUILT_ONE_LINER = /\b(hint\(\{\s*text|description)\s*:\s*(['"])((?:\\.|(?!\2)[^\\\n])*)\2/g;
+// A hint a renderer builds, hint({ text: '…' }), a card description handed to a card header builder, and a page
+// subtitle handed to the page header builder: the kind, the quote, then the string, escapes included.
+const BUILT_ONE_LINER = /\b(hint\(\{\s*text|description|subtitle)\s*:\s*(['"])((?:\\.|(?!\2)[^\\\n])*)\2/g;
+const BUILT_KINDS = { description: 'vfx-card-desc', subtitle: 'vfx-page-subtitle' };
 const unescape = (text) => text.replace(/\\(.)/g, '$1');
 
 function oneLineTexts() {
@@ -69,7 +70,7 @@ function oneLineTexts() {
         }
         if (!BUILDS_GENES.test(text) && file !== SHELL_MARKUP) continue;
         for (const match of text.matchAll(BUILT_ONE_LINER)) {
-            const kind = match[1] === 'description' ? 'vfx-card-desc' : 'vfx-hint';
+            const kind = BUILT_KINDS[match[1]] ?? 'vfx-hint';
             texts.push({ kind: `${kind} (${relative(file)})`, text: unescape(match[3]) });
         }
     }
@@ -81,7 +82,7 @@ function oneLineTexts() {
 const INLINE_STYLES_LEFT = {
     'features/chunkbase/content-vectorizer.js': 22,
     'features/database-browser/chunk-visualizer.js': 4,
-    'features/database-browser/database-browser.js': 10,
+    'features/database-browser/database-browser.js': 1,
     'features/query-tester/query-tester.js': 21,
     'features/settings-panel/settings-panel.js': 13,
     'features/text-cleaning/text-cleaning-ui.js': 2,
@@ -137,8 +138,7 @@ const TOKEN_DECLARATION = /^\s*--vfx-[\w-]+\s*:/;
 const COLOURS_LEFT = {
     'features/chunkbase/content-vectorizer.css': 1,
     'features/database-browser/chunk-visualizer.css': 77,
-    'features/database-browser/collection-badges.css': 37,
-    'features/database-browser/database-browser.css': 17,
+    'features/database-browser/database-browser.css': 1,
     'features/diagnostics/diagnostics.css': 1,
     'features/diagnostics/health-dashboard.css': 12,
     'features/query-tester/query-tester.js': 11,
@@ -226,8 +226,8 @@ describe('GUI-DNA guards', () => {
 
     it('G4 — every class a JS selector looks for is still emitted somewhere', () => {
         const { selectorClasses, emitted } = selectorClassesAndEmittedText();
-        // The scan sees the shell's own lookup: a scan that found nothing would pass anything.
-        expect(selectorClasses.get('vfx-collapse')).toBe('src/features/settings-panel/panel-shell.js');
+        // The scan sees the shared behaviours' own lookup: a scan that found nothing would pass anything.
+        expect(selectorClasses.get('vfx-collapse')).toBe('src/shared/gui-dna/gene-behaviours.js');
         const orphaned = [...selectorClasses].filter(([token]) => !emitted.some((text) => mentions(text, token)))
             .map(([token, file]) => `${file} looks for .${token}, which nothing emits`);
         expect(orphaned).toEqual([]);

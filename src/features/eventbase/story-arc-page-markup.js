@@ -9,7 +9,7 @@
  */
 
 import { button, detail, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { cardHeader, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
 export const STORY_ARC_PAGE_ID = 'VectFox_panel_storyarc';
@@ -162,18 +162,14 @@ function entityCard() {
  */
 export function storyArcPageMarkup({ notice = '' } = {}) {
     return `<div id="${STORY_ARC_PAGE_ID}" class="vfx-page" style="display:none;">
-        <header class="vfx-page-header">
-            <span class="vfx-page-icon"><i class="fa-solid fa-timeline"></i></span>
-            <div class="vfx-page-heading">
-                <div class="vfx-page-eyebrow">Retrieval / StoryArc</div>
-                <h2 class="vfx-page-title">StoryArc</h2>
-                <p class="vfx-page-subtitle">Follows story threads for questions about the past.</p>
-            </div>
-            <div class="vfx-page-status">
-                <span class="vfx-chip"><i class="fa-solid fa-globe"></i><span>Global</span></span>
-                <span id="VectFox_story_arc_link_pill" class="vfx-pill is-accent" style="display:none;"></span>
-            </div>
-        </header>
+        ${pageHeader({
+            icon: 'fa-timeline',
+            eyebrow: 'Retrieval / StoryArc',
+            title: 'StoryArc',
+            subtitle: 'Follows story threads for questions about the past.',
+            status: '<span class="vfx-chip"><i class="fa-solid fa-globe"></i><span>Global</span></span>'
+                + '<span id="VectFox_story_arc_link_pill" class="vfx-pill is-accent" style="display:none;"></span>',
+        })}
         ${notice}
         <nav class="vfx-subnav" role="tablist">
             ${subnavButton({ tab: 'main', icon: 'fa-diagram-project', text: 'Main', isActive: true })}

@@ -2,8 +2,14 @@
  * ============================================================================
  * VECTFOX DATABASE BROWSER
  * ============================================================================
- * Comprehensive vector database browser UI
- * Main entry point for browsing, managing, and editing all vector collections
+ * Browses and manages every vector collection, in three pages: Collections (the
+ * filters, the list with each collection's actions, and bulk actions on the
+ * ticked ones), Search (a search across collections with a keyword filter) and
+ * Size Inspector (size-inspector.js). The browser opens in a near-fullscreen dialog of its
+ * own (sillytavern/popup.js openPanelPopup), drawn fresh on each open from
+ * database-browser-markup.js, and its handlers are delegated on its root. Rename,
+ * Switch model, Collection Settings and Manage locks open their own modals on
+ * that dialog, and Escape closes only those while one is open.
  *
  * @author Kritblade
  * ============================================================================
@@ -49,7 +55,10 @@ import {
   convertToPNG,
 } from "../collections/index.js";
 import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
-import { placeMarkupOnTopmostModalLayer, placeOnTopmostModalLayer } from "../../sillytavern/popup.js";
+import { confirmPopup, openPanelPopup, placeMarkupOnTopmostModalLayer, placeOnTopmostModalLayer } from "../../sillytavern/popup.js";
+import { isModalOpenOnDialogOf } from "../../sillytavern/popup-core.js";
+import { pickFiles } from "../../shared/pick-files.js";
+import { bindGeneBehaviours } from "../../shared/gui-dna/gene-behaviours.js";
 import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
   STORY_LINKS_FILE_TYPE,
@@ -69,45 +78,55 @@ import { getRequestHeaders } from "../../sillytavern/requests.js";
 import { getCurrentChatId, getContext } from "../../sillytavern/chat.js";
 import { eventSource, event_types } from "../../sillytavern/events.js";
 import { world_names, loadWorldInfo } from "../../sillytavern/world-info.js";
-import { icons } from "./icons.js";
-import { escapeHtml } from "../../shared/html-escape.js";
 import { log } from "../../sillytavern/log.js";
 import { openVisualizer } from "./chunk-visualizer.js";
-import { renderSizeInspectorTab } from "./size-inspector.js";
+import { bindSizeInspector } from "./size-inspector.js";
+import {
+  BROWSER_PAGES,
+  browserPageId,
+  browserTabId,
+  collectionEntryMarkup,
+  collectionsFailedMarkup,
+  databaseBrowserMarkup,
+  keywordScanFailedMarkup,
+  keywordScanRunningMarkup,
+  keywordTagsMarkup,
+  noCollectionsMarkup,
+  nothingToSearchMarkup,
+  searchFailedMarkup,
+  searchResultsMarkup,
+  searchRunningMarkup,
+  storyLinksRowMarkup,
+} from "./database-browser-markup.js";
 
-// Browser state
-let browserState = {
+const DEFAULT_FILTERS = Object.freeze({
+  scope: "all", // 'all', 'character', 'chat': collections locked to at least one of these
+  collectionType: "all", // 'all', 'chat', 'lorebook', 'character', 'document', 'web'
+  status: "all", // 'all', 'enabled', 'disabled'
+  searchQuery: "",
+  onlyActiveForChat: false, // only collections active for the current chat (the Active here pill)
+});
+
+const browserState = {
   isOpen: false,
   pluginAvailable: null,
   collections: [],
-  selectedCollection: null,
-  filters: {
-    scope: "all", // 'all', 'character', 'chat'
-    collectionType: "all", // 'all', 'chat', 'file', 'lorebook'
-    searchQuery: "",
-    onlyActiveForChat: false, // when true, only show collections active for the current chat (matches the 🔒 badge)
-  },
+  filters: { ...DEFAULT_FILTERS },
   settings: null,
-  // Bulk operations state
+  // The ticked collections' keys. A filter change drops the ones it hides, so a bulk action never reaches a hidden one.
   bulkSelected: new Set(),
-  bulkFilter: "all", // 'all', 'enabled', 'disabled'
-  // Search state
-  searchResults: null,
-  isSearching: false,
-  // Keyword filter state
-  keywordFilter: '',
-  availableKeywords: [],
-  // PNG export state
-  pendingPngExport: null,
+  // The keys the list shows now, which "Select all shown" ticks
+  shownKeys: [],
+  keywordFilter: "",
+  // The keywords the last scan found, the most common first; null before a scan
+  availableKeywords: null,
   // Each StoryArc links row's read of its collection, by collection key, so a redraw reads nothing again
   storyLinkCoverage: new Map(),
-  // The collection whose Import links button opened the file picker
-  pendingLinksImportKey: null,
+  // Each read's count in words, once it is in, so a redraw shows it at once
+  storyLinkDescriptions: new Map(),
 };
 
-// Event binding flags (module-level for proper reset on modal close)
-let searchEventsBound = false;
-let bulkEventsBound = false;
+const collectionKey = (collection) => collection.registryKey || collection.id;
 
 /**
  * Initializes the database browser
@@ -125,674 +144,293 @@ function renderCollectionsWhileOpen() {
 }
 
 /**
- * Opens the database browser modal
+ * Opens the browser in its dialog and waits until it closes. Rejects only when it could not open.
+ * @returns {Promise<void>}
  */
 export async function openDatabaseBrowser() {
-  log.verbose("VECTFOX Database Browser: openDatabaseBrowser called, isOpen=", browserState.isOpen);
-  if (browserState.isOpen) {
-    log.verbose("VECTFOX Database Browser: Already open (early return)");
-    return;
-  }
+  log.verbose("VectFox Database Browser: open asked, isOpen=", browserState.isOpen);
+  if (browserState.isOpen) return;
 
   browserState.isOpen = true;
   try {
-    // Check plugin availability
     browserState.pluginAvailable = await checkPluginAvailable();
-    log.verbose("VECTFOX Database Browser: pluginAvailable=", browserState.pluginAvailable);
+    resetBrowserState();
+    const root = createBrowser();
+    // Opened first, so the list paints into the dialog. While one of the browser's own modals is open on the
+    // dialog, Escape and Close leave the browser open, and Escape closes only that modal.
+    const closed = openPanelPopup(root, { canClose: () => !isModalOpenOnDialogOf(root) });
+    $("#vectfox_plugin_warning_banner").toggle(!browserState.pluginAvailable);
 
-    // Create modal if it doesn't exist
-    if ($("#vectfox_database_browser_modal").length === 0) {
-      log.trace("VECTFOX Database Browser: creating modal");
-      createBrowserModal();
-    } else {
-      log.trace("VECTFOX Database Browser: modal already in DOM");
-      placeOnTopmostModalLayer(document.getElementById("vectfox_database_browser_modal"));
-    }
-
-    // Show/hide plugin warning banner
-    updatePluginWarningBanner();
-
-    // Force a fresh plugin scan on open so collections created since last scan
-    // (e.g. just-vectorized EventBase collections) land in pluginCollectionData with
-    // their real source/model — otherwise View Chunks sends source: 'unknown' and
-    // the plugin queries the wrong on-disk path.
-    log.trace("VECTFOX Database Browser: about to refreshCollections(true)");
+    // A fresh scan on open, so collections made since the last one (a just-vectorized EventBase collection) carry
+    // their real source and model: View chunks would otherwise ask the plugin for source 'unknown', the wrong path.
     await refreshCollections(true);
-    log.trace("VECTFOX Database Browser: refreshCollections done");
-
-    // Show modal
-    $("#vectfox_database_browser_modal").fadeIn(200);
-    log.lifecycle("VECTFOX Database Browser: Opened (fadeIn fired)");
-  } catch (err) {
-    // Never leave isOpen=true on error — that would jam the button forever
-    // (the early-return guard above would block every subsequent click).
-    log.error("VECTFOX Database Browser: openDatabaseBrowser threw, resetting isOpen=false", err);
+    log.lifecycle("VectFox Database Browser: Opened");
+    await closed;
+  } finally {
     browserState.isOpen = false;
-    throw err;
+    log.lifecycle("VectFox Database Browser: Closed");
+  }
+}
+
+/** Each open starts on the full list, with nothing ticked and no keywords. */
+function resetBrowserState() {
+  browserState.filters = { ...DEFAULT_FILTERS };
+  browserState.bulkSelected.clear();
+  browserState.shownKeys = [];
+  browserState.keywordFilter = "";
+  browserState.availableKeywords = null;
+  browserState.storyLinkCoverage.clear();
+  browserState.storyLinkDescriptions.clear();
+}
+
+/**
+ * Builds the browser from its markup and binds its handlers.
+ * @returns {HTMLElement} The browser's root, not yet on the page
+ */
+function createBrowser() {
+  const template = document.createElement("template");
+  template.innerHTML = databaseBrowserMarkup();
+  const root = template.content.firstElementChild;
+  $(root).find("#vectfox_search_enabled_only").prop("checked", true);
+  bindGeneBehaviours(root);
+  bindBrowserEvents(root);
+  bindSizeInspector(root);
+  return root;
+}
+
+/**
+ * Shows one page and marks its nav item.
+ * @param {string} name A page in BROWSER_PAGES
+ */
+function showBrowserPage(name) {
+  for (const page of BROWSER_PAGES) {
+    const isShown = page.name === name;
+    $(`#${browserPageId(page.name)}`).toggle(isShown);
+    $(`#${browserTabId(page.name)}`).toggleClass("is-active", isShown).attr("aria-current", isShown ? "page" : null);
   }
 }
 
 /**
- * Updates the plugin warning banner visibility
+ * Binds the browser's handlers, delegated on its root, so rows painted later answer too.
+ * @param {HTMLElement} root
  */
-function updatePluginWarningBanner() {
-  const banner = $("#vectfox_plugin_warning_banner");
-  if (browserState.pluginAvailable) {
-    banner.hide();
-  } else {
-    banner.show();
+function bindBrowserEvents(root) {
+  const $root = $(root);
+  for (const page of BROWSER_PAGES) {
+    $root.find(`#${browserTabId(page.name)}`).on("click", () => showBrowserPage(page.name));
+  }
+
+  $root.on("click", "[data-browser-action]", function () {
+    void runBrowserAction(this.dataset.browserAction, this);
+  });
+  $root.on("click", "[data-collection-action]", function () {
+    void runCollectionAction(this.dataset.collectionAction, this.dataset.collectionKey);
+  });
+
+  // Collections page: the filters, then the ticks
+  const filterOn = (selector, eventName, update) => $root.on(eventName, selector, function () {
+    update(this);
+    renderCollections();
+  });
+  filterOn("#vectfox_browser_type", "change", (select) => { browserState.filters.collectionType = select.value; });
+  filterOn("#vectfox_browser_status", "change", (select) => { browserState.filters.status = select.value; });
+  filterOn("#vectfox_browser_scope", "change", (select) => { browserState.filters.scope = select.value; });
+  filterOn("#vectfox_collection_search", "input", (box) => { browserState.filters.searchQuery = box.value.toLowerCase(); });
+  filterOn("#vectfox_only_active_toggle", "change", (toggle) => { browserState.filters.onlyActiveForChat = toggle.checked; });
+  $root.on("change", "[data-collection-select]", function () {
+    setTicked(this.dataset.collectionSelect, this.checked);
+  });
+  $root.on("change", "#vectfox_bulk_select_all", function () {
+    tickAllShown(this.checked);
+  });
+  $root.on("click", "#vectfox_reset_registry", () => void resyncRegistry());
+  $root.on("click", "#vectfox_browser_clear_reformat_originals", () => void clearReformatOriginals());
+
+  // Search page
+  $root.on("click", "#vectfox_search_btn", () => void performSearch());
+  $root.on("keydown", "#vectfox_semantic_search", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    void performSearch();
+  });
+  $root.on("input", "#vectfox_keyword_filter", updateKeywordFilterFromInput);
+  $root.on("click", "[data-keyword]", function () {
+    toggleKeywordFilter(this.dataset.keyword);
+  });
+}
+
+/**
+ * Runs one of a page's buttons.
+ * @param {string} action The button's data-browser-action
+ * @param {HTMLButtonElement} button
+ */
+async function runBrowserAction(action, button) {
+  switch (action) {
+    case "refresh-scan": return refreshScan(button);
+    case "import": return importFromPicker();
+    case "bulk-enable": return setTickedEnabled(true);
+    case "bulk-disable": return setTickedEnabled(false);
+    case "bulk-export": return exportTicked();
+    case "bulk-delete": return deleteTicked();
+    case "scan-keywords": return scanKeywords(button);
+    case "clear-keywords": return clearKeywordFilter();
+    default: log.warn(`VectFox Database Browser: no page button runs "${action}"`);
   }
 }
 
 /**
- * Closes the database browser modal
+ * Probes the Standard and Qdrant backends, updates the registry and drops entries that no longer exist.
+ * @param {HTMLButtonElement} button
  */
-export function closeDatabaseBrowser() {
-  $("#vectfox_database_browser_modal").fadeOut(200);
-  browserState.isOpen = false;
-  // Reset event bound flags for clean rebind on next open
-  resetEventFlags();
-  log.lifecycle("VECTFOX Database Browser: Closed");
+async function refreshScan(button) {
+  button.disabled = true;
+  try {
+    await refreshCollections(true);
+    log.lifecycle("VectFox Database Browser: Scan complete, registry updated");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** Clears the collection registry and rescans the backends, after asking. */
+async function resyncRegistry() {
+  const isConfirmed = await confirmPopup([
+    { text: "Resync the registry?" },
+    { text: "VectFox forgets its list of collections, then scans the backends again. A collection the scan cannot find drops off the list, with its settings." },
+    { text: "Resync clears the list and scans. Cancel keeps it." },
+  ], { okButton: "Resync", isDestructive: true });
+  if (!isConfirmed) return;
+
+  try {
+    clearCollectionRegistry();
+    await refreshCollections(true);
+    log.lifecycle("VectFox Database Browser: Registry cleared and resynced");
+  } catch (error) {
+    log.error("VectFox: Failed to resync", error);
+    toastr.error(`Failed to resync: ${error.message}`, "VectFox");
+  }
 }
 
 /**
- * Resets event bound flags (called on modal close)
+ * Clears the source text Auto-Reformat keeps for review (reformat-store.js), after asking. Only that copy goes: the
+ * accepted chunks and their run stay, so nothing vectorized changes.
  */
-function resetEventFlags() {
-  // Reset flags so events rebind properly on next modal open
-  bulkEventsBound = false;
-  searchEventsBound = false;
-}
-
-/**
- * Creates the browser modal HTML structure
- */
-function createBrowserModal() {
-  const modalHtml = `
-        <div id="vectfox_database_browser_modal" class="vectfox-modal">
-            <div class="vectfox-modal-content vectfox-database-browser-content">
-                <!-- Header -->
-                <div class="vectfox-modal-header">
-                    <h3>🗃️ VECTFOX Database Browser</h3>
-                    <div class="vectfox-modal-header-actions">
-                        <button class="vectfox-btn vectfox-btn-sm" id="vectfox_browser_refresh_scan" title="Probe standard and qdrant backends, update the registry, and remove stale entries">
-                            ${icons.refreshCw(14)} Refresh Scan
-                        </button>
-                        <button class="vectfox-btn vectfox-btn-sm" id="vectfox_browser_clear_reformat_originals" title="Auto-Reformat retains each source's original text for audit. Clear it to reclaim settings.json space — the accepted chunks themselves are untouched.">
-                            🧹 Clear Auto-Reformat Originals
-                        </button>
-                    </div>
-                    <button class="vectfox-btn-icon" id="vectfox_browser_close">✕</button>
-                </div>
-
-                <!-- Plugin Warning Banner (hidden by default, shown when plugin unavailable) -->
-                <div id="vectfox_plugin_warning_banner" class="vectfox-warning-banner" style="display: none;">
-                    <i class="fa-solid fa-triangle-exclamation" style="color: var(--SmartThemeQuoteColor);"></i>
-                    <div class="vectfox-warning-text">
-                        <strong>Limited Discovery Mode</strong>
-                        <span>Similharity plugin not detected. Only registered collections and current chat can be discovered.
-                        Collections created outside VECTFOX won't appear here.
-                        <a href="https://github.com/KritBlade/VectFox/tree/Similharity-Plugin#step-2-install-plugin-via-git-recommended" target="_blank">Install the plugin</a> for full filesystem scanning.</span>
-                    </div>
-                </div>
-
-                <!-- Browser Tabs -->
-                <div class="vectfox-browser-tabs">
-                    <button class="vectfox-tab-btn active" data-tab="collections">
-                        ${icons.folder(16)} Collections
-                    </button>
-                    <button class="vectfox-tab-btn" data-tab="search">
-                        ${icons.search(16)} Search
-                    </button>
-                    <button class="vectfox-tab-btn" data-tab="bulk">
-                        ${icons.listChecks(16)} Bulk Operations
-                    </button>
-                    <button class="vectfox-tab-btn" data-tab="size" title="Diagnose oversized collections / runaway injection">
-                        ${icons.layers(16)} Size Inspector
-                    </button>
-                </div>
-
-                <!-- Tab Content -->
-                <div class="vectfox-browser-content">
-                    <!-- Collections Tab -->
-                    <div id="vectfox_tab_collections" class="vectfox-tab-content active">
-                        <!-- Scope Filters (V1-style) -->
-                        <div class="vectfox-scope-filters">
-                            <button class="vectfox-scope-filter active" data-scope="all" title="Show all collections">All</button>
-                            <button class="vectfox-scope-filter" data-scope="character" title="Character = collections locked to at least one character">Character</button>
-                            <button class="vectfox-scope-filter" data-scope="chat" title="Chat = collections locked to at least one chat">Chat</button>
-
-                            <!-- Small badge and hint describing current scope filter -->
-                        </div>
-
-                        <!-- Type Filters -->
-                        <div class="vectfox-type-filters">
-                            <label>
-                                <input type="radio" name="vectfox_type_filter" value="all" checked>
-                                All Types
-                            </label>
-                            <label>
-                                <input type="radio" name="vectfox_type_filter" value="chat">
-                                ${icons.messageSquare(14)} Chats
-                            </label>
-                            <label>
-                                <input type="radio" name="vectfox_type_filter" value="lorebook">
-                                ${icons.bookOpen(14)} Lorebooks
-                            </label>
-                            <label>
-                                <input type="radio" name="vectfox_type_filter" value="character">
-                                ${icons.user(14)} Characters
-                            </label>
-                            <label>
-                                <input type="radio" name="vectfox_type_filter" value="document">
-                                ${icons.fileText(14)} Documents
-                            </label>
-                            <label>
-                                <input type="radio" name="vectfox_type_filter" value="web">
-                                ${icons.globe(14)} Web
-                            </label>
-                        </div>
-
-                        <!-- Search Box + Active-only toggle -->
-                        <div class="vectfox-search-box" style="display:flex; gap:8px; align-items:center;">
-                            <input type="text"
-                                   id="vectfox_collection_search"
-                                   placeholder="Search collections..."
-                                   autocomplete="off"
-                                   style="flex:1;">
-                            <label id="vectfox_only_active_toggle_label"
-                                   title="Show only collections active for the current chat (the ones with the 🔒 badge)"
-                                   style="display:flex; gap:6px; align-items:center; white-space:nowrap; cursor:pointer; font-size:0.85em;">
-                                <input type="checkbox" id="vectfox_only_active_toggle">
-                                🔒 Active here only
-                            </label>
-                        </div>
-
-                        <!-- Collections List -->
-                        <div id="vectfox_collections_list" class="vectfox-collections-list">
-                            <div class="vectfox-loading">Loading collections...</div>
-                        </div>
-
-                        <!-- Stats Footer -->
-                        <div class="vectfox-browser-stats">
-                            <span id="vectfox_browser_stats_text">No collections</span>
-                            <div class="vectfox-browser-actions">
-                                <button id="vectfox_import_collection" class="vectfox-btn-sm" title="Import collection from file">
-                                    📥 Import
-                                </button>
-                                <button id="vectfox_reset_registry" class="vectfox-reset-btn" title="Clear registry and rescan from disk">
-                                    <i class="fa-solid fa-arrows-rotate"></i> Resync
-                                </button>
-                            </div>
-                        </div>
-                        <!-- Hidden file inputs for import -->
-                        <input type="file" id="vectfox_import_file" accept=".json,.vectfox.json,.png,image/png" style="display: none;">
-                        <input type="file" id="vectfox_png_image_picker" accept="image/*" style="display: none;">
-                        <input type="file" id="vectfox_import_links_file" accept=".json" style="display: none;">
-                    </div>
-
-                    <!-- Search Tab -->
-                    <div id="vectfox_tab_search" class="vectfox-tab-content">
-                        <div class="vectfox-search-panel">
-                            <!-- Search Input -->
-                            <div class="vectfox-search-input-row">
-                                <input type="text"
-                                       id="vectfox_semantic_search"
-                                       class="vectfox-search-input"
-                                       placeholder="Search across all collections..."
-                                       autocomplete="off">
-                                <button id="vectfox_search_btn" class="vectfox-btn vectfox-btn-primary">
-                                    ${icons.search(16)} Search
-                                </button>
-                            </div>
-
-                            <!-- Search Options -->
-                            <div class="vectfox-search-options">
-                                <div class="vectfox-search-option">
-                                    <label>Results per collection:</label>
-                                    <input type="number" id="vectfox_search_topk" value="5" min="1" max="50">
-                                </div>
-                                <div class="vectfox-search-option">
-                                    <label>Min score:</label>
-                                    <input type="number" id="vectfox_search_threshold" value="0.3" min="0" max="1" step="0.05">
-                                </div>
-                                <div class="vectfox-search-option">
-                                    <label>
-                                        <input type="checkbox" id="vectfox_search_enabled_only" checked>
-                                        Enabled collections only
-                                    </label>
-                                </div>
-                            </div>
-
-                            <!-- Keyword Filter -->
-                            <div class="vectfox-keyword-filter-section">
-                                <div class="vectfox-keyword-filter-header">
-                                    ${icons.filter(16)} <span>Keyword Filter</span>
-                                    <button id="vectfox_scan_keywords" class="vectfox-btn-sm" title="Scan all collections for keywords">
-                                        <i class="fa-solid fa-sync"></i> Scan
-                                    </button>
-                                </div>
-                                <div class="vectfox-keyword-filter-input-row">
-                                    <input type="text"
-                                           id="vectfox_keyword_filter"
-                                           class="vectfox-keyword-filter-input"
-                                           placeholder="Filter by keywords (comma-separated)..."
-                                           autocomplete="off">
-                                    <button id="vectfox_clear_keyword_filter" class="vectfox-btn-sm" title="Clear filter">
-                                        ${icons.x(14)}
-                                    </button>
-                                </div>
-                                <div id="vectfox_keyword_tags" class="vectfox-keyword-tags">
-                                    <span class="vectfox-keyword-hint">Click "Scan" to discover keywords in your collections</span>
-                                </div>
-                            </div>
-
-                            <!-- Search Results -->
-                            <div id="vectfox_search_results" class="vectfox-search-results">
-                                <div class="vectfox-search-empty">
-                                    ${icons.search(48)}
-                                    <p>Enter a query to search across all collections</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Bulk Operations Tab -->
-                    <div id="vectfox_tab_bulk" class="vectfox-tab-content">
-                        <div class="vectfox-bulk-panel">
-                            <!-- Selection Info -->
-                            <div class="vectfox-bulk-header">
-                                <div class="vectfox-bulk-select-all">
-                                    <label>
-                                        <input type="checkbox" id="vectfox_bulk_select_all">
-                                        Select All Visible
-                                    </label>
-                                    <span id="vectfox_bulk_count">0 selected</span>
-                                </div>
-                                <div class="vectfox-bulk-filter">
-                                    <select id="vectfox_bulk_filter">
-                                        <option value="all">All Collections</option>
-                                        <option value="enabled">Enabled Only</option>
-                                        <option value="disabled">Disabled Only</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <!-- Bulk Actions -->
-                            <div class="vectfox-bulk-actions">
-                                <button id="vectfox_bulk_enable" class="vectfox-btn vectfox-btn-sm" disabled>
-                                    ${icons.toggleRight(16)} Enable Selected
-                                </button>
-                                <button id="vectfox_bulk_disable" class="vectfox-btn vectfox-btn-sm" disabled>
-                                    ${icons.toggleLeft(16)} Disable Selected
-                                </button>
-                                <button id="vectfox_bulk_export" class="vectfox-btn vectfox-btn-sm" disabled>
-                                    ${icons.download(16)} Export Selected
-                                </button>
-                                <button id="vectfox_bulk_delete" class="vectfox-btn vectfox-btn-sm vectfox-btn-danger" disabled>
-                                    ${icons.trash(16)} Delete Selected
-                                </button>
-                            </div>
-
-                            <!-- Collection List with Checkboxes -->
-                            <div id="vectfox_bulk_list" class="vectfox-bulk-list">
-                                <div class="vectfox-loading">Loading collections...</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Size Inspector Tab -->
-                    <div id="vectfox_tab_size" class="vectfox-tab-content">
-                        <!-- Populated lazily by renderSizeInspectorTab() in switchTab() -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-  placeMarkupOnTopmostModalLayer(modalHtml);
-
-  // Bind events
-  bindBrowserEvents();
-}
-
-/**
- * Binds event handlers for browser UI
- */
-function bindBrowserEvents() {
-  // Refresh Scan button — probes both backends, removes stale entries, updates registry
-  $("#vectfox_browser_refresh_scan").on("click", async function (e) {
-    e.stopPropagation();
-    e.preventDefault();
-    const $btn = $(this);
-    $btn.prop("disabled", true).text("Scanning…");
-    try {
-      await refreshCollections(true);
-      toastr.success("Scan complete — registry updated", "VectFox");
-    } catch (err) {
-      log.error("VectFox: Refresh scan failed", err);
-      toastr.error(`Scan failed: ${err.message}`, "VectFox");
-    } finally {
-      $btn.prop("disabled", false).html(`${icons.refreshCw(14)} Refresh Scan`);
-    }
-  });
-
-  // Clear Auto-Reformat Originals — maintenance action for reformat-store.js's
-  // retained pre-reformat source text (kept for audit/revert; see reformat-store.js
-  // docstring). Only clears the audit copy, never the accepted chunks/runId, so this
-  // can never affect anything already vectorized.
-  $("#vectfox_browser_clear_reformat_originals").on("click", async function (e) {
-    e.stopPropagation();
-    e.preventDefault();
-    try {
-      const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../chunkbase/index.js");
-      const entries = listReformatCacheEntries();
-      const totalBytes = entries.reduce((sum, entry) => sum + entry.originalTextBytes, 0);
-
-      if (totalBytes === 0) {
-        toastr.info("No retained Auto-Reformat originals to clear.", "VectFox");
-        return;
-      }
-
-      const { callGenericPopup, POPUP_TYPE } = await import("../../sillytavern/popup.js");
-      const confirmed = await callGenericPopup(
-        `<div style="text-align:left;">
-                    <p><strong>Clear retained Auto-Reformat originals?</strong></p>
-                    <p>${entries.length} source(s), ~${Math.round(totalBytes / 1024)} KB of pre-reformat text.</p>
-                    <p style="margin-top:10px;">This only removes the audit copy of the original source text — the accepted, already-reformatted chunks are untouched and remain usable. You won't be able to review the original wording later.</p>
-                </div>`,
-        POPUP_TYPE.CONFIRM,
-        "",
-        { okButton: "Clear Originals", cancelButton: "Cancel" },
-      );
-      if (!confirmed) return;
-
-      const cleared = clearAllReformatOriginals();
-      toastr.success(`Cleared retained original text for ${cleared} Auto-Reformat entr${cleared === 1 ? "y" : "ies"}.`, "VectFox");
-    } catch (err) {
-      log.error("VectFox: Failed to clear Auto-Reformat originals", err);
-      toastr.error(`Failed to clear Auto-Reformat originals: ${err.message}`, "VectFox");
-    }
-  });
-
-  // Close button
-  $("#vectfox_browser_close").on("click", function (e) {
-    e.stopPropagation();
-    e.preventDefault();
-    closeDatabaseBrowser();
-  });
-
-  // Stop propagation on mousedown (ST listens on mousedown to close drawers)
-  // This prevents the drawer from closing when clicking inside the modal
-  $("#vectfox_database_browser_modal").on("mousedown touchstart", function (e) {
-    e.stopPropagation();
-  });
-
-  // Close when clicking directly on the modal background (overlay)
-  $("#vectfox_database_browser_modal").on("click", function (e) {
-    if (e.target === this) {
-      e.preventDefault();
-      closeDatabaseBrowser();
-    }
-  });
-
-  // Tab switching
-  $("#vectfox_database_browser_modal .vectfox-tab-btn").on("click", function (e) {
-    e.stopPropagation();
-    e.preventDefault();
-    const tab = $(this).data("tab");
-    switchTab(tab);
-  });
-
-  // Scope filters
-  $("#vectfox_database_browser_modal .vectfox-scope-filter").on("click", function (e) {
-    e.stopPropagation();
-    e.preventDefault();
-    $("#vectfox_database_browser_modal .vectfox-scope-filter").removeClass("active");
-    $(this).addClass("active");
-    browserState.filters.scope = $(this).data("scope");
-    renderCollections();
-  });
-
-  // Type filters
-  $('#vectfox_database_browser_modal input[name="vectfox_type_filter"]').on("change", function (e) {
-    e.stopPropagation();
-    browserState.filters.collectionType = $(this).val();
-    renderCollections();
-  });
-
-  // Search input
-  $("#vectfox_collection_search").on("input", function (e) {
-    e.stopPropagation();
-    browserState.filters.searchQuery = $(this).val().toLowerCase();
-    renderCollections();
-  });
-
-  // "Active here only" toggle — filters down to the collections that currently
-  // carry the 🔒 badge for the current chat. Uses the canonical isActiveById
-  // lookup built from getCollectionListing inside renderCollections().
-  $("#vectfox_only_active_toggle").on("change", function (e) {
-    e.stopPropagation();
-    browserState.filters.onlyActiveForChat = $(this).prop("checked");
-    renderCollections();
-  });
-
-  // Resync button - clears registry and rescans from disk
-  $("#vectfox_reset_registry").on("click", async function (e) {
-    e.stopPropagation();
-    e.preventDefault();
-
-    const confirmed = confirm(
-      "This will clear the collection registry and rescan from disk.\n\n" +
-        "Any ghost entries (collections that no longer exist on disk) will be removed.\n\n" +
-        "Continue?",
-    );
-
-    if (!confirmed) return;
-
-    try {
-      // Clear the registry
-      clearCollectionRegistry();
-
-      // Probe both backends to repopulate from scratch
-      await refreshCollections(true);
-
-      toastr.success("Registry cleared and resynced from disk", "VectFox");
-    } catch (error) {
-      log.error("VectFox: Failed to resync", error);
-      toastr.error(`Failed to resync: ${error.message}`, "VectFox");
-    }
-  });
-
-  // Keyboard shortcuts
-  $(document).on("keydown.vectfox_browser", function (e) {
-    if (!browserState.isOpen) return;
-
-    if (e.key === "Escape") {
-      closeDatabaseBrowser();
-    }
-  });
-
-  // Import button
-  $("#vectfox_import_collection").on("click", function (e) {
-    e.stopPropagation();
-    $("#vectfox_import_file").click();
-  });
-
-  // StoryArc links file handler; the row's button named the collection
-  $("#vectfox_import_links_file").on("change", async function (e) {
-    const file = e.target.files[0];
-    const collectionKey = browserState.pendingLinksImportKey;
-    browserState.pendingLinksImportKey = null;
-
-    // Reset input so same file can be selected again
-    $(this).val("");
-
-    if (file && collectionKey) await importStoryLinksFile(file, collectionKey);
-  });
-
-  // Import file handler (supports JSON and PNG)
-  $("#vectfox_import_file").on("change", async function (e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    // Reset input so same file can be selected again
-    $(this).val("");
-
-    // H-3 mitigation: reject oversized files at the picker before any read
-    // commitment. Cap (MAX_IMPORT_FILE_BYTES) is defined once in
-    // src/features/collections/collection-export.js and shared between this PNG picker and the
-    // JSON file-reader path — keeps the two import paths in sync if the
-    // cap is ever retuned.
-    if (file.size > MAX_IMPORT_FILE_BYTES) {
-      const mb = (file.size / 1024 / 1024).toFixed(1);
-      toastr.error(
-        `File too large: ${mb} MB (max ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB).`,
-        "VECTFOX Import",
-      );
+async function clearReformatOriginals() {
+  try {
+    const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../chunkbase/index.js");
+    const entries = listReformatCacheEntries();
+    const totalBytes = entries.reduce((sum, entry) => sum + entry.originalTextBytes, 0);
+    if (totalBytes === 0) {
+      toastr.info("No Auto-Reformat originals are kept, so there is nothing to clear.", "VectFox");
       return;
     }
 
-    try {
-      toastr.info("Reading import file...", "VectFox");
+    const isConfirmed = await confirmPopup([
+      { text: "Clear the Auto-Reformat originals?" },
+      { text: "Kept now:", name: `${entries.length} sources, about ${Math.round(totalBytes / 1024)} KB` },
+      { text: "Lost: each source's text as it was before Auto-Reformat. The reformatted chunks stay, so nothing vectorized changes." },
+      { text: "Clear deletes them. Cancel keeps them." },
+    ], { okButton: "Clear", isDestructive: true });
+    if (!isConfirmed) return;
 
-      let data;
-
-      // Check if it's a PNG file
-      if (
-        file.type === "image/png" ||
-        file.name.toLowerCase().endsWith(".png")
-      ) {
-        const pngData = await readPNGFile(file);
-        data = await extractDataFromPNG(pngData);
-
-        if (!data) {
-          toastr.error(
-            "This PNG does not contain VECTFOX data.",
-            "VECTFOX Import",
-          );
-          return;
-        }
-
-        toastr.info("Found VECTFOX data in PNG!", "VectFox");
-      } else {
-        // JSON file
-        data = await readImportFile(file);
-      }
-
-      if (data?.type === STORY_LINKS_FILE_TYPE) {
-        toastr.error(
-          "This is a StoryArc links file. Use Import links on its collection's row in this list.",
-          "VECTFOX Import",
-        );
-        return;
-      }
-
-      const info = getExportInfo(data);
-      const validation = validateImportData(data, browserState.settings);
-
-      // Show import confirmation dialog
-      let message = `Import "${info.collections[0]?.name || "collection"}"?\n\n`;
-      message += `• ${info.totalChunks} chunks\n`;
-      message += `• ${info.totalChunksWithVectors} with vectors\n`;
-
-      if (info.embedding) {
-        message += `\nEmbedding: ${info.embedding.source}/${info.embedding.model || "default"}\n`;
-        message += `Dimension: ${info.embedding.dimension || "unknown"}\n`;
-
-        // Show backend transition so user knows if data is being migrated.
-        const _normBackend = b => (String(b || 'standard').toLowerCase() === 'vectra' ? 'standard' : String(b || 'standard').toLowerCase());
-        const srcBackend  = _normBackend(info.embedding.backend);
-        const destBackend = _normBackend(browserState.settings.vector_backend);
-        message += `Backend: ${srcBackend} → ${destBackend}${srcBackend !== destBackend ? ' (migration)' : ''}\n`;
-      }
-
-      if (validation.warnings.length > 0) {
-        message += `\n⚠️ Warnings:\n`;
-        validation.warnings.forEach((w) => {
-          message += `• ${w}\n`;
-        });
-      }
-
-      if (!validation.compatible && info.totalChunksWithVectors > 0) {
-        message += `\n⚠️ Your embedding settings don't match.\n`;
-        message += `To use existing vectors, change your settings to:\n`;
-        message += `  Source: ${info.embedding?.source || "unknown"}\n`;
-        message += `  Model: ${info.embedding?.model || "default"}\n`;
-        message += `\nOr continue to re-embed with current settings.`;
-      }
-
-      if (!validation.valid) {
-        toastr.error(
-          `Invalid export file:\n${validation.errors.join("\n")}`,
-          "VECTFOX Import",
-        );
-        return;
-      }
-
-      const confirmed = confirm(message);
-      if (!confirmed) return;
-
-      // Perform import
-      const result = await importCollection(data, browserState.settings, {
-        overwrite: true, // Overwrite if exists
-      });
-
-      if (result.success) {
-        const vectorMsg = result.usedVectors
-          ? "(used existing vectors)"
-          : "(re-embedded)";
-        toastr.success(
-          `Imported ${result.chunkCount} chunks ${vectorMsg}`,
-          "VECTFOX Import",
-        );
-
-        // Refresh collections list
-        await refreshCollections();
-      }
-    } catch (error) {
-      const isStopped = error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('stopped by user');
-      if (isStopped) {
-        toastr.info('Import stopped', 'VectFox');
-        await refreshCollections();
-        return;
-      }
-      log.error("VectFox: Import failed", error);
-      toastr.error(`Import failed: ${error.message}`, "VectFox");
-    } finally {
-      // The settings panel re-checks its auto-sync status on this event: an import clears what
-      // VectFox remembered about the imported chat.
-      document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
-    }
-  });
-}
-
-
-/**
- * Switches active tab
- * @param {string} tabName Tab identifier
- */
-function switchTab(tabName) {
-  $("#vectfox_database_browser_modal .vectfox-tab-btn").removeClass("active");
-  $(`#vectfox_database_browser_modal .vectfox-tab-btn[data-tab="${tabName}"]`).addClass("active");
-
-  $("#vectfox_database_browser_modal .vectfox-tab-content").removeClass("active");
-  $(`#vectfox_tab_${tabName}`).addClass("active");
-
-  // Initialize tab-specific content
-  if (tabName === "bulk") {
-    renderBulkList();
-    bindBulkEvents();
-  } else if (tabName === "search") {
-    bindSearchEvents();
-  } else if (tabName === "size") {
-    renderSizeInspectorTab(document.getElementById("vectfox_tab_size"));
+    const cleared = clearAllReformatOriginals();
+    toastr.success(`Cleared the original text of ${cleared} Auto-Reformat source${cleared === 1 ? "" : "s"}.`, "VectFox");
+  } catch (err) {
+    log.error("VectFox: Failed to clear Auto-Reformat originals", err);
+    toastr.error(`Failed to clear Auto-Reformat originals: ${err.message}`, "VectFox");
   }
 }
 
+/** Picks a collection file and imports it. */
+async function importFromPicker() {
+  const [file] = await pickFiles({ accept: ".json,.vectfox.json,.png,image/png" });
+  if (file) await importCollectionFile(file);
+}
+
 /**
- * Refreshes collections from storage
+ * Imports a collection from a JSON file or a PNG card, after showing what it holds and asking.
+ * @param {File} file
  */
+async function importCollectionFile(file) {
+  // The cap (MAX_IMPORT_FILE_BYTES, collections/collection-export.js) is checked before any read, and the JSON
+  // reader checks the same one, so the two import paths stay in step.
+  if (file.size > MAX_IMPORT_FILE_BYTES) {
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    toastr.error(`File too large: ${mb} MB (max ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB).`, "VectFox Import");
+    return;
+  }
+
+  try {
+    toastr.info("Reading import file...", "VectFox");
+    let data;
+    if (file.type === "image/png" || file.name.toLowerCase().endsWith(".png")) {
+      data = await extractDataFromPNG(await readPNGFile(file));
+      if (!data) {
+        toastr.error("This PNG does not contain VectFox data.", "VectFox Import");
+        return;
+      }
+    } else {
+      data = await readImportFile(file);
+    }
+
+    if (data?.type === STORY_LINKS_FILE_TYPE) {
+      toastr.error("This is a StoryArc links file. Use Import links on its collection's row in this list.", "VectFox Import");
+      return;
+    }
+
+    const info = getExportInfo(data);
+    const validation = validateImportData(data, browserState.settings);
+    if (!validation.valid) {
+      toastr.error(`Invalid export file:\n${validation.errors.join("\n")}`, "VectFox Import");
+      return;
+    }
+
+    const lines = [
+      { text: "Import this collection?" },
+      { text: "Name:", name: info.collections[0]?.name || "collection" },
+      { text: "Chunks:", name: `${info.totalChunks}, ${info.totalChunksWithVectors} with vectors` },
+    ];
+    if (info.embedding) {
+      // The backend move tells the user whether the data changes backend on the way in.
+      const normalBackend = b => (String(b || "standard").toLowerCase() === "vectra" ? "standard" : String(b || "standard").toLowerCase());
+      const fromBackend = normalBackend(info.embedding.backend);
+      const toBackend = normalBackend(browserState.settings.vector_backend);
+      lines.push({ text: "Embedding:", name: `${info.embedding.source}/${info.embedding.model || "default"}, ${info.embedding.dimension || "unknown"} dimensions` });
+      lines.push({ text: "Backend:", name: `${fromBackend} to ${toBackend}${fromBackend !== toBackend ? ", moved on import" : ""}` });
+    }
+    for (const warning of validation.warnings) lines.push({ icon: "fa-triangle-exclamation", parts: [{ name: warning }] });
+    if (!validation.compatible && info.totalChunksWithVectors > 0) {
+      lines.push({
+        icon: "fa-triangle-exclamation",
+        text: "Your embedding settings differ, so the chunks are embedded again with yours. To use the saved vectors, switch to:",
+        name: `${info.embedding?.source || "unknown"}/${info.embedding?.model || "default"}`,
+      });
+    }
+    lines.push({ text: "A collection with the same ID is replaced." });
+    lines.push({ text: "Import adds it. Cancel leaves everything as it is." });
+    if (!await confirmPopup(lines, { okButton: "Import", isDestructive: true })) return;
+
+    const result = await importCollection(data, browserState.settings, { overwrite: true });
+    if (result.success) {
+      toastr.success(`Imported ${result.chunkCount} chunks ${result.usedVectors ? "(used existing vectors)" : "(re-embedded)"}`, "VectFox Import");
+      await refreshCollections();
+    }
+  } catch (error) {
+    const isStopped = error?.name === "AbortError" || String(error?.message || "").toLowerCase().includes("stopped by user");
+    if (isStopped) {
+      toastr.info("Import stopped", "VectFox");
+      await refreshCollections();
+      return;
+    }
+    log.error("VectFox: Import failed", error);
+    toastr.error(`Import failed: ${error.message}`, "VectFox");
+  } finally {
+    // The settings panel re-checks its auto-sync status on this event: an import clears what
+    // VectFox remembered about the imported chat.
+    document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
+  }
+}
+
 /**
  * Sanitize a persona name into a handleId — must match the logic used by collection-ids.js
  * builders (buildEventBaseCollectionId, buildArchiveEventCollectionId).
@@ -899,6 +537,7 @@ function _filterCollectionsByCurrentPersona(collections) {
 async function refreshCollections(withScan = false) {
   try {
     browserState.storyLinkCoverage.clear();
+    browserState.storyLinkDescriptions.clear();
     const allCollections = await loadAllCollections(browserState.settings, withScan);
     browserState.collections = _filterCollectionsByCurrentPersona(allCollections);
 
@@ -927,110 +566,172 @@ async function refreshCollections(withScan = false) {
     renderCollections();
   } catch (error) {
     log.error("VectFox: Failed to load collections", error);
-    $("#vectfox_collections_list").html(`
-            <div class="vectfox-error">
-                Failed to load collections. Check console for details.
-            </div>
-        `);
+    $("#vectfox_collections_list").html(collectionsFailedMarkup());
   }
 }
 
+// The collection types each Type filter keeps.
+const TYPE_FILTER_TYPES = Object.freeze({
+  chat: ["chat"],
+  lorebook: ["lorebook"],
+  character: ["character", "persona"],
+  document: ["file", "doc", "paste", "select", "current"],
+  web: ["url", "wiki", "youtube"],
+});
+
 /**
- * Renders collections list based on current filters
+ * Whether a collection passes the Collections page's filters.
+ * @param {object} collection
+ * @param {Map<string, boolean>} isActiveById Active for the current chat, by registry key and by bare id
+ * @returns {boolean}
+ */
+function passesFilters(collection, isActiveById) {
+  const { scope, collectionType, status, searchQuery, onlyActiveForChat } = browserState.filters;
+  // Lock counts are keyed by registry-key form ("backend:id"), the key setCollectionLock writes to.
+  const lookupKey = collectionKey(collection);
+  if (scope === "chat" && getCollectionLockCount(lookupKey) <= 0) return false;
+  if (scope === "character" && getCollectionCharacterLockCount(lookupKey) <= 0) return false;
+  // The Active here pill's own source, so the filter keeps exactly the collections that show it.
+  if (onlyActiveForChat && !isActiveById.get(lookupKey)) return false;
+  const allowedTypes = TYPE_FILTER_TYPES[collectionType];
+  if (allowedTypes && !allowedTypes.includes(collection.type)) return false;
+  if (status === "enabled" && !collection.enabled) return false;
+  if (status === "disabled" && collection.enabled) return false;
+  if (searchQuery) {
+    return collection.name.toLowerCase().includes(searchQuery) || collection.id.toLowerCase().includes(searchQuery);
+  }
+  return true;
+}
+
+/**
+ * Renders the collections list from the current filters, keeps only the shown collections ticked, and fills in the
+ * StoryArc links rows.
  */
 function renderCollections() {
-  const container = $("#vectfox_collections_list");
-
-  // Build lock-state lookup once — same canonical source of truth used by the
-  // card renderer (entry.isActive comes from getCollectionListing internally
-  // calling isCollectionActiveForContext, keyed by registry-key form). Built
-  // BEFORE the filter pass so "Active here only" can consult it without
-  // re-computing per card. See Doc/collection_helper.md:54.
+  // One read of the lock state for the filter pass and every row: getCollectionListing computes each entry's
+  // isActive with isCollectionActiveForContext, keyed both ways. See Doc/collection_helper.md:54.
   const isActiveById = new Map();
   for (const entry of getCollectionListing(browserState.settings)) {
     isActiveById.set(entry.collectionId, entry.isActive);
     isActiveById.set(entry.registryKey, entry.isActive);
   }
 
-    // Apply filters
-    let filtered = browserState.collections.filter(c => {
-        const scopeFilter = browserState.filters.scope;
-        const lookupKey = c.registryKey || c.id;
+  const shown = browserState.collections.filter((collection) => passesFilters(collection, isActiveById));
+  browserState.shownKeys = shown.map(collectionKey);
+  for (const key of [...browserState.bulkSelected]) {
+    if (!browserState.shownKeys.includes(key)) browserState.bulkSelected.delete(key);
+  }
+  updateStats(shown.length, shown.reduce((sum, c) => sum + c.chunkCount, 0));
+  paintTicks();
 
-        // Scope filter:
-        // - 'all' => no filter
-        // - 'chat' => show collections locked to at least one chat
-        // - 'character' => show collections locked to at least one character
-        if (scopeFilter !== 'all') {
-            // Lock counts are keyed by registry-key form ("backend:id") — same key
-            // setCollectionLock writes to.
-            if (scopeFilter === 'chat') {
-                if (getCollectionLockCount(lookupKey) <= 0) return false;
-            } else if (scopeFilter === 'character') {
-                if (getCollectionCharacterLockCount(lookupKey) <= 0) return false;
-            }
-        }
-
-        // "Active here only" toggle — keeps just the collections that carry the
-        // 🔒 badge for the current chat (chat-lock match OR character-lock match
-        // for the active character). Uses the pre-built isActiveById lookup so
-        // we stay aligned with the badge's source of truth.
-        if (browserState.filters.onlyActiveForChat) {
-            if (!isActiveById.get(lookupKey)) return false;
-        }
-
-    // Type filter - map filter categories to actual collection types
-    if (browserState.filters.collectionType !== "all") {
-      const typeMap = {
-        chat: ["chat"],
-        lorebook: ["lorebook"],
-        character: ["character", "persona"],
-        document: ["file", "doc", "paste", "select", "current"],
-        web: ["url", "wiki", "youtube"],
-      };
-      const allowedTypes = typeMap[browserState.filters.collectionType];
-      if (allowedTypes && !allowedTypes.includes(c.type)) {
-        return false;
-      }
-    }
-
-    // Search filter
-    if (browserState.filters.searchQuery) {
-      const searchLower = browserState.filters.searchQuery;
-      return (
-        c.name.toLowerCase().includes(searchLower) ||
-        c.id.toLowerCase().includes(searchLower)
-      );
-    }
-
-    return true;
-  });
-
-  if (filtered.length === 0) {
-    container.html(`
-            <div class="vectfox-empty-state">
-                <p>No collections found.</p>
-                <small>Vectorize some chat messages to create collections!</small>
-            </div>
-        `);
-    updateStats(0, 0);
+  const container = $("#vectfox_collections_list");
+  if (shown.length === 0) {
+    container.html(noCollectionsMarkup());
     return;
   }
-
-  // isActiveById was built at the top of this function for the filter pass —
-  // reused here by the card renderer (entry.isActive lookups, no per-card calls).
-
-  // Render collection cards
-  const cardsHtml = filtered.map((c) => renderCollectionCard(c, isActiveById)).join("");
-  container.html(cardsHtml);
-
-  // Bind card events
-  bindCollectionCardEvents();
+  container.html(shown.map((collection) => collectionEntryMarkup(collectionRowView(collection, isActiveById))).join(""));
   fillStoryLinkRows().catch((err) => log.warn("VectFox: Could not fill in the StoryArc links rows:", err));
+}
 
-  // Update stats
-  const totalChunks = filtered.reduce((sum, c) => sum + c.chunkCount, 0);
-  updateStats(filtered.length, totalChunks);
+const BACKEND_NAMES = Object.freeze({ standard: "Standard", qdrant: "Qdrant" });
+
+/**
+ * A collection's row as plain values, for collectionEntryMarkup.
+ * @param {object} collection
+ * @param {Map<string, boolean>} isActiveById
+ * @returns {object}
+ */
+function collectionRowView(collection, isActiveById) {
+  const key = collectionKey(collection);
+  const hasMultipleModels = collection.models?.length > 1;
+  return {
+    key,
+    name: collection.name,
+    id: collection.id,
+    type: collection.type,
+    chunkCount: collection.chunkCount,
+    isEnabled: Boolean(collection.enabled),
+    isSelected: browserState.bulkSelected.has(key),
+    scope: collection.scope,
+    backend: BACKEND_NAMES[collection.backend] || collection.backend || "",
+    source: collection.source && collection.source !== "unknown" ? collection.source : "",
+    model: hasMultipleModels ? (collection.model || "(default)") : "",
+    hasMultipleModels,
+    activeHereLine: activeHereLine(collection, isActiveById),
+    // The registry-key (backend:id) metadata the Collection Settings dialog writes
+    activationMode: getCollectionActivationSummary(key).mode,
+    hasStoryLinks: hasStoryLinksRow(collection),
+    storyLinksDescription: browserState.storyLinkDescriptions.get(key) ?? "",
+  };
+}
+
+/**
+ * Which lock makes a collection active in the current chat, in words, or "" when none does. It names the lock that
+ * actually matched, not the one its scope implies: shouldCollectionActivate() takes a chat lock OR a character lock
+ * whatever the scope, so a chat-scoped collection can be active here through a character lock. Locks elsewhere show in
+ * Collection Settings.
+ * @param {object} collection
+ * @param {Map<string, boolean>} isActiveById
+ * @returns {string}
+ */
+function activeHereLine(collection, isActiveById) {
+  const isActive = isActiveById.get(collection.registryKey || `${collection.backend}:${collection.id}`) === true
+    || isActiveById.get(collection.id) === true;
+  if (!isActive) return "";
+
+  // Registry-key form, so two collections sharing a bare ID on different backends keep their own locks.
+  const lockKey = collectionKey(collection);
+  const currentChatId = getCurrentChatId();
+  const isViaChat = Boolean(currentChatId && isCollectionLockedToChat(lockKey, currentChatId));
+  const isViaCharacter = Boolean(isCollectionLockedToCharacter(lockKey, getContext()?.characterId));
+  let line;
+  if (isViaChat && isViaCharacter) line = "Locked to this chat and to this character";
+  else if (isViaCharacter) line = "Locked to this character, so it is active in every chat with them";
+  else line = "Locked to this chat";
+
+  const otherChatCount = getCollectionLockCount(lockKey) - (isViaChat ? 1 : 0);
+  if (otherChatCount > 0) line += `, and to ${otherChatCount} other chat${otherChatCount === 1 ? "" : "s"}`;
+  return line;
+}
+
+/**
+ * Ticks or unticks one collection for the bulk actions.
+ * @param {string} key
+ * @param {boolean} isTicked
+ */
+function setTicked(key, isTicked) {
+  if (isTicked) browserState.bulkSelected.add(key);
+  else browserState.bulkSelected.delete(key);
+  paintTicks();
+}
+
+/**
+ * Ticks every shown collection, or none.
+ * @param {boolean} isTicked
+ */
+function tickAllShown(isTicked) {
+  browserState.bulkSelected.clear();
+  if (isTicked) browserState.shownKeys.forEach((key) => browserState.bulkSelected.add(key));
+  $("[data-collection-select]").each(function () {
+    this.checked = browserState.bulkSelected.has(this.dataset.collectionSelect);
+  });
+  paintTicks();
+}
+
+/** Paints the tick count, the bulk buttons and "Select all shown" from the ticked collections. */
+function paintTicks() {
+  const count = browserState.bulkSelected.size;
+  const shownCount = browserState.shownKeys.length;
+  $("[data-bulk-count]").text(`${count} selected`);
+  $('[data-browser-action^="bulk-"]').prop("disabled", count === 0);
+  $("#vectfox_bulk_select_all")
+    .prop("checked", count > 0 && count === shownCount)
+    .prop("indeterminate", count > 0 && count < shownCount);
+}
+
+/** The ticked collections still in the list. */
+function tickedCollections() {
+  return [...browserState.bulkSelected].map(findCollectionByKey).filter(Boolean);
 }
 
 /**
@@ -1048,68 +749,49 @@ function hasStoryLinksRow(collection) {
 }
 
 /**
- * Renders a collection's StoryArc links row, drawn as a branch of its card. The
- * links are a field on the collection's events, so the row is a view of them and
- * fillStoryLinkRows fills in its count.
- * @param {object} collection Collection data
- * @param {string} safeKey The collection's key, escaped
- * @returns {string} Row HTML, empty for a collection without one
- */
-function renderStoryLinksRow(collection, safeKey) {
-  if (!hasStoryLinksRow(collection)) return "";
-  return `
-        <div class="vectfox-story-links-row" data-collection-key="${safeKey}">
-            <span class="vectfox-story-links-title">↳ StoryArc links</span>
-            <span class="vectfox-story-links-status">Reading...</span>
-            <div class="vectfox-story-links-actions">
-                <button class="vectfox-btn-sm vectfox-action-export-links"
-                        data-collection-key="${safeKey}"
-                        title="Save this collection's links to a small file. Its events stay as they are.">
-                    ${icons.download(16)} Export links
-                </button>
-                <button class="vectfox-btn-sm vectfox-action-import-links"
-                        data-collection-key="${safeKey}"
-                        title="Put links from a saved file back onto this collection's events, matched event by event. Nothing else about them changes.">
-                    📥 Import links
-                </button>
-                <button class="vectfox-btn-sm vectfox-btn-danger vectfox-action-delete-links"
-                        data-collection-key="${safeKey}"
-                        title="Delete this collection's links, after asking. Its events stay as they are, and Regenerate links on the StoryArc tab makes new ones.">
-                    ${icons.trash(16)} Delete links
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-/**
  * Fills in the count on each StoryArc links row, one row at a time since each reads
  * a whole collection. A redraw starts this again and shares the reads already made.
  * @returns {Promise<void>}
  */
 async function fillStoryLinkRows() {
-  for (const row of $(".vectfox-story-links-row").toArray()) {
-    const key = $(row).data("collection-key");
+  for (const row of $("[data-story-links-row]").toArray()) {
+    const key = row.dataset.storyLinksRow;
     const collection = findCollectionByKey(key);
     if (!collection) continue;
     if (!browserState.storyLinkCoverage.has(key)) {
       browserState.storyLinkCoverage.set(key, readCollectionLinkCoverage(collection.id, browserState.settings));
     }
-    const coverage = await browserState.storyLinkCoverage.get(key);
-    $(row).find(".vectfox-story-links-status").text(describeStoryLinkCoverage(coverage));
+    const description = describeStoryLinkCoverage(await browserState.storyLinkCoverage.get(key));
+    browserState.storyLinkDescriptions.set(key, description);
+    $(row).replaceWith(storyLinksRowMarkup(key, description));
   }
+}
+
+/** Reads a collection's StoryArc links again, after they changed. */
+async function refreshStoryLinkRow(key) {
+  browserState.storyLinkCoverage.delete(key);
+  browserState.storyLinkDescriptions.delete(key);
+  await fillStoryLinkRows();
+}
+
+/**
+ * Picks a links file and puts its links onto a collection's events.
+ * @param {object} collection
+ */
+async function importStoryLinksFromPicker(collection) {
+  const [file] = await pickFiles({ accept: ".json" });
+  if (file) await importStoryLinksFile(file, collectionKey(collection));
 }
 
 /**
  * Puts a links file's links onto a collection's events, after showing what that changes.
  * @param {File} file The picked file
- * @param {string} collectionKey The collection whose Import links button was pressed
+ * @param {string} key The collection whose Import links button was pressed
  * @returns {Promise<void>}
  */
-async function importStoryLinksFile(file, collectionKey) {
-  const collection = findCollectionByKey(collectionKey);
+async function importStoryLinksFile(file, key) {
+  const collection = findCollectionByKey(key);
   if (!collection) return;
-  const safeName = escapeHtml(collection.name);
   try {
     const data = await readImportFile(file);
     const plan = await planStoryLinksImport(data, collection.id, browserState.settings);
@@ -1121,26 +803,21 @@ async function importStoryLinksFile(file, collectionKey) {
       return;
     }
 
-    const sentences = describeStoryLinksImport(plan).map((sentence) => `<p>${sentence}</p>`).join("");
-    const { callGenericPopup, POPUP_TYPE } = await import("../../sillytavern/popup.js");
-    const confirmed = await callGenericPopup(
-      `<div style="text-align:left;">
-                    <p><strong>Import StoryArc links into ${safeName}?</strong></p>
-                    ${sentences}
-                    <p style="margin-top:10px;">Saved from ${escapeHtml(String(data.collection?.name ?? "an unnamed collection"))} on ${escapeHtml(String(data.exportDate ?? "an unknown date").slice(0, 10))}. Nothing else about the events changes, and this makes no LLM call.</p>
-                </div>`,
-      POPUP_TYPE.CONFIRM,
-      "",
-      { okButton: "Import links", cancelButton: "Cancel" },
-    );
-    if (!confirmed) return;
+    const isConfirmed = await confirmPopup([
+      { text: "Import StoryArc links into this collection?" },
+      { text: "Collection:", name: collection.name },
+      ...describeStoryLinksImport(plan).map((sentence) => ({ parts: [{ name: sentence }] })),
+      { text: "Saved from:", name: `${data.collection?.name ?? "an unnamed collection"}, on ${String(data.exportDate ?? "an unknown date").slice(0, 10)}` },
+      { text: "Nothing else about the events changes, and this makes no LLM call." },
+      { text: "Import links writes them. Cancel leaves the events as they are." },
+    ], { okButton: "Import links", isDestructive: true });
+    if (!isConfirmed) return;
 
     const { writtenCount, failedCount, isStopped } = await writeImportedStoryLinks(plan.writes, collection.id, browserState.settings);
     if (failedCount === 0 && !isStopped) {
       toastr.success(`Imported the links of ${writtenCount} events`, "VectFox StoryArc");
     }
-    browserState.storyLinkCoverage.delete(collectionKey);
-    await fillStoryLinkRows();
+    await refreshStoryLinkRow(key);
     document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
   } catch (error) {
     log.error("VectFox: Import links failed", error);
@@ -1150,11 +827,11 @@ async function importStoryLinksFile(file, collectionKey) {
 
 /**
  * Deletes a collection's StoryArc links, after showing how many events lose them.
- * @param {string} collectionKey The collection whose Delete links button was pressed
+ * @param {string} key The collection whose Delete links button was pressed
  * @returns {Promise<void>}
  */
-async function deleteCollectionStoryLinks(collectionKey) {
-  const collection = findCollectionByKey(collectionKey);
+async function deleteCollectionStoryLinks(key) {
+  const collection = findCollectionByKey(key);
   if (!collection) return;
   try {
     const writes = await planStoryLinksDelete(collection.id, browserState.settings);
@@ -1163,25 +840,20 @@ async function deleteCollectionStoryLinks(collectionKey) {
       return;
     }
 
-    const { callGenericPopup, POPUP_TYPE } = await import("../../sillytavern/popup.js");
-    const confirmed = await callGenericPopup(
-      `<div style="text-align:left;">
-                    <p><strong>Delete the StoryArc links of ${escapeHtml(collection.name)}?</strong></p>
-                    <p>${writes.length} events lose their links and go back to not decided. The events themselves stay as they are.</p>
-                    <p>StoryArc answers without links, and new events wait, until Regenerate links on the StoryArc tab makes new ones at the link model's cost. Export links first if you may want these back.</p>
-                </div>`,
-      POPUP_TYPE.CONFIRM,
-      "",
-      { okButton: "Delete links", cancelButton: "Cancel" },
-    );
-    if (!confirmed) return;
+    const isConfirmed = await confirmPopup([
+      { text: "Delete the StoryArc links of this collection?" },
+      { text: "Collection:", name: collection.name },
+      { text: "Lost:", name: `the links of ${writes.length} events, which go back to not decided` },
+      { text: "The events stay as they are. StoryArc answers without links, and new events wait, until Regenerate links on the StoryArc page makes new ones at the link model's cost. Export links first to keep a copy." },
+      { text: "Delete links deletes them. Cancel keeps them." },
+    ], { okButton: "Delete links", isDestructive: true });
+    if (!isConfirmed) return;
 
     const { writtenCount, failedCount, isStopped } = await deleteStoryLinks(writes, collection.id, browserState.settings);
     if (failedCount === 0 && !isStopped) {
       toastr.success(`Deleted the links of ${writtenCount} events`, "VectFox StoryArc");
     }
-    browserState.storyLinkCoverage.delete(collectionKey);
-    await fillStoryLinkRows();
+    await refreshStoryLinkRow(key);
     document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
   } catch (error) {
     log.error("VectFox: Delete links failed", error);
@@ -1190,290 +862,295 @@ async function deleteCollectionStoryLinks(collectionKey) {
 }
 
 /**
- * Renders a single collection card (V1-inspired layout)
- * @param {object} collection Collection data
- * @param {Map<string, boolean>} [isActiveById] Optional lookup keyed by both
- *   bare collectionId and `${backend}:${collectionId}` — produced by the
- *   caller from getCollectionListing(). When omitted, the badge falls back
- *   to a direct isCollectionActiveForContext call.
- * @returns {string} Card HTML
+ * Saves a collection's StoryArc links to a file.
+ * @param {object} collection
  */
-function renderCollectionCard(collection, isActiveById = null) {
-  // Map collection types to icon functions
-  const typeIconMap = {
-    chat: icons.messageSquare,
-    file: icons.fileText,
-    doc: icons.fileText,
-    paste: icons.fileText,
-    select: icons.fileText,
-    current: icons.fileText,
-    lorebook: icons.bookOpen,
-    character: icons.user,
-    persona: icons.user,
-    url: icons.globe,
-    wiki: icons.globe,
-    youtube: icons.globe,
-  };
-  const iconFn = typeIconMap[collection.type] || icons.box;
-  const typeIcon = iconFn(14, "vectfox-type-icon");
-
-  const scopeBadge =
-    {
-      character:
-        '<span class="vectfox-badge vectfox-badge-character">Character</span>',
-      chat: '<span class="vectfox-badge vectfox-badge-chat">Chat</span>',
-    }[collection.scope] || "";
-
-  const statusBadge = collection.enabled
-    ? '<span class="vectfox-badge vectfox-badge-success">Active</span>'
-    : '<span class="vectfox-badge vectfox-badge-muted">Paused</span>';
-
-  // Drives the Settings button's highlight when triggers or conditions are set. Read the
-  // registry-key (backend:id) metadata the Settings editor writes.
-  const activationSummary = getCollectionActivationSummary(collection.registryKey || collection.id);
-
-  // Backend badge - shows vector database (Standard, Qdrant)
-  const backendDisplayName =
-    {
-      standard: "Standard",
-      qdrant: "Qdrant",
-    }[collection.backend] || collection.backend;
-
-  const backendBadge = collection.backend
-    ? `<span class="vectfox-badge vectfox-badge-backend" title="Vector backend">${backendDisplayName}</span>`
-    : "";
-
-  // Source badge - shows embedding source (transformers, palm, openai, etc.)
-  const sourceBadge =
-    collection.source && collection.source !== "unknown"
-      ? `<span class="vectfox-badge vectfox-badge-source" title="Embedding source">${escapeHtml(collection.source)}</span>`
-      : "";
-
-  // Model info - show current model and count if multiple
-  const hasMultipleModels = collection.models && collection.models.length > 1;
-  const currentModelName = collection.model || "(default)";
-  const safeCurrentModelName = escapeHtml(currentModelName);
-  const modelBadge = hasMultipleModels
-    ? `<span class="vectfox-badge vectfox-badge-model" title="Current model: ${safeCurrentModelName} (${collection.models.length} available)">📐 ${safeCurrentModelName}</span>`
-    : "";
-
-  // Lock badge — show only when a lock matches the CURRENT context. Locks elsewhere
-  // still exist (visible in the Settings modal as "X locks (elsewhere)"), but the
-  // listing badge would be misleading there since the collection isn't active here.
-  // The lock badge mirrors the master-switch checkbox in Collection Settings —
-  // same source of truth (isCollectionActiveForContext, bundled into
-  // getCollectionListing). See syncLockCheckboxToScope() for that checkbox's label.
-  // Use registry-key form so the metadata layer keys lock state per-backend.
-  // Two collections sharing a bare ID across different backends now report
-  // their lock badges independently.
-  const lockLookupId = collection.registryKey || collection.id;
-  let isActive;
-  if (isActiveById) {
-    const key = collection.registryKey || `${collection.backend}:${collection.id}`;
-    isActive = isActiveById.get(key) === true || isActiveById.get(collection.id) === true;
-  } else {
-    isActive = isCollectionActiveForContext(lockLookupId, {
-      chatId: getCurrentChatId(),
-      characterId: getContext()?.characterId,
-    });
-  }
-  let lockBadge = "";
-  if (isActive) {
-    // Report which lock ACTUALLY matched, not which one the scope implies. Gate 2
-    // in shouldCollectionActivate() accepts a chat lock OR a character lock
-    // whatever the collection's scope, so a chat-scoped collection can be active
-    // here through a character lock — and the old title, which branched on scope
-    // alone, would have called that "locked to current character" or not purely by
-    // how the collection was created.
-    const currentChatId = getCurrentChatId();
-    const currentCharacterId = getContext()?.characterId;
-    const viaChat = Boolean(currentChatId && isCollectionLockedToChat(lockLookupId, currentChatId));
-    const viaCharacter = Boolean(isCollectionLockedToCharacter(lockLookupId, currentCharacterId));
-
-    let lockTitle;
-    if (viaChat && viaCharacter) lockTitle = "Active here — locked to this chat and to this character";
-    else if (viaCharacter) lockTitle = "Active here — locked to this character, so it is active in every chat with them";
-    else lockTitle = "Active here — locked to this chat";
-
-    const otherChatCount = getCollectionLockCount(lockLookupId) - (viaChat ? 1 : 0);
-    if (otherChatCount > 0) {
-      lockTitle += ` (also locked to ${otherChatCount} other chat${otherChatCount !== 1 ? "s" : ""})`;
+async function exportCollectionStoryLinks(collection) {
+  try {
+    const linksFile = await buildCollectionLinksFile(collection, browserState.settings);
+    if (linksFile.events.length === 0) {
+      toastr.info("This collection has no links to export yet.", "VectFox StoryArc");
+      return;
     }
-    lockBadge = `<span class="vectfox-badge vectfox-badge-lock" title="${lockTitle}">🔒</span>`;
+    downloadExport(linksFile, `${collection.name || collection.id}-storyarc-links`);
+    toastr.success(`Exported the links of ${linksFile.events.length} events`, "VectFox StoryArc");
+  } catch (error) {
+    log.error("VectFox: Export links failed", error);
+    toastr.error(`Export links failed: ${error.message}`, "VectFox StoryArc");
   }
-
-  // Use registryKey for unique identification (source:id format)
-  const uniqueKey = collection.registryKey || collection.id;
-
-  // Pre-escape every string field that ends up in HTML or attribute context.
-  // Source data can include lorebook entry names / character card names that
-  // came from third-party sharing sites (chub.ai, JanitorAI) and may contain
-  // HTML payloads. C-3: defense-in-depth — even `collection.id` (auto-
-  // generated `vf_*`) and the backend/source enums get escaped so a future
-  // malformed registry entry can't introduce attribute-context XSS.
-  const safeKey       = escapeHtml(uniqueKey);
-  const safeId        = escapeHtml(collection.id);
-  const safeName      = escapeHtml(collection.name);
-  const safeBackend   = escapeHtml(collection.backend);
-  const safeSource    = escapeHtml(collection.source || "transformers");
-  const safeModel     = escapeHtml(collection.model || "");
-
-  return `
-        <div class="vectfox-collection-card" data-collection-key="${safeKey}" data-status="${collection.enabled ? "active" : "paused"}">
-            <div class="vectfox-collection-header">
-                <span class="vectfox-collection-title">
-                    ${typeIcon} ${safeName}
-                </span>
-                <div class="vectfox-collection-badges">
-                    ${scopeBadge}
-                    ${backendBadge}
-                    ${sourceBadge}
-                    ${modelBadge}
-                    ${lockBadge}
-                    ${statusBadge}
-                </div>
-            </div>
-
-            <div class="vectfox-collection-meta">
-                <span>${collection.chunkCount} chunks</span>
-                <span>ID: ${safeId}</span>
-            </div>
-
-            <div class="vectfox-collection-actions">
-                <button class="vectfox-btn-sm vectfox-action-toggle"
-                        data-collection-key="${safeKey}"
-                        data-enabled="${collection.enabled}">
-                    ${collection.enabled ? icons.pause(16) + " Pause" : icons.play(16) + " Enable"}
-                </button>
-                <button class="vectfox-btn-sm vectfox-action-rename"
-                        data-collection-key="${safeKey}"
-                        data-current-name="${safeName}"
-                        title="Rename this collection">
-                    ${icons.pencil(16)} Rename
-                </button>
-                <button class="vectfox-btn-sm vectfox-action-activation ${activationSummary.mode !== "auto" ? "vectfox-has-settings" : ""}"
-                        data-collection-key="${safeKey}"
-                        title="Configure activation, triggers, and conditions">
-                    ${icons.settings(16)} Settings
-                </button>
-                ${
-                  hasMultipleModels
-                    ? `
-                <button class="vectfox-btn-sm vectfox-action-switch-model"
-                        data-collection-key="${safeKey}"
-                        title="Switch embedding model (${collection.models.length} available)">
-                    <i class="fa-solid fa-code-branch"></i> Model
-                </button>
-                `
-                    : ""
-                }
-                <button class="vectfox-btn-sm vectfox-action-visualize"
-                        data-collection-key="${safeKey}"
-                        data-backend="${safeBackend}"
-                        data-source="${safeSource}"
-                        title="View and edit chunks in this collection">
-                    ${icons.eye(16)} View Chunks
-                </button>
-                <div class="vectfox-export-dropdown">
-                    <button class="vectfox-btn-sm vectfox-btn-export vectfox-action-export-toggle"
-                            title="Export collection">
-                        ${icons.download(16)} Export
-                    </button>
-                    <div class="vectfox-export-options">
-                        <button class="vectfox-btn-sm vectfox-btn-json vectfox-action-export"
-                                data-collection-key="${safeKey}"
-                                data-collection-id="${safeId}"
-                                data-backend="${safeBackend}"
-                                data-source="${safeSource}"
-                                data-model="${safeModel}"
-                                title="Export as JSON (includes vectors)">
-                            ${icons.fileExport(16)} JSON
-                        </button>
-                        <button class="vectfox-btn-sm vectfox-btn-png vectfox-action-export-png"
-                                data-collection-key="${safeKey}"
-                                data-collection-id="${safeId}"
-                                data-backend="${safeBackend}"
-                                data-source="${safeSource}"
-                                data-model="${safeModel}"
-                                title="Export as PNG (shareable image)">
-                            ${icons.image(16)} PNG
-                        </button>
-                    </div>
-                </div>
-                <button class="vectfox-btn-sm vectfox-btn-danger vectfox-action-delete"
-                        data-collection-key="${safeKey}">
-                    ${icons.trash(16)} Delete
-                </button>
-            </div>
-        </div>
-        ${renderStoryLinksRow(collection, safeKey)}
-    `;
 }
 
 /**
  * Helper to find collection by its unique key (registryKey or id)
  */
 function findCollectionByKey(key) {
-  return browserState.collections.find((c) => (c.registryKey || c.id) === key);
+  return browserState.collections.find((c) => collectionKey(c) === key);
+}
+
+/**
+ * Runs one of a collection's buttons. Rename, Collection Settings and the model switcher take the registry key form
+ * (backend:id), so the metadata layer keys names, locks and activation per backend.
+ * @param {string} action The button's data-collection-action
+ * @param {string} key The collection's key
+ */
+async function runCollectionAction(action, key) {
+  const collection = findCollectionByKey(key);
+  if (!collection) return;
+  switch (action) {
+    case "toggle": return toggleCollection(collection);
+    case "rename": return openRenameDialog(collectionKey(collection), collection.name);
+    case "settings": return openActivationEditor(collectionKey(collection), collection.name);
+    case "switch-model": return collection.models?.length > 1 ? openModelSwitcher(collection) : undefined;
+    case "view-chunks": return openChunkVisualizer(collection);
+    case "export-json": return exportCollectionJson(collection);
+    case "export-png": return exportCollectionPng(collection);
+    case "delete": return deleteOneCollection(collection);
+    case "export-links": return exportCollectionStoryLinks(collection);
+    case "import-links": return importStoryLinksFromPicker(collection);
+    case "delete-links": return deleteCollectionStoryLinks(key);
+    default: log.warn(`VectFox Database Browser: no collection button runs "${action}"`);
+  }
+}
+
+/**
+ * Pauses a collection, or resumes it.
+ * @param {object} collection
+ */
+function toggleCollection(collection) {
+  collection.enabled = !collection.enabled;
+  setCollectionEnabled(collectionKey(collection), collection.enabled);
+  renderCollections();
+  log.lifecycle(`VectFox Database Browser: ${collection.enabled ? "Resumed" : "Paused"} ${collectionKey(collection)}`);
+}
+
+/**
+ * Deletes one collection from every store, after asking.
+ * @param {object} collection
+ */
+async function deleteOneCollection(collection) {
+  const key = collectionKey(collection);
+  const isConfirmed = await confirmPopup([
+    { text: "Delete this collection?" },
+    { text: "Collection:", name: collection.name },
+    { text: "Lost:", name: `${collection.chunkCount} chunks${hasStoryLinksRow(collection) ? ", and the StoryArc links of their events" : ""}` },
+    { text: "This cannot be undone." },
+    { text: "Delete deletes it. Cancel keeps it." },
+  ], { okButton: "Delete", isDestructive: true });
+  if (!isConfirmed) return;
+
+  try {
+    const result = await deleteCollectionEverywhere(collection);
+    browserState.collections = browserState.collections.filter((c) => collectionKey(c) !== key);
+    browserState.storyLinkCoverage.delete(key);
+    browserState.storyLinkDescriptions.delete(key);
+    renderCollections();
+    // The settings panel re-checks its Semantic WI and auto-sync checkboxes on
+    // this event; the deleted collection may have been what kept either one on.
+    document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
+
+    if (result.success) {
+      log.lifecycle(`VectFox Database Browser: Deleted collection ${key}`);
+    } else {
+      toastr.warning(`Partial deletion: ${result.errors.join(", ")}`, "VectFox");
+    }
+  } catch (error) {
+    log.error("VectFox: Failed to delete collection", error);
+    toastr.error(`Failed to delete collection: ${error.message}`, "VectFox");
+  }
+}
+
+/**
+ * Deletes a collection's vectors, registry entry and metadata. `_discoveredSources` carries every {source, models}
+ * index the plugin found on disk, so the Standard backend purges the real {source}/{collectionId}/{model}/ paths, not
+ * the current embedding provider's, which may not match what is on disk.
+ * @param {object} collection
+ * @returns {Promise<{success: boolean, errors: string[]}>}
+ */
+function deleteCollectionEverywhere(collection) {
+  const collectionSettings = {
+    ...browserState.settings,
+    vector_backend: collection.backend,
+    _discoveredSources: collection.sources,
+  };
+  return deleteCollection(collection.id, collectionSettings, collection.registryKey);
+}
+
+/**
+ * Reads a collection's whole export, its chunks with their vectors, from the index its backend, source and model name.
+ * @param {object} collection
+ * @returns {Promise<object>}
+ */
+function readCollectionExport(collection) {
+  return exportCollection(collection.id, browserState.settings, {
+    backend: collection.backend,
+    source: collection.source || "transformers",
+    model: collection.model || "",
+  });
+}
+
+/**
+ * Downloads a collection as JSON, vectors included.
+ * @param {object} collection
+ */
+async function exportCollectionJson(collection) {
+  try {
+    toastr.info("Exporting collection...", "VectFox");
+    const exportData = await readCollectionExport(collection);
+    downloadExport(exportData, collection.name || collection.id);
+    toastr.success(
+      `Exported ${exportData.stats.chunkCount} chunks (${exportData.stats.chunksWithVectors} with vectors)`,
+      "VectFox Export",
+    );
+  } catch (error) {
+    log.error("VectFox: Export failed", error);
+    toastr.error(`Export failed: ${error.message}`, "VectFox");
+  }
+}
+
+/**
+ * Downloads a collection inside a PNG card, on the user's own picture or the default one.
+ * @param {object} collection
+ */
+async function exportCollectionPng(collection) {
+  const wantsOwnPicture = await confirmPopup([
+    { text: "Put the PNG card on a picture of your own?" },
+    { text: "The collection is saved inside the picture, so it can be shared as an image." },
+    { text: "Choose a picture opens the file picker. Use the default puts it on the VectFox picture." },
+  ], { okButton: "Choose a picture", cancelButton: "Use the default" });
+
+  let picture = null;
+  if (wantsOwnPicture) {
+    [picture = null] = await pickFiles({ accept: "image/*" });
+    if (!picture) return; // the picker was dismissed: nothing is exported
+  }
+  await performPngExport(collection, picture);
 }
 
 /**
  * Performs PNG export with optional custom image
- * @param {File|null} imageFile - Custom image file or null for default
+ * @param {object} collection
+ * @param {File|null} imageFile Custom image file or null for default
  */
-async function performPngExport(imageFile) {
-  const pending = browserState.pendingPngExport;
-  if (!pending) {
-    toastr.error("No export pending", "VectFox");
-    return;
-  }
-
-  browserState.pendingPngExport = null;
-
+async function performPngExport(collection, imageFile) {
   try {
     toastr.info("Preparing PNG export...", "VectFox");
+    const exportData = await readCollectionExport(collection);
 
-    // Get export data
-    const exportData = await exportCollection(
-      pending.collectionId,
-      browserState.settings,
-      {
-        backend: pending.backend,
-        source: pending.source,
-        model: pending.model,
-      },
-    );
-
-    // Convert custom image to PNG if provided
     let pngData = null;
     if (imageFile) {
       toastr.info("Converting image...", "VectFox");
       pngData = await convertToPNG(imageFile);
     }
 
-    // Embed data in PNG
     toastr.info("Embedding data in PNG...", "VectFox");
     const pngWithData = await embedDataInPNG(exportData, pngData);
+    downloadPNG(pngWithData, `${collection.name || collection.id}.vectfox`);
 
-    // Download
-    const filename = `${pending.collection.name || pending.collectionId}.vectfox`;
-    downloadPNG(pngWithData, filename);
-
-    // Show compression stats
     const jsonSize = JSON.stringify(exportData).length;
     const pngSize = pngWithData.length;
-    const ratio = Math.round((pngSize / jsonSize) * 100);
-
     toastr.success(
       `PNG export complete!\n${exportData.stats.chunkCount} chunks\n` +
         `Original: ${formatBytes(jsonSize)}\n` +
-        `PNG: ${formatBytes(pngSize)} (${ratio}%)`,
-      "VECTFOX Export",
+        `PNG: ${formatBytes(pngSize)} (${Math.round((pngSize / jsonSize) * 100)}%)`,
+      "VectFox Export",
     );
   } catch (error) {
     log.error("VectFox: PNG export failed", error);
     toastr.error(`PNG export failed: ${error.message}`, "VectFox");
   }
+}
+
+/**
+ * Pauses or resumes every ticked collection.
+ * @param {boolean} isEnabled
+ */
+function setTickedEnabled(isEnabled) {
+  const collections = tickedCollections();
+  for (const collection of collections) {
+    setCollectionEnabled(collectionKey(collection), isEnabled);
+    collection.enabled = isEnabled;
+  }
+  renderCollections();
+  log.lifecycle(`VectFox Database Browser: ${isEnabled ? "Resumed" : "Paused"} ${collections.length} collections`);
+}
+
+/** Downloads every ticked collection, one file each, after asking. */
+async function exportTicked() {
+  const collections = tickedCollections();
+  if (collections.length === 0) return;
+  const isConfirmed = await confirmPopup([
+    { text: "Export the ticked collections?" },
+    { text: "Collections:", name: collections.length },
+    { text: "Each one downloads as a file of its own." },
+    { text: "Export downloads them. Cancel stops here." },
+  ], { okButton: "Export" });
+  if (!isConfirmed) return;
+
+  toastr.info(`Exporting ${collections.length} collection(s)...`, "VectFox");
+  let successCount = 0;
+  for (const collection of collections) {
+    try {
+      downloadExport(await readCollectionExport(collection), collection.name || collection.id);
+      successCount++;
+    } catch (error) {
+      log.error(`VectFox: Failed to export ${collection.id}`, error);
+    }
+  }
+  if (successCount === collections.length) {
+    toastr.success(`Exported ${successCount} collection(s)`, "VectFox");
+  } else {
+    toastr.warning(`Exported ${successCount} of ${collections.length} collections. The console has the reason.`, "VectFox");
+  }
+}
+
+/** Deletes every ticked collection, after one confirm that names them. */
+async function deleteTicked() {
+  const collections = tickedCollections();
+  if (collections.length === 0) return;
+  const names = collections.map((c) => c.name || c.id);
+  const namesShown = names.length > 10 ? `${names.slice(0, 10).join(", ")}, and ${names.length - 10} more` : names.join(", ");
+  const isConfirmed = await confirmPopup([
+    { text: "Delete the ticked collections?" },
+    { text: "Collections:", name: `${collections.length}: ${namesShown}` },
+    { text: "Lost: every chunk in them, and the StoryArc links of their events. This cannot be undone." },
+    { text: "Delete deletes them. Cancel keeps them." },
+  ], { okButton: "Delete", isDestructive: true });
+  if (!isConfirmed) return;
+
+  toastr.info(`Deleting ${collections.length} collection(s)...`, "VectFox");
+  let successCount = 0;
+  let partialCount = 0;
+  for (const collection of collections) {
+    try {
+      const result = await deleteCollectionEverywhere(collection);
+      if (result.success) successCount++;
+      else partialCount++;
+    } catch (error) {
+      log.error(`VectFox: Failed to delete ${collection.id}`, error);
+    }
+  }
+
+  browserState.bulkSelected.clear();
+  await refreshCollections();
+  // Same settings-panel refresh as the single delete above.
+  document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
+
+  const failedCount = collections.length - successCount - partialCount;
+  if (partialCount > 0 || failedCount > 0) {
+    toastr.warning(`Deleted ${successCount}, partly deleted ${partialCount}, failed ${failedCount}. The console has the reason.`, "VectFox");
+  } else {
+    log.lifecycle(`VectFox Database Browser: Deleted ${successCount} collections`);
+  }
+}
+
+/**
+ * Paints the page header's counts.
+ * @param {number} collectionCount Number of collections shown
+ * @param {number} chunkCount Total chunks
+ */
+function updateStats(collectionCount, chunkCount) {
+  $('[data-browser-count="collections"]').text(`${collectionCount} collection${collectionCount === 1 ? "" : "s"}`);
+  $('[data-browser-count="chunks"]').text(`${chunkCount} chunk${chunkCount === 1 ? "" : "s"}`);
 }
 
 /**
@@ -1491,7 +1168,7 @@ function formatBytes(bytes) {
 
 /**
  * Loads and opens the chunk visualizer for a collection.
- * Shared by both the collections tab and search results tab handlers.
+ * Opened by View chunks on the Collections page and on each Search result.
  */
 async function openChunkVisualizer(collection) {
   try {
@@ -1576,327 +1253,6 @@ async function openChunkVisualizer(collection) {
   }
 }
 
-/**
- * Binds events for collection card actions
- */
-function bindCollectionCardEvents() {
-  // Toggle enabled/disabled
-  $(".vectfox-action-toggle")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const currentEnabled = $(this).data("enabled");
-      const newEnabled = !currentEnabled;
-
-      setCollectionEnabled(collectionKey, newEnabled);
-
-      // Update UI
-      const collection = findCollectionByKey(collectionKey);
-      if (collection) {
-        collection.enabled = newEnabled;
-      }
-
-      renderCollections();
-
-      toastr.success(
-        `Collection ${newEnabled ? "enabled" : "paused"}`,
-        "VectFox",
-      );
-    });
-
-  // Delete collection - uses unified deleteCollection() to handle all 3 stores
-  $(".vectfox-action-delete")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collection = findCollectionByKey(collectionKey);
-
-      if (!collection) return;
-
-      const confirmed = confirm(
-        `Delete collection "${collection.name}"?\n\n` +
-          `This will remove ${collection.chunkCount} chunks from the vector index` +
-          `${hasStoryLinksRow(collection) ? ", and their StoryArc links with them" : ""}.\n` +
-          `This action cannot be undone.`,
-      );
-
-      if (!confirmed) return;
-
-      try {
-        // Use unified delete function - handles vectors, registry, AND metadata.
-        // _discoveredSources carries every {source, models} index the plugin
-        // found on disk, so the Standard backend purge targets the real
-        // {source}/{collectionId}/{model}/ paths instead of the current
-        // embedding provider (which may not match what's on disk).
-        const collectionSettings = {
-          ...browserState.settings,
-          vector_backend: collection.backend,
-          _discoveredSources: collection.sources,
-        };
-
-        const result = await deleteCollection(
-          collection.id,
-          collectionSettings,
-          collection.registryKey,
-        );
-
-        // Remove from state, with its links row's count
-        browserState.collections = browserState.collections.filter(
-          (c) => (c.registryKey || c.id) !== collectionKey,
-        );
-        browserState.storyLinkCoverage.delete(collectionKey);
-
-        // Re-render
-        renderCollections();
-
-        // The settings panel re-checks its Semantic WI and auto-sync checkboxes on
-        // this event; the deleted collection may have been what kept either one on.
-        document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
-
-        if (result.success) {
-          toastr.success(`Deleted collection "${collection.name}"`, "VectFox");
-        } else {
-          toastr.warning(
-            `Partial deletion: ${result.errors.join(", ")}`,
-            "VectFox",
-          );
-        }
-      } catch (error) {
-        log.error("VectFox: Failed to delete collection", error);
-        toastr.error(`Failed to delete collection: ${error.message}`, "VectFox");
-      }
-    });
-
-  // Save a collection's StoryArc links to a file
-  $(".vectfox-action-export-links")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collection = findCollectionByKey($(this).data("collection-key"));
-      if (!collection) return;
-      try {
-        const linksFile = await buildCollectionLinksFile(collection, browserState.settings);
-        if (linksFile.events.length === 0) {
-          toastr.info("This collection has no links to export yet.", "VectFox StoryArc");
-          return;
-        }
-        downloadExport(linksFile, `${collection.name || collection.id}-storyarc-links`);
-        toastr.success(`Exported the links of ${linksFile.events.length} events`, "VectFox StoryArc");
-      } catch (error) {
-        log.error("VectFox: Export links failed", error);
-        toastr.error(`Export links failed: ${error.message}`, "VectFox StoryArc");
-      }
-    });
-
-  // Pick a links file for this collection; the file picker's handler does the rest
-  $(".vectfox-action-import-links")
-    .off("click")
-    .on("click", function (e) {
-      e.stopPropagation();
-      browserState.pendingLinksImportKey = $(this).data("collection-key");
-      $("#vectfox_import_links_file").click();
-    });
-
-  // Delete a collection's StoryArc links, after asking
-  $(".vectfox-action-delete-links")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      await deleteCollectionStoryLinks($(this).data("collection-key"));
-    });
-
-  // Visualize chunks
-  $(".vectfox-action-visualize")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collection = findCollectionByKey(collectionKey);
-      if (!collection) return;
-      await openChunkVisualizer(collection);
-    });
-
-  // Export toggle - show/hide export options
-  $(".vectfox-action-export-toggle")
-    .off("click")
-    .on("click", function (e) {
-      e.stopPropagation();
-      const $dropdown = $(this).closest(".vectfox-export-dropdown");
-      const isExpanded = $dropdown.hasClass("expanded");
-
-      // Close any other open dropdowns
-      $(".vectfox-export-dropdown.expanded")
-        .not($dropdown)
-        .removeClass("expanded");
-
-      // Toggle this one
-      $dropdown.toggleClass("expanded", !isExpanded);
-    });
-
-  // Close export dropdown when clicking elsewhere
-  $(document)
-    .off("click.vectfox-export")
-    .on("click.vectfox-export", function (e) {
-      if (!$(e.target).closest(".vectfox-export-dropdown").length) {
-        $(".vectfox-export-dropdown.expanded").removeClass("expanded");
-      }
-    });
-
-  // Export collection (JSON)
-  $(".vectfox-action-export")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collectionId = $(this).data("collection-id");
-      const backend = $(this).data("backend");
-      const source = $(this).data("source");
-      const model = $(this).data("model");
-
-      const collection = findCollectionByKey(collectionKey);
-      if (!collection) return;
-
-      try {
-        toastr.info("Exporting collection...", "VectFox");
-
-        const exportData = await exportCollection(
-          collectionId,
-          browserState.settings,
-          {
-            backend,
-            source,
-            model,
-          },
-        );
-
-        downloadExport(exportData, collection.name || collectionId);
-
-        toastr.success(
-          `Exported ${exportData.stats.chunkCount} chunks (${exportData.stats.chunksWithVectors} with vectors)`,
-          "VECTFOX Export",
-        );
-      } catch (error) {
-        log.error("VectFox: Export failed", error);
-        toastr.error(`Export failed: ${error.message}`, "VectFox");
-      }
-    });
-
-  // Export collection (PNG)
-  $(".vectfox-action-export-png")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collectionId = $(this).data("collection-id");
-      const backend = $(this).data("backend");
-      const source = $(this).data("source");
-      const model = $(this).data("model");
-
-      const collection = findCollectionByKey(collectionKey);
-      if (!collection) return;
-
-      // Store export context for image picker callback
-      browserState.pendingPngExport = {
-        collectionKey,
-        collectionId,
-        backend,
-        source,
-        model,
-        collection,
-      };
-
-      // Ask if they want to use a custom image
-      const useCustomImage = confirm(
-        "Export as PNG\n\n" +
-          "Would you like to use a custom image?\n\n" +
-          "• Click OK to choose an image file\n" +
-          "• Click Cancel to use default VECTFOX image",
-      );
-
-      if (useCustomImage) {
-        $("#vectfox_png_image_picker").click();
-      } else {
-        // Export with default image
-        await performPngExport(null);
-      }
-    });
-
-  // PNG image picker handler
-  $("#vectfox_png_image_picker")
-    .off("change")
-    .on("change", async function (e) {
-      const file = e.target.files[0];
-      $(this).val(""); // Reset for next use
-
-      if (!file) {
-        browserState.pendingPngExport = null;
-        return;
-      }
-
-      await performPngExport(file);
-    });
-
-  // Activation editor (triggers + conditions)
-  $(".vectfox-action-activation")
-    .off("click")
-    .on("click", function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collection = findCollectionByKey(collectionKey);
-      if (collection) {
-        // Pass the registry key form (backend:id) so the metadata layer keys
-        // locks per-backend. Two collections that share a bare ID but live on
-        // different backends now have separate lock state.
-        openActivationEditor(collection.registryKey || collection.id, collection.name);
-      }
-    });
-
-  // Rename collection
-  $(".vectfox-action-rename")
-    .off("click")
-    .on("click", function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collection = findCollectionByKey(collectionKey);
-      if (collection) {
-        // Pass registry-key form so the metadata write lands at the same key
-        // the loader/import/cleanup paths use.
-        openRenameDialog(collection.registryKey || collection.id, collection.name);
-      }
-    });
-
-  // Switch model (for collections with multiple embedding models)
-  $(".vectfox-action-switch-model")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collection = findCollectionByKey(collectionKey);
-
-      if (!collection || !collection.models || collection.models.length < 2) {
-        return;
-      }
-
-      openModelSwitcher(collection);
-    });
-}
-
-/**
- * Updates stats footer
- * @param {number} collectionCount Number of collections shown
- * @param {number} chunkCount Total chunks
- */
-function updateStats(collectionCount, chunkCount) {
-  const statsText =
-    collectionCount === 0
-      ? "No collections"
-      : `${collectionCount} collection${collectionCount === 1 ? "" : "s"}, ${chunkCount} total chunks`;
-
-  $("#vectfox_browser_stats_text").text(statsText);
-}
-
 // ============================================================================
 // RENAME DIALOG
 // ============================================================================
@@ -1907,6 +1263,9 @@ function updateStats(collectionCount, chunkCount) {
  * @param {string} currentName Current display name
  */
 function openRenameDialog(collectionId, currentName) {
+  // A dialog made on an earlier open moved down when the browser's dialog closed; it goes back on top of the browser.
+  const existingModal = document.getElementById("vectfox_rename_modal");
+  if (existingModal) placeOnTopmostModalLayer(existingModal);
   // Create modal if needed
   if ($("#vectfox_rename_modal").length === 0) {
     const modalHtml = `
@@ -2007,6 +1366,9 @@ function closeRenameDialog() {
  * @param {object} collection Collection object with models array
  */
 function openModelSwitcher(collection) {
+  // A dialog made on an earlier open moved down when the browser's dialog closed; it goes back on top of the browser.
+  const existingModal = document.getElementById("vectfox_model_switcher_modal");
+  if (existingModal) placeOnTopmostModalLayer(existingModal);
   // Create modal if it doesn't exist
   if ($("#vectfox_model_switcher_modal").length === 0) {
     const modalHtml = `
@@ -3229,55 +2591,25 @@ function addConditionRule() {
 }
 
 // ============================================================================
-// SEARCH TAB FUNCTIONS
+// SEARCH PAGE
 // ============================================================================
 
 /**
- * Binds search tab events
+ * Scans the collections for the keywords their chunks carry, the most common first.
+ * @param {HTMLButtonElement} button
  */
-function bindSearchEvents() {
-  if (searchEventsBound) return;
-  searchEventsBound = true;
-
-  // Search button click
-  $("#vectfox_search_btn").off("click").on("click", performSearch);
-
-  // Enter key in search input
-  $("#vectfox_semantic_search")
-    .off("keydown")
-    .on("keydown", function (e) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        performSearch();
-      }
-    });
-
-  // Keyword filter events
-  $("#vectfox_scan_keywords").off("click").on("click", scanKeywords);
-  $("#vectfox_clear_keyword_filter").off("click").on("click", clearKeywordFilter);
-  $("#vectfox_keyword_filter").off("input").on("input", updateKeywordFilterFromInput);
-}
-
-/**
- * Scans all collections for keywords
- */
-async function scanKeywords() {
-  const $btn = $("#vectfox_scan_keywords");
+async function scanKeywords(button) {
   const $tags = $("#vectfox_keyword_tags");
-
-  $btn.prop("disabled", true).html('<i class="fa-solid fa-spinner fa-spin"></i> Scanning...');
-  $tags.html('<span class="vectfox-keyword-hint">Scanning collections...</span>');
+  button.disabled = true;
+  $tags.html(keywordScanRunningMarkup());
 
   try {
-    const enabledOnly = $("#vectfox_search_enabled_only").is(":checked");
-    let collectionsToScan = browserState.collections;
-
-    if (enabledOnly) {
-      collectionsToScan = collectionsToScan.filter(c => c.enabled);
-    }
+    const isEnabledOnly = $("#vectfox_search_enabled_only").is(":checked");
+    const collectionsToScan = isEnabledOnly
+      ? browserState.collections.filter((c) => c.enabled)
+      : browserState.collections;
 
     const keywordCounts = new Map();
-
     for (const collection of collectionsToScan) {
       try {
         const response = await fetch("/api/plugins/similharity/chunks/list", {
@@ -3291,19 +2623,16 @@ async function scanKeywords() {
             limit: 500,
           }),
         });
-
-        if (!response.ok) continue;
+        if (!response.ok) {
+          log.warn(`VectFox: Keyword scan could not list ${collection.id}: HTTP ${response.status}`);
+          continue;
+        }
 
         const data = await response.json();
-        const items = data.items || [];
-
-        for (const item of items) {
-          const keywords = item.metadata?.keywords || item.keywords || [];
-          for (const kw of keywords) {
-            const text = (typeof kw === 'object' ? kw.text : kw)?.toLowerCase();
-            if (text) {
-              keywordCounts.set(text, (keywordCounts.get(text) || 0) + 1);
-            }
+        for (const item of data.items || []) {
+          for (const keyword of item.metadata?.keywords || item.keywords || []) {
+            const text = (typeof keyword === "object" ? keyword.text : keyword)?.toLowerCase();
+            if (text) keywordCounts.set(text, (keywordCounts.get(text) || 0) + 1);
           }
         }
       } catch (err) {
@@ -3311,95 +2640,52 @@ async function scanKeywords() {
       }
     }
 
-    // Sort by count and store
     browserState.availableKeywords = Array.from(keywordCounts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([text, count]) => ({ text, count }));
-
     renderKeywordTags();
-
-    if (browserState.availableKeywords.length === 0) {
-      $tags.html('<span class="vectfox-keyword-hint">No keywords found in scanned collections</span>');
-    } else {
-      toastr.success(`Found ${browserState.availableKeywords.length} unique keywords`, "VectFox");
-    }
+    log.lifecycle(`VectFox Database Browser: Found ${browserState.availableKeywords.length} keywords`);
   } catch (error) {
     log.error("VectFox: Keyword scan failed", error);
-    $tags.html('<span class="vectfox-keyword-hint vectfox-error">Scan failed</span>');
-    toastr.error("Failed to scan keywords", "VectFox");
+    $tags.html(keywordScanFailedMarkup());
   } finally {
-    $btn.prop("disabled", false).html('<i class="fa-solid fa-sync"></i> Scan');
+    button.disabled = false;
   }
 }
 
-/**
- * Renders clickable keyword tags
- */
+/** The keywords in the filter, lower case. */
+function activeKeywords() {
+  return browserState.keywordFilter.toLowerCase().split(",").map((k) => k.trim()).filter(Boolean);
+}
+
+/** Paints the scanned keywords as buttons; before a scan there are none to paint. */
 function renderKeywordTags() {
-  const $tags = $("#vectfox_keyword_tags");
-  const keywords = browserState.availableKeywords;
-
-  if (keywords.length === 0) {
-    $tags.html('<span class="vectfox-keyword-hint">No keywords available</span>');
-    return;
-  }
-
-  // Show top 30 keywords with counts
-  const displayKeywords = keywords.slice(0, 30);
-  const currentFilter = browserState.keywordFilter.toLowerCase().split(',').map(k => k.trim()).filter(Boolean);
-
-  let html = displayKeywords.map(kw => {
-    const isActive = currentFilter.includes(kw.text);
-    return `<span class="vectfox-keyword-tag ${isActive ? 'active' : ''}"
-                  data-keyword="${escapeHtml(kw.text)}"
-                  title="${kw.count} occurrence(s)">
-              ${escapeHtml(kw.text)} <small>(${kw.count})</small>
-            </span>`;
-  }).join('');
-
-  if (keywords.length > 30) {
-    html += `<span class="vectfox-keyword-more">+${keywords.length - 30} more</span>`;
-  }
-
-  $tags.html(html);
-
-  // Bind click events on tags
-  $tags.find(".vectfox-keyword-tag").off("click").on("click", function() {
-    const keyword = $(this).data("keyword");
-    toggleKeywordFilter(keyword);
-  });
+  if (browserState.availableKeywords === null) return;
+  $("#vectfox_keyword_tags").html(keywordTagsMarkup(browserState.availableKeywords, activeKeywords()));
 }
 
 /**
- * Toggles a keyword in the filter
+ * Adds a keyword to the filter, or drops it.
+ * @param {string} keyword
  */
 function toggleKeywordFilter(keyword) {
-  const currentFilter = browserState.keywordFilter.toLowerCase().split(',').map(k => k.trim()).filter(Boolean);
-  const idx = currentFilter.indexOf(keyword.toLowerCase());
-
-  if (idx >= 0) {
-    currentFilter.splice(idx, 1);
-  } else {
-    currentFilter.push(keyword.toLowerCase());
-  }
-
-  browserState.keywordFilter = currentFilter.join(', ');
+  const keywords = activeKeywords();
+  const index = keywords.indexOf(keyword.toLowerCase());
+  if (index >= 0) keywords.splice(index, 1);
+  else keywords.push(keyword.toLowerCase());
+  browserState.keywordFilter = keywords.join(", ");
   $("#vectfox_keyword_filter").val(browserState.keywordFilter);
   renderKeywordTags();
 }
 
-/**
- * Clears the keyword filter
- */
+/** Empties the keyword filter. */
 function clearKeywordFilter() {
-  browserState.keywordFilter = '';
-  $("#vectfox_keyword_filter").val('');
+  browserState.keywordFilter = "";
+  $("#vectfox_keyword_filter").val("");
   renderKeywordTags();
 }
 
-/**
- * Updates keyword filter from input field
- */
+/** Takes the keyword filter from its box. */
 function updateKeywordFilterFromInput() {
   browserState.keywordFilter = $("#vectfox_keyword_filter").val();
   renderKeywordTags();
@@ -3411,46 +2697,34 @@ function updateKeywordFilterFromInput() {
  * @returns {object} Filtered results
  */
 function filterResultsByKeywords(results) {
-  const filterKeywords = browserState.keywordFilter.toLowerCase()
-    .split(',')
-    .map(k => k.trim())
-    .filter(Boolean);
-
+  const filterKeywords = activeKeywords();
   if (filterKeywords.length === 0) {
     return results;
   }
 
   const filtered = {};
-
   for (const [collectionId, collectionResults] of Object.entries(results)) {
     if (!collectionResults?.hashes?.length) continue;
 
     const filteredHashes = [];
     const filteredMetadata = [];
-
     for (let i = 0; i < collectionResults.hashes.length; i++) {
       const metadata = collectionResults.metadata?.[i] || {};
       const chunkKeywords = (metadata.keywords || []).map(kw =>
-        (typeof kw === 'object' ? kw.text : kw)?.toLowerCase()
+        (typeof kw === "object" ? kw.text : kw)?.toLowerCase(),
       ).filter(Boolean);
 
-      // Check if chunk has ANY of the filter keywords
-      const hasMatch = filterKeywords.some(fk => chunkKeywords.includes(fk));
-
-      if (hasMatch) {
+      // A chunk passes when it carries ANY of the filter's keywords.
+      if (filterKeywords.some(fk => chunkKeywords.includes(fk))) {
         filteredHashes.push(collectionResults.hashes[i]);
         filteredMetadata.push(metadata);
       }
     }
 
     if (filteredHashes.length > 0) {
-      filtered[collectionId] = {
-        hashes: filteredHashes,
-        metadata: filteredMetadata
-      };
+      filtered[collectionId] = { hashes: filteredHashes, metadata: filteredMetadata };
     }
   }
-
   return filtered;
 }
 
@@ -3466,9 +2740,8 @@ async function performSearch() {
 
   const topK = parseInt($("#vectfox_search_topk").val()) || 5;
   const threshold = parseFloat($("#vectfox_search_threshold").val()) || 0.3;
-  const enabledOnly = $("#vectfox_search_enabled_only").is(":checked");
+  const isEnabledOnly = $("#vectfox_search_enabled_only").is(":checked");
 
-  // Get collection IDs to search
   let collectionIds = browserState.collections.map((c) => c.id);
 
   // Defense-in-depth: even though browserState.collections is already filtered by
@@ -3488,476 +2761,83 @@ async function performSearch() {
     });
   }
 
-  if (enabledOnly) {
-    collectionIds = collectionIds.filter((id) => {
-      const collection = browserState.collections.find((c) => c.id === id);
-      return collection && collection.enabled;
-    });
+  if (isEnabledOnly) {
+    collectionIds = collectionIds.filter((id) => browserState.collections.find((c) => c.id === id)?.enabled);
   }
 
+  const $results = $("#vectfox_search_results");
   if (collectionIds.length === 0) {
-    $("#vectfox_search_results").html(`
-            <div class="vectfox-search-empty">
-                ${icons.search(48)}
-                <p>No collections available to search</p>
-            </div>
-        `);
+    $results.html(nothingToSearchMarkup());
     return;
   }
 
-  // Show loading state
-  browserState.isSearching = true;
-  $("#vectfox_search_btn")
-    .prop("disabled", true)
-    .html(`${icons.search(16)} Searching...`);
-  $("#vectfox_search_results").html(`
-        <div class="vectfox-search-loading">
-            <i class="fa-solid fa-spinner fa-spin"></i> Searching ${collectionIds.length} collections...
-        </div>
-    `);
-
+  $("#vectfox_search_btn").prop("disabled", true);
+  $results.html(searchRunningMarkup());
   try {
-    const results = await queryMultipleCollections(
-      collectionIds,
-      query,
-      topK,
-      threshold,
-      browserState.settings,
-    );
-
-    browserState.searchResults = results;
-
-    // Apply keyword filter if set
-    const filteredResults = filterResultsByKeywords(results);
-    renderSearchResults(filteredResults, query, results);
+    const results = await queryMultipleCollections(collectionIds, query, topK, threshold, browserState.settings);
+    renderSearchResults(filterResultsByKeywords(results), results);
   } catch (error) {
     log.error("VectFox: Search failed", error);
-    $("#vectfox_search_results").html(`
-            <div class="vectfox-search-error">
-                ${icons.x(24)} Search failed: ${error.message}
-            </div>
-        `);
+    $results.html(searchFailedMarkup(error.message));
   } finally {
-    browserState.isSearching = false;
-    $("#vectfox_search_btn")
-      .prop("disabled", false)
-      .html(`${icons.search(16)} Search`);
+    $("#vectfox_search_btn").prop("disabled", false);
   }
+}
+
+/**
+ * How many chunks a set of results holds.
+ * @param {object} results Results by collection
+ * @returns {number}
+ */
+function countResults(results) {
+  return Object.values(results).reduce((sum, collectionResults) => sum + (collectionResults?.hashes?.length || 0), 0);
+}
+
+/**
+ * One result as plain values, for searchResultsMarkup.
+ * @param {string} hash
+ * @param {object} metadata
+ * @returns {object}
+ */
+function searchResultView(hash, metadata) {
+  const vectorScore = metadata.vectorScore !== undefined ? (metadata.vectorScore * 100).toFixed(0) : null;
+  const textScore = metadata.textScore !== undefined ? (metadata.textScore * 100).toFixed(0) : null;
+  const text = metadata.text || `[Hash: ${hash}]`;
+  const keywords = (metadata.keywords || []).map((kw) => (typeof kw === "object" ? kw.text : kw));
+  return {
+    score: metadata.score !== undefined ? (metadata.score * 100).toFixed(1) : "?",
+    vectorScore,
+    textScore,
+    // A hybrid search scores meaning and words apart.
+    isHybrid: Boolean(metadata.hybridSearch) || (vectorScore !== null && textScore !== null),
+    preview: text.length > 200 ? `${text.substring(0, 200)}…` : text,
+    keywords: keywords.slice(0, 5),
+    moreKeywordCount: Math.max(0, keywords.length - 5),
+  };
 }
 
 /**
  * Renders search results
- * @param {object} results Results from queryMultipleCollections (possibly filtered)
- * @param {string} query Original search query
- * @param {object} originalResults Original unfiltered results (for showing filter info)
+ * @param {object} results Results from queryMultipleCollections, after the keyword filter
+ * @param {object} originalResults The results before it
  */
-function renderSearchResults(results, query, originalResults = null) {
-  const collectionIds = Object.keys(results);
-  const totalResults = collectionIds.reduce(
-    (sum, id) => sum + (results[id]?.hashes?.length || 0),
-    0,
-  );
-
-  // Calculate original counts if keyword filter was applied
-  const wasFiltered = originalResults && browserState.keywordFilter.trim();
-  const originalTotal = originalResults
-    ? Object.keys(originalResults).reduce((sum, id) => sum + (originalResults[id]?.hashes?.length || 0), 0)
-    : totalResults;
-
-  if (totalResults === 0) {
-    const filterMsg = wasFiltered
-      ? `<p>No results match keyword filter: "${escapeHtml(browserState.keywordFilter)}"</p><small>${originalTotal} result(s) found before filtering</small>`
-      : `<p>No results found for "${escapeHtml(query)}"</p><small>Try adjusting the score threshold or search in more collections</small>`;
-
-    $("#vectfox_search_results").html(`
-            <div class="vectfox-search-empty">
-                ${icons.search(48)}
-                ${filterMsg}
-            </div>
-        `);
-    return;
-  }
-
-  let summaryHtml = `<div class="vectfox-search-summary">Found ${totalResults} result(s) in ${collectionIds.length} collection(s)`;
-  if (wasFiltered) {
-    summaryHtml += ` <span class="vectfox-filter-badge" title="Keyword filter active">🏷️ filtered from ${originalTotal}</span>`;
-  }
-  summaryHtml += `</div>`;
-
-  let html = summaryHtml;
-
-  for (const collectionId of collectionIds) {
-    const collectionResults = results[collectionId];
+function renderSearchResults(results, originalResults) {
+  const groups = [];
+  for (const [collectionId, collectionResults] of Object.entries(results)) {
     if (!collectionResults?.hashes?.length) continue;
-
-    const collection = browserState.collections.find(
-      (c) => c.id === collectionId,
-    );
-    const collectionName = collection?.name || collectionId;
-    // Use registryKey for unique identification (source:id format)
-    const uniqueKey = collection.registryKey || collection.id;
-
-    html += `
-            <div class="vectfox-search-collection">
-                <div class="vectfox-search-collection-header">
-                    ${icons.folder(16)} ${escapeHtml(collectionName)}
-                    <span class="vectfox-search-count">${collectionResults.hashes.length} result(s)</span>
-                </div>
-                <div class="vectfox-search-collection-results">
-        `;
-
-    for (let i = 0; i < collectionResults.hashes.length; i++) {
-      const metadata = collectionResults.metadata?.[i] || {};
-      const score =
-        metadata.score !== undefined ? (metadata.score * 100).toFixed(1) : "?";
-      const text = metadata.text || `[Hash: ${collectionResults.hashes[i]}]`;
-      const preview = text.length > 200 ? text.substring(0, 200) + "..." : text;
-
-      // Build score breakdown for hybrid search results
-      const vectorScore = metadata.vectorScore !== undefined ? (metadata.vectorScore * 100).toFixed(0) : null;
-      const textScore = metadata.textScore !== undefined ? (metadata.textScore * 100).toFixed(0) : null;
-      const isHybrid = metadata.hybridSearch || (vectorScore !== null && textScore !== null);
-
-      let scoreDisplay = `<div class="vectfox-search-result-score">${score}%</div>`;
-      if (isHybrid) {
-        scoreDisplay = `
-          <div class="vectfox-search-result-score-hybrid">
-            <div class="vectfox-score-main">${score}%</div>
-            <div class="vectfox-score-breakdown">
-              <span class="vectfox-score-vector" title="Semantic similarity">🔷${vectorScore || '?'}%</span>
-              <span class="vectfox-score-text" title="Keyword match">📝${textScore || '0'}%</span>
-            </div>
-          </div>`;
-      }
-
-      // Build keywords display
-      const chunkKeywords = metadata.keywords || [];
-      let keywordsHtml = '';
-      if (chunkKeywords.length > 0) {
-        const keywordTags = chunkKeywords.slice(0, 5).map(kw => {
-          const text = typeof kw === 'object' ? kw.text : kw;
-          return `<span class="vectfox-result-keyword">${escapeHtml(text)}</span>`;
-        }).join('');
-        const moreCount = chunkKeywords.length > 5 ? `<span class="vectfox-result-keyword-more">+${chunkKeywords.length - 5}</span>` : '';
-        keywordsHtml = `<div class="vectfox-result-keywords">${keywordTags}${moreCount}</div>`;
-      }
-
-      html += `
-                <div class="vectfox-search-result" data-collection="${escapeHtml(collectionId)}" data-hash="${collectionResults.hashes[i]}">
-                    ${scoreDisplay}
-                    <div class="vectfox-search-result-content">
-                        <div class="vectfox-search-result-text">${escapeHtml(preview)}</div>
-                        ${keywordsHtml}
-                    </div>
-                </div>
-
-                <button class="vectfox-btn-sm vectfox-action-visualize"
-                        data-collection-key="${escapeHtml(uniqueKey)}"
-                        data-backend="${escapeHtml(collection.backend)}"
-                        data-source="${escapeHtml(collection.source || "transformers")}"
-                        title="View and edit chunks in this collection">
-                    ${icons.eye(16)} View Chunks
-                </button>
-            `;
-    }
-
-    html += `</div></div>`;
+    const collection = browserState.collections.find((c) => c.id === collectionId);
+    groups.push({
+      key: collection ? collectionKey(collection) : collectionId,
+      name: collection?.name || collectionId,
+      results: collectionResults.hashes.map((hash, index) => searchResultView(hash, collectionResults.metadata?.[index] || {})),
+    });
   }
-
-  $("#vectfox_search_results").html(html);
-  $(".vectfox-action-visualize")
-    .off("click")
-    .on("click", async function (e) {
-      e.stopPropagation();
-      const collectionKey = $(this).data("collection-key");
-      const collection = findCollectionByKey(collectionKey);
-      if (!collection) return;
-      await openChunkVisualizer(collection);
-    });
-}
-
-// ============================================================================
-// BULK OPERATIONS TAB FUNCTIONS
-// ============================================================================
-
-/**
- * Renders bulk operations list
- */
-function renderBulkList() {
-  const filter = browserState.bulkFilter;
-  let collections = [...browserState.collections];
-
-  // Apply filter
-  if (filter === "enabled") {
-    collections = collections.filter((c) => c.enabled);
-  } else if (filter === "disabled") {
-    collections = collections.filter((c) => !c.enabled);
-  }
-
-  if (collections.length === 0) {
-    $("#vectfox_bulk_list").html(`
-            <div class="vectfox-bulk-empty">
-                ${icons.folder(48)}
-                <p>No collections match the current filter</p>
-            </div>
-        `);
-    return;
-  }
-
-  let html = "";
-  for (const collection of collections) {
-    const uniqueKey = collection.registryKey || collection.id;
-    const isSelected = browserState.bulkSelected.has(uniqueKey);
-    const safeKey = escapeHtml(uniqueKey);
-
-    html += `
-            <div class="vectfox-bulk-item ${isSelected ? "selected" : ""}" data-key="${safeKey}">
-                <label class="vectfox-bulk-checkbox">
-                    <input type="checkbox" ${isSelected ? "checked" : ""} data-key="${safeKey}">
-                </label>
-                <div class="vectfox-bulk-item-info">
-                    <span class="vectfox-bulk-item-name">${escapeHtml(collection.name || collection.id)}</span>
-                    <span class="vectfox-bulk-item-meta">
-                        ${collection.chunkCount || 0} chunks •
-                        ${collection.enabled ? `${icons.toggleRight(12)} Enabled` : `${icons.toggleLeft(12)} Disabled`}
-                    </span>
-                </div>
-            </div>
-        `;
-  }
-
-  $("#vectfox_bulk_list").html(html);
-  updateBulkCount();
-}
-
-/**
- * Binds bulk operations events
- */
-function bindBulkEvents() {
-  if (bulkEventsBound) return;
-  bulkEventsBound = true;
-
-  // Filter change
-  $("#vectfox_bulk_filter")
-    .off("change")
-    .on("change", function () {
-      browserState.bulkFilter = $(this).val();
-      browserState.bulkSelected.clear();
-      renderBulkList();
-    });
-
-  // Select all checkbox
-  $("#vectfox_bulk_select_all")
-    .off("change")
-    .on("change", function () {
-      const isChecked = $(this).is(":checked");
-      const filter = browserState.bulkFilter;
-      let collections = [...browserState.collections];
-
-      if (filter === "enabled") {
-        collections = collections.filter((c) => c.enabled);
-      } else if (filter === "disabled") {
-        collections = collections.filter((c) => !c.enabled);
-      }
-
-      browserState.bulkSelected.clear();
-      if (isChecked) {
-        collections.forEach((c) =>
-          browserState.bulkSelected.add(c.registryKey || c.id),
-        );
-      }
-
-      renderBulkList();
-    });
-
-  // Individual checkbox clicks (delegated)
-  $("#vectfox_bulk_list")
-    .off("change", 'input[type="checkbox"]')
-    .on("change", 'input[type="checkbox"]', function () {
-      const key = $(this).data("key");
-      if ($(this).is(":checked")) {
-        browserState.bulkSelected.add(key);
-      } else {
-        browserState.bulkSelected.delete(key);
-      }
-      updateBulkCount();
-      $(this)
-        .closest(".vectfox-bulk-item")
-        .toggleClass("selected", $(this).is(":checked"));
-    });
-
-  // Bulk enable
-  $("#vectfox_bulk_enable")
-    .off("click")
-    .on("click", async function () {
-      if (browserState.bulkSelected.size === 0) return;
-
-      for (const key of browserState.bulkSelected) {
-        setCollectionEnabled(key, true);
-        const collection = browserState.collections.find(
-          (c) => (c.registryKey || c.id) === key,
-        );
-        if (collection) collection.enabled = true;
-      }
-
-      toastr.success(
-        `Enabled ${browserState.bulkSelected.size} collection(s)`,
-        "VectFox",
-      );
-      renderBulkList();
-      renderCollections();
-    });
-
-  // Bulk disable
-  $("#vectfox_bulk_disable")
-    .off("click")
-    .on("click", async function () {
-      if (browserState.bulkSelected.size === 0) return;
-
-      for (const key of browserState.bulkSelected) {
-        setCollectionEnabled(key, false);
-        const collection = browserState.collections.find(
-          (c) => (c.registryKey || c.id) === key,
-        );
-        if (collection) collection.enabled = false;
-      }
-
-      toastr.success(
-        `Disabled ${browserState.bulkSelected.size} collection(s)`,
-        "VectFox",
-      );
-      renderBulkList();
-      renderCollections();
-    });
-
-  // Bulk export
-  $("#vectfox_bulk_export")
-    .off("click")
-    .on("click", async function () {
-      if (browserState.bulkSelected.size === 0) return;
-
-      const confirmed = confirm(
-        `Export ${browserState.bulkSelected.size} collection(s)?\n\nEach collection will be downloaded as a separate file.`,
-      );
-      if (!confirmed) return;
-
-      toastr.info(
-        `Exporting ${browserState.bulkSelected.size} collection(s)...`,
-        "VectFox",
-      );
-
-      let successCount = 0;
-      for (const key of browserState.bulkSelected) {
-        const collection = browserState.collections.find(
-          (c) => (c.registryKey || c.id) === key,
-        );
-        if (!collection) continue;
-
-        try {
-          const exportData = await exportCollection(
-            collection.id,
-            browserState.settings,
-            {
-              backend: collection.backend,
-              source: collection.source || "transformers",
-              model: collection.model || "",
-            },
-          );
-
-          downloadExport(exportData, collection.name || collection.id);
-          successCount++;
-        } catch (error) {
-          log.error(`VectFox: Failed to export ${collection.id}`, error);
-        }
-      }
-
-      toastr.success(`Exported ${successCount} collection(s)`, "VectFox");
-    });
-
-  // Bulk delete - uses unified deleteCollection()
-  $("#vectfox_bulk_delete")
-    .off("click")
-    .on("click", async function () {
-      if (browserState.bulkSelected.size === 0) return;
-
-      const confirmed = confirm(
-        `⚠️ DELETE ${browserState.bulkSelected.size} COLLECTION(S)?\n\n` +
-          `This will permanently delete all vectors in these collections.\n` +
-          `This action CANNOT be undone!\n\n` +
-          `Type "DELETE" to confirm.`,
-      );
-
-      if (!confirmed) return;
-
-      const confirmText = prompt("Type DELETE to confirm:");
-      if (confirmText !== "DELETE") {
-        toastr.info("Deletion cancelled", "VectFox");
-        return;
-      }
-
-      toastr.info(
-        `Deleting ${browserState.bulkSelected.size} collection(s)...`,
-        "VectFox",
-      );
-
-      let successCount = 0;
-      let partialCount = 0;
-      for (const key of browserState.bulkSelected) {
-        const collection = browserState.collections.find(
-          (c) => (c.registryKey || c.id) === key,
-        );
-        if (!collection) continue;
-
-        try {
-          const collectionSettings = {
-            ...browserState.settings,
-            vector_backend: collection.backend,
-            _discoveredSources: collection.sources,
-          };
-          const result = await deleteCollection(
-            collection.id,
-            collectionSettings,
-            collection.registryKey,
-          );
-          if (result.success) {
-            successCount++;
-          } else {
-            partialCount++;
-          }
-        } catch (error) {
-          log.error(`VectFox: Failed to delete ${collection.id}`, error);
-        }
-      }
-
-      browserState.bulkSelected.clear();
-      await refreshCollections();
-      renderBulkList();
-      // Same settings-panel refresh as the single delete above.
-      document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
-
-      if (partialCount > 0) {
-        toastr.warning(
-          `Deleted ${successCount}, partial: ${partialCount}`,
-          "VectFox",
-        );
-      } else {
-        toastr.success(`Deleted ${successCount} collection(s)`, "VectFox");
-      }
-    });
-}
-
-/**
- * Updates bulk selection count and button states
- */
-function updateBulkCount() {
-  const count = browserState.bulkSelected.size;
-  $("#vectfox_bulk_count").text(`${count} selected`);
-
-  // Enable/disable buttons based on selection
-  const hasSelection = count > 0;
-  $(
-    "#vectfox_bulk_enable, #vectfox_bulk_disable, #vectfox_bulk_export, #vectfox_bulk_delete",
-  ).prop("disabled", !hasSelection);
+  const isKeywordFiltered = activeKeywords().length > 0;
+  $("#vectfox_search_results").html(searchResultsMarkup({
+    groups,
+    totalCount: countResults(results),
+    countBeforeKeywords: isKeywordFiltered ? countResults(originalResults) : null,
+  }));
 }
 
 // ============================================================================
@@ -4169,5 +3049,3 @@ function openCollectionLockDialog(collectionId) {
         }
     });
 }
-
-

@@ -3,10 +3,9 @@
  *
  * The settings panel lives in a SillyTavern popup, and the popup closes on any `cancel` event that reaches its
  * <dialog>. Dismissing a file picker fires one at the file input, and it bubbles, so an input inside the panel or a
- * modal on it closes the whole panel. Every picker moves to one door whose input never joins the page, as
- * mvu-helper's shared/pick-files.js does, arriving with the first phase that moves a picker. The inputs left are in
- * surfaces whose phase has not run yet; each phase moves its own, and its file's count drops in the same change. A new
- * input fails.
+ * modal on it closes the whole panel. Every picker opens through the one door, src/shared/pick-files.js (copied from
+ * mvu-helper's), whose input never joins the page. The inputs left are in surfaces whose phase has not run yet; each
+ * phase moves its own, and its file's count drops in the same change. A new input fails.
  *
  * Comments are not uses.
  */
@@ -18,11 +17,11 @@ import { fileURLToPath } from 'node:url';
 import { countsByFile, filesUnder, relativePath, withoutComments } from './code-scan.mjs';
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
+const THE_DOOR = 'shared/pick-files.js';
 
 // The inputs left, by file, until their phase moves them to the door. A selector naming one counts too.
 const INPUTS_LEFT = {
     'features/chunkbase/content-vectorizer.js': 5,
-    'features/database-browser/database-browser.js': 3,
     'features/text-cleaning/text-cleaning-ui.js': 1,
 };
 
@@ -34,12 +33,18 @@ function fileInputs(source) {
 }
 
 describe('file picker boundary (G10)', () => {
-    it('no file input lives in src/ beyond the inputs left', () => {
+    it('no file input lives in src/ beyond the door and the inputs left', () => {
         const offenders = [];
         for (const file of filesUnder(SRC, ['.js', '.html'])) {
-            for (const line of fileInputs(readFileSync(file, 'utf8'))) offenders.push(`${relativePath(SRC, file)}:${line}`);
+            const relative = relativePath(SRC, file);
+            if (relative === THE_DOOR) continue;
+            for (const line of fileInputs(readFileSync(file, 'utf8'))) offenders.push(`${relative}:${line}`);
         }
         expect(countsByFile(offenders)).toEqual(INPUTS_LEFT);
+    });
+
+    it('the door is the one place an input is made', () => {
+        expect(fileInputs(readFileSync(path.join(SRC, THE_DOOR), 'utf8'))).toHaveLength(1);
     });
 
     it('sees a file input in markup and in code, and ignores comments', () => {

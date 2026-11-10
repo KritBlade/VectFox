@@ -728,7 +728,7 @@ export function getCollectionCharacterLockCount(collectionId) {
 
 /**
  * Single source of truth for "Active for current chat" — the UI checkbox state and the
- * listing lock badge both derive from this. Scope decides which lock list is consulted:
+ * Database Browser's Active here pill both derive from this. Scope decides which lock list is consulted:
  *   - scope='chat'      → chat-lock list, match against current chat
  *   - scope='character' → character-lock list, match against current character
  * @param {string} collectionId

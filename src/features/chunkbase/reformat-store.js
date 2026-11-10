@@ -97,7 +97,7 @@ export function saveReformatCache(sourceHash, data) {
 
 /**
  * Lists all cached entries with their storage footprint, for the Database
- * Browser's "Clear Auto-Reformat originals" maintenance action.
+ * Browser's Clear originals button (its Collections page, in the danger zone).
  * @returns {Array<{sourceHash: string, sourceName: string, contentType: string, acceptedAt: number, originalTextBytes: number, chunkCount: number}>}
  */
 export function listReformatCacheEntries() {

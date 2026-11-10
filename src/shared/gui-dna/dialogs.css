@@ -51,6 +51,12 @@ dialog.popup.vfx-popup.is-panel .vfx-shell {
     background: none;
 }
 
+/* A top-bar shell in this dialog (the Database Browser) keeps its bar one row tall: the DNA draws a rail's inner as
+   tall as a named scroller, and this dialog's scroller is one. */
+dialog.popup.vfx-popup.is-panel .vfx-shell.is-topbar .vfx-nav-inner {
+    min-height: 0;
+}
+
 /* The buttons on a bar of their own, right-aligned: each a DNA secondary button, the action the primary one. The panel's
    Close stays secondary: it performs nothing. */
 dialog.popup.vfx-popup .popup-controls {

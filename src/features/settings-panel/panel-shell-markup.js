@@ -11,6 +11,7 @@
  */
 
 import { button, notice } from '../../shared/gui-dna/gui-dna-core.js';
+import { navBrand, navItem, pageHeader } from '../../shared/gui-dna/panel-page-genes.js';
 
 /**
  * The panel's pages, in rail order, each under its group. StoryArc's page draws its own header
@@ -46,11 +47,6 @@ const THEME_OPTIONS = [
     { theme: 'light', icon: 'fa-sun', text: 'Light' },
 ];
 
-function navItem({ name, icon, title }) {
-    const isFirst = name === FIRST_PANEL_TAB;
-    return `<button type="button" id="${panelTabId(name)}" class="vfx-nav-item${isFirst ? ' is-active' : ''}"${isFirst ? ' aria-current="page"' : ''}><i class="fa-solid ${icon}"></i><span>${title}</span></button>`;
-}
-
 function themeOption({ theme, icon, text }) {
     return `<button type="button" class="vfx-theme-option" data-vfx-theme-option="${theme}" aria-pressed="false"><i class="fa-solid ${icon}"></i><span>${text}</span></button>`;
 }
@@ -68,11 +64,11 @@ export function panelNavMarkup() {
             group = tab.group;
             items.push(`<div class="vfx-nav-group">${group}</div>`);
         }
-        items.push(navItem(tab));
+        items.push(navItem({ id: panelTabId(tab.name), icon: tab.icon, title: tab.title, isActive: tab.name === FIRST_PANEL_TAB }));
     }
     return `<nav class="vfx-nav">
             <div class="vfx-nav-inner">
-                <div class="vfx-nav-brand"><i class="fa-brands fa-wolf-pack-battalion"></i><span>VectFox</span></div>
+                ${navBrand('VectFox')}
                 ${items.join('\n                ')}
                 <div class="vfx-nav-footer">
                     <div class="vfx-theme-switch" role="group" title="Theme">
@@ -93,15 +89,7 @@ export function panelNavMarkup() {
 export function pageHeaderMarkup(name, { status = '' } = {}) {
     const tab = PANEL_TABS.find(each => each.name === name);
     if (!tab) throw new Error(`No panel page is named "${name}"`);
-    return `<header class="vfx-page-header">
-                <span class="vfx-page-icon"><i class="fa-solid ${tab.icon}"></i></span>
-                <div class="vfx-page-heading">
-                    <div class="vfx-page-eyebrow">${tab.group} / ${tab.title}</div>
-                    <h2 class="vfx-page-title">${tab.title}</h2>
-                    <p class="vfx-page-subtitle">${tab.subtitle}</p>
-                </div>
-                ${status ? `<div class="vfx-page-status">${status}</div>` : ''}
-            </header>`;
+    return pageHeader({ icon: tab.icon, eyebrow: `${tab.group} / ${tab.title}`, title: tab.title, subtitle: tab.subtitle, status });
 }
 
 /**
