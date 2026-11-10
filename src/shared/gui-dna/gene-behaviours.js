@@ -6,7 +6,8 @@
  * §7), for its shell: the settings panel (settings-panel/panel-shell.js) and the
  * Database Browser. The (?) and chevron toggles are bound once on the surface's
  * root, delegated, so a field or card painted later behaves the same way, and
- * neither state is saved. A page the nav switches to is shown from its top.
+ * neither state is saved. Code folds a card as its chevron does, and a page the
+ * nav switches to is shown from its top.
  * ============================================================================
  */
 
@@ -25,11 +26,23 @@ export function bindGeneBehaviours(root) {
         $(this).attr('aria-expanded', String(isOpen));
     });
     $root.on('click', '.vfx-collapse', function () {
-        const $box = $(this).closest('.vfx-card, .vfx-record');
-        const isCollapsed = !$box.hasClass('is-collapsed');
-        $box.toggleClass('is-collapsed', isCollapsed);
-        $(this).attr('aria-expanded', String(!isCollapsed));
+        const box = this.closest('.vfx-card, .vfx-record');
+        if (box) setCollapsed(box, !box.classList.contains('is-collapsed'));
     });
+}
+
+/**
+ * Fold or unfold a card or record as its chevron does, and tell a screen reader through that chevron. A card or record
+ * nested inside keeps its own state.
+ *
+ * @param {HTMLElement} box - A .vfx-card or .vfx-record
+ * @param {boolean} isCollapsed
+ */
+export function setCollapsed(box, isCollapsed) {
+    box.classList.toggle('is-collapsed', isCollapsed);
+    for (const chevron of box.querySelectorAll('.vfx-collapse')) {
+        if (chevron.closest('.vfx-card, .vfx-record') === box) chevron.setAttribute('aria-expanded', String(!isCollapsed));
+    }
 }
 
 /**

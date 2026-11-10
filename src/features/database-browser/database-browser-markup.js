@@ -106,7 +106,7 @@ function pluginNotice() {
 }
 
 function filtersCard() {
-    return `<section class="vfx-card">
+    return `<section class="vfx-card" id="vectfox_browser_filters">
         ${cardHeader({ icon: 'fa-filter', title: 'Filters', description: 'Choose which collections the list shows.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([

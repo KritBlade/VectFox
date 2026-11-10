@@ -58,7 +58,7 @@ import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
 import { confirmPopup, openPanelPopup, placeMarkupOnTopmostModalLayer, placeOnTopmostModalLayer } from "../../sillytavern/popup.js";
 import { isModalOpenOnDialogOf } from "../../sillytavern/popup-core.js";
 import { pickFiles } from "../../shared/pick-files.js";
-import { bindGeneBehaviours, scrollPageToTop } from "../../shared/gui-dna/gene-behaviours.js";
+import { bindGeneBehaviours, scrollPageToTop, setCollapsed } from "../../shared/gui-dna/gene-behaviours.js";
 import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
   STORY_LINKS_FILE_TYPE,
@@ -160,6 +160,7 @@ export async function openDatabaseBrowser() {
     // Opened first, so the list paints into the dialog. While one of the browser's own modals is open on the
     // dialog, Escape and Close leave the browser open, and Escape closes only that modal.
     const closed = openPanelPopup(root, { canClose: () => !isModalOpenOnDialogOf(root) });
+    foldFiltersOnPhone(root);
     $("#vectfox_plugin_warning_banner").toggle(!browserState.pluginAvailable);
 
     // A fresh scan on open, so collections made since the last one (a just-vectorized EventBase collection) carry
@@ -182,6 +183,19 @@ function resetBrowserState() {
   browserState.availableKeywords = null;
   browserState.storyLinkCoverage.clear();
   browserState.storyLinkDescriptions.clear();
+}
+
+/** GUI-DNA draws a shell this wide or narrower in its phone layout (gui-dna.css, `@container vfx-shell`). */
+const PHONE_LAYOUT_MAX_WIDTH = 720;
+
+/**
+ * In the phone layout the Filters card starts folded, so the Collections page opens on the list. Its chevron opens
+ * it, as on any card. Called once the browser is in its dialog, where the shell has its width.
+ * @param {HTMLElement} root
+ */
+function foldFiltersOnPhone(root) {
+  if (root.clientWidth > PHONE_LAYOUT_MAX_WIDTH) return;
+  setCollapsed(root.querySelector("#vectfox_browser_filters"), true);
 }
 
 /**
