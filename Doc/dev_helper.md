@@ -687,7 +687,7 @@ Optional LLM planner that runs alongside the EventBase pre-search. It sees recen
 | [src/features/eventbase/agentic-retrieval.js](../src/features/eventbase/agentic-retrieval.js)   | Public`retrieveEventsForTurn(params)`, retrieval's one entry point, which decides a turn's path: StoryArc mode, Agent Mode or the plain search. Runs the planner alongside the pre-search and fans out its queries. Includes `_resolveAgenticLLMConfig()` for inheritance from the `chat_*` fields. |
 | [src/features/eventbase/planner-seats-core.js](../src/features/eventbase/planner-seats-core.js) | `seatPlannerHits`, the pure rule for the seats the planner's queries add. |
 | [src/features/eventbase/eventbase-workflow.js](../src/features/eventbase/eventbase-workflow.js) | Calls `retrieveEventsForTurn` on every turn. |
-| [src/features/settings-panel/settings-panel.js](../src/features/settings-panel/settings-panel.js)                     | "AgentMode" tab (peer of Core/EventBase/etc.) with provider/model inheritance, sliders and timeouts. |
+| [src/features/settings-panel/agentmode-page-markup.js](../src/features/settings-panel/agentmode-page-markup.js) | The AgentMode page's cards: Agent Mode (switch, searches per reply, chat turns read), Planner model (provider and model inheritance, URL, keys, token cap) and Timeouts. [settings-panel.js](../src/features/settings-panel/settings-panel.js) wires them. |
 
 ### Flow
 

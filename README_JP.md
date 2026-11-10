@@ -137,7 +137,7 @@ Agent Mode を使うと、プランナーは自動的に次の角度を追加し
 
 **Agent Mode が A3（Qdrant）と組み合わさる理由**：
 - プランナーの各クエリは独立した Qdrant 呼び出しです。Qdrant は 4 つの並列クエリを 1〜3 秒で処理します。
-- AgentMode は Qdrant が必要です——Standard バックエンドでは完全にスキップし（`mode=SKIPPED reason=requires_qdrant_backend` をログ出力）、通常の検索結果をそのまま返します。優雅なフォールバックはなく、設計上の意図です。
+- AgentMode は Qdrant が必要です。Standard バックエンドではまったく動きません。各応答は通常の検索だけを使い、Qdrant を選ぶか Agent Mode をオフにするよう警告が出ます。
 
 **コストとレイテンシ**：GPT-6 Luna をプランナーに使うと 1 ターンあたり約 $0.0004、計画に約 2 秒（通常の検索と同時）、応答のプロンプトは最大 5 イベント増えます。**純粋に加算的**で、通常の結果はすべて残り、プランナーが失敗すれば標準フローに自動的にフォールバックします。専用の **AgentMode** タブで設定。デフォルトはオフ。StoryArc モードがオンの間は実行されません。
 
@@ -517,7 +517,7 @@ SillyTavern を再起動します。
 8. SillyTavern で対象のチャットを開き、もう一度 VectFox 拡張アイコンをクリックします。最初の DB をベクトル化するには、**必ず** "Vectorize Content" をクリックし、**Chat History** を選んでください。
 9. 必要であれば、**AutoSync** タブで **Auto-sync this chat** を有効化します。1 回の実行に入るターン数は **Auto-sync window** で決まります。
 10. 必要であれば、**WorldInfo** タブでロアブック / World Info をベクトル化します。
-11. （オプション）他の設定が動作することを確認したら、**AgentMode** タブで **Agent Mode** をオンにできます。provider / model / API key を空欄のままにすれば、**Event model** の設定が使われます。つまりステップ 4 で選んだ安価で高速なモデルがプランナーも動かします。詳しい仕組みは上の「どう動くのか → Agent Mode」セクションを参照してください。
+11. （オプション）他の設定が動作することを確認したら、**AgentMode** タブで **Agent Mode** をオンにできます。Provider を **Same as Event model** のまま、Model を空欄にすれば、**Event model** の設定が使われます。つまりステップ 4 で選んだ安価で高速なモデルがプランナーも動かします。詳しい仕組みは上の「どう動くのか → Agent Mode」セクションを参照してください。
 
 
 ---

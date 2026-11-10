@@ -36,6 +36,7 @@ import { confirmPopup, placeOnTopmostModalLayer } from '../../sillytavern/popup.
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
+import { agentModePageMarkup } from './agentmode-page-markup.js';
 import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
 import { chunkBasePageMarkup } from './chunkbase-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
@@ -57,13 +58,6 @@ import {
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     RETRIEVAL_TIMEOUT_MIN_MS,
     RETRIEVAL_TIMEOUT_MAX_MS,
-    AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
-    AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
-    AGENTIC_TIMEOUT_MIN_MS,
-    AGENTIC_TIMEOUT_MAX_MS,
-    AGENTIC_MAX_TOKENS_DEFAULT,
-    AGENTIC_MAX_TOKENS_MIN,
-    AGENTIC_MAX_TOKENS_MAX,
 } from '../../shared/constants.js';
 import {
     resolveRetrievalTimeoutMs,
@@ -134,104 +128,8 @@ export function renderSettings(containerId, settings, callbacks) {
 
                     ${storyArcPageMarkup({ notice: vectfoxOffNoticeMarkup() })}
 
-                    <!-- AgentMode Card -->
-                    ${panelPageMarkup('agentmode', `
-                    <div class="vectfox-card">
-                        <div class="vectfox-card-header">
-                            <h3 class="vectfox-card-title">
-                                <span class="vectfox-icon"><i class="fa-solid fa-robot"></i></span>
-                                AgentMode — Agentic Retrieval
-                            </h3>
-                            <p class="vectfox-card-subtitle">An optional LLM planner that runs alongside pre-search. It reads recent chat, then fans out 1-6 follow-up queries in parallel against Qdrant, whose hits add up to 5 events beside the normal results. Purely additive — every normal result stays.</p>
-                        </div>
-                        <div class="vectfox-card-body">
-
-                            <!-- Master toggle -->
-                            <div class="vectfox-form-group">
-                                <label class="checkbox_label" for="VectFox_agentic_retrieval_enabled">
-                                    <input id="VectFox_agentic_retrieval_enabled" type="checkbox" />
-                                    <span><b>Enable AgentMode</b></span>
-                                </label>
-                                <small class="VectFox_hint" style="display:block; margin-top:6px;">
-                                    Requires Qdrant backend (A3). Adds about $0.0004 per turn on GPT-6 Luna, about 2 seconds, and up to 5 more events in the prompt. Does not run while StoryArc mode is on. Falls back gracefully on any failure.
-                                </small>
-                            </div>
-
-                            <!-- LLM Provider (inheritance from summarizer) -->
-                            <p class="vectfox-section-label" style="margin-top:16px;"><strong>LLM Provider</strong></p>
-                            <small class="VectFox_hint" style="display:block; margin-bottom:8px;">
-                                Leave any field blank to use the <b>Core → Event model</b> settings. Use a cheaper model here (e.g. <code>anthropic/claude-haiku-4-5</code>) to save cost.
-                            </small>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_agentic_provider"><small>Provider</small></label>
-                                <select id="VectFox_agentic_provider" class="vectfox-select">
-                                    <option value="">(Inherit from summarizer)</option>
-                                    <option value="openrouter">OpenRouter</option>
-                                    <option value="vllm">vLLM</option>
-                                </select>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_agentic_model"><small>Model</small></label>
-                                <input type="text" id="VectFox_agentic_model" class="vectfox-input"
-                                    placeholder="(empty → inherit summarizer model)" />
-                                <small class="VectFox_hint">e.g. <code>anthropic/claude-haiku-4-5</code> for OpenRouter.</small>
-                            </div>
-
-                            <div class="vectfox-form-group" id="VectFox_agentic_openrouter_row">
-                                <label for="VectFox_agentic_openrouter_apikey"><small>OpenRouter API Key</small></label>
-                                <input type="password" id="VectFox_agentic_openrouter_apikey" class="vectfox-input"
-                                    placeholder="(empty → inherit summarize key)" autocomplete="off" />
-                                <button type="button" id="VectFox_agentic_openrouter_apikey_clear" class="menu_button" style="margin-top:4px; width:auto; white-space:nowrap;"><i class="fa-solid fa-trash-can"></i> Clear saved key</button>
-                            </div>
-
-                            <div class="vectfox-form-group" id="VectFox_agentic_vllm_row" style="display:none;">
-                                <label for="VectFox_agentic_vllm_url"><small>vLLM Base URL</small></label>
-                                <input type="text" id="VectFox_agentic_vllm_url" class="vectfox-input"
-                                    placeholder="(empty → inherit summarize URL)" />
-                                <label for="VectFox_agentic_vllm_apikey" style="margin-top:8px;"><small>vLLM API Key</small></label>
-                                <input type="password" id="VectFox_agentic_vllm_apikey" class="vectfox-input"
-                                    placeholder="(empty → inherit summarize key)" autocomplete="off" />
-                                <button type="button" id="VectFox_agentic_vllm_apikey_clear" class="menu_button" style="margin-top:4px; width:auto; white-space:nowrap;"><i class="fa-solid fa-trash-can"></i> Clear saved key</button>
-                            </div>
-
-                            <!-- Retrieval Tuning -->
-                            <p class="vectfox-section-label" style="margin-top:16px;"><strong>Retrieval Tuning</strong></p>
-
-                            <div class="vectfox-form-group">
-                                <label class="vectfox-label">Past chat turns sent to planner: <span id="VectFox_agentic_chat_depth_val">3</span></label>
-                                <input type="range" id="VectFox_agentic_chat_depth" min="1" max="10" step="1" class="vectfox-slider" />
-                                <small class="VectFox_hint">How many recent non-system chat turns are included as narrative context for the planner. StoryArc's router reads up to the last 2 of them. Lower = faster + cheaper LLM call; higher = more story context for the planner to reason about.</small>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label class="vectfox-label">Max planner queries: <span id="VectFox_agentic_max_queries_val">6</span></label>
-                                <input type="range" id="VectFox_agentic_max_queries" min="1" max="6" step="1" class="vectfox-slider" />
-                                <small class="VectFox_hint">Hard ceiling on how many follow-up queries the planner can emit. Each query is one Qdrant call per live collection.</small>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_agentic_timeout"><small>Planner LLM Timeout (ms)</small></label>
-                                <input type="number" id="VectFox_agentic_timeout" class="vectfox-input" min="${AGENTIC_TIMEOUT_MIN_MS}" max="${AGENTIC_TIMEOUT_MAX_MS}" step="1000" />
-                                <small class="VectFox_hint">Hard timeout for the planner call, and for each StoryArc LLM call. Default <b>${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS / 1000}s)</b>. On timeout, agent mode falls back to pre-search only. Increase if your planner model is slow (large models / free-tier providers often take 10-20s on a 1500-token prompt). This time is <b>added to</b> "Retrieval timeout" on the Core page for the EventBase lookup, so raising it here is not capped by that setting.</small>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_agentic_max_tokens"><small>Planner Max Output Tokens</small></label>
-                                <input type="number" id="VectFox_agentic_max_tokens" class="vectfox-input" min="${AGENTIC_MAX_TOKENS_MIN}" max="${AGENTIC_MAX_TOKENS_MAX}" step="256" />
-                                <small class="VectFox_hint">Output-token cap for the planner call. Default <b>${AGENTIC_MAX_TOKENS_DEFAULT}</b>, range ${AGENTIC_MAX_TOKENS_MIN}–${AGENTIC_MAX_TOKENS_MAX}. The planner only returns a short JSON object, so the default is ample for a model that answers directly. <b>Raise it if your planner model reasons</b> — thinking tokens are charged against this same cap, so a reasoning model can spend the whole budget before writing any JSON, and agent mode then falls back to pre-search. "Turn off model thinking" on the Core page only <i>asks</i> the model not to reason; many models ignore it.</small>
-                            </div>
-
-                            <div class="vectfox-form-group">
-                                <label for="VectFox_agentic_query_timeout"><small>Per-query Timeout (ms)</small></label>
-                                <input type="number" id="VectFox_agentic_query_timeout" class="vectfox-input" min="${AGENTIC_TIMEOUT_MIN_MS}" max="${AGENTIC_TIMEOUT_MAX_MS}" step="1000" />
-                                <small class="VectFox_hint">Hard timeout for each parallel fanout query, and for each StoryArc search. Default <b>${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS} ms (${AGENTIC_QUERY_TIMEOUT_DEFAULT_MS / 1000}s)</b>. Queries run in parallel, so the turn waits on the slowest one — this drops a straggling query (e.g. an embedding-provider latency spike) so a single slow call can't stall retrieval. The remaining queries still count. Like the planner timeout above, this is <b>added to</b> "Retrieval timeout" on the Core page rather than capped by it.</small>
-                            </div>
-
-                        </div>
-                    </div>
-                    `)}
+                    <!-- AgentMode page (agentmode-page-markup.js) -->
+                    ${panelPageMarkup('agentmode', agentModePageMarkup())}
 
                     </main>
                     </div>
@@ -1574,10 +1472,9 @@ function bindSettingsEvents(settings, callbacks) {
         }
     });
 
-    // ─── AgentMode (Agentic Retrieval) ─────────────────────────────────────
-    // Toggle provider-specific rows in the AgentMode tab. Treats empty provider
-    // as "inherit from summarizer" — both row blocks hide in that case so the
-    // user is reminded inheritance is in effect.
+    // ─── AgentMode page ────────────────────────────────────────────────────
+    // Shows the planner's provider rows. An empty provider is "Same as Event model",
+    // so both rows hide and the Event model's connection is used.
     const updateAgenticUI = (provider) => {
         const resolved = String(provider || '').trim();
         $('#VectFox_agentic_openrouter_row').toggle(resolved === 'openrouter');
@@ -1668,9 +1565,9 @@ function bindSettingsEvents(settings, callbacks) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
                 : '*'.repeat(savedKey.length);
-            $('#VectFox_agentic_openrouter_apikey').attr('placeholder', `Key saved: ${masked} (shared with Embedding + Event model)`);
+            $('#VectFox_agentic_openrouter_apikey').attr('placeholder', `Key saved: ${masked}`);
         } else {
-            $('#VectFox_agentic_openrouter_apikey').attr('placeholder', 'Paste OpenRouter key (shared with Embedding + Event model)');
+            $('#VectFox_agentic_openrouter_apikey').attr('placeholder', 'Paste a key to save it');
         }
     };
     updateAgenticORKeyDisplay();
@@ -1709,9 +1606,9 @@ function bindSettingsEvents(settings, callbacks) {
             const masked = savedKey.length > 4
                 ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
                 : '*'.repeat(savedKey.length);
-            $('#VectFox_agentic_vllm_apikey').attr('placeholder', `Key saved: ${masked} (shared with Embedding + Event model)`);
+            $('#VectFox_agentic_vllm_apikey').attr('placeholder', `Key saved: ${masked}`);
         } else {
-            $('#VectFox_agentic_vllm_apikey').attr('placeholder', 'Paste vLLM / Custom OpenAI-compatible key (shared with Embedding + Event model)');
+            $('#VectFox_agentic_vllm_apikey').attr('placeholder', 'Paste a key to save it');
         }
     };
     updateAgenticVllmKeyDisplay();
@@ -1767,24 +1664,11 @@ function bindSettingsEvents(settings, callbacks) {
     ['#VectFox_vllm_api_key_clear', '#VectFox_summarize_vllm_apikey_clear', '#VectFox_agentic_vllm_apikey_clear']
         .forEach(sel => $(sel).on('click', () => clearSharedApiKey(_vllmClearOpts)));
 
-    // Sliders — chat depth, candidates, max queries
-    const bindAgenticSlider = (inputId, valSpanId, settingKey, defaultVal) => {
-        const startVal = Number(settings[settingKey] ?? defaultVal);
-        $(inputId).val(startVal);
-        $(valSpanId).text(startVal);
-        $(inputId).on('input', function() {
-            const v = Number($(this).val());
-            settings[settingKey] = v;
-            $(valSpanId).text(v);
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-    };
-    bindAgenticSlider('#VectFox_agentic_chat_depth', '#VectFox_agentic_chat_depth_val', 'agentic_retrieval_chat_depth', 3);
-    bindAgenticSlider('#VectFox_agentic_max_queries', '#VectFox_agentic_max_queries_val', 'agentic_retrieval_max_queries', 6);
+    bindNumberSetting(settings, { id: 'VectFox_agentic_chat_depth', key: 'agentic_retrieval_chat_depth', initial: settings.agentic_retrieval_chat_depth ?? 3, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_agentic_max_queries', key: 'agentic_retrieval_max_queries', initial: settings.agentic_retrieval_max_queries ?? 6, isInteger: true });
 
-    // Both clamp through the same resolvers the retrieval path uses, so what the
-    // field accepts and what the budget honors can never drift apart.
+    // The two timeouts and the token cap clamp through the same resolvers the retrieval
+    // path uses, so what a box accepts and what the budget honors can never drift apart.
     $('#VectFox_agentic_timeout')
         .val(resolveAgenticPlannerTimeoutMs(settings))
         .on('change input', function() {

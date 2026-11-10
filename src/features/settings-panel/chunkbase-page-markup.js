@@ -11,6 +11,7 @@
 
 import { detail, field, fieldLabel, hint, input, select, selectOption, textarea } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { inheritedProviderSelect } from './provider-select-markup.js';
 
 const HIDDEN = ' style="display:none;"';
 
@@ -30,17 +31,12 @@ function ingestionCard() {
 }
 
 function autoReformatCard() {
-    const providers = [
-        selectOption({ value: '', text: 'Same as Event model' }),
-        selectOption({ value: 'openrouter', text: 'OpenRouter' }),
-        selectOption({ value: 'vllm', text: 'vLLM' }),
-    ];
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-pen-to-square', title: 'Auto-Reformat', description: 'Optional. Rewrites a document, page or wiki into entries you review before storing.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_reformat_provider' }),
-                select({ id: 'VectFox_reformat_provider', options: providers }),
+                inheritedProviderSelect('VectFox_reformat_provider'),
                 hint({ text: 'Same as Event model uses the provider set in Core → Event model.' }),
             ])}
             ${field([

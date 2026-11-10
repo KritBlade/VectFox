@@ -41,9 +41,9 @@ const AGENT_MODE_NEEDS_QDRANT = `Agent Mode is on, but it needs the Qdrant backe
 
 // What each reason resolveLlmConnection gives means, and where it is fixed.
 const AGENT_MODE_SETUP_FIXES = {
-    missing_model: 'it has no model. Set Model on the AgentMode page, or the summarizer\'s Model on the Core page.',
+    missing_model: 'it has no model. Set Model on the AgentMode page, or under Event model on the Core page.',
     missing_openrouter_api_key: 'it runs on OpenRouter and no OpenRouter key is saved. Enter the key on the AgentMode or Core page.',
-    missing_vllm_url: 'it runs on vLLM with no URL. Set vLLM Base URL on the AgentMode page, or the summarizer\'s on the Core page.',
+    missing_vllm_url: 'it runs on vLLM with no URL. Set Base URL on the AgentMode page, or under Event model on the Core page.',
     missing_vllm_api_key: 'it runs on vLLM and no vLLM key is saved. Enter the key on the AgentMode or Core page.',
 };
 const UNKNOWN_PROVIDER_PREFIX = 'unknown_provider_';
@@ -293,7 +293,7 @@ async function _searchPlannedQueries(params) {
         if (!failure) return null;
         return {
             failureMessage: failure.isTimeout
-                ? `Agent Mode's planner timed out after ${timeoutMs} ms. Raise Planner LLM Timeout on the AgentMode page if this repeats.`
+                ? `Agent Mode's planner timed out after ${timeoutMs} ms. Raise Planner timeout on the AgentMode page if this repeats.`
                 : `Agent Mode's planner failed: ${failure.detail}`,
         };
     }
@@ -364,8 +364,8 @@ async function _searchPlannedQueries(params) {
                     })
                     .catch(err => {
                         if (err?.__timeout) {
-                            log.warn(`[VectFox-Agentic] Query timed out after ${queryTimeoutMs}ms (${colId}, "${queryText}") — dropped; other queries still count. Raise "Per-query Timeout" in the AgentMode tab if needed.`);
-                            failedQueryMessages.push(`timed out after ${queryTimeoutMs} ms. Raise Per-query Timeout on the AgentMode page if this repeats.`);
+                            log.warn(`[VectFox-Agentic] Query timed out after ${queryTimeoutMs}ms (${colId}, "${queryText}") — dropped; other queries still count. Raise "Search timeout" on the AgentMode page if needed.`);
+                            failedQueryMessages.push(`timed out after ${queryTimeoutMs} ms. Raise Search timeout on the AgentMode page if this repeats.`);
                         } else {
                             log.warn(`[VectFox-Agentic] Query failed (${colId}, "${queryText}"): ${err?.message || err}`);
                             failedQueryMessages.push(`failed: ${err?.message || err}`);
@@ -581,7 +581,7 @@ function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 'using
         err?.name === 'AbortError' ||
         /aborted|timeout|timed out/i.test(err?.message || '');
     if (isTimeout) {
-        log.warn(`[VectFox-Agentic] ${label} LLM call TIMED OUT after ${tLlmMs}ms (configured limit: ${timeoutMs}ms), ${nextStep}. Bump "Planner LLM Timeout" in the AgentMode tab if your model needs longer.`);
+        log.warn(`[VectFox-Agentic] ${label} LLM call TIMED OUT after ${tLlmMs}ms (configured limit: ${timeoutMs}ms), ${nextStep}. Raise "Planner timeout" on the AgentMode page if your model needs longer.`);
     } else {
         log.warn(`[VectFox-Agentic] ${label} LLM call failed after ${tLlmMs}ms, ${nextStep}: ${err?.message || err}`);
     }
@@ -643,9 +643,8 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
     }
 
     if (provider === 'openrouter') {
-        // One shared OpenRouter key (SECRET_KEYS.OPENROUTER): the embedding, summarize and
-        // Agent Mode inputs all write that slot, so the UI's "(empty → inherit summarize key)"
-        // placeholder is only a hint. See src/shared/api-keys.js.
+        // One shared OpenRouter key (SECRET_KEYS.OPENROUTER): the Embedding, Event model and
+        // Agent Mode key boxes all write that slot. See src/shared/api-keys.js.
         const apiKey = getOpenRouterApiKey();
         if (!apiKey) {
             return { ok: false, reason: 'missing_openrouter_api_key' };

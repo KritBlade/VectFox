@@ -260,7 +260,7 @@ describe('Agent Mode failures', () => {
     it('names the timeout setting when the planner times out', async () => {
         postChatCompletionMock.mockRejectedValue(Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }));
         const { debug } = await callAgent();
-        expect(debug.searchFailureMessage).toMatch(/^Agent Mode's planner timed out after \d+ ms\. Raise Planner LLM Timeout on the AgentMode page/);
+        expect(debug.searchFailureMessage).toMatch(/^Agent Mode's planner timed out after \d+ ms\. Raise Planner timeout on the AgentMode page/);
     });
 
     it('raises only the invalid-model toast for a model that is no longer valid', async () => {

@@ -137,7 +137,7 @@ EventBase 並沒有*強迫*你使用 Qdrant——A1/A2 輕量路徑可以跑在 
 
 **為什麼 Agent Mode 搭配 A3（Qdrant）**：
 - 每個規劃師查詢都是獨立的 Qdrant 呼叫。Qdrant 並行處理 4 個查詢只需 1–3 秒。
-- AgentMode 需要 Qdrant——在標準後端會完全跳過（記錄 `mode=SKIPPED reason=requires_qdrant_backend`）並直接返回正常搜尋的結果。沒有優雅退化，這是設計上的決定。
+- AgentMode 需要 Qdrant。在標準後端它完全不會執行，每次回覆只用正常搜尋，並會跳出警告，請你改選 Qdrant 或關閉 Agent Mode。
 
 **成本與延遲**：以 GPT-6 Luna 作為規劃師，每輪約 $0.0004，規劃約 2 秒（與正常搜尋同時進行），回覆的提示詞最多多 5 個事件。它是**純加法**——正常結果全部保留，規劃失敗時會乾淨地回退到標準流程。可在專屬的 **AgentMode** 頁籤設定；預設為關閉。StoryArc 模式開啟時不會執行。
 
@@ -520,7 +520,7 @@ enableServerPlugins: true
 8. 在 SillyTavern 中進入你的聊天，然後再次點擊 VectFox 擴充元件圖示。你**必須**點擊 "Vectorize Content"，並選擇 **Chat History** 來向量化你的第一個 DB。
 9. 如有需要，請在 **AutoSync** 分頁啟用 **Auto-sync this chat**。每次執行包含幾個回合，由 **Auto-sync window** 決定。
 10. 如有需要，請在 **WorldInfo** 分頁向量化你的世界書/World Info。
-11. （選用）在其他設定都正常後，可以到 **AgentMode** 分頁開啟 **Agent Mode**。把 provider / model / API key 留空就會使用 **Event model** 的設定，這樣步驟 4 中那個便宜快速的模型也會用來驅動規劃師。完整功能說明請見上方「它是怎麼運作的 → Agent Mode」章節。
+11. （選用）在其他設定都正常後，可以到 **AgentMode** 分頁開啟 **Agent Mode**。把 Provider 留在 **Same as Event model**、Model 留空，就會使用 **Event model** 的設定，這樣步驟 4 中那個便宜快速的模型也會用來驅動規劃師。完整功能說明請見上方「它是怎麼運作的 → Agent Mode」章節。
 
 
 ---

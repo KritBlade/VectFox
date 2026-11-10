@@ -142,7 +142,7 @@ The normal search keeps every event it found a seat for, and these searches **ad
 **Why Agent Mode pairs with A3 (Qdrant)**:
 
 - Each planner query is a separate Qdrant call. Qdrant fanout completes in 1–3 seconds for 4 parallel queries.
-- AgentMode requires Qdrant — on the Standard backend it skips entirely (logs `mode=SKIPPED reason=requires_qdrant_backend`) and just returns the normal search unchanged. No graceful degradation, by design.
+- AgentMode needs Qdrant. On the Standard backend it does not run at all. Each reply just uses the normal search, and a warning tells you to pick Qdrant or turn Agent Mode off.
 
 **Cost & latency**: about $0.0004 per turn on GPT-6 Luna as the planner, about 2 seconds of planning alongside the normal search, and up to 5 more events in the reply's prompt. It's purely additive — every normal result stays, and it falls back cleanly to the standard flow if the planner fails. Configure it in the dedicated **AgentMode** tab; default off. It does not run while StoryArc mode is on.
 
@@ -542,7 +542,7 @@ Restart SillyTavern.
 8. Open your chat in SillyTavern, then click the VectFox extension icon again. You **HAVE** to click "Vectorize Content" and choose **Chat History** to vectorize your first DB.
 9. Turn on **Auto-sync this chat** in the **AutoSync** tab if you need it. Its **Auto-sync window** sets how many turns go into each run.
 10. Vectorize your lorebook / World Info if needed in the **WorldInfo** tab.
-11. (Optional) Turn on **Agent Mode** in the AgentMode tab once everything else works. Leave provider, model and API key blank to use the **Event model** settings. Then the same cheap, fast model from step 4 also drives the planner. See "How It Works → Agent Mode" above for what it does.
+11. (Optional) Turn on **Agent Mode** in the AgentMode tab once everything else works. Leave Provider on **Same as Event model** and Model blank, and it uses the **Event model** settings. Then the same cheap, fast model from step 4 also drives the planner. See "How It Works → Agent Mode" above for what it does.
 
 ---
 

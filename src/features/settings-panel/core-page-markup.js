@@ -11,20 +11,11 @@
 
 import { controlRow, detail, field, fieldLabel, grid, hint, input, notice, select, selectOption, textarea } from '../../shared/gui-dna/gui-dna-core.js';
 import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { clearKeyButton, keyInput } from './api-key-markup.js';
 
 const SIMILHARITY_INSTALL_URL = 'https://github.com/KritBlade/VectFox/tree/Similharity-Plugin#step-2-install-plugin-via-git-recommended';
 
 const HIDDEN = ' style="display:none;"';
-
-/** A key box: masked, never filled by the browser, its saved key shown only in its placeholder. */
-function keyInput({ id, placeholder }) {
-    return `<input type="password" id="${id}" class="vfx-input" placeholder="${placeholder}" autocomplete="off">`;
-}
-
-/** The icon button that deletes a saved key, after a confirm (settings-panel.js clearSharedApiKey). */
-function clearKeyButton(id) {
-    return `<button type="button" id="${id}" class="vfx-btn vfx-btn-icon vfx-btn-danger" title="Delete saved key"><i class="fa-solid fa-trash-can"></i></button>`;
-}
 
 /** The button that lists a provider's models into the select under it. */
 function chooseModelButton(id) {

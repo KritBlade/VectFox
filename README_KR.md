@@ -136,7 +136,7 @@ Agent Mode를 켜면 플래너가 자동으로 이런 각도들을 추가합니�
 
 **Agent Mode가 A3 (Qdrant)와 짝을 이루는 이유**:
 - 각 플래너 쿼리는 독립된 Qdrant 호출입니다. Qdrant는 4개의 병렬 쿼리를 1–3초 만에 처리합니다.
-- AgentMode는 Qdrant가 필요합니다 — 표준 백엔드에서는 완전히 건너뜁니다 (`mode=SKIPPED reason=requires_qdrant_backend` 로그) 그리고 일반 검색 결과를 그대로 반환합니다. 우아한 폴백 없음, 의도된 설계.
+- AgentMode는 Qdrant가 필요합니다. 표준 백엔드에서는 전혀 실행되지 않습니다. 각 응답은 일반 검색만 사용하고, Qdrant를 고르거나 Agent Mode를 끄라는 경고가 뜹니다.
 
 **비용 및 지연**: GPT-6 Luna를 플래너로 쓰면 턴당 약 $0.0004, 계획에 약 2초(일반 검색과 동시), 응답 프롬프트는 최대 5개 이벤트만큼 늘어납니다. **순수하게 가산적**입니다 — 일반 결과는 모두 남고, 플래너가 실패하면 표준 흐름으로 깔끔히 폴백합니다. 전용 **AgentMode** 탭에서 설정합니다. 기본값은 꺼짐. StoryArc 모드가 켜져 있는 동안에는 실행되지 않습니다.
 
@@ -519,7 +519,7 @@ SillyTavern 재시작.
 8. SillyTavern에서 채팅을 클릭한 다음 VectFox 익스텐션 아이콘을 다시 클릭하세요. 첫 DB를 벡터화하려면 "Vectorize Content"를 클릭하고 **Chat History**를 선택**해야 합니다**.
 9. 필요시 **AutoSync** 탭에서 **Auto-sync this chat**을 활성화합니다. 한 번 실행에 들어가는 턴 수는 **Auto-sync window**로 정합니다.
 10. 필요시 **WorldInfo** 탭에서 로어북 / World Info를 벡터화합니다.
-11. (선택) 다른 설정이 모두 작동하면 **AgentMode** 탭에서 **Agent Mode**를 켤 수 있습니다. provider / model / API key를 비워두면 **Event model** 설정을 사용합니다. 즉 단계 4에서 고른 저렴하고 빠른 모델이 플래너도 구동합니다. 자세한 작동 방식은 위의 "작동 방식 → Agent Mode" 섹션을 참조하세요.
+11. (선택) 다른 설정이 모두 작동하면 **AgentMode** 탭에서 **Agent Mode**를 켤 수 있습니다. Provider를 **Same as Event model**로 두고 Model을 비워두면 **Event model** 설정을 사용합니다. 즉 단계 4에서 고른 저렴하고 빠른 모델이 플래너도 구동합니다. 자세한 작동 방식은 위의 "작동 방식 → Agent Mode" 섹션을 참조하세요.
 
 
 ---
