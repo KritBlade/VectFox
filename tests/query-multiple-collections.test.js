@@ -1,6 +1,7 @@
 /**
  * vector-backend/vector-api.js queryMultipleCollections, the Database Browser's search: a collection whose query
- * failed keeps an `error` on both paths, so the browser can tell "not searched" from "nothing matched".
+ * failed keeps an `error` on both paths, so the browser can tell "not searched" from "nothing matched", and the hybrid
+ * path drops results scored below the threshold, as the standard path's backend does.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -48,6 +49,17 @@ describe('queryMultipleCollections', () => {
         const results = await queryMultipleCollections(['down', 'up'], 'river', 5, 0.3, { embedding_provider: 'openrouter' });
         expect(results.down).toEqual({ hashes: [], metadata: [], error: 'Query embedding failed: 500' });
         expect(results.up).toEqual(hit);
+    });
+
+    it('drops hybrid results scored below the threshold, keeping hashes and metadata in step', async () => {
+        getBackend.mockResolvedValue({ supportsHybridSearch: () => true });
+        hybridSearch.mockResolvedValue({
+            hashes: [1, 2, 3],
+            metadata: [{ text: 'tide', score: 0.52 }, { text: 'keyword only', score: 0 }, { text: 'harbor', score: 0.3 }],
+        });
+        const results = await queryMultipleCollections(['notes'], 'river', 5, 0.3, { embedding_provider: 'openrouter' });
+        expect(results.notes.hashes).toEqual([1, 3]);
+        expect(results.notes.metadata.map(meta => meta.text)).toEqual(['tide', 'harbor']);
     });
 
     it('keeps the reason the backend gave on the standard path', async () => {

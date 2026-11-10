@@ -394,6 +394,20 @@ export function keywordScanFailedMarkup() {
 }
 
 /**
+ * A hybrid result's meaning and word scores, each shown only when the backend returned it: Qdrant's native fusion
+ * returns neither, and its match figure is already the meaning score.
+ *
+ * @param {{vectorScore: string|null, textScore: string|null}} result
+ * @returns {string[]}
+ */
+function hybridScorePills({ vectorScore, textScore }) {
+    return [
+        vectorScore === null ? '' : statusPill({ name: `Meaning ${vectorScore}%` }),
+        textScore === null ? '' : statusPill({ name: `Words ${textScore}%` }),
+    ].filter(Boolean);
+}
+
+/**
  * The search's results, grouped by collection.
  *
  * @param {{groups: {key: string, name: string, results: {score: string, vectorScore: string|null,
@@ -422,9 +436,7 @@ export function searchResultsMarkup({ groups, totalCount, countBeforeKeywords = 
                     ? { text: 'Keywords', name: result.keywords.join(', ') + (result.moreKeywordCount ? `, ${result.moreKeywordCount} more` : '') }
                     : null,
             ],
-            pills: result.isHybrid
-                ? [statusPill({ name: `Meaning ${result.vectorScore ?? '?'}%` }), statusPill({ name: `Words ${result.textScore ?? '0'}%` })]
-                : [],
+            pills: result.isHybrid ? hybridScorePills(result) : [],
             actions: [iconButton({ icon: 'fa-eye', title: 'View chunks', data: { 'collection-action': 'view-chunks', 'collection-key': group.key } })],
         })).join(''));
     return `<p class="vfx-hint">${escape(summary)}</p>${sections.join('')}`;

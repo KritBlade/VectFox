@@ -997,6 +997,18 @@ async function scoreResults(resultsForBoost, searchText, topK, settings, collect
 }
 
 /**
+ * One collection's results without those scored below the threshold, hashes and metadata kept in step.
+ * @param {{hashes: number[], metadata: object[]}} results
+ * @param {number} threshold
+ * @returns {{hashes: number[], metadata: object[]}}
+ */
+function keepScoresAtOrAbove(results, threshold) {
+    if (!Array.isArray(results?.metadata)) return results;
+    const kept =results.metadata.map((meta, index) => index).filter(index => (results.metadata[index]?.score ?? 0) >= threshold);
+    return { ...results, hashes: kept.map(index => results.hashes[index]), metadata: kept.map(index => results.metadata[index]) };
+}
+
+/**
  * Queries multiple collections for a given text.
  * For client-side embedding sources, generates query embedding once and reuses for all collections.
  * @param {string[]} collectionIds - Collection IDs to query
@@ -1049,7 +1061,9 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
         for (const collectionId of collectionIds) {
             try {
                 const queryStart = Date.now();
-                processedResults[collectionId] = await hybridSearch(collectionId, searchText, topK, settings, { queryVector });
+                // A hybrid search asks the backend for every candidate, so the threshold applies here, to each
+                // result's 0-1 score (cosine on the native path).
+                processedResults[collectionId] = keepScoresAtOrAbove(await hybridSearch(collectionId, searchText, topK, settings, { queryVector }), threshold);
                 const queryLatency = Date.now() - queryStart;
                 recordQuery(settings?.vector_backend || 'standard', queryLatency);
             } catch (error) {

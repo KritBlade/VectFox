@@ -161,10 +161,13 @@ describe('the Search page', () => {
         expect(view.dataset.collectionKey).toBe(VIEW.key);
     });
 
-    it('scores a hybrid result by meaning and by words', () => {
+    it('scores a hybrid result by meaning and by words, each only when the backend gave it', () => {
         const hybrid = { ...result, isHybrid: true, vectorScore: '80', textScore: '20' };
         const results = parse(searchResultsMarkup({ groups: [{ key: 'k', name: 'n', results: [hybrid] }], totalCount: 1 }));
         expect(pillsOf(results)).toEqual(['Meaning 80%', 'Words 20%']);
+        // Qdrant's native fusion returns neither part's score: no "Meaning ?%" or "Words 0%".
+        const fused = { ...result, isHybrid: true, vectorScore: null, textScore: null };
+        expect(pillsOf(parse(searchResultsMarkup({ groups: [{ key: 'k', name: 'n', results: [fused] }], totalCount: 1 })))).toEqual([]);
     });
 
     it('says when nothing scored, and how many results the keyword filter dropped', () => {
