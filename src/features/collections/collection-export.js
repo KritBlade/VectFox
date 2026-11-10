@@ -690,15 +690,15 @@ export async function importCollection(exportData, settings, options = {}) {
         // are zeroed via importedMeta below (no reverse map to maintain).
         clearCollectionLock(registryKey);
 
+        // An export of a collection with no typed name carries its ID as the name. Only a
+        // name the user typed is kept; without one the loader shows the automatic name.
+        const exportedName = sourceCollection.name;
+        const isTypedName = Boolean(exportedName) && exportedName !== sourceCollection.id && exportedName !== sourceId;
+
         // Collection-level metadata
         const importedMeta = {
             enabled: true,
-            // If the ID was remapped and the export's display name was just the old ID
-            // (auto-generated, not user-set), clear it so the loader computes a fresh
-            // name from the new collection ID. Keep explicit user-set names as-is.
-            displayName: (wasRemapped && sourceCollection.name === sourceId)
-                ? undefined
-                : (sourceCollection.name || collectionId),
+            displayName: isTypedName ? exportedName : undefined,
             description: sourceCollection.description || '',
             // Import side: sourceCollection comes from the export file payload
             // (not getCollectionMeta), so its scope is untrusted. Use the

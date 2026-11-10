@@ -61,6 +61,8 @@ import { extension_settings } from '../../../../extensions.js';
 import { log } from '../src/sillytavern/log.js';
 import { getBackend, insertVectorItems, purgeVectorIndex } from '../src/features/vector-backend/index.js';
 import { importCollection } from '../src/features/collections/collection-export.js';
+import { getCollectionMeta } from '../src/features/collections/collection-metadata.js';
+import { buildRegistryKey } from '../src/shared/collection-ids.js';
 import { deleteCollection, setDeletedOrImportedCollectionCleanup } from '../src/features/collections/collection-loader.js';
 import {
     clearCachesForDeletedOrImportedCollection,
@@ -170,6 +172,37 @@ describe('importing a collection resets its chat records', () => {
 
         expect(result.success).toBe(true);
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining(IMPORTED_COLLECTION_ID), expect.any(Error));
+    });
+});
+
+describe('importing a collection keeps its name', () => {
+    // Exported and imported by the same persona, so the ID is not remapped.
+    const SAME_PERSONA_ID = IMPORTED_COLLECTION_ID;
+    const displayNameAfterImport = async (exported) => {
+        await importCollection(exported, SETTINGS, { overwrite: true });
+        return getCollectionMeta(buildRegistryKey(SAME_PERSONA_ID, SETTINGS)).displayName;
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [], chunk_metadata: {} };
+        purgeVectorIndex.mockResolvedValue(true);
+        insertVectorItems.mockResolvedValue(undefined);
+    });
+
+    // An export of a collection with no typed name carries its ID as the name; the import once kept that ID as a
+    // typed name, so the list showed the raw ID in place of the automatic name.
+    it('leaves no typed name when the file carried the collection\'s ID as its name', async () => {
+        expect(await displayNameAfterImport(exportFile(SAME_PERSONA_ID))).toBeFalsy();
+    });
+
+    it('leaves no typed name when the file carried none', async () => {
+        expect(await displayNameAfterImport({ ...exportFile(SAME_PERSONA_ID), collection: { id: SAME_PERSONA_ID } })).toBeFalsy();
+    });
+
+    it('keeps a name the user typed', async () => {
+        const named = { ...exportFile(SAME_PERSONA_ID), collection: { id: SAME_PERSONA_ID, name: 'Kagami at the shrine' } };
+        expect(await displayNameAfterImport(named)).toBe('Kagami at the shrine');
     });
 });
 
