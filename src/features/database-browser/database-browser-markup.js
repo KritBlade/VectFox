@@ -350,6 +350,23 @@ export function searchFailedMarkup(reason) {
 }
 
 /**
+ * A notice over the results naming the collections a search could not reach, and the first one's reason. The
+ * console has every reason. '' when every collection was searched.
+ *
+ * @param {{name: string, reason: string}[]} failures
+ * @returns {string}
+ */
+export function searchFailuresMarkup(failures) {
+    if (failures.length === 0) return '';
+    return notice({ status: 'warning', parts: [
+        { text: 'Not searched' },
+        { name: `: ${failures.map(failure => failure.name).join(', ')}. ` },
+        { text: 'Why' },
+        { name: `: ${failures[0].reason}` },
+    ] });
+}
+
+/**
  * The keywords the scan found, as buttons that add or drop one from the filter, the most common first.
  *
  * @param {{text: string, count: number}[]} keywords

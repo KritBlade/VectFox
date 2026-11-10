@@ -95,6 +95,7 @@ import {
   noCollectionsMarkup,
   nothingToSearchMarkup,
   searchFailedMarkup,
+  searchFailuresMarkup,
   searchResultsMarkup,
   searchRunningMarkup,
   storyLinksRowMarkup,
@@ -2825,6 +2826,17 @@ function searchResultView(hash, metadata) {
  * @param {object} originalResults The results before it
  */
 function renderSearchResults(results, originalResults) {
+  // A collection whose query failed carries an error and no hits: it was not searched, which is not "nothing matched".
+  const failures = Object.entries(originalResults)
+    .filter(([, collectionResults]) => collectionResults?.error)
+    .map(([collectionId, collectionResults]) => ({
+      name: browserState.collections.find((c) => c.id === collectionId)?.name || collectionId,
+      reason: collectionResults.error,
+    }));
+  if (failures.length > 0 && failures.length === Object.keys(originalResults).length) {
+    $("#vectfox_search_results").html(searchFailedMarkup(failures[0].reason));
+    return;
+  }
   const groups = [];
   for (const [collectionId, collectionResults] of Object.entries(results)) {
     if (!collectionResults?.hashes?.length) continue;
@@ -2836,7 +2848,7 @@ function renderSearchResults(results, originalResults) {
     });
   }
   const isKeywordFiltered = activeKeywords().length > 0;
-  $("#vectfox_search_results").html(searchResultsMarkup({
+  $("#vectfox_search_results").html(searchFailuresMarkup(failures) + searchResultsMarkup({
     groups,
     totalCount: countResults(results),
     countBeforeKeywords: isKeywordFiltered ? countResults(originalResults) : null,

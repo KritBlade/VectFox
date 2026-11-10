@@ -18,6 +18,7 @@ import {
     collectionEntryMarkup,
     databaseBrowserMarkup,
     keywordTagsMarkup,
+    searchFailuresMarkup,
     searchResultsMarkup,
     sizeEntriesMarkup,
     sizeSummaryRowMarkup,
@@ -171,6 +172,14 @@ describe('the Search page', () => {
         const filtered = parse(searchResultsMarkup({ groups: [], totalCount: 0, countBeforeKeywords: 4 }));
         expect(filtered.textContent).toContain('No result carries those keywords.');
         expect(filtered.textContent).toContain('4 results before the keyword filter.');
+    });
+
+    it('names the collections a search could not reach, with the first reason, and escapes them', () => {
+        expect(searchFailuresMarkup([])).toBe('');
+        const notice = parse(searchFailuresMarkup([{ name: '<b>Lore</b>', reason: '500 - embedding failed' }, { name: 'Chat: road', reason: 'timeout' }]));
+        expect(notice.querySelector('.vfx-notice.is-warning')).not.toBeNull();
+        expect(notice.querySelector('b')).toBeNull();
+        expect(notice.textContent).toBe('Not searched: <b>Lore</b>, Chat: road. Why: 500 - embedding failed');
     });
 
     it('offers the 30 most common keywords, the ones in the filter pressed, and escapes them', () => {

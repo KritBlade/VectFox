@@ -1004,7 +1004,9 @@ async function scoreResults(resultsForBoost, searchText, topK, settings, collect
  * @param {number} topK - Number of results to return
  * @param {number} threshold - Score threshold
  * @param {object} settings VectFox settings object
- * @returns {Promise<Record<string, { hashes: number[], metadata: object[] }>>} - Results mapped to collection IDs
+ * @returns {Promise<Record<string, { hashes: number[], metadata: object[], error?: string }>>} - Results mapped to
+ *     collection IDs. A collection whose query failed has no hashes and an `error` saying why, so a caller can tell
+ *     it from one that matched nothing.
  */
 export async function queryMultipleCollections(collectionIds, searchText, topK, threshold, settings) {
     const backend = await getBackend(settings);
@@ -1053,7 +1055,7 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
             } catch (error) {
                 log.warn(`[VectFox] Hybrid search failed for ${collectionId}:`, error.message);
                 recordError(settings?.vector_backend || 'standard', error);
-                processedResults[collectionId] = { hashes: [], metadata: [] };
+                processedResults[collectionId] = { hashes: [], metadata: [], error: error.message };
             }
         }
         return processedResults;
@@ -1079,7 +1081,8 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
     const processedResults = {};
 
     for (const [collectionId, collectionResults] of Object.entries(rawResults)) {
-        if (!collectionResults || !collectionResults.metadata) {
+        // A collection the backend could not query keeps its error.
+        if (!collectionResults || !collectionResults.metadata || collectionResults.error) {
             processedResults[collectionId] = collectionResults;
             continue;
         }
