@@ -202,13 +202,16 @@ export function textPreview(text, length = PREVIEW_LENGTH) {
 
 const lengthOf = chunk => chunk.fields.text.length;
 const keywordCountOf = chunk => chunk.fields.keywords.length;
+const isNamedOrTagged = chunk => Boolean(chunk.fields.name || chunk.fields.xmlTag);
+const byMessage = (first, second) => first.timelineValue - second.timelineValue;
 const SORTERS = {
-    index: (first, second) => first.timelineValue - second.timelineValue,
+    index: byMessage,
     'index-reversed': (first, second) => second.timelineValue - first.timelineValue,
     'length-desc': (first, second) => lengthOf(second) - lengthOf(first),
     'length-asc': (first, second) => lengthOf(first) - lengthOf(second),
     keywords: (first, second) => keywordCountOf(second) - keywordCountOf(first),
-    customized: (first, second) => (keywordCountOf(second) + (second.fields.name ? 1 : 0)) - (keywordCountOf(first) + (first.fields.name ? 1 : 0)),
+    // A chunk given a name or an XML tag first, each group in message order.
+    customized: (first, second) => (Number(isNamedOrTagged(second)) - Number(isNamedOrTagged(first))) || byMessage(first, second),
 };
 
 const FILTER_TESTS = {

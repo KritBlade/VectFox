@@ -107,8 +107,20 @@ describe('the list', () => {
         expect(keysOf(visibleChunks(chunks, { sort: 'length-desc' }))).toEqual(['1', '2', '0']);
         expect(keysOf(visibleChunks(chunks, { sort: 'length-asc' }))).toEqual(['0', '2', '1']);
         expect(keysOf(visibleChunks(chunks, { sort: 'keywords' }))).toEqual(['0', '1', '2']);
-        expect(keysOf(visibleChunks(chunks, { sort: 'customized' }))).toEqual(['0', '2', '1']);
+        expect(keysOf(visibleChunks(chunks, { sort: 'customized' }))).toEqual(['2', '0', '1']);
         expect(keysOf(visibleChunks(chunks, { sort: 'unknown' }))).toEqual(['0', '1', '2']);
+    });
+
+    // In an EventBase collection every chunk has keywords; a named one once sank below those with more.
+    it('puts a chunk given a name or an XML tag first, however many keywords the others have', () => {
+        const manyKeywords = ['dock', 'rope', 'sail'].map(text => ({ text, weight: 1.5 }));
+        const ranked = [
+            loaded('0', 'First.', { keywords: manyKeywords }),
+            loaded('1', 'Second.', { keywords: manyKeywords.slice(0, 1), xmlTag: 'scene' }),
+            loaded('2', 'Third.', { keywords: manyKeywords }),
+            loaded('3', 'Fourth.', { name: 'Harbor gate' }),
+        ];
+        expect(keysOf(visibleChunks(ranked, { sort: 'customized' }))).toEqual(['1', '3', '0', '2']);
     });
 
     it('offers every other chunk as a link target, and names a target that is not loaded by its ID', () => {
