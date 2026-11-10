@@ -231,7 +231,7 @@ function injectionCard() {
                 fieldLabel({ text: 'Position', forId: 'VectFox_injection_position', hasHelp: true }),
                 select({ id: 'VectFox_injection_position', options: positions }),
                 hint({ text: 'In chat keeps the prompt above the chat cacheable. The other two do not.' }),
-                detail({ text: 'Every VectFox block goes here: memory, summarizer and lorebook entries. Their text changes each turn, so near the top of the prompt they stop the provider\'s prompt cache from reusing anything after them.' }),
+                detail({ text: 'Every VectFox block goes here: memory, summarizer and lorebook entries, except chunks whose collection or chunk sets its own. Their text changes each turn, so near the top of the prompt they stop the provider\'s prompt cache from reusing anything after them.' }),
             ])}
             <div id="VectFox_injection_depth_row" class="vfx-field"${HIDDEN}>
                 ${fieldLabel({ text: 'Depth', forId: 'VectFox_injection_depth' })}

@@ -40,6 +40,7 @@ import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup
 import { chunkBasePageMarkup } from './chunkbase-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
 import { eventBasePageMarkup } from './eventbase-page-markup.js';
+import { ragPageMarkup } from './rag-page-markup.js';
 import { worldInfoPageMarkup, worldInfoStatusMarkup } from './worldinfo-page-markup.js';
 import { bindNumberSetting } from './number-setting.js';
 import { wireActionPage } from './action-page.js';
@@ -116,40 +117,8 @@ export function renderSettings(containerId, settings, callbacks) {
                     <!-- ChunkBase page (chunkbase-page-markup.js) -->
                     ${panelPageMarkup('chunkbase', chunkBasePageMarkup())}
 
-                    <!-- RAG Context Card -->
-                    ${panelPageMarkup('rag', `
-                    <div class="vectfox-card">
-                        <div class="vectfox-card-header">
-                            <h3 class="vectfox-card-title">
-                                <span class="vectfox-icon">
-                                    <i class="fa-solid fa-quote-left"></i>
-                                </span>
-                                RAG Context
-                            </h3>
-                            <p class="vectfox-card-subtitle">Retrieval-Augmented Generation injection settings — XML tag wrapping, prompt template, injection depth and position. Applies to retrieved results from any path.</p>
-                        </div>
-                        <div class="vectfox-card-body">
-
-                            <label for="VectFox_rag_context">
-                                <small>Global Context Prompt</small>
-                            </label>
-                            <textarea id="VectFox_rag_context" class="vectfox-textarea" rows="3" placeholder="e.g., The following information may be relevant to your conversation with {{user}}:"></textarea>
-                            <small class="VectFox_hint">Shown before all RAG content. Supports {{user}} and {{char}} variables.</small>
-
-                            <label for="VectFox_rag_xml_tag" style="margin-top: 12px;">
-                                <small>Global XML Tag (optional)</small>
-                            </label>
-                            <input type="text" id="VectFox_rag_xml_tag" class="vectfox-input" placeholder="e.g., retrieved_context" />
-                            <small class="VectFox_hint">Wraps all RAG content in &lt;tag&gt;...&lt;/tag&gt;. Leave empty for no wrapping.</small>
-
-                            <div class="VectFox_info" style="margin-top: 16px; padding: 8px 12px; border-radius: 4px; background: var(--SmartThemeBlurTintColor); font-size: 0.85em;">
-                                <i class="fa-solid fa-info-circle"></i>
-                                <span>Collection and chunk-level context can be set in the Database Browser and Chunk Visualizer respectively.</span>
-                            </div>
-
-                        </div>
-                        </div>
-                    `)}
+                    <!-- RAG page (rag-page-markup.js) -->
+                    ${panelPageMarkup('rag', ragPageMarkup())}
 
                     <!-- WorldInfo page (worldinfo-page-markup.js) -->
                     ${panelPageMarkup('worldinfo', worldInfoPageMarkup())}
@@ -2623,7 +2592,7 @@ function bindSettingsEvents(settings, callbacks) {
     // Injection depth (for in-chat position)
     bindNumberSetting(settings, { id: 'VectFox_injection_depth', key: 'depth', initial: settings.depth ?? 2, isInteger: true });
 
-    // RAG Context settings
+    // RAG page: the context prompt and the XML tag
     $('#VectFox_rag_context')
         .val(settings.rag_context || '')
         .on('input', function() {

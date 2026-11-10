@@ -191,10 +191,10 @@ const defaultSettings = {
     hybrid_rrf_k: 60,                   // RRF constant — A2 only (Qdrant uses its own default)
     hybrid_native_prefer: true,         // KEPT (no UI): A3 vs A2 selector for backends that support both. Default = prefer native.
 
-    // RAG Prompt Context (Global level)
-    // Wraps ALL injected content with context prompts and/or XML tags
-    rag_context: '',      // Natural language context shown before all RAG content
-    rag_xml_tag: 'VectFoxMemory',      // XML tag to wrap all RAG content (e.g., "retrieved_context")
+    // RAG page: the text before, and the tag around, the events and chunks VectFox injects.
+    // Lorebook entries and Summarizer Injection carry their own tags.
+    rag_context: '',      // Goes before them; ST macros work
+    rag_xml_tag: 'VectFoxMemory',      // Wraps them; empty sends them unwrapped
 
     // Collection-level metadata (managed by collection-metadata.js)
     collections: {},
@@ -555,11 +555,6 @@ jQuery(async () => {
     // page-load values. The defaults go in only now because the migrations above decide by which
     // keys are missing.
     settings = Object.assign(extension_settings.vectfox, { ...defaultSettings, ...extension_settings.vectfox });
-
-    // Migrate empty rag_xml_tag to default value
-    if (!settings.rag_xml_tag) {
-        settings.rag_xml_tag = 'VectFoxMemory';
-    }
 
     // Initialize CJK tokenizer mode before any extraction happens.
     setCjkTokenizerMode(settings.cjk_tokenizer_mode || CJK_TOKENIZER_MODES.intl);

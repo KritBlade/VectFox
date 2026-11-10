@@ -773,7 +773,8 @@ function resolveChunkInjectionPosition(chunk, settings) {
 /**
  * Stage 10: Format and inject chunks into prompt
  * Supports per-chunk/per-collection injection positions via cascade resolution.
- * Groups chunks by their resolved position+depth and creates separate injections.
+ * Groups chunks by their resolved position+depth and creates separate injections,
+ * each wrapped in the RAG page's context prompt and XML tag.
  *
  * @param {object[]} chunksToInject Chunks to inject
  * @param {object} settings VECTFOX settings
@@ -867,9 +868,8 @@ function injectChunksIntoPrompt(chunksToInject, settings) {
     let groupIndex = 0;
 
     for (const [key, group] of positionGroups) {
-        // Build text for this position group (no global wrapper - that goes on outermost only)
-        const groupSettings = { ...settings, rag_context: '', rag_xml_tag: '' };
-        const groupText = buildNestedInjectionText(group.chunks, groupSettings);
+        // Each group is its own block in its own slot, so each takes the RAG page's context prompt and XML tag.
+        const groupText = buildNestedInjectionText(group.chunks, settings);
 
         if (injectionDebug) {
             log.domain('injection', 'trace', `[VECTFOX Injection Control] Position group ${groupIndex + 1}/${positionGroups.size}: key="${key}", chunks=${group.chunks.length}, textLength=${groupText.length}`);
@@ -937,9 +937,10 @@ export function clearInterceptorPrompts(settings) {
 }
 
 /**
- * Searches for and injects relevant past messages from ALL enabled collections
- * This includes chat collections (if enabled_chats is true) AND any other
- * enabled collections like lorebooks, documents, character files, etc.
+ * The generation interceptor. On a live turn it runs EventBase retrieval, Summarizer
+ * Injection and ghosting, then searches the enabled chunk collections (documents,
+ * web pages, character cards) and injects the chunks it finds. Event and lorebook
+ * collections are left out here: their own pipelines search them.
  *
  * @param {object[]} chat Current chat messages
  * @param {object} settings VECTFOX settings
@@ -1093,11 +1094,8 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         }
 
         // Allow WI-only mode even if no regular collections pass filters.
-        // Note: ChunkBase (lorebook/docs/URLs/wiki) is entirely optional —
-        // users who rely only on EventBase for chat memory will always have
-        // zero active ChunkBase collections, which is the intended setup,
-        // not an error. The earlier alarming "⚠️ chunks cannot be injected!"
-        // log was removed because it implied lorebook setup was required.
+        // ChunkBase is optional: a chat that keeps its memory in EventBase alone
+        // has no active chunk collections, which is a normal setup, not an error.
         // EventBase injection happens on its own path (eventbase-workflow.js)
         // and is unaffected by this branch.
         if (activeCollections.length === 0 && !canQueryWI) {

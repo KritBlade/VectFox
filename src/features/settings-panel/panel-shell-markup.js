@@ -23,7 +23,7 @@ export const PANEL_TABS = Object.freeze([
     { name: 'chunkbase', group: 'Memory', icon: 'fa-layer-group', title: 'ChunkBase', subtitle: 'Chunked content: lorebooks, character cards, web pages and documents.' },
     { name: 'autosync', group: 'Memory', icon: 'fa-comments', title: 'AutoSync', subtitle: 'Keeps the open chat and its collection in step as messages arrive.' },
     { name: 'worldinfo', group: 'Memory', icon: 'fa-globe', title: 'WorldInfo', subtitle: 'Lorebook entries chosen by meaning instead of keywords.' },
-    { name: 'rag', group: 'Retrieval', icon: 'fa-quote-left', title: 'RAG', subtitle: 'How retrieved memory is wrapped and placed in the prompt.' },
+    { name: 'rag', group: 'Retrieval', icon: 'fa-quote-left', title: 'RAG', subtitle: 'How retrieved memory is wrapped in the prompt.' },
     { name: 'agentmode', group: 'Retrieval', icon: 'fa-robot', title: 'AgentMode', subtitle: 'An LLM planner that adds searches beside the normal one.' },
     { name: 'storyarc', group: 'Retrieval', icon: 'fa-timeline', title: 'StoryArc' },
 ]);

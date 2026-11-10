@@ -1290,13 +1290,12 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
         toastr.success(`EventBase: ${injectedCount} event(s) injected`, 'VectFox Retrieval');
     }
 
-    // Apply global RAG context if configured (same as legacy chunk path)
+    // The RAG page's context prompt goes before the events, and its XML tag wraps them, as on a chunk block.
     const globalContext = settings.rag_context ? substituteParams(settings.rag_context) : '';
     if (globalContext) {
         injectionText = `${globalContext}\n\n${injectionText}`;
     }
 
-    // Wrap with XML tag if configured (same as legacy path)
     const xmlTag = settings.rag_xml_tag || '';
     if (xmlTag) {
         injectionText = `<${xmlTag}>\n${injectionText}\n</${xmlTag}>`;

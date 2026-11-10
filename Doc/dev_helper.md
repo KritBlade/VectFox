@@ -949,20 +949,20 @@ If qdrant **is** actually broken (down for the wrong reason) and the user **does
 
 **Status**: Deferred; no code change.
 
-`rearrangeChat` ([src/features/chunkbase/chat-vectorization.js:939](../src/features/chunkbase/chat-vectorization.js#L939)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (It also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that master-switch gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
+`rearrangeChat` ([src/features/chunkbase/chat-vectorization.js:949](../src/features/chunkbase/chat-vectorization.js#L949)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (It also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that master-switch gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
 
-1. **Early (cheap)** at [line 1034-1041](../src/features/chunkbase/chat-vectorization.js#L1034): `hasCollections = gatherCollectionsToQuery(settings).length > 0` — passes if *any* non-EventBase collection has `enabled=true`. No lock/scope/activation check.
-2. **Post-activation (expensive)** at [line 1075](../src/features/chunkbase/chat-vectorization.js#L1075): `filterActiveCollections` runs the full `shouldCollectionActivate` gate chain (pause → lock → triggers → conditions).
+1. **Early (cheap)** at [line 1044-1051](../src/features/chunkbase/chat-vectorization.js#L1044): `hasCollections = gatherCollectionsToQuery(settings).length > 0` — passes if *any* chunk collection (not an event, archived-event or lorebook collection) has `enabled=true`, or while semantic activation (`enabled_world_info`) is on. No lock/scope/activation check.
+2. **Post-activation (expensive)** at [line 1085](../src/features/chunkbase/chat-vectorization.js#L1085): `filterActiveCollections` runs the full `shouldCollectionActivate` gate chain (pause → lock → triggers → conditions).
 
-EventBase-only users (the typical case) hit gate 1 and short-circuit — debug log `[VECTFOX ChunkBase] No enabled ChunkBase collections ...` fires once per generation to confirm.
+EventBase-only users (the typical case) hit gate 1 and short-circuit while semantic activation is off — debug log `[VECTFOX ChunkBase] No enabled ChunkBase collections ...` fires once per generation to confirm.
 
-**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1055-1062](../src/features/chunkbase/chat-vectorization.js#L1055-L1062) when a user has enabled lorebooks that aren't locked to the current chat or character.
+**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1065-1072](../src/features/chunkbase/chat-vectorization.js#L1065-L1072) when a user has enabled chunk collections that aren't locked to the current chat or character.
 
 **Why deferred**: activation requires a lock (gate 2 of `shouldCollectionActivate`), so a cheap `enabled AND (chat-locked OR character-locked)` pre-check matches every activation path. The saving is about 20ms per generation — not worth doing in isolation; revisit if/when we touch Phase B for another reason.
 
-**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([src/index.js:452](../src/index.js#L452) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
+**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([src/index.js:441](../src/index.js#L441) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
 
-**Search tag in code**: none yet. When acted on, target [src/features/chunkbase/chat-vectorization.js:1038](../src/features/chunkbase/chat-vectorization.js#L1038) (the `if (!hasCollections && !canQueryWI)` block).
+**Search tag in code**: none yet. When acted on, target [src/features/chunkbase/chat-vectorization.js:1048](../src/features/chunkbase/chat-vectorization.js#L1048) (the `if (!hasCollections && !canQueryWI)` block).
 
 ---
 
