@@ -187,12 +187,13 @@ describe('the Search page', () => {
 });
 
 describe('the Size page', () => {
-    const row = { key: 'qdrant:vf_x', collectionId: 'vf_x', backend: 'qdrant', count: 3, maxChars: 900, avgChars: 400, totalKB: 1, worstPreview: 'A long event' };
+    const row = { key: 'qdrant:vf_x', collectionId: 'vf_x', backend: 'qdrant', count: 3, maxChars: 900, avgChars: 400, totalBytes: 1536 * 1024, worstPreview: 'A long event' };
 
     it('ranks a collection with Show entries, and a failed one without', () => {
         const summary = parse(sizeSummaryRowMarkup(row));
         expect(summary.querySelector('[data-size-action="show"]').dataset.sizeKey).toBe('qdrant:vf_x');
         expect(summary.textContent).toContain('3 entries, largest 900 characters');
+        expect(summary.textContent).toContain('average 400, 1.5 MB in all');
         const failed = parse(sizeSummaryRowMarkup({ ...row, count: 0, error: true, worstPreview: 'Could not read it: boom' }));
         expect(failed.querySelector('[data-size-action]')).toBeNull();
         expect(pillsOf(failed)).toContain('Failed');

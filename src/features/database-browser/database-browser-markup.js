@@ -34,6 +34,7 @@ import {
 } from '../../shared/gui-dna/gui-dna-core.js';
 import { buttonWithId, cardHeader, dangerZone, navBrand, navItem, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
+import { formatBytes } from '../../shared/byte-size.js';
 
 export const BROWSER_ROOT_ID = 'vectfox_database_browser';
 
@@ -452,11 +453,11 @@ export function sizeStatusMarkup({ text, isFailed = false }) {
  * One collection's row in the size ranking.
  *
  * @param {{key: string, collectionId: string, backend: string, count: number, maxChars: number, avgChars: number,
- *   totalKB: number, worstPreview: string, error?: boolean}} row
+ *   totalBytes: number, worstPreview: string, error?: boolean}} row - totalBytes is the entries' metadata as UTF-8
  * @returns {string}
  */
 export function sizeSummaryRowMarkup(row) {
-    const sizes = `${counted(row.count, 'entry', 'entries')}, largest ${row.maxChars} characters, average ${row.avgChars}, ${row.totalKB} KB in all`;
+    const sizes = `${counted(row.count, 'entry', 'entries')}, largest ${row.maxChars} characters, average ${row.avgChars}, ${formatBytes(row.totalBytes)} in all`;
     const canShow = !row.error && row.count > 0;
     return listRow({
         icon: row.error ? 'fa-circle-exclamation' : 'fa-database',

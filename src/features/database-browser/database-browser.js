@@ -81,6 +81,7 @@ import { world_names, loadWorldInfo } from "../../sillytavern/world-info.js";
 import { log } from "../../sillytavern/log.js";
 import { openVisualizer } from "./chunk-visualizer.js";
 import { bindSizeInspector } from "./size-inspector.js";
+import { formatBytes, utf8ByteLength } from "../../shared/byte-size.js";
 import {
   BROWSER_PAGES,
   browserPageId,
@@ -327,7 +328,7 @@ async function clearReformatOriginals() {
 
     const isConfirmed = await confirmPopup([
       { text: "Clear the Auto-Reformat originals?" },
-      { text: "Kept now:", name: `${entries.length} sources, about ${Math.round(totalBytes / 1024)} KB` },
+      { text: "Kept now:", name: `${entries.length} sources, about ${formatBytes(totalBytes)}` },
       { text: "Lost: each source's text as it was before Auto-Reformat. The reformatted chunks stay, so nothing vectorized changes." },
       { text: "Clear deletes them. Cancel keeps them." },
     ], { okButton: "Clear", isDestructive: true });
@@ -355,8 +356,7 @@ async function importCollectionFile(file) {
   // The cap (MAX_IMPORT_FILE_BYTES, collections/collection-export.js) is checked before any read, and the JSON
   // reader checks the same one, so the two import paths stay in step.
   if (file.size > MAX_IMPORT_FILE_BYTES) {
-    const mb = (file.size / 1024 / 1024).toFixed(1);
-    toastr.error(`File too large: ${mb} MB (max ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB).`, "VectFox Import");
+    toastr.error(`File too large: ${formatBytes(file.size)} (max ${formatBytes(MAX_IMPORT_FILE_BYTES)}).`, "VectFox Import");
     return;
   }
 
@@ -1046,7 +1046,7 @@ async function performPngExport(collection, imageFile) {
     const pngWithData = await embedDataInPNG(exportData, pngData);
     downloadPNG(pngWithData, `${collection.name || collection.id}.vectfox`);
 
-    const jsonSize = JSON.stringify(exportData).length;
+    const jsonSize = utf8ByteLength(JSON.stringify(exportData));
     const pngSize = pngWithData.length;
     toastr.success(
       `PNG export complete!\n${exportData.stats.chunkCount} chunks\n` +
@@ -1151,19 +1151,6 @@ async function deleteTicked() {
 function updateStats(collectionCount, chunkCount) {
   $('[data-browser-count="collections"]').text(`${collectionCount} collection${collectionCount === 1 ? "" : "s"}`);
   $('[data-browser-count="chunks"]').text(`${chunkCount} chunk${chunkCount === 1 ? "" : "s"}`);
-}
-
-/**
- * Formats bytes to human readable string
- * @param {number} bytes
- * @returns {string}
- */
-function formatBytes(bytes) {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
 /**

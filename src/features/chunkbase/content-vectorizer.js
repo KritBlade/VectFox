@@ -31,6 +31,7 @@ import { buildArchiveEventCollectionId } from '../../shared/collection-ids.js';
 import { openTextCleaningModal, getCleaningSettings, CLEANING_PRESETS } from '../text-cleaning/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
+import { formatBytes, utf8ByteLength } from '../../shared/byte-size.js';
 
 // ============================================================================
 // STATE
@@ -1084,7 +1085,7 @@ async function _finalizeReformatAccept({ acceptedRecords, sourceHash, text, sour
 
         if (text.length > 200000) {
             toastr.warning(
-                `Auto-Reformat retains the original source text for audit (~${Math.round(text.length / 1024)} KB), adding to your settings storage size. Use Clear originals at the foot of the Database Browser's Collections page if this grows large.`,
+                `Auto-Reformat retains the original source text for audit (about ${formatBytes(utf8ByteLength(text))}), adding to your settings storage size. Use Clear originals at the foot of the Database Browser's Collections page if this grows large.`,
                 'VectFox',
                 { timeOut: 10000 },
             );

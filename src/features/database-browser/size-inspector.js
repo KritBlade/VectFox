@@ -17,6 +17,7 @@ import { loadAllCollections } from "../collections/index.js";
 import { buildRegistryKey } from "../../shared/collection-ids.js";
 import { listChunks } from "../vector-backend/index.js";
 import { log } from '../../sillytavern/log.js';
+import { utf8ByteLength } from "../../shared/byte-size.js";
 import { sizeEntriesMarkup, sizeStatusMarkup, sizeSummaryRowMarkup } from "./database-browser-markup.js";
 
 // The last scan, so a collection's entry list reuses the items it already fetched.
@@ -108,7 +109,7 @@ async function runScan() {
                     count: 0,
                     maxChars: 0,
                     avgChars: 0,
-                    totalKB: 0,
+                    totalBytes: 0,
                     worstPreview: `Could not read it: ${err.message}`,
                     error: true,
                 });
@@ -142,11 +143,12 @@ function summarize(collectionId, backend, items, registryKey) {
             count: 0,
             maxChars: 0,
             avgChars: 0,
-            totalKB: 0,
+            totalBytes: 0,
             worstPreview: "(empty)",
         };
     }
-    const sizes = items.map(it => JSON.stringify(it.metadata || {}).length);
+    const metadataTexts = items.map(it => JSON.stringify(it.metadata || {}));
+    const sizes = metadataTexts.map(text => text.length);
     const total = sizes.reduce((a, b) => a + b, 0);
     const max = Math.max(...sizes);
     const maxIdx = sizes.indexOf(max);
@@ -159,7 +161,7 @@ function summarize(collectionId, backend, items, registryKey) {
         count: items.length,
         maxChars: max,
         avgChars: Math.round(total / items.length),
-        totalKB: Math.round(total / 1024),
+        totalBytes: metadataTexts.reduce((sum, text) => sum + utf8ByteLength(text), 0),
         worstPreview: String(previewSrc).slice(0, 120),
     };
 }

@@ -37,6 +37,7 @@ import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, re
 import { getModelFromSettings } from '../embedding/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
+import { formatBytes } from '../../shared/byte-size.js';
 
 // ============================================================================
 // HELPERS
@@ -824,10 +825,8 @@ export const MAX_IMPORT_FILE_BYTES = 400 * 1024 * 1024; // 400 MB
  */
 export async function readImportFile(file) {
     if (file?.size > MAX_IMPORT_FILE_BYTES) {
-        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        const capMB = MAX_IMPORT_FILE_BYTES / 1024 / 1024;
         throw new Error(
-            `Import file too large: ${sizeMB} MB exceeds ${capMB} MB limit. ` +
+            `Import file too large: ${formatBytes(file.size)} exceeds the ${formatBytes(MAX_IMPORT_FILE_BYTES)} limit. ` +
             `Split the export into smaller batches.`
         );
     }

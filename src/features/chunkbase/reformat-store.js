@@ -8,8 +8,7 @@
  * re-invoking the LLM (non-deterministic output would otherwise silently
  * re-cost money/time and could drift from what the user actually reviewed).
  *
- * Genuinely new — nothing like this exists for non-chat content today. Chat's
- * fingerprint/dedup cache (src/features/eventbase/eventbase-store.js) is chat-UUID-keyed and
+ * Chat's fingerprint/dedup cache (src/features/eventbase/eventbase-store.js) is chat-UUID-keyed and
  * unrelated. Kept as its OWN top-level bucket
  * (extension_settings.vectfox.reformat_cache), separate from
  * collection-metadata.js's per-collection object — that store is framed as a
@@ -21,6 +20,7 @@
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { log } from '../../sillytavern/log.js';
+import { utf8ByteLength } from '../../shared/byte-size.js';
 
 /**
  * @typedef {object} ReformatCacheEntry
@@ -107,7 +107,7 @@ export function listReformatCacheEntries() {
         sourceName: entry.sourceName,
         contentType: entry.contentType,
         acceptedAt: entry.acceptedAt,
-        originalTextBytes: entry.originalText ? entry.originalText.length : 0,
+        originalTextBytes: entry.originalText ? utf8ByteLength(entry.originalText) : 0,
         chunkCount: Array.isArray(entry.chunks) ? entry.chunks.length : 0,
     }));
 }
