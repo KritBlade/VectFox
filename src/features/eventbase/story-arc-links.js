@@ -13,7 +13,8 @@
  */
 
 import { fetchPortableChunks } from '../collections/index.js';
-import { queryCollection, updateChunkMetadata } from '../vector-backend/index.js';
+import { updateChunkMetadata } from '../vector-backend/index.js';
+import { searchEventCollection } from './eventbase-search.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
@@ -326,13 +327,13 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
         }
         const ordered = inTimelineOrder(events);
         const eventByHash = new Map(events.map(event => [event._hash, event]));
-        const searchSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
         const { failedCount, stopReason } = await _linkEvents({
             events: newEvents,
             parallelCalls: NEW_EVENT_PARALLEL_CALLS,
             findCandidates: async (event) => {
                 const earlierEvents = earlierEventsOf(event, ordered);
-                const { hashes } = earlierEvents.length ? await queryCollection(collectionId, event.text, NEW_EVENT_POOL_SIZE, searchSettings) : { hashes: [] };
+                // Link candidates are not retrieval, so no similarity threshold cuts them.
+                const { hashes } = earlierEvents.length ? await searchEventCollection(collectionId, event.text, NEW_EVENT_POOL_SIZE, settings, { threshold: 0 }) : { hashes: [] };
                 const nearest = (hashes ?? [])
                     .map(hash => eventByHash.get(Number(hash)))
                     .filter(hit => hit && hit.source_window_start < event.source_window_start)

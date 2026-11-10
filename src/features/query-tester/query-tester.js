@@ -126,7 +126,7 @@ export function openQueryTestModal() {
                 $('#VectFox_qtester_output_eb').val(
                     locked === 0
                         ? '(no EventBase collections are locked to this chat)'
-                        : `(searched ${locked} collection(s) — 0 events matched. Try a more specific query or lower the score threshold.)`
+                        : `(searched ${locked} collection(s) — 0 events matched. Try a more specific query${settings.eventbase_score_threshold > 0 ? ', or lower the Similarity threshold on the EventBase page' : ''}.)`
                 );
             }
 

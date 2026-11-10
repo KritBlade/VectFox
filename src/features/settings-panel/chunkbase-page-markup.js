@@ -106,7 +106,7 @@ function retrievalCard() {
             ${field([
                 fieldLabel({ text: 'Similarity threshold', forId: 'VectFox_score_threshold' }),
                 sliderNumber({ id: 'VectFox_score_threshold', min: 0, max: 1, step: 0.05, title: 'Threshold' }),
-                hint({ text: 'Results scoring below this are dropped. On Standard it drops events too.' }),
+                hint({ text: 'Chunks scoring below this are dropped. Events have their own, on the EventBase page.' }),
             ])}
             <div id="VectFox_hybrid_keyword_budget_wrapper" class="vfx-field vfx-span"${HIDDEN}>
                 ${fieldLabel({ text: 'Query keyword budget', forId: 'VectFox_hybrid_keyword_level' })}

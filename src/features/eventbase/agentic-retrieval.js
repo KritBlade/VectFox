@@ -23,7 +23,7 @@
 import { getContext } from '../../sillytavern/chat.js';
 import { isDuplicateEvent, removeEventsVisibleInContext, retrieveEvents } from './eventbase-retrieval.js';
 import { seatPlannerHits } from './planner-seats-core.js';
-import { queryCollection } from '../vector-backend/index.js';
+import { searchEventCollection } from './eventbase-search.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { cleanText, stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
@@ -337,10 +337,6 @@ async function _searchPlannedQueries(params) {
         return null;
     }
 
-    const ebSettings = {
-        ...settings,
-        keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25',
-    };
     const topK = (settings.eventbase_retrieval_top_k || 8) * 2;
 
     // Per-query timeout: the fanout runs in parallel, so the whole retrieval
@@ -357,7 +353,7 @@ async function _searchPlannedQueries(params) {
     for (const queryText of validatedQueries) {
         for (const colId of liveCollectionIds) {
             fanoutPromises.push(
-                _raceWithTimeout(queryCollection(colId, queryText, topK, ebSettings), queryTimeoutMs)
+                _raceWithTimeout(searchEventCollection(colId, queryText, topK, settings), queryTimeoutMs)
                     .then(({ hashes, metadata }) => {
                         if (!hashes?.length) return { queryText, hits: [] };
                         // _sortFrame tags these live-collection hits with their source

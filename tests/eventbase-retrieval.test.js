@@ -9,12 +9,14 @@
  * reference error inside the function body surfaces as a failure here.
  *
  * Isolation strategy (important — do NOT replace with a global vitest alias):
- * every DIRECT import of eventbase-retrieval.js is mocked below. Because all six
- * dependencies are stubbed, none of them load, so the SillyTavern host modules
- * they transitively pull in (script.js, secrets.js, extensions.js, ...) are
- * never resolved. This keeps the blast radius to this one file and needs no
+ * the modules eventbase-retrieval.js and eventbase-search.js read are mocked below,
+ * and the SillyTavern host modules the vector-backend barrel still reaches are
+ * empty mocks. This keeps the blast radius to this one file and needs no
  * vitest.config.js change. See [[project_vitest_host_stub]] for why the global
  * alias approach was abandoned (it collided with other tests' vi.mock calls).
+ *
+ * It also guards the similarity threshold: re-ranked events read their similarity
+ * from a plain search, and Standard's query gets EventBase's threshold, never ChunkBase's.
  *
  * NOTE on mocking ./log.js: the `import { log }` line must still EXIST in the
  * source for the `log` binding to resolve to this mock. If someone deletes that
@@ -24,7 +26,7 @@
  * npx vitest run --reporter=verbose 2>&1 | Tee-Object -FilePath C:\tmp\vitest-out.txt
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // --- mock every DIRECT dependency of src/features/eventbase/eventbase-retrieval.js ---
 const queryCollectionMock = vi.fn();
@@ -37,7 +39,8 @@ vi.mock('../src/features/vector-backend/vector-api.js', () => ({
 /** A distinct fake embedding per query text, so tests can tell which vector went where. */
 const vectorFor = (text) => [text.length, 0.5];
 
-// Native-rerank path only (Qdrant + opt-in), not exercised here — stub to null.
+// The native-rerank path's backend: none, so the plain path runs, except where the
+// similarity threshold tests hand it a Qdrant backend.
 vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
     getBackendForCollection: vi.fn(async () => null),
     getBackend: vi.fn(async () => null),
@@ -45,6 +48,7 @@ vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
 
 vi.mock('../src/shared/collection-ids.js', () => ({
     parseRegistryKey: vi.fn((id) => ({ backend: null, collectionId: id })),
+    resolveBackendForCollection: vi.fn((id) => ({ backend: id.includes(':') ? id.split(':')[0] : null, collectionId: id })),
 }));
 
 vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({
@@ -81,6 +85,7 @@ vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 
 import { retrieveEvents } from '../src/features/eventbase/eventbase-retrieval.js';
+import { getBackend } from '../src/features/vector-backend/backend-registry.js';
 
 const baseSettings = {
     vector_backend: 'standard',
@@ -332,5 +337,61 @@ describe('retrieveEvents', () => {
 
         // Only the importance-9 event survives the >=5 filter.
         expect(debug.afterImportanceFilter).toBe(1);
+    });
+});
+
+describe('retrieveEvents: the similarity threshold', () => {
+    const qdrantSettings = { ...baseSettings, vector_backend: 'qdrant', eventbase_native_rerank: true };
+    const prefetchLimit = baseSettings.eventbase_retrieval_top_k * 2 * 4;
+    let backend;
+
+    const retrieve = (settings, liveCollectionIds = ['qdrant:vf_eventbase_x']) => retrieveEvents({
+        searchText: 'the duel at the bridge',
+        keywordQuery: 'the duel',
+        chatLength: 100,
+        settings,
+        liveCollectionIds,
+        additionalCandidates: [],
+        skipLiveQuery: false,
+    });
+
+    beforeEach(() => {
+        const reranked = [1, 2, 3].map(i => makeEvent(i, { rerankApplied: true }));
+        backend = {
+            hybridQueryWithRerank: vi.fn(async () => ({ hashes: [1, 2, 3], metadata: reranked })),
+            queryCollection: vi.fn(async () => ({ hashes: [1, 2], metadata: [{ hash: 1, score: 0.6 }, { hash: 2, score: 0.2 }] })),
+        };
+        vi.mocked(getBackend).mockResolvedValue(backend);
+    });
+
+    afterEach(() => {
+        vi.mocked(getBackend).mockResolvedValue(null);
+    });
+
+    it('reads re-ranked events\' similarity from a plain search as wide as the re-rank\'s, and drops those below it', async () => {
+        const { events } = await retrieve({ ...qdrantSettings, eventbase_score_threshold: 0.3 });
+        expect(events.map(event => event.event_id)).toEqual(['evt_1']);
+        expect(backend.queryCollection.mock.calls.map(call => call[2])).toEqual([prefetchLimit, prefetchLimit]);
+        expect(backend.hybridQueryWithRerank.mock.calls.map(call => call[5])).toEqual([{ prefetchLimit }, { prefetchLimit }]);
+    });
+
+    it('runs no plain search at threshold 0, where every re-ranked event stays', async () => {
+        const { events } = await retrieve(qdrantSettings);
+        expect(backend.queryCollection).not.toHaveBeenCalled();
+        expect(events).toHaveLength(3);
+    });
+
+    it('falls back to the plain path when the similarity search fails, which still applies the threshold', async () => {
+        backend.queryCollection.mockRejectedValue(new Error('Qdrant answered 500'));
+        queryCollectionMock.mockResolvedValue({ hashes: [1, 2], metadata: [makeEvent(1, { score: 0.6 }), makeEvent(2, { score: 0.2 })] });
+        const { events } = await retrieve({ ...qdrantSettings, eventbase_score_threshold: 0.3 });
+        expect(events.map(event => event.event_id)).toEqual(['evt_1']);
+    });
+
+    it('sends Standard\'s query EventBase\'s threshold, never ChunkBase\'s', async () => {
+        vi.mocked(getBackend).mockResolvedValue(null);
+        queryCollectionMock.mockResolvedValue({ hashes: [], metadata: [] });
+        await retrieve({ ...baseSettings, score_threshold: 0.25 }, ['standard:vf_eventbase_x']);
+        expect(queryCollectionMock.mock.calls.map(call => call[3].score_threshold)).toEqual([0, 0]);
     });
 });

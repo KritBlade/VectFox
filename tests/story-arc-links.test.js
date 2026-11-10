@@ -24,6 +24,11 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     updateChunkMetadata: (...args) => updateChunkMetadataMock(...args),
 }));
 
+// The EventBase search reads a collection's backend from its id; the real module reaches SillyTavern host modules.
+vi.mock('../src/shared/collection-ids.js', () => ({
+    resolveBackendForCollection: (id) => ({ backend: id.includes(':') ? id.split(':')[0] : null, collectionId: id }),
+}));
+
 const callLlmForJsonMock = vi.fn();
 const resolveLinkConfigMock = vi.fn();
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({
@@ -358,6 +363,13 @@ describe('linkNewStoryEvents', () => {
         expect(userMessage).toContain('(message 20)');
         expect(userMessage).not.toContain('(message 40)');
         expect(writtenLinks()).toEqual({ 3: [{ event_id: 'id1', type: 'continues', thread: 'A' }] });
+    });
+
+    it('searches for link candidates with no similarity threshold, whatever the EventBase page sets', async () => {
+        listStoryEventsMock.mockResolvedValue([...decidedOlder, stored(3, 30)]);
+        queryCollectionMock.mockResolvedValue({ hashes: [1, 2], metadata: [{ score: 0.1 }, { score: 0.2 }] });
+        await run(['id3'], { eventbase_score_threshold: 0.6, score_threshold: 0.25 });
+        expect(queryCollectionMock.mock.calls[0][3].score_threshold).toBe(0);
     });
 
     it('decides the first event of a chat with no call and no search', async () => {

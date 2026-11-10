@@ -2418,7 +2418,7 @@ function bindSettingsEvents(settings, callbacks) {
             resetBackendHealth();
         });
 
-    // Similarity threshold (ChunkBase page): Standard's query applies it to every collection, events included
+    // Similarity threshold (ChunkBase page). Event searches use EventBase's own (eventbase-search.js).
     bindNumberSetting(settings, { id: 'VectFox_score_threshold', key: 'score_threshold', initial: settings.score_threshold ?? 0.25 });
 
     // "Skip Already-Visible Events" (legacy key name: deduplication_depth).
@@ -3295,6 +3295,7 @@ function bindSettingsEvents(settings, callbacks) {
     bindNumberSetting(settings, { id: 'VectFox_eventbase_timeout_ms', key: 'eventbase_timeout_ms', initial: settings.eventbase_timeout_ms ?? 60000, isInteger: true });
     bindNumberSetting(settings, { id: 'VectFox_eventbase_retrieval_top_k', key: 'eventbase_retrieval_top_k', initial: settings.eventbase_retrieval_top_k ?? 10, isInteger: true });
     bindNumberSetting(settings, { id: 'VectFox_eventbase_retrieval_min_importance', key: 'eventbase_retrieval_min_importance', initial: settings.eventbase_retrieval_min_importance ?? 1, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_score_threshold', key: 'eventbase_score_threshold', initial: settings.eventbase_score_threshold ?? 0 });
 
     $('#VectFox_eventbase_injection_format')
         .val(settings.eventbase_injection_format || 'densetext')

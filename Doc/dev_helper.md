@@ -388,7 +388,7 @@ Every `vectorScore` is 0 here. Both A1 and A2 still work, but they degrade diffe
 
 - **Semantic queries (no keyword overlap):** A1 scores everything 0 — results fall back to arbitrary ordering. A2 uses ST's `vectorRank` as a fallback signal via RRF, preserving ST's internal semantic ordering even without scores. A2 degrades more gracefully here.
 - **Keyword queries (BM25 matches exist):** Both paths rank primarily by BM25. A2 adds `vectorRank` as a secondary tie-breaker for results with equal BM25 scores. The ×0.60 penalty is applied uniformly to all results and does not change their relative order — it only affects absolute score values.
-- **Score threshold sensitivity:** The ×0.60 penalty lowers all A2 absolute scores. If `score_threshold` is set above zero, A2 may filter out results that A1 would keep. With the default `score_threshold=0` this is not an issue.
+- **Score threshold sensitivity:** The ×0.60 penalty lowers all A2 absolute scores, and the chunk pipeline applies ChunkBase's `score_threshold` (default 0.25) to them, so A2 may filter out chunks that A1 would keep. Events are not affected: `eventbase_score_threshold` reads similarity only, never these fused scores.
 
 #### Recommendation (consolidated)
 
@@ -459,6 +459,7 @@ EventBase overrides `keyword_scoring_method` with `eventbase_keyword_scoring_met
 | `deduplication_depth`                                                       | 0 (disabled)              | All three paths                                                | EventBase context-window dedup: suppress events whose source window falls within the last N messages. Same JS path post-retrieval. |
 | `eventbase_retrieval_top_k`                                                 | 10                        | All three paths                                                | Final number of events injected, plus up to 5 that Agent Mode adds; a StoryArc block keeps its own count. Internal overfetch is`top_k × 2 × 2 = 40` for A1 (`getOverfetchAmount` in keyword-boost.js). |
 | `eventbase_retrieval_min_importance`                                        | 1                         | All three paths                                                | Drops events below this importance threshold after retrieval.                                        |
+| `eventbase_score_threshold`                                                 | 0                         | All three paths                                                | EventBase page → Retrieval → Similarity threshold, used by every event search in place of ChunkBase's `score_threshold` (`eventbase-search.js`). Standard applies it inside its query; on Qdrant VectFox drops the hits below it. The new-event link pass searches with 0. |
 | `eventbase_rerank_w_cosine` / `_w_importance` / `_w_persist` / `_w_recency` | 0.55 / 0.20 / 0.15 / 0.10 | All three paths (formula coefficients)                         | A3 with`eventbase_native_rerank=true` applies them server-side via Qdrant formula; A1/A2 apply them in JS in `eventbase-retrieval.js`. |
 | `eventbase_native_rerank`                                                   | `true`                    | A3 only                                                        | Pushes the 4-weight formula into the same Qdrant`/points/query` call. Requires Qdrant ≥ 1.13. Set `false` to fall back to JS post-processing. |
 | `eventbase_compare_rerank`                                                  | `false`                   | A3 only                                                        | When ON alongside`eventbase_native_rerank`, runs the JS formula path in parallel for every query and logs `overlap@K` + Spearman ρ. Pure observability, doesn't change the injected events. |
@@ -494,7 +495,7 @@ issues a single Qdrant `/points/query` with the four-weight formula baked in:
 ```
 
 `$score` is Qdrant's RRF fusion score (peaks at 1.0 when k=1 internally).
-The prefetch pool is `prefetchLimit` events (default: `topK × 3`), giving the
+The prefetch pool is `prefetchLimit` events (`topK × 4`), giving the
 formula access to a wider candidate set than the plain RRF top-K — this lets
 high-importance/high-recency events that ranked outside the top-K in plain RRF
 still surface in the final result.
@@ -506,6 +507,12 @@ still surface in the final result.
   miss phrases.
 - **Pairwise deduplication** — content-hash overlap across events.
 - **Cross-collection merge** — `Promise.all` per collection, concat-dedup-trim.
+- **Similarity threshold** — the formula score holds no similarity, so while
+  `eventbase_score_threshold` is above 0 a plain dense search of the same query,
+  `prefetchLimit` wide, runs beside the re-rank and gives each event its
+  similarity; events below the threshold are dropped
+  (`keepRerankedEventsAtThreshold` in `eventbase-search.js`). An event outside
+  that search matched by keywords alone and is dropped too.
 
 **Version requirement:** Qdrant ≥ 1.13 for `formula` query support. If the
 request fails with a Qdrant error, check the server version and set

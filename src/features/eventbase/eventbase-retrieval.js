@@ -5,7 +5,8 @@
  * Retrieves and re-ranks EventRecord objects from Qdrant for prompt injection.
  *
  * Pipeline:
- *  1. Dual vector query — user's last message + full context (Promise.all); merge by max score
+ *  1. Dual vector query — user's last message + full context (Promise.all), each without the
+ *     events below the similarity threshold (eventbase-search.js); merge by max score
  *  2. Filter by minimum importance
  *  3. Re-rank using weighted formula: cosine + importance + persist + recency
  *  4. Suppress near-duplicate events (same type + high character overlap)
@@ -13,9 +14,10 @@
  * ============================================================================
  */
 
-import { queryCollection, getQueryVector, getBackendForCollection, getBackend } from '../vector-backend/index.js';
+import { getQueryVector, getBackendForCollection, getBackend } from '../vector-backend/index.js';
 import { parseRegistryKey } from '../../shared/collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
+import { eventSearchSettings, eventSimilarityOf, keepRerankedEventsAtThreshold, searchEventCollection } from './eventbase-search.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -112,9 +114,7 @@ function _anchorBoostFor(meta, anchorText, anchorAmount) {
  * JS path's scoring. Returns _finalScore on the meta object (not mutated).
  */
 function _jsFinalScore(meta, weights, chatLength, anchorText, anchorAmount) {
-    const cosineScore = typeof meta.vectorScore === 'number'
-        ? meta.vectorScore
-        : (typeof meta.score === 'number' ? meta.score : 0);
+    const cosineScore = eventSimilarityOf(meta);
     const importanceNorm = (meta.importance ?? 5) / 10;
     const persistBonus = meta.should_persist === true ? 1 : 0;
     const recencyBonus = _recencyBonus(meta, chatLength);
@@ -128,7 +128,8 @@ function _jsFinalScore(meta, weights, chatLength, anchorText, anchorAmount) {
 
 /**
  * Run a single live (collection, queryText) lookup. Branches between the native
- * rerank path and the existing queryCollection path. In compare mode, fires the
+ * rerank path and the plain EventBase search (searchEventCollection). Both drop the
+ * events below the similarity threshold. In compare mode, fires the
  * JS path in parallel for observability — its results never escape this helper.
  * Every path, including each fallback, reuses `queryVector` — the query text's
  * embedding, computed once by retrieveEvents — so nothing here re-embeds the text.
@@ -159,22 +160,36 @@ async function _runOneLiveQuery({
                 let jsCompletedAt = null;
                 const jsQueryPromise = compareMode
                     ? Promise.race([
-                        queryCollection(colId, queryText, topK, ebSettings, queryVector),
+                        searchEventCollection(colId, queryText, topK, settings, { queryVector }),
                         new Promise((_, reject) =>
                             setTimeout(() => reject(new Error(`JS compare timed out after ${JS_COMPARE_TIMEOUT_MS}ms`)), JS_COMPARE_TIMEOUT_MS)
                         ),
                     ]).then(res => { jsCompletedAt = performance.now(); return res; })
                     : null;
 
+                // The re-rank's formula score holds no similarity, so a threshold above 0
+                // reads each event's from a plain search beside it, as wide as the re-rank's
+                // similarity leg. A failed search fails this path into the plain one below.
+                const prefetchLimit = topK * 4;
+                const threshold = ebSettings.score_threshold;
+                const similaritySearch = threshold > 0
+                    ? backend.queryCollection(colId, queryText, prefetchLimit, ebSettings, queryVector).catch(error => ({ searchError: error }))
+                    : null;
+
                 const { hashes, metadata } = await backend.hybridQueryWithRerank(
-                    colId, queryText, topK, ebSettings, rerankParams, {}, queryVector
+                    colId, queryText, topK, ebSettings, rerankParams, { prefetchLimit }, queryVector
                 );
                 const nativeMs = (performance.now() - tStart).toFixed(1);
-                const nativeResults = (hashes || []).map((h, i) => ({
+                let nativeResults = (hashes || []).map((h, i) => ({
                     ...(metadata[i] || {}),
                     _hash: h,
                     _rerankApplied: !!metadata[i]?.rerankApplied,
                 }));
+                if (similaritySearch) {
+                    const similarity = await similaritySearch;
+                    if (similarity.searchError) throw similarity.searchError;
+                    nativeResults = keepRerankedEventsAtThreshold(nativeResults, similarity, threshold);
+                }
 
                 if (compareMode) {
                     try {
@@ -209,14 +224,14 @@ async function _runOneLiveQuery({
 
                 return nativeResults;
             }
-            // backendType !== qdrant or no method → fall through to legacy path
+            // backendType !== qdrant or no method → fall through to the plain path
         } catch (err) {
-            log.warn(`[EventBase] Native rerank backend resolution failed for ${colId} (falling back):`, err.message);
+            log.warn(`[EventBase] Native rerank failed for ${colId}, so the plain search runs:`, err.message);
         }
     }
 
-    // Legacy path: queryCollection (vector-only or hybrid, depending on settings).
-    const { hashes, metadata } = await queryCollection(colId, queryText, topK, ebSettings, queryVector);
+    // Plain path: the EventBase search (vector-only or hybrid, depending on settings).
+    const { hashes, metadata } = await searchEventCollection(colId, queryText, topK, settings, { queryVector });
     if (!hashes?.length) return [];
     return metadata.map((m, i) => {
         const base = { ...m, _hash: hashes[i] };
@@ -469,15 +484,13 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     const topK = (settings.eventbase_retrieval_top_k || 8) * 2; // overfetch for re-rank
     const minImportance = settings.eventbase_retrieval_min_importance || 1;
 
-    // EventBase always uses its own keyword scoring key so that ChunkBase's
-    // keyword_scoring_method setting never accidentally switches EventBase into
-    // client-side hybrid mode. Default is 'bm25'; override via eventbase_keyword_scoring_method.
-    const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
+    // EventBase's own keyword scoring and similarity threshold, never ChunkBase's.
+    const ebSettings = eventSearchSettings(settings);
 
     // Native rerank: push importance filter + dedup-depth filter + weighted-sum
     // scoring into Qdrant via a formula query, in the same /query call as the
     // existing dense+sparse RRF hybrid. Gated on Qdrant backend + native hybrid
-    // preference + opt-in flag (default off). When on, the per-collection call
+    // preference + the "Re-rank in Qdrant" switch (on by default). When on, the per-collection call
     // returns events with their formula score already in `score`, and the rest
     // of this pipeline (anchor boost, pairwise dedup, final trim) runs on top.
     // See InternalProject/Vectfox/plans/executed/qdrant-native-eventbase-rerank-formula.md.
@@ -549,8 +562,8 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
 
     // Per-(collection, queryText) live query. When useNativeRerank is on AND the
     // collection resolves to a Qdrant backend, dispatch to hybridQueryWithRerank
-    // and tag results with _rerankApplied. Otherwise fall back to the existing
-    // queryCollection path. In compare mode, the JS path also runs in parallel
+    // and tag results with _rerankApplied. Otherwise run the plain EventBase
+    // search. In compare mode, the JS path also runs in parallel
     // for observability — its results are logged but not returned.
     const comparisonLog = compareMode ? [] : null;
 
@@ -668,13 +681,9 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
             return { ...meta, _finalScore: finalScore };
         }
 
-        // Legacy JS scoring (Standard backend, archive events, fallback path).
-        // When hybrid is active, metadata carries vectorScore (raw cosine) separately
-        // from the fusion score stored in .score. Prefer vectorScore so the re-ranker's
-        // cosine weight retains its correct semantic meaning regardless of fusion method.
-        const cosineScore = typeof meta.vectorScore === 'number'
-            ? meta.vectorScore
-            : (typeof meta.score === 'number' ? meta.score : 0);
+        // JS scoring (Standard backend, archive events, the plain path). The cosine
+        // weight reads the raw similarity, never a fusion score (eventSimilarityOf).
+        const cosineScore = eventSimilarityOf(meta);
         const importanceNorm = (meta.importance ?? 5) / 10;
         const persistBonus = meta.should_persist === true ? 1 : 0;
         const recencyBonus = _recencyBonus(meta, chatLength);

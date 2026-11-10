@@ -292,6 +292,7 @@ const defaultSettings = {
     eventbase_max_events_per_window: 3,           // Hard cap on events returned per LLM call
     eventbase_retrieval_top_k: 10,                // Events to retrieve per generation
     eventbase_retrieval_min_importance: 1,        // Minimum importance for retrieval
+    eventbase_score_threshold: 0,                 // Similarity floor for every event search (EventBase page → Retrieval); 0 keeps every match
     eventbase_injection_format: 'densetext',      // Injection format: 'densetext' or 'jsonarray'
     eventbase_retrieval_filters_enabled: true,
     eventbase_autosync_popup: true,               // Show popup toast when auto-sync extraction runs
@@ -345,8 +346,8 @@ const defaultSettings = {
     // Native rerank: push importance filter + dedup-depth filter + weighted-sum
     // scoring into Qdrant via a formula query, in the same /query call as the
     // dense+sparse RRF hybrid. A3 (Qdrant) only — Standard backend ignores this.
-    // Default off until eval window passes. Requires Qdrant 1.13+; falls back
-    // gracefully to the JS re-rank pipeline when the route returns an error.
+    // On by default ("Re-rank in Qdrant" on the Core page). Requires Qdrant 1.13+;
+    // falls back to the JS re-rank pipeline when the route returns an error.
     // See InternalProject/Vectfox/plans/executed/qdrant-native-eventbase-rerank-formula.md.
     eventbase_native_rerank: true,
     // Compare mode: when native rerank is on, also run the JS pipeline in

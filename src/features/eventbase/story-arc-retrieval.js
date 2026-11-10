@@ -13,8 +13,9 @@
  * ============================================================================
  */
 
-import { listChunks, queryCollection } from '../vector-backend/index.js';
+import { listChunks } from '../vector-backend/index.js';
 import { dedupeEventsByIdentity, removeEventsVisibleInContext, searchFailureMessageOf } from './eventbase-retrieval.js';
+import { eventSearchSettings, searchEventCollection } from './eventbase-search.js';
 import { STORY_POOL_SIZE, STORY_ROUTE_RULE, cutBlockToSeats, hasRecipe, hasThreadPick, isBlockCutNeeded, selectStoryRecipeEvents, storyBlockLimits } from './story-arc-core.js';
 import { buildEntityNameWriter, entityNamesInMessage, entitySearchText, hasEntityMerges, withKeptEntityNames } from './story-arc-entity-core.js';
 import { readEntityMerges } from './story-arc-entities.js';
@@ -33,7 +34,7 @@ const STORY_WEB_CLOSEST_COUNT = 10;
  */
 async function _queryPool(collectionId, queryText, poolSize, settings, boundQuery, failedSearches) {
     try {
-        const { hashes, metadata } = await boundQuery(queryCollection(collectionId, queryText, poolSize, settings));
+        const { hashes, metadata } = await boundQuery(searchEventCollection(collectionId, queryText, poolSize, settings));
         return (hashes || []).map((hash, i) => ({ ...(metadata?.[i] || {}), _hash: Number(hash), _sortFrame: collectionId }));
     } catch (err) {
         log.warn(`[VectFox-StoryArc] Query failed (${collectionId}):`, err);
@@ -106,7 +107,7 @@ export function startStoryRecipeReads(params) {
     const { keywordQuery, searchText, settings, liveCollectionIds, skipLiveQuery, boundQuery } = params;
     const queryText = keywordQuery || searchText;
     if (skipLiveQuery || !liveCollectionIds?.length || !queryText) return null;
-    const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
+    const ebSettings = eventSearchSettings(settings);
     const merges = readEntityMerges(liveCollectionIds);
     const failedSearches = [];
     return {
@@ -192,7 +193,7 @@ export async function retrieveStoryRecipeEvents(route, params) {
  * @returns {Promise<{closestHashes: number[], reachedHashes: number[]}>}
  */
 export async function findStoryWebEvents({ question, collectionKey, storedEvents, merges, settings }) {
-    const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
+    const ebSettings = eventSearchSettings(settings);
     const searchText = entitySearchText({ queryText: question, subject: '', merges, storedEvents });
     const writeName = buildEntityNameWriter(merges, storedEvents);
     // The story web draws what it finds, and a failed search is already reported, so its errors are not kept.

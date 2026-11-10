@@ -74,10 +74,16 @@ function retrievalCard() {
                 hint({ text: 'Events the model rated below this are never brought back.' }),
             ])}
             ${field([
+                fieldLabel({ text: 'Similarity threshold', forId: 'VectFox_eventbase_score_threshold', hasHelp: true }),
+                sliderNumber({ id: 'VectFox_eventbase_score_threshold', min: 0, max: 1, step: 0.05, title: 'Threshold' }),
+                hint({ text: 'Events less similar to the query than this are dropped. 0 keeps them all.' }),
+                detail({ text: 'Every event search uses it, Agent Mode and StoryArc included. It drops an event on similarity alone, so an important or recent event that matched weakly goes too. 1 keeps only exact matches.' }),
+            ])}
+            ${field([
                 fieldLabel({ text: 'Injection format', forId: 'VectFox_eventbase_injection_format' }),
                 select({ id: 'VectFox_eventbase_injection_format', options: formats }),
                 hint({ text: 'DenseText writes compact lines, JSONArray every field, Summary only the least.' }),
-            ], { isSpan: true })}
+            ])}
         </div>
     </section>`;
 }
