@@ -19,7 +19,8 @@ import { closePanelPopup, confirmPopup, noticePopup, openPanelPopup } from '../.
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
 import { getChatUUID, runEventBaseOnOpenChat } from './chat-vectorization.js';
-import { resolveInheritedConnection, validateLLMConfig } from '../llm-provider/index.js';
+import { checkConnectionProfile, resolveInheritedConnection, validateLLMConfig } from '../llm-provider/index.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { resolveEffectiveSettings } from './content-vectorization.js';
 import { buildArchiveEventCollectionId } from '../../shared/collection-ids.js';
@@ -559,8 +560,22 @@ async function runAutoReformat(typeId) {
         });
     } catch (error) {
         log.error('VectFox: Auto-Reformat failed:', error);
+        // A setting or a profile's key is wrong: shown where the run was started, and as the sticky toast.
+        if (isInvalidModelConfigError(error)) notifyInvalidModel(error.message);
         paint(typeId, 'reformat', reformatMarkup({ state: 'failed', reason: error.message }));
     }
+}
+
+/** The provider and model, or the profile, an Auto-Reformat draft was made with, as its record names them. */
+function reformatProviderModel(settings) {
+    const connection = resolveInheritedConnection({
+        provider: settings.reformat_provider,
+        model: settings.reformat_model,
+        connectionProfileId: settings.reformat_connection_profile_id,
+    }, settings);
+    if (connection.provider !== CONNECTION_PROFILE_PROVIDER) return `${connection.provider}:${connection.model}`;
+    const check = checkConnectionProfile(connection.connectionProfileId, { feature: 'Auto-Reformat', page: 'ChunkBase' });
+    return `${connection.provider}:${check.ok ? check.profile.name : connection.connectionProfileId}`;
 }
 
 /**
@@ -600,7 +615,6 @@ async function acceptReformat(typeId, { acceptedRecords, sourceHash, text, sourc
         }
         shapedChunks.forEach(chunk => { chunk.metadata.totalChunks = shapedChunks.length; });
 
-        const connection = resolveInheritedConnection({ provider: mergedSettings.reformat_provider, model: mergedSettings.reformat_model }, mergedSettings);
         if (previous?.chunks?.length) {
             // Each Document, URL or Wiki run makes a collection of its own, so a collection made from the draft this
             // replaces stays as it is.
@@ -614,7 +628,7 @@ async function acceptReformat(typeId, { acceptedRecords, sourceHash, text, sourc
             originalText: text,
             contentType: typeId,
             sourceName,
-            providerModel: `${connection.provider}:${connection.model}`,
+            providerModel: reformatProviderModel(mergedSettings),
             schemaVersion: 1,
         });
         state.settings.reformat = { accepted: true, sourceHash, entryCount: shapedChunks.length };
@@ -694,14 +708,18 @@ function showRunState(message = '', typeId = null) {
 /** The LLM a run needs is set, or the user is told where to set it. */
 function hasLlmConfig(settings) {
     const merged = resolveEffectiveSettings(settings);
+    const isOnProfile = merged.chat_provider === CONNECTION_PROFILE_PROVIDER;
     log.verbose('[VectFox] LLM config check (vectorize-content):', {
         provider: merged.chat_provider,
         model: merged.chat_model,
+        connectionProfileId: isOnProfile ? merged.chat_connection_profile_id : '',
         hasOpenRouterKey: !!getOpenRouterApiKey(),
         hasVllmUrl: !!merged.chat_vllm_url,
     });
     const check = validateLLMConfig(merged);
-    if (!check.ok) toastr.error(`${check.reason} Open VectFox → Core → EventBase model and fill in the required fields.`, 'Configuration required', { timeOut: 8000 });
+    // A profile's reason already names where to fix it.
+    const where = isOnProfile ? '' : ' Open VectFox → Core → EventBase model and fill in the required fields.';
+    if (!check.ok) toastr.error(`${check.reason}${where}`, 'Configuration required', { timeOut: 8000 });
     return check.ok;
 }
 

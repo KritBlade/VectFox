@@ -3,13 +3,15 @@
  * no host imports and no SillyTavern mocks. A red here means a change can put an API key where it does not belong:
  * report it and stop. Never edit this file to make it pass.
  *
- * Invariant 6 (overridePayload's keys) arrives with the connection profiles, and invariant 7 is the plugin's own test.
+ * Invariant 6 reads the request-shape builder itself, a pure module with no host imports. Invariant 7 is the plugin's
+ * own test.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
+import { CONNECTION_PROFILE_OVERRIDE_KEYS, connectionProfileRequestShape } from '../src/features/llm-provider/connection-profile-core.js';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -78,5 +80,35 @@ describe('credential invariants (plan §10)', () => {
         // Still the file that builds every chat request body.
         expect(requestBuilder.lines.some(line => line.includes('/api/backends/chat-completions/generate'))).toBe(true);
         expect(hitsOf(/\bapi_key\b|\bapiKey\b/, { codeOnly: true, files: [requestBuilder] })).toEqual([]);
+    });
+
+    it('6: a profile request overrides only the plan §2 keys, and the wrapper adds only the no-key ID', () => {
+        // The plan's table, written out here so a change to the builder's own list cannot widen it unseen.
+        const PLAN_KEYS = {
+            chat: ['max_completion_tokens', 'reasoning_effort', 'response_format', 'temperature'],
+            text: ['temperature'],
+        };
+        expect(Object.fromEntries(Object.entries(CONNECTION_PROFILE_OVERRIDE_KEYS).map(([api, keys]) => [api, [...keys].sort()]))).toEqual(PLAN_KEYS);
+        const sent = new Set();
+        for (const api of ['chat', 'text']) {
+            for (const sendTemperature of [true, false]) {
+                for (const tokenLimitParameter of ['max_tokens', 'max_completion_tokens']) {
+                    for (const reasoningEffort of [null, 'none']) {
+                        for (const responseFormat of [null, { type: 'json_object' }]) {
+                            const { overridePayload } = connectionProfileRequestShape({ api, maxTokens: 100, temperature: 0.2, sendTemperature, tokenLimitParameter, reasoningEffort, responseFormat });
+                            Object.keys(overridePayload).forEach(key => sent.add(`${api}:${key}`));
+                            expect(Object.keys(overridePayload).filter(key => !PLAN_KEYS[api].includes(key))).toEqual([]);
+                        }
+                    }
+                }
+            }
+        }
+        // The builder was exercised, rather than an empty payload passing.
+        expect(sent.size).toBe(5);
+        // The wrapper spreads the builder's payload and adds one key, only for a profile with no stored key.
+        const wrapper = fileAt('src/sillytavern/connection-profiles.js');
+        expect(hitsOf(/overridePayload,/, { codeOnly: true, files: [wrapper] })).toHaveLength(1);
+        expect(wrapper.lines.filter(line => /\.\.\.overridePayload/.test(line)).map(line => line.trim()))
+            .toEqual(['const payload = connectionProfileStoresKey(profile) ? overridePayload : { ...overridePayload, secret_id: NO_KEY_SECRET_ID };']);
     });
 });

@@ -95,6 +95,16 @@ export const AGENTIC_MAX_TOKENS_MIN = 256;
 export const AGENTIC_MAX_TOKENS_MAX = 32000;
 
 // =============================================================================
+// CHAT PROVIDERS
+// =============================================================================
+
+/**
+ * The provider value of a chat consumer that runs on a SillyTavern connection profile, beside 'openrouter' and 'vllm':
+ * EventBase extraction, Agent Mode, Auto-Reformat and StoryArc store it, and keyword boost reads it.
+ */
+export const CONNECTION_PROFILE_PROVIDER = 'connection_profile';
+
+// =============================================================================
 // RETRY CONFIGURATION
 // =============================================================================
 

@@ -195,7 +195,7 @@ export async function describeStoryLinkPass(settings) {
     const { problem, collectionId, events } = await readChatStoryEvents(settings);
     if (problem) return { problem };
     const llmConnection = resolveStoryLinkLlmConfig(settings);
-    if (!llmConnection.ok) return { problem: `Set the link model and its provider's key or URL first (${llmConnection.reason}).` };
+    if (!llmConnection.ok) return { problem: llmConnection.problem ?? `Set the link model and its provider's key or URL first (${llmConnection.reason}).` };
     const coverage = measureStoryLinkCoverage(events);
     const price = await _readLinkModelPrice(settings);
     return {
@@ -229,7 +229,7 @@ export async function readStoryLinkCoverage(settings) {
  */
 export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDecided }) {
     const llmConnection = resolveStoryLinkLlmConfig(settings);
-    if (!llmConnection.ok) throw new Error(`StoryArc link model is not ready: ${llmConnection.reason}`);
+    if (!llmConnection.ok) throw new Error(llmConnection.problem ?? `StoryArc link model is not ready: ${llmConnection.reason}`);
 
     let isStopRequested = false;
     progressTracker.show('Linking story events', 0, 'Events', { unitLabel: 'Events' });
@@ -314,7 +314,7 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
         }
         const llmConnection = resolveStoryLinkLlmConfig(settings);
         if (!llmConnection.ok) {
-            log.warn(`[VectFox-StoryArc] New events were not linked: ${llmConnection.reason}`);
+            log.warn(`[VectFox-StoryArc] New events were not linked: ${llmConnection.problem ?? llmConnection.reason}`);
             return;
         }
         const events = await listStoryEvents(collectionId, settings);

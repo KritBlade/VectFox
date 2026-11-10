@@ -42,9 +42,12 @@ vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOrigina
 }));
 
 const postChatCompletionMock = vi.fn();
-vi.mock('../src/features/llm-provider/index.js', () => ({
+const checkConnectionProfileMock = vi.fn();
+vi.mock('../src/features/llm-provider/index.js', async () => ({
     postChatCompletion: (...args) => postChatCompletionMock(...args),
     resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
+    resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
+    checkConnectionProfile: (...args) => checkConnectionProfileMock(...args),
     LlmCallError: class LlmCallError extends Error {},
 }));
 
@@ -726,6 +729,20 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
 
         it('reports a missing model', () => {
             expect(resolveStoryLinkLlmConfig({})).toEqual({ ok: false, reason: 'missing_model' });
+        });
+
+        it('runs on its own connection profile, checked as chosen on the StoryArc page, still with no temperature', () => {
+            checkConnectionProfileMock.mockReturnValue({ ok: true, profile: { model: 'profile-model' }, api: 'chat', storesKey: true });
+            const config = resolveStoryLinkLlmConfig({ story_arc_link_provider: 'connection_profile', story_arc_link_connection_profile_id: 'profile-storyarc' });
+            expect(config).toMatchObject({ ok: true, provider: 'connection_profile', connectionProfileId: 'profile-storyarc', connectionProfilePage: 'StoryArc' });
+            expect(config.parameterStyle).toEqual({ sendTemperature: false, reasoningEffort: null });
+            expect(checkConnectionProfileMock).toHaveBeenCalledWith('profile-storyarc', { feature: 'StoryArc', page: 'StoryArc' });
+        });
+
+        it('carries the profile\'s own problem when it cannot run', () => {
+            checkConnectionProfileMock.mockReturnValue({ ok: false, reason: 'StoryArc: its connection profile was deleted in SillyTavern. Choose another on the StoryArc page.' });
+            expect(resolveStoryLinkLlmConfig({ story_arc_link_provider: 'connection_profile', story_arc_link_connection_profile_id: 'profile-gone' }))
+                .toEqual({ ok: false, reason: 'connection_profile', problem: 'StoryArc: its connection profile was deleted in SillyTavern. Choose another on the StoryArc page.' });
         });
     });
 

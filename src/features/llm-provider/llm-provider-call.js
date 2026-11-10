@@ -2,12 +2,15 @@
  * ============================================================================
  * LLM PROVIDER CALL (shared)
  * ============================================================================
- * The OpenAI-compatible chat-completions plumbing that VectFox's LLM features
- * share (eventbase-extractor.js, agentic-retrieval.js, reformat-extractor.js):
- * build request body → POST through ST's proxy → classify the response
- * (auth / model-config / connection / generic) → extract the reply → classify
- * an empty reply. Plus the LLM-output JSON-array parser both extraction
- * features use, and the string-array coercion their two schemas share.
+ * The chat-completions plumbing that VectFox's LLM features share
+ * (eventbase-extractor.js, agentic-retrieval.js, reformat-extractor.js), on two
+ * paths. Manual OpenRouter and vLLM: build the request body → POST through ST's
+ * proxy → classify the response (auth / model-config / connection / generic).
+ * A SillyTavern connection profile: check the profile → send through ST's
+ * ConnectionManagerRequestService (sillytavern/connection-profiles.js) → classify
+ * a failure (connection-profile-core.js). Both then extract the reply and
+ * classify a reply with no text the same way. Plus the LLM-output JSON-array
+ * parser both extraction features use.
  *
  * DESIGN — neutral core, feature policy at the edge.
  * This module throws ONE neutral error type (LlmCallError, carrying a `kind`).
@@ -23,9 +26,20 @@
  */
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
+import {
+    connectionProfileApi,
+    connectionProfileReplyText,
+    connectionProfileStoresKey,
+    findConnectionProfile,
+    isConnectionManagerAvailable,
+    isConnectionProfileSupported,
+    sendConnectionProfileRequest,
+} from '../../sillytavern/connection-profiles.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getModelConfigErrorMessage } from '../../shared/model-http-errors.js';
 import { isConnectionError, notifyConnectionError, notifyUpstreamRejection } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
+import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape } from './connection-profile-core.js';
 
 /**
  * Neutral error from a shared LLM call. Callers switch on `kind` to map this
@@ -239,6 +253,8 @@ export function resolveModelParameterStyle(settings = {}) {
  * @param {string|null} [opts.reasoningEffort=null] sent as `reasoning_effort` when set, and
  *        on the vLLM/custom route inside `custom_include_body` as well; 'none' turns a
  *        reasoning model's thinking off entirely. From resolveModelParameterStyle.
+ * @param {string} [opts.connectionProfileId] the profile a CONNECTION_PROFILE_PROVIDER call runs on
+ * @param {string} [opts.connectionProfilePage] the page that chooses that profile, named when it cannot be used
  * @returns {Promise<{content: string, finishReason: string|null, usage: object|null, data: any}>}
  * @throws {LlmCallError}
  */
@@ -257,7 +273,16 @@ export async function postChatCompletion({
     sendTemperature = true,
     tokenLimitParameter = 'max_tokens',
     reasoningEffort = null,
+    connectionProfileId = '',
+    connectionProfilePage = '',
 }) {
+    if (provider === CONNECTION_PROFILE_PROVIDER) {
+        return _postOnConnectionProfile({
+            messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
+            sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId, connectionProfilePage,
+        });
+    }
+
     const label = _providerLabel(provider);
 
     const body = { model, messages, [tokenLimitParameter]: maxTokens };
@@ -330,102 +355,73 @@ export async function postChatCompletion({
     const content = data?.choices?.[0]?.message?.content?.trim() || null;
 
     if (!content) {
-        // Checked FIRST, ahead of the text classifiers below: this is a precise
-        // structural test on the choice itself, whereas those match substrings
-        // over a body that — when a model does expose its thinking — carries the
-        // model's own prose and could trip them by coincidence.
-        //
-        // Classified as 'model_config' rather than 'empty' so every caller treats
-        // it the way it already treats a bad model: abort the run and show the
-        // invalid-model popup. A token cap too small for the model's thinking
-        // fails identically on every window, so the per-window skip that 'empty'
-        // buys just burns the whole chat in silence and then reports success
-        // (issue #14).
-        const noAnswer = _budgetSpentWithoutAnswerDetail(data);
-        if (noAnswer) {
-            // Spell out where the budget went, since with a model that hides its
-            // thinking the token counts are the ONLY evidence the user can see.
-            const spent = noAnswer.reasoningTokens != null
-                ? `${noAnswer.reasoningTokens} of them on reasoning the provider did not return`
-                : (noAnswer.reasoningChars
-                    ? `${noAnswer.reasoningChars} characters of it on chain-of-thought`
-                    : 'all of them before the answer began');
-            log.warn(
-                `[${contextLabel}] ${label} model "${model}" produced no answer: finish_reason `
-                + `"${noAnswer.finishReason}", empty content, ${tokenLimitParameter}=${maxTokens}, `
-                + `reasoning_tokens=${noAnswer.reasoningTokens ?? 'n/a'}, reasoning_chars=${noAnswer.reasoningChars}.`,
-            );
-            throw new LlmCallError(
-                `${contextLabel}: model "${model}" used its entire ${maxTokens}-token limit without answering `
-                + `(finish_reason "${noAnswer.finishReason}") — spending ${spent}. Raise the ${contextLabel} token `
-                + `limit, or pick a model that does not think before replying. VectFox cannot use chain-of-thought `
-                + `as output — it is the model's scratch work, not an answer it stands behind.`,
-                { kind: 'model_config', status: response.status, provider },
-            );
-        }
-
-        // OpenRouter (and ST's proxy) sometimes return HTTP 200 with the error in
-        // the BODY (e.g. a retired model → {"error":{...}} with no choices). Re-run
-        // the model-config classifier on the body so that surfaces as model_config
-        // rather than a bland "empty" skip.
-        const bodyText = data?.error ? JSON.stringify(data.error) : JSON.stringify(data || {});
-        const modelConfigError = getModelConfigErrorMessage({
-            contextLabel, provider: label, model, status: response.status, responseText: bodyText, enforceStatusGate: false,
+        _throwForReplyWithoutText({
+            data, status: response.status, contextLabel, label, model, provider, maxTokens, temperature,
+            sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure,
         });
-        if (modelConfigError) {
-            throw new LlmCallError(modelConfigError, { kind: 'model_config', status: response.status, provider });
-        }
-
-        // A 200 carrying `error.message` is NOT an empty reply — it is an upstream
-        // rejection that ST's proxy downgraded to 200 while keeping only the status
-        // text (see notifyUpstreamRejection for the exact upstream code path). The
-        // classifier above can't catch it because "Bad Request" names no cause.
-        // Treating it as 'empty' is what made a wrong key, an unsupported parameter,
-        // and a refused prompt all look like "the model said nothing".
-        const upstreamDetail = _upstreamRejectionDetail(data);
-        if (upstreamDetail && !data?.quota_error && _isProviderServerFailure(upstreamDetail)) {
-            log.warn(
-                `[${contextLabel}] ${label} had a server error on model "${model}" (HTTP ${response.status} from ST, `
-                + `upstream status text "${upstreamDetail}"). The request was not at fault. Raw body: ${bodyText.slice(0, 500)}`,
-            );
-            throw new LlmCallError(
-                `${contextLabel}: ${label} had a server error on model "${model}" — ${upstreamDetail}`,
-                { kind: 'upstream_error', status: response.status, provider },
-            );
-        }
-        if (upstreamDetail) {
-            if (shouldNotifyProviderFailure) {
-                notifyUpstreamRejection(contextLabel, model, upstreamDetail, Boolean(data?.quota_error));
-            }
-            // ST forwards only the upstream STATUS TEXT ("Bad Request"), which names
-            // no cause, so print the request-shape switches alongside it — they are
-            // the parameters a model rejects while accepting the same prompt, and
-            // the user can act on every one of them from the Core page.
-            const shapeSent = [
-                `reasoning_effort=${reasoningEffort ?? '(not sent)'}`,
-                `${tokenLimitParameter}=${maxTokens}`,
-                `temperature=${sendTemperature ? temperature : '(not sent)'}`,
-            ].join(', ');
-            log.warn(
-                `[${contextLabel}] ${label} rejected the request for model "${model}" (HTTP ${response.status} from ST, `
-                + `upstream status text "${upstreamDetail}"). Request shape sent: ${shapeSent}. ST forwards only the status `
-                + `text, so the provider's full error is in the SillyTavern server console. A model can reject any of these `
-                + `values: try the switches "Use max_completion_tokens", "Send temperature" and "Turn off model thinking" `
-                + `in Core → EventBase model. Raw body: ${bodyText.slice(0, 500)}`,
-            );
-            throw new LlmCallError(
-                `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,
-                { kind: 'upstream_error', status: response.status, provider },
-            );
-        }
-
-        log.warn(`[${contextLabel}] ${label} returned empty reply (HTTP ${response.status}) — raw body: ${bodyText.slice(0, 500)}`);
-        throw new LlmCallError(
-            `${contextLabel}: ${label} returned empty response`,
-            { kind: 'empty', status: response.status, provider },
-        );
     }
 
+    return _completionResult(content, data);
+}
+
+/**
+ * Whether a chat consumer can run on its connection profile, with the profile when it can (connection plan §4): one
+ * check, which the consumers run before a call and the profile branch runs again in case the profile changed since.
+ *
+ * @param {string} profileId
+ * @param {{feature: string, page: string}} where - The feature, for messages, and the page that chooses its profile
+ * @returns {{ok: true, profile: object, api: string, storesKey: boolean} | {ok: false, reason: string}}
+ */
+export function checkConnectionProfile(profileId, { feature, page }) {
+    const isManagerAvailable = isConnectionManagerAvailable();
+    const profile = isManagerAvailable ? findConnectionProfile(profileId) : null;
+    const isSupported = Boolean(profile) && isConnectionProfileSupported(profile);
+    const api = isSupported ? connectionProfileApi(profile) : null;
+    const reason = connectionProfileProblem({ feature, page, profileId, isManagerAvailable, profile, isSupported, api });
+    return reason ? { ok: false, reason } : { ok: true, profile, api, storesKey: connectionProfileStoresKey(profile) };
+}
+
+/**
+ * The profile branch of postChatCompletion: SillyTavern sends the request on the profile, with its URL and key, and
+ * VectFox sends only its messages and the closed set of override keys. A failure is classified by the rules of
+ * connection plan §4; a reply with no text goes through the manual path's own handling.
+ */
+async function _postOnConnectionProfile({
+    messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
+    sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId, connectionProfilePage,
+}) {
+    const check = checkConnectionProfile(connectionProfileId, { feature: contextLabel, page: connectionProfilePage || 'VectFox' });
+    if (!check.ok) throw new LlmCallError(check.reason, { kind: 'model_config', provider: CONNECTION_PROFILE_PROVIDER });
+
+    const { profile, api, storesKey } = check;
+    const label = `profile "${profile.name}"`;
+    const model = profile.model || '(the server\'s)';
+    const request = connectionProfileRequestShape({ api, maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, responseFormat });
+
+    let data;
+    try {
+        data = await sendConnectionProfileRequest(profile, messages, request.maxTokens, { timeoutMs, overridePayload: request.overridePayload });
+    } catch (error) {
+        const failure = classifyConnectionProfileFailure(error, { feature: contextLabel, profileName: profile.name, model, storesKey });
+        if (failure.kind === 'rethrow') throw failure.cause;
+        log.warn(`[${contextLabel}] ${failure.message}`);
+        if (shouldNotifyProviderFailure && failure.kind === 'connection') notifyConnectionError(contextLabel, label, failure.detail);
+        if (shouldNotifyProviderFailure && failure.kind === 'upstream_error') notifyUpstreamRejection(contextLabel, model, failure.detail);
+        throw new LlmCallError(failure.message, { kind: failure.kind, provider: CONNECTION_PROFILE_PROVIDER });
+    }
+
+    const content = connectionProfileReplyText(profile, data).trim() || null;
+    if (!content) {
+        _throwForReplyWithoutText({
+            data, status: null, contextLabel, label, model, provider: CONNECTION_PROFILE_PROVIDER,
+            maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure,
+        });
+    }
+    return _completionResult(content, data);
+}
+
+/** What a reply with text returns: the text, its finish reason, its token counts and the raw body. */
+function _completionResult(content, data) {
     const usage = data?.usage ? {
         prompt_tokens: data.usage.prompt_tokens ?? null,
         completion_tokens: data.usage.completion_tokens ?? null,
@@ -438,6 +434,118 @@ export async function postChatCompletion({
         usage,
         data,
     };
+}
+
+/**
+ * Throw for a reply that carries no text, on either path: a token budget spent before the answer, a model error or an
+ * upstream rejection in the body, or a genuinely empty completion. Each with the kind its callers act on.
+ *
+ * @param {object} reply
+ * @param {any} reply.data - The parsed reply
+ * @param {number|null} reply.status - The HTTP status from ST, null on a profile (sendRequest keeps none)
+ * @param {string} reply.label - The provider's or profile's name, for messages
+ * @throws {LlmCallError}
+ */
+function _throwForReplyWithoutText({
+    data, status, contextLabel, label, model, provider, maxTokens, temperature,
+    sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure,
+}) {
+    const fromSillyTavern = status == null ? 'from SillyTavern' : `HTTP ${status} from ST`;
+
+    // Checked FIRST, ahead of the text classifiers below: this is a precise
+    // structural test on the choice itself, whereas those match substrings
+    // over a body that — when a model does expose its thinking — carries the
+    // model's own prose and could trip them by coincidence.
+    //
+    // Classified as 'model_config' rather than 'empty' so every caller treats
+    // it the way it already treats a bad model: abort the run and show the
+    // invalid-model popup. A token cap too small for the model's thinking
+    // fails identically on every window, so the per-window skip that 'empty'
+    // buys just burns the whole chat in silence and then reports success
+    // (issue #14).
+    const noAnswer = _budgetSpentWithoutAnswerDetail(data);
+    if (noAnswer) {
+        // Spell out where the budget went, since with a model that hides its
+        // thinking the token counts are the ONLY evidence the user can see.
+        const spent = noAnswer.reasoningTokens != null
+            ? `${noAnswer.reasoningTokens} of them on reasoning the provider did not return`
+            : (noAnswer.reasoningChars
+                ? `${noAnswer.reasoningChars} characters of it on chain-of-thought`
+                : 'all of them before the answer began');
+        log.warn(
+            `[${contextLabel}] ${label} model "${model}" produced no answer: finish_reason `
+            + `"${noAnswer.finishReason}", empty content, ${tokenLimitParameter}=${maxTokens}, `
+            + `reasoning_tokens=${noAnswer.reasoningTokens ?? 'n/a'}, reasoning_chars=${noAnswer.reasoningChars}.`,
+        );
+        throw new LlmCallError(
+            `${contextLabel}: model "${model}" used its entire ${maxTokens}-token limit without answering `
+            + `(finish_reason "${noAnswer.finishReason}") — spending ${spent}. Raise the ${contextLabel} token `
+            + `limit, or pick a model that does not think before replying. VectFox cannot use chain-of-thought `
+            + `as output — it is the model's scratch work, not an answer it stands behind.`,
+            { kind: 'model_config', status, provider },
+        );
+    }
+
+    // OpenRouter (and ST's proxy) sometimes return HTTP 200 with the error in
+    // the BODY (e.g. a retired model → {"error":{...}} with no choices). Re-run
+    // the model-config classifier on the body so that surfaces as model_config
+    // rather than a bland "empty" skip.
+    const bodyText = data?.error ? JSON.stringify(data.error) : JSON.stringify(data || {});
+    const modelConfigError = getModelConfigErrorMessage({
+        contextLabel, provider: label, model, status, responseText: bodyText, enforceStatusGate: false,
+    });
+    if (modelConfigError) {
+        throw new LlmCallError(modelConfigError, { kind: 'model_config', status, provider });
+    }
+
+    // A 200 carrying `error.message` is NOT an empty reply — it is an upstream
+    // rejection that ST's proxy downgraded to 200 while keeping only the status
+    // text (see notifyUpstreamRejection for the exact upstream code path). The
+    // classifier above can't catch it because "Bad Request" names no cause.
+    // Treating it as 'empty' is what made a wrong key, an unsupported parameter,
+    // and a refused prompt all look like "the model said nothing".
+    const upstreamDetail = _upstreamRejectionDetail(data);
+    if (upstreamDetail && !data?.quota_error && _isProviderServerFailure(upstreamDetail)) {
+        log.warn(
+            `[${contextLabel}] ${label} had a server error on model "${model}" (${fromSillyTavern}, `
+            + `upstream status text "${upstreamDetail}"). The request was not at fault. Raw body: ${bodyText.slice(0, 500)}`,
+        );
+        throw new LlmCallError(
+            `${contextLabel}: ${label} had a server error on model "${model}" — ${upstreamDetail}`,
+            { kind: 'upstream_error', status, provider },
+        );
+    }
+    if (upstreamDetail) {
+        if (shouldNotifyProviderFailure) {
+            notifyUpstreamRejection(contextLabel, model, upstreamDetail, Boolean(data?.quota_error));
+        }
+        // ST forwards only the upstream STATUS TEXT ("Bad Request"), which names
+        // no cause, so print the request-shape switches alongside it — they are
+        // the parameters a model rejects while accepting the same prompt, and
+        // the user can act on every one of them from the Core page.
+        const shapeSent = [
+            `reasoning_effort=${reasoningEffort ?? '(not sent)'}`,
+            `${tokenLimitParameter}=${maxTokens}`,
+            `temperature=${sendTemperature ? temperature : '(not sent)'}`,
+        ].join(', ');
+        log.warn(
+            `[${contextLabel}] ${label} rejected the request for model "${model}" (${fromSillyTavern}, `
+            + `upstream status text "${upstreamDetail}"). Request shape sent: ${shapeSent}. ST forwards only the status `
+            + `text, so the provider's full error is in the SillyTavern server console. A model can reject any of these `
+            + `values: try the switches "Use max_completion_tokens", "Send temperature" and "Turn off model thinking" `
+            + `in Core → EventBase model. Raw body: ${bodyText.slice(0, 500)}`,
+        );
+        throw new LlmCallError(
+            `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,
+            { kind: 'upstream_error', status, provider },
+        );
+    }
+
+    log.warn(`[${contextLabel}] ${label} returned empty reply (${fromSillyTavern}) — raw body: ${bodyText.slice(0, 500)}`);
+    throw new LlmCallError(
+        `${contextLabel}: ${label} returned empty response`,
+        { kind: 'empty', status, provider },
+    );
 }
 
 // ---------------------------------------------------------------------------

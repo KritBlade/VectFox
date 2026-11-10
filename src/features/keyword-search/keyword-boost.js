@@ -3,6 +3,7 @@ import { substituteParams } from '../../sillytavern/chat.js';
 import { buildStopSet } from './stop-words.js';
 import { stopLocalesForMode } from './language-modes.js';
 import { log } from '../../sillytavern/log.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 
 /**
  * ============================================================================
@@ -182,7 +183,7 @@ function shouldKeepCjkKeyword(token, frequency, isJapaneseMode, isTraditionalChi
 }
 
 function isSummarizationEnabled(settings) {
-    return ['openrouter', 'vllm'].includes(String(settings?.chat_provider || 'openrouter'));
+    return ['openrouter', 'vllm', CONNECTION_PROFILE_PROVIDER].includes(String(settings?.chat_provider || 'openrouter').toLowerCase());
 }
 
 function getEffectiveHeaderSize(config, level, settings) {

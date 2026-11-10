@@ -27,7 +27,8 @@ import { searchEventCollection } from './eventbase-search.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { cleanText, stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
-import { postChatCompletion, resolveInheritedConnection, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
+import { checkConnectionProfile, postChatCompletion, resolveConnectionProfileId, resolveInheritedConnection, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
 import { ORDINARY_TURN_ROUTE, STORY_ROUTER_PROMPT, STORY_ROUTE_RULE, THREAD_PICK_PROMPT, buildBlockCutMessage, buildBlockCutPrompt, buildStoryRouterMessage, buildThreadPickMessage, hasRecipe, isOrdinaryTurn, isStoryArcActive, listStoryThreads, readBlockCut, readStoryRoute, readThreadPick } from './story-arc-core.js';
@@ -47,14 +48,18 @@ const AGENT_MODE_SETUP_FIXES = {
     missing_vllm_api_key: 'it runs on vLLM and no vLLM key is saved. Enter the key on the AgentMode or Core page.',
 };
 const UNKNOWN_PROVIDER_PREFIX = 'unknown_provider_';
+// The reason of a connection whose SillyTavern profile cannot be used; its `problem` says why and where to fix it.
+const CONNECTION_PROFILE_REASON = 'connection_profile';
 
 /**
  * The sentence for a planner connection that cannot run: what is wrong and where to fix it.
  *
  * @param {string} reason - From resolveLlmConnection
+ * @param {string} [problem] - From resolveLlmConnection, for a profile that cannot be used
  * @returns {string}
  */
-export function describeAgentModeSetupProblem(reason) {
+export function describeAgentModeSetupProblem(reason, problem = '') {
+    if (reason === CONNECTION_PROFILE_REASON) return `${problem} ${NORMAL_SEARCH_ONLY}`;
     const fix = reason.startsWith(UNKNOWN_PROVIDER_PREFIX)
         ? `its provider "${reason.slice(UNKNOWN_PROVIDER_PREFIX.length)}" is not one VectFox knows. Pick a provider on the AgentMode page.`
         : AGENT_MODE_SETUP_FIXES[reason] ?? `its connection cannot run (${reason}). Check the AgentMode page.`;
@@ -234,8 +239,8 @@ async function _searchPlannedQueries(params) {
 
     const llmConnection = _resolveAgenticLLMConfig(settings);
     if (!llmConnection.ok) {
-        notifySetupIncomplete(AGENT_MODE, describeAgentModeSetupProblem(llmConnection.reason));
-        log.warn(`[VectFox-Agentic] mode=SKIPPED reason=${llmConnection.reason}`);
+        notifySetupIncomplete(AGENT_MODE, describeAgentModeSetupProblem(llmConnection.reason, llmConnection.problem));
+        log.warn(`[VectFox-Agentic] mode=SKIPPED reason=${llmConnection.problem ?? llmConnection.reason}`);
         return null;
     }
 
@@ -443,7 +448,7 @@ async function _askStoryLlm({ settings, label, nextStep, call, read }) {
  */
 async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
     if (!linkConnection.ok) {
-        log.warn(`[VectFox-StoryArc] Router skipped: ${linkConnection.reason}`);
+        log.warn(`[VectFox-StoryArc] Router skipped: ${linkConnection.problem ?? linkConnection.reason}`);
         return null;
     }
     if (!keywordQuery?.trim()) return { shape: 'scene', subject: '', isKnownShape: true };
@@ -590,16 +595,22 @@ function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 'using
 
 /**
  * Resolve the planner's connection: the AgentMode page's boxes, with Same as EventBase model and each blank box
- * taken from the EventBase model (resolveInheritedConnection).
+ * taken from the EventBase model (resolveInheritedConnection), whose profile it takes too.
  *
- * Returns { ok: true, provider, model, apiKey, vllmUrl } on success, or
- * { ok: false, reason } when a required value is missing.
+ * Returns { ok: true, provider, model, apiKey, vllmUrl } on success, { ok: true, provider, connectionProfileId, … } on
+ * a profile, or { ok: false, reason, problem? } when it cannot run.
  */
 export function _resolveAgenticLLMConfig(settings = {}) {
-    const connection = resolveLlmConnection(resolveInheritedConnection(
+    const inherited = resolveInheritedConnection(
         { provider: settings.agent_provider, model: settings.agent_model, vllmUrl: settings.agent_vllm_url },
         settings,
-    ));
+    );
+    const connection = resolveLlmConnection({
+        ...inherited,
+        connectionProfileId: resolveConnectionProfileId(settings, 'agent'),
+        feature: AGENT_MODE,
+        page: String(settings.agent_provider ?? '').trim() ? 'AgentMode' : 'Core',
+    });
     return connection.ok ? { ...connection, parameterStyle: resolveModelParameterStyle(settings) } : connection;
 }
 
@@ -609,13 +620,16 @@ export function _resolveAgenticLLMConfig(settings = {}) {
  * and its own temperature. The router, thread pick and block cut each set their own effort.
  *
  * @param {object} settings
- * @returns {{ok: true, provider: string, model: string, apiKey: string, parameterStyle: object}|{ok: false, reason: string}}
+ * @returns {{ok: true, provider: string, model: string, parameterStyle: object}|{ok: false, reason: string, problem?: string}}
  */
 export function resolveStoryLinkLlmConfig(settings) {
     const connection = resolveLlmConnection({
         provider: settings.story_arc_link_provider || 'openrouter',
         model: settings.story_arc_link_model,
         vllmUrl: settings.agent_vllm_url || settings.chat_vllm_url,
+        connectionProfileId: resolveConnectionProfileId(settings, 'storyarc'),
+        feature: 'StoryArc',
+        page: 'StoryArc',
     });
     if (!connection.ok) return connection;
     return {
@@ -625,16 +639,27 @@ export function resolveStoryLinkLlmConfig(settings) {
 }
 
 /**
- * Check that an LLM connection is filled in, and return what a call needs.
+ * Check that an LLM connection is filled in, and return what a call needs. On a SillyTavern connection profile the
+ * profile supplies the model, URL and key, so only the profile is checked.
  *
  * @param {object} params
  * @param {string} params.provider
  * @param {string} [params.model]
  * @param {string} [params.vllmUrl]
- * @returns {{ok: true, provider: string, model: string, apiKey: string, vllmUrl?: string}|{ok: false, reason: string}}
+ * @param {string} [params.connectionProfileId]
+ * @param {string} [params.feature] - Names the feature in a profile's problem
+ * @param {string} [params.page] - The page that chooses the profile, named in its problem
+ * @returns {{ok: true, provider: string, model: string, apiKey?: string, vllmUrl?: string, connectionProfileId?: string,
+ *     connectionProfilePage?: string}|{ok: false, reason: string, problem?: string}}
  */
-export function resolveLlmConnection({ provider: providerName, model: modelName, vllmUrl: rawVllmUrl }) {
-    const provider = providerName.toLowerCase();
+export function resolveLlmConnection({ provider: providerName, model: modelName, vllmUrl: rawVllmUrl, connectionProfileId = '', feature = AGENT_MODE, page = 'AgentMode' }) {
+    const provider = String(providerName ?? '').toLowerCase();
+    if (provider === CONNECTION_PROFILE_PROVIDER) {
+        const check = checkConnectionProfile(connectionProfileId, { feature, page });
+        if (!check.ok) return { ok: false, reason: CONNECTION_PROFILE_REASON, problem: check.reason };
+        return { ok: true, provider, model: check.profile.model || '', connectionProfileId, connectionProfilePage: page };
+    }
+
     const model = (modelName || '').trim();
 
     if (!model) {
@@ -688,6 +713,8 @@ export async function callLlmForJson({ systemPrompt, userMessage, llmConnection,
             model: llmConnection.model,
             provider: llmConnection.provider,
             vllmUrl: llmConnection.vllmUrl || '',
+            connectionProfileId: llmConnection.connectionProfileId || '',
+            connectionProfilePage: llmConnection.connectionProfilePage || '',
             maxTokens,
             temperature: 0.2,
             timeoutMs,

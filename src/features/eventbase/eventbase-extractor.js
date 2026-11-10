@@ -12,6 +12,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import {
     EventBaseExtractionError,
@@ -229,6 +230,17 @@ async function _callVLLM(prompt, settings, windowIndex) {
     return _requestExtraction(prompt, settings, windowIndex, { model, provider: 'vllm', vllmUrl: baseUrl });
 }
 
+/** On the SillyTavern connection profile chosen in Core → EventBase model; the call checks it before sending. */
+async function _callConnectionProfile(prompt, settings, windowIndex) {
+    return _requestExtraction(prompt, settings, windowIndex, {
+        provider: CONNECTION_PROFILE_PROVIDER,
+        connectionProfileId: settings.chat_connection_profile_id,
+        connectionProfilePage: 'Core',
+    });
+}
+
+const CALL_OF_PROVIDER = { openrouter: _callOpenRouter, vllm: _callVLLM, [CONNECTION_PROFILE_PROVIDER]: _callConnectionProfile };
+
 /**
  * Resolve a real-world timestamp for an extraction window from the messages'
  * `send_date` (SillyTavern stamps every message with one; the upload path
@@ -342,13 +354,15 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
 
     log.verbose(`[EventBase] Extracting events — window=${windowIndex} ${msgRange}, provider=${provider}, messages=${messages.length}`);
 
-    // Call provider
-    let rawReply;
-    if (provider === 'vllm') {
-        rawReply = await _callVLLM(prompt, settings, windowIndex);
-    } else {
-        rawReply = await _callOpenRouter(prompt, settings, windowIndex);
+    // Call provider. One VectFox does not know stops the run, rather than running on OpenRouter unasked.
+    const callProvider = CALL_OF_PROVIDER[provider];
+    if (!callProvider) {
+        throw new EventBaseFatalError(
+            `EventBase: provider "${provider}" is not one VectFox knows. Choose one in Core → EventBase model.`,
+            'invalid_model_config',
+        );
     }
+    const rawReply = await callProvider(prompt, settings, windowIndex);
 
     log.domain('raw_llm', 'trace', `[EventBase] Raw LLM reply (window=${windowIndex} ${msgRange}):`, rawReply.slice(0, 500));
 

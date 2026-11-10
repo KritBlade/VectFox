@@ -22,6 +22,7 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { postChatCompletion, parseJsonArrayFromLlm, resolveInheritedConnection, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
 import { chunkText } from './chunking.js';
 import { retry } from '../../shared/retry.js';
@@ -52,22 +53,18 @@ const DEFAULT_NAME_FUZZY_THRESHOLD = 0.8;
 // ---------------------------------------------------------------------------
 
 function _resolveConnection(settings) {
-    return resolveInheritedConnection(
-        { provider: settings.reformat_provider, model: settings.reformat_model, vllmUrl: settings.reformat_vllm_url },
-        settings,
-    );
+    return resolveInheritedConnection({
+        provider: settings.reformat_provider,
+        model: settings.reformat_model,
+        vllmUrl: settings.reformat_vllm_url,
+        connectionProfileId: settings.reformat_connection_profile_id,
+    }, settings);
 }
 
 // ---------------------------------------------------------------------------
 // HTTP callers
 // ---------------------------------------------------------------------------
 
-/**
- * @param {string} prompt
- * @param {object} settings
- * @param {number} batchIndex
- * @returns {Promise<{reply: string, finishReason: string|null}>}
- */
 /**
  * Map a neutral LlmCallError from the shared provider-call module onto
  * Auto-Reformat's error taxonomy. Preserves prior policy: auth / model-config
@@ -88,6 +85,32 @@ function _mapReformatError(e, batchIndex) {
     }
 }
 
+/**
+ * Send one batch on a route: the provider and what it needs, a model and URL on the manual paths or a profile.
+ * @param {string} prompt
+ * @param {object} settings
+ * @param {number} batchIndex
+ * @param {object} route - Spread into postChatCompletion
+ * @returns {Promise<{reply: string, finishReason: string|null}>}
+ */
+async function _requestReformat(prompt, settings, batchIndex, route) {
+    try {
+        const { content, finishReason } = await postChatCompletion({
+            messages: [{ role: 'user', content: prompt }],
+            ...route,
+            maxTokens: settings.reformat_max_output_tokens || DEFAULT_MAX_TOKENS,
+            temperature: settings.reformat_temperature ?? DEFAULT_TEMPERATURE,
+            timeoutMs: settings.reformat_timeout_ms || DEFAULT_TIMEOUT_MS,
+            contextLabel: 'Auto-Reformat',
+            shouldNotifyProviderFailure: false,
+            ...resolveModelParameterStyle(settings),
+        });
+        return { reply: content, finishReason };
+    } catch (e) {
+        throw _mapReformatError(e, batchIndex);
+    }
+}
+
 async function _callOpenRouter(prompt, settings, batchIndex) {
     const apiKey = getOpenRouterApiKey();
     if (!apiKey) {
@@ -105,30 +128,9 @@ async function _callOpenRouter(prompt, settings, batchIndex) {
         );
     }
 
-    try {
-        const { content, finishReason } = await postChatCompletion({
-            messages: [{ role: 'user', content: prompt }],
-            model,
-            provider: 'openrouter',
-            maxTokens: settings.reformat_max_output_tokens || DEFAULT_MAX_TOKENS,
-            temperature: settings.reformat_temperature ?? DEFAULT_TEMPERATURE,
-            timeoutMs: settings.reformat_timeout_ms || DEFAULT_TIMEOUT_MS,
-            contextLabel: 'Auto-Reformat',
-            shouldNotifyProviderFailure: false,
-            ...resolveModelParameterStyle(settings),
-        });
-        return { reply: content, finishReason };
-    } catch (e) {
-        throw _mapReformatError(e, batchIndex);
-    }
+    return _requestReformat(prompt, settings, batchIndex, { model, provider: 'openrouter' });
 }
 
-/**
- * @param {string} prompt
- * @param {object} settings
- * @param {number} batchIndex
- * @returns {Promise<{reply: string, finishReason: string|null}>}
- */
 async function _callVLLM(prompt, settings, batchIndex) {
     const { vllmUrl: baseUrl, model } = _resolveConnection(settings);
     if (!baseUrl) {
@@ -153,24 +155,20 @@ async function _callVLLM(prompt, settings, batchIndex) {
         );
     }
 
-    try {
-        const { content, finishReason } = await postChatCompletion({
-            messages: [{ role: 'user', content: prompt }],
-            model,
-            provider: 'vllm',
-            vllmUrl: baseUrl,
-            maxTokens: settings.reformat_max_output_tokens || DEFAULT_MAX_TOKENS,
-            temperature: settings.reformat_temperature ?? DEFAULT_TEMPERATURE,
-            timeoutMs: settings.reformat_timeout_ms || DEFAULT_TIMEOUT_MS,
-            contextLabel: 'Auto-Reformat',
-            shouldNotifyProviderFailure: false,
-            ...resolveModelParameterStyle(settings),
-        });
-        return { reply: content, finishReason };
-    } catch (e) {
-        throw _mapReformatError(e, batchIndex);
-    }
+    return _requestReformat(prompt, settings, batchIndex, { model, provider: 'vllm', vllmUrl: baseUrl });
 }
+
+/** On a SillyTavern connection profile: its own, or the EventBase model's under Same as EventBase model. */
+async function _callConnectionProfile(prompt, settings, batchIndex) {
+    const { connectionProfileId } = _resolveConnection(settings);
+    return _requestReformat(prompt, settings, batchIndex, {
+        provider: CONNECTION_PROFILE_PROVIDER,
+        connectionProfileId,
+        connectionProfilePage: String(settings.reformat_provider ?? '').trim() ? 'ChunkBase' : 'Core',
+    });
+}
+
+const CALL_OF_PROVIDER = { openrouter: _callOpenRouter, vllm: _callVLLM, [CONNECTION_PROFILE_PROVIDER]: _callConnectionProfile };
 
 /**
  * Calls the configured provider, retrying transient failures (network hiccups,
@@ -179,7 +177,13 @@ async function _callVLLM(prompt, settings, batchIndex) {
  */
 async function _callProviderWithRetry(prompt, settings, batchIndex) {
     const { provider } = _resolveConnection(settings);
-    const callFn = provider === 'vllm' ? _callVLLM : _callOpenRouter;
+    const callFn = CALL_OF_PROVIDER[provider];
+    if (!callFn) {
+        throw new ReformatFatalError(
+            `Auto-Reformat: provider "${provider}" is not one VectFox knows. Choose one in ChunkBase → Auto-Reformat.`,
+            'invalid_model_config',
+        );
+    }
     return retry(() => callFn(prompt, settings, batchIndex), {
         maxAttempts: 3,
         delay: 1500,

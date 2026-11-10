@@ -28,11 +28,14 @@ vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOrigina
 }));
 
 const postChatCompletionMock = vi.fn();
+const checkConnectionProfileMock = vi.fn();
 vi.mock('../src/features/llm-provider/index.js', async () => ({
     postChatCompletion: (...args) => postChatCompletionMock(...args),
     resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
     // The real rule, so the tests of the planner's connection read what ships.
     resolveInheritedConnection: (await import('../src/features/llm-provider/inherited-connection.js')).resolveInheritedConnection,
+    resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
+    checkConnectionProfile: (...args) => checkConnectionProfileMock(...args),
     LlmCallError: class LlmCallError extends Error {},
 }));
 
@@ -311,5 +314,37 @@ describe('the planner\'s connection', () => {
     it('takes the EventBase model\'s model when Model is blank, and a typed one otherwise', () => {
         expect(_resolveAgenticLLMConfig({ ...eventBaseModel, agent_provider: 'openrouter', agent_model: '' }).model).toBe('eventbase-model');
         expect(_resolveAgenticLLMConfig({ ...eventBaseModel, agent_provider: '', agent_model: 'planner-model' }).model).toBe('planner-model');
+    });
+
+    const eventBaseOnProfile = { chat_provider: 'connection_profile', chat_connection_profile_id: 'profile-eventbase', chat_model: 'hidden-model' };
+
+    it('runs Same as EventBase model on the EventBase model\'s profile, checked as chosen on the Core page', () => {
+        checkConnectionProfileMock.mockReturnValue({ ok: true, profile: { model: 'profile-model' }, api: 'chat', storesKey: true });
+        const connection = _resolveAgenticLLMConfig({ ...eventBaseOnProfile, agent_provider: '', agent_model: 'typed-model' });
+        expect(connection).toMatchObject({ ok: true, provider: 'connection_profile', connectionProfileId: 'profile-eventbase', connectionProfilePage: 'Core' });
+        expect(checkConnectionProfileMock).toHaveBeenCalledWith('profile-eventbase', { feature: 'Agent Mode', page: 'Core' });
+    });
+
+    it('warns with the profile\'s own problem, naming the AgentMode page, when its own profile cannot run', () => {
+        const problem = 'Agent Mode: no connection profile is chosen. Choose one on the AgentMode page.';
+        checkConnectionProfileMock.mockReturnValue({ ok: false, reason: problem });
+        const connection = _resolveAgenticLLMConfig({ chat_provider: 'openrouter', agent_provider: 'connection_profile', agent_connection_profile_id: '' });
+        expect(connection).toEqual({ ok: false, reason: 'connection_profile', problem });
+        expect(checkConnectionProfileMock).toHaveBeenCalledWith('', { feature: 'Agent Mode', page: 'AgentMode' });
+        expect(describeAgentModeSetupProblem(connection.reason, connection.problem))
+            .toBe(`${problem} Until then each turn uses the normal memory search only.`);
+    });
+
+    it('fails a blank Model on a manual provider while the EventBase model runs on a profile, never reading its hidden model', () => {
+        expect(_resolveAgenticLLMConfig({ ...eventBaseOnProfile, agent_provider: 'openrouter', agent_model: '' })).toEqual({ ok: false, reason: 'missing_model' });
+    });
+
+    it('sends the planner\'s call on its profile', async () => {
+        checkConnectionProfileMock.mockReturnValue({ ok: true, profile: { model: 'profile-model' }, api: 'chat', storesKey: true });
+        planReturns({ queries: [] });
+        await callAgent({ ...agentOn, ...eventBaseOnProfile, agent_provider: '' });
+        expect(postChatCompletionMock.mock.calls[0][0]).toMatchObject({
+            provider: 'connection_profile', connectionProfileId: 'profile-eventbase', connectionProfilePage: 'Core', contextLabel: 'Agent Mode',
+        });
     });
 });

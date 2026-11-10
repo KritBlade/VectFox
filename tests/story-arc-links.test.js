@@ -321,6 +321,9 @@ describe('describeStoryLinkPass', () => {
         listStoryEventsMock.mockResolvedValueOnce([stored(1, 10)]);
         resolveLinkConfigMock.mockReturnValueOnce({ ok: false, reason: 'missing_openrouter_api_key' });
         expect((await describeStoryLinkPass(settings)).problem).toContain('missing_openrouter_api_key');
+        listStoryEventsMock.mockResolvedValueOnce([stored(1, 10)]);
+        resolveLinkConfigMock.mockReturnValueOnce({ ok: false, reason: 'connection_profile', problem: 'StoryArc: no connection profile is chosen. Choose one on the StoryArc page.' });
+        expect((await describeStoryLinkPass(settings)).problem).toBe('StoryArc: no connection profile is chosen. Choose one on the StoryArc page.');
         listStoryEventsMock.mockResolvedValueOnce(null);
         expect((await describeStoryLinkPass(settings)).problem).toContain('Could not read');
         listStoryEventsMock.mockResolvedValueOnce([]);
