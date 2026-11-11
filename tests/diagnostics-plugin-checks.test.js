@@ -38,7 +38,7 @@ const healthRequests = () => fetch.mock.calls.filter(([url]) => url === '/api/pl
 beforeEach(() => {
     vi.clearAllMocks();
     resetPluginAvailableCache();
-    plugin.health = { status: 'ok', version: FLOOR, features: ['qdrant', 'collection-browser'] };
+    plugin.health = { status: 'ok', version: FLOOR, backends: ['vectra', 'qdrant'] };
     vi.stubGlobal('fetch', vi.fn(async (url) => {
         if (String(url).includes('manifest.json')) return { ok: true, status: 200, json: async () => MANIFEST };
         if (url === '/api/plugins/similharity/health') {
@@ -49,8 +49,13 @@ beforeEach(() => {
 });
 
 describe('the "VectFox Plugin" check', () => {
-    it('passes a plugin at the floor, naming its version and features', async () => {
-        await expect(checkServerPlugin()).resolves.toMatchObject({ status: 'pass', message: `v${FLOOR} - Features: qdrant, collection-browser` });
+    it('passes a plugin at the floor, naming its version and the backends its /health lists', async () => {
+        await expect(checkServerPlugin()).resolves.toMatchObject({ status: 'pass', message: `v${FLOOR} - Backends: vectra, qdrant` });
+    });
+
+    it('passes a plugin that lists no backends with its version alone', async () => {
+        plugin.health = { status: 'ok', version: FLOOR };
+        await expect(checkServerPlugin()).resolves.toMatchObject({ status: 'pass', message: `v${FLOOR}` });
     });
 
     it('warns on a plugin older than the floor, naming both versions and how to update', async () => {

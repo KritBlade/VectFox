@@ -165,7 +165,7 @@ export async function checkServerPlugin() {
     if (!requiredVersion) return result('warning', 'VectFox could not read the Similharity version it needs from its manifest.json; the console says why');
     if (!version) return result('warning', `The plugin reports no version, so VectFox cannot confirm it is v${requiredVersion} or later. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
     if (!isCurrent) return result('warning', `v${version} is older than v${requiredVersion}, the oldest VectFox works with. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
-    return result('pass', `v${version} - Features: ${probe.features.join(', ') || 'core'}`);
+    return result('pass', probe.backends.length ? `v${version} - Backends: ${probe.backends.join(', ')}` : `v${version}`);
 }
 
 /**

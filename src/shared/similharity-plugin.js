@@ -79,7 +79,7 @@ async function probeHealth(generation) {
             health = {
                 status: typeof data.status === 'string' ? data.status : '',
                 version: typeof data.version === 'string' && data.version ? data.version : null,
-                features: Array.isArray(data.features) ? data.features.map(String) : [],
+                backends: Array.isArray(data.backends) ? data.backends.map(String) : [],
             };
             if (health.status !== 'ok') failure = `it reports status "${health.status}"`;
         } else {
@@ -152,16 +152,16 @@ export function resetPluginAvailableCache() {
 }
 
 /**
- * What the last settled probe read from /health: whether it found a working plugin, the status, version and features
- * it reported, and, when it found none, why.
- * @returns {{isFound: boolean, status: string|null, version: string|null, features: string[], failure: string}}
+ * What the last settled probe read from /health: whether it found a working plugin, the status, version and vector
+ * backends it reported, and, when it found none, why.
+ * @returns {{isFound: boolean, status: string|null, version: string|null, backends: string[], failure: string}}
  */
 export function getPluginProbe() {
     return {
         isFound: pluginAvailable === true,
         status: pluginHealth?.status ?? null,
         version: pluginHealth?.version ?? null,
-        features: pluginHealth?.features ?? [],
+        backends: pluginHealth?.backends ?? [],
         failure: probeFailure,
     };
 }
