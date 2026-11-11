@@ -33,6 +33,7 @@ vi.mock('../src/sillytavern/popup.js', () => ({
 }));
 vi.mock('../src/features/embedding/index.js', () => ({
     getModelField: provider => (['openrouter', 'ollama'].includes(provider) ? `${provider}_model` : null),
+    getProviderConfig: provider => ({ ollama: { requiresModel: true }, llamacpp: { requiresModel: false }, custom: { requiresModel: true } })[provider] ?? null,
     getModelFromSettings: settings => host.embeddingProfile?.model ?? settings[`${settings.embedding_provider}_model`] ?? '',
     resolveEmbeddingProfile: () => host.embeddingProfile,
     resolveProviderApiUrl: () => 'http://localhost:11434',
@@ -179,6 +180,29 @@ describe('the Diagnostics dialog', () => {
         const broken = navigator.clipboard.writeText.mock.calls[1][0];
         expect(broken).toMatch(/Embedding profile:\s+Embedding: profile "Harbor Ollama" names no server URL\. Set one in that profile in SillyTavern\.\n/);
         expect(broken).toMatch(/Provider URL:\s+not set\n/);
+    });
+
+    it('names a llama.cpp or Custom profile and its URL, and its model or the server\'s choice of one', async () => {
+        host.root.vectfox = { ...host.root.vectfox, embedding_provider: 'llamacpp', embedding_connection_profile_id: 'p-lantern' };
+        host.embeddingProfile = { profileName: 'Lantern llama', url: 'http://lantern:8080', model: '', storesKey: true, problem: '' };
+        void openDiagnostics('checks');
+        click('run');
+        await vi.waitFor(() => expect(document.querySelector('[data-diag-action="copy"]').disabled).toBe(false));
+        click('copy');
+        await vi.waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1));
+        const llama = navigator.clipboard.writeText.mock.calls[0][0];
+        expect(llama).toMatch(/Embedding profile:\s+Lantern llama\n/);
+        expect(llama).toMatch(/Model:\s+chosen by the provider\n/);
+        expect(llama).toMatch(/Provider URL:\s+http:\/\/lantern:8080\n/);
+
+        host.root.vectfox = { ...host.root.vectfox, embedding_provider: 'custom' };
+        host.embeddingProfile = { profileName: 'Lantern Custom', url: 'https://embed.example.test/v1', model: 'lantern-embed', storesKey: false, problem: '' };
+        click('copy');
+        await vi.waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(2));
+        const custom = navigator.clipboard.writeText.mock.calls[1][0];
+        expect(custom).toMatch(/Embedding profile:\s+Lantern Custom\n/);
+        expect(custom).toMatch(/Model:\s+lantern-embed\n/);
+        expect(custom).toMatch(/Provider URL:\s+https:\/\/embed\.example\.test\/v1\n/);
     });
 
     it('probes the backend every 5 seconds while Backend health shows, and stops when it hides', async () => {

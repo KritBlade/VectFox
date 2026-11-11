@@ -52,7 +52,6 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     purgeVectorIndex: vi.fn(),
     textWithKeywordSuffix: vi.fn(text => text),
     encodeSparseVector: vi.fn(),
-    getAdditionalArgs: vi.fn(),
     getSavedHashes: vi.fn(),
     getBackend: vi.fn(),
     setInsertedCollectionRegistrar: vi.fn(),

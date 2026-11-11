@@ -63,7 +63,7 @@ function requestSizes() {
 }
 
 describe('insertVectorItems — local GPU sources', () => {
-    it.each(['transformers', 'ollama', 'llamacpp'])('%s sends one item per request at the default insert_batch_size', async (provider) => {
+    it.each(['transformers', 'ollama', 'llamacpp', 'koboldcpp'])('%s sends one item per request at the default insert_batch_size', async (provider) => {
         await insertVectorItems('collection', items, { ...INSTALL_DEFAULTS, embedding_provider: provider });
 
         expect(requestSizes()).toEqual([1, 1, 1]);
@@ -77,8 +77,9 @@ describe('insertVectorItems — local GPU sources', () => {
 });
 
 describe('insertVectorItems — API sources', () => {
-    it('batch up to insert_batch_size items into one rate-limited request', async () => {
-        await insertVectorItems('collection', items, { ...INSTALL_DEFAULTS, embedding_provider: 'openai' });
+    // Custom is a profile's own OpenAI-style server, grouped and rate-limited as OpenRouter is.
+    it.each(['openai', 'custom'])('%s batches up to insert_batch_size items into one rate-limited request', async (provider) => {
+        await insertVectorItems('collection', items, { ...INSTALL_DEFAULTS, embedding_provider: provider });
 
         expect(requestSizes()).toEqual([3]);
         expect(rateLimiterExecute).toHaveBeenCalledTimes(1);

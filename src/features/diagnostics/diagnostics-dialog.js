@@ -15,7 +15,7 @@ import { extension_settings } from '../../sillytavern/settings.js';
 import { openPanelPopup } from '../../sillytavern/popup.js';
 import { log } from '../../sillytavern/log.js';
 import { bindGeneBehaviours, scrollPageToTop, setShown } from '../../shared/gui-dna/gene-behaviours.js';
-import { getModelField, getModelFromSettings, resolveEmbeddingProfile, resolveProviderApiUrl } from '../embedding/index.js';
+import { getModelField, getModelFromSettings, getProviderConfig, resolveEmbeddingProfile, resolveProviderApiUrl } from '../embedding/index.js';
 import { backendHealthView, probeCurrentBackend } from './backend-health.js';
 import { runQueryTest } from './query-tester.js';
 import { dialogResults, diagnosticsReportText, queryOutcome, storedValue } from './diagnostics-dialog-core.js';
@@ -189,8 +189,11 @@ function reportSettingLines(settings) {
         ['Embedding provider', storedValue(provider)],
     ];
     if (onProfile) lines.push(['Embedding profile', onProfile.problem || storedValue(onProfile.profileName)]);
-    lines.push(['Model', getModelField(provider) ? storedValue(getModelFromSettings(settings)) : 'chosen by the provider']);
-    if (provider === 'ollama' || provider === 'vllm') {
+    // A profile names its model, or leaves it to the server where the type needs none, as llama.cpp and KoboldCPP do.
+    const model = onProfile ? onProfile.model : getModelFromSettings(settings);
+    const isModelTheProvidersChoice = onProfile ? !model && !getProviderConfig(provider)?.requiresModel : !getModelField(provider);
+    lines.push(['Model', isModelTheProvidersChoice ? 'chosen by the provider' : storedValue(model)]);
+    if (onProfile || provider === 'ollama' || provider === 'vllm') {
         lines.push(['Provider URL', storedValue(onProfile ? onProfile.url : resolveProviderApiUrl(settings, provider))]);
     }
     if (settings.vector_backend === 'qdrant') lines.push(['Qdrant URL', storedValue(settings.qdrant_mode === 'cloud' ? settings.qdrant_cloud_url : settings.qdrant_url)]);

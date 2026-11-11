@@ -13,7 +13,7 @@ vi.mock('../../../../textgen-settings.js', () => ({ textgen_types: {}, textgener
 vi.mock('../../../../openai.js', () => ({ oai_settings: {} }));
 vi.mock('../../../../secrets.js', () => ({ secret_state: {} }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: vi.fn(async () => true), resetPluginAvailableCache: vi.fn() }));
-vi.mock('../src/features/embedding/providers.js', () => ({ getModelField: vi.fn(() => null), getModelFromSettings: vi.fn(() => 'test-model') }));
+vi.mock('../src/features/embedding/providers.js', () => ({ getModelField: vi.fn(() => null), getModelFromSettings: vi.fn(() => 'test-model'), embeddingProfileRequestFields: vi.fn(async () => ({})) }));
 vi.mock('../src/shared/constants.js', () => ({
     VECTOR_LIST_LIMIT: 10000,
     RETRIEVAL_TIMEOUT_DEFAULT_MS: 15000,

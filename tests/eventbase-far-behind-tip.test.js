@@ -32,7 +32,6 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     insertVectorItems: vi.fn(),
     purgeVectorIndex: vi.fn(),
     encodeSparseVector: vi.fn(),
-    getAdditionalArgs: vi.fn(),
     getSavedHashes: vi.fn(),
     getBackend: vi.fn(),
     setInsertedCollectionRegistrar: vi.fn(),

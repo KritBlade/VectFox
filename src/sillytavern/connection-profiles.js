@@ -1,9 +1,9 @@
 // connection-profiles.js — SillyTavern's Connection Manager profiles, for a chat call or embedding that runs on one:
 // whether the Connection Manager is on, a profile by ID, whether SillyTavern can send a request on it and of which kind,
 // the request itself through SillyTavern's ConnectionManagerRequestService, and its reply as text; for embedding, the
-// provider a profile's API is and the server URL it names. The only file that touches that service or a profile's key ID
-// or URL (connection plan §6, credential invariant 4). SillyTavern resolves the key on its server from the ID; no key
-// value ever reaches VectFox.
+// provider a profile's API is, the server URL it names and the ID of its key. The only file that touches that service
+// or a profile's key ID or URL (connection plan §6, credential invariant 4). SillyTavern's server, or Similharity on
+// it, resolves the key from the ID; no key value ever reaches VectFox.
 //
 // SillyTavern's context comes from its page global, read at each call, so importing this file loads nothing of
 // SillyTavern's and the chat-call modules that import it stay loadable on their own.
@@ -87,6 +87,17 @@ export function connectionProfileEmbeddingProvider(profile) {
  */
 export function connectionProfileServerUrl(profile) {
     return String(profile?.['api-url'] ?? '').trim();
+}
+
+/**
+ * The key field of an embedding request on a llama.cpp, KoboldCPP or Custom profile: the ID of the key the profile
+ * stores, which Similharity reads on SillyTavern's server. Empty with no stored key, and Similharity then sends none.
+ *
+ * @param {object} profile
+ * @returns {{secret_id?: string}}
+ */
+export function connectionProfileEmbeddingKeyField(profile) {
+    return connectionProfileStoresKey(profile) ? { secret_id: String(profile['secret-id']) } : {};
 }
 
 /**

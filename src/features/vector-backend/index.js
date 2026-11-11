@@ -26,7 +26,6 @@ export { textWithKeywordSuffix, textWithoutKeywordSuffix } from './stored-chunk.
 export {
     DynamicRateLimiter,
     deleteVectorItems,
-    getAdditionalArgs,
     getQueryVector,
     getSavedHashes,
     insertVectorItems,

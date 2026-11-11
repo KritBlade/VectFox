@@ -39,42 +39,18 @@
 
 import { discoverExistingCollections } from '../features/collections/index.js';
 import { pruneOrphanedEventBaseChatMaps } from '../features/eventbase/index.js';
-import { checkPluginAvailable, getDetectedPluginVersion } from '../shared/similharity-plugin.js';
+import {
+    checkPluginAvailable,
+    getDetectedPluginVersion,
+    isSimilharityVersionBehind,
+    PLUGIN_UPDATE_INSTRUCTIONS,
+    SIMILHARITY_MIN_VERSION,
+} from '../shared/similharity-plugin.js';
 import { retry } from '../shared/retry.js';
 import { log } from '../sillytavern/log.js';
 
 /**
- * D5: Cross-repo version floor — warn ONLY when the installed similharity is OLDER
- * than the minimum VectFox needs. This is a floor (>=) check, not an exact match:
- * VectFox stays forward-compatible with newer plugin builds, so a plugin-only bugfix
- * bump must not nag users who are, in fact, up to date. Raise it only when VectFox
- * needs a newer plugin: a feature it calls, or a fix that protects data. 3.3.5 is
- * the first plugin that deletes nothing on a vector size change.
- */
-const SIMILHARITY_MIN_VERSION = '3.3.5';
-
-/**
- * @param {string} version installed plugin version
- * @param {string} minimum required floor
- * @returns {boolean} true when `version` is strictly older than `minimum`
- */
-function isSimilharityVersionBehind(version, minimum) {
-    const parse = v => String(v).split('.').map(n => parseInt(n, 10) || 0);
-    const installed = parse(version), required = parse(minimum);
-    for (let i = 0; i < Math.max(installed.length, required.length); i++) {
-        const difference = (installed[i] || 0) - (required[i] || 0);
-        if (difference !== 0) return difference < 0;
-    }
-    return false; // equal → up to date
-}
-
-/** Shared tail for both outdated-plugin messages — how the user actually fixes it. */
-const PLUGIN_UPDATE_INSTRUCTIONS = 'Restart SillyTavern so it can auto-update the server plugin. '
-    + 'If that does not help, the plugin was installed from a ZIP and cannot auto-update: delete '
-    + 'SillyTavern/plugins/similharity and reinstall it with git clone (see the VectFox README).';
-
-/**
- * Warn (toast + console) when the installed Similharity plugin is below the floor.
+ * Warn (toast + console) when the installed Similharity plugin is below the floor, SIMILHARITY_MIN_VERSION.
  * Silent no-op when no plugin is installed — that is a supported setup, not an error.
  *
  * The version comes from the /health probe checkPluginAvailable() already made

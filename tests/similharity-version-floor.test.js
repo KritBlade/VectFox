@@ -18,7 +18,9 @@ vi.mock('../src/features/collections/collection-loader.js', () => ({
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     pruneOrphanedEventBaseChatMaps: vi.fn(),
 }));
-vi.mock('../src/shared/similharity-plugin.js', () => ({
+// The probe is stubbed; the floor and the comparison are the module's own.
+vi.mock('../src/shared/similharity-plugin.js', async importOriginal => ({
+    ...(await importOriginal()),
     checkPluginAvailable: vi.fn(async () => true),
     getDetectedPluginVersion: vi.fn(() => null),
 }));
@@ -60,7 +62,7 @@ describe('checkSimilharityVersion', () => {
 
         expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
         expect(toastText()).toContain('2.0.0');
-        expect(toastText()).toContain('3.3.5');
+        expect(toastText()).toContain('3.4.0');
         expect(log.warn).toHaveBeenCalledTimes(1);
     });
 
@@ -70,7 +72,16 @@ describe('checkSimilharityVersion', () => {
         await checkSimilharityVersion();
 
         expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
-        expect(toastText()).toContain('3.3.5');
+        expect(toastText()).toContain('3.4.0');
+    });
+
+    it('warns on 3.3.5, the last plugin that cannot embed on a llama.cpp, KoboldCPP or Custom profile', async () => {
+        getDetectedPluginVersion.mockReturnValue('3.3.5');
+
+        await checkSimilharityVersion();
+
+        expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
+        expect(toastText()).toContain('need v3.4.0+, got v3.3.5');
     });
 
     it('makes no HTTP request of its own — the version rides the /health probe', async () => {
@@ -114,7 +125,7 @@ describe('checkSimilharityVersion', () => {
     });
 
     it('stays silent on the exact floor and on newer builds', async () => {
-        for (const version of ['3.3.5', '3.4.0', '4.0.0', '3.10.0']) {
+        for (const version of ['3.4.0', '3.4.1', '4.0.0', '3.10.0']) {
             vi.clearAllMocks();
             checkPluginAvailable.mockResolvedValue(true);
             getDetectedPluginVersion.mockReturnValue(version);
@@ -125,8 +136,8 @@ describe('checkSimilharityVersion', () => {
         }
     });
 
-    it('compares numerically, not lexically — 3.10.0 is newer than 3.3.5', async () => {
-        // String comparison would rank '3.10.0' < '3.3.5' and nag an up-to-date user.
+    it('compares numerically, not lexically — 3.10.0 is newer than 3.4.0', async () => {
+        // String comparison would rank '3.10.0' < '3.4.0' and nag an up-to-date user.
         getDetectedPluginVersion.mockReturnValue('3.10.0');
 
         await checkSimilharityVersion();

@@ -8,10 +8,7 @@
  * ============================================================================
  */
 
-import {
-    insertVectorItems,
-    getAdditionalArgs,
-} from '../vector-backend/index.js';
+import { insertVectorItems } from '../vector-backend/index.js';
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
@@ -367,15 +364,10 @@ export async function insertEvents(events, settings, abortSignal = null, collect
         }
     }
 
-    // Generate embeddings (reuses same provider/model as legacy path)
-    const additionalArgs = await getAdditionalArgs();
-    const clientEmbeddings = additionalArgs.embeddings || null;
-
-    // Build insertable items
+    // Build insertable items. They carry no vector: the backend embeds each text server-side.
     const items = events.map((event, idx) => {
         const embedText = embedTexts[idx];
         const hash = eventPointHash(event.event_id);
-        const vector = clientEmbeddings?.[embedText] || null;
 
         // The summary string lives inside `text` (first line, after the [event_type] prefix).
         // Storing it again as a separate field is pure duplication, so we strip it from both
@@ -386,7 +378,6 @@ export async function insertEvents(events, settings, abortSignal = null, collect
             hash,
             text: embedText,
             index: event.source_window_end ?? (event.source_window_start != null ? event.source_window_start + 1 : idx + 1), // source_window_end for consistency with message_order injection field
-            vector,             // null → server-side embedding
             // Top-level fields read by qdrant.js's payload builder.
             // qdrant.js spreads item.metadata first then explicitly overwrites these
             // fields from the top-level item. Without them defined here, they are

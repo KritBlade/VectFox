@@ -16,7 +16,7 @@ import {
     reciprocalRankFusion,
     weightedCombination,
 } from '../vector-backend/index.js';
-import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/index.js';
+import { embeddingProfileRequestFields, getModelFromSettings, resolveProviderApiUrl } from '../embedding/index.js';
 import { deleteCollection, unregisterCollection } from '../collections/index.js';
 import { buildRegistryKey, getRegistryBackend } from '../../shared/collection-ids.js';
 import { extractTextKeywords, extractLorebookKeywords } from '../keyword-search/index.js';
@@ -89,12 +89,13 @@ export async function sweepLeftoverTestCollections(settings) {
 }
 
 /**
- * Helper: Get provider-specific body parameters for Similharity plugin requests
- * This ensures local-server providers that need special params get them
+ * Helper: Get provider-specific body parameters for Similharity plugin requests: a URL-based provider's server URL,
+ * Ollama's Keep model in memory, and on a llama.cpp, KoboldCPP or Custom profile its key's ID.
  * @param {object} settings - VectFox settings
- * @returns {object} Additional body parameters for the request
+ * @returns {Promise<object>} Additional body parameters for the request
+ * @throws {Error} With `code: 'invalid_model_config'`, when embedding runs on a profile that cannot be used
  */
-function getPluginProviderParams(settings) {
+async function getPluginProviderParams(settings) {
     const params = {};
     const source = settings.embedding_provider;
 
@@ -104,17 +105,12 @@ function getPluginProviderParams(settings) {
         params.keep = !!settings.ollama_keep;
     }
 
-    // llamacpp needs apiUrl
-    if (source === 'llamacpp') {
-        params.apiUrl = resolveProviderApiUrl(settings, 'llamacpp');
-    }
-
     // vllm needs apiUrl
     if (source === 'vllm') {
         params.apiUrl = resolveProviderApiUrl(settings, 'vllm');
     }
 
-    return params;
+    return { ...params, ...(await embeddingProfileRequestFields(settings)) };
 }
 
 /**
@@ -161,7 +157,7 @@ export async function testEmbeddingGeneration(settings) {
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings, null),
                 // Include provider-specific params (apiUrl, keep, etc.)
-                ...getPluginProviderParams(settings),
+                ...(await getPluginProviderParams(settings)),
             })
         });
 
@@ -238,7 +234,7 @@ export async function testVectorStorage(settings) {
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings, null),
                 // Include provider-specific params (apiUrl, keep, etc.)
-                ...getPluginProviderParams(settings),
+                ...(await getPluginProviderParams(settings)),
             })
         });
 
@@ -475,7 +471,7 @@ export async function testPluginEmbeddingGeneration(settings) {
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings, null),
                 // Include provider-specific params (apiUrl, keep, etc.)
-                ...getPluginProviderParams(settings),
+                ...(await getPluginProviderParams(settings)),
             }),
         });
 
@@ -501,7 +497,7 @@ export async function testPluginEmbeddingGeneration(settings) {
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings, null),
                 // Include provider-specific params (apiUrl, keep, etc.)
-                ...getPluginProviderParams(settings),
+                ...(await getPluginProviderParams(settings)),
             }),
         });
 

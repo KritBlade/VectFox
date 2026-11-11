@@ -11,7 +11,9 @@
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
 import { secret_state } from '../../sillytavern/secrets.js';
+import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import {
+    embeddingProfileKind,
     isValidProvider,
     getProviderConfig,
     getModelFromSettings,
@@ -455,6 +457,8 @@ export async function checkEmbeddingProvider(settings) {
         };
     }
 
+    // A llama.cpp, KoboldCPP or Custom profile needs Similharity, which the profile check reads from the settled probe.
+    await checkPluginAvailable();
     const onProfile = resolveEmbeddingProfile(settings);
     if (onProfile?.problem) {
         return {
@@ -511,6 +515,18 @@ export function checkTransformersMemoryLimits(settings) {
  */
 export function checkApiKeys(settings) {
     const source = settings.embedding_provider;
+
+    // On a profile that sends its key ID, the key is the one the profile stores, which stays on SillyTavern's server.
+    const onProfile = embeddingProfileKind(source)?.sendsKeyId ? resolveEmbeddingProfile(settings) : null;
+    if (onProfile?.profileName) {
+        return {
+            name: 'API Key',
+            status: 'info',
+            message: onProfile.storesKey
+                ? `Sends the key profile "${onProfile.profileName}" stores`
+                : `Profile "${onProfile.profileName}" stores no key, so none is sent`
+        };
+    }
 
     if (!requiresApiKey(source)) {
         return {

@@ -27,7 +27,7 @@ vi.mock('../src/shared/collection-ids.js', () => ({
 }));
 vi.mock('../src/features/collections/collection-loader.js', () => ({ getCollectionRegistry: () => [], registerCollection: vi.fn(), getCollectionListing: vi.fn() }));
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({
-    queryCollection: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn(), getAdditionalArgs: vi.fn(),
+    queryCollection: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn(),
     getSavedHashes: async () => state.points.map((_, i) => i),
 }));
 vi.mock('../src/shared/constants.js', () => ({ EVENTBASE_PROMPT_TAG: '3_vectfox_eventbase' }));

@@ -37,7 +37,7 @@ vi.mock('../../../../extensions.js', () => ({
 }));
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     insertVectorItems: vi.fn(), queryCollection: vi.fn(), deleteVectorItems: vi.fn(),
-    getAdditionalArgs: vi.fn(), getSavedHashes: vi.fn(),
+    getSavedHashes: vi.fn(),
 }));
 vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: vi.fn(() => CHAT_B_UUID),

@@ -79,6 +79,8 @@ vi.mock('../src/features/embedding/providers.js', () => ({
         return modelFields[source] || null;
     }),
     getModelFromSettings: vi.fn(() => 'test-model'),
+    // A manual provider's requests name no profile fields.
+    embeddingProfileRequestFields: vi.fn(async () => ({})),
 }));
 
 // Mock constants.js

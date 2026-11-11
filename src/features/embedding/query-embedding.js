@@ -5,13 +5,13 @@
  * A query embeds its text ONCE (src/features/vector-backend/vector-api.js getQueryVector) and hands
  * the vector to every route and fallback it tries, so no request re-embeds the
  * same text server-side. Both backends call this from embedQuery(); each passes
- * its own provider params (apiUrl for URL-based sources), which the two backends
- * build differently.
+ * its own provider params (apiUrl for URL-based sources, and a profile's key ID),
+ * which the two backends build differently.
  */
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getModelFromSettings } from './providers.js';
-import { throwIfModelConfigError } from '../../shared/model-http-errors.js';
+import { throwIfEmbeddingConfigError } from './embedding-request-failure.js';
 import { warnIfEmbeddingSlow } from './embedding-latency-warning.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -32,14 +32,7 @@ export async function fetchQueryEmbedding(searchText, settings, providerParams) 
     });
     if (!response.ok) {
         const errorBody = await response.text().catch(() => '(no body)');
-        throwIfModelConfigError({
-            contextLabel: 'Embedding',
-            provider: settings.embedding_provider,
-            model,
-            status: response.status,
-            responseText: errorBody,
-            enforceStatusGate: false,
-        });
+        throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
         throw new Error(`Query embedding via '${source}' failed: ${response.status} ${response.statusText} - ${errorBody.slice(0, 300)}`);
     }
     const data = await response.json();

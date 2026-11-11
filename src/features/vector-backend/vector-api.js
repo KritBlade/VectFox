@@ -6,7 +6,6 @@
  * Routes to different backends: ST's Vectra API (Standard) or Qdrant.
  *
  * Functions:
- * - getAdditionalArgs() - Client-side embedding arguments (no provider produces any)
  * - getSavedHashes() - GET existing hashes from a collection
  * - insertVectorItems() - POST embeddings to backend
  * - queryCollection() - POST query to find similar vectors
@@ -20,18 +19,13 @@
  */
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
-// Embedding-side: no key helpers needed here. vLLM, Ollama, and other
-// "local-or-self-hosted" providers either resolve keys server-side via ST
-// (vLLM → SECRET_KEYS.VLLM) or send no auth at all (Ollama — ST has no
-// auth path for it). Cloud providers like OpenRouter route through ST's
-// chat-completions proxy from elsewhere, not through this file.
+// No key is read here: every embedding key is resolved on SillyTavern's server,
+// from its own key lists for the manual providers and, on a llama.cpp, KoboldCPP
+// or Custom profile, by Similharity from the key ID the backend's request names.
 import { getBackend, getBackendForCollection, invalidateBackendHealth, recordQuery, recordInsert, recordDelete, recordError } from './backend-registry.js';
 import { resolveBackendForCollection } from '../../shared/collection-ids.js';
-import {
-    getModelFromSettings,
-    resolveProviderApiUrl
-} from '../embedding/index.js';
-import { isConnectionError, isInvalidModelConfigError, notifyConnectionError } from '../../shared/model-config-notifier.js';
+import { getModelFromSettings } from '../embedding/index.js';
+import { isInvalidModelConfigError } from '../../shared/model-config-notifier.js';
 import {
     getOverfetchAmount,
     applyBM25Scoring,
@@ -385,16 +379,6 @@ const RETRY_CONFIG = {
 };
 
 /**
- * Gets additional arguments for embeddings: the client-side embeddings of a provider that
- * embeds in the browser. No provider does, so this returns {} and every caller takes the
- * server-side path.
- * @returns {Promise<object>} Additional arguments
- */
-export async function getAdditionalArgs() {
-    return {};
-}
-
-/**
  * Gets the saved hashes for a collection
  * @param {string} collectionId Collection ID
  * @param {object} settings VectFox settings object
@@ -444,7 +428,6 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
 /**
  * Inserts vector items into a collection
  * Handles batching and rate limiting.
- * For a client-side embedding source (koboldcpp), generates embeddings first.
  * @param {string} collectionId - The collection to insert into
  * @param {{ hash: number, text: string }[]} items - The items to insert
  * @param {object} settings VectFox settings object
@@ -454,187 +437,169 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
 export async function insertVectorItems(collectionId, items, settings, onProgress = null, abortSignal = null) {
     const backend = await getBackend(settings);
 
-    // Sources that require client-side embedding generation
-    const clientSideEmbeddingSources = ['koboldcpp'];
-
     try {
-        // If source requires client-side embeddings, use streaming approach
-        if (clientSideEmbeddingSources.includes(settings.embedding_provider)) {
-            log.lifecycle(`VectFox: Streaming embeddings and writing for ${settings.embedding_provider}...`);
+        // The backend embeds every item server-side.
+        // Local GPU sources (transformers, ollama, llamacpp, koboldcpp) always send 1 item per request.
+        // The server embeds one request's items one after another, so N items cost N×T
+        // inside a single request and a long batch runs past the 120s request timeout.
+        // One item per request also stops an item that fails to embed (e.g. Transformers
+        // running out of WASM memory on an over-long chunk) from failing the items
+        // batched with it. The embedding API rate limit does not apply to them: it guards
+        // a provider's request quota, and a local server has none.
+        // API-based sources, a Custom profile's server included, send up to insert_batch_size
+        // items per request; how the server embeds a batch per provider is in Doc/dev_helper.md §6.
+        const localGpuSources = new Set(['transformers', 'ollama', 'llamacpp', 'koboldcpp']);
+        const isLocalGpuSource = localGpuSources.has(settings.embedding_provider);
+        const configuredBatchSize = settings.insert_batch_size || 50;
+        const hasRateLimit = !isLocalGpuSource && settings.rate_limit_calls > 0;
 
-            // Extract text strings - getAdditionalArgs expects string[], not objects
-            const textStrings = items.map(item => {
-                const text = item.text || item;
-                // Ensure we have valid text (not empty after cleaning)
-                return typeof text === 'string' && text.trim().length > 0 ? text : ' ';
-            });
+        // Parallel-split insert — see InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §5.
+        // Runs only when `vector_group_embedding_call` (default checked) is unchecked, the
+        // provider is not local, and the embedding API rate limit is off — the rate limit
+        // needs serial execution through dynamicRateLimiter. Each item then becomes its own
+        // embedding+insert POST, fired in parallel waves: when ONE upstream worker is stuck
+        // (SiliconFlow, vLLM-the-software) or ONE routing decision is bad (OpenRouter), the
+        // stuck item retries in isolation while the rest finish normally. Checked, each
+        // batch of up to insert_batch_size items is ONE POST — fewer HTTP calls, but ONE
+        // stuck item hangs the WHOLE batch. The setting applies to every caller of
+        // insertVectorItems: EventBase ingestion and content/document vectorization alike.
+        const groupEmbeddingCall = settings?.vector_group_embedding_call === true;
+        const shouldParallelSplit = (
+            !groupEmbeddingCall
+            && !isLocalGpuSource
+            && !hasRateLimit
+            && items.length > 1
+        );
 
-            // Use streaming embedding generation with immediate writes
-            await streamEmbeddingsAndWrite(backend, collectionId, items, textStrings, settings, onProgress, abortSignal);
-        } else {
-            // Server-side embeddings - backend handles everything.
-            // Local GPU sources (transformers/ollama/llamacpp) always send 1 item per request.
-            // The server embeds one request's items one after another, so N items cost N×T
-            // inside a single request and a long batch runs past the 120s request timeout.
-            // One item per request also stops an item that fails to embed (e.g. Transformers
-            // running out of WASM memory on an over-long chunk) from failing the items
-            // batched with it. The embedding API rate limit does not apply to them: it guards
-            // a provider's request quota, and a local server has none.
-            // API-based sources send up to insert_batch_size items per request; how the
-            // server embeds a batch per provider is in Doc/dev_helper.md §6.
-            const localGpuSources = new Set(['transformers', 'ollama', 'llamacpp', 'koboldcpp']);
-            const isLocalGpuSource = localGpuSources.has(settings.embedding_provider);
-            const configuredBatchSize = settings.insert_batch_size || 50;
-            const hasRateLimit = !isLocalGpuSource && settings.rate_limit_calls > 0;
+        const BATCH_SIZE = (isLocalGpuSource || shouldParallelSplit) ? 1 : configuredBatchSize;
+        const batches = chunkArray(items, BATCH_SIZE);
 
-            // Parallel-split insert — see InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §5.
-            // Runs only when `vector_group_embedding_call` (default checked) is unchecked, the
-            // provider is not local, and the embedding API rate limit is off — the rate limit
-            // needs serial execution through dynamicRateLimiter. Each item then becomes its own
-            // embedding+insert POST, fired in parallel waves: when ONE upstream worker is stuck
-            // (SiliconFlow, vLLM-the-software) or ONE routing decision is bad (OpenRouter), the
-            // stuck item retries in isolation while the rest finish normally. Checked, each
-            // batch of up to insert_batch_size items is ONE POST — fewer HTTP calls, but ONE
-            // stuck item hangs the WHOLE batch. The setting applies to every caller of
-            // insertVectorItems: EventBase ingestion and content/document vectorization alike.
-            const groupEmbeddingCall = settings?.vector_group_embedding_call === true;
-            const shouldParallelSplit = (
-                !groupEmbeddingCall
-                && !isLocalGpuSource
-                && !hasRateLimit
-                && items.length > 1
-            );
+        log.verbose(`VectFox: Processing ${items.length} items in ${batches.length} batch(es) of up to ${BATCH_SIZE}${hasRateLimit ? ` with rate limit (Max ${settings.rate_limit_calls} calls / ${settings.rate_limit_interval}s)` : ''}${shouldParallelSplit ? ` [parallel-split: ${batches.length} concurrent POSTs in waves of up to 16]` : ''}`);
 
-            const BATCH_SIZE = (isLocalGpuSource || shouldParallelSplit) ? 1 : configuredBatchSize;
-            const batches = chunkArray(items, BATCH_SIZE);
+        if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
 
-            log.verbose(`VectFox: Processing ${items.length} items in ${batches.length} batch(es) of up to ${BATCH_SIZE}${hasRateLimit ? ` with rate limit (Max ${settings.rate_limit_calls} calls / ${settings.rate_limit_interval}s)` : ''}${shouldParallelSplit ? ` [parallel-split: ${batches.length} concurrent POSTs in waves of up to 16]` : ''}`);
+        // Hedge gating — `vector_hedge_after_ms` (default 15000; 0 = off).
+        // Skipped for local providers where opening a new HTTP connection wouldn't
+        // change routing (Ollama / transformers / llama.cpp / KoboldCpp all land on
+        // the same single endpoint regardless of connection identity).
+        // See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
+        const rawHedgeAfterMs = Number(settings?.vector_hedge_after_ms) || 0;
+        const HEDGE_MAX_COUNT = 3;
+        const hedgeEnabled = (
+            rawHedgeAfterMs > 0
+            && !isLocalGpuSource
+        );
+        const hedgeAfterMs = hedgeEnabled ? rawHedgeAfterMs : 0;
 
-            if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
+        if (hedgeEnabled) {
+            log.lifecycle(`VectFox: hedge enabled — threshold ${hedgeAfterMs}ms, max ${HEDGE_MAX_COUNT} hedges, total budget ${((HEDGE_MAX_COUNT + 1) * hedgeAfterMs) / 1000}s per insert call`);
+        }
 
-            // Hedge gating — `vector_hedge_after_ms` (default 15000; 0 = off).
-            // Skipped for local providers where opening a new HTTP connection wouldn't
-            // change routing (Ollama / transformers / llama.cpp / KoboldCpp all land on
-            // the same single endpoint regardless of connection identity).
-            // See InternalProject/Vectfox/plans/executed/embedding-resilience-hedge-and-diagnostics.md §6.
-            const rawHedgeAfterMs = Number(settings?.vector_hedge_after_ms) || 0;
-            const HEDGE_MAX_COUNT = 3;
-            const hedgeEnabled = (
-                rawHedgeAfterMs > 0
-                && !isLocalGpuSource
-            );
-            const hedgeAfterMs = hedgeEnabled ? rawHedgeAfterMs : 0;
-
-            if (hedgeEnabled) {
-                log.lifecycle(`VectFox: hedge enabled — threshold ${hedgeAfterMs}ms, max ${HEDGE_MAX_COUNT} hedges, total budget ${((HEDGE_MAX_COUNT + 1) * hedgeAfterMs) / 1000}s per insert call`);
-            }
-
-            // Factored-out per-batch retry+log closure shared by serial and parallel paths.
-            // Each invocation gets its OWN attempt counter and timing — under parallel-split
-            // the per-item logs interleave but each line carries `batch X/Y` so they remain
-            // attributable.
-            const makeProcessBatch = (batch, batchIdx, batchItemCount) => async () => {
-                let attemptCount = 0;
-                await retry(async () => {
-                    attemptCount++;
-                    const attemptStart = performance.now();
-                    const debugOn = log.enabled('verbose');
-                    log.verbose(
-                        `VectFox: insert batch ${batchIdx}/${batches.length} attempt ${attemptCount}/${RETRY_CONFIG.maxAttempts} — POST ${batchItemCount} item(s) via ${settings.embedding_provider}${hedgeEnabled ? ' [hedge armed]' : ''}`,
-                    );
-                    try {
-                        if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
-                        const insertCall = () => backend.insertVectorItems(collectionId, batch, settings, abortSignal);
-                        if (hedgeEnabled) {
-                            await callWithHedge(insertCall, hedgeAfterMs, HEDGE_MAX_COUNT, {
-                                debugOn,
-                                batchIdx,
-                                totalBatches: batches.length,
-                                provider: settings.embedding_provider,
-                            });
-                        } else {
-                            await insertCall();
-                        }
-                        if (attemptCount > 1) {
-                            const elapsed = ((performance.now() - attemptStart) / 1000).toFixed(1);
-                            log.verbose(
-                                `VectFox: insert batch ${batchIdx}/${batches.length} attempt ${attemptCount} succeeded after ${elapsed}s`,
-                            );
-                        }
-                    } catch (err) {
-                        // Per-attempt failure log with elapsed time + provider + batch size.
-                        // Without elapsed, "TimeoutError: signal timed out" tells you
-                        // nothing — was it a fast connection refusal or a 120s upstream
-                        // stall? Knowing the duration distinguishes "vLLM is down" (fails
-                        // in <1s) from "OpenRouter routing storm" (fails at exactly
-                        // ST's ~120s HTTP timeout). The provider/items context narrows
-                        // where in the call chain it died: ST request → embedding
-                        // provider call → Qdrant upsert.
-                        if (debugOn) {
-                            const elapsed = ((performance.now() - attemptStart) / 1000).toFixed(1);
-                            log.warn(
-                                `VectFox: insert batch ${batchIdx}/${batches.length} attempt ${attemptCount}/${RETRY_CONFIG.maxAttempts} FAILED after ${elapsed}s — ${err?.name || 'Error'}: ${err?.message || err} (provider=${settings.embedding_provider}, items=${batchItemCount})`,
-                            );
-                        }
-                        throw err;
-                    }
-                }, RETRY_CONFIG);
-            };
-
-            if (shouldParallelSplit) {
-                // Parallel waves of up to MAX_PARALLEL concurrent inserts. Each batch is 1
-                // item with its own RETRY_CONFIG budget. Promise.allSettled lets all in-flight
-                // finish even if one fails — successful ones are durable in Qdrant. If any
-                // failed after retries, throw composite so the coordinator marks the WHOLE
-                // batch failed (windows stay unmarked; resume re-extracts and hash-deterministic
-                // upsert idempotently re-inserts the already-durable items).
-                const MAX_PARALLEL = 16;
-                for (let wave = 0; wave < batches.length; wave += MAX_PARALLEL) {
-                    const slice = batches.slice(wave, wave + MAX_PARALLEL);
-                    const results = await Promise.allSettled(
-                        slice.map((batch, idx) => {
-                            const processBatch = makeProcessBatch(batch, wave + idx + 1, batch.length);
-                            return processBatch();
-                        }),
-                    );
-                    const failed = results.filter(r => r.status === 'rejected');
-                    if (failed.length > 0) {
-                        const sample = failed[0].reason;
-                        // Hedge-fatal propagation: if ANY of the wave's failures hit hedge-fatal
-                        // (4 fresh-connection attempts, in up to 60s, with no success), the upstream is
-                        // genuinely broken for our payload. Propagating isHedgeFatal lets the
-                        // outer _insertWithRetry (eventbase-workflow.js) stop instead of re-running
-                        // a wave that is certain to fail the same way: without it, the composite
-                        // Error would hide the flag and the outer retry would run the whole
-                        // hedged wave 3 times, ~36 minutes in all.
-                        const anyHedgeFatal = failed.some(f => f.reason?.isHedgeFatal === true);
-                        const composite = new Error(
-                            `VectFox: ${failed.length}/${slice.length} parallel inserts in wave failed — first failure: ${sample?.name || 'Error'}: ${sample?.message || sample}`,
-                        );
-                        if (anyHedgeFatal) {
-                            composite.name = 'HedgeFatalError';
-                            composite.isHedgeFatal = true;
-                        }
-                        throw composite;
-                    }
-                    if (onProgress) {
-                        onProgress(Math.min(wave + slice.length, items.length), items.length);
-                    }
-                }
-            } else {
-                // Existing serial path — preserves rate-limited and local-GPU semantics.
-                for (let i = 0; i < batches.length; i++) {
-                    const processBatch = makeProcessBatch(batches[i], i + 1, batches[i].length);
-                    if (hasRateLimit) {
-                        await dynamicRateLimiter.execute(processBatch, settings);
+        // Factored-out per-batch retry+log closure shared by serial and parallel paths.
+        // Each invocation gets its OWN attempt counter and timing — under parallel-split
+        // the per-item logs interleave but each line carries `batch X/Y` so they remain
+        // attributable.
+        const makeProcessBatch = (batch, batchIdx, batchItemCount) => async () => {
+            let attemptCount = 0;
+            await retry(async () => {
+                attemptCount++;
+                const attemptStart = performance.now();
+                const debugOn = log.enabled('verbose');
+                log.verbose(
+                    `VectFox: insert batch ${batchIdx}/${batches.length} attempt ${attemptCount}/${RETRY_CONFIG.maxAttempts} — POST ${batchItemCount} item(s) via ${settings.embedding_provider}${hedgeEnabled ? ' [hedge armed]' : ''}`,
+                );
+                try {
+                    if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
+                    const insertCall = () => backend.insertVectorItems(collectionId, batch, settings, abortSignal);
+                    if (hedgeEnabled) {
+                        await callWithHedge(insertCall, hedgeAfterMs, HEDGE_MAX_COUNT, {
+                            debugOn,
+                            batchIdx,
+                            totalBatches: batches.length,
+                            provider: settings.embedding_provider,
+                        });
                     } else {
-                        await processBatch();
+                        await insertCall();
                     }
-                    if (onProgress) {
-                        const embeddedCount = (i + 1) * BATCH_SIZE;
-                        const actualEmbedded = Math.min(embeddedCount, items.length);
-                        onProgress(actualEmbedded, items.length);
+                    if (attemptCount > 1) {
+                        const elapsed = ((performance.now() - attemptStart) / 1000).toFixed(1);
+                        log.verbose(
+                            `VectFox: insert batch ${batchIdx}/${batches.length} attempt ${attemptCount} succeeded after ${elapsed}s`,
+                        );
                     }
+                } catch (err) {
+                    // Per-attempt failure log with elapsed time + provider + batch size.
+                    // Without elapsed, "TimeoutError: signal timed out" tells you
+                    // nothing — was it a fast connection refusal or a 120s upstream
+                    // stall? Knowing the duration distinguishes "vLLM is down" (fails
+                    // in <1s) from "OpenRouter routing storm" (fails at exactly
+                    // ST's ~120s HTTP timeout). The provider/items context narrows
+                    // where in the call chain it died: ST request → embedding
+                    // provider call → Qdrant upsert.
+                    if (debugOn) {
+                        const elapsed = ((performance.now() - attemptStart) / 1000).toFixed(1);
+                        log.warn(
+                            `VectFox: insert batch ${batchIdx}/${batches.length} attempt ${attemptCount}/${RETRY_CONFIG.maxAttempts} FAILED after ${elapsed}s — ${err?.name || 'Error'}: ${err?.message || err} (provider=${settings.embedding_provider}, items=${batchItemCount})`,
+                        );
+                    }
+                    throw err;
+                }
+            }, RETRY_CONFIG);
+        };
+
+        if (shouldParallelSplit) {
+            // Parallel waves of up to MAX_PARALLEL concurrent inserts. Each batch is 1
+            // item with its own RETRY_CONFIG budget. Promise.allSettled lets all in-flight
+            // finish even if one fails — successful ones are durable in Qdrant. If any
+            // failed after retries, throw composite so the coordinator marks the WHOLE
+            // batch failed (windows stay unmarked; resume re-extracts and hash-deterministic
+            // upsert idempotently re-inserts the already-durable items).
+            const MAX_PARALLEL = 16;
+            for (let wave = 0; wave < batches.length; wave += MAX_PARALLEL) {
+                const slice = batches.slice(wave, wave + MAX_PARALLEL);
+                const results = await Promise.allSettled(
+                    slice.map((batch, idx) => {
+                        const processBatch = makeProcessBatch(batch, wave + idx + 1, batch.length);
+                        return processBatch();
+                    }),
+                );
+                const failed = results.filter(r => r.status === 'rejected');
+                if (failed.length > 0) {
+                    const sample = failed[0].reason;
+                    // Hedge-fatal propagation: if ANY of the wave's failures hit hedge-fatal
+                    // (4 fresh-connection attempts, in up to 60s, with no success), the upstream is
+                    // genuinely broken for our payload. Propagating isHedgeFatal lets the
+                    // outer _insertWithRetry (eventbase-workflow.js) stop instead of re-running
+                    // a wave that is certain to fail the same way: without it, the composite
+                    // Error would hide the flag and the outer retry would run the whole
+                    // hedged wave 3 times, ~36 minutes in all.
+                    const anyHedgeFatal = failed.some(f => f.reason?.isHedgeFatal === true);
+                    const composite = new Error(
+                        `VectFox: ${failed.length}/${slice.length} parallel inserts in wave failed — first failure: ${sample?.name || 'Error'}: ${sample?.message || sample}`,
+                    );
+                    if (anyHedgeFatal) {
+                        composite.name = 'HedgeFatalError';
+                        composite.isHedgeFatal = true;
+                    }
+                    throw composite;
+                }
+                if (onProgress) {
+                    onProgress(Math.min(wave + slice.length, items.length), items.length);
+                }
+            }
+        } else {
+            // Existing serial path — preserves rate-limited and local-GPU semantics.
+            for (let i = 0; i < batches.length; i++) {
+                const processBatch = makeProcessBatch(batches[i], i + 1, batches[i].length);
+                if (hasRateLimit) {
+                    await dynamicRateLimiter.execute(processBatch, settings);
+                } else {
+                    await processBatch();
+                }
+                if (onProgress) {
+                    const embeddedCount = (i + 1) * BATCH_SIZE;
+                    const actualEmbedded = Math.min(embeddedCount, items.length);
+                    onProgress(actualEmbedded, items.length);
                 }
             }
         }
@@ -649,109 +614,6 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
         recordError(settings?.vector_backend || 'standard', error);
         throw error;
     }
-}
-
-/**
- * Stream embeddings and write to database as batches complete
- * @param {object} backend - The backend instance
- * @param {string} collectionId - Collection ID
- * @param {Array} items - Original items
- * @param {string[]} textStrings - Text strings extracted from items
- * @param {object} settings - Settings object
- * @param {Function} onProgress - Progress callback
- */
-async function streamEmbeddingsAndWrite(backend, collectionId, items, textStrings, settings, onProgress, abortSignal = null) {
-    // VEC-6: Use configurable batch size for optimized bulk inserts
-    const EMBEDDING_BATCH_SIZE = settings.insert_batch_size || 50;
-    let totalProcessed = 0;
-    const totalBatches = Math.ceil(textStrings.length / EMBEDDING_BATCH_SIZE);
-
-    log.lifecycle(`VectFox: Streaming ${items.length} items in ${totalBatches} batch(es) of up to ${EMBEDDING_BATCH_SIZE}`);
-
-    // Process embeddings in batches
-    for (let i = 0; i < textStrings.length; i += EMBEDDING_BATCH_SIZE) {
-        const batchEnd = Math.min(i + EMBEDDING_BATCH_SIZE, textStrings.length);
-        const batchTextStrings = textStrings.slice(i, batchEnd);
-        const batchItems = items.slice(i, batchEnd);
-        const batchNum = Math.floor(i / EMBEDDING_BATCH_SIZE) + 1;
-
-        log.verbose(`VectFox: Embedding batch ${batchNum}/${totalBatches} (items ${i + 1}-${batchEnd})`);
-
-        // VEC-6: Retry logic per batch instead of per chunk
-        let additionalArgs;
-        try {
-            additionalArgs = await retry(async () => {
-                return await getAdditionalArgs();
-            }, RETRY_CONFIG);
-        } catch (error) {
-            // A wrong/unreachable embedding URL surfaces here, NOT at the DB-write
-            // step below — so a connection failure must be reported as an embedder
-            // problem, not a storage one (the #4/#5 conflation). Resolve the
-            // configured embedding URL (URL-based providers only) for the toast.
-            if (isConnectionError(error?.message)) {
-                let embedUrl = null;
-                try { embedUrl = resolveProviderApiUrl(settings, settings.embedding_provider) || null; } catch (_) { /* not a URL provider */ }
-                notifyConnectionError('Embedding', embedUrl, error.message);
-            }
-            throw Object.assign(
-                new Error(`VectFox: Failed to generate embeddings for batch ${batchNum} after retries: ${error.message}`),
-                { code: 'embedding_generation_failed' },
-            );
-        }
-
-        if (!additionalArgs.embeddings) {
-            throw new Error(`VectFox: No embeddings returned from ${settings.embedding_provider} for batch ${batchNum}`);
-        }
-
-        // Attach embeddings to items and validate
-        let missingEmbeddings = 0;
-        const itemsToWrite = [];
-
-        for (let j = 0; j < batchItems.length; j++) {
-            const text = batchTextStrings[j];
-            const embedding = additionalArgs.embeddings[text];
-
-            if (embedding && Array.isArray(embedding) && embedding.length > 0) {
-                // Validate embedding values
-                const isValidEmbedding = embedding.every(val => typeof val === 'number' && !isNaN(val));
-                if (!isValidEmbedding) {
-                    log.error(`VectFox: Invalid embedding values for item ${i + j}:`, embedding.slice(0, 5));
-                    missingEmbeddings++;
-                    continue;
-                }
-                batchItems[j].vector = embedding;
-                itemsToWrite.push(batchItems[j]);
-            } else {
-                missingEmbeddings++;
-                log.warn(`VectFox: No embedding found for item ${i + j}, text: "${text.substring(0, 50)}..."`);
-            }
-        }
-
-        if (missingEmbeddings > 0) {
-            throw new Error(`VectFox: Failed to generate embeddings for ${settings.embedding_provider} - ${missingEmbeddings} items missing in batch`);
-        }
-
-        // VEC-6: Write batch to database with retry logic
-        log.verbose(`VectFox: Writing batch ${batchNum} to database (${itemsToWrite.length} items)`);
-        try {
-            await retry(async () => {
-                if (abortSignal?.aborted) throw Object.assign(new Error('Vectorization stopped by user'), { name: 'AbortError' });
-                await backend.insertVectorItems(collectionId, itemsToWrite, settings, abortSignal);
-            }, RETRY_CONFIG);
-        } catch (error) {
-            throw new Error(`VectFox: Failed to write batch ${batchNum} to database after retries: ${error.message}`);
-        }
-
-        totalProcessed += itemsToWrite.length;
-
-        // Update progress
-        if (onProgress) {
-            log.verbose(`[Core Vector API] Streamed ${totalProcessed}/${items.length} (${Math.round((totalProcessed / items.length) * 100)}%)`);
-            onProgress(totalProcessed, items.length);
-        }
-    }
-
-    log.lifecycle(`VectFox: Completed streaming ${totalProcessed} items to database`);
 }
 
 /**
@@ -837,27 +699,6 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     const backend = resolved.backend
         ? await getBackendForCollection(resolved.backend, settings)
         : await getBackend(settings);
-
-    // Sources that require client-side embedding generation
-    const clientSideEmbeddingSources = ['koboldcpp'];
-
-    // If source requires client-side embeddings, generate query vector
-    if (!queryVector && clientSideEmbeddingSources.includes(settings.embedding_provider)) {
-        try {
-            const additionalArgs = await getAdditionalArgs();
-            // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
-            if (additionalArgs.embeddings && additionalArgs.embeddings[searchText]) {
-                queryVector = additionalArgs.embeddings[searchText];
-                log.verbose(`[EventBase] Embedding model (${settings.embedding_provider}) returned vector: dim=${queryVector.length}, first5=[${queryVector.slice(0, 5).map(v => v.toFixed(4)).join(', ')}], last5=[${queryVector.slice(-5).map(v => v.toFixed(4)).join(', ')}], model=${additionalArgs.model || 'n/a'}`);
-            } else {
-                // VEC-35: Fallback to server-side embedding instead of failing completely
-                log.warn(`[VectFox] Client-side embedding generation returned empty result for ${settings.embedding_provider}, falling back to server-side embedding`);
-            }
-        } catch (clientEmbedError) {
-            // VEC-35: Fallback to server-side embedding when client-side fails
-            log.warn(`[VectFox] Client-side embedding failed for ${settings.embedding_provider}: ${clientEmbedError.message}. Falling back to server-side embedding.`);
-        }
-    }
 
     // Backend name for metrics — resolved backend wins, fall back to settings.
     const actualBackendName = resolved.backend || settings?.vector_backend || 'standard';
@@ -1019,7 +860,6 @@ function keepScoresAtOrAbove(results, threshold) {
 
 /**
  * Queries multiple collections for a given text.
- * For client-side embedding sources, generates query embedding once and reuses for all collections.
  * @param {string[]} collectionIds - Collection IDs to query
  * @param {string} searchText - Text to query
  * @param {number} topK - Number of results to return
@@ -1031,28 +871,6 @@ function keepScoresAtOrAbove(results, threshold) {
  */
 export async function queryMultipleCollections(collectionIds, searchText, topK, threshold, settings) {
     const backend = await getBackend(settings);
-
-    // Sources that require client-side embedding generation
-    const clientSideEmbeddingSources = ['koboldcpp'];
-    let queryVector = null;
-
-    // Generate query vector once for all collections (efficiency)
-    if (clientSideEmbeddingSources.includes(settings.embedding_provider)) {
-        try {
-            // getAdditionalArgs expects string[], not objects
-            const additionalArgs = await getAdditionalArgs();
-            // additionalArgs.embeddings is a Record<string, number[]> where keys are original text
-            if (additionalArgs.embeddings && additionalArgs.embeddings[searchText]) {
-                queryVector = additionalArgs.embeddings[searchText];
-            } else {
-                // VEC-35: Fallback to server-side embedding instead of failing completely
-                log.warn(`[VectFox] Client-side embedding generation returned empty result for ${settings.embedding_provider}, falling back to server-side embedding`);
-            }
-        } catch (clientEmbedError) {
-            // VEC-35: Fallback to server-side embedding when client-side fails
-            log.warn(`[VectFox] Client-side embedding failed for ${settings.embedding_provider}: ${clientEmbedError.message}. Falling back to server-side embedding.`);
-        }
-    }
 
     // Three-case routing (mirrors queryCollection):
     //   A3/A2 — native or client-side hybrid per collection
@@ -1072,7 +890,7 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
                 const queryStart = Date.now();
                 // A hybrid search asks the backend for every candidate, so the threshold applies here, to each
                 // result's 0-1 score (cosine on the native path).
-                processedResults[collectionId] = keepScoresAtOrAbove(await hybridSearch(collectionId, searchText, topK, settings, { queryVector }), threshold);
+                processedResults[collectionId] = keepScoresAtOrAbove(await hybridSearch(collectionId, searchText, topK, settings), threshold);
                 const queryLatency = Date.now() - queryStart;
                 recordQuery(settings?.vector_backend || 'standard', queryLatency);
             } catch (error) {
@@ -1091,7 +909,7 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
     const queryStart = Date.now();
     let rawResults;
     try {
-        rawResults = await backend.queryMultipleCollections(collectionIds, searchText, overfetchAmount, threshold, settings, queryVector);
+        rawResults = await backend.queryMultipleCollections(collectionIds, searchText, overfetchAmount, threshold, settings);
         const queryLatency = Date.now() - queryStart;
         recordQuery(settings?.vector_backend || 'standard', queryLatency);
     } catch (error) {

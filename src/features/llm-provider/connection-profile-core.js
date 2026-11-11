@@ -6,6 +6,7 @@
  */
 
 import { connectionProfileAvailabilityProblem } from '../../shared/connection-profile-availability.js';
+import { connectionProfileKeyMessage, namesKeyProblem } from '../../shared/connection-profile-key-failure.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getModelConfigErrorMessage } from '../../shared/model-http-errors.js';
 import { isConnectionError } from '../../shared/model-config-notifier.js';
@@ -110,17 +111,6 @@ export function connectionProfileProblem({ feature, page, profileId, isManagerAv
     return '';
 }
 
-/** The key toast's two messages (plan §4), by whether the profile stores a key. */
-export function connectionProfileKeyMessage({ feature, profileName, storesKey }) {
-    return storesKey
-        ? `${feature}: the provider rejected the API key for profile "${profileName}", or that key was deleted in SillyTavern. `
-            + 'Check the key saved in that profile in SillyTavern.'
-        : `${feature}: the provider needs an API key, and profile "${profileName}" stores none, so VectFox sent none. `
-            + 'Select the key in SillyTavern and update the profile.';
-}
-
-const KEY_PROBLEM = /unauthorized|authori[sz]ation|api key|api_key|apikey|authentication|credential/i;
-
 // What SillyTavern's server says when the reply it got could not be read as JSON: Node's own parse errors, and
 // node-fetch's.
 const NOT_AN_API_REPLY = /is not valid JSON|in JSON at position|Unexpected end of JSON input|invalid json response body/i;
@@ -161,7 +151,7 @@ export function classifyConnectionProfileFailure(error, { feature, profileName, 
                 : connectionProfileKeyMessage({ feature, profileName, storesKey }),
         };
     }
-    if (KEY_PROBLEM.test(detail)) {
+    if (namesKeyProblem(detail)) {
         return { kind: 'model_config', detail, message: connectionProfileKeyMessage({ feature, profileName, storesKey }) };
     }
     if (NOT_AN_API_REPLY.test(detail)) {

@@ -29,12 +29,15 @@ import { extension_settings } from '../../sillytavern/settings.js';
 import { oai_settings } from '../../sillytavern/connection-settings.js';
 import { VectorBackend } from './backend-interface.js';
 import {
+    embeddingProfileKind,
+    embeddingProfileRequestFields,
     getModelFromSettings,
+    refuseSillyTavernEmbeddingRoute,
     resolveProviderApiUrl,
+    throwIfEmbeddingConfigError,
     warnIfEmbeddingSlow,
     fetchQueryEmbedding,
 } from '../embedding/index.js';
-import { throwIfModelConfigError } from '../../shared/model-http-errors.js';
 import { INTERNAL_COLLECTION_IDS } from '../../shared/collection-ids.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { log } from '../../sillytavern/log.js';
@@ -42,12 +45,14 @@ import { chunkPayload } from './stored-chunk.js';
 
 
 /**
- * Build provider-specific parameters for API requests.
+ * Build provider-specific parameters for API requests: a URL-based provider's server URL, and on a llama.cpp,
+ * KoboldCPP or Custom profile its key's ID.
  * @param {object} settings - VectFox settings
  * @param {boolean} isQuery - Whether this is a query operation
- * @returns {object} Provider-specific parameters
+ * @returns {Promise<object>} Provider-specific parameters
+ * @throws {Error} With `code: 'invalid_model_config'`, when embedding runs on a profile that cannot be used
  */
-function getProviderSpecificParams(settings, isQuery = false) {
+async function getProviderSpecificParams(settings, isQuery = false) {
     const params = {};
     const source = settings.embedding_provider;
 
@@ -64,11 +69,6 @@ function getProviderSpecificParams(settings, isQuery = false) {
         case 'ollama':
             params.apiUrl = resolveProviderApiUrl(settings, 'ollama');
             params.keep = !!settings.ollama_keep;
-            break;
-
-        case 'llamacpp':
-            params.apiUrl = resolveProviderApiUrl(settings, 'llamacpp');
-            log.verbose(`VectFox DEBUG llamacpp: final apiUrl="${params.apiUrl}"`);
             break;
 
         case 'vllm':
@@ -95,8 +95,12 @@ function getProviderSpecificParams(settings, isQuery = false) {
             break;
     }
 
-    return params;
+    return { ...params, ...(await embeddingProfileRequestFields(settings)) };
 }
+
+// What a llama.cpp, KoboldCPP or Custom profile's user does when the Standard backend would send it to SillyTavern's
+// own routes: the backend decided at startup that no plugin was there, and only a reload looks again.
+const RELOAD_FOR_PLUGIN = 'The Standard backend started without finding Similharity, so reload the page to let it find the plugin.';
 
 // ----------------------------------------------------------------------------
 // Per-collection coalesce + queue for plugin safety
@@ -193,7 +197,7 @@ export class StandardBackend extends VectorBackend {
      * Uses native ST API
      */
     async getSavedHashes(collectionId, settings) {
-        const providerParams = getProviderSpecificParams(settings, false);
+        const providerParams = await getProviderSpecificParams(settings, false);
         const model = getModelFromSettings(settings);
 
         const response = await fetch('/api/vector/list', {
@@ -336,7 +340,7 @@ export class StandardBackend extends VectorBackend {
     async _insertVectorItemsImpl(collectionId, items, settings, abortSignal = null) {
         if (items.length === 0) return;
 
-        const providerParams = getProviderSpecificParams(settings, false);
+        const providerParams = await getProviderSpecificParams(settings, false);
         const model = getModelFromSettings(settings);
 
         // Log chunk statistics for debugging OOM issues
@@ -366,6 +370,7 @@ export class StandardBackend extends VectorBackend {
             // Try plugin API first (supports metadata) - fallback to native API if unavailable
             log.verbose('VectFox DEBUG: this.pluginAvailable =', this.pluginAvailable);
             let usePluginApi = this.pluginAvailable;
+            if (!usePluginApi) refuseSillyTavernEmbeddingRoute(settings.embedding_provider, RELOAD_FOR_PLUGIN);
             let endpoint = usePluginApi ? '/api/plugins/similharity/chunks/insert' : '/api/vector/insert';
 
             log.verbose(`VectFox DEBUG: Using ${usePluginApi ? 'PLUGIN' : 'NATIVE'} API for insertion (${endpoint})`);
@@ -405,7 +410,7 @@ export class StandardBackend extends VectorBackend {
                 })),
                 source: settings.embedding_provider || 'transformers',
                 model: model,
-                // Pass embeddings if pre-computed (for koboldcpp)
+                // Embeddings the items already carry, so the server embeds none of them again
                 embeddings: items[0]?.vector ? Object.fromEntries(items.map(i => [
                     i.text || '',
                     i.vector
@@ -461,14 +466,7 @@ export class StandardBackend extends VectorBackend {
                 // The plugin embeds server-side, so a retired/unknown embedding model
                 // surfaces here in the forwarded body — often wrapped as 500, hence
                 // enforceStatusGate:false. Surface it instead of silently failing ingestion.
-                throwIfModelConfigError({
-                    contextLabel: 'Embedding',
-                    provider: settings.embedding_provider,
-                    model,
-                    status: response.status,
-                    responseText: errorBody,
-                    enforceStatusGate: false,
-                });
+                throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
                 throw new Error(`Failed to insert vectors: ${response.status} - ${errorBody} (sent body size: ${sizeKB} KB)`);
             }
 
@@ -531,7 +529,7 @@ export class StandardBackend extends VectorBackend {
         }
 
         // Fallback: native ST API
-        const providerParams = getProviderSpecificParams(settings, false);
+        const providerParams = await getProviderSpecificParams(settings, false);
         const response = await fetch('/api/vector/delete', {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -561,7 +559,7 @@ export class StandardBackend extends VectorBackend {
      */
     async embedQuery(searchText, settings) {
         if (!this.pluginAvailable) return null;
-        return fetchQueryEmbedding(searchText, settings, getProviderSpecificParams(settings, true));
+        return fetchQueryEmbedding(searchText, settings, await getProviderSpecificParams(settings, true));
     }
 
     /**
@@ -601,7 +599,7 @@ export class StandardBackend extends VectorBackend {
                 // Without this the plugin defaulted to http://localhost:8000, which
                 // hit SillyTavern itself and failed CSRF (GitHub issue #7). Matches
                 // the insert path and the qdrant backend's query body.
-                ...getProviderSpecificParams(settings, true),
+                ...(await getProviderSpecificParams(settings, true)),
             };
             // Pass pre-computed vector when available; otherwise let the plugin generate it
             if (queryVector) {
@@ -623,14 +621,7 @@ export class StandardBackend extends VectorBackend {
             if (!response.ok) {
                 const errorBody = await response.text().catch(() => 'No response body');
                 log.error(`[VectFox] plugin query failed: ${errorBody}`);
-                throwIfModelConfigError({
-                    contextLabel: 'Embedding',
-                    provider: settings.embedding_provider,
-                    model,
-                    status: response.status,
-                    responseText: errorBody,
-                    enforceStatusGate: false,
-                });
+                throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
                 throw new Error(`Failed to query collection (plugin): ${response.status} ${response.statusText} - ${errorBody}`);
             }
 
@@ -654,7 +645,8 @@ export class StandardBackend extends VectorBackend {
         // Fallback: native ST API (used when plugin is not available)
         // Note: does NOT include model subfolder — only works for collections
         // vectorized via the native API.
-        const providerParams = getProviderSpecificParams(settings, true);
+        refuseSillyTavernEmbeddingRoute(source, RELOAD_FOR_PLUGIN);
+        const providerParams = await getProviderSpecificParams(settings, true);
         const requestBody = {
             collectionId: bareCollectionId,
             searchText,
@@ -677,14 +669,7 @@ export class StandardBackend extends VectorBackend {
 
         if (!response.ok) {
             const errorBody = await response.text().catch(() => 'No response body');
-            throwIfModelConfigError({
-                contextLabel: 'Embedding',
-                provider: settings.embedding_provider,
-                model,
-                status: response.status,
-                responseText: errorBody,
-                enforceStatusGate: false,
-            });
+            throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
             throw new Error(`Failed to query collection: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -703,11 +688,15 @@ export class StandardBackend extends VectorBackend {
     }
 
     /**
-     * Query multiple collections
-     * Uses native ST API
+     * Query multiple collections through SillyTavern's own /api/vector/query-multi, which works with or without the
+     * plugin. A llama.cpp, KoboldCPP or Custom profile instead embeds the text once through the plugin and queries
+     * each collection there, since SillyTavern's route takes no key ID.
      */
     async queryMultipleCollections(collectionIds, searchText, topK, threshold, settings, queryVector = null) {
-        const providerParams = getProviderSpecificParams(settings, true);
+        if (embeddingProfileKind(settings.embedding_provider)?.sendsKeyId) {
+            return this._queryEachCollectionThroughPlugin(collectionIds, searchText, topK, threshold, settings, queryVector);
+        }
+        const providerParams = await getProviderSpecificParams(settings, true);
         const model = getModelFromSettings(settings);
 
         const requestBody = {
@@ -751,6 +740,27 @@ export class StandardBackend extends VectorBackend {
         }
 
         return await response.json();
+    }
+
+    /**
+     * Query several collections one by one through the plugin, on one query vector, for a provider SillyTavern's own
+     * routes cannot carry. A failure to embed the text, a rejected key included, stops the whole search; a collection
+     * that fails to answer keeps its error, as query-multi's fallback does.
+     */
+    async _queryEachCollectionThroughPlugin(collectionIds, searchText, topK, threshold, settings, queryVector) {
+        if (!this.pluginAvailable) refuseSillyTavernEmbeddingRoute(settings.embedding_provider, RELOAD_FOR_PLUGIN);
+        const vector = queryVector ?? await this.embedQuery(searchText, settings);
+        const searchSettings = { ...settings, score_threshold: threshold };
+        const results = {};
+        for (const collectionId of collectionIds) {
+            try {
+                results[collectionId] = await this.queryCollection(collectionId, searchText, topK, searchSettings, vector);
+            } catch (error) {
+                log.error(`VectFox: Query failed for collection ${collectionId}:`, error);
+                results[collectionId] = { hashes: [], metadata: [], error: error.message };
+            }
+        }
+        return results;
     }
 
     /**

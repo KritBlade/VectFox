@@ -28,6 +28,7 @@ const { checkApiUrls, checkEmbeddingProvider } = await import('../src/features/d
 const CONNECT_API_MAP = {
     ollama: { selected: 'textgenerationwebui', type: 'ollama' },
     custom: { selected: 'openai', source: 'custom' },
+    openrouter: { selected: 'openai', source: 'openrouter' },
 };
 const HARBOR = { id: 'p-harbor', name: 'Harbor Ollama', api: 'ollama', 'api-url': 'http://harbor:11434', model: 'harbor-embed' };
 
@@ -60,7 +61,7 @@ describe('embedding on an Ollama profile', () => {
         expect(resolveProviderApiUrl(onProfile())).toBe('http://harbor:11434');
         expect(resolveProviderApiUrl(onProfile(), 'ollama')).toBe('http://harbor:11434');
         expect(getModelFromSettings(onProfile())).toBe('harbor-embed');
-        expect(resolveEmbeddingProfile(onProfile())).toEqual({ profileName: 'Harbor Ollama', url: 'http://harbor:11434', model: 'harbor-embed', problem: '' });
+        expect(resolveEmbeddingProfile(onProfile())).toEqual({ profileName: 'Harbor Ollama', url: 'http://harbor:11434', model: 'harbor-embed', storesKey: false, problem: '' });
     });
 
     it('sends the profile\'s URL and model on a query and an insert, with Keep model in memory', async () => {
@@ -83,7 +84,8 @@ describe('an Ollama profile that cannot be used', () => {
     const BROKEN = {
         'deleted in SillyTavern': [() => { host.profiles = []; }, 'Embedding: its connection profile was deleted in SillyTavern. Choose another on the Core page.'],
         'while the Connection Manager is off': [() => { host.disabledExtensions = ['connection-manager']; }, /^Embedding: SillyTavern's Connection Manager extension is off/],
-        'of another type': [() => { host.profiles = [{ ...HARBOR, api: 'custom' }]; }, /^Embedding: profile "Harbor Ollama" \(API "custom"\) cannot embed/],
+        'of a type embedding does not run on': [() => { host.profiles = [{ ...HARBOR, api: 'openrouter' }]; }, /^Embedding: profile "Harbor Ollama" \(API "openrouter"\) cannot embed/],
+        'changed to another type in SillyTavern': [() => { host.profiles = [{ ...HARBOR, api: 'custom' }]; }, /^Embedding: profile "Harbor Ollama" is now a Custom profile, and embedding was set up on it as Ollama\./],
         'naming no server URL': [() => { host.profiles = [{ ...HARBOR, 'api-url': ' ' }]; }, 'Embedding: profile "Harbor Ollama" names no server URL. Set one in that profile in SillyTavern.'],
         'naming no model': [() => { host.profiles = [{ ...HARBOR, model: '' }]; }, 'Embedding: profile "Harbor Ollama" names no model. Choose an embedding model in that profile in SillyTavern.'],
     };

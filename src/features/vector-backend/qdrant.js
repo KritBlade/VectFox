@@ -30,12 +30,13 @@
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { VectorBackend } from './backend-interface.js';
 import {
+    embeddingProfileRequestFields,
     getModelFromSettings,
     resolveProviderApiUrl,
+    throwIfEmbeddingConfigError,
     warnIfEmbeddingSlow,
     fetchQueryEmbedding,
 } from '../embedding/index.js';
-import { throwIfModelConfigError } from '../../shared/model-http-errors.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { VECTOR_LIST_LIMIT } from '../../shared/constants.js';
 import { getQdrantApiKey } from '../../shared/api-keys.js';
@@ -126,7 +127,15 @@ function _embedTimeoutHint(settings) {
 const MULTITENANCY_COLLECTION = 'vectfox_main';
 
 
-function getPluginProviderParams(settings) {
+/**
+ * The embedding fields a plugin request carries besides the source and model: a URL-based provider's server URL,
+ * Ollama's Keep model in memory, and on a llama.cpp, KoboldCPP or Custom profile its key's ID.
+ *
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<object>}
+ * @throws {Error} With `code: 'invalid_model_config'`, when embedding runs on a profile that cannot be used
+ */
+async function getPluginProviderParams(settings) {
     const params = {};
 
     switch (settings.embedding_provider) {
@@ -145,13 +154,11 @@ function getPluginProviderParams(settings) {
             // SECRET_KEYS.VLLM server-side via setAdditionalHeadersByType.
             // Same rationale as src/features/vector-backend/standard.js — see comment there.
             break;
-        // case 'llamacpp': params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.LLAMACPP]; break;
-        // case 'koboldcpp': params.apiUrl = settings.use_alt_endpoint ? settings.alt_endpoint_url : textgenerationwebui_settings.server_urls[textgen_types.KOBOLDCPP]; break;
         default:
             break;
     }
 
-    return params;
+    return { ...params, ...(await embeddingProfileRequestFields(settings)) };
 }
 
 /**
@@ -398,7 +405,7 @@ export class QdrantBackend extends VectorBackend {
                     model: getModelFromSettings(settings),
                     nativeSparse: true,
                     cjkTokenizerMode: settings.cjk_tokenizer_mode,
-                    ...getPluginProviderParams(settings),
+                    ...(await getPluginProviderParams(settings)),
                 }),
             });
 
@@ -417,14 +424,7 @@ export class QdrantBackend extends VectorBackend {
                     throw err;
                 }
 
-                throwIfModelConfigError({
-                    contextLabel: 'Embedding',
-                    provider: settings.embedding_provider,
-                    model: getModelFromSettings(settings),
-                    status: response.status,
-                    responseText: errorBody,
-                    enforceStatusGate: false,
-                });
+                throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
                 throw new Error(`[Qdrant] Failed to insert ${items.length} vectors into ${actualCollectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
             }
 
@@ -491,7 +491,7 @@ export class QdrantBackend extends VectorBackend {
             source: settings.embedding_provider || 'transformers',
             model: getModelFromSettings(settings),
             eventbaseDebug: !!settings.eventbase_debug_qdrant_backend,
-            ...getPluginProviderParams(settings),
+            ...(await getPluginProviderParams(settings)),
         };
 
     //Use queryVector if provided, otherwise searchText
@@ -534,14 +534,7 @@ export class QdrantBackend extends VectorBackend {
             const errorBody = await response.text().catch(() => 'No response body');
             const failMs = (performance.now() - tNetStart).toFixed(1);
             log.warn(`[Qdrant timing] queryCollection FAILED after ${failMs}ms (HTTP ${response.status}).${embedHint} Server said: ${errorBody.slice(0, 300)}`);
-            throwIfModelConfigError({
-                contextLabel: 'Embedding',
-                provider: settings.embedding_provider,
-                model: getModelFromSettings(settings),
-                status: response.status,
-                responseText: errorBody,
-                enforceStatusGate: false,
-            });
+            throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
             throw new Error(`[Qdrant] Failed to query collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -590,7 +583,7 @@ export class QdrantBackend extends VectorBackend {
                     threshold: threshold,
                     source: settings.embedding_provider || 'transformers',
                     model: getModelFromSettings(settings),
-                    ...getPluginProviderParams(settings),
+                    ...(await getPluginProviderParams(settings)),
                 };
 
 
@@ -822,7 +815,7 @@ export class QdrantBackend extends VectorBackend {
      * @returns {Promise<number[]>}
      */
     async embedQuery(searchText, settings) {
-        return fetchQueryEmbedding(searchText, settings, getPluginProviderParams(settings));
+        return fetchQueryEmbedding(searchText, settings, await getPluginProviderParams(settings));
     }
 
     /**
@@ -926,7 +919,7 @@ export class QdrantBackend extends VectorBackend {
                 prefetchLimit,
             },
             sparseQueryVector,
-            ...getPluginProviderParams(settings),
+            ...(await getPluginProviderParams(settings)),
         };
 
         // Multitenancy's content_type travels in the plugin's filters field,
@@ -1076,7 +1069,7 @@ export class QdrantBackend extends VectorBackend {
             },
             sparseQueryVector,
             rerankParams,
-            ...getPluginProviderParams(settings),
+            ...(await getPluginProviderParams(settings)),
         };
 
         if (settings.qdrant_multitenancy) {

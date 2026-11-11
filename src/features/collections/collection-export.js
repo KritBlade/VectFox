@@ -34,7 +34,7 @@ import {
     registerCollection,
 } from './collection-loader.js';
 import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from '../../shared/collection-ids.js';
-import { getModelFromSettings } from '../embedding/index.js';
+import { getModelFromSettings, refuseSillyTavernEmbeddingRoute } from '../embedding/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { formatBytes } from '../../shared/byte-size.js';
@@ -398,6 +398,9 @@ export function validateImportData(data, currentSettings = {}) {
  */
 export async function insertChunksWithVectors(collectionId, chunks, settings, onBatchProgress, abortSignal = null) {
     const backendName = settings.vector_backend || 'standard';
+    if (backendName === 'standard') {
+        refuseSillyTavernEmbeddingRoute(settings.embedding_provider, 'An import into the Standard backend goes through SillyTavern\'s own route, so import into Qdrant instead.');
+    }
     const model = getModelFromSettings(settings);
 
     // Batch to avoid 413. Qdrant accepts up to 32 MB per request; live ingestion uses 100
