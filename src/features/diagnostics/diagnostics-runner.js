@@ -11,6 +11,8 @@
  */
 
 import { log } from '../../sillytavern/log.js';
+import { loadExtensionManifest } from '../../shared/extension-manifest.js';
+import { getPluginProbe, refreshPluginProbe } from '../../shared/similharity-plugin.js';
 import {
     checkVectorsExtension,
     checkBackendEndpoints,
@@ -68,43 +70,19 @@ import { cleanupTestCollections } from '../collections/index.js';
 export async function runDiagnostics(settings, includeProductionTests = false) {
     log.lifecycle('VectFox Diagnostics: Running health checks...');
 
-    // Get version information
+    // The running VectFox's version, from its manifest.json.
     let extensionVersion = 'Unknown';
-    let pluginVersion = 'Not installed';
-
-    // Try to get extension version from manifest.json
     try {
-        // Derive the manifest URL from this module's location so it works whatever
-        // folder name the extension is installed under.
-        const manifestUrl = new URL('../../../manifest.json', import.meta.url).href + `?_=${Date.now()}`;
-        log.verbose('VectFox Diagnostics: Fetching manifest from:', manifestUrl);
-        const manifestResponse = await fetch(manifestUrl);
-        log.verbose('VectFox Diagnostics: Manifest response status:', manifestResponse.status);
-        if (manifestResponse.ok) {
-            const manifest = await manifestResponse.json();
-            log.trace('VectFox Diagnostics: Manifest data:', manifest);
-            extensionVersion = manifest.version || 'Unknown';
-            log.verbose('VectFox Diagnostics: Extension version:', extensionVersion);
-        } else {
-            log.warn('VectFox Diagnostics: Manifest fetch failed with status:', manifestResponse.status);
-        }
+        extensionVersion = (await loadExtensionManifest()).version || 'Unknown';
     } catch (error) {
-        log.error('VectFox Diagnostics: Could not fetch manifest.json', error);
+        log.error('VectFox Diagnostics: Could not read manifest.json', error);
     }
 
-    // Try to get plugin version from health endpoint
-    try {
-        const response = await fetch('/api/plugins/similharity/health', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        if (response.ok) {
-            const data = await response.json();
-            pluginVersion = data.version || 'Unknown';
-        }
-    } catch (error) {
-        log.warn('VectFox: plugin version check failed:', error);
-    }
+    // One fresh /health probe for the whole run: the plugin checks below and every other feature read it, so the run
+    // sees the plugin as it is now, not as it was at startup.
+    await refreshPluginProbe();
+    const probe = getPluginProbe();
+    const pluginVersion = probe.version ?? (probe.isFound ? 'Unknown' : 'Not installed');
 
     // Clear the registry and lock-index entries a diagnostic collection left behind
     const testCollectionsCleaned = cleanupTestCollections(isDiagnosticCollection);

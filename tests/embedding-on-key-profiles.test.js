@@ -1,6 +1,6 @@
 /**
  * Embedding on a SillyTavern connection profile of type llama.cpp, KoboldCPP or Custom (connection plan §3, row C7):
- * every request names the profile's URL, and its key's ID only when it stores a key; without Similharity 3.4.0 the
+ * every request names the profile's URL, and its key's ID only when it stores a key; without the Similharity version manifest.json names the
  * request never starts; SillyTavern's own embedding routes, which take no key ID, are never reached; and a key the
  * server rejects raises the key message from every place an embedding request can fail.
  *
@@ -8,6 +8,7 @@
  * real diagnostics checks. SillyTavern's page global, which the connection-profile wrapper reads, and fetch are stubbed.
  */
 
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
@@ -48,14 +49,18 @@ const CUSTOM = { id: 'p-custom', name: 'Lantern Custom', api: 'custom', 'api-url
 // An Ollama profile once saved as Custom, still naming that key: Ollama has no key, so none goes.
 const HARBOR = { id: 'p-harbor', name: 'Harbor Ollama', api: 'ollama', 'api-url': 'http://harbor:11434', model: 'harbor-embed', 'secret-id': 'key-id-left-over' };
 
-const host = vi.hoisted(() => ({ profiles: [], pluginVersion: '3.4.0', embeddingReply: null }));
+// The oldest Similharity VectFox works with, read from manifest.json as VectFox reads it; 3.3.5 is below any floor.
+const MANIFEST = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const FLOOR = MANIFEST.similharity_minimum_version;
+
+const host = vi.hoisted(() => ({ profiles: [], pluginVersion: null, embeddingReply: null }));
 
 const KEY_REFUSAL = '{"error":"llama.cpp embedding: 401 Unauthorized {\\"error\\":{\\"message\\":\\"Invalid API Key\\"}}"}';
 const ok = body => ({ ok: true, status: 200, statusText: 'OK', json: async () => body, text: async () => JSON.stringify(body) });
 
 beforeEach(() => {
     host.profiles = [LLAMA, KOBOLD, CUSTOM, HARBOR];
-    host.pluginVersion = '3.4.0';
+    host.pluginVersion = FLOOR;
     host.embeddingReply = null;
     resetPluginAvailableCache();
     vi.stubGlobal('SillyTavern', {
@@ -66,6 +71,7 @@ beforeEach(() => {
         }),
     });
     vi.stubGlobal('fetch', vi.fn(async (url) => {
+        if (String(url).includes('manifest.json')) return ok(MANIFEST);
         if (url === '/api/plugins/similharity/health') {
             return host.pluginVersion === null
                 ? { ok: false, status: 404, json: async () => ({}), text: async () => 'Not Found' }
@@ -82,7 +88,7 @@ const onProfile = (profile, provider, backend = 'qdrant') => ({
     score_threshold: 0.2, embedding_vllm_url_override: true, embedding_vllm_url: 'http://manual-vllm:8000',
 });
 const embeddingRequests = () => fetch.mock.calls
-    .filter(([url]) => !url.endsWith('/health') && !url.endsWith('/backend/init/vectra'))
+    .filter(([url]) => !String(url).includes('manifest.json') && !url.endsWith('/health') && !url.endsWith('/backend/init/vectra'))
     .map(([url, init]) => ({ url, body: JSON.parse(init.body) }));
 const ITEM = { hash: 52001, index: 0, text: 'Keeper Orrin trims the lighthouse lamp at dusk.', metadata: {} };
 
@@ -98,7 +104,7 @@ const TYPES = [
     ['custom', CUSTOM, { source: 'custom', model: 'lantern-embed', apiUrl: 'https://embed.example.test/v1', secret_id: 'key-id-custom' }],
 ];
 
-describe('a llama.cpp, KoboldCPP or Custom profile, with Similharity 3.4.0', () => {
+describe('a llama.cpp, KoboldCPP or Custom profile, with the Similharity manifest.json names', () => {
     for (const [provider, profile, named] of TYPES) {
         it(`${provider}: a Qdrant query and insert name the profile's URL, and its key ID only when it stores one`, async () => {
             const backend = new QdrantBackend();
@@ -161,12 +167,12 @@ describe('a llama.cpp, KoboldCPP or Custom profile, with Similharity 3.4.0', () 
     });
 });
 
-describe('without Similharity 3.4.0', () => {
+describe('without the Similharity manifest.json names', () => {
     for (const [pluginVersion, found] of [[null, 'SillyTavern has none'], ['3.3.5', 'SillyTavern has Similharity 3.3.5']]) {
         it(`stops every request on a profile that sends its key ID when ${found}, and says why`, async () => {
             host.pluginVersion = pluginVersion;
             const settings = onProfile(CUSTOM, 'custom');
-            const expected = { code: 'invalid_model_config', message: expect.stringContaining(`Similharity plugin 3.4.0 or later, and ${found}.`) };
+            const expected = { code: 'invalid_model_config', message: expect.stringContaining(`Similharity plugin ${FLOOR} or later, and ${found}.`) };
             const backend = new QdrantBackend();
             await expect(backend.embedQuery('Where is the lamp?', settings)).rejects.toMatchObject(expected);
             await expect(backend.insertVectorItems('vf_test_lantern', [ITEM], settings)).rejects.toMatchObject(expected);

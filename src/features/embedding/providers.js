@@ -19,14 +19,7 @@ import {
     findConnectionProfile,
     isConnectionManagerAvailable,
 } from '../../sillytavern/connection-profiles.js';
-import {
-    checkPluginAvailable,
-    getDetectedPluginVersion,
-    isPluginDetected,
-    isSimilharityVersionBehind,
-    PLUGIN_UPDATE_INSTRUCTIONS,
-    SIMILHARITY_MIN_VERSION,
-} from '../../shared/similharity-plugin.js';
+import { checkPluginAvailable, PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../../shared/similharity-plugin.js';
 import { embeddingProfileKind, embeddingProfileProblem } from './embedding-profile-core.js';
 
 /**
@@ -129,15 +122,7 @@ export function getModelField(providerId) {
 
 /** The Similharity plugin SillyTavern has, as a profile that sends a key ID needs it. */
 function similharityForProfileEmbedding() {
-    const isFound = isPluginDetected();
-    const version = getDetectedPluginVersion();
-    return {
-        isFound,
-        version,
-        isCurrent: isFound && Boolean(version) && !isSimilharityVersionBehind(version, SIMILHARITY_MIN_VERSION),
-        requiredVersion: SIMILHARITY_MIN_VERSION,
-        updateInstructions: PLUGIN_UPDATE_INSTRUCTIONS,
-    };
+    return { ...similharityStanding(), updateInstructions: PLUGIN_UPDATE_INSTRUCTIONS };
 }
 
 /**

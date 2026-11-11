@@ -54,6 +54,10 @@ export function embeddingProfileKind(provider) {
 /** Why a provider that needs Similharity cannot run on the plugin SillyTavern has, or '' when it can. */
 function pluginProblem(name, kind, plugin) {
     if (plugin.isCurrent) return '';
+    if (!plugin.requiredVersion) {
+        return `Embedding: profile "${name}" is a ${kind.name} profile, which needs a Similharity version VectFox could not read `
+            + 'from its manifest.json, so no request is sent. The console says why.';
+    }
     const needs = `Embedding: profile "${name}" is a ${kind.name} profile, which embeds only through the Similharity plugin `
         + `${plugin.requiredVersion} or later`;
     if (!plugin.isFound) return `${needs}, and SillyTavern has none. Install Similharity as the VectFox README says.`;
@@ -72,8 +76,8 @@ function pluginProblem(name, kind, plugin) {
  * @param {string|null} facts.profileProvider - The embedding provider the profile's API maps to
  * @param {string} facts.url - The server URL the profile names
  * @param {string} facts.model - The model the profile names
- * @param {{isFound: boolean, version: string|null, isCurrent: boolean, requiredVersion: string, updateInstructions: string}} facts.plugin
- *   The Similharity plugin SillyTavern has, and the version a provider that sends a key ID needs
+ * @param {{isFound: boolean, version: string|null, isCurrent: boolean, requiredVersion: string|null, updateInstructions: string}} facts.plugin
+ *   The Similharity plugin SillyTavern has, and the oldest version VectFox works with, null when unread
  * @returns {string}
  */
 export function embeddingProfileProblem({ provider, profileId, isManagerAvailable, profile, profileProvider, url, model, plugin }) {

@@ -70,6 +70,10 @@ describe('embeddingProfileProblem', () => {
         const unversioned = { ...CURRENT_PLUGIN, version: null, isCurrent: false };
         expect(embeddingProfileProblem(readyOn('llamacpp', 'llamacpp', { plugin: unversioned })))
             .toBe(`${needs}, and SillyTavern has a Similharity that reports no version. Restart SillyTavern.`);
+        const floorUnread = { ...CURRENT_PLUGIN, requiredVersion: null, isCurrent: false };
+        expect(embeddingProfileProblem(readyOn('llamacpp', 'llamacpp', { plugin: floorUnread })))
+            .toBe('Embedding: profile "Lantern" is a llama.cpp profile, which needs a Similharity version VectFox could not read '
+                + 'from its manifest.json, so no request is sent. The console says why.');
     });
 
     it('lets Ollama run with no plugin, as SillyTavern\'s own route embeds on it', () => {

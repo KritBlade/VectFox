@@ -11,7 +11,13 @@
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { log } from '../../sillytavern/log.js';
 import { secret_state } from '../../sillytavern/secrets.js';
-import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
+import {
+    checkPluginAvailable,
+    getPluginProbe,
+    isPluginDetected,
+    PLUGIN_UPDATE_INSTRUCTIONS,
+    similharityStanding,
+} from '../../shared/similharity-plugin.js';
 import {
     embeddingProfileKind,
     isValidProvider,
@@ -141,51 +147,25 @@ export async function checkBackendEndpoints() {
 }
 
 /**
- * Check: VectFox Server Plugin (similharity)
- * Provides advanced features: Qdrant, collection browser, full metadata
+ * Check: VectFox Server Plugin (similharity), as the shared /health probe found it, against the oldest version VectFox
+ * works with (similharity_minimum_version in manifest.json). It provides Qdrant, the collection browser, full
+ * metadata, and embedding on a llama.cpp, KoboldCPP or Custom profile.
  */
 export async function checkServerPlugin() {
-    try {
-        const response = await fetch('/api/plugins/similharity/health', {
-            method: 'GET',
-            headers: getRequestHeaders()
-        });
+    await checkPluginAvailable();
+    const probe = getPluginProbe();
+    const result = (status, message) => ({ name: 'VectFox Plugin', status, message, category: 'infrastructure' });
 
-        if (!response.ok) {
-            return {
-                name: 'VectFox Plugin',
-                status: 'warning',
-                message: 'Plugin not installed (optional - enables Qdrant, advanced features)',
-                category: 'infrastructure'
-            };
-        }
-
-        const data = await response.json();
-
-        if (data.status !== 'ok') {
-            return {
-                name: 'VectFox Plugin',
-                status: 'warning',
-                message: `Plugin unhealthy: ${data.status}`,
-                category: 'infrastructure'
-            };
-        }
-
-        const features = data.features?.join(', ') || 'core';
-        return {
-            name: 'VectFox Plugin',
-            status: 'pass',
-            message: `v${data.version} - Features: ${features}`,
-            category: 'infrastructure'
-        };
-    } catch (error) {
-        return {
-            name: 'VectFox Plugin',
-            status: 'warning',
-            message: `Plugin not available (standard mode only): ${error.message}`,
-            category: 'infrastructure'
-        };
+    if (probe.status === null) {
+        return result('warning', `Plugin not found (${probe.failure}). It is optional, but Qdrant, full metadata and llama.cpp, KoboldCPP or Custom profiles need it`);
     }
+    if (!probe.isFound) return result('warning', `Plugin unhealthy: ${probe.status}`);
+
+    const { version, requiredVersion, isCurrent } = similharityStanding();
+    if (!requiredVersion) return result('warning', 'VectFox could not read the Similharity version it needs from its manifest.json; the console says why');
+    if (!version) return result('warning', `The plugin reports no version, so VectFox cannot confirm it is v${requiredVersion} or later. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+    if (!isCurrent) return result('warning', `v${version} is older than v${requiredVersion}, the oldest VectFox works with. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+    return result('pass', `v${version} - Features: ${probe.features.join(', ') || 'core'}`);
 }
 
 /**
@@ -196,30 +176,17 @@ export async function checkPluginEndpoints() {
     const results = [];
     const testSource = 'transformers';
 
-    // First check if plugin is available
-    try {
-        const healthResponse = await fetch('/api/plugins/similharity/health', {
-            method: 'GET',
-            headers: getRequestHeaders()
-        });
-
-        if (!healthResponse.ok) {
-            return {
-                name: 'Plugin API Endpoints',
-                status: 'skipped',
-                message: 'Plugin not installed - endpoints not available',
-                category: 'infrastructure'
-            };
-        }
-        results.push({ name: 'health', ok: true });
-    } catch (error) {
+    // Only a plugin the shared /health probe found has endpoints to test.
+    await checkPluginAvailable();
+    if (!isPluginDetected()) {
         return {
             name: 'Plugin API Endpoints',
             status: 'skipped',
-            message: `Plugin not available: ${error.message}`,
+            message: `Plugin not available (${getPluginProbe().failure}) - endpoints not tested`,
             category: 'infrastructure'
         };
     }
+    results.push({ name: 'health', ok: true });
 
     // Test each plugin endpoint (unified API)
     const pluginEndpoints = [

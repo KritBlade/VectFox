@@ -39,38 +39,33 @@
 
 import { discoverExistingCollections } from '../features/collections/index.js';
 import { pruneOrphanedEventBaseChatMaps } from '../features/eventbase/index.js';
-import {
-    checkPluginAvailable,
-    getDetectedPluginVersion,
-    isSimilharityVersionBehind,
-    PLUGIN_UPDATE_INSTRUCTIONS,
-    SIMILHARITY_MIN_VERSION,
-} from '../shared/similharity-plugin.js';
+import { checkPluginAvailable, PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../shared/similharity-plugin.js';
 import { retry } from '../shared/retry.js';
 import { log } from '../sillytavern/log.js';
 
 /**
- * Warn (toast + console) when the installed Similharity plugin is below the floor, SIMILHARITY_MIN_VERSION.
- * Silent no-op when no plugin is installed — that is a supported setup, not an error.
+ * Warn (toast + console) when the installed Similharity plugin is below the floor, the
+ * similharity_minimum_version in manifest.json. Silent no-op when no plugin is installed — that is a supported
+ * setup, not an error. A floor that cannot be read is logged where it is read (similharity-plugin.js).
  *
- * The version comes from the /health probe checkPluginAvailable() already made
- * (getDetectedPluginVersion), not from /api/plugins/similharity/version: older
- * plugins lack that route and answer it with a 404, which would silence the
- * warning in exactly the case it exists for. Every plugin build reports
- * `version` on /health, and reading it there costs no extra request.
+ * The version comes from the /health probe checkPluginAvailable() already made, not from
+ * /api/plugins/similharity/version: older plugins lack that route and answer it with a 404, which would silence the
+ * warning in exactly the case it exists for. Every plugin build reports `version` on /health, and reading it there
+ * costs no extra request.
  */
 export async function checkSimilharityVersion() {
     try {
         // No plugin installed is a supported setup, not something to warn about.
         if (!(await checkPluginAvailable())) return;
 
-        const installedVersion = getDetectedPluginVersion();
+        const { version: installedVersion, requiredVersion, isCurrent } = similharityStanding();
+        if (!requiredVersion) return;
 
         // Plugin answered /health but reported no version. Not expected from any
         // released build, so say something rather than assume it is fine — silence
         // here is the failure this function exists to prevent.
         if (!installedVersion) {
-            log.warn(`[VectFox] similharity plugin responded without a version field — cannot verify it meets the v${SIMILHARITY_MIN_VERSION}+ floor. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+            log.warn(`[VectFox] similharity plugin responded without a version field — cannot verify it meets the v${requiredVersion}+ floor. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
             toastr.warning(
                 `Could not determine your similharity plugin version, so VectFox cannot confirm it is current. ${PLUGIN_UPDATE_INSTRUCTIONS}`,
                 'VectFox — plugin version unknown',
@@ -79,16 +74,16 @@ export async function checkSimilharityVersion() {
             return;
         }
 
-        if (isSimilharityVersionBehind(installedVersion, SIMILHARITY_MIN_VERSION)) {
-            log.warn(`[VectFox] similharity plugin outdated: need v${SIMILHARITY_MIN_VERSION}+, got v${installedVersion}. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+        if (!isCurrent) {
+            log.warn(`[VectFox] similharity plugin outdated: need v${requiredVersion}+, got v${installedVersion}. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
             toastr.warning(
-                `similharity plugin is outdated (need v${SIMILHARITY_MIN_VERSION}+, got v${installedVersion}). ${PLUGIN_UPDATE_INSTRUCTIONS}`,
+                `similharity plugin is outdated (need v${requiredVersion}+, got v${installedVersion}). ${PLUGIN_UPDATE_INSTRUCTIONS}`,
                 'VectFox',
                 { timeOut: 15000 },
             );
         }
-    } catch (_error) {
-        // similharity not installed — separate problem, not our warning to raise
+    } catch (error) {
+        log.warn('[VectFox] Could not show the Similharity version warning:', error);
     }
 }
 

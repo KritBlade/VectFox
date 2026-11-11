@@ -1,27 +1,32 @@
 /**
- * Whether the Similharity server plugin is installed, and which version: one /health probe per session, shared by
- * every caller, so a plugin-less install sends one request (one 404 in the console) however many features ask. Also
- * the oldest version VectFox works with.
+ * Whether the Similharity server plugin is installed, what its /health reported, and how it stands against the oldest
+ * version VectFox works with: one /health probe per session, shared by every caller, so a plugin-less install sends
+ * one request (one 404 in the console) however many features ask. Diagnostics asks for a fresh one on each run.
+ *
+ * The oldest version is `similharity_minimum_version` in VectFox's manifest.json, its one place: a release that needs
+ * a newer plugin changes that field and nothing else. It is a floor, not an exact match, so a plugin-only fix never
+ * nags users who are up to date. It never drops below 3.4.0, the first plugin that sends a llama.cpp, KoboldCPP or
+ * Custom profile's key by its ID (tests/similharity-version-floor.test.js).
  */
 
 import { getRequestHeaders } from '../sillytavern/requests.js';
 import { log } from '../sillytavern/log.js';
+import { loadExtensionManifest } from './extension-manifest.js';
 
 // `pluginAvailable` is the settled result, null until a probe settles. `pluginProbeInFlight` is the promise of a
-// probe that has started but not finished, so concurrent callers share one request.
+// probe that has started but not finished, so concurrent callers share one request. `probeGeneration` moves on each
+// reset, so a probe started before it cannot write its result after it.
 let pluginAvailable = null;
 let pluginProbeInFlight = null;
-// The version the same /health probe reported, or null with no plugin or no version field. /health always carries
-// it; the /version route is missing from older plugins, which are the ones a version check is for.
-let pluginVersion = null;
+let probeGeneration = 0;
+// What the settled probe read from /health, or null when it got no reply it could read; `probeFailure` then says why.
+// /health always carries the version; the /version route is missing from older plugins, which a version check is for.
+let pluginHealth = null;
+let probeFailure = '';
+// The oldest Similharity VectFox works with, from manifest.json; null until read, or when it cannot be.
+let requiredVersion = null;
 
-/**
- * The oldest Similharity VectFox works with. A floor, not an exact match: VectFox works with newer builds, so a
- * plugin-only fix must not nag users who are up to date. Raise it only when VectFox needs a newer plugin, for a
- * feature it calls or a fix that protects data. 3.3.5 is the first plugin that deletes nothing on a vector size
- * change, and 3.4.0 the first that embeds on a llama.cpp, KoboldCPP or Custom profile with the profile's key.
- */
-export const SIMILHARITY_MIN_VERSION = '3.4.0';
+const VERSION_FORMAT = /^\d+\.\d+\.\d+$/;
 
 /** How the user updates an old plugin, for every message that says it is old. */
 export const PLUGIN_UPDATE_INSTRUCTIONS = 'Restart SillyTavern so it can auto-update the server plugin. '
@@ -45,45 +50,85 @@ export function isSimilharityVersionBehind(version, minimum) {
     return false;
 }
 
+/** Read the oldest Similharity VectFox works with from manifest.json, once. */
+async function readRequiredVersion() {
+    if (requiredVersion) return;
+    try {
+        const field = (await loadExtensionManifest())?.similharity_minimum_version;
+        if (typeof field === 'string' && VERSION_FORMAT.test(field)) {
+            requiredVersion = field;
+        } else {
+            log.error(`VectFox: manifest.json's similharity_minimum_version is ${JSON.stringify(field)}, not a version such as 3.4.0.`);
+        }
+    } catch (error) {
+        log.error('VectFox: could not read manifest.json for the Similharity version VectFox needs:', error);
+    }
+}
+
+/** One /health request, written to the probe's state unless a reset came after it started. */
+async function probeHealth(generation) {
+    let health = null;
+    let failure = '';
+    try {
+        const response = await fetch('/api/plugins/similharity/health', {
+            method: 'GET',
+            headers: getRequestHeaders(),
+        });
+        if (response.ok) {
+            const data = await response.json();
+            health = {
+                status: typeof data.status === 'string' ? data.status : '',
+                version: typeof data.version === 'string' && data.version ? data.version : null,
+                features: Array.isArray(data.features) ? data.features.map(String) : [],
+            };
+            if (health.status !== 'ok') failure = `it reports status "${health.status}"`;
+        } else {
+            failure = `HTTP ${response.status}`;
+        }
+    } catch (error) {
+        log.warn('VectFox: plugin availability probe failed:', error);
+        failure = error?.message || String(error);
+    }
+    const isFound = health?.status === 'ok';
+    if (generation === probeGeneration) {
+        pluginHealth = health;
+        probeFailure = failure;
+        pluginAvailable = isFound;
+        log.lifecycle(`VectFox: Plugin ${isFound ? 'detected' : 'not found'} (v${health?.version || 'unknown'})`);
+    }
+    return isFound;
+}
+
 /**
- * Whether the Similharity plugin is installed. The first call probes /health; later calls get the settled result,
- * and calls made while a probe runs share it.
+ * Whether the Similharity plugin is installed. The first call probes /health and reads the version VectFox needs;
+ * later calls get the settled result, and calls made while a probe runs share it.
  * @returns {Promise<boolean>}
  */
 export async function checkPluginAvailable() {
-    if (pluginAvailable !== null) {
-        return pluginAvailable;
-    }
-    if (pluginProbeInFlight) {
-        return pluginProbeInFlight;
-    }
+    if (pluginAvailable !== null) return pluginAvailable;
+    if (pluginProbeInFlight) return pluginProbeInFlight;
 
-    pluginProbeInFlight = (async () => {
+    const generation = probeGeneration;
+    const probe = (async () => {
         try {
-            const response = await fetch('/api/plugins/similharity/health', {
-                method: 'GET',
-                headers: getRequestHeaders()
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                pluginAvailable = data.status === 'ok';
-                pluginVersion = typeof data.version === 'string' && data.version ? data.version : null;
-                log.lifecycle(`VectFox: Plugin ${pluginAvailable ? 'detected' : 'not found'} (v${pluginVersion || 'unknown'})`);
-            } else {
-                pluginAvailable = false;
-            }
-        } catch (error) {
-            log.warn('VectFox: plugin availability probe failed:', error);
-            pluginAvailable = false;
+            const [isFound] = await Promise.all([probeHealth(generation), readRequiredVersion()]);
+            return isFound;
         } finally {
-            pluginProbeInFlight = null;
+            if (pluginProbeInFlight === probe) pluginProbeInFlight = null;
         }
-
-        return pluginAvailable;
     })();
+    pluginProbeInFlight = probe;
+    return probe;
+}
 
-    return pluginProbeInFlight;
+/**
+ * Probe /health again now, for a caller that must see the plugin as it is rather than as it was at startup, as
+ * Diagnostics does on each run. Every other caller then reads the new result.
+ * @returns {Promise<boolean>}
+ */
+export function refreshPluginProbe() {
+    resetPluginAvailableCache();
+    return checkPluginAvailable();
 }
 
 /**
@@ -95,20 +140,45 @@ export function isPluginDetected() {
 }
 
 /**
- * Forgets the probe result, so the next checkPluginAvailable() probes /health again. Also drops a probe in flight,
- * so one started before the reset cannot hand its result to a caller that asked after it.
+ * Forgets the probe result, so the next checkPluginAvailable() probes /health again. A probe already in flight can
+ * no longer hand its result to a caller that asks after the reset. The version VectFox needs is kept.
  */
 export function resetPluginAvailableCache() {
+    probeGeneration += 1;
     pluginAvailable = null;
-    pluginVersion = null;
+    pluginHealth = null;
+    probeFailure = '';
     pluginProbeInFlight = null;
 }
 
 /**
- * The version the plugin reported on its last /health probe, or null with no plugin or no version field. Read this
- * rather than the /version route, which older plugins lack. Meaningful once checkPluginAvailable() has settled.
- * @returns {string|null}
+ * What the last settled probe read from /health: whether it found a working plugin, the status, version and features
+ * it reported, and, when it found none, why.
+ * @returns {{isFound: boolean, status: string|null, version: string|null, features: string[], failure: string}}
  */
-export function getDetectedPluginVersion() {
-    return pluginVersion;
+export function getPluginProbe() {
+    return {
+        isFound: pluginAvailable === true,
+        status: pluginHealth?.status ?? null,
+        version: pluginHealth?.version ?? null,
+        features: pluginHealth?.features ?? [],
+        failure: probeFailure,
+    };
+}
+
+/**
+ * How the plugin found stands against the oldest version VectFox works with, once checkPluginAvailable() has
+ * settled. isCurrent only when a plugin was found, reported its version, and that version is not older than the
+ * floor manifest.json gives; `requiredVersion` is null when that floor could not be read.
+ * @returns {{isFound: boolean, version: string|null, requiredVersion: string|null, isCurrent: boolean}}
+ */
+export function similharityStanding() {
+    const isFound = pluginAvailable === true;
+    const version = pluginHealth?.version ?? null;
+    return {
+        isFound,
+        version,
+        requiredVersion,
+        isCurrent: isFound && Boolean(version) && Boolean(requiredVersion) && !isSimilharityVersionBehind(version, requiredVersion),
+    };
 }
