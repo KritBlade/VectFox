@@ -58,7 +58,8 @@ const defaultSettings = {
     panel_theme: 'dark',
 
     // Core vector settings
-    embedding_provider: 'transformers', // embedding provider selection
+    embedding_provider: 'transformers', // transformers | ollama | openrouter | vllm; on a connection profile, the profile's type
+    embedding_connection_profile_id: '', // the SillyTavern connection profile embedding runs on, read only while embedding_provider is a type a profile carries (ollama)
     vector_backend: 'qdrant', // Backend: 'standard' (ST Vectra) | 'qdrant'
     qdrant_host: '127.0.0.1',
     qdrant_port: 6333,

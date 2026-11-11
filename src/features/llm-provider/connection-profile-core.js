@@ -5,6 +5,7 @@
  * answers.
  */
 
+import { connectionProfileAvailabilityProblem } from '../../shared/connection-profile-availability.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getModelConfigErrorMessage } from '../../shared/model-http-errors.js';
 import { isConnectionError } from '../../shared/model-config-notifier.js';
@@ -96,12 +97,8 @@ export function connectionProfileRequestShape({ api, maxTokens, temperature, sen
  * @returns {string}
  */
 export function connectionProfileProblem({ feature, page, profileId, isManagerAvailable, profile, isSupported, api }) {
-    if (!profileId) return `${feature}: no connection profile is chosen. Choose one on the ${page} page.`;
-    if (!isManagerAvailable) {
-        return `${feature}: SillyTavern's Connection Manager extension is off, so no connection profile can be used. `
-            + `Turn it on in SillyTavern's Extensions, or choose another provider on the ${page} page.`;
-    }
-    if (!profile) return `${feature}: its connection profile was deleted in SillyTavern. Choose another on the ${page} page.`;
+    const unavailable = connectionProfileAvailabilityProblem({ feature, page, profileId, isManagerAvailable, profile });
+    if (unavailable) return unavailable;
     const name = profile.name || '(unnamed)';
     if (!isSupported || !api) {
         return `${feature}: SillyTavern can't send requests on profile "${name}" (API "${profile.api ?? 'none'}"). `

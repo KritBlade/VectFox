@@ -15,7 +15,7 @@ import { extension_settings } from '../../sillytavern/settings.js';
 import { openPanelPopup } from '../../sillytavern/popup.js';
 import { log } from '../../sillytavern/log.js';
 import { bindGeneBehaviours, scrollPageToTop, setShown } from '../../shared/gui-dna/gene-behaviours.js';
-import { getModelField, resolveProviderApiUrl } from '../embedding/index.js';
+import { getModelField, getModelFromSettings, resolveEmbeddingProfile, resolveProviderApiUrl } from '../embedding/index.js';
 import { backendHealthView, probeCurrentBackend } from './backend-health.js';
 import { runQueryTest } from './query-tester.js';
 import { dialogResults, diagnosticsReportText, queryOutcome, storedValue } from './diagnostics-dialog-core.js';
@@ -183,13 +183,16 @@ async function runChecks() {
 /** The settings the report prints, each under its page's name, stored values as they are. */
 function reportSettingLines(settings) {
     const provider = settings.embedding_provider;
-    const modelField = getModelField(provider);
+    const onProfile = resolveEmbeddingProfile(settings);
     const lines = [
         ['Backend', `${storedValue(settings.vector_backend)}${settings.vector_backend === 'qdrant' ? ` (${settings.qdrant_mode || 'local'})` : ''}`],
         ['Embedding provider', storedValue(provider)],
-        ['Model', modelField ? storedValue(settings[modelField]) : 'chosen by the provider'],
     ];
-    if (provider === 'ollama' || provider === 'vllm') lines.push(['Provider URL', storedValue(resolveProviderApiUrl(settings, provider))]);
+    if (onProfile) lines.push(['Embedding profile', onProfile.problem || storedValue(onProfile.profileName)]);
+    lines.push(['Model', getModelField(provider) ? storedValue(getModelFromSettings(settings)) : 'chosen by the provider']);
+    if (provider === 'ollama' || provider === 'vllm') {
+        lines.push(['Provider URL', storedValue(onProfile ? onProfile.url : resolveProviderApiUrl(settings, provider))]);
+    }
     if (settings.vector_backend === 'qdrant') lines.push(['Qdrant URL', storedValue(settings.qdrant_mode === 'cloud' ? settings.qdrant_cloud_url : settings.qdrant_url)]);
     lines.push(
         ['Query depth', storedValue(settings.query)],

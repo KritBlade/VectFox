@@ -14,10 +14,11 @@ import { secret_state } from '../../sillytavern/secrets.js';
 import {
     isValidProvider,
     getProviderConfig,
-    getModelField,
+    getModelFromSettings,
     getSecretKey,
     requiresApiKey,
     requiresUrl,
+    resolveEmbeddingProfile,
     resolveProviderApiUrl
 } from '../embedding/index.js';
 
@@ -454,8 +455,17 @@ export async function checkEmbeddingProvider(settings) {
         };
     }
 
-    const modelField = getModelField(source);
-    if (config.requiresModel && modelField && !settings[modelField]) {
+    const onProfile = resolveEmbeddingProfile(settings);
+    if (onProfile?.problem) {
+        return {
+            name: 'Embedding Provider',
+            status: 'fail',
+            message: onProfile.problem
+        };
+    }
+
+    const model = getModelFromSettings(settings);
+    if (config.requiresModel && !model) {
         return {
             name: 'Embedding Provider',
             status: 'fail',
@@ -463,11 +473,12 @@ export async function checkEmbeddingProvider(settings) {
         };
     }
 
-    const modelInfo = modelField && settings[modelField] ? ` (${settings[modelField]})` : '';
+    const modelInfo = model ? ` (${model})` : '';
+    const profileInfo = onProfile ? ` on profile "${onProfile.profileName}"` : '';
     return {
         name: 'Embedding Provider',
         status: 'pass',
-        message: `Using ${config.name}${modelInfo}`
+        message: `Using ${config.name}${modelInfo}${profileInfo}`
     };
 }
 
@@ -542,11 +553,20 @@ export function checkApiUrls(settings) {
         };
     }
 
-    // resolveProviderApiUrl() reads the canonical per-provider alt-endpoint keys
-    // (ollama_*, vllm_*) and falls back to ST's native server URL — the same
-    // resolution the live embedding path uses. Anything empty means unconfigured.
+    // The URL the embedding requests use: the profile's on a connection profile, else the provider's own field or
+    // SillyTavern's server URL. A profile that cannot be used says why, as those requests would.
     const config = getProviderConfig(source);
-    const url = resolveProviderApiUrl(settings, source);
+    let url;
+    try {
+        url = resolveProviderApiUrl(settings, source);
+    } catch (error) {
+        if (error?.code !== 'invalid_model_config') throw error;
+        return {
+            name: 'API URL',
+            status: 'fail',
+            message: error.message
+        };
+    }
 
     if (!url) {
         return {

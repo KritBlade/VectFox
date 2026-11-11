@@ -133,9 +133,8 @@ function getPluginProviderParams(settings) {
         case 'ollama':
             params.apiUrl = resolveProviderApiUrl(settings, 'ollama');
             params.keep = !!settings.ollama_keep;
-            // No apiKey: ST has no ollama auth path. The setAdditionalHeadersByType
-            // call in ST's ollama-vectors.js is a no-op for ollama. The previous
-            // params.apiKey = getOllamaApiKey(...) line was dead code on both sides.
+            // No apiKey: SillyTavern has no Ollama key, and the setAdditionalHeadersByType
+            // call in its ollama-vectors.js adds no header for Ollama.
             break;
         case 'vllm':
             params.apiUrl = resolveProviderApiUrl(settings, 'vllm')

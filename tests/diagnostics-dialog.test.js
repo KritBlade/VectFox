@@ -20,6 +20,7 @@ const host = vi.hoisted(() => ({
     runner: null,
     query: null,
     metrics: null,
+    embeddingProfile: null,
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root }));
@@ -31,7 +32,9 @@ vi.mock('../src/sillytavern/popup.js', () => ({
     }),
 }));
 vi.mock('../src/features/embedding/index.js', () => ({
-    getModelField: provider => (provider === 'openrouter' ? 'openrouter_model' : null),
+    getModelField: provider => (['openrouter', 'ollama'].includes(provider) ? `${provider}_model` : null),
+    getModelFromSettings: settings => host.embeddingProfile?.model ?? settings[`${settings.embedding_provider}_model`] ?? '',
+    resolveEmbeddingProfile: () => host.embeddingProfile,
     resolveProviderApiUrl: () => 'http://localhost:11434',
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({
@@ -82,6 +85,7 @@ beforeEach(async () => {
     vi.clearAllMocks();
     host.root.vectfox = { vector_backend: 'qdrant', qdrant_mode: 'local', qdrant_url: 'http://qdrant:6333', embedding_provider: 'openrouter', openrouter_model: 'baai/bge-m3', query: 2, score_threshold: 0, eventbase_score_threshold: 0 };
     host.runner = structuredClone(RUNNER_RESULTS);
+    host.embeddingProfile = null;
     host.metrics = {
         uptimeFormatted: '2h 3m',
         totalQueries: 40, totalInserts: 12, totalErrors: 1,
@@ -154,6 +158,27 @@ describe('the Diagnostics dialog', () => {
         expect(report).toMatch(/Model:\s+baai\/bge-m3/);
         expect(report).not.toContain('Score Threshold');
         expect(part('run-state').textContent).toBe('Report copied.');
+    });
+
+    it('names the embedding profile in the report, or why it cannot be used, and the URL the profile names', async () => {
+        host.root.vectfox = { ...host.root.vectfox, embedding_provider: 'ollama', embedding_connection_profile_id: 'p-harbor', ollama_model: 'manual-embed' };
+        host.embeddingProfile = { profileName: 'Harbor Ollama', url: 'http://harbor:11434', model: 'harbor-embed', problem: '' };
+        void openDiagnostics('checks');
+        click('run');
+        await vi.waitFor(() => expect(document.querySelector('[data-diag-action="copy"]').disabled).toBe(false));
+        click('copy');
+        await vi.waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1));
+        const report = navigator.clipboard.writeText.mock.calls[0][0];
+        expect(report).toMatch(/Embedding profile:\s+Harbor Ollama\n/);
+        expect(report).toMatch(/Model:\s+harbor-embed\n/);
+        expect(report).toMatch(/Provider URL:\s+http:\/\/harbor:11434\n/);
+
+        host.embeddingProfile = { ...host.embeddingProfile, url: '', problem: 'Embedding: profile "Harbor Ollama" names no server URL. Set one in that profile in SillyTavern.' };
+        click('copy');
+        await vi.waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(2));
+        const broken = navigator.clipboard.writeText.mock.calls[1][0];
+        expect(broken).toMatch(/Embedding profile:\s+Embedding: profile "Harbor Ollama" names no server URL\. Set one in that profile in SillyTavern\.\n/);
+        expect(broken).toMatch(/Provider URL:\s+not set\n/);
     });
 
     it('probes the backend every 5 seconds while Backend health shows, and stops when it hides', async () => {

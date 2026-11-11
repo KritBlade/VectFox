@@ -11,6 +11,13 @@
 
 import { SECRET_KEYS } from '../../sillytavern/secrets.js';
 import { textgen_types, textgenerationwebui_settings } from '../../sillytavern/connection-settings.js';
+import {
+    connectionProfileEmbeddingProvider,
+    connectionProfileServerUrl,
+    findConnectionProfile,
+    isConnectionManagerAvailable,
+} from '../../sillytavern/connection-profiles.js';
+import { EMBEDDING_PROFILE_PROVIDERS, embeddingProfileProblem } from './embedding-profile-core.js';
 
 /**
  * All supported embedding providers
@@ -89,25 +96,45 @@ export function getModelField(providerId) {
 }
 
 /**
- * Resolve the actual model value from settings for the active provider.
- *
- * The settings object uses provider-specific field names — `embedding_openrouter_model`,
- * `embedding_ollama_model`, `embedding_vllm_model`, etc. — not a flat `settings.model`. Code that
- * sends a `model` field to the plugin API (chunks/insert, chunks/list,
- * chunks/query) MUST use this function. Reading `settings.model` directly
- * returns an empty string for every real provider and leads to insert/query
- * model-bucket mismatches (chunks land under model='' while queries look up
- * the real name → 0-result silent failures).
- *
- * The query path in src/features/vector-backend/standard.js + src/features/vector-backend/qdrant.js already routes
- * through this — keep insert/list/import paths in sync by calling it here.
+ * The SillyTavern connection profile embedding runs on, with what it supplies, or null while embedding runs on a
+ * manual provider: no profile ID is stored, or the provider is not one a profile carries (connection plan §3).
+ * `problem` says why the profile cannot be used, '' when it can.
  *
  * @param {object} settings - VectFox settings
- * @param {string} [fallback=''] - Returned when the provider has no model field
- *   or the value is empty/unset.
+ * @returns {{profileName: string, url: string, model: string, problem: string}|null}
+ */
+export function resolveEmbeddingProfile(settings) {
+    const profileId = String(settings?.embedding_connection_profile_id ?? '').trim();
+    if (!profileId || !Object.hasOwn(EMBEDDING_PROFILE_PROVIDERS, settings?.embedding_provider)) return null;
+    const isManagerAvailable = isConnectionManagerAvailable();
+    const profile = findConnectionProfile(profileId);
+    const url = profile ? connectionProfileServerUrl(profile) : '';
+    const model = String(profile?.model ?? '').trim();
+    const profileProvider = profile ? connectionProfileEmbeddingProvider(profile) : null;
+    return {
+        profileName: profile?.name ?? '',
+        url,
+        model,
+        problem: embeddingProfileProblem({ profileId, isManagerAvailable, profile, profileProvider, url, model }),
+    };
+}
+
+/**
+ * The embedding model's name for the active provider. Settings keep one field per provider
+ * (`embedding_openrouter_model`, `embedding_ollama_model`, …), never a flat `settings.model`, so every request
+ * that names a model reads it here, and an insert and a later list or query name the same one.
+ *
+ * On a connection profile it is the model the profile names, even while the profile cannot be used, so a request that
+ * carries only the source and model still finds what that model stored. Every request that also needs the server's
+ * URL stops at resolveProviderApiUrl instead.
+ *
+ * @param {object} settings - VectFox settings
+ * @param {string} [fallback=''] - Returned when the provider has no model field, or no model is set
  * @returns {string}
  */
 export function getModelFromSettings(settings, fallback = '') {
+    const onProfile = resolveEmbeddingProfile(settings);
+    if (onProfile) return onProfile.model || fallback;
     const modelField = getModelField(settings?.embedding_provider);
     if (!modelField) return fallback;
     return settings[modelField] || fallback;
@@ -135,26 +162,28 @@ export function requiresUrl(providerId) {
 }
 
 /**
- * Resolve the embedding base URL for a URL-based local provider.
+ * The embedding server's base URL for a URL-based provider, which every request that needs it reads here.
  *
- * Single source of truth for "alternative endpoint" resolution. The settings UI
- * writes PER-PROVIDER keys (`embedding_ollama_url_override`/`embedding_ollama_url`,
- * `embedding_vllm_url_override`/`embedding_vllm_url`) — these are the canonical
- * values. Earlier code scattered across backends + diagnostics read the legacy
- * unprefixed `use_alt_endpoint`/`alt_endpoint_url` keys, which the UI never
- * writes, so the alt endpoint silently read as OFF and requests fell back to
- * localhost (GitHub issue #6). Route every apiUrl read through here instead.
+ * On a connection profile, the URL the profile names. A profile that cannot be used throws instead, before any
+ * request: it never falls back to the provider's own URL fields, SillyTavern's server URL or the plugin's default.
  *
- * llamacpp/koboldcpp have no per-provider keys (they are currently commented out
- * of EMBEDDING_PROVIDERS); they keep the legacy unprefixed keys so their behavior
- * is unchanged. Add prefixed keys here if they are ever re-enabled.
+ * On a manual provider, the URL the provider's own fields hold (`embedding_ollama_url_override` and
+ * `embedding_ollama_url`, `embedding_vllm_url_override` and `embedding_vllm_url`) when its own URL is switched on,
+ * or else SillyTavern's Text Completion server URL for that type. llamacpp and koboldcpp, not in EMBEDDING_PROVIDERS,
+ * have no fields of their own and read the unprefixed `use_alt_endpoint` and `alt_endpoint_url`.
  *
  * @param {object} settings - VectFox settings
  * @param {string} [source=settings.embedding_provider] - Provider id (defaults to active source)
  * @returns {string|undefined} Base URL, or undefined for providers that take no URL.
  *   May be an empty string when the provider is URL-based but nothing is configured.
+ * @throws {Error} With `code: 'invalid_model_config'`, when embedding runs on a profile that cannot be used
  */
 export function resolveProviderApiUrl(settings, source = settings?.embedding_provider) {
+    const onProfile = source === settings?.embedding_provider ? resolveEmbeddingProfile(settings) : null;
+    if (onProfile) {
+        if (onProfile.problem) throw Object.assign(new Error(onProfile.problem), { code: 'invalid_model_config' });
+        return onProfile.url;
+    }
     switch (source) {
         case 'ollama':
             return settings.embedding_ollama_url_override

@@ -1,8 +1,9 @@
-// connection-profiles.js — SillyTavern's Connection Manager profiles, for a chat call that runs on one: whether the
-// Connection Manager is on, a profile by ID, whether SillyTavern can send a request on it and of which kind, the request
-// itself through SillyTavern's ConnectionManagerRequestService, and its reply as text. The only file that touches that
-// service or a profile's key ID (connection plan §6, credential invariant 4). SillyTavern resolves the key on its server
-// from the ID; no key value ever reaches VectFox.
+// connection-profiles.js — SillyTavern's Connection Manager profiles, for a chat call or embedding that runs on one:
+// whether the Connection Manager is on, a profile by ID, whether SillyTavern can send a request on it and of which kind,
+// the request itself through SillyTavern's ConnectionManagerRequestService, and its reply as text; for embedding, the
+// provider a profile's API is and the server URL it names. The only file that touches that service or a profile's key ID
+// or URL (connection plan §6, credential invariant 4). SillyTavern resolves the key on its server from the ID; no key
+// value ever reaches VectFox.
 //
 // SillyTavern's context comes from its page global, read at each call, so importing this file loads nothing of
 // SillyTavern's and the chat-call modules that import it stay loadable on their own.
@@ -64,6 +65,28 @@ export function isConnectionProfileSupported(profile) {
 export function connectionProfileApi(profile) {
     const selected = getContext().CONNECT_API_MAP?.[profile?.api]?.selected;
     return API_OF_SELECTED[selected] ?? null;
+}
+
+/**
+ * The embedding provider a profile's API is, as SillyTavern maps it: a Text Completion type such as `ollama`, or a
+ * Chat Completion source such as `custom`. null for an API SillyTavern does not know.
+ *
+ * @param {object} profile
+ * @returns {string|null}
+ */
+export function connectionProfileEmbeddingProvider(profile) {
+    const api = getContext().CONNECT_API_MAP?.[profile?.api];
+    return api?.type ?? api?.source ?? null;
+}
+
+/**
+ * The server URL a profile names, where an embedding profile's server answers. '' when it names none.
+ *
+ * @param {object} profile
+ * @returns {string}
+ */
+export function connectionProfileServerUrl(profile) {
+    return String(profile?.['api-url'] ?? '').trim();
 }
 
 /**
