@@ -1,6 +1,6 @@
 # Similharity Server Plugin
 
-**Version 3.4.0**
+**Version 3.4.1**
 
 Server-side plugin for [the VectFox](https://github.com/KritBlade/VectFox) extension that provides enhanced vector database backends and full metadata storage capabilities.
 
@@ -90,7 +90,7 @@ SillyTavern/
 
 Check console for:
 ```
-[similharity] Initializing v3.4.0...
+[similharity] Initializing v3.4.1...
 [similharity] Plugin initialized successfully
 ```
 
@@ -143,7 +143,7 @@ Returns plugin status and capabilities.
 {
   "status": "ok",
   "plugin": "similharity",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "features": [
     "vectra-full-metadata",
     "qdrant",

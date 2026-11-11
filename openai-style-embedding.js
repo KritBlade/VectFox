@@ -66,6 +66,15 @@ function keyHeaders(kind, serverUrl, secretId, directories, host) {
     return headers;
 }
 
+/** Throw before any request when the server URL does not make a URL. */
+function assertUrl(endpoint, serverUrl, name) {
+    try {
+        new URL(endpoint);
+    } catch (error) {
+        throw new Error(`${name} embedding: "${serverUrl}" is not a URL.`, { cause: error });
+    }
+}
+
 /** The embeddings in a reply, in the order of the texts sent. */
 function embeddingsOfReply(data, count, name) {
     if (!Array.isArray(data?.data)) throw new Error(`${name} embedding: the server's reply holds no data array.`);
@@ -93,7 +102,7 @@ export async function getOpenAiStyleEmbeddings(source, texts, { apiUrl, model, s
     const serverUrl = String(apiUrl ?? '').trim();
     if (!serverUrl) throw new Error(`${kind.name} embedding: the request names no server URL.`);
     const endpoint = kind.endpoint(serverUrl, host);
-    if (!URL.canParse(endpoint)) throw new Error(`${kind.name} embedding: "${serverUrl}" is not a URL.`);
+    assertUrl(endpoint, serverUrl, kind.name);
 
     const headers = { 'Content-Type': 'application/json', ...keyHeaders(kind, serverUrl, secretId, directories, host) };
     const embeddings = [];

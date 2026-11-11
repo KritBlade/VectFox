@@ -43,7 +43,7 @@
  * see VectFox/plans/review-fix.md §H-4 for the threat-model reasoning.
  * ─────────────────────────────────────────────────────────────────────────
  *
- * @version 3.4.0
+ * @version 3.4.1
  */
 
 import path from 'node:path';
@@ -54,7 +54,7 @@ import qdrantBackend from './qdrant-backend.js';
 import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource, loadSillyTavernEmbeddingHost } from './openai-style-embedding.js';
 
 const pluginName = 'similharity';
-const pluginVersion = '3.4.0';
+const pluginVersion = '3.4.1';
 
 // ─── The Qdrant API key, read on the server ──────────────────────────────────
 // VectFox keeps the Qdrant key in SillyTavern's secrets under 'api_key_qdrant',
@@ -729,7 +729,7 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     const openaiCompatible = new Set(['openai', 'openrouter', 'togetherai', 'mistral', 'electronhub']);
     if (openaiCompatible.has(source)) {
         const { getOpenAIBatchVector } = await import('../../src/vectors/openai-vectors.js');
-        // ElectronHub requires a model name; mirror the _getLegacySingleEmbedding default
+        // ElectronHub requires a model name; mirror getEmbeddingForSource's default
         const effectiveModel = (source === 'electronhub' && !model) ? 'text-embedding-ada-002' : model;
         // Conservative cap — OpenAI's /embeddings allows arrays up to 2048
         // entries, but staying at 100 keeps any single request small enough
@@ -750,147 +750,15 @@ async function getVectorsForSource(source, texts, model, directories, req) {
 
     const parallelSources = new Set(['nomicai', 'cohere']);
     if (parallelSources.has(source)) {
-        return await Promise.all(texts.map(text => _getLegacySingleEmbedding(source, text, model, directories, req)));
+        return await Promise.all(texts.map(text => getEmbeddingForSource(source, text, model, directories, req)));
     }
 
     // Default fallback: sequential processing for local/GPU sources
     const results = [];
     for (const text of texts) {
-        results.push(await _getLegacySingleEmbedding(source, text, model, directories, req));
+        results.push(await getEmbeddingForSource(source, text, model, directories, req));
     }
     return results;
-}
-
-/**
- * vLLM embedding that respects an explicit apiKey from the request body.
- * Falls back to ST additional-headers auth when no apiKey is provided.
- */
-async function _getVllmEmbedding(text, apiUrl, model, apiKey, directories) {
-    if (!apiKey) {
-        const { getVllmVector } = await import('../../src/vectors/vllm-vectors.js');
-        return await getVllmVector(text, apiUrl, model, directories);
-    }
-    const { trimV1 } = await import('../../src/util.js');
-    const urlJoinModule = await import('url-join');
-    const urlJoin = urlJoinModule.default;
-    const url = new URL(urlJoin(trimV1(apiUrl), '/v1/embeddings'));
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({ input: [text], model }),
-    });
-    if (!response.ok) {
-        const responseText = await response.text();
-        throw new Error(`VLLM: Failed to get vector for text: ${response.statusText} ${responseText}`);
-    }
-    const data = await response.json();
-    if (!Array.isArray(data?.data)) {
-        throw new Error('VLLM: API response was not an array');
-    }
-    data.data.sort((a, b) => a.index - b.index);
-    return data.data[0].embedding;
-}
-
-/**
- * One text's embedding, for the batch route's sources that send one text per request.
- */
-async function _getLegacySingleEmbedding(source, text, model, directories, req) {
-    if (isOpenAiStyleEmbeddingSource(source)) {
-        const [embedding] = await embedOpenAiStyle(source, [text], model, directories, req);
-        return embedding;
-    }
-    switch (source) {
-        case 'transformers': {
-            const { getTransformersVector } = await import('../../src/vectors/embedding.js');
-            return await getTransformersVector(text);
-        }
-        case 'openai':
-        case 'togetherai':
-        case 'mistral':
-        case 'electronhub':
-        case 'openrouter': {
-            const { getOpenAIVector } = await import('../../src/vectors/openai-vectors.js');
-            // ElectronHub requires a model name, provide default if empty
-            const effectiveModel = (source === 'electronhub' && !model) ? 'text-embedding-ada-002' : model;
-            return await getOpenAIVector(text, source, directories, effectiveModel);
-        }
-        case 'nomicai': {
-            const { getNomicAIVector } = await import('../../src/vectors/nomicai-vectors.js');
-            return await getNomicAIVector(text, source, directories);
-        }
-        case 'cohere': {
-            const { getCohereVector } = await import('../../src/vectors/cohere-vectors.js');
-            return await getCohereVector(text, true, directories, model);
-        }
-        case 'ollama': {
-            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:11434';
-            const apiKey = req.body?.apiKey || '';
-            const keep = req.body?.keep || false;
-            if (!apiKey) {
-                const { getOllamaVector } = await import('../../src/vectors/ollama-vectors.js');
-                return await getOllamaVector(text, apiUrl, model, keep, directories);
-            }
-            const ollamaUrl = new URL('/api/embeddings', apiUrl.replace(/\/$/, ''));
-            const ollamaResp = await fetch(ollamaUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                body: JSON.stringify({ model, prompt: text, keep_alive: keep ? -1 : undefined }),
-            });
-            if (!ollamaResp.ok) {
-                const errText = await ollamaResp.text();
-                throw new Error(`Ollama: Failed to get vector: ${ollamaResp.statusText} ${errText}`);
-            }
-            const ollamaData = await ollamaResp.json();
-            if (!Array.isArray(ollamaData?.embedding)) throw new Error('Ollama: API response missing embedding array');
-            return ollamaData.embedding;
-        }
-        case 'vllm': {
-            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8000';
-            const apiKey = req.body?.apiKey || '';
-            if (req.body?.hybridOptions?.eventbaseDebug || req.body?.options?.eventbaseDebug) console.log(`[similharity] DEBUG vllm embed: apiUrl="${apiUrl}", model="${model}", hasKey=${!!apiKey}`);
-            if (!apiKey) {
-                const { getVllmVector } = await import('../../src/vectors/vllm-vectors.js');
-                return await getVllmVector(text, apiUrl, model, directories);
-            }
-            const { trimV1 } = await import('../../src/util.js');
-            const urlJoinMod = await import('url-join');
-            const urlJoin2 = urlJoinMod.default;
-            const vllmUrl = new URL(urlJoin2(trimV1(apiUrl), '/v1/embeddings'));
-            const vllmResp = await fetch(vllmUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                body: JSON.stringify({ input: [text], model }),
-            });
-            if (!vllmResp.ok) {
-                const errText = await vllmResp.text();
-                throw new Error(`VLLM: Failed to get vector for text: ${vllmResp.statusText} ${errText}`);
-            }
-            const vllmData = await vllmResp.json();
-            if (!Array.isArray(vllmData?.data)) throw new Error('VLLM: API response was not an array');
-            vllmData.data.sort((a, b) => a.index - b.index);
-            return vllmData.data[0].embedding;
-        }
-        case 'palm':
-        case 'vertexai': {
-            const googleVectors = await import('../../src/vectors/google-vectors.js');
-            if (source === 'palm') {
-                return await googleVectors.getMakerSuiteVector(text, model, req);
-            } else {
-                return await googleVectors.getVertexVector(text, model, req);
-            }
-        }
-        case 'extras': {
-            const { getExtrasVector } = await import('../../src/vectors/extras-vectors.js');
-            const extrasUrl = req.body?.extrasUrl || 'http://127.0.0.1:5100';
-            const extrasKey = req.body?.extrasKey || '';
-            return await getExtrasVector(text, extrasUrl, extrasKey);
-        }
-        default:
-            throw new Error(`Unknown vector source: ${source}`);
-    }
 }
 
     // ========================================================================
@@ -1597,7 +1465,8 @@ async function embedOpenAiStyle(source, texts, model, directories, req) {
 }
 
 /**
- * Get embedding for text from specified source
+ * One text's embedding from the given source: for the single-text routes, and for the batch route's sources that
+ * send one text per request.
  */
 async function getEmbeddingForSource(source, text, model, directories, req) {
     if (isOpenAiStyleEmbeddingSource(source)) {
