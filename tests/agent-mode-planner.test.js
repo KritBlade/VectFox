@@ -262,6 +262,20 @@ describe('Agent Mode failures', () => {
         expect(logWarnMock.mock.calls.flat().join(' ')).toContain('Planner LLM call failed');
     });
 
+    it('names the provider\'s cut when a cut reply is not valid JSON', async () => {
+        postChatCompletionMock.mockResolvedValue({ content: '{"queries": ["first qu', usage: {}, finishReason: 'content_filter', cutReason: 'content_filter' });
+        expect(failureOf(await callAgent()).message).toMatch(/^Agent Mode's planner failed: Agent Mode reply was cut short by the provider, with finish reason content_filter, so it is not valid JSON: /);
+
+        postChatCompletionMock.mockResolvedValue({ content: '{"queries": ["first qu', usage: {}, finishReason: 'length', cutReason: 'length' });
+        expect(failureOf(await callAgent()).message).toMatch(/^Agent Mode's planner failed: Agent Mode reply was cut at the \d+-token limit, so it is not valid JSON: /);
+    });
+
+    it('uses a cut reply whose JSON closed before the cut', async () => {
+        hitsReturn({ 'only query': [event('new1')] });
+        postChatCompletionMock.mockResolvedValue({ content: '{"queries": ["only query"]}', usage: {}, finishReason: 'content_filter', cutReason: 'content_filter' });
+        expect(ids((await callAgent()).events)).toEqual(['kept1', 'kept2', 'new1']);
+    });
+
     it('names the timeout setting when the planner times out', async () => {
         postChatCompletionMock.mockRejectedValue(Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }));
         const { debug } = await callAgent();

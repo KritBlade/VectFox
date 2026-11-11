@@ -53,10 +53,17 @@ describe.each(['openrouter', 'vllm'])('extractEvents through %s', (providerName)
     });
 
     it('fails the window when the provider cut the reply, even if the parser could read part of it', async () => {
-        provider.reply = { content: `[${usableEvent},{"event_type":"combat","summ`, finishReason: 'length' };
+        provider.reply = { content: `[${usableEvent},{"event_type":"combat","summ`, finishReason: 'length', cutReason: 'length' };
 
         await expect(extract(providerName)).rejects.toBeInstanceOf(EventBaseExtractionError);
         await expect(extract(providerName)).rejects.toThrow('cut at the 2048-token limit');
+    });
+
+    it('fails the window when the provider\'s filter cut the reply, naming the reason', async () => {
+        provider.reply = { content: `[${usableEvent},{"event_type":"combat","summ`, finishReason: 'content_filter', cutReason: 'content_filter (native: SAFETY)' };
+
+        await expect(extract(providerName)).rejects.toBeInstanceOf(EventBaseExtractionError);
+        await expect(extract(providerName)).rejects.toThrow('the provider cut the reply for window 2 short, with finish reason content_filter (native: SAFETY), so its last events are missing');
     });
 
     it('fails the window when no event in the reply is valid', async () => {

@@ -101,12 +101,10 @@ export function notifyConnectionError(contextLabel, url, detail) {
 // without calling response.status(), so Express sends it as HTTP **200**
 // (src/endpoints/backends/chat-completions.js, the `else` branch after fetch).
 //
-// From the browser that is indistinguishable from a model that answered with
-// nothing: a 200 whose choices[0].message.content is absent. VectFox used to
-// classify it as kind:'empty' and log "returned empty response", so a wrong key,
-// an unsupported parameter, or a rejected prompt all produced the same content-
-// free per-window skip. That is the silent-model-failure class again (issue #11),
-// arriving through a different door.
+// From the browser that looks like a model that answered with nothing: a 200
+// whose choices[0].message.content is absent. Read as an empty reply, a wrong key,
+// an unsupported parameter and a rejected prompt would each be the same silent
+// per-window skip (issue #11), so postChatCompletion reads `error.message` first.
 //
 // We cannot recover the provider's actual sentence — ST forwards `statusText`
 // only, which for a 400 is the literal string "Bad Request". So the toast says

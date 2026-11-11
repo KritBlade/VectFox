@@ -142,6 +142,21 @@ describe('reformatDocument — batching', () => {
 
         vi.unstubAllGlobals();
     });
+
+    it('keeps the entries of a reply a provider\'s filter cut, and warns with the reason', async () => {
+        const doc = '# Topic\n\nSome content.';
+        vi.stubGlobal('fetch', vi.fn(async () => mockChatCompletionResponse(
+            [{ entry_type: 'concept', name: 'Topic', aliases: [], affiliation: '', traits: [], relationships: [], keywords: [], body: 'Some content.' }],
+            'content_filter',
+        )));
+
+        const result = await reformatDocument({ text: doc, contentType: 'document', settings: baseSettings({ reformat_batch_chars: 6000 }) });
+
+        expect(result.chunks).toHaveLength(1);
+        expect(result.warnings).toContain('batch 0: the provider cut the reply short, with finish reason content_filter, so some entries from this section may be missing.');
+
+        vi.unstubAllGlobals();
+    });
 });
 
 // ---------------------------------------------------------------------------

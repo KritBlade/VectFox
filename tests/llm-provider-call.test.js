@@ -1,8 +1,7 @@
 /**
  * Unit tests for src/features/llm-provider/llm-provider-call.js — the shared chat-completions wire
- * path + LLM JSON-array parser now used by the summarizer, EventBase extractor,
- * agentic planner, and Auto-Reformat. None of those four had wire-level fetch
- * coverage before this module consolidated them; this is that coverage.
+ * path and LLM JSON-array parser that the EventBase extractor, Agent Mode's planner, StoryArc and
+ * Auto-Reformat use.
  *
  * Mocks ST globals + the error/connection classifiers + fetch — same
  * convention as reformat-extractor.test.js.
@@ -492,6 +491,49 @@ describe('postChatCompletion — budget spent without an answer', () => {
     it('still reports a genuinely silent completion as kind:empty', async () => {
         vi.stubGlobal('fetch', vi.fn(async () => noAnswerResponse({ finishReason: 'stop', reasoningTokens: null })));
         await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({ kind: 'empty' });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// A reply the provider cut or refused
+// ---------------------------------------------------------------------------
+
+const replyBody = (body) => ({ ok: true, status: 200, json: async () => body });
+
+describe('postChatCompletion — a reply the provider cut or refused', () => {
+    it('returns a cut reply\'s text with why the provider cut it', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => replyBody({
+            choices: [{ message: { content: '[{"name":"A"}' }, finish_reason: 'content_filter', native_finish_reason: 'SAFETY' }],
+        })));
+        await expect(postChatCompletion(baseArgs())).resolves.toMatchObject({
+            content: '[{"name":"A"}', finishReason: 'content_filter', cutReason: 'content_filter (native: SAFETY)',
+        });
+    });
+
+    it('gives no cut reason for a reply the model finished', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: '[]' })));
+        await expect(postChatCompletion(baseArgs())).resolves.toMatchObject({ finishReason: 'stop', cutReason: null });
+    });
+
+    it('names the refusal, the finish reason and the tokens in a reply with no text', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => replyBody({
+            choices: [{ message: { content: null, refusal: 'I can\'t help with that.' }, finish_reason: 'stop' }],
+            usage: { completion_tokens: 9 },
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({
+            kind: 'empty',
+            message: 'TestFeature: OpenRouter returned no text for model "test/model" — finish_reason "stop" · refusal "I can\'t help with that." · 9 output tokens',
+        });
+    });
+
+    it('names a filter\'s cut in a reply with no text, and stays a per-window skip', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => replyBody({
+            choices: [{ message: { content: '' }, finish_reason: 'content_filter' }], usage: { completion_tokens: 0 },
+        })));
+        await expect(postChatCompletion(baseArgs())).rejects.toMatchObject({
+            kind: 'empty', message: expect.stringContaining('finish_reason "content_filter" · 0 output tokens'),
+        });
+        expect(mockNotifyUpstreamRejection).not.toHaveBeenCalled();
     });
 });
 

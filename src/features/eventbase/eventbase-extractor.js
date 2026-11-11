@@ -86,17 +86,20 @@ function _mapEventBaseError(e, windowIndex) {
 }
 
 /**
- * A reply the provider cut at the token limit lost its last events, even when the
- * parser can still read the ones before the cut. Treating it as a failed window keeps
- * it from being marked extracted with events missing.
- * @param {string|null} finishReason
+ * A reply the provider cut short lost its last events, even when the parser can still
+ * read the ones before the cut, whether the cut came at the token limit or for another
+ * reason, such as a content filter. Treating it as a failed window keeps it from being
+ * marked extracted with events missing.
+ * @param {{finishReason: string|null, cutReason: string|null}} reply - From postChatCompletion
  * @param {number} maxTokens
  * @param {number} windowIndex
  */
-function _throwIfReplyWasCut(finishReason, maxTokens, windowIndex) {
-    if (finishReason !== 'length') return;
+function _throwIfReplyWasCut({ finishReason, cutReason }, maxTokens, windowIndex) {
+    if (!cutReason) return;
     throw new EventBaseExtractionError(
-        `EventBase: the reply for window ${windowIndex} was cut at the ${maxTokens}-token limit. Raise the EventBase token limit.`,
+        finishReason === 'length'
+            ? `EventBase: the reply for window ${windowIndex} was cut at the ${maxTokens}-token limit. Raise the EventBase token limit.`
+            : `EventBase: the provider cut the reply for window ${windowIndex} short, with finish reason ${cutReason}, so its last events are missing.`,
         windowIndex,
     );
 }
@@ -104,9 +107,6 @@ function _throwIfReplyWasCut(finishReason, maxTokens, windowIndex) {
 // EventBase prompts require a top-level JSON array, so the shared call must NOT
 // force response_format=json_object (providers would coerce output to an object
 // and suppress valid array responses) — we simply omit responseFormat below.
-
-// (Reply extraction, empty-reply classification, and JSON-array parsing now
-// live in src/features/llm-provider/llm-provider-call.js — postChatCompletion + parseJsonArrayFromLlm.)
 
 // ---------------------------------------------------------------------------
 // Script detection (lightweight)
@@ -176,7 +176,7 @@ async function _requestExtraction(prompt, settings, windowIndex, route) {
     } catch (e) {
         throw _mapEventBaseError(e, windowIndex);
     }
-    _throwIfReplyWasCut(reply.finishReason, maxTokens, windowIndex);
+    _throwIfReplyWasCut(reply, maxTokens, windowIndex);
     return reply.content;
 }
 

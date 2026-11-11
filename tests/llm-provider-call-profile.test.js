@@ -123,6 +123,21 @@ describe('a chat call on a connection profile', () => {
         await expect(call(PROFILES.custom)).rejects.toMatchObject({ kind: 'model_config', message: expect.stringContaining('880 of them on reasoning') });
     });
 
+    it('reads a cut and a refusal as the manual path does', async () => {
+        host.reply = { choices: [{ message: { content: '[{"name":"ga' }, finish_reason: 'content_filter', native_finish_reason: 'SAFETY' }] };
+        await expect(call(PROFILES.custom)).resolves.toMatchObject({ content: '[{"name":"ga', cutReason: 'content_filter (native: SAFETY)' });
+
+        host.reply = { choices: [{ message: { content: null, refusal: 'No.' }, finish_reason: 'stop' }], usage: { completion_tokens: 2 } };
+        await expect(call(PROFILES.custom)).rejects.toMatchObject({
+            kind: 'empty', message: 'EventBase: profile "Harbor custom" returned no text for model "harbor-model" — finish_reason "stop" · refusal "No." · 2 output tokens',
+        });
+    });
+
+    it('sees no stop reason in Claude\'s reply, which SillyTavern rewraps without it', async () => {
+        host.reply = { choices: [{ message: { content: '[{"name":"bell"}]' } }], content: [{ type: 'text', text: '[{"name":"bell"}]' }] };
+        await expect(call(PROFILES.claude)).resolves.toMatchObject({ finishReason: null, cutReason: null });
+    });
+
     it('treats an upstream rejection in a body with no text as the manual path does', async () => {
         host.reply = { error: { message: 'Bad Request' } };
         await expect(call(PROFILES.custom)).rejects.toMatchObject({ kind: 'upstream_error', message: 'EventBase: profile "Harbor custom" rejected the request for model "harbor-model" — Bad Request' });

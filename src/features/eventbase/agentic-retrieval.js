@@ -696,16 +696,17 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
 
 /**
  * Call an LLM for a JSON reply and return it parsed: the planner, the StoryArc
- * router, thread pick and links. Throws on network/auth failure, empty response, or
- * unparseable JSON.
+ * router, thread pick and links. Throws on network/auth failure, a reply with no text,
+ * or unparseable JSON, naming the provider's cut when it cut the reply short. A cut
+ * reply whose JSON parses lost nothing, since the JSON closed before the cut.
  */
 export async function callLlmForJson({ systemPrompt, userMessage, llmConnection, timeoutMs, maxTokens, contextLabel = 'Agent Mode' }) {
     // Shared HTTP + response classification (llm-provider-call.js). The planner
     // is a two-message, json_object call. authBranch:false folds 401/403 into the
     // model-config and generic paths, since the caller degrades to pre-search.
-    let content, usage;
+    let content, usage, finishReason, cutReason;
     try {
-        ({ content, usage } = await postChatCompletion({
+        ({ content, usage, finishReason, cutReason } = await postChatCompletion({
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userMessage },
@@ -750,7 +751,10 @@ export async function callLlmForJson({ systemPrompt, userMessage, llmConnection,
     try {
         parsed = JSON.parse(cleaned);
     } catch (err) {
-        throw new Error(`${contextLabel} reply is not valid JSON: ${err.message}. Got: ${cleaned.slice(0, 200)}`);
+        const cause = !cutReason ? 'is not valid JSON'
+            : finishReason === 'length' ? `was cut at the ${maxTokens}-token limit, so it is not valid JSON`
+                : `was cut short by the provider, with finish reason ${cutReason}, so it is not valid JSON`;
+        throw new Error(`${contextLabel} reply ${cause}: ${err.message}. Got: ${cleaned.slice(0, 200)}`);
     }
 
     // Attach usage as a non-enumerable property so callers can read it without

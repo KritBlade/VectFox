@@ -8,9 +8,9 @@
  * proxy → classify the response (auth / model-config / connection / generic).
  * A SillyTavern connection profile: check the profile → send through ST's
  * ConnectionManagerRequestService (sillytavern/connection-profiles.js) → classify
- * a failure (connection-profile-core.js). Both then extract the reply and
- * classify a reply with no text the same way. Plus the LLM-output JSON-array
- * parser both extraction features use.
+ * a failure (connection-profile-core.js). Both then extract the reply, read why
+ * it stopped (completion-finish.js), and classify a reply with no text the same
+ * way. Plus the LLM-output JSON-array parser both extraction features use.
  *
  * DESIGN — neutral core, feature policy at the edge.
  * This module throws ONE neutral error type (LlmCallError, carrying a `kind`).
@@ -39,6 +39,7 @@ import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getModelConfigErrorMessage } from '../../shared/model-http-errors.js';
 import { isConnectionError, notifyConnectionError, notifyUpstreamRejection } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
+import { completionCutReason, completionFinishReason, describeNoTextAnswer } from './completion-finish.js';
 import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape } from './connection-profile-core.js';
 
 /**
@@ -49,13 +50,14 @@ import { classifyConnectionProfileFailure, connectionProfileProblem, connectionP
  *  - 'auth'          401/403 (only when authBranch=true)
  *  - 'model_config'  getModelConfigErrorMessage matched (bad/retired model, etc.),
  *                    or the model returned reasoning with an empty answer
- *                    (see _reasoningOnlyReplyDetail) — both fail on every call
+ *                    (see _budgetSpentWithoutAnswerDetail) — both fail on every call
  *                    until the user changes a setting, so both must be fatal
  *  - 'connection'    isConnectionError matched (endpoint unreachable)
  *  - 'http'          any other non-2xx
  *  - 'upstream_error' 2xx whose body is really an upstream rejection ST downgraded
  *                    (see notifyUpstreamRejection) — NOT an empty completion
- *  - 'empty'         2xx but genuinely no assistant content and no error in the body
+ *  - 'empty'         2xx but genuinely no assistant content and no error in the body;
+ *                    its message says what the reply held (describeNoTextAnswer)
  *  - 'parse'         parseJsonArrayFromLlm could not find a usable array
  */
 export class LlmCallError extends Error {
@@ -255,7 +257,9 @@ export function resolveModelParameterStyle(settings = {}) {
  *        reasoning model's thinking off entirely. From resolveModelParameterStyle.
  * @param {string} [opts.connectionProfileId] the profile a CONNECTION_PROFILE_PROVIDER call runs on
  * @param {string} [opts.connectionProfilePage] the page that chooses that profile, named when it cannot be used
- * @returns {Promise<{content: string, finishReason: string|null, usage: object|null, data: any}>}
+ * @returns {Promise<{content: string, finishReason: string|null, cutReason: string|null, usage: object|null, data: any}>}
+ *          `cutReason` says why the provider cut a reply that has text, null when the model finished it. The caller
+ *          decides what a cut reply is worth, since only it knows whether part of its answer is any use.
  * @throws {LlmCallError}
  */
 export async function postChatCompletion({
@@ -361,7 +365,7 @@ export async function postChatCompletion({
         });
     }
 
-    return _completionResult(content, data);
+    return _completionResult(content, data, { contextLabel, label, model });
 }
 
 /**
@@ -417,11 +421,18 @@ async function _postOnConnectionProfile({
             maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure,
         });
     }
-    return _completionResult(content, data);
+    return _completionResult(content, data, { contextLabel, label, model });
 }
 
-/** What a reply with text returns: the text, its finish reason, its token counts and the raw body. */
-function _completionResult(content, data) {
+/**
+ * What a reply with text returns: the text, its finish reason, why the provider cut it if it did, its token counts
+ * and the raw body. A cut is logged here, on both paths.
+ */
+function _completionResult(content, data, { contextLabel, label, model }) {
+    const cutReason = completionCutReason(data) || null;
+    if (cutReason) {
+        log.warn(`[${contextLabel}] ${label} cut the reply from model "${model}" short, with finish reason ${cutReason}, after ${Array.from(content).length} characters.`);
+    }
     const usage = data?.usage ? {
         prompt_tokens: data.usage.prompt_tokens ?? null,
         completion_tokens: data.usage.completion_tokens ?? null,
@@ -430,7 +441,8 @@ function _completionResult(content, data) {
 
     return {
         content,
-        finishReason: data?.choices?.[0]?.finish_reason ?? null,
+        finishReason: completionFinishReason(data) || null,
+        cutReason,
         usage,
         data,
     };
@@ -438,7 +450,8 @@ function _completionResult(content, data) {
 
 /**
  * Throw for a reply that carries no text, on either path: a token budget spent before the answer, a model error or an
- * upstream rejection in the body, or a genuinely empty completion. Each with the kind its callers act on.
+ * upstream rejection in the body, or a reply with no text, whose message names its finish reason, a refusal and its
+ * token counts. Each with the kind its callers act on.
  *
  * @param {object} reply
  * @param {any} reply.data - The parsed reply
@@ -541,9 +554,10 @@ function _throwForReplyWithoutText({
         );
     }
 
-    log.warn(`[${contextLabel}] ${label} returned empty reply (${fromSillyTavern}) — raw body: ${bodyText.slice(0, 500)}`);
+    const held = describeNoTextAnswer(data);
+    log.warn(`[${contextLabel}] ${label} returned no text for model "${model}" (${fromSillyTavern}): ${held}. Raw body: ${bodyText.slice(0, 500)}`);
     throw new LlmCallError(
-        `${contextLabel}: ${label} returned empty response`,
+        `${contextLabel}: ${label} returned no text for model "${model}" — ${held}`,
         { kind: 'empty', status, provider },
     );
 }
@@ -560,10 +574,9 @@ function _throwForReplyWithoutText({
  * for the top-level record array); falls back to an empty array for a legit
  * "nothing found" response.
  *
- * Previously duplicated as eventbase-extractor `_parseJsonArray` and
- * reformat-extractor `_extractJsonArray` — identical except which keys mark a
- * real record. Throws LlmCallError{kind:'parse'} on unrecoverable output; the
- * caller maps it to its own extraction error.
+ * EventBase and Auto-Reformat both read their records with it, each naming the
+ * keys that mark a real record. Throws LlmCallError{kind:'parse'} on unrecoverable
+ * output; the caller maps it to its own extraction error.
  *
  * @param {string} raw
  * @param {object} [opts]

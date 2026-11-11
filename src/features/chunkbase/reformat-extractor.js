@@ -91,11 +91,11 @@ function _mapReformatError(e, batchIndex) {
  * @param {object} settings
  * @param {number} batchIndex
  * @param {object} route - Spread into postChatCompletion
- * @returns {Promise<{reply: string, finishReason: string|null}>}
+ * @returns {Promise<{reply: string, finishReason: string|null, cutReason: string|null}>}
  */
 async function _requestReformat(prompt, settings, batchIndex, route) {
     try {
-        const { content, finishReason } = await postChatCompletion({
+        const { content, finishReason, cutReason } = await postChatCompletion({
             messages: [{ role: 'user', content: prompt }],
             ...route,
             maxTokens: settings.reformat_max_output_tokens || DEFAULT_MAX_TOKENS,
@@ -105,7 +105,7 @@ async function _requestReformat(prompt, settings, batchIndex, route) {
             shouldNotifyProviderFailure: false,
             ...resolveModelParameterStyle(settings),
         });
-        return { reply: content, finishReason };
+        return { reply: content, finishReason, cutReason };
     } catch (e) {
         throw _mapReformatError(e, batchIndex);
     }
@@ -309,9 +309,11 @@ async function _processChain(chain, settings, chainIndex, warnings) {
         const prompt = buildReformatPrompt(batch.text, { customPrompt: settings.reformat_custom_prompt, batchContext });
 
         try {
-            const { reply, finishReason } = await _callProviderWithRetry(prompt, settings, chainIndex);
-            if (finishReason === 'length') {
-                warnings.push(`${batchLabel}: response was truncated by the model's output limit — some entries from this section may be missing. Consider lowering "Batch size (chars)" in ChunkBase → Auto-Reformat.`);
+            const { reply, finishReason, cutReason } = await _callProviderWithRetry(prompt, settings, chainIndex);
+            if (cutReason) {
+                warnings.push(finishReason === 'length'
+                    ? `${batchLabel}: response was truncated by the model's output limit — some entries from this section may be missing. Consider lowering "Batch size (chars)" in ChunkBase → Auto-Reformat.`
+                    : `${batchLabel}: the provider cut the reply short, with finish reason ${cutReason}, so some entries from this section may be missing.`);
             }
 
             const rawArray = parseJsonArrayFromLlm(reply, {
