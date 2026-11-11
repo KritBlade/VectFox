@@ -3,7 +3,6 @@ import { substituteParams } from '../../sillytavern/chat.js';
 import { buildStopSet } from './stop-words.js';
 import { stopLocalesForMode } from './language-modes.js';
 import { log } from '../../sillytavern/log.js';
-import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 
 /**
  * ============================================================================
@@ -75,19 +74,9 @@ const FREQUENCY_WEIGHT_INCREMENT = 0.1;
 /** Maximum weight cap (prevent runaway weights) */
 const MAX_KEYWORD_WEIGHT = 3.0;
 
-/**
- * Balanced scan cap when summarization is enabled.
- * Derived from a typical English summarized chunk (~1328 chars) + 20% buffer.
- */
-//const SUMMARY_BALANCED_HEADER_SIZE = 1600;
-// for some reason, bigger value speed up retrival
-const SUMMARY_BALANCED_HEADER_SIZE = 5000;
-
 const CJK_CHAR_RE = /[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF]/;
 
-// In Japanese mode, allow a small set of high-signal 1-char tokens (mostly RPG terms)
-// plus frequency-based survival to avoid losing recurring key concepts.
-// In Japanese mode, allow a small set of high-signal 1-char tokens 
+// In Japanese mode, allow a small set of high-signal 1-char tokens
 // (RPG, School, and Slice-of-Life terms)
 // plus frequency-based survival to avoid losing recurring key concepts.
 const JAPANESE_SINGLE_CHAR_ALLOWLIST = new Set([
@@ -180,24 +169,6 @@ function shouldKeepCjkKeyword(token, frequency, isJapaneseMode, isTraditionalChi
         return SIMPLIFIED_CHINESE_SINGLE_CHAR_ALLOWLIST.has(token);
     }
     return false;
-}
-
-function isSummarizationEnabled(settings) {
-    return ['openrouter', 'vllm', CONNECTION_PROFILE_PROVIDER].includes(String(settings?.chat_provider || 'openrouter').toLowerCase());
-}
-
-function getEffectiveHeaderSize(config, level, settings) {
-    if (!config?.headerSize) return null;
-
-    // Keep existing behavior for non-summarized content.
-    if (!isSummarizationEnabled(settings)) return config.headerSize;
-
-    // Summarized text is denser and shorter; cap balanced scan to reduce noise/over-scan.
-    if (level === 'balanced') {
-        return Math.min(config.headerSize, SUMMARY_BALANCED_HEADER_SIZE);
-    }
-
-    return config.headerSize;
 }
 
 /**
@@ -335,7 +306,7 @@ export function extractTextKeywords(text, options = {}) {
     const level = options.level || DEFAULT_EXTRACTION_LEVEL;
     const baseWeight = options.baseWeight || DEFAULT_BASE_WEIGHT;
     const config = EXTRACTION_LEVELS[level];
-    const effectiveHeaderSize = getEffectiveHeaderSize(config, level, options.settings);
+    const headerSize = config?.headerSize ?? null;
 
     // If extraction is disabled, return empty
     if (!config || !config.enabled) {
@@ -355,8 +326,8 @@ export function extractTextKeywords(text, options = {}) {
     cleanedText = cleanedText.replace(/'s\b/g, '');
 
     // Step 2: Determine scan area based on level
-    const scanArea = effectiveHeaderSize
-        ? cleanedText.substring(0, effectiveHeaderSize)
+    const scanArea = headerSize
+        ? cleanedText.substring(0, headerSize)
         : cleanedText;
 
     // Step 2.5: Detect capitalized words (likely proper nouns/names) before lowercasing
@@ -535,7 +506,7 @@ export function extractBM25Keywords(text, options = {}) {
     // Get extraction level config
     const level = options.level || DEFAULT_EXTRACTION_LEVEL;
     const config = EXTRACTION_LEVELS[level];
-    const effectiveHeaderSize = getEffectiveHeaderSize(config, level, options.settings);
+    const headerSize = config?.headerSize ?? null;
 
     // If extraction is disabled, return empty
     if (!config || !config.enabled) return [];
@@ -552,12 +523,12 @@ export function extractBM25Keywords(text, options = {}) {
 
     // Apply header size limit (scan area)
     let scanText = text;
-    if (effectiveHeaderSize && text.length > effectiveHeaderSize) {
+    if (headerSize && text.length > headerSize) {
         // For minimal/balanced, focus on the beginning of the text
-        scanText = text.substring(0, effectiveHeaderSize);
+        scanText = text.substring(0, headerSize);
         // Try to end at a word boundary
         const lastSpace = scanText.lastIndexOf(' ');
-        if (lastSpace > effectiveHeaderSize * 0.8) {
+        if (lastSpace > headerSize * 0.8) {
             scanText = scanText.substring(0, lastSpace);
         }
     }

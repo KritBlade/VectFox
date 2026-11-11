@@ -122,7 +122,11 @@ export function connectionProfileKeyMessage({ feature, profileName, storesKey })
             + 'Select the key in SillyTavern and update the profile.';
 }
 
-const KEY_PROBLEM = /unauthorized|api key|api_key|apikey|authentication|credential/i;
+const KEY_PROBLEM = /unauthorized|authori[sz]ation|api key|api_key|apikey|authentication|credential/i;
+
+// What SillyTavern's server says when the reply it got could not be read as JSON: Node's own parse errors, and
+// node-fetch's.
+const NOT_AN_API_REPLY = /is not valid JSON|in JSON at position|Unexpected end of JSON input|invalid json response body/i;
 
 /**
  * What a failed profile request means (plan §4), first match wins:
@@ -130,10 +134,12 @@ const KEY_PROBLEM = /unauthorized|api key|api_key|apikey|authentication|credenti
  *   2. A timeout or abort: rethrow its cause, as the manual path does.
  *   3. 'Response not OK', all a Text Completion failure or a missing key leaves: model_config, the key message when
  *      the profile stores no key, else a pointer to the SillyTavern server console.
- *   4. Text naming a key problem: model_config with the key message.
- *   5. A model or configuration error: model_config.
- *   6. A connection failure: connection.
- *   7. Anything else, a moderation block on one window included: upstream_error.
+ *   4. Text naming a key problem, authorization included: model_config with the key message.
+ *   5. Text saying the reply was not JSON, as when the profile's URL serves a web page: model_config, pointing at
+ *      the URL.
+ *   6. A model or configuration error: model_config.
+ *   7. A connection failure: connection.
+ *   8. Anything else, a moderation block on one window included: upstream_error.
  * model_config is the kind that raises the sticky toast and pauses auto-sync; an auth kind would fail in silence.
  *
  * @param {Error} error - What sendRequest threw
@@ -160,6 +166,14 @@ export function classifyConnectionProfileFailure(error, { feature, profileName, 
     }
     if (KEY_PROBLEM.test(detail)) {
         return { kind: 'model_config', detail, message: connectionProfileKeyMessage({ feature, profileName, storesKey }) };
+    }
+    if (NOT_AN_API_REPLY.test(detail)) {
+        return {
+            kind: 'model_config',
+            detail,
+            message: `${feature}: the server of profile "${profileName}" answered with a web page or other text, not an API reply. `
+                + 'Check the URL saved in that profile in SillyTavern.',
+        };
     }
     if (getModelConfigErrorMessage({ contextLabel: feature, provider: profileName, model, status: null, responseText: detail, enforceStatusGate: false })) {
         return { kind: 'model_config', detail, message: `${feature}: profile "${profileName}" reports a model or configuration error for model "${model}": ${detail}` };

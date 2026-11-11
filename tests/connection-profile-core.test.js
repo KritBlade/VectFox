@@ -124,16 +124,35 @@ describe('what a failed profile call means', () => {
             .toMatch(/stores none, so VectFox sent none/);
     });
 
-    it('5: a model or configuration error aborts the run', () => {
+    it('4: a server\'s own wording of a 401 that names authorization gives the key message too', () => {
+        expect(classifyConnectionProfileFailure(failed(causeOf('Authorization Required')), { ...context, storesKey: false }))
+            .toMatchObject({ kind: 'model_config', message: 'EventBase: the provider needs an API key, and profile "Harbor chat" stores none, so VectFox sent none. Select the key in SillyTavern and update the profile.' });
+        expect(classifyConnectionProfileFailure(failed(causeOf('Authorization Required')), context).message)
+            .toMatch(/rejected the API key for profile "Harbor chat"/);
+    });
+
+    it('5: a reply that is not JSON, as from a URL serving a web page, points at the profile\'s URL', () => {
+        const urlMessage = 'EventBase: the server of profile "Harbor chat" answered with a web page or other text, not an API reply. Check the URL saved in that profile in SillyTavern.';
+        for (const detail of [
+            'Unexpected token \'<\', "<!DOCTYPE "... is not valid JSON',
+            'Unexpected token < in JSON at position 0',
+            'Unexpected end of JSON input',
+            'invalid json response body at http://10.0.0.5:5151/chat/completions reason: Unexpected token < in JSON at position 0',
+        ]) {
+            expect(classifyConnectionProfileFailure(failed(causeOf(detail)), context), detail).toMatchObject({ kind: 'model_config', message: urlMessage });
+        }
+    });
+
+    it('6: a model or configuration error aborts the run', () => {
         expect(classifyConnectionProfileFailure(failed(causeOf('Not Found')), context)).toMatchObject({ kind: 'model_config' });
     });
 
-    it('6: an unreachable server is a connection failure', () => {
+    it('7: an unreachable server is a connection failure', () => {
         expect(classifyConnectionProfileFailure(failed(causeOf('Connection refused: 127.0.0.1:8080')), context))
             .toMatchObject({ kind: 'connection', detail: 'Connection refused: 127.0.0.1:8080' });
     });
 
-    it('7: anything else, a moderation block included, skips only its window', () => {
+    it('8: anything else, a moderation block included, skips only its window', () => {
         expect(classifyConnectionProfileFailure(failed(causeOf('Forbidden')), context)).toMatchObject({ kind: 'upstream_error' });
         expect(classifyConnectionProfileFailure(failed(causeOf('Too Many Requests')), context)).toMatchObject({ kind: 'upstream_error' });
     });
