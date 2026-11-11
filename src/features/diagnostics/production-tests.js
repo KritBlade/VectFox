@@ -9,6 +9,7 @@
  */
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { log } from '../../sillytavern/log.js';
 import {
     getSavedHashes,
@@ -114,30 +115,14 @@ async function getPluginProviderParams(settings) {
 }
 
 /**
- * Probe the Similharity plugin's /health endpoint to decide whether plugin-only
- * production tests should run. When the plugin is absent, ST returns its
- * catch-all 404 HTML — without this guard, those tests would falsely accuse the
- * user's embedding provider of being broken.
- */
-async function isPluginInstalled() {
-    try {
-        const response = await fetch('/api/plugins/similharity/health', {
-            method: 'GET',
-            headers: getRequestHeaders(),
-        });
-        return response.ok;
-    } catch {
-        return false;
-    }
-}
-
-/**
  * Test: Can we generate an embedding?
  * Uses Similharity plugin's dedicated embedding endpoint to test the provider.
  * This does NOT insert anything into the database - it only tests embedding generation.
  */
 export async function testEmbeddingGeneration(settings) {
-    if (!(await isPluginInstalled())) {
+    // Plugin-only: with no plugin, SillyTavern answers the plugin's routes with its 404 page, which would read as the
+    // embedding provider failing.
+    if (!(await checkPluginAvailable())) {
         return {
             name: '[PROD] Embedding Generation',
             status: 'skipped',
@@ -205,7 +190,7 @@ export async function testEmbeddingGeneration(settings) {
  * Creates a temporary test collection that is cleaned up after the test.
  */
 export async function testVectorStorage(settings) {
-    if (!(await isPluginInstalled())) {
+    if (!(await checkPluginAvailable())) {
         return {
             name: '[PROD] Vector Storage',
             status: 'skipped',

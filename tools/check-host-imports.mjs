@@ -25,7 +25,7 @@ const SERVED_AT = ['scripts', 'extensions', 'third-party', 'VectFox'];
 // The first that holds public/script.js wins, so an install outranks a source checkout.
 const SILLYTAVERN_FOLDERS = [
     'H:\\Apps\\SillyTavern-Launcher\\SillyTavern',   // main PC: the launcher install
-    'C:\\Derek\\Github\\Dev\\misc\\SillyTavern-1.19.0',    // work PC: a source checkout
+    'C:\\Derek\\Github\\Dev\\misc\\SillyTavern',    // work PC: a source checkout
     '/Users/goten/Github/Dev/SillyTavern',          // Mac: a source checkout
 ];
 
