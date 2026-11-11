@@ -22,13 +22,17 @@ const backend = vi.hoisted(() => ({
 vi.mock('../src/features/vector-backend/index.js', async () => ({
     ...backend,
     textWithoutKeywordSuffix: (await import('../src/features/vector-backend/stored-chunk.js')).textWithoutKeywordSuffix,
+    describeEmbeddingFailure: (await import('../src/features/vector-backend/embedding-failure.js')).describeEmbeddingFailure,
 }));
 vi.mock('../src/features/collections/index.js', () => ({
     getChunkMetadata: hash => host.stored[String(hash)] ?? null,
     saveChunkMetadata: (hash, metadata) => { host.stored[String(hash)] = { ...metadata }; },
     deleteChunkMetadata: (hash) => { delete host.stored[String(hash)]; },
 }));
-vi.mock('../src/features/eventbase/index.js', () => ({ packTimelineSortKey: (message, order) => message * 1000 + order }));
+vi.mock('../src/features/eventbase/index.js', () => ({
+    packTimelineSortKey: (message, order) => message * 1000 + order,
+    eventPointHash: id => 7_000_000 + [...String(id)].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000003, 3),
+}));
 vi.mock('../src/features/keyword-search/index.js', () => ({
     languageModeLabel: mode => ({ intl: 'Intl.Segmenter (English / Latin)', jieba_tw: 'Traditional Chinese (Jieba WASM)' })[mode] ?? String(mode),
 }));
@@ -157,6 +161,21 @@ describe('saving a chunk', () => {
         expect(stored.metadata).toMatchObject({ keywords: [{ text: 'gate', weight: 1.5 }], importance: 7 });
     });
 
+    it('tells, on a failed embedding, that a busy provider can be tried again, and gives the error', async () => {
+        backend.insertVectorItems.mockRejectedValueOnce(new Error('[Qdrant] Failed to insert 1 vectors: 500 Internal Server Error - 429 Too Many Requests'));
+        await openHarbor();
+        await openChunk('1');
+        type($id('vectfox_chunk_text'), 'The tide went out.');
+        actionButton('save').click();
+        await vi.waitFor(() => expect(toastr.error).toHaveBeenCalledTimes(1));
+        const [message, title, options] = toastr.error.mock.calls[0];
+        expect(message).toMatch(/^The chunk was not saved\. The embedding provider is busy or slow right now/);
+        expect(message).toContain('Embedding error: [Qdrant] Failed to insert 1 vectors: 500 Internal Server Error - 429 Too Many Requests');
+        expect([title, options]).toEqual(['VectFox — chunk not saved', { timeOut: 0, extendedTimeOut: 0 }]);
+        expect(backend.deleteVectorItems).not.toHaveBeenCalled();
+        expect($id('vectfox_chunk_text').value).toBe('The tide went out.');
+    });
+
     it('loses nothing when the new text cannot be embedded, and keeps the edit', async () => {
         backend.insertVectorItems.mockRejectedValueOnce(new Error('Query embedding failed: 500'));
         await openHarbor();
@@ -195,6 +214,39 @@ describe('saving a chunk', () => {
         await vi.waitFor(() => expect(backend.updateChunkMetadata).toHaveBeenCalledTimes(1));
         expect(backend.updateChunkMetadata.mock.calls[0][2]).toEqual({ keywords: [{ text: 'tide' }] });
         expect(backend.insertVectorItems).not.toHaveBeenCalled();
+    });
+});
+
+describe('editing an EventBase event', () => {
+    const EVENTS = { id: 'vf_eventbase_qdrant_harbor', name: 'Harbor chat', type: 'chat', backend: 'qdrant', chunkCount: 1 };
+    const pointHashOf = id => 7_000_000 + [...String(id)].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) % 1000003, 3);
+    const eventItem = hash => ({ hash, index: 4, text: 'Orrin hid the key. [KEYWORDS: orrin key]', metadata: { event_id: 'evt-harbor-1', keywords: ['orrin', 'key'], importance: 6 } });
+
+    it('stores the new text under the event\'s own ID, replacing it in place', async () => {
+        host.items = [eventItem(pointHashOf('evt-harbor-1'))];
+        await openHarbor(SETTINGS, EVENTS);
+        await openChunk('0');
+        expect($id('vectfox_chunk_text').value).toBe('Orrin hid the key.');
+        // The form drew to its end: its last step counts the text.
+        expect(document.querySelector('[data-chunk-text-count]').textContent).toBe('18 characters.');
+        type($id('vectfox_chunk_text'), 'Orrin hid the brass key.');
+        actionButton('save').click();
+        await vi.waitFor(() => expect(backend.insertVectorItems).toHaveBeenCalledTimes(1));
+        const [stored] = backend.insertVectorItems.mock.calls[0][1];
+        expect(stored).toMatchObject({ hash: pointHashOf('evt-harbor-1'), text: 'Orrin hid the brass key.', metadata: { event_id: 'evt-harbor-1', keywords: ['orrin', 'key'], importance: 6 } });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        expect(backend.deleteVectorItems).not.toHaveBeenCalled();
+    });
+
+    it('moves an event an earlier edit stored under a text ID back to its own ID, and deletes that copy', async () => {
+        host.items = [eventItem(5555)];
+        await openHarbor(SETTINGS, EVENTS);
+        await openChunk('0');
+        type($id('vectfox_chunk_text'), 'Orrin hid the brass key.');
+        actionButton('save').click();
+        await vi.waitFor(() => expect(backend.deleteVectorItems).toHaveBeenCalledTimes(1));
+        expect(backend.insertVectorItems.mock.calls[0][1][0].hash).toBe(pointHashOf('evt-harbor-1'));
+        expect(backend.deleteVectorItems.mock.calls[0][1]).toEqual([5555]);
     });
 });
 

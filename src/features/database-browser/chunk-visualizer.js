@@ -16,8 +16,8 @@
  */
 
 import { deleteChunkMetadata, getChunkMetadata, saveChunkMetadata } from '../collections/index.js';
-import { deleteVectorItems, insertVectorItems, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
-import { packTimelineSortKey } from '../eventbase/index.js';
+import { deleteVectorItems, describeEmbeddingFailure, insertVectorItems, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
+import { eventPointHash, packTimelineSortKey } from '../eventbase/index.js';
 import { languageModeLabel } from '../keyword-search/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
@@ -340,8 +340,10 @@ function paintTokenizerLock(root, session) {
     root.querySelector(`#${ids.text}`).readOnly = Boolean(lock);
     root.querySelector(`#${ids.summaryNew}`).disabled = Boolean(lock);
     root.querySelector('[data-chunk-action="add-summary"]').disabled = Boolean(lock);
-    root.querySelector(`#${ids.keywordNew}`).disabled = Boolean(lock);
-    root.querySelector('[data-chunk-action="add-keyword"]').disabled = Boolean(lock);
+    // Only a chunk collection's form has keyword controls: an EventBase event's keywords are not edited here.
+    for (const control of [root.querySelector(`#${ids.keywordNew}`), root.querySelector('[data-chunk-action="add-keyword"]')]) {
+        if (control) control.disabled = Boolean(lock);
+    }
 }
 
 const linkViews = session => session.draft.chunkLinks.map(link => ({ ...linkTargetLabel(session.chunks, link.targetHash), mode: link.mode }));
@@ -495,39 +497,62 @@ async function writeChunkChanges(session, chunk, changes) {
 }
 
 /**
+ * Store one chunk's vector. A failure is an embedding failure, read for the person who pressed Save: whether saving
+ * again can work.
+ */
+async function insertChunkVector(session, item) {
+    try {
+        await insertVectorItems(session.collection.id, [item], session.settings);
+    } catch (error) {
+        throw Object.assign(new Error(error?.message ?? String(error), { cause: error }), { embeddingFailure: describeEmbeddingFailure(error) });
+    }
+}
+
+/**
  * Store a Qdrant chunk again after its keywords changed: Qdrant storage appends them to the text it stores, and builds
  * the sparse vector its keyword search reads from that text, so new keywords count there only once the chunk is stored
  * again. The text is the same, so the chunk keeps its hash and the new point replaces the old one, at one embedding.
  */
 async function storeChunkAgain(session, chunk, changes) {
-    const { collection, settings } = session;
     const metadata = storedMetadataWith(chunk, changes);
-    await insertVectorItems(collection.id, [{ hash: chunk.hash, text: chunk.text, index: chunk.index, metadata }], settings);
+    await insertChunkVector(session, { hash: chunk.hash, text: chunk.text, index: chunk.index, metadata });
     chunk.metadata = metadata;
     await writeSummaryChanges(session, chunk, changes);
 }
 
 /**
- * Write a chunk whose text changed: the text under its new hash, embedded, with every field it keeps and the form's
- * changes; then the old one goes, and its summaries point at the new one. The new chunk goes in first, so a failed
- * embedding leaves the old chunk as it was, and a later failure leaves both, never neither.
+ * The ID a chunk with this text is stored under: an EventBase event keeps the one EventBase gives it from its event ID,
+ * so its new text replaces it in place and a later read of its window replaces it again, never adding a second copy;
+ * a chunk's ID comes from its text.
+ */
+function storedHashFor(session, metadata, text) {
+    const eventId = session.isEventBase ? metadata.event_id : null;
+    return typeof eventId === 'string' && eventId !== '' ? eventPointHash(eventId) : getStringHash(text);
+}
+
+/**
+ * Write a chunk whose text changed: the text embedded under the ID storedHashFor gives, with every field it keeps and
+ * the form's changes; then a copy under another ID goes, and its summaries point at the new one. The new text goes in
+ * first, so a failed embedding leaves the stored chunk as it was, and a later failure leaves both, never neither.
  */
 async function reembedChunk(session, chunk, changes) {
     const { collection, settings } = session;
     const oldHash = chunk.hash;
-    const newHash = getStringHash(changes.text);
     const metadata = storedMetadataWith(chunk, changes);
+    const newHash = storedHashFor(session, metadata, changes.text);
     const storedSummaries = getChunkMetadata(String(oldHash))?.summaries || [];
 
-    await insertVectorItems(collection.id, [{ hash: newHash, text: changes.text, index: chunk.index, metadata }], settings);
+    await insertChunkVector(session, { hash: newHash, text: changes.text, index: chunk.index, metadata });
     Object.assign(chunk, { hash: newHash, text: changes.text, metadata });
     deleteChunkMetadata(String(oldHash));
     if (changes.summaries.length) saveChunkMetadata(String(newHash), { summaries: changes.summaries });
 
-    try {
-        await deleteVectorItems(collection.id, [oldHash], settings);
-    } catch (error) {
-        throw new Error(`the new text is saved, but the old chunk is still in the collection: ${error.message}`, { cause: error });
+    if (String(newHash) !== String(oldHash)) {
+        try {
+            await deleteVectorItems(collection.id, [oldHash], settings);
+        } catch (error) {
+            throw new Error(`the new text is saved, but the old copy is still in the collection: ${error.message}`, { cause: error });
+        }
     }
     try {
         const oldSummaries = [...new Set([...storedSummaries, ...changes.removedSummaries, ...changes.summaries])];
@@ -561,7 +586,12 @@ async function saveOpenChunk(root, session) {
         log.lifecycle(`VectFox Chunk Visualizer: saved chunk ${chunk.hash} of ${session.collection.id}${how}`);
     } catch (error) {
         log.error('VectFox Chunk Visualizer: a chunk could not be saved:', error);
-        toastr.error(`The chunk was not saved: ${error.message}`, 'VectFox');
+        const failure = error.embeddingFailure;
+        if (failure) {
+            toastr.error(`The chunk was not saved. ${failure.advice} Embedding error: ${failure.detail}`, 'VectFox — chunk not saved', { timeOut: 0, extendedTimeOut: 0 });
+        } else {
+            toastr.error(`The chunk was not saved: ${error.message}`, 'VectFox');
+        }
     } finally {
         // What is saved now, as far as the save got; the form keeps any edit it did not write.
         chunk.fields = savedChunkFields(chunk, getChunkMetadata(String(chunk.hash)) || {});

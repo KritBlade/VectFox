@@ -374,7 +374,7 @@ export async function insertEvents(events, settings, abortSignal = null, collect
     // Build insertable items
     const items = events.map((event, idx) => {
         const embedText = embedTexts[idx];
-        const hash = _eventHash(event.event_id);
+        const hash = eventPointHash(event.event_id);
         const vector = clientEmbeddings?.[embedText] || null;
 
         // The summary string lives inside `text` (first line, after the [event_type] prefix).
@@ -407,14 +407,14 @@ export async function insertEvents(events, settings, abortSignal = null, collect
     // Defensive hash-uniqueness check. Qdrant treats same-ID upserts as
     // overwrites — silently. If two events in this batch produce the same hash,
     // one of them disappears with no error from any layer (plugin logs "Inserted
-    // N", Qdrant returns 200, we'd never know). The 53-bit _eventHash makes a
+    // N", Qdrant returns 200, we'd never know). The 53-bit eventPointHash makes a
     // collision statistically rare (expected first collision near 134M points),
     // but "rare" silent-loss bugs are worse than "occasional" loud ones — so we
     // assert it explicitly here, throw if it ever happens, and surface the
     // colliding event_ids to the user instead of dropping their data.
     const hashSeen = new Map();   // hash → event_id (first occurrence)
     for (const item of items) {
-        const ev = events.find(e => _eventHash(e.event_id) === item.hash);
+        const ev = events.find(e => eventPointHash(e.event_id) === item.hash);
         const evid = ev?.event_id || '(unknown)';
         if (hashSeen.has(item.hash)) {
             const prevId = hashSeen.get(item.hash);
@@ -1250,8 +1250,9 @@ export async function ensureEventBaseIndexes(settings) {
 // ---------------------------------------------------------------------------
 
 /**
- * Deterministic numeric hash for an event_id string: two-seed djb2 packed into
- * a 53-bit-safe integer. Qdrant accepts uint64 point IDs, but JS only
+ * The point ID an event is stored under, from its event_id: two-seed djb2 packed into
+ * a 53-bit-safe integer. An event read again and an event edited in the Chunk Visualizer keep it, so either replaces
+ * the stored event in place. Qdrant accepts uint64 point IDs, but JS only
  * round-trips uint53 without loss, so the value stays at or below
  * MAX_SAFE_INTEGER (2^53 - 1) and survives JSON.stringify / parseInt on every
  * hop.
@@ -1265,7 +1266,7 @@ export async function ensureEventBaseIndexes(settings) {
  * @param {string} id
  * @returns {number}
  */
-function _eventHash(id) {
+export function eventPointHash(id) {
     let h1 = 5381;
     let h2 = 0xABCDEF;
     for (let i = 0; i < id.length; i++) {

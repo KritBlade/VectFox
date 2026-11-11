@@ -16,6 +16,7 @@ export {
     clearCachesForDeletedOrImportedCollection,
     countWindowsBehind,
     ensureEventBaseIndexes,
+    eventPointHash,
     findEventBaseCollectionsForChat,
     getVectorizationTip,
     pauseAutoSyncForChat,
