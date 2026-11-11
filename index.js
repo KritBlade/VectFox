@@ -42,8 +42,6 @@
  * Documented 2026-05-24 in response to external code review (H-4) —
  * see VectFox/plans/review-fix.md §H-4 for the threat-model reasoning.
  * ─────────────────────────────────────────────────────────────────────────
- *
- * @version 3.4.1
  */
 
 import path from 'node:path';
@@ -54,7 +52,8 @@ import qdrantBackend from './qdrant-backend.js';
 import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource, loadSillyTavernEmbeddingHost } from './openai-style-embedding.js';
 
 const pluginName = 'similharity';
-const pluginVersion = '3.4.1';
+// The plugin's version is written only in package.json; /health, /version and the startup line report it.
+const { version: pluginVersion } = JSON.parse(await fs.readFile(new URL('./package.json', import.meta.url), 'utf8'));
 
 // ─── The Qdrant API key, read on the server ──────────────────────────────────
 // VectFox keeps the Qdrant key in SillyTavern's secrets under 'api_key_qdrant',
