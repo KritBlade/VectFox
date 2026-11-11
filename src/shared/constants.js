@@ -68,11 +68,9 @@ export const RETRIEVAL_TIMEOUT_MAX_MS = 120000;
 /**
  * Agent Mode planner/fanout timeout defaults and clamp range. Shared by the
  * resolvers in src/shared/retrieval-budget.js, the settings defaults in index.js, and
- * the input bindings in src/features/settings-panel/settings-panel.js.
- *
- * These were three hand-kept copies of the same numbers, which is how the
- * planner default (30s) came to exceed the retrieval budget it runs inside (15s)
- * with nobody noticing -- GitHub issue #16.
+ * the input bindings in src/features/settings-panel/settings-panel.js, so one copy
+ * keeps the planner default from drifting above the retrieval budget it runs inside
+ * (GitHub issue #16).
  */
 export const AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS = 30000;
 export const AGENTIC_QUERY_TIMEOUT_DEFAULT_MS = 10000;
@@ -93,6 +91,14 @@ export const AGENTIC_TIMEOUT_MAX_MS = 60000;
 export const AGENTIC_MAX_TOKENS_DEFAULT = 2000;
 export const AGENTIC_MAX_TOKENS_MIN = 256;
 export const AGENTIC_MAX_TOKENS_MAX = 32000;
+
+/**
+ * Default ChunkBase similarity threshold, `score_threshold` (ChunkBase page, Retrieval): chunks scoring below it are
+ * dropped. Shared by the settings defaults in index.js, the slider's binding in
+ * src/features/settings-panel/settings-panel.js and Diagnostics' "ChunkBase Similarity Threshold" check, which names
+ * it. EventBase keeps its own, `eventbase_score_threshold`.
+ */
+export const CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT = 0.25;
 
 // =============================================================================
 // CHAT PROVIDERS

@@ -28,7 +28,7 @@ import {
 } from './infrastructure-checks.js';
 
 import {
-    checkScoreThreshold,
+    checkChunkBaseSimilarityThreshold,
     checkInsertQueryCounts,
     checkChatVectors,
     checkConditionalActivationModule,
@@ -127,7 +127,7 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
 
 
     // ========== CONFIGURATION CHECKS ==========
-    categories.configuration.push(checkScoreThreshold(settings));
+    categories.configuration.push(checkChunkBaseSimilarityThreshold(settings));
     categories.configuration.push(checkInsertQueryCounts(settings));
     categories.configuration.push(await checkChatVectors(settings));
 

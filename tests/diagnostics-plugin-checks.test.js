@@ -100,7 +100,7 @@ describe('the runner', () => {
             return Object.fromEntries(Object.keys(real).map(name => [name, ['checkServerPlugin', 'checkPluginEndpoints'].includes(name) ? real[name] : quiet(name)]));
         });
         vi.doMock('../src/features/diagnostics/configuration-checks.js', () => Object.fromEntries([
-            'checkScoreThreshold', 'checkInsertQueryCounts', 'checkChatVectors', 'checkConditionalActivationModule',
+            'checkChunkBaseSimilarityThreshold', 'checkInsertQueryCounts', 'checkChatVectors', 'checkConditionalActivationModule',
             'checkCollectionIdFormat', 'checkHashCollisionRate', 'checkChatMetadataIntegrity', 'checkCollectionRegistryStatus',
             'checkPromptContextConfig', 'checkPNGExportCapability',
         ].map(name => [name, vi.fn(async () => ({ name, status: 'pass', message: '' }))])));

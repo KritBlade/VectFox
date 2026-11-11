@@ -50,6 +50,7 @@ import {
     LANGUAGE_MODES,
 } from '../keyword-search/index.js';
 import {
+    CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT,
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     RETRIEVAL_TIMEOUT_MIN_MS,
     RETRIEVAL_TIMEOUT_MAX_MS,
@@ -1444,7 +1445,7 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // Similarity threshold (ChunkBase page). Event searches use EventBase's own (eventbase-search.js).
-    bindNumberSetting(settings, { id: 'VectFox_score_threshold', key: 'score_threshold', initial: settings.score_threshold ?? 0.25 });
+    bindNumberSetting(settings, { id: 'VectFox_score_threshold', key: 'score_threshold', initial: settings.score_threshold ?? CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT });
 
     // "Skip Already-Visible Events" (legacy key name: deduplication_depth).
     // Default 0 = filter disabled. See settings comment in index.js — the assumption

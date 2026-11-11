@@ -77,7 +77,7 @@ describe('the runner', () => {
         ];
         vi.doMock('../src/features/diagnostics/infrastructure-checks.js', () => Object.fromEntries(infrastructureNames.map(name => [name, recorded(name)])));
         vi.doMock('../src/features/diagnostics/configuration-checks.js', () => Object.fromEntries([
-            'checkScoreThreshold', 'checkInsertQueryCounts', 'checkChatVectors', 'checkConditionalActivationModule',
+            'checkChunkBaseSimilarityThreshold', 'checkInsertQueryCounts', 'checkChatVectors', 'checkConditionalActivationModule',
             'checkCollectionIdFormat', 'checkHashCollisionRate', 'checkChatMetadataIntegrity', 'checkCollectionRegistryStatus',
             'checkPromptContextConfig', 'checkPNGExportCapability',
         ].map(name => [name, recorded(name)])));

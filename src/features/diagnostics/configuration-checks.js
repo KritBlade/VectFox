@@ -14,44 +14,24 @@ import {
     isCollectionEnabled,
     getCollectionRegistry,
 } from '../collections/index.js';
+import { CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT } from '../../shared/constants.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
 
 /**
- * Check: Score threshold validation
+ * Check: ChunkBase's similarity threshold (`score_threshold`). It fails outside 0 to 1 and warns below 0.1, where
+ * chunks come back however unrelated, or above 0.8, where none may; both name the page the setting is on and its
+ * default.
  */
-export function checkScoreThreshold(settings) {
+export function checkChunkBaseSimilarityThreshold(settings) {
     const threshold = settings.score_threshold;
+    const where = `on the ChunkBase page, under Retrieval (default ${CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT})`;
+    const result = (status, message) => ({ name: 'ChunkBase Similarity Threshold', status, message });
 
-    if (threshold < 0 || threshold > 1) {
-        return {
-            name: 'Score Threshold',
-            status: 'fail',
-            message: `Invalid threshold (${threshold}). Must be 0.0-1.0`
-        };
-    }
-
-    if (threshold < 0.1) {
-        return {
-            name: 'Score Threshold',
-            status: 'warning',
-            message: `Very low threshold (${threshold}). May retrieve irrelevant results`
-        };
-    }
-
-    if (threshold > 0.8) {
-        return {
-            name: 'Score Threshold',
-            status: 'warning',
-            message: `Very high threshold (${threshold}). May retrieve nothing`
-        };
-    }
-
-    return {
-        name: 'Score Threshold',
-        status: 'pass',
-        message: `${threshold}`
-    };
+    if (threshold < 0 || threshold > 1) return result('fail', `${threshold} is outside 0 to 1. Set it ${where}.`);
+    if (threshold < 0.1) return result('warning', `${threshold} keeps chunks however unrelated. Raise it ${where}.`);
+    if (threshold > 0.8) return result('warning', `${threshold} may drop every chunk. Lower it ${where}.`);
+    return result('pass', `${threshold}`);
 }
 
 /**

@@ -29,6 +29,7 @@ import { migration_embedding_source_key } from './app/settings-migration-embeddi
 import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEFAULT } from './app/settings-migration-world-info-threshold.js';
 import { log } from './sillytavern/log.js';
 import {
+    CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT,
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
@@ -126,7 +127,7 @@ const defaultSettings = {
     // EventBase path — see src/shared/retrieval-budget.js. UI: Core page → Retrieval.
     retrieval_timeout_ms: RETRIEVAL_TIMEOUT_DEFAULT_MS,
     query: 2,
-    score_threshold: 0.25,
+    score_threshold: CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT,
 
     // Deduplication settings
     // Recent-context skip: drop candidate events whose source_window_end falls within
