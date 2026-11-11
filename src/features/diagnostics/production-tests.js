@@ -18,6 +18,7 @@ import {
 } from '../vector-backend/index.js';
 import { getModelFromSettings, resolveProviderApiUrl } from '../embedding/index.js';
 import { deleteCollection, unregisterCollection } from '../collections/index.js';
+import { buildRegistryKey, getRegistryBackend } from '../../shared/collection-ids.js';
 import { extractTextKeywords, extractLorebookKeywords } from '../keyword-search/index.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
@@ -34,17 +35,16 @@ async function cleanupTestCollection(collectionId, settings) {
     } catch (e) {
         log.warn(`VectFox diagnostics: cleanup purge of ${collectionId} failed:`, e);
     }
-    // Always unregister from registry to prevent ghost entries
-    const registryKey = `${settings.embedding_provider}:${collectionId}`;
-    unregisterCollection(registryKey);
-    unregisterCollection(collectionId); // Also try without source prefix
+    // Always unregister it, under the "backend:collectionId" key the registry holds it by, to prevent ghost entries
+    unregisterCollection(buildRegistryKey(collectionId, settings));
 }
 
 // The collections diagnostics make, under names reserved for them: the production tests' temporary collections, and
 // the probe collection the endpoint checks make, which SillyTavern's Standard storage creates on first reference.
 const DIAGNOSTIC_COLLECTION_PATTERNS = [/^vf_test_/, /^VectFox_diag(_|$)/];
 
-const isDiagnosticCollection = (id) => DIAGNOSTIC_COLLECTION_PATTERNS.some(pattern => pattern.test(id ?? ''));
+/** Whether a bare collection ID is one diagnostics make, under the names reserved for them. */
+export const isDiagnosticCollection = (id) => DIAGNOSTIC_COLLECTION_PATTERNS.some(pattern => pattern.test(id ?? ''));
 
 /**
  * Delete the diagnostic collections still left after a run: a production test collection a run could not clean up,
@@ -73,7 +73,8 @@ export async function sweepLeftoverTestCollections(settings) {
                 vector_backend: collection.backend,
                 _discoveredSources: [{ source: collection.source, models: collection.models || [] }],
             };
-            const outcome = await deleteCollection(collection.id, collectionSettings, `${collection.source}:${collection.id}`);
+            const registryKey = buildRegistryKey(collection.id, getRegistryBackend(collection.backend));
+            const outcome = await deleteCollection(collection.id, collectionSettings, registryKey);
             (outcome.success ? removed : failed).push(`${collection.id} (${collection.backend})`);
         }
 

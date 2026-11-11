@@ -50,7 +50,8 @@ import {
     testWeightedCombination,
     testKeywordExtraction,
     testLorebookKeywordExtraction,
-    sweepLeftoverTestCollections
+    sweepLeftoverTestCollections,
+    isDiagnosticCollection
 } from './production-tests.js';
 
 import { testConditionalActivation } from './activation-tests.js';
@@ -105,8 +106,8 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         log.warn('VectFox: plugin version check failed:', error);
     }
 
-    // Auto-clean any ghost test collections from the registry
-    const testCollectionsCleaned = cleanupTestCollections();
+    // Clear the registry and lock-index entries a diagnostic collection left behind
+    const testCollectionsCleaned = cleanupTestCollections(isDiagnosticCollection);
     if (testCollectionsCleaned > 0) {
         log.lifecycle(`VectFox Diagnostics: Cleaned ${testCollectionsCleaned} ghost test collections from registry`);
     }

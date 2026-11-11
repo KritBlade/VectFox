@@ -361,38 +361,26 @@ export function cleanupCollectionRegistry() {
 }
 
 /**
- * Cleans up test collections from registry (visualizer/production tests)
- * Call this to remove ghost test entries that weren't properly cleaned up.
+ * Removes the registry entries of test collections that were not cleaned up, the caller naming which bare collection
+ * IDs are tests (Diagnostics passes its reserved names).
  *
  * Also sweeps the reverse lock-index `chat_lock_index` for orphan entries
- * matching the same test patterns. The registry filter alone misses
+ * of the same collections. The registry filter alone misses
  * orphans because `setCollectionLock` writes to BOTH the forward
  * `meta.lockedToChatIds` AND the reverse `chat_lock_index[chatId] = […]`,
  * but unregister/cleanup paths historically only touch the forward side.
  * Result: ghost test collections accumulate dead reverse-index entries
  * across runs that `getChatLockedCollections(chatId)` then reports back.
- * Mirror of the same sweep the Playwright suite's beforeAll does for
- * `playwright_test`-prefixed entries — same bug class, different test
- * naming prefix.
  *
+ * @param {(collectionId: string) => boolean} isTestCollection - Whether a bare collection ID is a test collection
  * @returns {number} Number of registry entries removed (does NOT include
  *                   reverse-index orphans — those are logged separately).
  */
-export function cleanupTestCollections() {
+export function cleanupTestCollections(isTestCollection) {
     const registry = getCollectionRegistry();
-    const testPatterns = [
-        'vectfox_visualizer_test_',
-        '__vectfox_test_',
-        'vectfox_test_',
-    ];
 
-    const isTestEntry = (id) => {
-        if (!id) return false;
-        for (const pattern of testPatterns) {
-            if (id.includes(pattern)) return true;
-        }
-        return false;
-    };
+    // Entries are "backend:collectionId" keys, or a bare ID in older ones.
+    const isTestEntry = (id) => Boolean(id) && isTestCollection(parseRegistryKey(id).collectionId);
 
     const cleaned = registry.filter(id => {
         if (isTestEntry(id)) {
@@ -412,8 +400,7 @@ export function cleanupTestCollections() {
 
     // Reverse-index orphan sweep — same patterns, applied to chat_lock_index.
     // `setCollectionLock` writes the registryKey-form here (e.g.
-    // `vectra:vectfox_test_…`); `includes(pattern)` still matches because the
-    // test marker is a substring of either bare or prefixed form.
+    // `vectra:vf_test_…`); isTestEntry reads either form.
     let indexOrphans = 0;
     let indexChatsScanned = 0;
     const idx = extension_settings?.vectfox?.chat_lock_index;

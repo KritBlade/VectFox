@@ -85,7 +85,7 @@ describe('the runner', () => {
             'testEmbeddingGeneration', 'testVectorStorage', 'testVectorRetrieval', 'testVectorDimensions', 'testChunkServerSync',
             'testDuplicateHashes', 'testPluginEmbeddingGeneration', 'testReciprocalRankFusion', 'testWeightedCombination',
             'testKeywordExtraction', 'testLorebookKeywordExtraction', 'sweepLeftoverTestCollections',
-        ].map(name => [name, recorded(name)])));
+        ].map(name => [name, recorded(name)]).concat([['isDiagnosticCollection', () => false]])));
         vi.doMock('../src/features/diagnostics/activation-tests.js', () => ({ testConditionalActivation: vi.fn(async () => []) }));
         vi.doMock('../src/features/diagnostics/visualizer-tests.js', () => ({ runVisualizerTests: vi.fn(async () => []) }));
         vi.doMock('../src/features/collections/index.js', () => ({ cleanupTestCollections: vi.fn(() => 0) }));
