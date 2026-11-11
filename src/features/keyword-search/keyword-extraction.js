@@ -6,26 +6,17 @@ import { log } from '../../sillytavern/log.js';
 
 /**
  * ============================================================================
- * VectFox KEYWORD SYSTEM
+ * VectFox KEYWORD EXTRACTION
  * ============================================================================
- * Keyword extraction and boosting for vector search.
+ * The keywords a chunk is stored with, and the ones the chat retrieval picks from the chat: a lorebook entry's trigger
+ * keys, and words picked from a text at its extraction level. On Qdrant a chunk's keywords join its sparse (BM25)
+ * vector; the chat retrieval sets a chunk whose keywords hold one it picked to a full score.
  *
- * EXTRACTION LEVELS:
- *   - off: No auto-extraction, only manual/WI trigger keys
- *   - minimal: Title only (first line), max 3 keywords
- *   - balanced: Header area (first 300 chars), max 8 keywords
- *   - aggressive: Full text scan, max 15 keywords
- *
- * FREQUENCY-BASED WEIGHTING:
- *   Words that appear more often get higher weights.
- *   Formula: baseWeight + (frequency - minFreq) * 0.1
- *   Example: base 1.5x, word appears 5x (min 2) → 1.5 + (5-2)*0.1 = 1.8x
- *
- * BOOST MATH (Additive):
- *   Each keyword has a weight (e.g., 1.5x, 2.0x, 3.0x).
- *   The boost above 1.0 is added together:
- *     - "magic" (1.5x) + "divine" (2.0x) = 1 + 0.5 + 1.0 = 2.5x total boost
- *
+ * EXTRACTION LEVELS (EXTRACTION_LEVELS):
+ *   - off: no extraction, only a lorebook entry's trigger keys
+ *   - minimal: the first 1500 characters, at most 5 keywords
+ *   - balanced: the first 5000 characters, at most 12 keywords
+ *   - aggressive: the whole text, at most 15 keywords
  * ============================================================================
  */
 
@@ -65,14 +56,13 @@ export const EXTRACTION_LEVELS = {
 /** Default extraction level */
 export const DEFAULT_EXTRACTION_LEVEL = 'balanced';
 
-/** Default base weight for keywords */
-export const DEFAULT_BASE_WEIGHT = 1.5;
-
-/** Weight increment per frequency count above minimum */
-const FREQUENCY_WEIGHT_INCREMENT = 0.1;
-
-/** Maximum weight cap (prevent runaway weights) */
-const MAX_KEYWORD_WEIGHT = 3.0;
+/**
+ * How extractTextKeywords orders the words it may keep, the first kept: by how often each appears, counted up to
+ * TOP_RANK; a term in CJK brackets, an author's explicit marker, at TOP_RANK; a compound term such as "time_god" as a
+ * word seen COMPOUND_RANK times. Words of the same rank keep their order in the text.
+ */
+const TOP_RANK = 16;
+const COMPOUND_RANK = 3;
 
 const CJK_CHAR_RE = /[\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3040-\u309F\u30A0-\u30FF]/;
 
@@ -251,19 +241,6 @@ export function extractLorebookKeywords(entry, settings = null) {
 }
 
 /**
- * Extract keywords from plain text with configurable extraction level
- *
- * Returns keywords with frequency-based weights.
- * Higher frequency = higher weight (capped at MAX_KEYWORD_WEIGHT)
- *
- * @param {string} text - Text to extract from
- * @param {object} options - Extraction options
- * @param {string} options.level - Extraction level: 'off', 'minimal', 'balanced', 'aggressive'
- * @param {number} options.baseWeight - Base weight for keywords (default 1.5)
- * @returns {Array<{text: string, weight: number}>} Array of weighted keywords
- */
-
-/**
  * Extract terms enclosed in CJK bracket markers: 【】「」『』
  * These are structural markers in Chinese/Japanese text that explicitly signal
  * named concepts — game systems, skills, titles, item names, etc.
@@ -292,26 +269,44 @@ function extractBracketTerms(text) {
     return [...new Set(results)];
 }
 
-export function extractTextKeywords(text, options = {}) {
-    if (!text || typeof text !== 'string') return [];
-
-    // Strip appended [KEYWORDS: ...] / [KEYWORD ...] tags (any case, colon optional)
-    // to prevent bleed-through when the stored Qdrant text is re-processed.
-    text = text.replace(/\s*\[keywords?[:\s][^\]]*\]/gi, '').trimEnd();
-    // Strip structural markup tags: [User], [Character], [OOC], [location], [tag: content], etc.
-    // Only strips brackets whose content is purely non-CJK (ASCII labels/formatting markers).
-    // Brackets containing CJK characters (e.g. [長劍]) are preserved for extractBracketTerms.
-    text = text.replace(/\[[^\]\u4E00-\u9FFF\u3040-\u30FF\u3400-\u4DBF\uF900-\uFAFF]{1,30}\]/g, ' ').replace(/\s+/g, ' ').trim();
-
-    const level = options.level || DEFAULT_EXTRACTION_LEVEL;
-    const baseWeight = options.baseWeight || DEFAULT_BASE_WEIGHT;
+/**
+ * What both text extractors start from, or null when there is nothing to extract (no text, or a level that extracts
+ * nothing): the text cleared for extraction, the level, its settings and how much of the text it scans. Cleared: the
+ * keyword suffix Qdrant storage appends ("[KEYWORDS: …]", or a "[KEYWORD …]" tag, any case), so a stored text read
+ * again does not feed its own keywords back, and bracketed markup holding no CJK, such as [User], [OOC] or
+ * [tag: content]; brackets holding CJK, such as [長劍], stay for extractBracketTerms.
+ *
+ * @param {unknown} text
+ * @param {string} [levelName]
+ * @returns {{text: string, level: string, config: object, headerSize: number|null}|null}
+ */
+function extractionInput(text, levelName) {
+    if (!text || typeof text !== 'string') return null;
+    const level = levelName || DEFAULT_EXTRACTION_LEVEL;
     const config = EXTRACTION_LEVELS[level];
-    const headerSize = config?.headerSize ?? null;
+    if (!config?.enabled) return null;
+    const cleared = text
+        .replace(/\s*\[keywords?[:\s][^\]]*\]/gi, '').trimEnd()
+        .replace(/\[[^\]\u4E00-\u9FFF\u3040-\u30FF\u3400-\u4DBF\uF900-\uFAFF]{1,30}\]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
+    return { text: cleared, level, config, headerSize: config.headerSize ?? null };
+}
 
-    // If extraction is disabled, return empty
-    if (!config || !config.enabled) {
-        return [];
-    }
+/**
+ * Extract keywords from plain text at an extraction level: the words of the part it scans, the most frequent first,
+ * with compound terms and terms in CJK brackets, up to the level's count.
+ *
+ * @param {string} text - Text to extract from
+ * @param {object} options - Extraction options
+ * @param {string} options.level - Extraction level: 'off', 'minimal', 'balanced', 'aggressive'
+ * @param {object} [options.settings] - VectFox settings, for the custom stopwords
+ * @returns {{text: string}[]}
+ */
+export function extractTextKeywords(text, options = {}) {
+    const input = extractionInput(text, options.level);
+    if (!input) return [];
+    const { level, config, headerSize } = input;
+    text = input.text;
 
     const stopwords = getCombinedStopwords(options.settings);
     const cjkTokenizerMode = getCjkTokenizerMode();
@@ -351,63 +346,53 @@ export function extractTextKeywords(text, options = {}) {
         wordCounts.set(stemmed, (wordCounts.get(stemmed) || 0) + 1);
     }
 
-    // Step 4: Filter by minimum frequency and build weighted keywords
-    const weightedKeywords = [];
+    // Step 4: The words seen often enough, ranked by how often
+    const rankedWords = [];
 
     for (const [word, count] of wordCounts) {
         if (count >= config.minFrequency) {
             if (!shouldKeepCjkKeyword(word, count, isJapaneseMode, isTraditionalChineseMode, isSimplifiedChineseMode)) continue;
-            // Calculate weight based on frequency
-            // More occurrences = higher weight
-            const frequencyBonus = (count - config.minFrequency) * FREQUENCY_WEIGHT_INCREMENT;
-            const weight = Math.min(MAX_KEYWORD_WEIGHT, baseWeight + frequencyBonus);
-
-            weightedKeywords.push({ text: word, weight, frequency: count });
+            rankedWords.push({ text: word, rank: Math.min(TOP_RANK, count - config.minFrequency + 1) });
         }
     }
 
-    // Step 5: Extract compound terms (e.g., "divine/time", "time_god")
+    // Step 5: Compound terms (e.g., "divine/time", "time_god")
     const compoundMatches = scanArea.match(/\b\w+[/_]\w+\b/gi) || [];
     for (const compound of compoundMatches) {
         const normalized = compound.toLowerCase().replace(/[/_]/g, '_');
         if (normalized.length >= 4) {
-            // Compound terms get a slight weight bonus
-            weightedKeywords.push({
-                text: normalized,
-                weight: Math.min(MAX_KEYWORD_WEIGHT, baseWeight + 0.2),
-                frequency: 1,
-            });
+            rankedWords.push({ text: normalized, rank: COMPOUND_RANK });
         }
     }
 
-    // Step 5.5: Inject bracket-enclosed terms (【...】「...」『...』) as max-priority keywords.
+    // Step 5.5: Bracket-enclosed terms (【...】, or [...] holding CJK), at the top rank.
     // These are explicit concept markers in CJK text — game systems, skills, titles, item names.
     // They bypass minFrequency: appearing once inside brackets is an intentional author signal.
     for (const term of extractBracketTerms(scanArea)) {
         if (!stopwords.has(term)) {
-            weightedKeywords.push({ text: term, weight: MAX_KEYWORD_WEIGHT, frequency: 1 });
+            rankedWords.push({ text: term, rank: TOP_RANK });
         }
     }
 
-    // Step 6: Sort by weight (highest first), dedupe, and limit
+    // Step 6: The highest ranks first, each word once, up to the level's count
     const seen = new Set();
-    const result = [];
+    const kept = [];
 
-    weightedKeywords.sort((a, b) => b.weight - a.weight);
+    rankedWords.sort((a, b) => b.rank - a.rank);
 
-    for (const kw of weightedKeywords) {
-        if (!seen.has(kw.text)) {
-            seen.add(kw.text);
-            result.push(kw);
-            if (result.length >= config.maxKeywords) break;
+    for (const word of rankedWords) {
+        if (!seen.has(word.text)) {
+            seen.add(word.text);
+            kept.push(word);
+            if (kept.length >= config.maxKeywords) break;
         }
     }
 
-    if (result.length > 0) {
-        log.trace(`[VectFox Keyword Extraction] Extracted text keywords (${level} level): [${result.map(k => `${k.text}(${k.weight.toFixed(2)}x, freq:${k.frequency})`).join(', ')}] from: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
+    if (kept.length > 0) {
+        log.trace(`[VectFox Keyword Extraction] Extracted text keywords (${level} level): [${kept.map(word => `${word.text}(rank ${word.rank})`).join(', ')}] from: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
     }
 
-    return result;
+    return kept.map(word => ({ text: word.text }));
 }
 
 /**
@@ -416,54 +401,41 @@ export function extractTextKeywords(text, options = {}) {
  *
  * @param {string} text - Chat message text
  * @param {object} options - Extraction options
- * @param {number} options.baseWeight - Base weight for keywords (default 1.5)
  * @param {number} options.maxKeywords - Maximum keywords to return (default 8)
- * @returns {Array<{text: string, weight: number}>} Array of weighted keywords
+ * @returns {{text: string}[]}
  */
 export function extractChatKeywords(text, options = {}) {
     if (!text || typeof text !== 'string') return [];
 
-    const baseWeight = options.baseWeight || DEFAULT_BASE_WEIGHT;
     const maxKeywords = options.maxKeywords || 8;
     const stopwords = getCombinedStopwords(options.settings);
 
     const keywords = [];
     const seen = new Set();
+    // Each word once, past the stopwords (which also drop common words that happen to be capitalized).
+    const keep = (word) => {
+        if (stopwords.has(word) || seen.has(word)) return;
+        seen.add(word);
+        keywords.push({ text: word });
+    };
+    const isFull = () => keywords.length >= maxKeywords;
 
-    // Find capitalized words that aren't at sentence start
-    // Looks for capital letter followed by lowercase, not preceded by sentence-ending punctuation
+    // Capitalized words that aren't at sentence start: a capital letter followed by lowercase, not preceded by
+    // sentence-ending punctuation. Not stemmed, so names and titles match exactly.
     const properNounRegex = /(?<![.!?]\s*)(?<=\s|^"|^'|^\*|"|'|\*)\b([A-Z][a-z]{2,})\b/g;
     let match;
+    while (!isFull() && (match = properNounRegex.exec(text)) !== null) keep(match[1].toLowerCase());
 
-    while ((match = properNounRegex.exec(text)) !== null) {
-        const word = match[1].toLowerCase();
-
-        // Skip common words that happen to be capitalized
-        if (stopwords.has(word)) continue;
-
-        // Don't stem proper nouns - preserve names/titles exactly
-        // Skip if already seen
-        if (seen.has(word)) continue;
-        seen.add(word);
-
-        keywords.push({ text: word, weight: baseWeight });
-
-        if (keywords.length >= maxKeywords) break;
-    }
-
-    // Also extract CJK words (Simplified + Traditional)
-    if (keywords.length < maxKeywords) {
+    // Then CJK words (Simplified + Traditional)
+    if (!isFull()) {
         for (const word of extractCJKTokens(text)) {
-            if (stopwords.has(word)) continue;
-            if (seen.has(word)) continue;
-            seen.add(word);
-            keywords.push({ text: word, weight: baseWeight });
-            if (keywords.length >= maxKeywords) break;
+            keep(word);
+            if (isFull()) break;
         }
     }
 
     if (keywords.length > 0) {
-        log.trace(`[VectFox Keyword Extraction] Extracted chat keywords: [${keywords.map(k => `${k.text}(${k.weight.toFixed(2)}x)`).join(', ')}] from text: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
+        log.trace(`[VectFox Keyword Extraction] Extracted chat keywords: [${keywords.map(k => k.text).join(', ')}] from text: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
     }
 
     return keywords;
@@ -487,31 +459,16 @@ export function extractChatKeywords(text, options = {}) {
  * @param {string} text - Text to extract keywords from
  * @param {object} options - Extraction options
  * @param {string} options.level - Extraction level: 'minimal', 'balanced', 'aggressive' (default: 'balanced')
- * @param {number} options.baseWeight - Base weight for keywords (default 1.5)
  * @param {number} options.maxKeywords - Override max keywords (uses level default if not set)
  * @param {number} options.minWordLength - Minimum word length (default 3)
- * @returns {Array<{text: string, weight: number, tfidf: number}>} Weighted keywords
+ * @returns {{text: string}[]} The top words by TF-IDF, the highest first
  */
 export function extractBM25Keywords(text, options = {}) {
-    if (!text || typeof text !== 'string' || text.trim().length === 0) return [];
+    const input = extractionInput(text, options.level);
+    if (!input?.text) return [];
+    const { level, config, headerSize } = input;
+    text = input.text;
 
-    // Strip appended [KEYWORDS: ...] / [KEYWORD ...] tags (any case, colon optional)
-    // to prevent bleed-through when the stored Qdrant text is re-processed.
-    text = text.replace(/\s*\[keywords?[:\s][^\]]*\]/gi, '').trimEnd();
-    // Strip structural markup tags: [User], [Character], [OOC], [location], [tag: content], etc.
-    // Only strips brackets whose content is purely non-CJK (ASCII labels/formatting markers).
-    // Brackets containing CJK characters (e.g. [長劍]) are preserved for extractBracketTerms.
-    text = text.replace(/\[[^\]\u4E00-\u9FFF\u3040-\u30FF\u3400-\u4DBF\uF900-\uFAFF]{1,30}\]/g, ' ').replace(/\s+/g, ' ').trim();
-
-    // Get extraction level config
-    const level = options.level || DEFAULT_EXTRACTION_LEVEL;
-    const config = EXTRACTION_LEVELS[level];
-    const headerSize = config?.headerSize ?? null;
-
-    // If extraction is disabled, return empty
-    if (!config || !config.enabled) return [];
-
-    const baseWeight = options.baseWeight || DEFAULT_BASE_WEIGHT;
     const maxKeywords = options.maxKeywords || config.maxKeywords || 8;
     const minFrequency = config.minFrequency || 1;
     const minWordLength = options.minWordLength || 3;
@@ -638,195 +595,12 @@ export function extractBM25Keywords(text, options = {}) {
     // Sort by TF-IDF score (highest first)
     tfidfScores.sort((a, b) => b.tfidf - a.tfidf);
 
-    // Take top N and assign weights based on relative TF-IDF
+    // Take the top N
     const topWords = tfidfScores.slice(0, maxKeywords);
 
-    if (topWords.length === 0) return [];
-
-    const maxTfidf = topWords[0].tfidf;
-    const keywords = topWords.map(w => ({
-        text: w.text,
-        // Weight scales from baseWeight to baseWeight + 0.5 based on TF-IDF rank
-        weight: baseWeight + (w.tfidf / maxTfidf) * 0.5,
-        tfidf: w.tfidf
-    }));
-
-    if (keywords.length > 0) {
-        log.trace(`[VectFox BM25 Keywords] Level=${level}, scanned ${scanText.length}/${text.length} chars, ${sentences.length} sentences → [${keywords.map(k => `${k.text}(${k.weight.toFixed(2)}x)`).join(', ')}]`);
+    if (topWords.length > 0) {
+        log.trace(`[VectFox BM25 Keywords] Level=${level}, scanned ${scanText.length}/${text.length} chars, ${sentences.length} sentences → [${topWords.map(w => `${w.text}(${w.tfidf.toFixed(2)})`).join(', ')}]`);
     }
 
-    return keywords;
+    return topWords.map(w => ({ text: w.text }));
 }
-
-/**
- * ============================================================================
- * ENHANCED KEYWORD EXTRACTION (Named Entity Detection + TF-IDF + Position)
- * ============================================================================
- *
- * Multi-signal approach that combines:
- * 1. Named Entity Detection (proper nouns, acronyms)
- * 2. TF-IDF scoring for distinctive terms
- * 3. Position weighting (title/header boost)
- *
- * This is more sophisticated than pure TF-IDF and catches important
- * named entities that might have low frequency.
- */
-
-/**
- * Normalize a keyword to { text, weight } format
- * Handles both string and object formats
- * @param {string|object} kw - Keyword (string or { text, weight })
- * @param {number} defaultWeight - Default weight for string keywords
- * @returns {{ text: string, weight: number }}
- */
-function normalizeKeyword(kw, defaultWeight = DEFAULT_BASE_WEIGHT) {
-    if (typeof kw === 'string') {
-        return { text: kw.toLowerCase(), weight: defaultWeight };
-    }
-    if (kw && typeof kw === 'object' && kw.text) {
-        return {
-            text: kw.text.toLowerCase(),
-            weight: typeof kw.weight === 'number' ? kw.weight : defaultWeight
-        };
-    }
-    return null;
-}
-
-/**
- * Check if query contains a keyword
- * @param {string} query - Search query (lowercased)
- * @param {string} keyword - Keyword to check (lowercased)
- * @returns {boolean}
- */
-function queryHasKeyword(query, keyword) {
-    if (!query || !keyword) return false;
-    return query.includes(keyword);
-}
-
-/**
- * Maximum per-keyword contribution cap (prevents single high-weight keyword from dominating)
- */
-const MAX_KEYWORD_CONTRIBUTION = 0.5;
-
-/**
- * Scaling factors based on match count (diminishing returns)
- * This prevents spam where many low-relevance keywords could inflate scores
- */
-const MATCH_SCALING_FACTORS = {
-    1: 0.30,   // 1 match: 30% of raw boost
-    2: 0.60,   // 2 matches: 60% of raw boost
-    3: 1.00,   // 3+ matches: full boost
-};
-
-/**
- * Apply keyword boost with DIMINISHING RETURNS
- *
- * Enhanced boost calculation that prevents exploitation:
- * 1. Per-keyword contribution capped at 0.5 (prevents single high-weight keyword dominance)
- * 2. Scaling factor based on match count (1 match = 30%, 2 = 60%, 3+ = 100%)
- * 3. More keywords required for full boost effect
- *
- * Examples (with diminishing returns):
- *   - 1 match "magic" (1.5x): contribution=0.5, rawBoost=1.5, scale=30% → finalBoost=1.15x
- *   - 2 matches (1.5x each): contribution=0.5+0.5=1.0, rawBoost=2.0, scale=60% → finalBoost=1.6x
- *   - 3+ matches: full boost applied
- *
- * Spam Protection:
- *   - 1 match "magic" (3.0x): contribution=min(2.0,0.5)=0.5, rawBoost=1.5, scale=30% → 1.15x (not 3.0x!)
- *
- * @param {Array} results - Search results [{text, score, keywords, ...}]
- * @param {string} query - The search query
- * @param {object} options - Boost options
- * @param {boolean} options.diminishingReturns - Use diminishing returns (default: true)
- * @param {boolean} options.perKeywordCap - Cap per-keyword contribution (default: true)
- * @returns {Array} Results with boosted scores, sorted by score desc
- */
-export function applyKeywordBoost(results, query, options = {}) {
-    if (!results || !Array.isArray(results) || !query) return results;
-
-    const {
-        diminishingReturns = true,
-        perKeywordCap = true,
-    } = options;
-
-    const queryLower = query.toLowerCase();
-
-    log.verbose(`[VectFox Keyword Boost] Starting keyword boost for query: "${query}" (diminishing=${diminishingReturns}, cap=${perKeywordCap})`);
-
-    const boosted = results.map(result => {
-        const rawKeywords = result.keywords || result.metadata?.keywords || [];
-        const matchedKeywords = [];
-        let boostSum = 0;
-
-        for (const kw of rawKeywords) {
-            const normalized = normalizeKeyword(kw);
-            if (!normalized) continue;
-
-            if (queryHasKeyword(queryLower, normalized.text)) {
-                matchedKeywords.push(normalized);
-
-                // Calculate contribution with optional per-keyword cap
-                const rawContribution = normalized.weight - 1.0;
-                const contribution = perKeywordCap
-                    ? Math.min(rawContribution, MAX_KEYWORD_CONTRIBUTION)
-                    : rawContribution;
-
-                boostSum += contribution;
-            }
-        }
-
-        // Calculate raw boost
-        const rawBoost = 1.0 + boostSum;
-
-        // Apply diminishing returns scaling based on match count
-        let finalBoost;
-        if (diminishingReturns && matchedKeywords.length > 0) {
-            const matchCount = Math.min(matchedKeywords.length, 3);
-            const scalingFactor = MATCH_SCALING_FACTORS[matchCount];
-
-            // Scale only the boost portion, not the base 1.0
-            finalBoost = 1.0 + (boostSum * scalingFactor);
-        } else {
-            finalBoost = rawBoost;
-        }
-
-        if (matchedKeywords.length > 0) {
-            const scaleInfo = diminishingReturns
-                ? ` (raw=${rawBoost.toFixed(2)}x, scale=${(MATCH_SCALING_FACTORS[Math.min(matchedKeywords.length, 3)] * 100).toFixed(0)}%)`
-                : '';
-            log.trace(`[VectFox Keyword Boost] Result matched ${matchedKeywords.length} keyword(s): [${matchedKeywords.map(k => `${k.text}(${k.weight.toFixed(2)}x)`).join(', ')}] → boost: ${finalBoost.toFixed(2)}x${scaleInfo}, score: ${result.score.toFixed(4)} → ${(result.score * finalBoost).toFixed(4)}`);
-        }
-
-        return {
-            ...result,
-            score: Math.min(1.0, result.score * finalBoost), // Cap at 1.0
-            originalScore: result.score,
-            keywordBoost: finalBoost,
-            rawBoost: rawBoost,
-            matchedKeywords: matchedKeywords.map(k => k.text),
-            matchedKeywordsWithWeights: matchedKeywords,
-            keywordBoosted: matchedKeywords.length > 0,
-            diminishingReturns: diminishingReturns,
-        };
-    });
-
-    // Sort by boosted score
-    boosted.sort((a, b) => b.score - a.score);
-
-    const boostedCount = boosted.filter(r => r.keywordBoosted).length;
-    log.verbose(`[VectFox Keyword Boost] Applied keyword boosts to ${boostedCount}/${boosted.length} results (diminishing=${diminishingReturns})`);
-
-    return boosted;
-}
-
-/**
- * Calculate overfetch amount for keyword boosting
- * We fetch more results than requested so boosted items can surface
- * @param {number} topK - Requested number of results
- * @returns {number} Amount to actually fetch
- */
-export function getOverfetchAmount(topK) {
-    // Fetch 2x the requested amount (min 10, max 100)
-    return Math.min(100, Math.max(10, topK * 2));
-}
-

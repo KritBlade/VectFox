@@ -752,6 +752,17 @@ export function applyBM25Scoring(results, query, options = {}) {
     return scoredResults;
 }
 
+/**
+ * How many results the BM25 re-rank fetches for a top K: twice as many, 10 to 100, so a chunk its keyword score lifts
+ * can come from below the top K.
+ *
+ * @param {number} topK - Requested number of results
+ * @returns {number}
+ */
+export function getOverfetchAmount(topK) {
+    return Math.min(100, Math.max(10, topK * 2));
+}
+
 // ---------------------------------------------------------------------------
 // Script detection, locale mapping and segmenter resolution live in
 // ./script-segmentation.js (shared with query-keyword-extractor.js so the

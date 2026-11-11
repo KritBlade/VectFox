@@ -281,7 +281,6 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
                     const summaryKeywords = keywordLevel !== 'off'
                         ? extractBM25Keywords(summaryText, {
                             level: keywordLevel,
-                            baseWeight: VectFoxSettings?.keywordBaseWeight || 1.5,
                             settings: VectFoxSettings,
                         })
                         : [];
@@ -864,11 +863,10 @@ function generateCollectionId(contentType, source, settings) {
 function enrichChunks(chunks, contentType, source, settings, preparedContent, VectFoxSettings) {
     // Get keyword extraction settings
     const keywordLevel = settings.keywordLevel || 'balanced';
-    const keywordBaseWeight = settings.keywordBaseWeight || 1.5;
 
     return chunks.map((chunk, index) => {
         const chunkText = typeof chunk === 'string' ? chunk : chunk.text;
-        let keywords = []; // Will hold {text, weight} objects
+        let keywords = []; // Will hold {text} objects
         let entryName = null;
         let entryUid = null;
 
@@ -878,15 +876,14 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
             entryName = entry.comment || entry.name || entry.key?.[0] || 'Entry';
             entryUid = entry.uid;
 
-            // Get explicit trigger keys (these are manually set, so use base weight)
+            // The entry's trigger keys, set by hand
             const triggerKeys = extractLorebookKeywords(entry, VectFoxSettings);
-            keywords = triggerKeys.map(k => ({ text: k, weight: keywordBaseWeight }));
+            keywords = triggerKeys.map(k => ({ text: k }));
 
-            // Also get auto-extracted keywords with frequency-based weights
+            // Then the words the level picks from its text
             if (keywordLevel !== 'off') {
                 const autoKeywords = extractTextKeywords(entry.content || chunkText, {
                     level: keywordLevel,
-                    baseWeight: keywordBaseWeight,
                     settings: VectFoxSettings,
                 });
                 keywords = keywords.concat(autoKeywords);
@@ -896,7 +893,6 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
             if (keywordLevel !== 'off') {
                 keywords = extractBM25Keywords(chunkText, {
                     level: keywordLevel,
-                    baseWeight: keywordBaseWeight,
                     settings: VectFoxSettings,
                 });
             }
@@ -905,7 +901,6 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
             if (keywordLevel !== 'off') {
                 keywords = extractTextKeywords(chunkText, {
                     level: keywordLevel,
-                    baseWeight: keywordBaseWeight,
                     settings: VectFoxSettings,
                 });
             }
@@ -913,7 +908,7 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
 
         // Auto-Reformat: LLM-extracted entity/topic records carry rich fields
         // (name/aliases/keywords) that the frequency-based extraction above
-        // doesn't know about. Boost them in as high-weight keywords and set
+        // doesn't know about. Add them as keywords and set
         // entryName so the Database Browser shows a sensible per-chunk title —
         // same pattern as the lorebook/character special-cases in this function.
         // entryName also feeds the BM25 title-boost signal in hybrid-search.js.
@@ -925,33 +920,24 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
                 ...(Array.isArray(chunk.metadata.keywords) ? chunk.metadata.keywords : []),
             ].filter(Boolean);
             for (const kwText of reformatKeywordTexts) {
-                keywords.push({ text: kwText.toLowerCase(), weight: keywordBaseWeight + 0.5 });
+                keywords.push({ text: kwText.toLowerCase() });
             }
         }
 
-        // Add character name as keyword with higher weight (it's the main subject)
+        // The character's name, the card's main subject
         if (contentType === 'character' && preparedContent.character?.name) {
-            keywords.push({
-                text: preparedContent.character.name.toLowerCase(),
-                weight: keywordBaseWeight + 0.5, // Character name gets bonus weight
-            });
+            keywords.push({ text: preparedContent.character.name.toLowerCase() });
         }
 
-        // Add speaker name as keyword for chat messages
+        // The speaker's name, for chat messages
         if (contentType === 'chat' && chunk.metadata?.speakerName) {
-            keywords.push({
-                text: chunk.metadata.speakerName.toLowerCase(),
-                weight: keywordBaseWeight,
-            });
+            keywords.push({ text: chunk.metadata.speakerName.toLowerCase() });
         }
 
-        // Deduplicate keywords (keep highest weight for duplicates)
+        // Each keyword once, where it first appears
         const keywordMap = new Map();
         for (const kw of keywords) {
-            const existing = keywordMap.get(kw.text);
-            if (!existing || kw.weight > existing.weight) {
-                keywordMap.set(kw.text, kw);
-            }
+            if (!keywordMap.has(kw.text)) keywordMap.set(kw.text, kw);
         }
         const dedupedKeywords = Array.from(keywordMap.values());
 
@@ -970,7 +956,6 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
                 entryName,
                 entryUid,
                 keywordLevel,
-                keywordBaseWeight,
             },
         };
     });

@@ -276,9 +276,9 @@ function promptFields(fields) {
 }
 
 /**
- * A chunk's keywords: each one's word, its boost in a box and its remove button.
+ * A chunk's keywords: each one's word and its remove button.
  *
- * @param {{text: string, weight: number}[]} keywords
+ * @param {{text: string}[]} keywords
  * @returns {string}
  */
 export function keywordRowsMarkup(keywords) {
@@ -287,8 +287,6 @@ export function keywordRowsMarkup(keywords) {
         icon: 'fa-tag',
         name: keyword.text,
         actions: [
-            `<input type="number" class="vfx-input vfx-boost-box" value="${escape(String(keyword.weight))}" min="0.1" step="0.1"`
-                + ` title="Boost for ${escape(keyword.text)}" data-keyword-weight="${index}">`,
             iconButton({ icon: 'fa-xmark', title: `Remove ${keyword.text}`, data: action('remove-keyword', { 'keyword-index': index }) }),
         ],
     })).join('');
@@ -297,7 +295,7 @@ export function keywordRowsMarkup(keywords) {
 function keywordFields(keywords) {
     return [
         groupTitle({ icon: 'fa-tags', text: 'Keywords' }),
-        hint({ text: 'A query holding one boosts this chunk by its number: 1.5 adds half.' }),
+        hint({ text: 'When the chat holds one of these words, this chunk scores 100%.' }),
         `<div class="vfx-list" data-chunk-keywords>${keywordRowsMarkup(keywords)}</div>`,
         controlRow([
             input({ id: ids.keywordNew, placeholder: 'New keyword', title: 'New keyword' }),
@@ -395,7 +393,7 @@ export function tokenizerLockMarkup({ madeWith, setTo }) {
         { name: ` ${madeWith}, ` },
         { text: 'and VectFox is set to' },
         { name: ` ${setTo}. ` },
-        { text: 'A changed text or a new summary can\'t be saved here; the other fields can.' },
+        { text: 'A changed text, a keyword change or a new summary can\'t be saved here; the other fields can.' },
     ] });
 }
 

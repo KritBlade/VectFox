@@ -6,7 +6,6 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-    DEFAULT_KEYWORD_WEIGHT,
     chunkLabel,
     collectionRecordLines,
     eventFields,
@@ -16,7 +15,6 @@ import {
     linkTargetOptions,
     messageLine,
     normalizeKeywords,
-    parseKeywordWeight,
     partLabel,
     saveProblem,
     savedChunkFields,
@@ -39,7 +37,7 @@ const untouchedForm = fields => ({
     xmlTag: fields.xmlTag,
     positionText: fields.position === null ? '' : String(fields.position),
     depthText: fields.depth === null ? '2' : String(fields.depth),
-    keywords: fields.keywords.map(keyword => ({ text: keyword.text, weightText: String(keyword.weight) })),
+    keywords: fields.keywords.map(keyword => ({ text: keyword.text })),
     chunkLinks: fields.chunkLinks.map(link => ({ ...link })),
     summaries: [...fields.summaries],
 });
@@ -48,7 +46,7 @@ describe('what a chunk holds', () => {
     it('reads the backend payload first, then the settings a chunk saved before the payload carried its fields', () => {
         const chunk = { text: 'The tide came in.', metadata: { name: '', context: 'Harbor', enabled: false, keywords: [] } };
         const fields = savedChunkFields(chunk, { name: '  Old name ', context: 'Ignored', keywords: ['tide'], summaries: ['A tide'] });
-        expect(fields).toMatchObject({ name: 'Old name', context: 'Harbor', enabled: false, keywords: [{ text: 'tide', weight: DEFAULT_KEYWORD_WEIGHT }], summaries: ['A tide'] });
+        expect(fields).toMatchObject({ name: 'Old name', context: 'Harbor', enabled: false, keywords: [{ text: 'tide' }], summaries: ['A tide'] });
         expect(savedChunkFields({ text: '', metadata: {} }, { enabled: false }).enabled).toBe(false);
         expect(savedChunkFields({ text: '', metadata: {} }).enabled).toBe(true);
     });
@@ -60,12 +58,10 @@ describe('what a chunk holds', () => {
         expect(savedChunkFields({ metadata: {} })).toMatchObject({ position: null, depth: null });
     });
 
-    it('gives a bare keyword the default boost and an object without a weight none', () => {
+    it('reads a keyword stored as a word or as an object as its word, a stored weight dropped', () => {
         expect(normalizeKeywords(['mast', { text: 'sail' }, { text: 'oar', weight: 2 }, null, ''])).toEqual([
-            { text: 'mast', weight: 1.5 }, { text: 'sail', weight: 1 }, { text: 'oar', weight: 2 },
+            { text: 'mast' }, { text: 'sail' }, { text: 'oar' },
         ]);
-        expect(parseKeywordWeight('2.5')).toBe(2.5);
-        expect(parseKeywordWeight('')).toBe(DEFAULT_KEYWORD_WEIGHT);
     });
 
     it('shows an EventBase event\'s own fields', () => {
@@ -155,7 +151,7 @@ describe('what the form changes', () => {
         { summaries: ['High water'] },
     );
 
-    it('changes nothing for a form left as it was, a weight of 1 and a depth of 0 included', () => {
+    it('changes nothing for a form left as it was, a keyword stored with a weight and a depth of 0 included', () => {
         expect(formChanges(fields, untouchedForm(fields))).toMatchObject({ payload: {}, text: null, hasChanges: false });
     });
 
@@ -166,10 +162,10 @@ describe('what the form changes', () => {
             enabled: false,
             xmlTag: 'my notes!',
             positionText: '2',
-            keywords: [{ text: 'tide', weightText: '2' }],
+            keywords: [{ text: 'tide' }, { text: 'flood' }],
             chunkLinks: [{ targetHash: '1002', mode: 'soft' }],
         });
-        expect(changes.payload).toEqual({ name: null, enabled: false, xmlTag: 'mynotes', position: 2, depth: null, keywords: [{ text: 'tide', weight: 2 }] });
+        expect(changes.payload).toEqual({ name: null, enabled: false, xmlTag: 'mynotes', position: 2, depth: null, keywords: [{ text: 'tide' }, { text: 'flood' }] });
         expect(changes.hasChanges).toBe(true);
     });
 
@@ -197,10 +193,13 @@ describe('what the form changes', () => {
         const summarized = formChanges(fields, { ...untouchedForm(fields), summaries: ['High water', 'Low water'] });
         const unsummarized = formChanges(fields, { ...untouchedForm(fields), summaries: [] });
         const emptied = formChanges(fields, { ...untouchedForm(fields), text: '' });
+        const rekeyed = formChanges(fields, { ...untouchedForm(fields), keywords: [{ text: 'tide' }, { text: 'flood' }] });
         expect(saveProblem(renamed, lock)).toBeNull();
         expect(saveProblem(unsummarized, lock)).toBeNull();
-        expect(saveProblem(retexted, lock)).toBe('A changed text or a new summary can\'t be saved here: see above.');
-        expect(saveProblem(summarized, lock)).toBe('A changed text or a new summary can\'t be saved here: see above.');
+        expect(saveProblem(retexted, lock)).toBe('A changed text, a keyword change or a new summary can\'t be saved here: see above.');
+        expect(saveProblem(summarized, lock)).toBe('A changed text, a keyword change or a new summary can\'t be saved here: see above.');
+        expect(saveProblem(rekeyed, lock)).toBe('A changed text, a keyword change or a new summary can\'t be saved here: see above.');
+        expect(saveProblem(rekeyed, null)).toBeNull();
         expect(saveProblem(retexted, null)).toBeNull();
         expect(saveProblem(emptied, null)).toBe('A chunk needs text.');
     });

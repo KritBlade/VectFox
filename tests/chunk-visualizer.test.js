@@ -65,8 +65,8 @@ const change = (element, value) => {
     element.dispatchEvent(new Event('change', { bubbles: true }));
 };
 
-async function openHarbor(settings = SETTINGS) {
-    void openChunkVisualizer(COLLECTION, settings);
+async function openHarbor(settings = SETTINGS, collection = COLLECTION) {
+    void openChunkVisualizer(collection, settings);
     // The visualizer keeps its order and filter from one opening to the next; each test starts from the defaults.
     change($id('vectfox_chunk_sort'), 'index');
     change($id('vectfox_chunk_filter'), 'all');
@@ -170,19 +170,31 @@ describe('saving a chunk', () => {
         expect(host.stored[1001]).toEqual({ summaries: ['High water'] });
     });
 
-    it('adds a keyword and a summary, and writes each where it lives', async () => {
+    it('stores a Qdrant chunk again under its hash when its keywords change, and a new summary beside it', async () => {
         await openHarbor();
         await openChunk('1');
         type($id('vectfox_chunk_keyword_new'), 'tide');
         actionButton('add-keyword').click();
-        type(document.querySelector('[data-keyword-weight="0"]'), '1');
         type($id('vectfox_chunk_summary_new'), 'Water rising');
         actionButton('add-summary').click();
         actionButton('save').click();
-        await vi.waitFor(() => expect(backend.insertVectorItems).toHaveBeenCalledTimes(1));
-        expect(backend.updateChunkMetadata.mock.calls[0][2]).toEqual({ keywords: [{ text: 'tide', weight: 1 }] });
-        expect(backend.insertVectorItems.mock.calls[0][1][0]).toMatchObject({ text: 'Water rising', metadata: { parentHash: 1001 } });
+        await vi.waitFor(() => expect(backend.insertVectorItems).toHaveBeenCalledTimes(2));
+        expect(backend.insertVectorItems.mock.calls[0][1]).toEqual([{ hash: 1001, text: 'The tide came in.', index: 1, metadata: { name: 'Tide', keywords: [{ text: 'tide' }] } }]);
+        expect(backend.insertVectorItems.mock.calls[1][1][0]).toMatchObject({ text: 'Water rising', metadata: { parentHash: 1001 } });
+        expect(backend.updateChunkMetadata).not.toHaveBeenCalled();
+        expect(backend.deleteVectorItems).not.toHaveBeenCalled();
         expect(host.stored[1001].summaries).toEqual(['High water', 'Water rising']);
+    });
+
+    it('writes a keyword change on Standard storage into the payload alone', async () => {
+        await openHarbor(SETTINGS, { ...COLLECTION, backend: 'vectra' });
+        await openChunk('1');
+        type($id('vectfox_chunk_keyword_new'), 'tide');
+        actionButton('add-keyword').click();
+        actionButton('save').click();
+        await vi.waitFor(() => expect(backend.updateChunkMetadata).toHaveBeenCalledTimes(1));
+        expect(backend.updateChunkMetadata.mock.calls[0][2]).toEqual({ keywords: [{ text: 'tide' }] });
+        expect(backend.insertVectorItems).not.toHaveBeenCalled();
     });
 });
 
@@ -204,6 +216,8 @@ describe('a collection made with another CJK tokenizer than VectFox is set to', 
         expect($id('vectfox_chunk_text').readOnly).toBe(true);
         expect($id('vectfox_chunk_summary_new').disabled).toBe(true);
         expect(actionButton('add-summary').disabled).toBe(true);
+        expect($id('vectfox_chunk_keyword_new').disabled).toBe(true);
+        expect(actionButton('add-keyword').disabled).toBe(true);
         expect(document.querySelector('#vectfox_chunk_record').textContent).toContain('Intl.Segmenter (English / Latin)');
 
         type($id('vectfox_chunk_name'), 'High tide');
@@ -225,7 +239,7 @@ describe('a collection made with another CJK tokenizer than VectFox is set to', 
 
         sendRecord();
         await vi.waitFor(() => expect(actionButton('save').disabled).toBe(true));
-        expect(document.querySelector('[data-chunk-save-state]').textContent).toBe('A changed text or a new summary can\'t be saved here: see above.');
+        expect(document.querySelector('[data-chunk-save-state]').textContent).toBe('A changed text, a keyword change or a new summary can\'t be saved here: see above.');
         expect(backend.insertVectorItems).not.toHaveBeenCalled();
     });
 

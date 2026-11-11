@@ -49,7 +49,6 @@ import {
     testReciprocalRankFusion,
     testWeightedCombination,
     testKeywordExtraction,
-    testKeywordBoosting,
     testLorebookKeywordExtraction,
     sweepLeftoverTestCollections
 } from './production-tests.js';
@@ -196,7 +195,6 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         
         // Keyword system tests
         categories.production.push(await testKeywordExtraction(settings));
-        categories.production.push(await testKeywordBoosting(settings));
         categories.production.push(await testLorebookKeywordExtraction(settings));
         
         // Conditional activation returns an array of individual test results

@@ -38,7 +38,7 @@ Querying an EventBase collection through the standard pipeline as well would ret
 
 ## 2) Extraction Level Location
 
-Extraction levels are defined in: `src/features/keyword-search/keyword-boost.js`
+Extraction levels are defined in: `src/features/keyword-search/keyword-extraction.js`
 
 Exact export name:
 `EXTRACTION_LEVELS`
@@ -457,14 +457,14 @@ EventBase overrides `keyword_scoring_method` with `eventbase_keyword_scoring_met
 | `hybrid_rrf_k`                                                              | 60                        | A2 RRF mode only                                               | Qdrant uses its own internal default for A3; this knob doesn't reach the server.                     |
 | `cjk_tokenizer_mode` (`intl` / `jieba` / `jieba_tw` / `tiny_segmenter`)     | `intl`                    | A3 (locked per Qdrant collection at upsert via sentinel point) | Mismatch between current setting and the collection's locked tokenizer triggers a modal and refuses the query. On A1/A2 the tokenizer is also used but not locked — changing it just means inconsistent tokenization until re-vectorize. |
 | `deduplication_depth`                                                       | 0 (disabled)              | All three paths                                                | EventBase context-window dedup: suppress events whose source window falls within the last N messages. Same JS path post-retrieval. |
-| `eventbase_retrieval_top_k`                                                 | 10                        | All three paths                                                | Final number of events injected, plus up to 5 that Agent Mode adds; a StoryArc block keeps its own count. Internal overfetch is`top_k × 2 × 2 = 40` for A1 (`getOverfetchAmount` in keyword-boost.js). |
+| `eventbase_retrieval_top_k`                                                 | 10                        | All three paths                                                | Final number of events injected, plus up to 5 that Agent Mode adds; a StoryArc block keeps its own count. Internal overfetch is`top_k × 2 × 2 = 40` for A1 (`getOverfetchAmount` in bm25-scorer.js). |
 | `eventbase_retrieval_min_importance`                                        | 1                         | All three paths                                                | Drops events below this importance threshold after retrieval.                                        |
 | `eventbase_score_threshold`                                                 | 0                         | All three paths                                                | EventBase page → Retrieval → Similarity threshold, used by every event search in place of ChunkBase's `score_threshold` (`eventbase-search.js`). Standard applies it inside its query; on Qdrant VectFox drops the hits below it. The new-event link pass searches with 0. |
 | `eventbase_rerank_w_cosine` / `_w_importance` / `_w_persist` / `_w_recency` | 0.55 / 0.20 / 0.15 / 0.10 | All three paths (formula coefficients)                         | A3 with`eventbase_native_rerank=true` applies them server-side via Qdrant formula; A1/A2 apply them in JS in `eventbase-retrieval.js`. |
 | `eventbase_native_rerank`                                                   | `true`                    | A3 only                                                        | Pushes the 4-weight formula into the same Qdrant`/points/query` call. Requires Qdrant ≥ 1.13. Set `false` to fall back to JS post-processing. |
 | `eventbase_compare_rerank`                                                  | `false`                   | A3 only                                                        | When ON alongside`eventbase_native_rerank`, runs the JS formula path in parallel for every query and logs `overlap@K` + Spearman ρ. Pure observability, doesn't change the injected events. |
 | `eventbase_compare_rerank_verbose`                                          | `false`                   | A3 only                                                        | When both compare settings are ON, emits per-event score rows. Very noisy — development only.        |
-| `keyword_extraction_level`, `keyword_boost_base_weight`                     | `balanced` / 1.5          | ChunkBase vectorization and chat retrieval                     | The level picks each chunk's keywords, which A3 indexes in the chunk's sparse vector, and the query keywords `rearrangeChat` matches exactly against them after any search, setting a matched chunk's score to 1.0. No retrieval path reads a keyword's weight. |
+| `keyword_extraction_level`                                                  | `balanced`                | ChunkBase vectorization and chat retrieval                     | The level picks each chunk's keywords, which A3 indexes in the chunk's sparse vector, and the query keywords `rearrangeChat` matches exactly against them after any search, setting a matched chunk's score to 1.0. A keyword is a word: it carries no weight. |
 
 ### Native Formula Rerank (A3 + Qdrant ≥ 1.13)
 

@@ -1,6 +1,6 @@
 /* database-browser.css — the Database Browser's own rules beside the GUI-DNA (database-browser-markup.js and
  * chunk-visualizer-markup.js): each collection's or chunk's selection box beside its row, the StoryArc links row drawn
- * as a branch under a collection, the open chunk's row and a keyword's boost box. The Chunk Visualizer's title and
+ * as a branch under a collection and the open chunk's row. The Chunk Visualizer's title and
  * phone layout are in shared/gui-dna/workbench.css. */
 
 .vfx-ui .vfx-pick-row {
@@ -45,10 +45,4 @@
 /* The chunk open in the Chunk Visualizer's form, edged in the accent. */
 .vfx-ui .vfx-pick-row.is-open > .vfx-pick-body > .vfx-row {
     border-color: var(--vfx-accent);
-}
-
-/* A keyword's boost beside its row: as wide as its number, where an input takes the whole row. */
-.vfx-ui .vfx-boost-box {
-    flex: none;
-    width: 6em;
 }

@@ -102,8 +102,8 @@ describe('the chunk form', () => {
         expect(form.querySelector(`#${ids.text}`).value).toBe('<b>The tide</b> came in.');
         expect(form.querySelector(`#${ids.enabled}`)).not.toBeNull();
         expect(form.querySelector('b, i:not(.fa-solid):not(.fa-brands)')).toBeNull();
-        const weight = form.querySelector('[data-keyword-weight="0"]');
-        expect([weight.value, weight.classList.contains('vfx-boost-box')]).toEqual(['2', true]);
+        expect(form.querySelector('[data-chunk-keywords]').textContent).toContain('<b>mast</b>');
+        expect(form.querySelector('[data-chunk-keywords] input')).toBeNull();
         expect(form.querySelector('[data-chunk-links]').textContent).toContain('Message 2: Harbor gate');
         expect(form.querySelector('[data-chunk-summaries]').textContent).toContain('High <i>water</i>');
         expect(form.querySelector('[data-chunk-action="save"]').disabled).toBe(true);
@@ -140,7 +140,7 @@ describe('the chunk form', () => {
         const notice = parse(tokenizerLockMarkup({ madeWith: 'Intl.Segmenter (English / Latin)', setTo: 'Traditional Chinese (Jieba WASM)' }));
         expect(notice.querySelector('.vfx-notice.is-warning')).not.toBeNull();
         expect(notice.textContent.replace(/\s+/g, ' ').trim()).toBe('This collection was made with the CJK tokenizer Intl.Segmenter (English / Latin), '
-            + 'and VectFox is set to Traditional Chinese (Jieba WASM). A changed text or a new summary can\'t be saved here; the other fields can.');
+            + 'and VectFox is set to Traditional Chinese (Jieba WASM). A changed text, a keyword change or a new summary can\'t be saved here; the other fields can.');
         expect(parse(chunkFormMarkup(formView())).querySelector('[data-chunk-tokenizer-notice]').hidden).toBe(true);
     });
 

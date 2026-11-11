@@ -19,7 +19,6 @@ import {
     extractCharaFromPng,
     extractFandomId,
     extractWikiName,
-    keywordWeightFrom,
     lorebookStats,
     pageTextFromHtml,
     parseCharacterJson,
@@ -62,8 +61,7 @@ describe('the rail and the chunking controls', () => {
         expect(chunkingControls('lorebook', 'per_entry', true).showsStrategy).toBe(true);
     });
 
-    it('holds a keyword weight to 0.01 to 3 and a start message to whole numbers from 1', () => {
-        expect([keywordWeightFrom('9'), keywordWeightFrom('0'), keywordWeightFrom('x'), keywordWeightFrom('1.2')]).toEqual([3, 0.01, 1.5, 1.2]);
+    it('holds a start message to whole numbers from 1', () => {
         expect([startFromMessageOf('2000'), startFromMessageOf('0'), startFromMessageOf(''), startFromMessageOf('-3')]).toEqual([2000, 1, 1, 1]);
     });
 });

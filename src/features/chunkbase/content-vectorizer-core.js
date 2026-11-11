@@ -24,8 +24,6 @@ const REFORMAT_TYPE_IDS = ['document', 'url', 'wiki'];
 /** The fields a character's stats count. */
 const CHARACTER_STAT_FIELDS = ['description', 'personality', 'scenario', 'first_mes', 'mes_example'];
 
-export const DEFAULT_KEYWORD_WEIGHT = 1.5;
-
 /** Whether Auto-Reformat can read this content type. */
 export const isReformatType = typeId => REFORMAT_TYPE_IDS.includes(typeId);
 
@@ -56,12 +54,6 @@ export function chunkingControls(typeId, strategyId, isReformatAccepted) {
         showsWindows: false,
         note: strategy?.description || '',
     };
-}
-
-/** A keyword base weight from its box: 0.01 to 3, and 1.5 for anything that is not a number. */
-export function keywordWeightFrom(text) {
-    const weight = parseFloat(text);
-    return Number.isFinite(weight) ? Math.min(3, Math.max(0.01, weight)) : DEFAULT_KEYWORD_WEIGHT;
 }
 
 /** The message a chat run starts from: a whole number from 1, and 1 for anything else. */

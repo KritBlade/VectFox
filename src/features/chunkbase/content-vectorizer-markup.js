@@ -32,7 +32,7 @@ import {
 import { cardHeader, navBrand, navItem, pageHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtml as escape } from '../../shared/html-escape.js';
 import { CHARACTER_FIELDS, getChunkingStrategies, getContentType, getContentTypeDefaults, hasFeature } from './content-types.js';
-import { CONTENT_TYPE_GROUPS, DEFAULT_KEYWORD_WEIGHT, isReformatType, usesEventBaseWindows } from './content-vectorizer-core.js';
+import { CONTENT_TYPE_GROUPS, isReformatType, usesEventBaseWindows } from './content-vectorizer-core.js';
 
 export const VECTORIZER_ROOT_ID = 'vectfox_content_vectorizer';
 
@@ -415,11 +415,8 @@ function optionsCard(type, view) {
     if (hasFeature(typeId, 'keywordExtraction')) {
         parts.push(field([
             fieldLabel({ text: 'Keywords', forId: cvId(typeId, 'keyword_level') }),
-            controlRow([
-                select({ id: cvId(typeId, 'keyword_level'), options: KEYWORD_LEVELS.map(level => selectOption({ ...level, isSelected: level.value === 'balanced' })) }),
-                input({ id: cvId(typeId, 'keyword_weight'), type: 'number', value: DEFAULT_KEYWORD_WEIGHT, min: 0.01, max: 3, step: 0.01, title: 'Keyword base weight' }),
-            ]),
-            hint({ text: typeId === 'lorebook' ? 'Trigger keys always count; the level adds words from the text.' : 'Frequent words weigh more; the box is every keyword\'s base weight.' }),
+            select({ id: cvId(typeId, 'keyword_level'), options: KEYWORD_LEVELS.map(level => selectOption({ ...level, isSelected: level.value === 'balanced' })) }),
+            hint({ text: typeId === 'lorebook' ? 'Trigger keys always count; the level adds words from the text.' : 'The level picks words from the text, the most frequent first.' }),
         ]));
     }
     if (hasFeature(typeId, 'respectDisabled')) {

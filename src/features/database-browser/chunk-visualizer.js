@@ -25,7 +25,6 @@ import { log } from '../../sillytavern/log.js';
 import { confirmPopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import {
-    DEFAULT_KEYWORD_WEIGHT,
     LIST_PAGE_SIZE,
     chunkLabel,
     collectionRecordLines,
@@ -305,7 +304,7 @@ function renderPane(root, session) {
         return;
     }
     session.draft = {
-        keywords: chunk.fields.keywords.map(keyword => ({ text: keyword.text, weightText: String(keyword.weight) })),
+        keywords: chunk.fields.keywords.map(keyword => ({ text: keyword.text })),
         chunkLinks: chunk.fields.chunkLinks.map(link => ({ ...link })),
         summaries: [...chunk.fields.summaries],
     };
@@ -341,6 +340,8 @@ function paintTokenizerLock(root, session) {
     root.querySelector(`#${ids.text}`).readOnly = Boolean(lock);
     root.querySelector(`#${ids.summaryNew}`).disabled = Boolean(lock);
     root.querySelector('[data-chunk-action="add-summary"]').disabled = Boolean(lock);
+    root.querySelector(`#${ids.keywordNew}`).disabled = Boolean(lock);
+    root.querySelector('[data-chunk-action="add-keyword"]').disabled = Boolean(lock);
 }
 
 const linkViews = session => session.draft.chunkLinks.map(link => ({ ...linkTargetLabel(session.chunks, link.targetHash), mode: link.mode }));
@@ -413,7 +414,7 @@ async function openChunk(root, session, key) {
 
 function repaintDraftList(root, session, hook) {
     const list = root.querySelector(`[data-${hook}]`);
-    if (hook === 'chunk-keywords') list.innerHTML = keywordRowsMarkup(session.draft.keywords.map(keyword => ({ text: keyword.text, weight: keyword.weightText })));
+    if (hook === 'chunk-keywords') list.innerHTML = keywordRowsMarkup(session.draft.keywords);
     if (hook === 'chunk-links') list.innerHTML = linkRowsMarkup(linkViews(session));
     if (hook === 'chunk-summaries') list.innerHTML = summaryRowsMarkup(session.draft.summaries);
     refreshFormState(root, session);
@@ -424,7 +425,7 @@ function addKeyword(root, session) {
     const text = box.value.trim();
     if (!text) return;
     if (!session.draft.keywords.some(keyword => keyword.text === text)) {
-        session.draft.keywords.push({ text, weightText: String(DEFAULT_KEYWORD_WEIGHT) });
+        session.draft.keywords.push({ text });
         repaintDraftList(root, session, 'chunk-keywords');
     }
     box.value = '';
@@ -461,6 +462,27 @@ const summaryItem = (text, parentHash) => ({
 });
 
 /**
+ * The chunk's fields with the form's changes, as a chunk stored again carries them. A chunk saved before the payload
+ * carried its fields has them in the settings; summaries stay there.
+ */
+function storedMetadataWith(chunk, changes) {
+    const { summaries: storedSummaries, updatedAt, ...storedFields } = getChunkMetadata(String(chunk.hash)) || {};
+    const metadata = { ...storedFields, ...chunk.metadata, ...changes.payload };
+    for (const field of ['hash', 'text', 'summaries']) delete metadata[field];
+    return metadata;
+}
+
+/** The summaries added and removed: each one's vector in the collection, their words in the settings. */
+async function writeSummaryChanges(session, chunk, changes) {
+    const { collection, settings } = session;
+    if (changes.removedSummaries.length) await deleteVectorItems(collection.id, changes.removedSummaries.map(getStringHash), settings);
+    if (changes.addedSummaries.length) await insertVectorItems(collection.id, changes.addedSummaries.map(summary => summaryItem(summary, chunk.hash)), settings);
+    if (changes.addedSummaries.length || changes.removedSummaries.length) {
+        saveChunkMetadata(String(chunk.hash), { ...(getChunkMetadata(String(chunk.hash)) || {}), summaries: changes.summaries });
+    }
+}
+
+/**
  * Write a chunk whose text is unchanged: its payload fields, then the summaries added and removed.
  */
 async function writeChunkChanges(session, chunk, changes) {
@@ -469,11 +491,20 @@ async function writeChunkChanges(session, chunk, changes) {
         await updateChunkMetadata(collection.id, chunk.hash, changes.payload, settings);
         chunk.metadata = { ...chunk.metadata, ...changes.payload };
     }
-    if (changes.removedSummaries.length) await deleteVectorItems(collection.id, changes.removedSummaries.map(getStringHash), settings);
-    if (changes.addedSummaries.length) await insertVectorItems(collection.id, changes.addedSummaries.map(summary => summaryItem(summary, chunk.hash)), settings);
-    if (changes.addedSummaries.length || changes.removedSummaries.length) {
-        saveChunkMetadata(String(chunk.hash), { ...(getChunkMetadata(String(chunk.hash)) || {}), summaries: changes.summaries });
-    }
+    await writeSummaryChanges(session, chunk, changes);
+}
+
+/**
+ * Store a Qdrant chunk again after its keywords changed: Qdrant storage appends them to the text it stores, and builds
+ * the sparse vector its keyword search reads from that text, so new keywords count there only once the chunk is stored
+ * again. The text is the same, so the chunk keeps its hash and the new point replaces the old one, at one embedding.
+ */
+async function storeChunkAgain(session, chunk, changes) {
+    const { collection, settings } = session;
+    const metadata = storedMetadataWith(chunk, changes);
+    await insertVectorItems(collection.id, [{ hash: chunk.hash, text: chunk.text, index: chunk.index, metadata }], settings);
+    chunk.metadata = metadata;
+    await writeSummaryChanges(session, chunk, changes);
 }
 
 /**
@@ -485,10 +516,8 @@ async function reembedChunk(session, chunk, changes) {
     const { collection, settings } = session;
     const oldHash = chunk.hash;
     const newHash = getStringHash(changes.text);
-    // A chunk saved before the payload carried its fields has them in the settings; summaries stay there.
-    const { summaries: storedSummaries, updatedAt, ...storedFields } = getChunkMetadata(String(oldHash)) || {};
-    const metadata = { ...storedFields, ...chunk.metadata, ...changes.payload };
-    for (const field of ['hash', 'text', 'summaries']) delete metadata[field];
+    const metadata = storedMetadataWith(chunk, changes);
+    const storedSummaries = getChunkMetadata(String(oldHash))?.summaries || [];
 
     await insertVectorItems(collection.id, [{ hash: newHash, text: changes.text, index: chunk.index, metadata }], settings);
     Object.assign(chunk, { hash: newHash, text: changes.text, metadata });
@@ -501,7 +530,7 @@ async function reembedChunk(session, chunk, changes) {
         throw new Error(`the new text is saved, but the old chunk is still in the collection: ${error.message}`, { cause: error });
     }
     try {
-        const oldSummaries = [...new Set([...(storedSummaries || []), ...changes.removedSummaries, ...changes.summaries])];
+        const oldSummaries = [...new Set([...storedSummaries, ...changes.removedSummaries, ...changes.summaries])];
         if (oldSummaries.length) await deleteVectorItems(collection.id, oldSummaries.map(getStringHash), settings);
         if (changes.summaries.length) await insertVectorItems(collection.id, changes.summaries.map(summary => summaryItem(summary, newHash)), settings);
     } catch (error) {
@@ -523,10 +552,13 @@ async function saveOpenChunk(root, session) {
     setBusy(root, session, true);
     let isSaved = false;
     try {
+        const isKeywordChangeOnQdrant = changes.payload.keywords !== undefined && session.collection.backend === 'qdrant';
         if (changes.text !== null) await reembedChunk(session, chunk, changes);
+        else if (isKeywordChangeOnQdrant) await storeChunkAgain(session, chunk, changes);
         else await writeChunkChanges(session, chunk, changes);
         isSaved = true;
-        log.lifecycle(`VectFox Chunk Visualizer: saved chunk ${chunk.hash} of ${session.collection.id}${changes.text !== null ? ', embedded again' : ''}`);
+        const how = changes.text !== null ? ', embedded again' : (isKeywordChangeOnQdrant ? ', stored again for its keywords' : '');
+        log.lifecycle(`VectFox Chunk Visualizer: saved chunk ${chunk.hash} of ${session.collection.id}${how}`);
     } catch (error) {
         log.error('VectFox Chunk Visualizer: a chunk could not be saved:', error);
         toastr.error(`The chunk was not saved: ${error.message}`, 'VectFox');
@@ -685,9 +717,6 @@ function bindVisualizer(root, session) {
                 renderList(root, session);
             }, SEARCH_DELAY_MS);
             return;
-        }
-        if (target.dataset.keywordWeight !== undefined && session.draft) {
-            session.draft.keywords[Number(target.dataset.keywordWeight)].weightText = target.value;
         }
         if (target.closest(`#${ids.pane}`)) refreshFormState(root, session);
     });

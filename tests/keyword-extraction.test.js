@@ -1,11 +1,11 @@
 /**
- * Unit tests for keyword-boost.js
- * Tests keyword extraction, weighting, and boosting functionality
+ * Unit tests for keyword-extraction.js: the keywords a chunk is stored with, picked at its extraction level, the most
+ * frequent first.
  */
 
 import { describe, it, expect, vi } from 'vitest';
 
-// keyword-boost.js → bm25-scorer.js → src/sillytavern/log.js → ../../../../extensions.js
+// keyword-extraction.js → bm25-scorer.js → src/sillytavern/log.js → ../../../../extensions.js
 // (a SillyTavern host path that doesn't resolve under vitest). Mock it.
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },
@@ -25,14 +25,12 @@ vi.mock('../../../../../script.js', () => ({
 import {
     EXTRACTION_LEVELS,
     DEFAULT_EXTRACTION_LEVEL,
-    DEFAULT_BASE_WEIGHT,
     extractLorebookKeywords,
     extractTextKeywords,
     extractChatKeywords,
     extractBM25Keywords,
-    applyKeywordBoost,
-    getOverfetchAmount,
-} from '../src/features/keyword-search/keyword-boost.js';
+} from '../src/features/keyword-search/keyword-extraction.js';
+import { getOverfetchAmount } from '../src/features/keyword-search/bm25-scorer.js';
 
 // ============================================================================
 // EXTRACTION_LEVELS Configuration Tests
@@ -75,12 +73,6 @@ describe('EXTRACTION_LEVELS', () => {
 describe('DEFAULT_EXTRACTION_LEVEL', () => {
     it('should be balanced', () => {
         expect(DEFAULT_EXTRACTION_LEVEL).toBe('balanced');
-    });
-});
-
-describe('DEFAULT_BASE_WEIGHT', () => {
-    it('should be 1.5', () => {
-        expect(DEFAULT_BASE_WEIGHT).toBe(1.5);
     });
 });
 
@@ -237,9 +229,8 @@ describe('extractTextKeywords', () => {
         const text = 'The wizard wizard wizard cast a powerful magic spell on the dragon dragon.';
         const keywords = extractTextKeywords(text);
         expect(keywords.length).toBeGreaterThan(0);
-        // Should have text and weight properties
-        expect(keywords[0]).toHaveProperty('text');
-        expect(keywords[0]).toHaveProperty('weight');
+        // Each keyword is its word, with no weight
+        expect(keywords.every(keyword => Object.keys(keyword).join() === 'text')).toBe(true);
     });
 
     it('should respect maxKeywords limit for minimal level', () => {
@@ -271,35 +262,21 @@ describe('extractTextKeywords', () => {
         expect(keywordTexts).not.toContain('within');
     });
 
-    it('should assign higher weights to more frequent words', () => {
+    it('puts more frequent words first', () => {
         const text = 'Dragon dragon dragon dragon dragon. Wizard wizard. Castle.';
-        const keywords = extractTextKeywords(text, { level: 'aggressive' });
-
-        const dragonKeyword = keywords.find(k => k.text === 'dragon');
-        const wizardKeyword = keywords.find(k => k.text === 'wizard');
-
-        if (dragonKeyword && wizardKeyword) {
-            expect(dragonKeyword.weight).toBeGreaterThanOrEqual(wizardKeyword.weight);
-        }
+        const keywordTexts = extractTextKeywords(text, { level: 'aggressive' }).map(k => k.text);
+        expect(keywordTexts.indexOf('dragon')).toBeLessThan(keywordTexts.indexOf('wizard'));
     });
 
-    it('should cap weights at MAX_KEYWORD_WEIGHT (3.0)', () => {
-        const text = 'Dragon '.repeat(100);
-        const keywords = extractTextKeywords(text, { level: 'aggressive' });
-
-        for (const kw of keywords) {
-            expect(kw.weight).toBeLessThanOrEqual(3.0);
-        }
-    });
-
-    it('should use custom baseWeight when provided', () => {
-        const text = 'Dragon dragon dragon wizard wizard castle';
-        const keywords = extractTextKeywords(text, { level: 'aggressive', baseWeight: 2.0 });
-
-        // Keywords should have weights >= 2.0
-        for (const kw of keywords) {
-            expect(kw.weight).toBeGreaterThanOrEqual(2.0);
-        }
+    it('ranks a term in CJK brackets with a word seen 16 times or more, and a compound term as a word seen three times', () => {
+        const repeat = (word, times) => Array.from({ length: times }, () => word).join(' ');
+        const text = `${repeat('harbor', 20)} ${repeat('lantern', 17)} ${repeat('tide', 16)} ${repeat('gull', 4)} ${repeat('rope', 3)} time_god 【星辰剑】 anchor`;
+        const keywordTexts = extractTextKeywords(text, { level: 'aggressive' }).map(k => k.text);
+        // The top rank keeps text order: the three words seen 16 times or more, then the bracket term.
+        expect(keywordTexts.slice(0, 5)).toEqual(['harbor', 'lantern', 'tide', '星辰剑', 'gull']);
+        // A compound term ranks as a word seen three times, after the words seen three times that come before it.
+        expect(keywordTexts.indexOf('time_god')).toBeGreaterThan(keywordTexts.indexOf('rope'));
+        expect(keywordTexts.indexOf('time_god')).toBeLessThan(keywordTexts.indexOf('anchor'));
     });
 
     it('should remove parenthetical citations', () => {
@@ -333,22 +310,9 @@ describe('extractTextKeywords', () => {
         expect(keywordTexts.some(t => t.includes('_'))).toBe(true);
     });
 
-    it('should include frequency count in output', () => {
-        const text = 'Dragon dragon dragon wizard';
-        const keywords = extractTextKeywords(text, { level: 'aggressive' });
-        const dragonKeyword = keywords.find(k => k.text === 'dragon');
-
-        expect(dragonKeyword).toBeDefined();
-        expect(dragonKeyword.frequency).toBe(3);
-    });
-
-    it('should sort keywords by weight descending', () => {
+    it('keeps the words in frequency order', () => {
         const text = 'Dragon dragon dragon dragon. Wizard wizard. Castle.';
-        const keywords = extractTextKeywords(text, { level: 'aggressive' });
-
-        for (let i = 1; i < keywords.length; i++) {
-            expect(keywords[i - 1].weight).toBeGreaterThanOrEqual(keywords[i].weight);
-        }
+        expect(extractTextKeywords(text, { level: 'aggressive' }).map(k => k.text)).toEqual(['dragon', 'wizard', 'castle']);
     });
 
     it('should preserve proper nouns without stemming', () => {
@@ -399,20 +363,8 @@ describe('extractChatKeywords', () => {
         expect(keywords.length).toBeLessThanOrEqual(5);
     });
 
-    it('should use default baseWeight of 1.5', () => {
-        const text = 'I met Gandalf yesterday.';
-        const keywords = extractChatKeywords(text);
-        if (keywords.length > 0) {
-            expect(keywords[0].weight).toBe(DEFAULT_BASE_WEIGHT);
-        }
-    });
-
-    it('should use custom baseWeight when provided', () => {
-        const text = 'I met Gandalf yesterday.';
-        const keywords = extractChatKeywords(text, { baseWeight: 2.5 });
-        if (keywords.length > 0) {
-            expect(keywords[0].weight).toBe(2.5);
-        }
+    it('returns each keyword as its word, with no weight', () => {
+        expect(extractChatKeywords('I met Gandalf yesterday.')).toEqual([{ text: 'gandalf' }]);
     });
 
     it('should deduplicate proper nouns', () => {
@@ -459,9 +411,7 @@ describe('extractBM25Keywords', () => {
         const text = 'The dragon breathes fire. The dragon is powerful. Dragons are mythical creatures.';
         const keywords = extractBM25Keywords(text, { level: 'aggressive' });
         expect(keywords.length).toBeGreaterThan(0);
-        expect(keywords[0]).toHaveProperty('text');
-        expect(keywords[0]).toHaveProperty('weight');
-        expect(keywords[0]).toHaveProperty('tfidf');
+        expect(keywords.every(keyword => Object.keys(keyword).join() === 'text')).toBe(true);
     });
 
     it('should respect header size for minimal level', () => {
@@ -541,192 +491,10 @@ describe('extractBM25Keywords', () => {
         expect(keywordTexts.some(t => t.includes('strovolo'))).toBe(true);
     });
 
-    it('should include TF-IDF score in output', () => {
-        const text = 'Dragon dragon dragon. Wizard wizard. Castle.';
-        const keywords = extractBM25Keywords(text, { level: 'aggressive' });
-
-        for (const kw of keywords) {
-            expect(kw).toHaveProperty('tfidf');
-            expect(typeof kw.tfidf).toBe('number');
-            expect(kw.tfidf).toBeGreaterThan(0);
-        }
-    });
-
-    it('should sort by TF-IDF score descending', () => {
+    it('puts the highest TF-IDF first', () => {
         const text = 'Dragon dragon dragon dragon. Wizard wizard. Castle.';
-        const keywords = extractBM25Keywords(text, { level: 'aggressive' });
-
-        for (let i = 1; i < keywords.length; i++) {
-            expect(keywords[i - 1].tfidf).toBeGreaterThanOrEqual(keywords[i].tfidf);
-        }
-    });
-});
-
-// ============================================================================
-// applyKeywordBoost Tests
-// ============================================================================
-
-describe('applyKeywordBoost', () => {
-    it('should return unchanged results for null/undefined inputs', () => {
-        expect(applyKeywordBoost(null, 'query')).toEqual(null);
-        expect(applyKeywordBoost(undefined, 'query')).toEqual(undefined);
-        expect(applyKeywordBoost([], null)).toEqual([]);
-        expect(applyKeywordBoost([], '')).toEqual([]);
-    });
-
-    it('should boost results with matching keywords', () => {
-        const results = [
-            { text: 'A dragon story', score: 0.5, keywords: ['dragon', 'fire'] },
-            { text: 'A wizard tale', score: 0.6, keywords: ['wizard', 'magic'] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon');
-
-        const dragonResult = boosted.find(r => r.text.includes('dragon'));
-        expect(dragonResult.keywordBoosted).toBe(true);
-        expect(dragonResult.score).toBeGreaterThan(0.5);
-    });
-
-    it('should not boost results without matching keywords', () => {
-        const results = [
-            { text: 'A dragon story', score: 0.5, keywords: ['dragon', 'fire'] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'wizard');
-
-        expect(boosted[0].keywordBoosted).toBe(false);
-        expect(boosted[0].score).toBe(0.5);
-    });
-
-    it('should handle keywords as objects with weight', () => {
-        const results = [
-            { text: 'A dragon story', score: 0.5, keywords: [{ text: 'dragon', weight: 2.0 }] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon');
-
-        expect(boosted[0].keywordBoosted).toBe(true);
-        expect(boosted[0].matchedKeywordsWithWeights[0].weight).toBe(2.0);
-    });
-
-    it('should apply diminishing returns by default', () => {
-        const results = [
-            { text: 'Story', score: 0.5, keywords: ['dragon'] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon', { diminishingReturns: true });
-
-        // With 1 match and diminishing returns, should get 30% scaling
-        expect(boosted[0].diminishingReturns).toBe(true);
-    });
-
-    it('should apply full boost when diminishingReturns is false', () => {
-        const results = [
-            { text: 'Story', score: 0.5, keywords: [{ text: 'dragon', weight: 2.0 }] },
-        ];
-
-        const noScale = applyKeywordBoost(results, 'dragon', { diminishingReturns: false });
-        const withScale = applyKeywordBoost(results, 'dragon', { diminishingReturns: true });
-
-        expect(noScale[0].keywordBoost).toBeGreaterThan(withScale[0].keywordBoost);
-    });
-
-    it('should cap per-keyword contribution when enabled', () => {
-        const results = [
-            { text: 'Story', score: 0.5, keywords: [{ text: 'dragon', weight: 5.0 }] },
-        ];
-
-        const capped = applyKeywordBoost(results, 'dragon', { perKeywordCap: true, diminishingReturns: false });
-        const uncapped = applyKeywordBoost(results, 'dragon', { perKeywordCap: false, diminishingReturns: false });
-
-        // Capped should have lower boost due to 0.5 max contribution
-        expect(capped[0].keywordBoost).toBeLessThan(uncapped[0].keywordBoost);
-    });
-
-    it('should scale boost based on match count with diminishing returns', () => {
-        const results1 = [
-            { text: 'Story', score: 0.5, keywords: ['dragon'] },
-        ];
-        const results2 = [
-            { text: 'Story', score: 0.5, keywords: ['dragon', 'fire'] },
-        ];
-        const results3 = [
-            { text: 'Story', score: 0.5, keywords: ['dragon', 'fire', 'scales'] },
-        ];
-
-        const boosted1 = applyKeywordBoost(results1, 'dragon fire scales', { diminishingReturns: true });
-        const boosted2 = applyKeywordBoost(results2, 'dragon fire scales', { diminishingReturns: true });
-        const boosted3 = applyKeywordBoost(results3, 'dragon fire scales', { diminishingReturns: true });
-
-        // More matches = higher scaling factor
-        expect(boosted2[0].score).toBeGreaterThan(boosted1[0].score);
-        expect(boosted3[0].score).toBeGreaterThan(boosted2[0].score);
-    });
-
-    it('should cap final score at 1.0', () => {
-        const results = [
-            { text: 'Story', score: 0.9, keywords: [{ text: 'dragon', weight: 3.0 }, { text: 'fire', weight: 3.0 }] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon fire', { diminishingReturns: false, perKeywordCap: false });
-
-        expect(boosted[0].score).toBeLessThanOrEqual(1.0);
-    });
-
-    it('should sort results by boosted score', () => {
-        const results = [
-            { text: 'Low score, matching keyword', score: 0.3, keywords: ['dragon'] },
-            { text: 'High score, no keyword', score: 0.8, keywords: ['wizard'] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon');
-
-        // Results should be sorted by score descending
-        for (let i = 1; i < boosted.length; i++) {
-            expect(boosted[i - 1].score).toBeGreaterThanOrEqual(boosted[i].score);
-        }
-    });
-
-    it('should preserve original score', () => {
-        const results = [
-            { text: 'Story', score: 0.5, keywords: ['dragon'] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon');
-
-        expect(boosted[0].originalScore).toBe(0.5);
-    });
-
-    it('should record matched keywords', () => {
-        const results = [
-            { text: 'Story', score: 0.5, keywords: ['dragon', 'fire', 'scales'] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon scales');
-
-        expect(boosted[0].matchedKeywords).toContain('dragon');
-        expect(boosted[0].matchedKeywords).toContain('scales');
-        expect(boosted[0].matchedKeywords).not.toContain('fire');
-    });
-
-    it('should handle keywords in metadata', () => {
-        const results = [
-            { text: 'Story', score: 0.5, metadata: { keywords: ['dragon'] } },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon');
-
-        expect(boosted[0].keywordBoosted).toBe(true);
-    });
-
-    it('should match keywords case-insensitively', () => {
-        const results = [
-            { text: 'Story', score: 0.5, keywords: ['Dragon', 'FIRE'] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon fire');
-
-        expect(boosted[0].matchedKeywords.length).toBe(2);
+        const keywordTexts = extractBM25Keywords(text, { level: 'aggressive' }).map(k => k.text);
+        expect(keywordTexts.indexOf('dragon')).toBeLessThan(keywordTexts.indexOf('wizard'));
     });
 });
 
@@ -800,68 +568,4 @@ describe('Edge Cases', () => {
         expect(keywords).toEqual([]);
     });
 
-    it('should handle empty results array for boost', () => {
-        const boosted = applyKeywordBoost([], 'dragon');
-        expect(boosted).toEqual([]);
-    });
-
-    it('should handle results with no keywords for boost', () => {
-        const results = [
-            { text: 'Story', score: 0.5 },
-            { text: 'Another', score: 0.6, keywords: null },
-            { text: 'Third', score: 0.7, keywords: [] },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon');
-
-        expect(boosted.every(r => !r.keywordBoosted)).toBe(true);
-    });
-});
-
-describe('Integration: Keyword extraction to boost pipeline', () => {
-    it('should extract keywords from text and use them for boosting', () => {
-        const documentText = 'The dragon breathes fire. The dragon is powerful. Dragons rule the sky.';
-
-        // Extract keywords
-        const keywords = extractTextKeywords(documentText, { level: 'aggressive' });
-
-        // Create result with extracted keywords
-        const results = [
-            {
-                text: documentText,
-                score: 0.5,
-                keywords: keywords
-            },
-            {
-                text: 'A wizard casts spells',
-                score: 0.6,
-                keywords: extractTextKeywords('A wizard casts spells', { level: 'aggressive' })
-            }
-        ];
-
-        // Apply boost for dragon query
-        const boosted = applyKeywordBoost(results, 'dragon');
-
-        // Dragon document should be boosted
-        const dragonDoc = boosted.find(r => r.text.includes('dragon'));
-        expect(dragonDoc.keywordBoosted).toBe(true);
-    });
-
-    it('should work with lorebook keywords for boosting', () => {
-        const entry = {
-            key: ['dragon', 'fire'],
-            keysecondary: ['scales', 'wings'],
-        };
-
-        const keywords = extractLorebookKeywords(entry);
-
-        const results = [
-            { text: 'Dragon entry', score: 0.5, keywords: keywords },
-        ];
-
-        const boosted = applyKeywordBoost(results, 'dragon fire');
-
-        expect(boosted[0].matchedKeywords).toContain('dragon');
-        expect(boosted[0].matchedKeywords).toContain('fire');
-    });
 });

@@ -907,7 +907,7 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     }
 
     // Standard vector search flow (A1/A2).
-    // Overfetch to allow keyword-boosted chunks to surface
+    // Overfetch so the BM25 re-rank can lift a chunk from below the top K
     const overfetchAmount = getOverfetchAmount(topK);
     // VEC-18: Track query latency for health dashboard
     const queryStart = Date.now();
@@ -950,13 +950,9 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
             ...r.metadata,
             score: r.score,
             originalScore: r.originalScore || r.vectorScore,
-            keywordBoost: r.keywordBoost,
             bm25Score: r.bm25Score,
             normalizedBM25: r.normalizedBM25,
             vectorScore: r.vectorScore,
-            matchedKeywords: r.matchedKeywords,
-            matchedKeywordsWithWeights: r.matchedKeywordsWithWeights,
-            keywordBoosted: r.keywordBoosted
         }))
     };
 }
@@ -1131,13 +1127,9 @@ export async function queryMultipleCollections(collectionIds, searchText, topK, 
                 ...r.metadata,
                 score: r.score,
                 originalScore: r.originalScore || r.vectorScore,
-                keywordBoost: r.keywordBoost,
                 bm25Score: r.bm25Score,
                 normalizedBM25: r.normalizedBM25,
                 vectorScore: r.vectorScore,
-                matchedKeywords: r.matchedKeywords,
-                matchedKeywordsWithWeights: r.matchedKeywordsWithWeights,
-                keywordBoosted: r.keywordBoosted
             }))
         };
     }

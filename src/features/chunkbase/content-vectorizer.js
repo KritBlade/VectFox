@@ -43,7 +43,6 @@ import {
     fileExtension,
     fileStem,
     isReformatType,
-    keywordWeightFrom,
     lorebookStats,
     pageTextFromHtml,
     parseCharacterJson,
@@ -1088,10 +1087,6 @@ function readControl(control) {
             chooseCleaningPreset(control.value);
             return showCleaningPreset(control.value);
         case 'keyword_level': settings.keywordLevel = control.value; return undefined;
-        case 'keyword_weight':
-            settings.keywordBaseWeight = keywordWeightFrom(control.value);
-            control.value = String(settings.keywordBaseWeight);
-            return undefined;
         case 'include_disabled': settings.includeDisabled = control.checked; return undefined;
         case 'wiki_type': {
             const wiki = getContentType('wiki').sourceOptions.types.find(each => each.id === control.value);

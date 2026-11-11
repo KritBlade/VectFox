@@ -20,14 +20,14 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
-// keyword-boost/bm25-scorer → src/sillytavern/log.js → ../../../../extensions.js
+// keyword-extraction/bm25-scorer → src/sillytavern/log.js → ../../../../extensions.js
 // (a SillyTavern host path that doesn't resolve under vitest). Mock it.
 vi.mock('../../../../extensions.js', () => ({
     extension_settings: { vectfox: {} },
     getContext: vi.fn(() => ({ chat: [], characterId: null })),
 }));
 
-// Mock the SillyTavern substituteParams function (required by keyword-boost.js)
+// Mock the SillyTavern substituteParams function (required by keyword-extraction.js)
 vi.mock('../../../../../script.js', () => ({
     substituteParams: vi.fn((str) => {
         // Simple mock that replaces common ST macros
@@ -40,7 +40,7 @@ vi.mock('../../../../../script.js', () => ({
 import {
     extractBM25Keywords,
     extractTextKeywords,
-} from '../src/features/keyword-search/keyword-boost.js';
+} from '../src/features/keyword-search/keyword-extraction.js';
 import { porterStemmer, extractCJKTokens } from '../src/features/keyword-search/bm25-scorer.js';
 
 // ============================================================================
@@ -248,7 +248,7 @@ describe('VECTFOX vs OpenVault Keyword Comparison', () => {
             });
 
             console.log('\n=== VECTFOX BM25 KEYWORDS ===');
-            keywords.forEach(k => console.log(`  ${k.text.padEnd(20)} weight=${k.weight.toFixed(3)}${k.tfidf ? ` tfidf=${k.tfidf.toFixed(2)}` : ''}`));
+            keywords.forEach(k => console.log(`  ${k.text}`));
             console.log(`Total keywords: ${keywords.length}`);
 
             expect(keywords.length).toBeGreaterThan(0);
@@ -266,7 +266,7 @@ describe('VECTFOX vs OpenVault Keyword Comparison', () => {
             });
 
             console.log('\n=== VECTFOX TEXT KEYWORDS ===');
-            keywords.forEach(k => console.log(`  ${k.text.padEnd(20)} weight=${k.weight.toFixed(3)}`));
+            keywords.forEach(k => console.log(`  ${k.text}`));
             console.log(`Total keywords: ${keywords.length}`);
 
             expect(keywords.length).toBeGreaterThan(0);
@@ -349,7 +349,7 @@ describe('VECTFOX vs OpenVault Keyword Comparison', () => {
         it('VECTFOX BM25: capital boost (1.3x) helps proper nouns rank higher', () => {
             console.log('\n[VECTFOX BM25] All keywords:');
             VectFoxBM25Keywords.forEach(k =>
-                console.log(`  ${k.text.padEnd(20)} weight=${k.weight.toFixed(3)}`)
+                console.log(`  ${k.text}`)
             );
 
             const capitalizedKeywords = VectFoxBM25Keywords.filter(k => /^[A-Z]/.test(k.text));
@@ -467,7 +467,7 @@ describe('VECTFOX vs OpenVault Keyword Comparison', () => {
             const bracketText = '她使用了【治癒術】和【淨化之光】來驅散黑暗。';
 
             const keywords = extractBM25Keywords(bracketText, { level: 'aggressive', maxKeywords: 10 });
-            console.log('\n[VectFox] BM25 keywords with bracket terms:', keywords.map(k => `${k.text}(${k.weight.toFixed(2)})`));
+            console.log('\n[VectFox] BM25 keywords with bracket terms:', keywords.map(k => k.text));
 
             // Bracket terms are injected with synthetic high TF-IDF scores
             const hasHealing = keywords.some(k => k.text === '治癒術');
@@ -481,15 +481,13 @@ describe('VECTFOX vs OpenVault Keyword Comparison', () => {
 
             const keywords = extractBM25Keywords(bracketText, { level: 'aggressive', maxKeywords: 10 });
 
-            const bracketKw = keywords.find(k => k.text === '火球術');
-            const normalKw = keywords.find(k => k.text === '攻擊');
+            const keywordTexts = keywords.map(k => k.text);
+            const bracketRank = keywordTexts.indexOf('火球術');
+            const normalRank = keywordTexts.indexOf('攻擊');
 
-            console.log('\n[VectFox] Bracket term weight:', bracketKw?.weight);
-            console.log('[VectFox] Non-bracket term weight:', normalKw?.weight);
-
-            // Bracket terms should have higher weight due to synthetic score injection
-            if (bracketKw && normalKw) {
-                expect(bracketKw.weight).toBeGreaterThan(normalKw.weight);
+            // Bracket terms rank first, through the synthetic score they are given
+            if (bracketRank >= 0 && normalRank >= 0) {
+                expect(bracketRank).toBeLessThan(normalRank);
             }
         });
 

@@ -11,9 +11,6 @@
 
 import { parseInjection, sanitizeXmlTag } from './collection-settings-core.js';
 
-/** The boost a keyword gets when none is given. */
-export const DEFAULT_KEYWORD_WEIGHT = 1.5;
-
 /** How many rows the list shows at first, and how many more each "Show more" adds. */
 export const LIST_PAGE_SIZE = 50;
 
@@ -59,32 +56,18 @@ export function isEventBaseCollection(collectionId) {
 }
 
 /**
- * Keywords as `{text, weight}`: a bare word gets the default boost, an object without a weight none (1).
+ * Keywords as `{text}`, from a bare word, as EventBase stores them, or an object with a `text` field.
  *
  * @param {unknown} keywords
- * @returns {{text: string, weight: number}[]}
+ * @returns {{text: string}[]}
  */
 export function normalizeKeywords(keywords) {
     if (!Array.isArray(keywords)) return [];
     return keywords.map((keyword) => {
-        if (typeof keyword === 'string') return keyword ? { text: keyword, weight: DEFAULT_KEYWORD_WEIGHT } : null;
-        if (keyword && typeof keyword === 'object' && keyword.text) {
-            const weight = Number(keyword.weight ?? 1);
-            return { text: String(keyword.text), weight: Number.isFinite(weight) ? weight : 1 };
-        }
+        if (typeof keyword === 'string') return keyword ? { text: keyword } : null;
+        if (keyword && typeof keyword === 'object' && keyword.text) return { text: String(keyword.text) };
         return null;
     }).filter(Boolean);
-}
-
-/**
- * A keyword's boost from its box: a positive number, or the default for anything else.
- *
- * @param {string} text
- * @returns {number}
- */
-export function parseKeywordWeight(text) {
-    const weight = Number.parseFloat(text);
-    return Number.isFinite(weight) && weight > 0 ? weight : DEFAULT_KEYWORD_WEIGHT;
 }
 
 function normalizeLinks(links) {
@@ -108,7 +91,7 @@ function savedInjection(position, depth) {
  * @param {{text?: string, keywords?: unknown, metadata?: object}} chunk
  * @param {object} [stored]
  * @returns {{text: string, name: string, enabled: boolean, context: string, xmlTag: string, position: number|null,
- *   depth: number|null, keywords: {text: string, weight: number}[], chunkLinks: {targetHash: string|number, mode: string}[],
+ *   depth: number|null, keywords: {text: string}[], chunkLinks: {targetHash: string|number, mode: string}[],
  *   summaries: string[]}}
  */
 export function savedChunkFields(chunk, stored = {}) {
@@ -240,7 +223,7 @@ export function visibleChunks(chunks, { query = '', filter = 'all', sort = 'inde
 }
 
 const sameKeywords = (first, second) => first.length === second.length
-    && first.every((keyword, index) => keyword.text === second[index].text && keyword.weight === second[index].weight);
+    && first.every((keyword, index) => keyword.text === second[index].text);
 const sameLinks = (first, second) => first.length === second.length
     && first.every((link, index) => String(link.targetHash) === String(second[index].targetHash) && link.mode === second[index].mode);
 
@@ -252,7 +235,7 @@ const sameLinks = (first, second) => first.length === second.length
  *
  * @param {ReturnType<typeof savedChunkFields>} saved
  * @param {{name?: string, text?: string, enabled?: boolean, context?: string, xmlTag?: string, positionText?: string,
- *   depthText?: string, keywords?: {text: string, weightText: string}[], chunkLinks?: {targetHash: string|number, mode: string}[],
+ *   depthText?: string, keywords?: {text: string}[], chunkLinks?: {targetHash: string|number, mode: string}[],
  *   summaries?: string[]}} form
  * @returns {{payload: object, text: string|null, textProblem: string, summaries: string[], addedSummaries: string[],
  *   removedSummaries: string[], hasChanges: boolean}}
@@ -269,7 +252,7 @@ export function formChanges(saved, form) {
         if (injection.position !== saved.position || injection.depth !== saved.depth) Object.assign(payload, injection);
     }
     if (isGiven(form.keywords)) {
-        const keywords = form.keywords.map(keyword => ({ text: keyword.text, weight: parseKeywordWeight(keyword.weightText) }));
+        const keywords = form.keywords.map(keyword => ({ text: keyword.text }));
         if (!sameKeywords(keywords, saved.keywords)) payload.keywords = keywords;
     }
     if (isGiven(form.chunkLinks) && !sameLinks(form.chunkLinks, saved.chunkLinks)) payload.chunkLinks = form.chunkLinks;
@@ -363,14 +346,15 @@ export function tokenizerLockOf(record, currentMode) {
 
 /**
  * Why the form cannot be saved, or null when it can: a chunk needs text, and a locked collection takes no new vector,
- * so neither a changed text nor a new summary.
+ * so neither a changed text, a keyword change, which stores a Qdrant chunk again, nor a new summary.
  *
- * @param {{textProblem: string|null, text: string|null, addedSummaries: string[]}} changes - From formChanges
+ * @param {{textProblem: string|null, text: string|null, payload?: object, addedSummaries: string[]}} changes - From formChanges
  * @param {object|null} tokenizerLock - From tokenizerLockOf
  * @returns {string|null}
  */
 export function saveProblem(changes, tokenizerLock) {
     if (changes.textProblem) return changes.textProblem;
-    if (tokenizerLock && (changes.text !== null || changes.addedSummaries.length)) return 'A changed text or a new summary can\'t be saved here: see above.';
+    const needsNewVector = changes.text !== null || changes.payload?.keywords !== undefined || changes.addedSummaries.length > 0;
+    if (tokenizerLock && needsNewVector) return 'A changed text, a keyword change or a new summary can\'t be saved here: see above.';
     return null;
 }

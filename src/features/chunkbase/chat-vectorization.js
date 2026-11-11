@@ -334,10 +334,6 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
                     metadata: meta,
                     score: meta.score || 1.0,
                     originalScore: meta.originalScore,
-                    keywordBoost: meta.keywordBoost,
-                    matchedKeywords: meta.matchedKeywords,
-                    matchedKeywordsWithWeights: meta.matchedKeywordsWithWeights,
-                    keywordBoosted: meta.keywordBoosted,
                     similarity: meta.score || 1.0,
                     text: text,
                     index: meta.messageId || meta.index || 0,
@@ -1064,10 +1060,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
 
         // === STAGE 2.5: Extract keywords from query message ===
         const extractionLevel = settings.keyword_extraction_level || 'balanced';
-        const queryKeywords = extractChatKeywords(queryText, {
-            level: extractionLevel,
-            baseWeight: settings.keyword_boost_base_weight || 1.5
-        });
+        const queryKeywords = extractChatKeywords(queryText, { level: extractionLevel });
         const queryKeywordTexts = queryKeywords.map(kw => kw.text.toLowerCase());
         log.trace(`VectFox: Extracted ${queryKeywords.length} keywords from query:`, queryKeywordTexts);
 

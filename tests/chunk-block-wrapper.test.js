@@ -38,7 +38,7 @@ vi.mock('../../../../../script.js', () => ({
 vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [] })), extension_settings: { vectfox: {} } }));
 // Every chat message hashes to 1, so no chunk below is dropped as already in the chat.
 vi.mock('../../../../utils.js', () => ({ getStringHash: vi.fn(() => 1) }));
-vi.mock('../src/features/keyword-search/keyword-boost.js', () => ({ extractChatKeywords: vi.fn(() => []), extractBM25Keywords: vi.fn() }));
+vi.mock('../src/features/keyword-search/keyword-extraction.js', () => ({ extractChatKeywords: vi.fn(() => []), extractBM25Keywords: vi.fn() }));
 vi.mock('../src/features/text-cleaning/text-cleaning.js', () => ({ cleanText: vi.fn((text) => text) }));
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({
     getSavedHashes: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn(),
