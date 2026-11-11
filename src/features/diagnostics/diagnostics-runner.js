@@ -16,6 +16,7 @@ import {
     checkBackendEndpoints,
     checkServerPlugin,
     checkPluginEndpoints,
+    removeProbeCollection,
     checkQdrantBackend,
     checkEmbeddingProvider,
     checkTransformersMemoryLimits,
@@ -123,6 +124,8 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     categories.infrastructure.push(await checkBackendEndpoints(settings));
     categories.infrastructure.push(await checkServerPlugin());
     categories.infrastructure.push(await checkPluginEndpoints());
+    // The probes above are the only checks that touch the probe collection.
+    categories.infrastructure.push(await removeProbeCollection());
     categories.infrastructure.push(await checkQdrantBackend(settings));
     categories.infrastructure.push(await checkEmbeddingProvider(settings));
 
@@ -201,10 +204,10 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
         categories.production.push(...activationResults);
     }
 
-    // Always run last: drop any diagnostic probe collections (`vf_test_*`,
-    // `VectFox_diag*`, `test`) created during this run by the infrastructure
-    // checks or by tests that bailed without cleanup. Listed under infrastructure
-    // so users see it whether or not production tests were enabled.
+    // Always run last: delete any diagnostic collection still left (`vf_test_*`,
+    // `VectFox_diag*`): one a production test made and could not clean up, or a
+    // probe collection whose removal failed, in this run or an earlier one. Listed
+    // under infrastructure so users see it whether or not production tests ran.
     categories.infrastructure.push(await sweepLeftoverTestCollections(settings));
 
     // Flatten all checks
@@ -240,4 +243,3 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     return results;
 }
 
-

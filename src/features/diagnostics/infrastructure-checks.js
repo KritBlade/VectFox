@@ -9,6 +9,7 @@
  */
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { log } from '../../sillytavern/log.js';
 import { secret_state } from '../../sillytavern/secrets.js';
 import {
     isValidProvider,
@@ -21,6 +22,12 @@ import {
 } from '../embedding/index.js';
 
 /**
+ * The collection the endpoint probes list, query and write to. SillyTavern's Standard storage creates it on first
+ * reference, so removeProbeCollection deletes it once the last probe is done.
+ */
+const PROBE_COLLECTION_ID = 'VectFox_diag';
+
+/**
  * Check: ST Vectra backend (standard file-based vector storage)
  * This is the default backend - always available if ST is running
  */
@@ -30,7 +37,7 @@ export async function checkVectorsExtension() {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                collectionId: 'VectFox_diag',
+                collectionId: PROBE_COLLECTION_ID,
                 source: 'transformers'
             })
         });
@@ -74,11 +81,11 @@ export async function checkBackendEndpoints() {
     const source = 'transformers';
 
     const endpoints = [
-        { name: 'list', method: 'POST', url: '/api/vector/list', body: { collectionId: 'VectFox_diag', source } },
-        { name: 'query', method: 'POST', url: '/api/vector/query', body: { collectionId: 'VectFox_diag', searchText: 'test', topK: 1, source } },
-        { name: 'insert', method: 'POST', url: '/api/vector/insert', body: { collectionId: 'VectFox_diag', items: [], source } },
-        { name: 'delete', method: 'POST', url: '/api/vector/delete', body: { collectionId: 'VectFox_diag', hashes: [], source } },
-        { name: 'purge', method: 'POST', url: '/api/vector/purge', body: { collectionId: 'VectFox_diag_nonexistent' } },
+        { name: 'list', method: 'POST', url: '/api/vector/list', body: { collectionId: PROBE_COLLECTION_ID, source } },
+        { name: 'query', method: 'POST', url: '/api/vector/query', body: { collectionId: PROBE_COLLECTION_ID, searchText: 'test', topK: 1, source } },
+        { name: 'insert', method: 'POST', url: '/api/vector/insert', body: { collectionId: PROBE_COLLECTION_ID, items: [], source } },
+        { name: 'delete', method: 'POST', url: '/api/vector/delete', body: { collectionId: PROBE_COLLECTION_ID, hashes: [], source } },
+        { name: 'purge', method: 'POST', url: '/api/vector/purge', body: { collectionId: `${PROBE_COLLECTION_ID}_nonexistent` } },
     ];
 
     for (const endpoint of endpoints) {
@@ -216,9 +223,9 @@ export async function checkPluginEndpoints() {
         { name: 'collections', method: 'GET', url: `/api/plugins/similharity/collections` },
         { name: 'sources', method: 'GET', url: '/api/plugins/similharity/sources' },
         { name: 'chunks/list', method: 'POST', url: '/api/plugins/similharity/chunks/list',
-          body: { backend: 'vectra', collectionId: 'VectFox_diag', source: testSource, limit: 1 } },
+          body: { backend: 'vectra', collectionId: PROBE_COLLECTION_ID, source: testSource, limit: 1 } },
         { name: 'chunks/query', method: 'POST', url: '/api/plugins/similharity/chunks/query',
-          body: { backend: 'vectra', collectionId: 'VectFox_diag', searchText: 'test', topK: 1, source: testSource } },
+          body: { backend: 'vectra', collectionId: PROBE_COLLECTION_ID, searchText: 'test', topK: 1, source: testSource } },
         { name: 'backend/health', method: 'GET', url: '/api/plugins/similharity/backend/health/vectra' },
     ];
 
@@ -262,6 +269,30 @@ export async function checkPluginEndpoints() {
             message: `All failed: ${summary}`,
             category: 'infrastructure'
         };
+    }
+}
+
+/**
+ * Delete the probe collection through SillyTavern's own purge, which removes its folder under every source
+ * SillyTavern lists, the model folders inside included, and needs no plugin. Run after the last probe.
+ *
+ * @returns {Promise<{name: string, status: string, message: string, category: string}>}
+ */
+export async function removeProbeCollection() {
+    const result = (status, message) => ({ name: 'Probe Collection Removal', status, message, category: 'infrastructure' });
+    const what = `${PROBE_COLLECTION_ID}, the collection the endpoint checks make`;
+    try {
+        const response = await fetch('/api/vector/purge', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ collectionId: PROBE_COLLECTION_ID }),
+        });
+        if (response.ok) return result('pass', `Removed ${what}`);
+        log.warn(`VectFox diagnostics: removing the probe collection ${PROBE_COLLECTION_ID} answered HTTP ${response.status}`);
+        return result('warning', `Could not remove ${what}: HTTP ${response.status}`);
+    } catch (error) {
+        log.warn(`VectFox diagnostics: removing the probe collection ${PROBE_COLLECTION_ID} failed:`, error);
+        return result('warning', `Could not remove ${what}: ${error.message}`);
     }
 }
 

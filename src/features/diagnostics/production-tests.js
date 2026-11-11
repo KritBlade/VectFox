@@ -41,15 +41,15 @@ async function cleanupTestCollection(collectionId, settings) {
 }
 
 // The collections diagnostics make, under names reserved for them: the production tests' temporary collections, and
-// the one the endpoint probes query, which SillyTavern's Standard storage creates on first reference.
+// the probe collection the endpoint checks make, which SillyTavern's Standard storage creates on first reference.
 const DIAGNOSTIC_COLLECTION_PATTERNS = [/^vf_test_/, /^VectFox_diag(_|$)/];
 
 const isDiagnosticCollection = (id) => DIAGNOSTIC_COLLECTION_PATTERNS.some(pattern => pattern.test(id ?? ''));
 
 /**
- * Delete the diagnostic collections a run leaves behind: the probes' own, and any production test collection an
- * earlier run could not clean up. Each goes from the backend and the source folders that hold it, as the Database
- * Browser deletes, since a probe in Standard storage is not on the backend VectFox uses.
+ * Delete the diagnostic collections still left after a run: a production test collection a run could not clean up,
+ * and a probe collection whose removal failed. Each goes from the backend and the source folders that hold it, as the
+ * Database Browser deletes, since a probe in Standard storage is not on the backend VectFox uses.
  *
  * @param {object} settings
  * @returns {Promise<{name: string, status: string, message: string, category: string}>}

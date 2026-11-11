@@ -830,9 +830,8 @@ export class StandardBackend extends VectorBackend {
     }
 
     async purgeVectorIndex(collectionId, settings) {
-        // Prefer the Similharity plugin's purge endpoint when available — it knows
-        // about the `{source}/{collectionId}/{model}/` path layout that ST's
-        // native /api/vector/purge does not. When the DB Browser passes
+        // Prefer the Similharity plugin's purge endpoint when available: it purges
+        // one `{source}/{collectionId}/{model}/` index at a time. When the DB Browser passes
         // `_discoveredSources` (from the plugin's collection discovery), purge
         // every {source, model} index found on disk. One collection ID can sit in
         // several source folders (one per embedding provider it was written with);
@@ -876,9 +875,8 @@ export class StandardBackend extends VectorBackend {
             return;
         }
 
-        // Fallback (no plugin): ST's native purge endpoint. Note this does NOT
-        // understand the model subdirectory layout, so it may leave orphan files
-        // when the collection was created by the plugin path.
+        // Fallback (no plugin): ST's native purge endpoint, which deletes the
+        // collection's folder under every source SillyTavern lists, model folders included.
         const response = await fetch('/api/vector/purge', {
             method: 'POST',
             headers: getRequestHeaders(),
