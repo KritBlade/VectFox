@@ -19,7 +19,10 @@ const backend = vi.hoisted(() => ({
     updateChunkMetadata: vi.fn(),
 }));
 
-vi.mock('../src/features/vector-backend/index.js', () => backend);
+vi.mock('../src/features/vector-backend/index.js', async () => ({
+    ...backend,
+    textWithoutKeywordSuffix: (await import('../src/features/vector-backend/stored-chunk.js')).textWithoutKeywordSuffix,
+}));
 vi.mock('../src/features/collections/index.js', () => ({
     getChunkMetadata: hash => host.stored[String(hash)] ?? null,
     saveChunkMetadata: (hash, metadata) => { host.stored[String(hash)] = { ...metadata }; },
@@ -134,6 +137,24 @@ describe('saving a chunk', () => {
         expect(host.calls[2][1]).toEqual([getStringHash('High water')]);
         expect(host.calls[3][1][0]).toMatchObject({ text: 'High water', metadata: { isSummary: true, parentHash: newHash } });
         expect(host.stored).toEqual({ [newHash]: { summaries: ['High water'] } });
+    });
+
+    it('shows a Qdrant chunk\'s text without the keyword suffix, and stores the edit with its keywords and importance', async () => {
+        host.items[0] = {
+            hash: 1000,
+            index: 0,
+            text: 'The gate stood open. [KEYWORDS: gate]',
+            metadata: { keywords: [{ text: 'gate', weight: 1.5 }], importance: 7 },
+        };
+        await openHarbor();
+        await openChunk('0');
+        expect($id('vectfox_chunk_text').value).toBe('The gate stood open.');
+        type($id('vectfox_chunk_text'), 'The gate stood shut.');
+        actionButton('save').click();
+        await vi.waitFor(() => expect(backend.insertVectorItems).toHaveBeenCalledTimes(1));
+        const [stored] = backend.insertVectorItems.mock.calls[0][1];
+        expect(stored.text).toBe('The gate stood shut.');
+        expect(stored.metadata).toMatchObject({ keywords: [{ text: 'gate', weight: 1.5 }], importance: 7 });
     });
 
     it('loses nothing when the new text cannot be embedded, and keeps the edit', async () => {

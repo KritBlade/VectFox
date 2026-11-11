@@ -38,6 +38,7 @@ import { throwIfModelConfigError } from '../../shared/model-http-errors.js';
 import { INTERNAL_COLLECTION_IDS } from '../../shared/collection-ids.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { log } from '../../sillytavern/log.js';
+import { chunkPayload } from './stored-chunk.js';
 
 
 /**
@@ -345,14 +346,14 @@ export class StandardBackend extends VectorBackend {
         const longestChunkIndex = textLengths.indexOf(maxLen);
 
         // Count how many chunks have keywords
-        const chunksWithKeywords = items.filter(item => item.keywords && item.keywords.length > 0).length;
+        const chunksWithKeywords = items.filter(item => chunkPayload(item).keywords.length > 0).length;
 
         log.verbose(`VectFox: Embedding ${items.length} chunks (avg: ${avgLen} chars, max: ${maxLen} chars at index ${longestChunkIndex}) - ${chunksWithKeywords} chunks have keywords`);
 
         // Debug: Log first chunk's keywords if any
         if (chunksWithKeywords > 0) {
-            const firstChunkWithKeywords = items.find(item => item.keywords && item.keywords.length > 0);
-            log.verbose(`VectFox DEBUG: First chunk keywords:`, firstChunkWithKeywords.keywords);
+            const firstChunkWithKeywords = items.find(item => chunkPayload(item).keywords.length > 0);
+            log.verbose(`VectFox DEBUG: First chunk keywords:`, chunkPayload(firstChunkWithKeywords).keywords);
         }
 
         // Warn if chunks are unusually large (potential OOM risk)
@@ -384,13 +385,7 @@ export class StandardBackend extends VectorBackend {
                         text: item.text || '',
                         index: item.index ?? 0,
                         vector: item.vector,
-                        metadata: {
-                            ...item.metadata,
-                            keywords: item.keywords || [],
-                            importance: item.importance,
-                            isSummaryChunk: item.isSummaryChunk,
-                            parentHash: item.parentHash,
-                        },
+                        metadata: chunkPayload(item),
                     };
                     // Debug: Log first item's metadata
                     if (item === items[0] && item.keywords?.length > 0) {

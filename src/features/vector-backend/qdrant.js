@@ -42,6 +42,7 @@ import { getQdrantApiKey } from '../../shared/api-keys.js';
 import { log } from '../../sillytavern/log.js';
 import { invalidateCollectionMetadata, settleTokenizerMismatch } from './tokenizer-lock.js';
 import { buildRegistryKey } from '../../shared/collection-ids.js';
+import { chunkPayload, textWithKeywordSuffix } from './stored-chunk.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
 // shows in the registry. The registry sits above the backends, so index.js sets it at startup.
@@ -375,29 +376,16 @@ export class QdrantBackend extends VectorBackend {
                     backend: BACKEND_TYPE,
                     collectionId: actualCollectionId,
                     items: batch.map(item => {
-                        // Include keywords in the text for embedding/indexing
-                        let textWithKeywords = item.text || '';
-                        if (item.keywords && item.keywords.length > 0) {
-                            const keywordTexts = item.keywords.map(kw => kw.text || kw).join(' ');
-                            textWithKeywords += ` [KEYWORDS: ${keywordTexts}]`;
-                        }
-
-                        const metadata = {
-                            ...item.metadata,
-                            // Pass through VectFox-specific fields
-                            importance: item.importance,
-                            keywords: item.keywords,
-                            isSummaryChunk: item.isSummaryChunk,
-                            parentHash: item.parentHash,
-                        };
+                        const metadata = chunkPayload(item);
+                        // The stored text carries the keywords, so the sparse (BM25) vector built from it,
+                        // and a vector the plugin embeds from it, match them.
+                        const textWithKeywords = textWithKeywordSuffix(item.text || '', metadata.keywords);
 
                         // Add content_type for multitenancy mode
                         if (settings.qdrant_multitenancy) {
                             metadata.content_type = strippedCollectionId;
                         }
 
-                        // Tokenize the same text we use for the dense embed (textWithKeywords)
-                        // so BM25 hits include the [KEYWORDS: ...] suffix terms.
                         return {
                             hash: item.hash,
                             text: textWithKeywords,

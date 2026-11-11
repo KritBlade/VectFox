@@ -20,7 +20,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
-import { insertVectorItems, purgeVectorIndex, encodeSparseVector } from '../vector-backend/index.js';
+import { insertVectorItems, purgeVectorIndex, encodeSparseVector, textWithKeywordSuffix } from '../vector-backend/index.js';
 import {
     getCollectionMeta,
     setCollectionMeta,
@@ -413,21 +413,11 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
             vector: c.vector,
             metadata: c.metadata || {},
         };
-        // Qdrant's A3 hybrid path needs a sparse vector per point (text_sparse named slot).
-        // Mirror src/features/vector-backend/qdrant.js:insertVectorItems: tokenize text + the keyword suffix
-        // so BM25 hits match what live ingestion would produce. Live Qdrant ingestion
-        // stores `text` WITH that suffix already, so text read back from a Qdrant
-        // collection is tokenized as-is; the suffix is appended only when missing. The
-        // stored `text` is never changed here.
+        // Qdrant's A3 hybrid path needs a sparse vector per point (text_sparse named slot), built as the live
+        // insert builds it: from the text with its keywords appended, which replaces a suffix text read back
+        // from a Qdrant collection already carries. The stored `text` is never changed here.
         if (backendName === 'qdrant') {
-            const kws = item.metadata.keywords || [];
-            let sparseSource = item.text || '';
-            if (kws.length > 0) {
-                const kwText = kws.map(kw => (typeof kw === 'string' ? kw : kw?.text || '')).filter(Boolean).join(' ');
-                const keywordSuffix = ` [KEYWORDS: ${kwText}]`;
-                if (kwText && !sparseSource.endsWith(keywordSuffix)) sparseSource += keywordSuffix;
-            }
-            item.sparseVector = encodeSparseVector(sparseSource);
+            item.sparseVector = encodeSparseVector(textWithKeywordSuffix(item.text || '', item.metadata.keywords));
         }
         return item;
     });

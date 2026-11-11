@@ -875,9 +875,9 @@ export async function queryCollection(collectionId, searchText, topK, settings, 
     }
 
     // Three-case routing:
-    //   A3 — server-side hybrid (Qdrant with prefer_native ON) — dense vector search +
-    //         full-corpus payload/text keyword matching via Qdrant scroll, fused in plugin code
-    //         (NOT Qdrant native dense+sparse-vector hybrid; no sparse vectors stored)
+    //   A3 — server-side hybrid (Qdrant with prefer_native ON): Qdrant's dense and sparse
+    //         (BM25) queries, fused by RRF on the Qdrant server; each chunk's sparse vector is
+    //         built at insert from its text and keywords (QdrantBackend.hybridQuery)
     //   A2 — client-side hybrid over ANN candidates (standard backend, method = 'hybrid')
     //   A1 — BM25 re-rank of ANN top-K (standard backend default, method = 'bm25')
     const nativeHybridAvailable = backend?.supportsHybridSearch?.() === true;

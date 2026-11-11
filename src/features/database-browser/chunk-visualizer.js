@@ -16,7 +16,7 @@
  */
 
 import { deleteChunkMetadata, getChunkMetadata, saveChunkMetadata } from '../collections/index.js';
-import { deleteVectorItems, insertVectorItems, updateChunkMetadata } from '../vector-backend/index.js';
+import { deleteVectorItems, insertVectorItems, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
 import { packTimelineSortKey } from '../eventbase/index.js';
 import { languageModeLabel } from '../keyword-search/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
@@ -155,7 +155,8 @@ function loadedChunk(item, position) {
         key: String(position),
         hash: item.hash,
         index: item.index !== undefined && item.index !== null && item.index >= 0 ? item.index : position,
-        text: String(item.text || item.metadata?.text || ''),
+        // The text as written: Qdrant storage appends the keywords, which the form shows as keyword rows.
+        text: textWithoutKeywordSuffix(String(item.text || item.metadata?.text || '')),
         metadata: { ...(item.metadata || {}) },
     };
     chunk.fields = savedChunkFields(chunk, getChunkMetadata(chunk.hash) || {});

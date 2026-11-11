@@ -588,6 +588,22 @@ describe('hybridSearch', () => {
         expect(results.hashes).toBeDefined();
     });
 
+    it('scores ChunkBase keywords, stored as objects, as the words they hold', async () => {
+        const { createBM25Scorer } = await import('../src/features/keyword-search/bm25-scorer.js');
+        mockBackend.queryCollection.mockResolvedValue({
+            hashes: [1, 2],
+            metadata: [
+                { text: 'The gate stood open.', score: 0.8, keywords: [{ text: 'lighthouse', weight: 1.5 }] },
+                { text: 'The tide came in.', score: 0.8, keywords: ['harbor'] },
+            ],
+        });
+
+        await hybridSearch('test-collection', 'lighthouse', 10, { hybrid_native_prefer: false });
+
+        const documents = createBM25Scorer.mock.calls.at(-1)[0];
+        expect(documents.map(document => document.tags)).toEqual([['lighthouse'], ['harbor']]);
+    });
+
     it('should use client-side fusion when native is not preferred', async () => {
         mockBackend.supportsHybridSearch.mockReturnValue(true);
         mockBackend.queryCollection.mockResolvedValue({

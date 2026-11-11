@@ -21,6 +21,7 @@ import {
     isCJKToken,
 } from '../keyword-search/index.js';
 import { log } from '../../sillytavern/log.js';
+import { keywordTexts } from './stored-chunk.js';
 
 const KNOWN_BACKENDS = ['standard', 'vectra', 'qdrant'];
 
@@ -181,7 +182,7 @@ async function clientSideHybridSearch(backend, collectionId, searchText, topK, s
         hash: vectorResults.hashes[idx],
         text: meta.text || '',
         title: meta.entryName || meta.title || '',
-        tags: meta.keywords || [],
+        tags: keywordTexts(meta.keywords),
         score: meta.score || 0,
         metadata: meta
     }));

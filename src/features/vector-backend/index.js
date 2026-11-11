@@ -21,6 +21,7 @@ export { clearCorpusStatsCache } from './corpus-stats.js';
 export { reciprocalRankFusion, weightedCombination } from './hybrid-search.js';
 export { setInsertedCollectionRegistrar } from './qdrant.js';
 export { encodeSparseVector } from './sparse-vector-encoder.js';
+export { textWithKeywordSuffix, textWithoutKeywordSuffix } from './stored-chunk.js';
 export {
     DynamicRateLimiter,
     deleteVectorItems,

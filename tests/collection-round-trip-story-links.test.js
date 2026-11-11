@@ -44,6 +44,7 @@ vi.mock('../src/shared/progress-tracker.js', () => ({
 vi.mock('../src/features/vector-backend/index.js', () => ({
     insertVectorItems: vi.fn(),
     purgeVectorIndex: vi.fn(),
+    textWithKeywordSuffix: vi.fn(text => text),
     encodeSparseVector: vi.fn(() => ({ indices: [], values: [] })),
     getAdditionalArgs: vi.fn(),
     getSavedHashes: vi.fn(),
