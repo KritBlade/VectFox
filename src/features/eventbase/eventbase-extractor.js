@@ -13,7 +13,15 @@
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
-import { postChatCompletion, parseJsonArrayFromLlm, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
+import {
+    CONNECTION_TEST_MAX_TOKENS,
+    CONNECTION_TEST_PROMPT,
+    CONNECTION_TEST_TIMEOUT_MS,
+    LlmCallError,
+    parseJsonArrayFromLlm,
+    postChatCompletion,
+    resolveModelParameterStyle,
+} from '../llm-provider/index.js';
 import {
     EventBaseExtractionError,
     EventBaseFatalError,
@@ -242,6 +250,40 @@ async function _callConnectionProfile(prompt, settings, windowIndex) {
 const CALL_OF_PROVIDER = { openrouter: _callOpenRouter, vllm: _callVLLM, [CONNECTION_PROFILE_PROVIDER]: _callConnectionProfile };
 
 /**
+ * The call for the provider chosen in Core → EventBase model. One VectFox does not know stops the run, rather than
+ * running on OpenRouter unasked.
+ *
+ * @param {object} settings
+ * @returns {(prompt: string, settings: object, windowIndex: number) => Promise<string>}
+ * @throws {EventBaseFatalError}
+ */
+function _callOfChosenProvider(settings) {
+    const provider = (settings.chat_provider || 'openrouter').toLowerCase();
+    const callProvider = CALL_OF_PROVIDER[provider];
+    if (!callProvider) {
+        throw new EventBaseFatalError(
+            `EventBase: provider "${provider}" is not one VectFox knows. Choose one in Core → EventBase model.`,
+            'invalid_model_config',
+        );
+    }
+    return callProvider;
+}
+
+/**
+ * The EventBase model's Test connection (Core page): the connection test message sent through an extraction's own
+ * call for the chosen provider, its checks and messages included, with room and time for that one reply.
+ *
+ * @param {object} settings
+ * @returns {Promise<{content: string, cutReason: null}>} A reply the provider cut throws, as an extraction's does
+ * @throws {EventBaseFatalError|EventBaseExtractionError}
+ */
+export async function testEventBaseConnection(settings) {
+    const testSettings = { ...settings, eventbase_max_tokens: CONNECTION_TEST_MAX_TOKENS, eventbase_timeout_ms: CONNECTION_TEST_TIMEOUT_MS };
+    const content = await _callOfChosenProvider(settings)(CONNECTION_TEST_PROMPT, testSettings, 0);
+    return { content, cutReason: null };
+}
+
+/**
  * Resolve a real-world timestamp for an extraction window from the messages'
  * `send_date` (SillyTavern stamps every message with one; the upload path
  * preserves it). This is the FINAL date fallback: every event gets an absolute
@@ -354,15 +396,7 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
 
     log.verbose(`[EventBase] Extracting events — window=${windowIndex} ${msgRange}, provider=${provider}, messages=${messages.length}`);
 
-    // Call provider. One VectFox does not know stops the run, rather than running on OpenRouter unasked.
-    const callProvider = CALL_OF_PROVIDER[provider];
-    if (!callProvider) {
-        throw new EventBaseFatalError(
-            `EventBase: provider "${provider}" is not one VectFox knows. Choose one in Core → EventBase model.`,
-            'invalid_model_config',
-        );
-    }
-    const rawReply = await callProvider(prompt, settings, windowIndex);
+    const rawReply = await _callOfChosenProvider(settings)(prompt, settings, windowIndex);
 
     log.domain('raw_llm', 'trace', `[EventBase] Raw LLM reply (window=${windowIndex} ${msgRange}):`, rawReply.slice(0, 500));
 

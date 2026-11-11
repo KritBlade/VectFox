@@ -40,8 +40,8 @@ describe('AgentMode page markup', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it('offers Same as EventBase model first, and starts both provider rows hidden', () => {
-        expect([...document.getElementById('VectFox_agentic_provider').options].map(option => option.value)).toEqual(['', 'openrouter', 'vllm']);
+    it('offers Same as EventBase model first and a SillyTavern profile last, and starts both provider rows hidden', () => {
+        expect([...document.getElementById('VectFox_agentic_provider').options].map(option => option.value)).toEqual(['', 'openrouter', 'vllm', 'connection_profile']);
         for (const id of ['VectFox_agentic_openrouter_row', 'VectFox_agentic_vllm_row']) {
             expect(document.getElementById(id).style.display, id).toBe('none');
         }
@@ -80,6 +80,8 @@ describe('AgentMode page markup', () => {
         for (const id of ['VectFox_agentic_chat_depth_val', 'VectFox_agentic_max_queries_val']) {
             expect(document.getElementById(id), id).toBeNull();
         }
-        expect([...document.querySelectorAll('[style]')].map(element => element.id)).toEqual(['VectFox_agentic_openrouter_row', 'VectFox_agentic_vllm_row']);
+        expect([...document.querySelectorAll('[style]')].map(element => element.id)).toEqual([
+            'VectFox_agentic_connection_profile_rows', 'VectFox_agentic_inherited_profile_readout', 'VectFox_agentic_openrouter_row', 'VectFox_agentic_vllm_row',
+        ]);
     });
 });

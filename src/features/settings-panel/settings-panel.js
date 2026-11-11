@@ -39,6 +39,7 @@ import { eventBasePageMarkup } from './eventbase-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
 import { worldInfoPageMarkup, worldInfoStatusMarkup } from './worldinfo-page-markup.js';
 import { bindNumberSetting } from './number-setting.js';
+import { wireConnectionRows } from './connection-rows.js';
 import { wireActionPage } from './action-page.js';
 import { getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
@@ -346,16 +347,6 @@ export async function refreshAutoSyncCheckbox(settings) {
 }
 
 /**
- * Show only the selected embedding provider's rows.
- * @param {string} selectedProvider - Currently selected provider
- */
-function toggleProviderSettings(selectedProvider) {
-    $('#VectFox_provider_settings > [data-provider]').each(function() {
-        $(this).toggle($(this).attr('data-provider') === selectedProvider);
-    });
-}
-
-/**
  * Delete a shared VectFox API key from ST's secret store and refresh every input that
  * displays it. ONE implementation reused by all "Clear saved key" buttons (Embedding /
  * Summarization / AgentMode, OpenRouter + vLLM) so the delete + refresh logic never drifts.
@@ -619,22 +610,7 @@ function bindSettingsEvents(settings, callbacks) {
             document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
         });
 
-    // Summarization provider
-    const updateSummarizeUI = (provider) => {
-        $('#VectFox_summarize_settings').show();
-        $('#VectFox_summarize_openrouter_row').toggle(provider === 'openrouter');
-        $('#VectFox_summarize_vllm_url_row').toggle(provider === 'vllm');
-    };
-    $('#VectFox_summarize_provider')
-        .val(settings.chat_provider || 'openrouter')
-        .on('change', function() {
-            settings.chat_provider = String($(this).val());
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-            updateSummarizeUI(settings.chat_provider);
-        });
-    updateSummarizeUI(settings.chat_provider || 'openrouter');
-
+    // The EventBase model's Provider, and its profile rows: connection-rows.js.
     $('#VectFox_summarize_model')
         .val(settings.chat_model || '')
         .on('input change', function() {
@@ -887,14 +863,7 @@ function bindSettingsEvents(settings, callbacks) {
     });
 
     // ─── AgentMode page ────────────────────────────────────────────────────
-    // Shows the planner's provider rows. An empty provider is "Same as EventBase model",
-    // so both rows hide and the EventBase model's connection is used.
-    const updateAgenticUI = (provider) => {
-        const resolved = String(provider || '').trim();
-        $('#VectFox_agentic_openrouter_row').toggle(resolved === 'openrouter');
-        $('#VectFox_agentic_vllm_row').toggle(resolved === 'vllm');
-    };
-
+    // The planner's Provider, which rows it shows, and its profile rows: connection-rows.js.
     $('#VectFox_agentic_retrieval_enabled')
         .prop('checked', !!settings.agentic_retrieval_enabled)
         .on('change', function() {
@@ -907,14 +876,6 @@ function bindSettingsEvents(settings, callbacks) {
         .prop('checked', !!settings.story_arc_mode_enabled)
         .on('change', function() {
             settings.story_arc_mode_enabled = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    $('#VectFox_story_arc_link_provider')
-        .val(settings.story_arc_link_provider)
-        .on('change', function() {
-            settings.story_arc_link_provider = String($(this).val());
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
@@ -952,16 +913,6 @@ function bindSettingsEvents(settings, callbacks) {
             refreshStoryLinkStatus(settings);
         }
     });
-
-    $('#VectFox_agentic_provider')
-        .val(settings.agent_provider || '')
-        .on('change', function() {
-            settings.agent_provider = String($(this).val());
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-            updateAgenticUI(settings.agent_provider);
-        });
-    updateAgenticUI(settings.agent_provider || '');
 
     $('#VectFox_agentic_model')
         .val(settings.agent_model || '')
@@ -1111,21 +1062,7 @@ function bindSettingsEvents(settings, callbacks) {
     // ─── Auto-Reformat (Document/URL/Wiki LLM restructuring) ───────────────
     // Same as EventBase model, and a blank model or URL, use the EventBase model's (Core page), as on
     // the AgentMode page (resolveInheritedConnection). No key fields: it uses the shared OpenRouter and vLLM key slots.
-    const updateReformatProviderUI = (provider) => {
-        const resolved = String(provider || '').trim();
-        $('#VectFox_reformat_vllm_row').toggle(resolved === 'vllm');
-    };
-
-    $('#VectFox_reformat_provider')
-        .val(settings.reformat_provider || '')
-        .on('change', function() {
-            settings.reformat_provider = String($(this).val());
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-            updateReformatProviderUI(settings.reformat_provider);
-        });
-    updateReformatProviderUI(settings.reformat_provider || '');
-
+    // Its Provider and profile rows: connection-rows.js.
     $('#VectFox_reformat_model')
         .val(settings.reformat_model || '')
         .on('input change', function() {
@@ -1430,19 +1367,6 @@ function bindSettingsEvents(settings, callbacks) {
             _refreshSummarizerInjectionAvailability?.();
         }
     });
-
-    // Embedding provider
-    $('#VectFox_source')
-        .val(settings.embedding_provider)
-        .on('change', function() {
-            settings.embedding_provider = String($(this).val());
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-            toggleProviderSettings(settings.embedding_provider);
-            log.lifecycle(`VectFox: Embedding provider changed to ${settings.embedding_provider}`);
-            // Reset health cache since provider change may affect backend connectivity
-            resetBackendHealth();
-        });
 
     // Similarity threshold (ChunkBase page). Event searches use EventBase's own (eventbase-search.js).
     bindNumberSetting(settings, { id: 'VectFox_score_threshold', key: 'score_threshold', initial: settings.score_threshold ?? CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT });
@@ -2443,6 +2367,12 @@ function bindSettingsEvents(settings, callbacks) {
     // Minimum chat length before injection starts
     bindNumberSetting(settings, { id: 'VectFox_min_chat_length', key: 'min_chat_length', initial: settings.min_chat_length ?? 0, isInteger: true });
 
-    // Initialize provider-specific settings visibility
-    toggleProviderSettings(settings.embedding_provider);
+    // The Provider dropdowns of the four LLM consumers and embedding, their profile rows and Test connection buttons.
+    wireConnectionRows(settings, {
+        onEmbeddingProviderChange: () => {
+            log.lifecycle(`VectFox: Embedding provider changed to ${settings.embedding_provider}`);
+            // A provider change may change what the backend can reach.
+            resetBackendHealth();
+        },
+    });
 }

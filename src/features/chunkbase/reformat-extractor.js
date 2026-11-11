@@ -23,7 +23,16 @@
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
-import { postChatCompletion, parseJsonArrayFromLlm, resolveInheritedConnection, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
+import {
+    CONNECTION_TEST_MAX_TOKENS,
+    CONNECTION_TEST_PROMPT,
+    CONNECTION_TEST_TIMEOUT_MS,
+    LlmCallError,
+    parseJsonArrayFromLlm,
+    postChatCompletion,
+    resolveInheritedConnection,
+    resolveModelParameterStyle,
+} from '../llm-provider/index.js';
 import { chunkText } from './chunking.js';
 import { retry } from '../../shared/retry.js';
 import {
@@ -171,11 +180,13 @@ async function _callConnectionProfile(prompt, settings, batchIndex) {
 const CALL_OF_PROVIDER = { openrouter: _callOpenRouter, vllm: _callVLLM, [CONNECTION_PROFILE_PROVIDER]: _callConnectionProfile };
 
 /**
- * Calls the configured provider, retrying transient failures (network hiccups,
- * 5xx, timeouts) but never retrying ReformatFatalError (auth/config problems
- * a retry can't fix).
+ * The call for Auto-Reformat's provider, Same as EventBase model resolved. One VectFox does not know stops the run.
+ *
+ * @param {object} settings
+ * @returns {(prompt: string, settings: object, batchIndex: number) => Promise<{reply: string, finishReason: string|null, cutReason: string|null}>}
+ * @throws {ReformatFatalError}
  */
-async function _callProviderWithRetry(prompt, settings, batchIndex) {
+function _callOfChosenProvider(settings) {
     const { provider } = _resolveConnection(settings);
     const callFn = CALL_OF_PROVIDER[provider];
     if (!callFn) {
@@ -184,6 +195,30 @@ async function _callProviderWithRetry(prompt, settings, batchIndex) {
             'invalid_model_config',
         );
     }
+    return callFn;
+}
+
+/**
+ * Auto-Reformat's Test connection (ChunkBase page): the connection test message sent through a batch's own call for
+ * the chosen provider, its checks and messages included, once, with room and time for that one reply.
+ *
+ * @param {object} settings
+ * @returns {Promise<{content: string, cutReason: string|null}>}
+ * @throws {ReformatFatalError|ReformatExtractionError}
+ */
+export async function runAutoReformatConnectionTest(settings) {
+    const testSettings = { ...settings, reformat_max_output_tokens: CONNECTION_TEST_MAX_TOKENS, reformat_timeout_ms: CONNECTION_TEST_TIMEOUT_MS };
+    const { reply, cutReason } = await _callOfChosenProvider(settings)(CONNECTION_TEST_PROMPT, testSettings, 0);
+    return { content: reply, cutReason };
+}
+
+/**
+ * Calls the configured provider, retrying transient failures (network hiccups,
+ * 5xx, timeouts) but never retrying ReformatFatalError (auth/config problems
+ * a retry can't fix).
+ */
+async function _callProviderWithRetry(prompt, settings, batchIndex) {
+    const callFn = _callOfChosenProvider(settings);
     return retry(() => callFn(prompt, settings, batchIndex), {
         maxAttempts: 3,
         delay: 1500,

@@ -1,9 +1,10 @@
 // connection-profiles.js — SillyTavern's Connection Manager profiles, for a chat call or embedding that runs on one:
-// whether the Connection Manager is on, a profile by ID, whether SillyTavern can send a request on it and of which kind,
-// the request itself through SillyTavern's ConnectionManagerRequestService, and its reply as text; for embedding, the
-// provider a profile's API is, the server URL it names and the ID of its key. The only file that touches that service
-// or a profile's key ID or URL (connection plan §6, credential invariant 4). SillyTavern's server, or Similharity on
-// it, resolves the key from the ID; no key value ever reaches VectFox.
+// whether the Connection Manager is on, the profiles a Profile dropdown offers and when that list changes, a profile by
+// ID, whether SillyTavern can send a request on it and of which kind, the request itself through SillyTavern's
+// ConnectionManagerRequestService, and its reply as text; for embedding, the provider a profile's API is, the server URL
+// it names and the ID of its key. The only file that touches that service or a profile's key ID or URL (connection plan
+// §6, credential invariant 4). SillyTavern's server, or Similharity on it, resolves the key from the ID; no key value
+// ever reaches VectFox.
 //
 // SillyTavern's context comes from its page global, read at each call, so importing this file loads nothing of
 // SillyTavern's and the chat-call modules that import it stay loadable on their own.
@@ -28,6 +29,11 @@ export function isConnectionManagerAvailable() {
         && Boolean(context.ConnectionManagerRequestService);
 }
 
+function allConnectionProfiles() {
+    const profiles = getContext().extensionSettings?.connectionManager?.profiles;
+    return Array.isArray(profiles) ? profiles : [];
+}
+
 /**
  * A profile by its ID, or null when no profile has it.
  *
@@ -36,8 +42,45 @@ export function isConnectionManagerAvailable() {
  */
 export function findConnectionProfile(profileId) {
     if (!profileId) return null;
-    const profiles = getContext().extensionSettings?.connectionManager?.profiles;
-    return (Array.isArray(profiles) ? profiles : []).find(profile => profile?.id === profileId) ?? null;
+    return allConnectionProfiles().find(profile => profile?.id === profileId) ?? null;
+}
+
+/**
+ * Every profile, as a Profile dropdown offers it: its ID and name, whether SillyTavern can send a chat request on it,
+ * and the embedding provider its API is. Nothing else of a profile leaves this function.
+ *
+ * @returns {Array<{id: string, name: string, isSupported: boolean, embeddingProvider: string|null}>}
+ */
+export function listConnectionProfileChoices() {
+    return allConnectionProfiles()
+        .filter(profile => profile?.id)
+        .map(profile => ({
+            id: String(profile.id),
+            name: String(profile.name ?? ''),
+            isSupported: isConnectionProfileSupported(profile),
+            embeddingProvider: connectionProfileEmbeddingProvider(profile),
+        }));
+}
+
+// The events that change the list listConnectionProfileChoices returns: a profile made, saved or deleted. LOADED is
+// not one: applying a profile leaves the list as it was.
+const PROFILE_LIST_EVENTS = ['CONNECTION_PROFILE_CREATED', 'CONNECTION_PROFILE_UPDATED', 'CONNECTION_PROFILE_DELETED'];
+
+/**
+ * Calls `listener` after each change to the profile list, so a Profile dropdown painted from it can repaint.
+ *
+ * @param {() => void} listener
+ */
+export function onConnectionProfilesChanged(listener) {
+    const { eventSource, eventTypes } = getContext();
+    for (const name of PROFILE_LIST_EVENTS) {
+        const type = eventTypes?.[name];
+        if (!type) {
+            log.warn(`This SillyTavern has no ${name} event, so a profile made, renamed or deleted reaches VectFox's Profile dropdowns only after a reload.`);
+            continue;
+        }
+        eventSource.on(type, () => listener());
+    }
 }
 
 /**

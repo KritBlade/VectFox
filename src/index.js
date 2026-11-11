@@ -30,6 +30,7 @@ import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEF
 import { log } from './sillytavern/log.js';
 import {
     CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT,
+    CONNECTION_PROFILE_PROVIDER,
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     AGENTIC_PLANNER_TIMEOUT_DEFAULT_MS,
     AGENTIC_QUERY_TIMEOUT_DEFAULT_MS,
@@ -162,7 +163,7 @@ const defaultSettings = {
     keyword_extraction_level: 'balanced', // 'off', 'minimal', 'balanced', 'aggressive'
 
     // Summarization before vectorization
-    chat_provider: 'openrouter', // 'openrouter', 'vllm', 'connection_profile' (CONNECTION_PROFILE_PROVIDER)
+    chat_provider: CONNECTION_PROFILE_PROVIDER, // 'connection_profile', 'openrouter' or 'vllm'; a new install starts on a profile, none chosen
     chat_connection_profile_id: '', // the SillyTavern connection profile, read only while chat_provider is 'connection_profile'
     // summarize_openrouter_api_key and summarize_vllm_api_key are not in defaults: migrateLegacyApiKeys()
     // moves them into SECRET_KEYS.OPENROUTER and into SECRET_KEYS.CUSTOM (chat side) + SECRET_KEYS.VLLM
@@ -364,7 +365,7 @@ const defaultSettings = {
     // under StoryArc mode. A3 (Qdrant) only.
     agentic_retrieval_enabled: false,                  // Master toggle (default OFF)
     story_arc_mode_enabled: false,                     // StoryArc mode: routes questions about the story's past to time-ordered searches. AgentMode's planner does not run under it
-    story_arc_link_provider: 'openrouter',             // StoryArc's own model: a link needs a model that thinks,
+    story_arc_link_provider: CONNECTION_PROFILE_PROVIDER, // StoryArc's own model, a profile none chosen on a new install: a link needs a model that thinks,
     story_arc_link_model: 'openai/gpt-6-luna',         // which AgentMode's planner does not
     story_arc_link_connection_profile_id: '',          // read only while story_arc_link_provider is 'connection_profile'
     story_arc_block_scale: 0.5,                        // Block size slider, 0.4 to 1.0: a block has 2.5 × this × √events seats, and keeps 4/3 × this × √events lines

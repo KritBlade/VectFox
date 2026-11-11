@@ -10,6 +10,8 @@
 
 import { button, detail, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
+import { connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
 export const STORY_ARC_PAGE_ID = 'VectFox_panel_storyarc';
@@ -114,7 +116,11 @@ function connectionCard() {
     const provider = select({
         id: 'VectFox_story_arc_link_provider',
         title: 'Link provider',
-        options: [selectOption({ value: 'openrouter', name: 'OpenRouter' }), selectOption({ value: 'vllm', name: 'vLLM' })],
+        options: [
+            selectOption({ value: 'openrouter', name: 'OpenRouter' }),
+            selectOption({ value: 'vllm', name: 'vLLM' }),
+            selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
+        ],
     });
     const model = '<input type="text" id="VectFox_story_arc_link_model" class="vfx-input" placeholder="openai/gpt-6-luna">';
     return `<section class="vfx-card">
@@ -123,6 +129,8 @@ function connectionCard() {
             ${grid([
                 field([fieldLabel({ text: 'Link provider', forId: 'VectFox_story_arc_link_provider' }), provider]),
                 field([fieldLabel({ text: 'Link model', forId: 'VectFox_story_arc_link_model' }), model, hint({ text: 'Use a model that thinks: a cheap one links too loosely to help.' })]),
+                connectionProfileRows('VectFox_story_arc_link', { hintText: 'Use a profile whose model thinks. Its model, URL and key are used.' }),
+                testConnectionButton('VectFox_story_arc_link', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' }),
             ])}
         </div>
     </section>`;

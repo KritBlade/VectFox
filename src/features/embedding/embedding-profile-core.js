@@ -12,12 +12,13 @@ import { connectionProfileAvailabilityProblem } from '../../shared/connection-pr
  *   - hasManualFields: the provider also runs without a profile, on fields of its own, as Ollama does.
  *   - sendsKeyId: a request names the profile's key by its ID, which only Similharity 3.4.0 or later reads, so the
  *     provider needs that plugin. SillyTavern's own embedding for these sends its active key instead.
+ *   - serverNeeds: what the profile's server must have for embedding, which the Core page's readout shows.
  */
 export const EMBEDDING_PROFILE_PROVIDERS = Object.freeze({
-    ollama: Object.freeze({ name: 'Ollama', requiresModel: true, hasManualFields: true, sendsKeyId: false }),
-    llamacpp: Object.freeze({ name: 'llama.cpp', requiresModel: false, hasManualFields: false, sendsKeyId: true }),
-    koboldcpp: Object.freeze({ name: 'KoboldCPP', requiresModel: false, hasManualFields: false, sendsKeyId: true }),
-    custom: Object.freeze({ name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true }),
+    ollama: Object.freeze({ name: 'Ollama', requiresModel: true, hasManualFields: true, sendsKeyId: false, serverNeeds: 'The embedding model pulled in Ollama.' }),
+    llamacpp: Object.freeze({ name: 'llama.cpp', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'llama.cpp started with --embedding.' }),
+    koboldcpp: Object.freeze({ name: 'KoboldCPP', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'KoboldCPP 1.87 or later, with an embedding model loaded.' }),
+    custom: Object.freeze({ name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true, serverNeeds: 'An OpenAI-style /embeddings route under the profile\'s URL.' }),
 });
 
 /**

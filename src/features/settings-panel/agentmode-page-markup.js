@@ -20,8 +20,9 @@ import {
 } from '../../shared/constants.js';
 import { controlRow, detail, field, fieldLabel, hint, input } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { connectionProfileRows, inheritedProfileReadout, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 import { clearKeyButton, keyInput } from './api-key-markup.js';
-import { inheritedProviderSelect } from './provider-select-markup.js';
+import { inheritedProviderHint, inheritedProviderSelect } from './provider-select-markup.js';
 
 const HIDDEN = ' style="display:none;"';
 
@@ -54,8 +55,10 @@ function plannerModelCard() {
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_agentic_provider' }),
                 inheritedProviderSelect('VectFox_agentic_provider'),
-                hint({ text: 'Same as EventBase model uses its provider, URL and key. A typed Model still applies.' }),
+                inheritedProviderHint('VectFox_agentic_provider'),
             ])}
+            ${connectionProfileRows('VectFox_agentic', { hintText: 'Its model, URL and key are used. Make profiles under Connection Profiles in SillyTavern.' })}
+            ${inheritedProfileReadout('VectFox_agentic')}
             ${field([
                 fieldLabel({ text: 'Model', forId: 'VectFox_agentic_model' }),
                 input({ id: 'VectFox_agentic_model', placeholder: 'Blank uses the EventBase model\'s' }),
@@ -87,6 +90,7 @@ function plannerModelCard() {
                 hint({ text: 'Raise it for a model that reasons: its thinking counts against this cap.' }),
                 detail({ text: `Default ${AGENTIC_MAX_TOKENS_DEFAULT}, from ${AGENTIC_MAX_TOKENS_MIN} to ${AGENTIC_MAX_TOKENS_MAX}. The planner answers in a short JSON list, but a model that reasons can spend the whole cap thinking, and an empty answer leaves the reply with the normal search. Turn off model thinking, on Core, only asks a model not to reason.` }),
             ])}
+            ${testConnectionButton('VectFox_agentic', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' })}
         </div>
     </section>`;
 }

@@ -27,12 +27,12 @@ describe('embeddingProfileProblem', () => {
         expect(embeddingProfileProblem(readyOn('custom', 'custom'))).toBe('');
     });
 
-    it('carries Ollama, with fields of its own and no key, and three types that send the key ID through Similharity', () => {
+    it('carries Ollama, with fields of its own and no key, and three types that send the key ID through Similharity, each saying what its server needs', () => {
         expect(EMBEDDING_PROFILE_PROVIDERS).toEqual({
-            ollama: { name: 'Ollama', requiresModel: true, hasManualFields: true, sendsKeyId: false },
-            llamacpp: { name: 'llama.cpp', requiresModel: false, hasManualFields: false, sendsKeyId: true },
-            koboldcpp: { name: 'KoboldCPP', requiresModel: false, hasManualFields: false, sendsKeyId: true },
-            custom: { name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true },
+            ollama: { name: 'Ollama', requiresModel: true, hasManualFields: true, sendsKeyId: false, serverNeeds: 'The embedding model pulled in Ollama.' },
+            llamacpp: { name: 'llama.cpp', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'llama.cpp started with --embedding.' },
+            koboldcpp: { name: 'KoboldCPP', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'KoboldCPP 1.87 or later, with an embedding model loaded.' },
+            custom: { name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true, serverNeeds: 'An OpenAI-style /embeddings route under the profile\'s URL.' },
         });
         expect(embeddingProfileKind('__proto__')).toBeNull();
         expect(embeddingProfileKind('vllm')).toBeNull();

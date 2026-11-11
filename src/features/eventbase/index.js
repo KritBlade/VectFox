@@ -1,5 +1,6 @@
 // features/eventbase — EventBase, the event memory: extraction from chat windows, the event store, retrieval
-// and injection, AgentMode retrieval, forking an EventBase onto a branch, and the summarizer injection.
+// and injection, AgentMode retrieval, forking an EventBase onto a branch, and the summarizer injection. The settings
+// panel runs the Test connection of the EventBase model, Agent Mode's planner and StoryArc's link model here.
 //
 // chunkbase imports this feature dynamically: its generation interceptor runs EventBase retrieval and the
 // summarizer injection, and its content vectorizer runs ingestion. src/index.js hands
@@ -7,6 +8,8 @@
 // ensureEventBaseIndexes and pruneOrphanedEventBaseChatMaps at startup.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
+export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
+export { testEventBaseConnection } from './eventbase-extractor.js';
 export { findEventBaseForkSource, forkEventBaseFromSource } from './eventbase-fork.js';
 export { packTimelineSortKey } from './eventbase-schema.js';
 export {

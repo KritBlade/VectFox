@@ -27,7 +27,7 @@ import { searchEventCollection } from './eventbase-search.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
 import { cleanText, stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
-import { checkConnectionProfile, postChatCompletion, resolveConnectionProfileId, resolveInheritedConnection, resolveModelParameterStyle, LlmCallError } from '../llm-provider/index.js';
+import { checkConnectionProfile, postChatCompletion, resolveConnectionProfileId, resolveInheritedConnection, resolveModelParameterStyle, sendConnectionTest, LlmCallError } from '../llm-provider/index.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { resolveAgenticPlannerTimeoutMs, resolveAgenticQueryTimeoutMs, resolveAgenticMaxTokens } from '../../shared/retrieval-budget.js';
@@ -636,6 +636,34 @@ export function resolveStoryLinkLlmConfig(settings) {
         ...connection,
         parameterStyle: { ...resolveModelParameterStyle(settings), sendTemperature: false, reasoningEffort: null },
     };
+}
+
+/**
+ * Agent Mode's Test connection (AgentMode page): the connection test message on the planner's connection, resolved as
+ * a planner call resolves it, Same as EventBase model included.
+ *
+ * @param {object} settings
+ * @returns {Promise<{content: string, cutReason: string|null}>}
+ * @throws {Error} Why the planner cannot run, as its setup warning says it, or what the call threw
+ */
+export async function testAgentModeConnection(settings) {
+    const connection = _resolveAgenticLLMConfig(settings);
+    if (!connection.ok) throw new Error(describeAgentModeSetupProblem(connection.reason, connection.problem));
+    return sendConnectionTest(connection, { contextLabel: AGENT_MODE, parameterStyle: connection.parameterStyle });
+}
+
+/**
+ * StoryArc's Test connection (StoryArc page): the connection test message on the link model's connection, resolved
+ * as the link pass, the router, the thread pick and the cut resolve it.
+ *
+ * @param {object} settings
+ * @returns {Promise<{content: string, cutReason: string|null}>}
+ * @throws {Error} Why the link model cannot run, as the link pass says it, or what the call threw
+ */
+export async function testStoryArcConnection(settings) {
+    const connection = resolveStoryLinkLlmConfig(settings);
+    if (!connection.ok) throw new Error(connection.problem ?? `StoryArc link model is not ready: ${connection.reason}`);
+    return sendConnectionTest(connection, { contextLabel: 'StoryArc', parameterStyle: connection.parameterStyle });
 }
 
 /**

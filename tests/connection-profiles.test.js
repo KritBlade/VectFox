@@ -1,14 +1,16 @@
 /**
  * SillyTavern's connection profiles, as src/sillytavern/connection-profiles.js reads and uses them (connection plan §2,
  * §6): the Connection Manager switched off is reported, a profile with an API SillyTavern does not know answers
- * "not supported" instead of throwing, a request sends no preset and keeps the raw reply, a profile with no stored key
- * sends the ID that matches no key, so SillyTavern sends none rather than its active key, and the reply is read the way
- * SillyTavern reads the profile's API.
+ * "not supported" instead of throwing, a Profile dropdown gets each profile's ID, name and what it can carry and
+ * nothing of its key or URL, and hears when the list changes, a request sends no preset and keeps the raw reply, a
+ * profile with no stored key sends the ID that matches no key, so SillyTavern sends none rather than its active key,
+ * and the reply is read the way SillyTavern reads the profile's API.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn() } }));
+const logWarn = vi.hoisted(() => vi.fn());
+vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: logWarn, error: vi.fn() } }));
 
 const host = vi.hoisted(() => ({ context: null }));
 
@@ -20,6 +22,8 @@ const {
     findConnectionProfile,
     isConnectionManagerAvailable,
     isConnectionProfileSupported,
+    listConnectionProfileChoices,
+    onConnectionProfilesChanged,
     sendConnectionProfileRequest,
 } = await import('../src/sillytavern/connection-profiles.js');
 
@@ -67,6 +71,29 @@ describe('the Connection Manager and its profiles', () => {
         expect(() => host.context.ConnectionManagerRequestService.isProfileSupported(UNKNOWN_PROFILE)).toThrow(TypeError);
         expect(isConnectionProfileSupported(UNKNOWN_PROFILE)).toBe(false);
         expect([CHAT_PROFILE, TEXT_PROFILE, UNKNOWN_PROFILE].filter(isConnectionProfileSupported)).toEqual([CHAT_PROFILE, TEXT_PROFILE]);
+    });
+
+    it('gives a Profile dropdown each profile\'s ID and name, whether SillyTavern can send on it and what it embeds as, and nothing else', () => {
+        expect(listConnectionProfileChoices()).toEqual([
+            { id: 'profile-chat', name: 'Harbor chat', isSupported: true, embeddingProvider: 'custom' },
+            { id: 'profile-text', name: 'Harbor text', isSupported: true, embeddingProvider: 'ollama' },
+            { id: 'profile-unknown', name: 'Old plugin', isSupported: false, embeddingProvider: null },
+        ]);
+    });
+
+    it('calls a listener when a profile is made, saved or deleted, not when one is applied, and warns of an event SillyTavern lacks', () => {
+        const listeners = {};
+        host.context.eventSource = { on: (type, listener) => { (listeners[type] ??= []).push(listener); } };
+        host.context.eventTypes = {
+            CONNECTION_PROFILE_LOADED: 'loaded', CONNECTION_PROFILE_CREATED: 'created', CONNECTION_PROFILE_UPDATED: 'updated',
+        };
+        const listener = vi.fn();
+        onConnectionProfilesChanged(listener);
+        expect(Object.keys(listeners)).toEqual(['created', 'updated']);
+        listeners.created[0]();
+        listeners.updated[0]();
+        expect(listener).toHaveBeenCalledTimes(2);
+        expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('no CONNECTION_PROFILE_DELETED event'));
     });
 
     it('names the kind of request a profile sends', () => {

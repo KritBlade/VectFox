@@ -1002,6 +1002,17 @@ async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCac
 }
 
 /**
+ * Auto-Reformat's Test connection, for the ChunkBase page. Loads the extractor when pressed, as a reformat does.
+ *
+ * @param {object} settings
+ * @returns {Promise<{content: string, cutReason: string|null}>}
+ */
+export async function testAutoReformatConnection(settings) {
+    const { runAutoReformatConnectionTest } = await import('./reformat-extractor.js');
+    return runAutoReformatConnectionTest(settings);
+}
+
+/**
  * Run the open chat's catch-up without the dialog, as Resume does: the auto-sync switch calls it when a chat it turns
  * on has messages EventBase has not read. Resolves when the run ends; the progress panel shows it.
  *

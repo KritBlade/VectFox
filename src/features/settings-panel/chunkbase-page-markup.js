@@ -10,8 +10,9 @@
  */
 
 import { detail, field, fieldLabel, hint, input, select, selectOption, textarea } from '../../shared/gui-dna/gui-dna-core.js';
+import { connectionProfileRows, inheritedProfileReadout, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 import { cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
-import { inheritedProviderSelect } from './provider-select-markup.js';
+import { inheritedProviderHint, inheritedProviderSelect } from './provider-select-markup.js';
 
 const HIDDEN = ' style="display:none;"';
 
@@ -37,8 +38,10 @@ function autoReformatCard() {
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_reformat_provider' }),
                 inheritedProviderSelect('VectFox_reformat_provider'),
-                hint({ text: 'Same as EventBase model uses its provider, URL and key. A typed Model still applies.' }),
+                inheritedProviderHint('VectFox_reformat_provider'),
             ])}
+            ${connectionProfileRows('VectFox_reformat', { hintText: 'Its model, URL and key are used. Make profiles under Connection Profiles in SillyTavern.' })}
+            ${inheritedProfileReadout('VectFox_reformat')}
             ${field([
                 fieldLabel({ text: 'Model', forId: 'VectFox_reformat_model' }),
                 input({ id: 'VectFox_reformat_model', placeholder: 'Blank uses the EventBase model\'s' }),
@@ -49,6 +52,7 @@ function autoReformatCard() {
                 ${input({ id: 'VectFox_reformat_vllm_url', placeholder: 'Blank uses the EventBase model\'s' })}
                 ${hint({ text: 'Blank uses the EventBase model\'s URL. The key is the one saved there.' })}
             </div>
+            ${testConnectionButton('VectFox_reformat', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' })}
             ${field([
                 fieldLabel({ text: 'Batch size (chars)', forId: 'VectFox_reformat_batch_chars' }),
                 sliderNumber({ id: 'VectFox_reformat_batch_chars', min: 2000, max: 12000, step: 500, title: 'Batch size' }),

@@ -29,6 +29,7 @@ vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOrigina
 
 const postChatCompletionMock = vi.fn();
 const checkConnectionProfileMock = vi.fn();
+const sendConnectionTestMock = vi.fn();
 vi.mock('../src/features/llm-provider/index.js', async () => ({
     postChatCompletion: (...args) => postChatCompletionMock(...args),
     resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
@@ -36,6 +37,7 @@ vi.mock('../src/features/llm-provider/index.js', async () => ({
     resolveInheritedConnection: (await import('../src/features/llm-provider/inherited-connection.js')).resolveInheritedConnection,
     resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
     checkConnectionProfile: (...args) => checkConnectionProfileMock(...args),
+    sendConnectionTest: (...args) => sendConnectionTestMock(...args),
     LlmCallError: class LlmCallError extends Error {},
 }));
 
@@ -75,7 +77,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     },
 }));
 
-const { retrieveEventsForTurn, describeAgentModeSetupProblem, _resolveAgenticLLMConfig } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { retrieveEventsForTurn, describeAgentModeSetupProblem, _resolveAgenticLLMConfig, testAgentModeConnection, testStoryArcConnection } = await import('../src/features/eventbase/agentic-retrieval.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
 const event = (id, extra = {}) => ({ event_id: id, source_window_start: 100, source_window_end: 101, importance: 5, text: `text of ${id}`, ...extra });
@@ -360,5 +362,46 @@ describe('the planner\'s connection', () => {
         expect(postChatCompletionMock.mock.calls[0][0]).toMatchObject({
             provider: 'connection_profile', connectionProfileId: 'profile-eventbase', connectionProfilePage: 'Core', contextLabel: 'Agent Mode',
         });
+    });
+});
+
+describe('Test connection of Agent Mode and StoryArc', () => {
+    beforeEach(() => {
+        sendConnectionTestMock.mockReset();
+        sendConnectionTestMock.mockResolvedValue({ content: 'OK', cutReason: null });
+    });
+
+    it('sends the test on the planner\'s connection, Same as EventBase model resolved, with the planner\'s request switches', async () => {
+        const settings = { agent_provider: '', chat_provider: 'vllm', chat_model: 'harbor-chat', chat_vllm_url: 'http://harbor.local/v1' };
+        await expect(testAgentModeConnection(settings)).resolves.toEqual({ content: 'OK', cutReason: null });
+        expect(sendConnectionTestMock).toHaveBeenCalledWith(
+            expect.objectContaining({ ok: true, provider: 'vllm', model: 'harbor-chat', vllmUrl: 'http://harbor.local/v1' }),
+            { contextLabel: 'Agent Mode', parameterStyle: { sendTemperature: true, reasoningEffort: 'none' } },
+        );
+        expect(postChatCompletionMock).not.toHaveBeenCalled();
+    });
+
+    it('says what stops the planner, as its setup warning says it, and sends nothing', async () => {
+        await expect(testAgentModeConnection({ agent_provider: 'openrouter', agent_model: '', chat_model: '' }))
+            .rejects.toThrow(describeAgentModeSetupProblem('missing_model'));
+        const problem = 'Agent Mode: its connection profile was deleted in SillyTavern. Choose another on the AgentMode page.';
+        checkConnectionProfileMock.mockReturnValue({ ok: false, reason: problem });
+        await expect(testAgentModeConnection({ agent_provider: 'connection_profile', agent_connection_profile_id: 'p-gone' }))
+            .rejects.toThrow(problem);
+        expect(sendConnectionTestMock).not.toHaveBeenCalled();
+    });
+
+    it('sends StoryArc\'s test on the link model\'s connection with no temperature and the model\'s own reasoning, or says what stops it', async () => {
+        checkConnectionProfileMock.mockReturnValue({ ok: true, profile: { model: 'profile-model' }, api: 'chat', storesKey: true });
+        await testStoryArcConnection({ story_arc_link_provider: 'connection_profile', story_arc_link_connection_profile_id: 'p-harbor' });
+        expect(sendConnectionTestMock).toHaveBeenCalledWith(
+            expect.objectContaining({ ok: true, provider: 'connection_profile', connectionProfileId: 'p-harbor', connectionProfilePage: 'StoryArc' }),
+            { contextLabel: 'StoryArc', parameterStyle: { sendTemperature: false, reasoningEffort: null } },
+        );
+
+        const problem = 'StoryArc: no connection profile is chosen. Choose one on the StoryArc page.';
+        checkConnectionProfileMock.mockReturnValue({ ok: false, reason: problem });
+        await expect(testStoryArcConnection({ story_arc_link_provider: 'connection_profile' })).rejects.toThrow(problem);
+        expect(sendConnectionTestMock).toHaveBeenCalledTimes(1);
     });
 });

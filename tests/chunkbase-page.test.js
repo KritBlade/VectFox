@@ -58,7 +58,7 @@ describe('ChunkBase page markup', () => {
     it('holds the timeout and the results per collection to their floors, and offers the provider and budget choices', () => {
         expect(limitsOf('VectFox_reformat_timeout_ms')).toEqual(['10000', '', '1000']);
         expect(limitsOf('VectFox_topk')).toEqual(['1', '', '1']);
-        expect(optionValues('VectFox_reformat_provider')).toEqual(['', 'openrouter', 'vllm']);
+        expect(optionValues('VectFox_reformat_provider')).toEqual(['', 'openrouter', 'vllm', 'connection_profile']);
         expect(optionValues('VectFox_hybrid_keyword_level')).toEqual(['minimal', 'balance', 'maximum']);
         expect(document.getElementById('VectFox_document_glossary_injection').type).toBe('checkbox');
         expect(document.getElementById('VectFox_reformat_custom_prompt').tagName).toBe('TEXTAREA');

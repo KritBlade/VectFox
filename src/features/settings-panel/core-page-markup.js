@@ -9,6 +9,8 @@
  * ============================================================================
  */
 
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
+import { connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 import { controlRow, detail, field, fieldLabel, grid, hint, input, notice, select, selectOption, textarea } from '../../shared/gui-dna/gui-dna-core.js';
 import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { clearKeyButton, keyInput } from './api-key-markup.js';
@@ -66,6 +68,7 @@ function embeddingCard() {
         selectOption({ value: 'ollama', text: 'Ollama' }),
         selectOption({ value: 'openrouter', text: 'OpenRouter' }),
         selectOption({ value: 'vllm', text: 'vLLM' }),
+        selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
     ];
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-microchip', title: 'Embedding', description: 'The model that turns text into vectors, and how its calls go out.' })}
@@ -74,16 +77,19 @@ function embeddingCard() {
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_source' }),
                 select({ id: 'VectFox_source', options: providers }),
-                hint({ text: 'Transformers runs inside SillyTavern. The others need a server or a key.' }),
+                hint({ text: 'Transformers runs inside SillyTavern. The others need a server, a key or a profile.' }),
             ], { isSpan: true })}
+            ${connectionProfileRows('VectFox_embedding', { hintText: 'An Ollama, llama.cpp, KoboldCPP or Custom profile. Its URL and model are used.' })}
             <div id="VectFox_provider_settings" class="vfx-grid vfx-span">
                 <div class="vfx-grid vfx-span" data-provider="ollama"${HIDDEN}>
-                    ${switchRow({ id: 'VectFox_ollama_use_alt_endpoint', title: 'Own Ollama URL', description: 'Off: the Ollama URL in SillyTavern\'s Text Completion settings.', isSpan: true })}
-                    <div id="VectFox_ollama_alt_endpoint_row" class="vfx-field"${HIDDEN}>
-                        ${fieldLabel({ text: 'Ollama URL', forId: 'VectFox_ollama_alt_endpoint_url' })}
-                        ${input({ id: 'VectFox_ollama_alt_endpoint_url', placeholder: 'http://127.0.0.1:11434' })}
+                    <div id="VectFox_ollama_manual_rows" class="vfx-grid vfx-span">
+                        ${switchRow({ id: 'VectFox_ollama_use_alt_endpoint', title: 'Own Ollama URL', description: 'Off: the Ollama URL in SillyTavern\'s Text Completion settings.', isSpan: true })}
+                        <div id="VectFox_ollama_alt_endpoint_row" class="vfx-field"${HIDDEN}>
+                            ${fieldLabel({ text: 'Ollama URL', forId: 'VectFox_ollama_alt_endpoint_url' })}
+                            ${input({ id: 'VectFox_ollama_alt_endpoint_url', placeholder: 'http://127.0.0.1:11434' })}
+                        </div>
+                        ${field([fieldLabel({ text: 'Model', forId: 'VectFox_ollama_model' }), input({ id: 'VectFox_ollama_model', placeholder: 'mxbai-embed-large' }), hint({ text: 'The embedding model\'s name, as Ollama lists it.' })])}
                     </div>
-                    ${field([fieldLabel({ text: 'Model', forId: 'VectFox_ollama_model' }), input({ id: 'VectFox_ollama_model', placeholder: 'mxbai-embed-large' }), hint({ text: 'The embedding model\'s name, as Ollama lists it.' })])}
                     ${switchRow({ id: 'VectFox_ollama_keep', title: 'Keep model in memory', description: 'Ollama keeps the model loaded after each call, so the next one starts sooner.', isSpan: true })}
                 </div>
                 <div class="vfx-grid vfx-span" data-provider="vllm"${HIDDEN}>
@@ -114,6 +120,7 @@ function embeddingCard() {
                     ], { isSpan: true })}
                 </div>
             </div>
+            ${testConnectionButton('VectFox_embedding', { hintText: 'Embeds one short fixed line, never your chat, through the Similharity plugin.' })}
             ${numberPair({
                 caption: 'Rate limit',
                 numbers: [
@@ -134,8 +141,13 @@ function eventModelCard() {
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_summarize_provider' }),
-                select({ id: 'VectFox_summarize_provider', options: [selectOption({ value: 'openrouter', text: 'OpenRouter' }), selectOption({ value: 'vllm', text: 'vLLM' })] }),
+                select({ id: 'VectFox_summarize_provider', options: [
+                    selectOption({ value: 'openrouter', text: 'OpenRouter' }),
+                    selectOption({ value: 'vllm', text: 'vLLM' }),
+                    selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
+                ] }),
             ], { isSpan: true })}
+            ${connectionProfileRows('VectFox_summarize', { hintText: 'Its model, URL and key are used. Make profiles under Connection Profiles in SillyTavern.' })}
             <div id="VectFox_summarize_settings" class="vfx-grid vfx-span"${HIDDEN}>
                 <div id="VectFox_summarize_openrouter_row" class="vfx-grid vfx-span"${HIDDEN}>
                     ${field([
@@ -159,6 +171,7 @@ function eventModelCard() {
                     hint({ text: 'Required. Choose lists the provider\'s models.' }),
                 ], { isSpan: true })}
             </div>
+            ${testConnectionButton('VectFox_summarize', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' })}
             ${numberPair({
                 caption: 'Rate limit',
                 numbers: [

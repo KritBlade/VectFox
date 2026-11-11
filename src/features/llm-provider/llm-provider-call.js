@@ -386,6 +386,21 @@ export function checkConnectionProfile(profileId, { feature, page }) {
 }
 
 /**
+ * What a chat consumer's profile readout shows: why the profile cannot be used, or its name, SillyTavern API and model
+ * and whether it stores a key. The same check as a call, so the readout and the run say the same.
+ *
+ * @param {string} profileId
+ * @param {{feature: string, page: string}} where
+ * @returns {{problem: string}|{problem: '', name: string, api: string, model: string, storesKey: boolean}}
+ */
+export function describeChatConnectionProfile(profileId, { feature, page }) {
+    const check = checkConnectionProfile(profileId, { feature, page });
+    if (!check.ok) return { problem: check.reason };
+    const { profile, storesKey } = check;
+    return { problem: '', name: profile.name || '(unnamed)', api: String(profile.api ?? ''), model: String(profile.model ?? '').trim(), storesKey };
+}
+
+/**
  * The profile branch of postChatCompletion: SillyTavern sends the request on the profile, with its URL and key, and
  * VectFox sends only its messages and the closed set of override keys. A failure is classified by the rules of
  * connection plan §4; a reply with no text goes through the manual path's own handling.
