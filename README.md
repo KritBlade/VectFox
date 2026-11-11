@@ -1,6 +1,6 @@
 # Similharity Server Plugin
 
-**Version 3.3.5**
+**Version 3.4.0**
 
 Server-side plugin for [the VectFox](https://github.com/KritBlade/VectFox) extension that provides enhanced vector database backends and full metadata storage capabilities.
 
@@ -90,7 +90,7 @@ SillyTavern/
 
 Check console for:
 ```
-[similharity] Initializing v3.3.5...
+[similharity] Initializing v3.4.0...
 [similharity] Plugin initialized successfully
 ```
 
@@ -143,7 +143,7 @@ Returns plugin status and capabilities.
 {
   "status": "ok",
   "plugin": "similharity",
-  "version": "3.3.5",
+  "version": "3.4.0",
   "features": [
     "vectra-full-metadata",
     "qdrant",
@@ -730,10 +730,14 @@ The plugin supports all SillyTavern embedding providers:
 - `cohere` - Cohere embeddings
 - `ollama` - Ollama local embeddings
 - `llamacpp` - llama.cpp server
+- `koboldcpp` - KoboldCPP server
+- `custom` - any OpenAI-style `/embeddings` server
 - `vllm` - vLLM server
 - `palm` - Google PaLM API
 - `vertexai` - Google Vertex AI
 - `extras` - SillyTavern Extras
+
+`llamacpp`, `koboldcpp` and `custom` need `apiUrl`, the server's URL, and take `model` when the server needs one. Their key is sent as `secret_id`, the ID of a key saved in SillyTavern, which the plugin reads on SillyTavern's server, so the key never leaves it. With no `secret_id` no key is sent, not even SillyTavern's active one. The request goes to `/v1/embeddings` on a llama.cpp or KoboldCPP URL, and to the URL plus `/embeddings` for `custom`, at most 32 texts at a time.
 
 ---
 

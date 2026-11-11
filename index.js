@@ -43,7 +43,7 @@
  * see VectFox/plans/review-fix.md §H-4 for the threat-model reasoning.
  * ─────────────────────────────────────────────────────────────────────────
  *
- * @version 3.3.5
+ * @version 3.4.0
  */
 
 import path from 'node:path';
@@ -51,28 +51,20 @@ import fs from 'node:fs/promises';
 import sanitize from 'sanitize-filename';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
+import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource, loadSillyTavernEmbeddingHost } from './openai-style-embedding.js';
 
 const pluginName = 'similharity';
-const pluginVersion = '3.3.5';
+const pluginVersion = '3.4.0';
 
-// ─── ST secret_state bridge (server-side API key resolution) ─────────────────
-// The qdrant_api_key migration (2026-05-26) moved the key out of VectFox's
-// plaintext settings.json and into ST's secret_state under slot name
-// 'api_key_qdrant' (a custom slot — not in ST's SECRET_KEYS enum, but
-// writeSecret/readSecret accept any string key and getSecretState's enum
-// filter is only on the read-to-client path, not the file-based readSecret).
+// ─── The Qdrant API key, read on the server ──────────────────────────────────
+// VectFox keeps the Qdrant key in SillyTavern's secrets under 'api_key_qdrant',
+// a slot of its own: it is not in ST's SECRET_KEYS, but writeSecret and
+// readSecret take any name. ST tells the browser only about SECRET_KEYS slots,
+// so VectFox asks GET /qdrant/key-status whether a key is saved, and sends
+// `apiKey: null` to /backend/init/qdrant, which reads the key here.
 //
-// Client-side `secret_state.api_key_qdrant` is undefined because
-// ST's getSecretState only surfaces enum-known slots. So:
-//   - VectFox UI presence indicator → GET /qdrant/key-status (defined below)
-//   - VectFox qdrant.js sends `apiKey: null` in /backend/init/qdrant → plugin
-//     resolves the real key here via readSecret(req.user.directories, ...)
-//
-// Import is wrapped in try/catch because the relative path to ST's secrets
-// module is fragile across ST versions / install layouts. If the import
-// fails, the plugin gracefully falls back to whatever apiKey the client
-// passes — meaning pre-migration clients still work, post-migration clients
-// would fail with an auth error pointing them to update VectFox.
+// The import is caught because the path to ST's secrets module depends on the
+// install layout. Without it, Qdrant gets only an apiKey the client sends.
 let _stReadSecret = null;
 try {
     const secretsMod = await import('../../src/endpoints/secrets.js');
@@ -684,11 +676,9 @@ export async function init(router) {
                     break;
 
                 case 'qdrant':
-                    // Post-2026-05-26 migration: VectFox client sends apiKey:null
-                    // for cloud mode and relies on the plugin to resolve the
-                    // real key from ST's secret_state slot api_key_qdrant.
-                    // Pre-migration clients still pass apiKey directly — that
-                    // takes precedence, no behavior change for them.
+                    // VectFox sends apiKey: null for a Qdrant with a URL, and
+                    // the key saved in api_key_qdrant is read here. An apiKey
+                    // the client sends is used as it is.
                     if (config && config.apiKey == null && config.url) {
                         const serverKey = _readQdrantApiKey(req);
                         if (serverKey) {
@@ -730,6 +720,9 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     //    Promise.all. Wall-time savings vs. fully serial, but no rate-limit
     //    consolidation.
     //
+    // 3. Custom: the user's own OpenAI-style server, sent in the batches
+    //    openai-style-embedding.js allows.
+    //
     // Local GPU sources (transformers, ollama, llamacpp, koboldcpp) serialize
     // on the model, so parallel JS calls just queue. Default branch below
     // keeps them sequential to avoid OOM.
@@ -751,6 +744,10 @@ async function getVectorsForSource(source, texts, model, directories, req) {
         return results;
     }
 
+    if (source === 'custom') {
+        return await embedOpenAiStyle(source, texts, model, directories, req);
+    }
+
     const parallelSources = new Set(['nomicai', 'cohere']);
     if (parallelSources.has(source)) {
         return await Promise.all(texts.map(text => _getLegacySingleEmbedding(source, text, model, directories, req)));
@@ -762,53 +759,6 @@ async function getVectorsForSource(source, texts, model, directories, req) {
         results.push(await _getLegacySingleEmbedding(source, text, model, directories, req));
     }
     return results;
-}
-
-/**
- * Helper function for KoboldCpp embedding generation
- * @param {string} text - Text to embed
- * @param {string} model - Model name
- * @param {object} req - Request object containing apiUrl
- * @returns {Promise<number[]>} Embedding vector
- */
-async function _getKoboldCppEmbedding(text, model, req) {
-    const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:5001';
-
-    let url;
-    try {
-        url = new URL(apiUrl);
-        // Ensure we're hitting the embeddings endpoint
-        if (!url.pathname.includes('/embeddings')) {
-            url.pathname = url.pathname.replace(/\/?$/, '/v1/embeddings').replace(/\/+/g, '/');
-        }
-    } catch (e) {
-        throw new Error(`KoboldCpp: Invalid URL format "${apiUrl}" - ${e.message}`);
-    }
-
-    const response = await fetch(url.toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            input: text,
-            model: model || 'koboldcpp',
-        }),
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`KoboldCpp: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    // OpenAI format: { data: [{ embedding: [...] }] }
-    if (data?.data?.[0]?.embedding) {
-        return data.data[0].embedding;
-    }
-    // Fallback: direct embedding array
-    if (Array.isArray(data?.embedding)) {
-        return data.embedding;
-    }
-    throw new Error('KoboldCpp: Invalid response format - no embedding found');
 }
 
 /**
@@ -845,9 +795,13 @@ async function _getVllmEmbedding(text, apiUrl, model, apiKey, directories) {
 }
 
 /**
- * Legacy single embedding function (renamed)
+ * One text's embedding, for the batch route's sources that send one text per request.
  */
 async function _getLegacySingleEmbedding(source, text, model, directories, req) {
+    if (isOpenAiStyleEmbeddingSource(source)) {
+        const [embedding] = await embedOpenAiStyle(source, [text], model, directories, req);
+        return embedding;
+    }
     switch (source) {
         case 'transformers': {
             const { getTransformersVector } = await import('../../src/vectors/embedding.js');
@@ -871,9 +825,6 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             const { getCohereVector } = await import('../../src/vectors/cohere-vectors.js');
             return await getCohereVector(text, true, directories, model);
         }
-        case 'koboldcpp': {
-            return await _getKoboldCppEmbedding(text, model, req);
-        }
         case 'ollama': {
             const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:11434';
             const apiKey = req.body?.apiKey || '';
@@ -895,11 +846,6 @@ async function _getLegacySingleEmbedding(source, text, model, directories, req) 
             const ollamaData = await ollamaResp.json();
             if (!Array.isArray(ollamaData?.embedding)) throw new Error('Ollama: API response missing embedding array');
             return ollamaData.embedding;
-        }
-        case 'llamacpp': {
-            const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
-            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8080';
-            return await getLlamaCppVector(text, apiUrl, directories);
         }
         case 'vllm': {
             const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8000';
@@ -1634,10 +1580,30 @@ async function getEmbeddingForSourceTimed(source, text, model, directories, req,
     }
 }
 
+let _openAiStyleHost = null;
+
+/**
+ * Embed texts on llama.cpp, KoboldCPP or Custom, with the server URL, model
+ * and key ID the client sent.
+ */
+async function embedOpenAiStyle(source, texts, model, directories, req) {
+    _openAiStyleHost ??= await loadSillyTavernEmbeddingHost();
+    return await getOpenAiStyleEmbeddings(source, texts, {
+        apiUrl: req.body?.apiUrl,
+        model,
+        secretId: req.body?.secret_id,
+        directories,
+    }, _openAiStyleHost);
+}
+
 /**
  * Get embedding for text from specified source
  */
 async function getEmbeddingForSource(source, text, model, directories, req) {
+    if (isOpenAiStyleEmbeddingSource(source)) {
+        const [embedding] = await embedOpenAiStyle(source, [text], model, directories, req);
+        return embedding;
+    }
     switch (source) {
         case 'transformers': {
             const { getTransformersVector } = await import('../../src/vectors/embedding.js');
@@ -1652,9 +1618,6 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
             // ElectronHub requires a model name, provide default if empty
             const effectiveModel = (source === 'electronhub' && !model) ? 'text-embedding-ada-002' : model;
             return await getOpenAIVector(text, source, directories, effectiveModel);
-        }
-        case 'koboldcpp': {
-            return await _getKoboldCppEmbedding(text, model, req);
         }
         case 'nomicai': {
             const { getNomicAIVector } = await import('../../src/vectors/nomicai-vectors.js');
@@ -1685,11 +1648,6 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
             const ollamaData = await ollamaResp.json();
             if (!Array.isArray(ollamaData?.embedding)) throw new Error('Ollama: API response missing embedding array');
             return ollamaData.embedding;
-        }
-        case 'llamacpp': {
-            const { getLlamaCppVector } = await import('../../src/vectors/llamacpp-vectors.js');
-            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8080';
-            return await getLlamaCppVector(text, apiUrl, directories);
         }
         case 'vllm': {
             const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8000';
