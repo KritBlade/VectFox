@@ -1443,6 +1443,11 @@ class QdrantBackend {
      * pages until the collection is exhausted, so a one-item limit would still
      * walk the whole collection.
      *
+     * The read asks for `embeddingSource` alone rather than the whole payload.
+     * Qdrant gzips and chunks the full ~3 KB point, and on a kept-alive
+     * connection Node finishes reading it ~40 ms late; the selected 131 B body
+     * answers in about 1 ms, and this method never read any other field.
+     *
      * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @returns {Promise<string>} The first point's `embeddingSource`, or 'unknown'
      */
@@ -1455,7 +1460,7 @@ class QdrantBackend {
         try {
             const response = await this._request('POST', `/collections/${mainCollection}/points/scroll`, {
                 limit: 1,
-                with_payload: true,
+                with_payload: ['embeddingSource'],
                 with_vector: false,
                 filter: this._buildFilterExcludingSentinel(),
             });
