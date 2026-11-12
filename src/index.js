@@ -40,7 +40,7 @@ import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
-import { mountSettingsPanel, refreshAutoSyncCheckbox } from './features/settings-panel/index.js';
+import { mountSettingsPanel, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { initializeWorldInfoIntegration } from './features/world-info/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
@@ -166,6 +166,7 @@ const defaultSettings = {
 
     // Summarization before vectorization
     chat_provider: CONNECTION_PROFILE_PROVIDER, // 'connection_profile', 'openrouter' or 'vllm'; a new install starts on a profile, none chosen
+    has_shown_manual_connection_retirement_notice: false, // the notice that manual OpenRouter and vLLM retire, shown once per install
     chat_connection_profile_id: '', // the SillyTavern connection profile, read only while chat_provider is 'connection_profile'
     // summarize_openrouter_api_key and summarize_vllm_api_key are not in defaults: migrateLegacyApiKeys()
     // moves them into SECRET_KEYS.OPENROUTER and into SECRET_KEYS.CUSTOM (chat side) + SECRET_KEYS.VLLM
@@ -585,6 +586,9 @@ jQuery(async () => {
 
     // The settings panel, in SillyTavern's Extensions drawer
     mountSettingsPanel('extensions_settings2', settings, { runNetworkStartup });
+
+    // Once SillyTavern has loaded: the one-time notice that manual OpenRouter and vLLM retire
+    scheduleManualConnectionNotice(settings);
 
     // Initialize auto-sync checkbox state for current chat (if any)
     refreshAutoSyncCheckbox(settings);

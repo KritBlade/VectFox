@@ -24,7 +24,7 @@ import { embeddingProfileKind, resolveEmbeddingProfile } from '../embedding/inde
 import { testAgentModeConnection, testEventBaseConnection, testStoryArcConnection } from '../eventbase/index.js';
 import { describeChatConnectionProfile, resolveInheritedConnection } from '../llm-provider/index.js';
 import { getBackend } from '../vector-backend/index.js';
-import { chatProfileReadoutLines, embeddingProfileReadoutLines, profileSelectOptions } from './connection-rows-core.js';
+import { CHAT_CONSUMER_CONNECTIONS, chatProfileReadoutLines, embeddingProfileReadoutLines, ownProviderOf, profileSelectOptions } from './connection-rows-core.js';
 
 const EMBEDDING_PREFIX = 'VectFox_embedding';
 
@@ -35,15 +35,15 @@ const byId = id => document.getElementById(id);
 const fieldOf = inputId => byId(inputId)?.closest('.vfx-field') ?? null;
 const textOf = value => String(value ?? '').trim();
 
+const connectionOf = prefix => CHAT_CONSUMER_CONNECTIONS.find(connection => connection.prefix === prefix);
+
 /**
- * The four LLM consumers. `blankProvider` is what an unset provider means; '' is Same as EventBase model for the two
- * that `inheritsEventBase`. `manualRows` lists each row a choice shows, given the consumer's view.
+ * The four LLM consumers: their connection settings (connection-rows-core.js), their Test connection, and `manualRows`,
+ * each row a choice shows, given the consumer's view.
  */
 const CHAT_CONSUMERS = [
     {
-        prefix: 'VectFox_summarize', providerSelectId: 'VectFox_summarize_provider', providerKey: 'chat_provider',
-        profileKey: 'chat_connection_profile_id', feature: 'EventBase', page: 'Core', blankProvider: 'openrouter',
-        inheritsEventBase: false, test: testEventBaseConnection,
+        ...connectionOf('VectFox_summarize'), test: testEventBaseConnection,
         manualRows: view => [
             [byId('VectFox_summarize_settings'), !view.isOnProfile],
             [byId('VectFox_summarize_openrouter_row'), view.provider === 'openrouter'],
@@ -51,9 +51,7 @@ const CHAT_CONSUMERS = [
         ],
     },
     {
-        prefix: 'VectFox_agentic', providerSelectId: 'VectFox_agentic_provider', providerKey: 'agent_provider',
-        profileKey: 'agent_connection_profile_id', feature: 'Agent Mode', page: 'AgentMode', blankProvider: '',
-        inheritsEventBase: true, test: testAgentModeConnection,
+        ...connectionOf('VectFox_agentic'), test: testAgentModeConnection,
         manualRows: view => [
             [byId('VectFox_agentic_openrouter_row'), view.ownProvider === 'openrouter'],
             [byId('VectFox_agentic_vllm_row'), view.ownProvider === 'vllm'],
@@ -62,9 +60,7 @@ const CHAT_CONSUMERS = [
         ],
     },
     {
-        prefix: 'VectFox_reformat', providerSelectId: 'VectFox_reformat_provider', providerKey: 'reformat_provider',
-        profileKey: 'reformat_connection_profile_id', feature: 'Auto-Reformat', page: 'ChunkBase', blankProvider: '',
-        inheritsEventBase: true, test: testAutoReformatConnection,
+        ...connectionOf('VectFox_reformat'), test: testAutoReformatConnection,
         manualRows: view => [
             [byId('VectFox_reformat_vllm_row'), view.ownProvider === 'vllm'],
             [fieldOf('VectFox_reformat_model'), !view.isOnProfile],
@@ -72,9 +68,7 @@ const CHAT_CONSUMERS = [
         ],
     },
     {
-        prefix: 'VectFox_story_arc_link', providerSelectId: 'VectFox_story_arc_link_provider', providerKey: 'story_arc_link_provider',
-        profileKey: 'story_arc_link_connection_profile_id', feature: 'StoryArc', page: 'StoryArc', blankProvider: 'openrouter',
-        inheritsEventBase: false, test: testStoryArcConnection,
+        ...connectionOf('VectFox_story_arc_link'), test: testStoryArcConnection,
         manualRows: view => [[fieldOf('VectFox_story_arc_link_model'), !view.isOnProfile]],
     },
 ];
@@ -107,7 +101,7 @@ function paintReadout(element, lines) {
  * resolved, and whether that is its own profile or the EventBase model's.
  */
 function chatConsumerView(consumer, settings) {
-    const ownProvider = (textOf(settings[consumer.providerKey]) || consumer.blankProvider).toLowerCase();
+    const ownProvider = ownProviderOf(consumer, settings);
     const provider = consumer.inheritsEventBase ? resolveInheritedConnection({ provider: ownProvider }, settings).provider : ownProvider;
     const isOwnProfile = ownProvider === CONNECTION_PROFILE_PROVIDER;
     const isOnProfile = provider === CONNECTION_PROFILE_PROVIDER;

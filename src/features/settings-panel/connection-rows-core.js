@@ -2,10 +2,46 @@
  * ============================================================================
  * CONNECTION ROWS, PURE RULES
  * ============================================================================
- * What a Profile dropdown offers and what a profile readout says (connection plan
- * §1, §3), from facts connection-rows.js gathers. Pure: no host imports.
+ * The four LLM consumers' connection settings, what a Profile dropdown offers and what
+ * a profile readout says (connection plan §1, §3), from facts connection-rows.js
+ * gathers. Pure: no host imports.
  * ============================================================================
  */
+
+/**
+ * The four LLM consumers' connection settings: the setting each Provider dropdown and Profile dropdown saves, the
+ * feature and page messages name, and `blankProvider`, what an unset provider means; '' is Same as EventBase model for
+ * the two that `inheritsEventBase`.
+ */
+export const CHAT_CONSUMER_CONNECTIONS = Object.freeze([
+    {
+        prefix: 'VectFox_summarize', providerSelectId: 'VectFox_summarize_provider', providerKey: 'chat_provider',
+        profileKey: 'chat_connection_profile_id', feature: 'EventBase', page: 'Core', blankProvider: 'openrouter', inheritsEventBase: false,
+    },
+    {
+        prefix: 'VectFox_agentic', providerSelectId: 'VectFox_agentic_provider', providerKey: 'agent_provider',
+        profileKey: 'agent_connection_profile_id', feature: 'Agent Mode', page: 'AgentMode', blankProvider: '', inheritsEventBase: true,
+    },
+    {
+        prefix: 'VectFox_reformat', providerSelectId: 'VectFox_reformat_provider', providerKey: 'reformat_provider',
+        profileKey: 'reformat_connection_profile_id', feature: 'Auto-Reformat', page: 'ChunkBase', blankProvider: '', inheritsEventBase: true,
+    },
+    {
+        prefix: 'VectFox_story_arc_link', providerSelectId: 'VectFox_story_arc_link_provider', providerKey: 'story_arc_link_provider',
+        profileKey: 'story_arc_link_connection_profile_id', feature: 'StoryArc', page: 'StoryArc', blankProvider: 'openrouter', inheritsEventBase: false,
+    },
+].map(connection => Object.freeze(connection)));
+
+/**
+ * The provider a consumer's own Provider dropdown holds, an unset one read as its `blankProvider`.
+ *
+ * @param {{providerKey: string, blankProvider: string}} consumer - One of CHAT_CONSUMER_CONNECTIONS
+ * @param {object} settings
+ * @returns {string} Lower case, '' for Same as EventBase model
+ */
+export function ownProviderOf(consumer, settings) {
+    return (String(settings?.[consumer.providerKey] ?? '').trim() || consumer.blankProvider).toLowerCase();
+}
 
 const PLACEHOLDER_TEXT = 'Choose a profile';
 const DELETED_PROFILE_TEXT = '(deleted profile)';

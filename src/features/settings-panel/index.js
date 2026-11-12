@@ -6,3 +6,4 @@ export {
     mountSettingsPanel,
     refreshAutoSyncCheckbox,
 } from './settings-panel.js';
+export { scheduleManualConnectionNotice } from './manual-connection-notice.js';

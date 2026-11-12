@@ -5,12 +5,14 @@
  * These tests run VectFox's real start-up in src/index.js and hand the object it gives
  * the panel to that same line. They also check the connection defaults that start-up
  * fills in: a new install's LLM consumers and embedding start on a SillyTavern profile,
- * none chosen, and an existing install keeps the provider it saved (connection plan §1, §3).
+ * none chosen, and an existing install keeps the provider it saved (connection plan §1, §3);
+ * and that start-up schedules the one-time notice on manual OpenRouter and vLLM with the
+ * store itself, unshown on an install that never saw it (row N1).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { panel } = vi.hoisted(() => ({ panel: { settings: null } }));
+const { panel } = vi.hoisted(() => ({ panel: { settings: null, noticeSettings: null } }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({
     extension_settings: {},
@@ -63,6 +65,7 @@ vi.mock('../src/app/network-startup.js', () => ({
 vi.mock('../src/features/settings-panel/index.js', () => ({
     mountSettingsPanel: (_containerId, settings) => { panel.settings = settings; },
     refreshAutoSyncCheckbox: vi.fn(),
+    scheduleManualConnectionNotice: (settings) => { panel.noticeSettings = settings; },
 }));
 vi.mock('../src/features/database-browser/index.js', () => ({
     initializeDatabaseBrowser: vi.fn(),
@@ -87,6 +90,7 @@ const EARLIER_CHAT = 'Story - earlier chat';
 async function loadPage(storedSettings) {
     vi.resetModules();
     panel.settings = null;
+    panel.noticeSettings = null;
 
     let runStartUp = null;
     vi.stubGlobal('window', {});
@@ -207,6 +211,12 @@ describe('connection defaults at start-up', () => {
             reformat_provider: '', reformat_connection_profile_id: '',
             embedding_provider: 'custom', embedding_connection_profile_id: '',
         });
+    });
+
+    it('schedules the notice on manual OpenRouter and vLLM with the store itself, unshown on an install that never saw it', async () => {
+        const { extension_settings } = await loadPage({ chat_provider: 'openrouter' });
+        expect(panel.noticeSettings).toBe(extension_settings.vectfox);
+        expect(extension_settings.vectfox.has_shown_manual_connection_retirement_notice).toBe(false);
     });
 
     it('keeps the providers an existing install saved', async () => {
