@@ -11,6 +11,7 @@
     --vfx-web-caused-by: 45, 212, 191;
     --vfx-web-reveals: 251, 191, 36;
     --vfx-web-ring: 248, 250, 252;
+    --vfx-web-spark: 255, 255, 255;
 }
 
 /* The holder takes no box, so its button sits in the control row as the row's own child, and an empty holder adds no gap. */

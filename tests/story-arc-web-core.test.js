@@ -8,23 +8,33 @@
  *   - a pointer means the nearest allowed dot within reach, whatever its size,
  *   - a sub graph holds a node, what it links to and the links among them, unplaced, and leaves the whole web as it was,
  *   - a label wraps Chinese anywhere and keeps a Latin word whole, and a hover card stays inside the canvas,
- *   - a selected event's markup escapes story text.
+ *   - a selected event's markup escapes story text,
+ *   - the web's lights run only in the whole web at rest while it floats, hold under the pointer, and go out otherwise,
+ *   - few light at once, at most 6 sparks and 4 flares, never two on one link or dot, and spread over the web in time,
+ *   - a spark runs from the earlier event to the later, goes on only along a link to a later event, up to 4 links,
+ *   - a flare swells and fades, and a step leaves the lights it was given as they were.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
+    NO_LIGHTS,
+    advanceLights,
     bowedLinkMiddle,
     buildStoryWeb,
     colourAlong,
     doBoxesOverlap,
     dotShortLabel,
     dotText,
+    flareSwell,
     hoverCardSpot,
+    lightCounts,
+    lightsModeOf,
     linkEndId,
     linksOfNode,
     nearestNodeWithin,
     pointAlongBow,
     selectedEventMarkup,
+    sparkTrail,
     storySubWeb,
     wrapLabelLines,
 } from '../src/features/eventbase/story-arc-web-core.js';
@@ -273,5 +283,199 @@ describe('selectedEventMarkup', () => {
         expect(markup).toContain('&lt;b&gt;bold&lt;/b&gt;');
         expect(markup).not.toContain('<b>bold');
         expect(markup).toContain('continues #10: A &amp; B');
+    });
+});
+
+describe('the web\'s lights', () => {
+    const atRest = { isFloating: true, isSettled: true, isPointedAt: false, isWholeWeb: true, isShowingFound: false };
+    const FRAME_SECONDS = 1 / 30;
+    const oneSecondEach = () => 1;
+
+    /** A repeatable random (mulberry32), so a long run of steps is the same each time. */
+    function seededRandom(seed) {
+        let state = seed >>> 0;
+        return () => {
+            state = (state + 0x6D2B79F5) >>> 0;
+            let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+            mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+            return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    /** Hands out the given values in turn, then never lights anything. */
+    function randomInTurn(values) {
+        let index = 0;
+        return () => (index < values.length ? values[index++] : 0.999);
+    }
+
+    /** Events in a row, each linked to the one before, as the library holds them: link ends are nodes. */
+    function webInARow(count) {
+        const nodes = Array.from({ length: count }, (_, id) => ({ id }));
+        const links = nodes.slice(1).map((node, index) => ({ source: node, target: nodes[index], type: 'continues' }));
+        return { nodes, links };
+    }
+
+    describe('lightsModeOf', () => {
+        it('runs in the whole web at rest while it floats', () => {
+            expect(lightsModeOf(atRest)).toBe('run');
+        });
+
+        it('holds still while a pointer stops the web, and while its layout still moves', () => {
+            expect(lightsModeOf({ ...atRest, isPointedAt: true })).toBe('hold');
+            expect(lightsModeOf({ ...atRest, isSettled: false })).toBe('hold');
+        });
+
+        it('goes out in a paused web, a sub graph, and on a search\'s events', () => {
+            expect(lightsModeOf({ ...atRest, isFloating: false })).toBe('off');
+            expect(lightsModeOf({ ...atRest, isWholeWeb: false })).toBe('off');
+            expect(lightsModeOf({ ...atRest, isShowingFound: true })).toBe('off');
+        });
+    });
+
+    describe('lightCounts', () => {
+        it('lights one of each among a few', () => {
+            expect(lightCounts(7, 3)).toEqual({ sparks: 1, flares: 1 });
+        });
+
+        it('lights no spark without links, and nothing in an empty web', () => {
+            expect(lightCounts(5, 0)).toEqual({ sparks: 0, flares: 1 });
+            expect(lightCounts(0, 0)).toEqual({ sparks: 0, flares: 0 });
+        });
+
+        it('lights at most 6 sparks and 4 flares, however big the web', () => {
+            expect(lightCounts(5000, 9000)).toEqual({ sparks: 6, flares: 4 });
+        });
+    });
+
+    describe('advanceLights', () => {
+        it('keeps to its counts over a long run, never lights a link or dot twice, and spreads over the web', () => {
+            const { nodes, links } = webInARow(1000);
+            const counts = lightCounts(nodes.length, links.length);
+            const random = seededRandom(7);
+            const litLinks = new Set();
+            const litNodes = new Set();
+            let mostSparks = 0;
+            let lights = NO_LIGHTS;
+            for (let step = 0; step < 3000; step += 1) {
+                lights = advanceLights(lights, { seconds: FRAME_SECONDS, nodes, links, sparkSeconds: oneSecondEach, random });
+                expect(lights.sparks.length).toBeLessThanOrEqual(counts.sparks);
+                expect(lights.flares.length).toBeLessThanOrEqual(counts.flares);
+                expect(new Set(lights.sparks.map(spark => spark.link)).size).toBe(lights.sparks.length);
+                expect(new Set(lights.flares.map(flare => flare.node)).size).toBe(lights.flares.length);
+                for (const spark of lights.sparks) litLinks.add(spark.link);
+                for (const flare of lights.flares) litNodes.add(flare.node);
+                mostSparks = Math.max(mostSparks, lights.sparks.length);
+            }
+            expect(mostSparks).toBeGreaterThan(1);
+            expect(litLinks.size).toBeGreaterThan(50);
+            expect(litNodes.size).toBeGreaterThan(50);
+        });
+
+        it('lights no link or dot twice at once, when the random pick lands on a lit one', () => {
+            const { nodes, links } = webInARow(201);
+            const lights = advanceLights(NO_LIGHTS, { seconds: 1, nodes, links, sparkSeconds: oneSecondEach, random: () => 0 });
+            expect(lights.sparks.length).toBeGreaterThan(0);
+            expect(new Set(lights.sparks.map(spark => spark.link)).size).toBe(lights.sparks.length);
+            expect(lights.flares.length).toBeGreaterThan(0);
+            expect(new Set(lights.flares.map(flare => flare.node)).size).toBe(lights.flares.length);
+        });
+
+        it('lights nothing when no time passes, or while the rest has not run out', () => {
+            const { nodes, links } = webInARow(10);
+            expect(advanceLights(NO_LIGHTS, { seconds: 0, nodes, links, sparkSeconds: oneSecondEach, random: () => 0 })).toEqual(NO_LIGHTS);
+            expect(advanceLights(NO_LIGHTS, { seconds: 1, nodes, links, sparkSeconds: oneSecondEach, random: () => 0.999 })).toEqual(NO_LIGHTS);
+        });
+
+        it('starts a spark at the start of its run, timed for its link, and a flare from nothing', () => {
+            const { nodes, links } = webInARow(3);
+            const lights = advanceLights(NO_LIGHTS, { seconds: 1, nodes, links, sparkSeconds: link => link.source.id * 0.5, random: () => 0 });
+            expect(lights.sparks).toEqual([{ link: links[0], age: 0, duration: 0.5, linksRun: 1 }]);
+            expect(lights.flares).toHaveLength(1);
+            expect(lights.flares[0].age).toBe(0);
+            expect(flareSwell(lights.flares[0])).toBe(0);
+        });
+
+        it('sends a spark on along a link from the event it reaches to a later one, never back', () => {
+            const nodes = ['older', 'earlier', 'reached', 'later'].map(id => ({ id }));
+            const [older, earlier, reached, later] = nodes;
+            const back = { source: reached, target: older, type: 'reveals' };
+            const run = { source: reached, target: earlier, type: 'continues' };
+            const onward = { source: later, target: reached, type: 'continues' };
+            const lights = advanceLights(
+                { sparks: [{ link: run, age: 0.9, duration: 1, linksRun: 1 }], flares: [] },
+                { seconds: 0.2, nodes, links: [back, run, onward], sparkSeconds: oneSecondEach, random: randomInTurn([0, 0]) },
+            );
+            expect(lights.sparks).toHaveLength(1);
+            expect(lights.sparks[0].link).toBe(onward);
+            expect(lights.sparks[0].linksRun).toBe(2);
+            expect(lights.sparks[0].age).toBeCloseTo(0.1);
+        });
+
+        it('ends a spark at the newest event', () => {
+            const { nodes, links } = webInARow(3);
+            const lights = advanceLights(
+                { sparks: [{ link: links[1], age: 0.9, duration: 1, linksRun: 1 }], flares: [] },
+                { seconds: 0.2, nodes, links, sparkSeconds: oneSecondEach, random: randomInTurn([0]) },
+            );
+            expect(lights.sparks).toEqual([]);
+        });
+
+        it('sends a spark on up to 4 links, then ends it', () => {
+            const { nodes, links } = webInARow(3);
+            const arriving = linksRun => ({ sparks: [{ link: links[0], age: 0.9, duration: 1, linksRun }], flares: [] });
+            const step = { seconds: 0.2, nodes, links, sparkSeconds: oneSecondEach };
+            expect(advanceLights(arriving(3), { ...step, random: randomInTurn([0, 0]) }).sparks.map(spark => spark.linksRun)).toEqual([4]);
+            expect(advanceLights(arriving(4), { ...step, random: randomInTurn([0, 0]) }).sparks.map(spark => spark.linksRun)).not.toContain(5);
+        });
+
+        it('ends a flare when its time is up', () => {
+            const { nodes, links } = webInARow(3);
+            const flare = { node: nodes[1], age: 2.9, duration: 3, peak: 2 };
+            const lights = advanceLights({ sparks: [], flares: [flare] }, { seconds: 0.2, nodes, links, sparkSeconds: oneSecondEach, random: () => 0.999 });
+            expect(lights.flares).toEqual([]);
+        });
+
+        it('leaves the lights it is given as they were', () => {
+            const { nodes, links } = webInARow(4);
+            const given = { sparks: [{ link: links[0], age: 0.2, duration: 1, linksRun: 1 }], flares: [{ node: nodes[3], age: 1, duration: 3, peak: 2 }] };
+            const before = structuredClone(given);
+            advanceLights(given, { seconds: 0.5, nodes, links, sparkSeconds: oneSecondEach, random: () => 0 });
+            expect(given).toEqual(before);
+        });
+    });
+
+    describe('flareSwell', () => {
+        it('starts and ends at nothing, eases in and out, and holds full through its middle', () => {
+            const at = age => flareSwell({ age, duration: 2 });
+            expect(at(0)).toBe(0);
+            expect(at(0.1)).toBeGreaterThan(0);
+            expect(at(0.1)).toBeLessThan(at(0.3));
+            expect(at(0.8)).toBe(1);
+            expect(at(1.2)).toBe(1);
+            expect(at(1.9)).toBeLessThan(at(1.7));
+            expect(at(2)).toBe(0);
+        });
+    });
+
+    describe('sparkTrail', () => {
+        const earlier = { x: 0, y: 0 };
+        const later = { x: 100, y: 0 };
+
+        it('puts the head at the earlier event as it leaves and at the later as it arrives', () => {
+            expect(sparkTrail(earlier, later, 0, 28).head).toEqual({ x: 0, y: 0 });
+            expect(sparkTrail(earlier, later, 1, 28).head).toEqual({ x: 100, y: 0 });
+        });
+
+        it('trails the tail behind the head, and starts it no further back than the earlier event', () => {
+            const halfway = sparkTrail(earlier, later, 0.5, 28);
+            expect(halfway.head).toEqual({ x: 50, y: 0 });
+            expect(halfway.tail.x).toBeCloseTo(22);
+            expect(halfway.tail.y).toBe(0);
+            expect(sparkTrail(earlier, later, 0.1, 28).tail).toEqual({ x: 0, y: 0 });
+        });
+
+        it('stays on the spot of a link with no length', () => {
+            expect(sparkTrail(earlier, earlier, 0.5, 28)).toEqual({ head: { x: 0, y: 0 }, tail: { x: 0, y: 0 } });
+        });
     });
 });

@@ -6,7 +6,9 @@
  * zoom and pan. The web floats. A pointer near a dot stops it and lights that dot, its
  * links with beads running from the earlier event to the later, and its connected dots.
  * Clicking a dot goes into a sub graph of that dot and its connected dots, where each
- * can be clicked in turn.
+ * can be clicked in turn. While the whole web floats at rest, a few sparks run along
+ * random links from the earlier event to the later, and a few random dots flare: they
+ * swell and glow, then fade. advanceLights in story-arc-web-core.js picks them.
  *
  * All of that is drawn on the canvas. Nothing here may write an inline style as the
  * pointer moves: SillyTavern's stylesheets test the style attribute inside :has(), so
@@ -17,7 +19,7 @@
  * ============================================================================
  */
 
-import { bowedLinkMiddle, colourAlong, doBoxesOverlap, dotShortLabel, dotText, hoverCardSpot, linkEndId, nearestNodeWithin, pointAlongBow, storySubWeb, wrapLabelLines } from './story-arc-web-core.js';
+import { NO_LIGHTS, advanceLights, bowedLinkMiddle, colourAlong, doBoxesOverlap, dotShortLabel, dotText, flareSwell, hoverCardSpot, lightsModeOf, linkEndId, nearestNodeWithin, pointAlongBow, sparkTrail, storySubWeb, wrapLabelLines } from './story-arc-web-core.js';
 
 const FORCE_GRAPH_URL = new URL('../../vendor/force-graph-1.52.0.min.js', import.meta.url).href;
 
@@ -34,6 +36,19 @@ const FLOAT_REACH_PX = 8;
 const FLOAT_LONGEST_STEP_MS = 100;
 const BEAD_LAPS_PER_SECOND = 0.45;
 const BEAD_RADIUS_PX = 2.2;
+
+/** A spark crosses the screen at one speed, held within these times, so it still shows on a short link. */
+const SPARK_PX_PER_SECOND = 110;
+const SPARK_SECONDS = { low: 0.7, high: 2.6 };
+const SPARK_TAIL_PX = 44;
+const SPARK_TAIL_WIDTH_PX = 2;
+const SPARK_HEAD_PX = 2.4;
+const SPARK_GLOW_PX = 16;
+/** The share of its run over which a spark brightens as it leaves an event and dims as it reaches one. */
+const SPARK_FADE_SHARE = 0.12;
+const FLARE_GLOW_PX = 30;
+const FLARE_HALO = { scale: 2.6, alpha: 0.3 };
+const FLARE_CORE = { scale: 0.45, alpha: 0.85 };
 
 const LINK_ALPHA = { resting: 0.3, found: 0.75, lit: 0.95, dimmed: 0.03 };
 const LINK_WIDTH = { resting: 0.6, found: 1.4, dimmed: 0.5 };
@@ -83,6 +98,7 @@ export async function drawStoryWeb(container, web, { onViewChange, isFloating: s
         reveals: style.getPropertyValue('--vfx-web-reveals'),
     };
     const ringColour = `rgb(${style.getPropertyValue('--vfx-web-ring')})`;
+    const sparkChannels = style.getPropertyValue('--vfx-web-spark');
     const surfaceColour = style.getPropertyValue('--vfx-surface-solid').trim();
     const textColour = style.getPropertyValue('--vfx-text').trim();
     const bodyFont = `12px ${style.fontFamily}`;
@@ -115,6 +131,7 @@ export async function drawStoryWeb(container, web, { onViewChange, isFloating: s
     let foundLinks = [];
     let closestIds = new Set();
     let linkState = 'resting';
+    let lights = NO_LIGHTS;
 
     const isShown = id => centreId !== null || reachedIds === null || reachedIds.has(id);
     const dotRadius = (node, scale) => {
@@ -178,6 +195,7 @@ export async function drawStoryWeb(container, web, { onViewChange, isFloating: s
             if (hoveredNode !== null) drawHover(context, scale);
             else if (centreId !== null) drawSubWeb(context, scale);
             else if (reachedIds !== null) drawBeads(context, foundLinks);
+            else drawLights(context, scale);
             context.restore();
         });
     container.querySelector('.float-tooltip-kap')?.remove();
@@ -269,18 +287,45 @@ export async function drawStoryWeb(container, web, { onViewChange, isFloating: s
     /** Moves the dots, unless the pointer has stopped them, then settles what this frame lights. */
     function prepareFrame(scale) {
         const now = performance.now();
+        const seconds = Math.min(now - lastFloatAt, FLOAT_LONGEST_STEP_MS) / 1000;
+        lastFloatAt = now;
         if (isFloating && isSettled && hoveredNode === null) {
-            floatSeconds += Math.min(now - lastFloatAt, FLOAT_LONGEST_STEP_MS) / 1000;
+            floatSeconds += seconds;
             const reach = FLOAT_REACH_PX / scale;
             for (const node of shownWeb.nodes) {
                 node.x = node.homeX + reach * Math.sin(floatSeconds * 0.6 + node.phase);
                 node.y = node.homeY + reach * Math.cos(floatSeconds * 0.5 + node.phase * 1.3);
             }
         }
-        lastFloatAt = now;
         refreshHover();
         if (hoveredNode !== null) linkState = 'dimmed';
         else linkState = centreId !== null || reachedIds !== null ? 'found' : 'resting';
+        stepLights(seconds);
+    }
+
+    const isOnCanvas = spot => spot.x >= 0 && spot.y >= 0 && spot.x <= graph.width() && spot.y <= graph.height();
+
+    function sparkSecondsAlong(link) {
+        const earlier = spotOf(link.target);
+        const later = spotOf(link.source);
+        const seconds = Math.hypot(later.x - earlier.x, later.y - earlier.y) / SPARK_PX_PER_SECOND;
+        return Math.min(Math.max(seconds, SPARK_SECONDS.low), SPARK_SECONDS.high);
+    }
+
+    /** Moves the lights on among the dots and links on the canvas, or holds or ends them, as lightsModeOf says. */
+    function stepLights(seconds) {
+        const mode = lightsModeOf({ isFloating, isSettled, isPointedAt: hoveredNode !== null, isWholeWeb: centreId === null, isShowingFound: reachedIds !== null });
+        if (mode === 'off') lights = NO_LIGHTS;
+        if (mode !== 'run') return;
+        const nodesOnCanvas = shownWeb.nodes.filter(node => isOnCanvas(spotOf(node)));
+        const idsOnCanvas = new Set(nodesOnCanvas.map(node => node.id));
+        lights = advanceLights(lights, {
+            seconds,
+            nodes: nodesOnCanvas,
+            links: shownWeb.links.filter(link => idsOnCanvas.has(linkEndId(link.source)) && idsOnCanvas.has(linkEndId(link.target))),
+            sparkSeconds: sparkSecondsAlong,
+            random: Math.random,
+        });
     }
 
     const spotOf = node => graph.graph2ScreenCoords(node.x, node.y);
@@ -411,6 +456,62 @@ export async function drawStoryWeb(container, web, { onViewChange, isFloating: s
         for (const node of inLabelOrder) drawDotLabel(context, node, { spot: spotOf(node), radius: dotRadius(node, scale) }, takenBoxes);
     }
 
+    /** A spark: a bright head with its link's glow, and a tail fading back along the link. */
+    function drawSpark(context, spark) {
+        const share = spark.age / spark.duration;
+        const { head, tail } = sparkTrail(spotOf(spark.link.target), spotOf(spark.link.source), share, SPARK_TAIL_PX);
+        const channels = channelsOfLink(spark.link);
+        context.globalAlpha = Math.min(1, share / SPARK_FADE_SHARE, (1 - share) / SPARK_FADE_SHARE);
+        const trail = context.createLinearGradient(tail.x, tail.y, head.x, head.y);
+        trail.addColorStop(0, `rgba(${channels}, 0)`);
+        trail.addColorStop(1, `rgba(${sparkChannels}, 0.9)`);
+        context.strokeStyle = trail;
+        context.lineWidth = SPARK_TAIL_WIDTH_PX;
+        context.lineCap = 'round';
+        context.beginPath();
+        context.moveTo(tail.x, tail.y);
+        context.lineTo(head.x, head.y);
+        context.stroke();
+        context.fillStyle = `rgb(${sparkChannels})`;
+        context.shadowColor = `rgb(${channels})`;
+        context.shadowBlur = SPARK_GLOW_PX;
+        context.beginPath();
+        context.arc(head.x, head.y, SPARK_HEAD_PX, 0, TWO_PI);
+        context.fill();
+        context.shadowBlur = 0;
+        context.globalAlpha = 1;
+    }
+
+    /** A flare: its dot swollen and glowing, in a faint halo, with a bright core at its height. */
+    function drawFlare(context, flare, scale) {
+        const swell = flareSwell(flare);
+        const spot = spotOf(flare.node);
+        const radius = dotRadius(flare.node, scale) * (1 + (flare.peak - 1) * swell);
+        context.fillStyle = flare.node.colour;
+        context.globalAlpha = FLARE_HALO.alpha * swell;
+        context.beginPath();
+        context.arc(spot.x, spot.y, radius * FLARE_HALO.scale, 0, TWO_PI);
+        context.fill();
+        context.globalAlpha = 1;
+        context.shadowColor = flare.node.colour;
+        context.shadowBlur = FLARE_GLOW_PX * swell;
+        context.beginPath();
+        context.arc(spot.x, spot.y, radius, 0, TWO_PI);
+        context.fill();
+        context.shadowBlur = 0;
+        context.globalAlpha = FLARE_CORE.alpha * swell;
+        context.fillStyle = `rgb(${sparkChannels})`;
+        context.beginPath();
+        context.arc(spot.x, spot.y, radius * FLARE_CORE.scale, 0, TWO_PI);
+        context.fill();
+        context.globalAlpha = 1;
+    }
+
+    function drawLights(context, scale) {
+        for (const flare of lights.flares) drawFlare(context, flare, scale);
+        for (const spark of lights.sparks) drawSpark(context, spark);
+    }
+
     const pointerSpotOf = (event) => {
         const box = canvas.getBoundingClientRect();
         return { x: event.clientX - box.left, y: event.clientY - box.top };
@@ -465,7 +566,7 @@ export async function drawStoryWeb(container, web, { onViewChange, isFloating: s
             for (const node of [...web.nodes, ...(centreId === null ? [] : shownWeb.nodes)]) node.line = lineById.get(node.id) ?? node.line;
             hoverCard = null;
         },
-        /** Floating costs a redraw about 30 times a second, which a pause stops. */
+        /** Floating, and the lights that come with it, cost a redraw about 30 times a second, which a pause stops. */
         setFloating(shouldFloat) {
             isFloating = shouldFloat;
             drawSoon();

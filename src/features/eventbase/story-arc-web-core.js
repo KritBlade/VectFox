@@ -4,8 +4,9 @@
  * ============================================================================
  * The story's events and links as a graph to draw: one node per event, one link
  * per stored story link, pointing from the later event to the earlier one, and the
- * sums the drawing needs. Pure: no host imports, and no drawing, only the markup of
- * a selected event.
+ * sums the drawing needs, the web's lights among them: which links carry a spark
+ * and which dots flare, and when. Pure: no host imports, and no drawing, only the
+ * markup of a selected event.
  * ============================================================================
  */
 
@@ -205,6 +206,160 @@ export function colourAlong(share, stops) {
     const lower = Math.min(Math.floor(place), stops.length - 2);
     const mixed = stops[lower].map((value, channel) => Math.round(value + (stops[lower + 1][channel] - value) * (place - lower)));
     return `rgb(${mixed.join(',')})`;
+}
+
+/**
+ * How the web's lights behave. A spark runs along a link from its earlier event to its later, and may go on along a
+ * link from the event it reaches. A flare swells a dot and makes it glow, then fades. Few light at once, so most
+ * links and dots stay quiet, and a free place waits a random rest before it lights again.
+ */
+const LIGHTS = {
+    linksPerSpark: 80,
+    mostSparks: 6,
+    sparkRestSeconds: 1.5,
+    sparkGoesOnChance: 0.55,
+    mostLinksPerSpark: 4,
+    nodesPerFlare: 120,
+    mostFlares: 4,
+    flareRestSeconds: 1.2,
+    flareSeconds: { low: 2.4, high: 3.6 },
+    flarePeak: { low: 2.2, high: 3.2 },
+    flareRiseShare: 0.3,
+    pickTries: 3,
+};
+
+/** @typedef {{link: object, age: number, duration: number, linksRun: number}} Spark */
+/** @typedef {{node: object, age: number, duration: number, peak: number}} Flare */
+/** @typedef {{sparks: Spark[], flares: Flare[]}} WebLights */
+
+/** @type {WebLights} */
+export const NO_LIGHTS = Object.freeze({ sparks: Object.freeze([]), flares: Object.freeze([]) });
+
+/**
+ * What the web's lights do in a frame: they run in the whole web at rest while it floats, hold still while a pointer
+ * stops the web or its layout still moves, and go out in a sub graph, on a search's events, and in a paused web.
+ *
+ * @param {{isFloating: boolean, isSettled: boolean, isPointedAt: boolean, isWholeWeb: boolean, isShowingFound: boolean}} web
+ * @returns {'run'|'hold'|'off'}
+ */
+export function lightsModeOf({ isFloating, isSettled, isPointedAt, isWholeWeb, isShowingFound }) {
+    if (!isFloating || !isWholeWeb || isShowingFound) return 'off';
+    return isSettled && !isPointedAt ? 'run' : 'hold';
+}
+
+/**
+ * How many sparks and flares may light at once among some dots and links: one of each when there are few, and a few
+ * at most when there are many.
+ *
+ * @param {number} nodeCount
+ * @param {number} linkCount
+ * @returns {{sparks: number, flares: number}}
+ */
+export function lightCounts(nodeCount, linkCount) {
+    const countFor = (itemCount, itemsPerLight, most) => (itemCount === 0 ? 0 : Math.min(most, Math.max(1, Math.round(itemCount / itemsPerLight))));
+    return {
+        sparks: countFor(linkCount, LIGHTS.linksPerSpark, LIGHTS.mostSparks),
+        flares: countFor(nodeCount, LIGHTS.nodesPerFlare, LIGHTS.mostFlares),
+    };
+}
+
+/** A random item not lit already, or null when a few tries find none. */
+function pickUnlit(items, litItems, random) {
+    if (items.length === 0) return null;
+    for (let tries = 0; tries < LIGHTS.pickTries; tries += 1) {
+        const item = items[Math.min(items.length - 1, Math.floor(random() * items.length))];
+        if (!litItems.has(item)) return item;
+    }
+    return null;
+}
+
+const between = ({ low, high }, random) => low + (high - low) * random();
+
+/** The chance a free place lights within some seconds, when it lights on average after a rest. */
+const lightChance = (seconds, restSeconds) => 1 - Math.exp(-seconds / restSeconds);
+
+/**
+ * The web's lights some seconds on. Finished flares end. A spark that reaches its later event may go on along a link
+ * from that event to a later one, up to a few links, and otherwise ends. Free places then light at random, each on a
+ * link or dot not lit already.
+ *
+ * @param {WebLights} lights
+ * @param {object} step
+ * @param {number} step.seconds - Since the last step
+ * @param {object[]} step.nodes - The dots a flare may take
+ * @param {object[]} step.links - The links a spark may take
+ * @param {(link: object) => number} step.sparkSeconds - How long a spark takes along a link
+ * @param {() => number} step.random - From 0 up to 1
+ * @returns {WebLights} New lights: the ones given are left as they were
+ */
+export function advanceLights(lights, { seconds, nodes, links, sparkSeconds, random }) {
+    const counts = lightCounts(nodes.length, links.length);
+    const litLinks = new Set(lights.sparks.map(spark => spark.link));
+    const sparks = [];
+    for (const spark of lights.sparks) {
+        const age = spark.age + seconds;
+        if (age < spark.duration) {
+            sparks.push({ ...spark, age });
+            continue;
+        }
+        if (spark.linksRun >= LIGHTS.mostLinksPerSpark || random() >= LIGHTS.sparkGoesOnChance) continue;
+        const reachedId = linkEndId(spark.link.source);
+        const link = pickUnlit(links.filter(onward => linkEndId(onward.target) === reachedId), litLinks, random);
+        if (link === null) continue;
+        litLinks.add(link);
+        sparks.push({ link, age: age - spark.duration, duration: sparkSeconds(link), linksRun: spark.linksRun + 1 });
+    }
+    for (let place = sparks.length; place < counts.sparks; place += 1) {
+        if (random() >= lightChance(seconds, LIGHTS.sparkRestSeconds)) continue;
+        const link = pickUnlit(links, litLinks, random);
+        if (link === null) continue;
+        litLinks.add(link);
+        sparks.push({ link, age: 0, duration: sparkSeconds(link), linksRun: 1 });
+    }
+
+    const flares = lights.flares.map(flare => ({ ...flare, age: flare.age + seconds })).filter(flare => flare.age < flare.duration);
+    const litNodes = new Set(flares.map(flare => flare.node));
+    for (let place = flares.length; place < counts.flares; place += 1) {
+        if (random() >= lightChance(seconds, LIGHTS.flareRestSeconds)) continue;
+        const node = pickUnlit(nodes, litNodes, random);
+        if (node === null) continue;
+        litNodes.add(node);
+        flares.push({ node, age: 0, duration: between(LIGHTS.flareSeconds, random), peak: between(LIGHTS.flarePeak, random) });
+    }
+    return { sparks, flares };
+}
+
+/** 0 to 1, easing in and out. */
+const easeInOut = share => share * share * (3 - 2 * share);
+
+/**
+ * How far a flare has swollen: 0 as it starts, full through its middle, and 0 again as it ends, easing into each.
+ *
+ * @param {Flare} flare
+ * @returns {number}
+ */
+export function flareSwell(flare) {
+    const share = Math.min(Math.max(flare.age / flare.duration, 0), 1);
+    const risen = Math.min(share / LIGHTS.flareRiseShare, 1);
+    const fallen = Math.min((1 - share) / LIGHTS.flareRiseShare, 1);
+    return easeInOut(Math.min(risen, fallen));
+}
+
+/**
+ * A spark's head and the end of its tail on a straight link, at a share of its run from the earlier event to the
+ * later. The tail trails the head and starts no further back than the earlier event.
+ *
+ * @param {{x: number, y: number}} earlier
+ * @param {{x: number, y: number}} later
+ * @param {number} share - 0 at the earlier event, 1 at the later
+ * @param {number} tailLength - In the same units as the spots
+ * @returns {{head: {x: number, y: number}, tail: {x: number, y: number}}}
+ */
+export function sparkTrail(earlier, later, share, tailLength) {
+    const length = Math.hypot(later.x - earlier.x, later.y - earlier.y);
+    const tailShare = length === 0 ? share : Math.max(0, share - tailLength / length);
+    const spotAt = place => ({ x: earlier.x + (later.x - earlier.x) * place, y: earlier.y + (later.y - earlier.y) * place });
+    return { head: spotAt(share), tail: spotAt(tailShare) };
 }
 
 /**
