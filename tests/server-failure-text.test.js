@@ -102,8 +102,27 @@ test('an error from SillyTavern\'s own embedding functions loses the reply it qu
     assert.equal(bare.message, 'LlamaCpp: Failed to get vector for text');
 });
 
+test('nginx\'s own reason phrases give their codes, and another phrase takes its code from the error page', () => {
+    const quote = (phrase, page) => errorWithoutServerReply(new Error(`VLLM: Failed to get vector for text: ${phrase} ${page}`)).message;
+    assert.equal(quote('Service Temporarily Unavailable', nginxPage(503, 'Service Temporarily Unavailable')), 'VLLM: Failed to get vector for text: 503 Service Temporarily Unavailable');
+    assert.equal(quote('Gateway Time-out', nginxPage(504, 'Gateway Time-out')), 'VLLM: Failed to get vector for text: 504 Gateway Time-out (the server timed out)');
+    assert.equal(quote('Not Allowed', nginxPage(405, 'Not Allowed')), 'VLLM: Failed to get vector for text: 405 Not Allowed');
+    // The server's own phrase stays with the reply, which is never passed on.
+    assert.equal(quote('Down for maintenance', '<html><head><title>503 Service Unavailable</title></head></html>'), 'VLLM: Failed to get vector for text: 503');
+    assert.equal(quote('Down for maintenance', 'come back later'), 'VLLM: Failed to get vector for text');
+});
+
+// nginx's own error page, as it serves it when it answers a request itself, with its own reason phrase.
+const nginxPage = (code, phrase) => `<html>\r\n<head><title>${code} ${phrase}</title></head>\r\n<body>\r\n<center><h1>${code} ${phrase}</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n`;
+
 // Replies a server can give, as SillyTavern's own functions quote them and as the plugin's own requests see them.
 const FAILED_REPLIES = [
+    [503, 'Service Temporarily Unavailable', nginxPage(503, 'Service Temporarily Unavailable')],
+    [504, 'Gateway Time-out', nginxPage(504, 'Gateway Time-out')],
+    [408, 'Request Time-out', nginxPage(408, 'Request Time-out')],
+    [405, 'Not Allowed', nginxPage(405, 'Not Allowed')],
+    [413, 'Request Entity Too Large', nginxPage(413, 'Request Entity Too Large')],
+    [503, 'Down for maintenance', '<html><head><title>503 Service Unavailable</title></head><body>Back soon.</body></html>'],
     [502, 'Bad Gateway', '<html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx</center></body></html>'],
     [502, 'Bad Gateway', ''],
     [503, 'Service Unavailable', '<!DOCTYPE html><title>503 Service Temporarily Unavailable</title>'],

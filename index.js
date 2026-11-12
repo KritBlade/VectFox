@@ -729,7 +729,7 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     const openaiCompatible = new Set(['openai', 'openrouter', 'togetherai', 'mistral', 'electronhub']);
     if (openaiCompatible.has(source)) {
         const { getOpenAIBatchVector } = await import('../../src/vectors/openai-vectors.js');
-        // ElectronHub requires a model name; mirror getEmbeddingForSource's default
+        // ElectronHub requires a model name; mirror getEmbeddingFromSillyTavernSource's default
         const effectiveModel = (source === 'electronhub' && !model) ? 'text-embedding-ada-002' : model;
         // Conservative cap — OpenAI's /embeddings allows arrays up to 2048
         // entries, but staying at 100 keeps any single request small enough

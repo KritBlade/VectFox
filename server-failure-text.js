@@ -6,12 +6,13 @@
 // retries on, is not carried, as no hint would describe it.
 //
 // SillyTavern's own embedding functions put the status text and the reply into their errors, so the code is read back
-// from the status text. Anything else that reaches the client passes through redactKeyMaterial, the last guard.
+// from the status text, nginx's own wording included, or else from an error page whose title starts with it. Anything
+// else that reaches the client passes through redactKeyMaterial, the last guard.
 
 const KEY_REFUSED = /unauthori[sz]ed|authoriz|api[ _-]?key|apikey|authenticat|credential/i;
 const MODEL_INVALID = /deprecated|no endpoints?|no allowed providers?|not found|not_found|no such model|unknown model|invalid model|not a valid model|does not exist|doesn't exist/i;
 const SERVER_BUSY = /overloaded|rate.?limit|too many requests|over capacity|\bbusy\b|try again later/i;
-const SERVER_TIMEOUT = /timed? ?out|timeout/i;
+const SERVER_TIMEOUT = /timed?[ -]?out/i;
 const NETWORK_FAILURE = /network|fetch|econnrefused|econnreset|enotfound|eai_again|etimedout|ehostunreach|enetunreach|epipe|getaddrinfo|socket hang up|connection (?:refused|error)|refused to connect|could not connect|invalid[ _]url|err_connection|net::err|dns lookup/i;
 
 // What the server did, in the order a message names it, and what earns each.
@@ -23,16 +24,22 @@ const HINTS = [
     { text: 'reports a network error', isEarned: ({ reply }) => NETWORK_FAILURE.test(reply) },
 ];
 
-// SillyTavern 1.19.0's vllm-vectors.js, ollama-vectors.js and llamacpp-vectors.js throw
-// "<name>: Failed to get vector for text: <status text> <reply>".
+// SillyTavern 1.19.0's vllm-vectors.js throws "VLLM: Failed to get vector for text: <status text> <reply>", and
+// ollama-vectors.js "Ollama: Failed to get batch vectors: <status text> <reply>".
 const SILLYTAVERN_REPLY_ERROR = /^(.*?Failed to get (?:batch )?vectors?(?: for text)?):\s*(.*)$/s;
-const STATUS_CODES = new Map([
-    ['Bad Request', 400], ['Unauthorized', 401], ['Payment Required', 402], ['Forbidden', 403], ['Not Found', 404],
-    ['Method Not Allowed', 405], ['Not Acceptable', 406], ['Request Timeout', 408], ['Conflict', 409], ['Gone', 410],
-    ['Payload Too Large', 413], ['Content Too Large', 413], ['Unprocessable Entity', 422], ['Unprocessable Content', 422],
-    ['Too Many Requests', 429], ['Internal Server Error', 500], ['Not Implemented', 501], ['Bad Gateway', 502],
-    ['Service Unavailable', 503], ['Gateway Timeout', 504],
-]);
+// The reason phrases HTTP gives, and nginx's own where it words them its way, with their codes.
+const STATUS_PHRASES = [
+    [/^bad request\b/i, 400], [/^unauthori[sz]ed\b/i, 401], [/^payment required\b/i, 402], [/^forbidden\b/i, 403],
+    [/^not found\b/i, 404], [/^(?:method )?not allowed\b/i, 405], [/^not acceptable\b/i, 406],
+    [/^request time-?out\b/i, 408], [/^conflict\b/i, 409], [/^gone\b/i, 410], [/^length required\b/i, 411],
+    [/^(?:payload|content|request entity) too large\b/i, 413], [/^(?:uri|request-uri) too (?:long|large)\b/i, 414],
+    [/^unsupported media type\b/i, 415], [/^misdirected request\b/i, 421], [/^unprocessable (?:entity|content)\b/i, 422],
+    [/^too many requests\b/i, 429], [/^internal server error\b/i, 500], [/^not implemented\b/i, 501],
+    [/^bad gateway\b/i, 502], [/^service (?:temporarily )?unavailable\b/i, 503], [/^gateway time-?out\b/i, 504],
+    [/^http version not supported\b/i, 505], [/^insufficient storage\b/i, 507],
+];
+// An error page whose title or main heading starts with its status code, as nginx's, Apache's and most proxies' do.
+const PAGE_STATUS = /<(?:title|h1)[^>]*>\s*([1-5]\d\d)\b/i;
 
 // Key shapes and what replaces each: the value Node's fetch quotes when it refuses a header, vendor prefixes (OpenAI,
 // OpenRouter, Anthropic, xAI, Groq, NVIDIA, Hugging Face, Google), a masked key (up to 64 characters each side of a
@@ -95,9 +102,25 @@ export function errorWithoutServerReply(error) {
         return kept;
     }
     const [, prefix, rest] = match;
-    const statusText = [...STATUS_CODES.keys()].find(text => rest.toLowerCase().startsWith(text.toLowerCase())) ?? '';
-    const failure = serverFailureText({ status: STATUS_CODES.get(statusText), statusText, reply: rest.slice(statusText.length) });
+    const failure = serverFailureText(statusOf(rest));
     return errorFreeOfServerReply(failure ? `${prefix}: ${failure}` : prefix);
+}
+
+/**
+ * The status code and text at the start of what SillyTavern quotes, and the reply after them. A reason phrase HTTP or
+ * nginx gives names its code. For any other, an error page whose title or heading starts with a code names it, and the
+ * phrase, which the server chose, stays with the reply, which is never passed on.
+ *
+ * @param {string} rest - The status text and the reply, as SillyTavern's error has them
+ * @returns {{status?: number, statusText: string, reply: string}}
+ */
+function statusOf(rest) {
+    for (const [phrase, code] of STATUS_PHRASES) {
+        const found = rest.match(phrase);
+        if (found) return { status: code, statusText: found[0], reply: rest.slice(found[0].length) };
+    }
+    const pageCode = rest.match(PAGE_STATUS)?.[1];
+    return { status: pageCode ? Number(pageCode) : undefined, statusText: '', reply: rest };
 }
 
 /**
