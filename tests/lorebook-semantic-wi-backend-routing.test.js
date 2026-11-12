@@ -900,6 +900,13 @@ describe('Backend failure behavior (issue #11 symptom)', () => {
 
         expect(fetchLog.filter(e => e.url === '/api/plugins/similharity/get-embedding')).toHaveLength(1);
         expect(queryCalls()).toEqual([]);
+        // So the sticky configuration toast says what to fix, in place of this turn's retrieval toast.
+        expect(global.toastr.error).toHaveBeenCalledTimes(1);
+        expect(global.toastr.error).toHaveBeenCalledWith(
+            expect.stringContaining('No endpoints found for baai/bge-m3'),
+            'VectFox — configuration invalid',
+            { timeOut: 0, extendedTimeOut: 0 },
+        );
     });
 
     it('shows the retrieval popup when hits do come back', async () => {

@@ -1,7 +1,9 @@
 /**
  * When a memory search fails, a query embedding included after its retry, the player
  * is told with a yellow toast, so they can regenerate: no memory, or incomplete memory
- * when the other searches still found some.
+ * when the other searches still found some. A search that failed on its setup, such as
+ * a deleted embedding profile, fails the same way on every turn, so it gets the sticky
+ * configuration toast instead.
  *
  * Drives the real runEventBaseRetrieval with retrieveEventsForTurn stubbed, and the
  * real notifier against a stubbed toastr.
@@ -96,6 +98,17 @@ describe('a turn whose memory search failed', () => {
         expect(message).toContain('A memory search failed, so this turn\'s memory is incomplete');
         expect(message).toContain('API request failed');
         expect(title).toBe('VectFox — memory not injected correctly');
+    });
+
+    it('shows the sticky configuration toast, and no advice to regenerate, when a search failed on its setup', async () => {
+        const problem = 'Embedding: its connection profile was deleted in SillyTavern. Choose another on the Core page.';
+        state.turn = { events: [], debug: { failedSearchCount: 2, searchFailureMessage: "Query embedding via 'openrouter' failed: 500", setupFailureMessage: problem } };
+
+        await runTurn();
+
+        expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+        expect(globalThis.toastr.error).toHaveBeenCalledTimes(1);
+        expect(globalThis.toastr.error).toHaveBeenCalledWith(problem, 'VectFox — configuration invalid', { timeOut: 0, extendedTimeOut: 0 });
     });
 
     it('stays quiet when memory was injected and every search worked', async () => {

@@ -19,6 +19,7 @@ import { parseRegistryKey } from '../../shared/collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
 import { eventSearchSettings, eventSimilarityOf, keepRerankedEventsAtThreshold, searchEventCollection } from './eventbase-search.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
+import { isInvalidModelConfigError } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
 
 // ---------------------------------------------------------------------------
@@ -252,6 +253,18 @@ async function _runOneLiveQuery({
  */
 export function searchFailureMessageOf(failedSearches) {
     return failedSearches.length ? String(failedSearches[0]?.message || failedSearches[0]) : '';
+}
+
+/**
+ * The message of a turn's first memory search that failed on its setup, such as a deleted embedding profile, or ''
+ * when none did. Such a search fails the same way until the setup is fixed, so regenerating cannot help.
+ *
+ * @param {unknown[]} failedSearches - The errors the searches threw
+ * @returns {string}
+ */
+export function setupFailureMessageOf(failedSearches) {
+    const setupFailure = failedSearches.find(isInvalidModelConfigError);
+    return setupFailure ? String(setupFailure.message) : '';
 }
 
 /**
@@ -744,6 +757,7 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
             rawCount: rawCandidates.length,
             failedSearchCount: failedSearches.length,
             searchFailureMessage: searchFailureMessageOf(failedSearches),
+            setupFailureMessage: setupFailureMessageOf(failedSearches),
             archiveCandidates: additionalCandidates?.length || 0,
             afterImportanceFilter: importanceFiltered.length,
             afterDedup: dedupedEvents.length,

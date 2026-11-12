@@ -33,7 +33,7 @@ import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindow
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
-import { isInvalidModelConfigError, notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
+import { isInvalidModelConfigError, notifyInvalidModel, notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
 
 // The wait before each extra pass over the windows that failed in a run, one entry
@@ -1261,7 +1261,9 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     });
 
     log.trace('[EventBase] Retrieval debug:', debug);
-    if (debug?.failedSearchCount > 0) notifyMemoryNotInjected(debug.searchFailureMessage, Boolean(events?.length));
+    // A search that failed on its setup, such as a deleted embedding profile, fails every turn until the user fixes it.
+    if (debug?.setupFailureMessage) notifyInvalidModel(debug.setupFailureMessage);
+    else if (debug?.failedSearchCount > 0) notifyMemoryNotInjected(debug.searchFailureMessage, Boolean(events?.length));
 
     if (!events?.length) {
         log.lifecycle('[EventBase] No events to inject');

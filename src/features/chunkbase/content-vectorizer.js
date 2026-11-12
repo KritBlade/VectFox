@@ -719,7 +719,8 @@ function hasLlmConfig(settings) {
     const check = validateLLMConfig(merged);
     // A profile's reason already names where to fix it.
     const where = isOnProfile ? '' : ' Open VectFox → Core → EventBase model and fill in the required fields.';
-    if (!check.ok) toastr.error(`${check.reason}${where}`, 'Configuration required', { timeOut: 8000 });
+    // Sticky, as every run fails the same way until the user fixes it.
+    if (!check.ok) toastr.error(`${check.reason}${where}`, 'Configuration required', { timeOut: 0, extendedTimeOut: 0 });
     return check.ok;
 }
 

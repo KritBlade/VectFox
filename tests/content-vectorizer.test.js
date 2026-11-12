@@ -405,7 +405,8 @@ describe('Sync chat', () => {
     it('stops at the EventBase model\'s check before it asks', async () => {
         host.llmCheck = { ok: false, reason: 'EventBase: no connection profile is chosen. Choose one on the Core page.' };
         expect(await syncOpenChat()).toEqual({ ran: false, reason: 'no-model' });
-        expect(toastr.error).toHaveBeenCalledWith(expect.stringContaining('no connection profile is chosen'), 'Configuration required', expect.any(Object));
+        // Sticky, as every run fails the same way until the user fixes it.
+        expect(toastr.error).toHaveBeenCalledWith(expect.stringContaining('no connection profile is chosen'), 'Configuration required', { timeOut: 0, extendedTimeOut: 0 });
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });

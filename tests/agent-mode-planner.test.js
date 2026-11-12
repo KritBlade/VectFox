@@ -77,7 +77,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
     },
 }));
 
-const { retrieveEventsForTurn, describeAgentModeSetupProblem, _resolveAgenticLLMConfig, testAgentModeConnection, testStoryArcConnection } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { retrieveEventsForTurn, describeLlmSetupProblem, _resolveAgenticLLMConfig, testAgentModeConnection, testStoryArcConnection } = await import('../src/features/eventbase/agentic-retrieval.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
 const event = (id, extra = {}) => ({ event_id: id, source_window_start: 100, source_window_end: 101, importance: 5, text: `text of ${id}`, ...extra });
@@ -241,17 +241,17 @@ describe('Agent Mode failures', () => {
     it('warns which setting is missing when the connection cannot run, and keeps the pre-search', async () => {
         expect(await callAgent({ ...agentOn, agent_model: '', chat_model: '' })).toBe(preSearch);
         expect(postChatCompletionMock).not.toHaveBeenCalled();
-        expect(notifySetupIncompleteMock).toHaveBeenCalledWith('Agent Mode', describeAgentModeSetupProblem('missing_model'));
+        expect(notifySetupIncompleteMock).toHaveBeenCalledWith('Agent Mode', describeLlmSetupProblem('Agent Mode', 'missing_model'));
     });
 
     it('says in plain words what each connection problem is and where to fix it', () => {
-        expect(describeAgentModeSetupProblem('missing_model')).toContain('has no model. Set Model on the AgentMode page');
-        expect(describeAgentModeSetupProblem('missing_openrouter_api_key')).toContain('no OpenRouter key is saved');
-        expect(describeAgentModeSetupProblem('missing_vllm_url')).toContain('vLLM with no URL');
-        expect(describeAgentModeSetupProblem('missing_vllm_api_key')).toContain('no vLLM key is saved');
-        expect(describeAgentModeSetupProblem('unknown_provider_mystery')).toContain('provider "mystery" is not one VectFox knows');
+        expect(describeLlmSetupProblem('Agent Mode', 'missing_model')).toContain('has no model. Set Model on the AgentMode page');
+        expect(describeLlmSetupProblem('Agent Mode', 'missing_openrouter_api_key')).toContain('no OpenRouter key is saved');
+        expect(describeLlmSetupProblem('Agent Mode', 'missing_vllm_url')).toContain('vLLM with no URL');
+        expect(describeLlmSetupProblem('Agent Mode', 'missing_vllm_api_key')).toContain('no vLLM key is saved');
+        expect(describeLlmSetupProblem('Agent Mode', 'unknown_provider_mystery')).toContain('provider "mystery" is not one VectFox knows');
         for (const reason of ['missing_model', 'unknown_provider_mystery', 'a_reason_added_later']) {
-            expect(describeAgentModeSetupProblem(reason)).toMatch(/^Agent Mode is on, but .+ Until then each turn uses the normal memory search only\.$/);
+            expect(describeLlmSetupProblem('Agent Mode', reason)).toMatch(/^Agent Mode is on, but .+ Until then each turn uses the normal memory search only\.$/);
         }
     });
 
@@ -347,7 +347,7 @@ describe('the planner\'s connection', () => {
         const connection = _resolveAgenticLLMConfig({ chat_provider: 'openrouter', agent_provider: 'connection_profile', agent_connection_profile_id: '' });
         expect(connection).toEqual({ ok: false, reason: 'connection_profile', problem });
         expect(checkConnectionProfileMock).toHaveBeenCalledWith('', { feature: 'Agent Mode', page: 'AgentMode' });
-        expect(describeAgentModeSetupProblem(connection.reason, connection.problem))
+        expect(describeLlmSetupProblem('Agent Mode', connection.reason, connection.problem))
             .toBe(`${problem} Until then each turn uses the normal memory search only.`);
     });
 
@@ -383,7 +383,7 @@ describe('Test connection of Agent Mode and StoryArc', () => {
 
     it('says what stops the planner, as its setup warning says it, and sends nothing', async () => {
         await expect(testAgentModeConnection({ agent_provider: 'openrouter', agent_model: '', chat_model: '' }))
-            .rejects.toThrow(describeAgentModeSetupProblem('missing_model'));
+            .rejects.toThrow(describeLlmSetupProblem('Agent Mode', 'missing_model'));
         const problem = 'Agent Mode: its connection profile was deleted in SillyTavern. Choose another on the AgentMode page.';
         checkConnectionProfileMock.mockReturnValue({ ok: false, reason: problem });
         await expect(testAgentModeConnection({ agent_provider: 'connection_profile', agent_connection_profile_id: 'p-gone' }))

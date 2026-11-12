@@ -14,9 +14,9 @@
  * pre-search keeps every seat it won, and the queries add a few from outside its
  * results (planner-seats-core.js).
  *
- * Every failure path falls back to the pre-search output, and Agent Mode says so:
- * a setup it cannot run on raises one sticky warning, and a planner or search that
- * fails on a turn counts as that turn's failed memory search.
+ * Every failure path falls back to the pre-search output, and each mode says so:
+ * a setup it cannot run on raises one sticky warning, and an Agent Mode planner or
+ * search that fails on a turn counts as that turn's failed memory search.
  * ============================================================================
  */
 
@@ -37,12 +37,17 @@ import { isInvalidModelConfigError, notifyInvalidModel, notifySetupIncomplete } 
 import { log } from '../../sillytavern/log.js';
 
 const AGENT_MODE = 'Agent Mode';
+const STORY_ARC = 'StoryArc';
 const NORMAL_SEARCH_ONLY = 'Until then each turn uses the normal memory search only.';
 const AGENT_MODE_NEEDS_QDRANT = `Agent Mode is on, but it needs the Qdrant backend. Pick Qdrant in Vector Backend on the Core page, or turn Agent Mode off. ${NORMAL_SEARCH_ONLY}`;
 
-// What each reason resolveLlmConnection gives means, and where it is fixed.
-const AGENT_MODE_SETUP_FIXES = {
-    missing_model: 'it has no model. Set Model on the AgentMode page, or under EventBase model on the Core page.',
+// Where each mode's connection is chosen, and how a missing model is fixed there.
+const SETUP_PLACES = {
+    [AGENT_MODE]: { page: 'AgentMode', missingModelFix: 'it has no model. Set Model on the AgentMode page, or under EventBase model on the Core page.' },
+    [STORY_ARC]: { page: 'StoryArc', missingModelFix: 'it has no link model. Set Link model on the StoryArc page.' },
+};
+// What each other reason resolveLlmConnection gives means, and where it is fixed. Both modes share the keys and the vLLM URL.
+const SHARED_SETUP_FIXES = {
     missing_openrouter_api_key: 'it runs on OpenRouter and no OpenRouter key is saved. Enter the key on the AgentMode or Core page.',
     missing_vllm_url: 'it runs on vLLM with no URL. Set Base URL on the AgentMode page, or under EventBase model on the Core page.',
     missing_vllm_api_key: 'it runs on vLLM and no vLLM key is saved. Enter the key on the AgentMode or Core page.',
@@ -52,18 +57,20 @@ const UNKNOWN_PROVIDER_PREFIX = 'unknown_provider_';
 const CONNECTION_PROFILE_REASON = 'connection_profile';
 
 /**
- * The sentence for a planner connection that cannot run: what is wrong and where to fix it.
+ * The sentence for an Agent Mode or StoryArc connection that cannot run: what is wrong and where to fix it.
  *
+ * @param {'Agent Mode'|'StoryArc'} feature
  * @param {string} reason - From resolveLlmConnection
  * @param {string} [problem] - From resolveLlmConnection, for a profile that cannot be used
  * @returns {string}
  */
-export function describeAgentModeSetupProblem(reason, problem = '') {
+export function describeLlmSetupProblem(feature, reason, problem = '') {
     if (reason === CONNECTION_PROFILE_REASON) return `${problem} ${NORMAL_SEARCH_ONLY}`;
-    const fix = reason.startsWith(UNKNOWN_PROVIDER_PREFIX)
-        ? `its provider "${reason.slice(UNKNOWN_PROVIDER_PREFIX.length)}" is not one VectFox knows. Pick a provider on the AgentMode page.`
-        : AGENT_MODE_SETUP_FIXES[reason] ?? `its connection cannot run (${reason}). Check the AgentMode page.`;
-    return `Agent Mode is on, but ${fix} ${NORMAL_SEARCH_ONLY}`;
+    const { page, missingModelFix } = SETUP_PLACES[feature];
+    let fix = SHARED_SETUP_FIXES[reason] ?? `its connection cannot run (${reason}). Check the ${page} page.`;
+    if (reason === 'missing_model') fix = missingModelFix;
+    else if (reason.startsWith(UNKNOWN_PROVIDER_PREFIX)) fix = `its provider "${reason.slice(UNKNOWN_PROVIDER_PREFIX.length)}" is not one VectFox knows. Pick a provider on the ${page} page.`;
+    return `${feature} is on, but ${fix} ${NORMAL_SEARCH_ONLY}`;
 }
 
 // ============================================================================
@@ -143,7 +150,7 @@ async function _retrieveWithStoryArc(params) {
                 storyArcShape: isOrdinary ? storyRoute.shape : recalled.blockShape,
                 storyArcEntityNames: recalled.entityNames,
                 // The block replaces the pre-search's events, so only the recipe's own failed searches cost this turn memory.
-                debug: { ...preSearch.debug, storyArc, failedSearchCount: recalled.failedSearchCount, searchFailureMessage: recalled.searchFailureMessage },
+                debug: { ...preSearch.debug, storyArc, failedSearchCount: recalled.failedSearchCount, searchFailureMessage: recalled.searchFailureMessage, setupFailureMessage: recalled.setupFailureMessage },
             };
         }
     } else {
@@ -239,7 +246,7 @@ async function _searchPlannedQueries(params) {
 
     const llmConnection = _resolveAgenticLLMConfig(settings);
     if (!llmConnection.ok) {
-        notifySetupIncomplete(AGENT_MODE, describeAgentModeSetupProblem(llmConnection.reason, llmConnection.problem));
+        notifySetupIncomplete(AGENT_MODE, describeLlmSetupProblem(AGENT_MODE, llmConnection.reason, llmConnection.problem));
         log.warn(`[VectFox-Agentic] mode=SKIPPED reason=${llmConnection.problem ?? llmConnection.reason}`);
         return null;
     }
@@ -440,7 +447,8 @@ async function _askStoryLlm({ settings, label, nextStep, call, read }) {
 
 /**
  * Ask the router for the question's shape and subject. Never throws: a failure
- * is reported and returns null, so the turn keeps the pre-search.
+ * is reported and returns null, so the turn keeps the pre-search. A link model
+ * that cannot run raises StoryArc's sticky setup warning.
  *
  * @param {object} params - The retrieval params
  * @param {object} linkConnection - From resolveStoryLinkLlmConfig
@@ -448,6 +456,7 @@ async function _askStoryLlm({ settings, label, nextStep, call, read }) {
  */
 async function _routeStoryQuestion({ settings, keywordQuery }, linkConnection) {
     if (!linkConnection.ok) {
+        notifySetupIncomplete(STORY_ARC, describeLlmSetupProblem(STORY_ARC, linkConnection.reason, linkConnection.problem));
         log.warn(`[VectFox-StoryArc] Router skipped: ${linkConnection.problem ?? linkConnection.reason}`);
         return null;
     }
@@ -648,7 +657,7 @@ export function resolveStoryLinkLlmConfig(settings) {
  */
 export async function testAgentModeConnection(settings) {
     const connection = _resolveAgenticLLMConfig(settings);
-    if (!connection.ok) throw new Error(describeAgentModeSetupProblem(connection.reason, connection.problem));
+    if (!connection.ok) throw new Error(describeLlmSetupProblem(AGENT_MODE, connection.reason, connection.problem));
     return sendConnectionTest(connection, { contextLabel: AGENT_MODE, parameterStyle: connection.parameterStyle });
 }
 

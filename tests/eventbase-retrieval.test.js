@@ -210,6 +210,29 @@ describe('retrieveEvents', () => {
         expect(debug.archiveCandidates).toBe(1);
         expect(debug.failedSearchCount).toBe(2);
         expect(debug.searchFailureMessage).toBe("Query embedding via 'openrouter' failed: 500");
+        expect(debug.setupFailureMessage).toBe('');
+    });
+
+    // Searching again fails the same way until the setup is fixed, so the turn says what to fix.
+    it('names the search that failed on its setup, such as a deleted embedding profile', async () => {
+        const problem = 'Embedding: its connection profile was deleted in SillyTavern. Choose another on the Core page.';
+        getQueryVectorMock.mockImplementation(async (_backend, text) => {
+            if (text === 'story') throw new Error("Query embedding via 'openrouter' failed: 500");
+            throw Object.assign(new Error(problem), { code: 'invalid_model_config' });
+        });
+
+        const { debug } = await retrieveEvents({
+            searchText: 'story recap',
+            keywordQuery: 'story',
+            chatLength: 100,
+            settings: baseSettings,
+            liveCollectionIds: ['standard:vf_eventbase_a'],
+            additionalCandidates: [],
+            skipLiveQuery: false,
+        });
+
+        expect(debug.failedSearchCount).toBe(2);
+        expect(debug.setupFailureMessage).toBe(problem);
     });
 
     it('still runs the other text\'s queries when one query text fails to embed', async () => {
@@ -269,6 +292,7 @@ describe('retrieveEvents', () => {
 
         expect(debug.failedSearchCount).toBe(0);
         expect(debug.searchFailureMessage).toBe('');
+        expect(debug.setupFailureMessage).toBe('');
     });
 
     it('skips the live query and folds in archive candidates without calling the backend', async () => {

@@ -12,7 +12,7 @@
 import { getContentType, getContentTypeDefaults } from './content-types.js';
 import { chunkText } from './chunking.js';
 import { insertVectorItems, purgeVectorIndex, getSavedHashes, getBackend } from '../vector-backend/index.js';
-import { isConnectionError } from '../../shared/model-config-notifier.js';
+import { isConnectionError, isInvalidModelConfigError } from '../../shared/model-config-notifier.js';
 import {
     setCollectionMeta,
     setCollectionLock,
@@ -332,10 +332,11 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
                 // (#4): they were both reported as "Failed to write embeddings",
                 // which misleads when the real problem is the embedding provider
                 // URL/model. A connection failure already raised its own red toast
-                // via notifyConnectionError, so skip a second one here.
+                // via notifyConnectionError, and the caller shows a configuration
+                // failure's sticky toast, so neither gets a second one here.
                 const isEmbedFail = error?.code === 'embedding_generation_failed'
                     || /generate embeddings|no embeddings returned/i.test(error?.message || '');
-                if (!isConnectionError(error?.message)) {
+                if (!isConnectionError(error?.message) && !isInvalidModelConfigError(error)) {
                     const headline = isEmbedFail
                         ? 'Failed to generate embeddings (check your embedding provider URL and model): '
                         : 'Failed to write embeddings to storage: ';

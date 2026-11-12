@@ -14,7 +14,7 @@
  */
 
 import { listChunks } from '../vector-backend/index.js';
-import { dedupeEventsByIdentity, removeEventsVisibleInContext, searchFailureMessageOf } from './eventbase-retrieval.js';
+import { dedupeEventsByIdentity, removeEventsVisibleInContext, searchFailureMessageOf, setupFailureMessageOf } from './eventbase-retrieval.js';
 import { eventSearchSettings, searchEventCollection } from './eventbase-search.js';
 import { STORY_POOL_SIZE, STORY_ROUTE_RULE, cutBlockToSeats, hasRecipe, hasThreadPick, isBlockCutNeeded, selectStoryRecipeEvents, storyBlockLimits } from './story-arc-core.js';
 import { buildEntityNameWriter, entityNamesInMessage, entitySearchText, hasEntityMerges, withKeptEntityNames } from './story-arc-entity-core.js';
@@ -131,7 +131,7 @@ export function startStoryRecipeReads(params) {
  * @param {(storedEvents: object[], keptNames: {question: string, subject: string}) => Promise<string[]|null>} [params.pickThreads] - Asks an LLM which threads could hold the answer; null when that failed
  * @param {(events: object[], keptNames: {question: string, subject: string}, lineCount: number) => Promise<object[]|null>} [params.chooseBlockEvents] - Asks an LLM which of a long block's events answer the question; null when that failed. Without it or shouldCutByRule, no block is cut
  * @param {boolean} [params.shouldCutByRule] - Cut a long block by the fixed rule, with no LLM, as an ordinary turn does
- * @returns {Promise<{events: object[], blockShape: string, ruleName: string, cutRuleName: string, pickedThreadCount: number, entityNames: {name: string, keptName: string}[], failedSearchCount: number, searchFailureMessage: string}>} blockShape says which block the events suit, entityNames which other names the question used, and failedSearchCount how many of the recipe's searches failed, so its events may be missing some
+ * @returns {Promise<{events: object[], blockShape: string, ruleName: string, cutRuleName: string, pickedThreadCount: number, entityNames: {name: string, keptName: string}[], failedSearchCount: number, searchFailureMessage: string, setupFailureMessage: string}>} blockShape says which block the events suit, entityNames which other names the question used, failedSearchCount how many of the recipe's searches failed, so its events may be missing some, and setupFailureMessage the first that failed on its setup
  */
 export async function retrieveStoryRecipeEvents(route, params) {
     const { chatLength, settings, liveCollectionIds, additionalCandidates, skipContextDedup, boundQuery, startedReads, pickThreads = async () => [], chooseBlockEvents, shouldCutByRule = false } = params;
@@ -177,6 +177,7 @@ export async function retrieveStoryRecipeEvents(route, params) {
         entityNames: entityNamesInMessage(queryText, merges),
         failedSearchCount: reads.failedSearches.length,
         searchFailureMessage: searchFailureMessageOf(reads.failedSearches),
+        setupFailureMessage: setupFailureMessageOf(reads.failedSearches),
     };
 }
 

@@ -163,7 +163,9 @@ export function notifyUpstreamRejection(contextLabel, model, detail, isQuotaErro
 const _retrievalNotified = new Set();
 
 /**
- * De-duped error toast for "we could not retrieve from this source this turn".
+ * De-duped error toast for "we could not retrieve from this source this turn". A failure on
+ * its setup, such as a deleted embedding profile, fails the same way on every turn until the
+ * user fixes it, so it gets the sticky configuration toast (notifyInvalidModel) instead.
  *
  * De-dup key is context + source + message, so a persistently-broken collection
  * warns once per session rather than on every single generation, while a
@@ -177,6 +179,10 @@ const _retrievalNotified = new Set();
  * @param {unknown} detail - the caught error (or a message string)
  */
 export function notifyRetrievalFailure(contextLabel, sourceName, detail) {
+    if (isInvalidModelConfigError(detail)) {
+        notifyInvalidModel(detail.message);
+        return;
+    }
     const message = (typeof detail === 'string' ? detail : detail?.message || String(detail || 'unknown error'))
         .replace(/\s+/g, ' ')
         .trim();
@@ -207,6 +213,8 @@ export function resetRetrievalFailureNotifications() {
  * Yellow toast for a turn whose memory search failed, a query embedding included after
  * its retry, so the turn's memory is missing or incomplete. The player can regenerate,
  * so it is a warning, and it is not de-duped: every turn that loses memory says so.
+ * A search that failed on its setup, which regenerating cannot fix, gets the sticky
+ * configuration toast instead (eventbase-workflow.js).
  *
  * @param {string} detail - the failed search's error message
  * @param {boolean} hasInjectedMemory - whether the turn still injected what the other searches found
@@ -233,7 +241,7 @@ const _setupNotified = new Set();
  * carries on without it: the user must act, and nothing broke. Once per message, since the same
  * setup fails the same way on every turn.
  *
- * @param {string} contextLabel - 'Agent Mode' | …
+ * @param {string} contextLabel - 'Agent Mode' | 'StoryArc'
  * @param {string} message - What is wrong and where to fix it
  */
 export function notifySetupIncomplete(contextLabel, message) {

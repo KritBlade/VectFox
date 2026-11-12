@@ -25,6 +25,7 @@ import {
     getCollectionMeta,
 } from '../collections/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
+import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 
 import { LRUCache } from './lru-cache.js';
 import { EXTENSION_PROMPT_TAG, EVENTBASE_PROMPT_TAG, SUMMARIZER_PROMPT_TAG, HASH_CACHE_SIZE } from '../../shared/constants.js';
@@ -349,6 +350,8 @@ async function queryAndMergeCollections(activeCollections, queryText, settings, 
             chunksForVisualizer.push(...collectionChunks);
         } catch (error) {
             log.warn(`VectFox: Failed to query collection ${collectionId}:`, error.message);
+            // A search that failed on its setup, such as a deleted embedding profile, fails every turn until the user fixes it.
+            if (isInvalidModelConfigError(error)) notifyInvalidModel(error.message);
         }
     }
 

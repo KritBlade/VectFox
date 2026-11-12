@@ -9,6 +9,8 @@
  *   - a thread question asks the link model which threads to add, by label, and survives its failure,
  *   - a long block is cut by the link model with a prompt for its shape, and survives its failure,
  *   - ordinary turns, router failures, a failed listing and empty recipes keep the pre-search, and no planner runs,
+ *   - a link model that cannot run, its profile deleted included, raises one sticky warning that says where to fix it,
+ *   - a block's own search that failed on its setup is what the turn reports,
  *   - the listing and the pool query start beside the router, unless entity merges make the pool wait for its subject,
  *   - the router follows Core's thinking switch, and the thread pick and the cut ask at low effort,
  *   - every StoryArc turn reports the Route rule that decided it,
@@ -70,9 +72,11 @@ vi.mock('../src/features/eventbase/prompts-i18n.js', () => ({
     getAgenticPlannerPrompt: () => 'planner prompt',
     getEventBaseExtractionPrompt: () => '',
 }));
+const notifySetupIncompleteMock = vi.fn();
 vi.mock('../src/shared/model-config-notifier.js', () => ({
-    isInvalidModelConfigError: () => false,
+    isInvalidModelConfigError: (err) => err?.code === 'invalid_model_config',
     notifyInvalidModel: vi.fn(),
+    notifySetupIncomplete: (...args) => notifySetupIncompleteMock(...args),
 }));
 const logWarnMock = vi.fn();
 vi.mock('../src/sillytavern/log.js', () => ({
@@ -89,7 +93,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 const { findStoryWebEvents, retrieveStoryRecipeEvents } = await import('../src/features/eventbase/story-arc-retrieval.js');
-const { resolveStoryLinkLlmConfig, retrieveEventsForTurn } = await import('../src/features/eventbase/agentic-retrieval.js');
+const { describeLlmSetupProblem, resolveStoryLinkLlmConfig, retrieveEventsForTurn } = await import('../src/features/eventbase/agentic-retrieval.js');
 const { buildBlockCutPrompt } = await import('../src/features/eventbase/story-arc-core.js');
 
 const COLLECTION = 'qdrant:vf_eventbase_chat';
@@ -519,6 +523,19 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             expect(starts(result.events)).toEqual([10, 20]);
             expect(result.debug.failedSearchCount).toBe(1);
             expect(result.debug.searchFailureMessage).toBe('provider down');
+            expect(result.debug.setupFailureMessage).toBe('');
+        });
+
+        // Searching again fails the same way, so the turn shows the configuration toast, not the advice to regenerate.
+        it('reports the block\'s own search that failed on its setup, in place of the pre-search\'s', async () => {
+            const problem = 'Embedding: its connection profile was deleted in SillyTavern. Choose another on the Core page.';
+            queryCollectionMock.mockRejectedValue(Object.assign(new Error(problem), { code: 'invalid_model_config' }));
+            retrieveEventsMock.mockResolvedValue({ ...preSearch, debug: { rawCount: 1, failedSearchCount: 1, searchFailureMessage: 'pre-search setup', setupFailureMessage: 'pre-search setup' } });
+            llmReplies({ shape: 'chain', subject: 'Nora' }, { threads: ['T1'] });
+            const result = await callAgent(storyArcOn);
+            expect(starts(result.events)).toEqual([10, 20]);
+            expect(result.debug.failedSearchCount).toBe(1);
+            expect(result.debug.setupFailureMessage).toBe(problem);
         });
 
         // An ordinary turn injects the pre-search, so its failures are the turn's, and the recipe's reads are not.
@@ -885,5 +902,33 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
         expect(result.debug.storyArc.ruleName).toBe('router-unusable');
         expect(postChatCompletionMock).not.toHaveBeenCalled();
         expect(logWarnMock.mock.calls.some(([message]) => String(message).includes('Router skipped: missing_model'))).toBe(true);
+        expect(notifySetupIncompleteMock).toHaveBeenCalledWith('StoryArc', describeLlmSetupProblem('StoryArc', 'missing_model'));
+    });
+
+    it('skips the router with one sticky warning, the profile\'s own problem, when its profile was deleted', async () => {
+        const problem = 'StoryArc: its connection profile was deleted in SillyTavern. Choose another on the StoryArc page.';
+        checkConnectionProfileMock.mockReturnValueOnce({ ok: false, reason: problem });
+        const result = await callAgent({ ...storyArcOn, story_arc_link_provider: 'connection_profile', story_arc_link_connection_profile_id: 'profile-gone' });
+        expect(result.events).toBe(preSearch.events);
+        expect(result.debug.storyArc.ruleName).toBe('router-unusable');
+        expect(postChatCompletionMock).not.toHaveBeenCalled();
+        expect(notifySetupIncompleteMock).toHaveBeenCalledTimes(1);
+        expect(notifySetupIncompleteMock).toHaveBeenCalledWith('StoryArc', `${problem} Until then each turn uses the normal memory search only.`);
+    });
+
+    it('raises no setup warning when the link model can run', async () => {
+        llmReplies({ shape: 'scene', subject: '' });
+        await callAgent(storyArcOn);
+        expect(notifySetupIncompleteMock).not.toHaveBeenCalled();
+    });
+
+    it('says in plain words what stops the link model and where to fix it', () => {
+        expect(describeLlmSetupProblem('StoryArc', 'missing_model')).toContain('has no link model. Set Link model on the StoryArc page');
+        expect(describeLlmSetupProblem('StoryArc', 'missing_openrouter_api_key')).toContain('no OpenRouter key is saved');
+        expect(describeLlmSetupProblem('StoryArc', 'unknown_provider_mystery')).toContain('provider "mystery" is not one VectFox knows. Pick a provider on the StoryArc page');
+        expect(describeLlmSetupProblem('StoryArc', 'a_reason_added_later')).toContain('Check the StoryArc page');
+        for (const reason of ['missing_model', 'missing_vllm_url', 'unknown_provider_mystery', 'a_reason_added_later']) {
+            expect(describeLlmSetupProblem('StoryArc', reason)).toMatch(/^StoryArc is on, but .+ Until then each turn uses the normal memory search only\.$/);
+        }
     });
 });
