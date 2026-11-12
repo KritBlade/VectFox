@@ -3,6 +3,10 @@
 // model when the profile holds one, and the profile's key as an ID, `secret_id`. The key is read here, on
 // SillyTavern's server, the way SillyTavern's own requests read it, so its value never reaches the browser.
 //
+// A server URL that already ends in /embeddings is the route itself and is requested as it is; any other URL gets the
+// source's route added. SillyTavern lists a Custom profile's models from /models under its URL, so a profile on
+// OpenRouter's embedding models names https://openrouter.ai/api/v1/embeddings, where they are listed.
+//
 // A request with no ID sends no key. SillyTavern's lookups read the active key when given no ID, which would send it
 // to this request's server, so an ID no secret has goes in its place.
 
@@ -66,6 +70,12 @@ function keyHeaders(kind, serverUrl, secretId, directories, host) {
     return headers;
 }
 
+/** The URL a request goes to: the server URL when it already ends in /embeddings, else the source's route on it. */
+function embeddingsEndpoint(kind, serverUrl, host) {
+    const trimmed = serverUrl.replace(/\/+$/, '');
+    return trimmed.endsWith('/embeddings') ? trimmed : kind.endpoint(serverUrl, host);
+}
+
 /** Throw before any request when the server URL does not make a URL. */
 function assertUrl(endpoint, serverUrl, name) {
     try {
@@ -101,7 +111,7 @@ export async function getOpenAiStyleEmbeddings(source, texts, { apiUrl, model, s
     if (!kind) throw new Error(`Similharity: "${source}" does not embed on an OpenAI-style route.`);
     const serverUrl = String(apiUrl ?? '').trim();
     if (!serverUrl) throw new Error(`${kind.name} embedding: the request names no server URL.`);
-    const endpoint = kind.endpoint(serverUrl, host);
+    const endpoint = embeddingsEndpoint(kind, serverUrl, host);
     assertUrl(endpoint, serverUrl, kind.name);
 
     const headers = { 'Content-Type': 'application/json', ...keyHeaders(kind, serverUrl, secretId, directories, host) };

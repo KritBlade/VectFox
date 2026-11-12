@@ -115,6 +115,22 @@ test('each server gets its own embeddings route', async () => {
     }
 });
 
+test('a URL that already ends in /embeddings is requested as it is', async () => {
+    const routes = [
+        ['custom', 'https://embed.example.test/api/v1/embeddings', 'https://embed.example.test/api/v1/embeddings'],
+        ['custom', 'https://embed.example.test/api/v1/embeddings/', 'https://embed.example.test/api/v1/embeddings'],
+        ['llamacpp', 'http://10.0.0.5:8080/v1/embeddings', 'http://10.0.0.5:8080/v1/embeddings'],
+        ['koboldcpp', 'http://10.0.0.6:5001/v1/embeddings/', 'http://10.0.0.6:5001/v1/embeddings'],
+        // Only the path's end counts: a host named for embeddings still gets the route.
+        ['custom', 'https://embeddings.example.test/v1', 'https://embeddings.example.test/v1/embeddings'],
+    ];
+    for (const [source, apiUrl, expected] of routes) {
+        const { host, requests } = stubSillyTavern();
+        await embed(source, ['a harbor at dusk'], { apiUrl }, host);
+        assert.equal(requests[0].url, expected, `${source} on ${apiUrl}`);
+    }
+});
+
 test('the model is named when the profile holds one, and left out when it holds none', async () => {
     const named = stubSillyTavern();
     await embed('custom', ['a harbor at dusk'], { model: 'bge-m3' }, named.host);
