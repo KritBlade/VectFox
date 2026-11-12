@@ -67,3 +67,24 @@ test('a redirect on the same host, such as http to https, is followed with the k
         ['https://qdrant.test/collections', MADE_UP_KEY],
     ]);
 });
+
+test('a per-request header is sent, and cannot replace the key or the content type', async () => {
+    const sent = [];
+    globalThis.fetch = async (url, init) => {
+        sent.push(init.headers);
+        return new Response('{"result":{}}', { status: 200 });
+    };
+    qdrantBackend.baseUrl = 'http://qdrant.test:6333';
+    qdrantBackend.apiKey = MADE_UP_KEY;
+    await qdrantBackend._request('GET', '/collections/x', null, 0, {
+        'accept-encoding': 'identity',
+        'api-key': 'replaced',
+        'content-type': 'text/plain',
+    });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]['accept-encoding'], 'identity');
+    // The backend's own headers win: a per-request header may add a preference, never move the key or the type.
+    assert.equal(sent[0]['api-key'], MADE_UP_KEY);
+    assert.equal(sent[0]['Content-Type'], 'application/json');
+    assert.equal(sent[0]['content-type'], undefined);
+});
