@@ -14,37 +14,18 @@ import {
     deleteVectorItems,
     insertVectorItems,
     getSavedHashes,
-    purgeVectorIndex,
 } from '../vector-backend/index.js';
 import {
     getChunkMetadata,
     saveChunkMetadata,
     deleteChunkMetadata,
-    unregisterCollection,
 } from '../collections/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
+import { cleanupTestCollection } from './production-tests.js';
 
 // Test collection prefix using VectFox vf_ format
 // Format: vf_test_{type}_{sourceId}
 const TEST_COLLECTION_PREFIX = 'vf_test_visualizer_';
-
-/**
- * Full cleanup for test collections - purges vectors AND unregisters from registry
- * @param {string} collectionId - The test collection to clean up
- * @param {object} settings - VectFox settings
- */
-async function cleanupTestCollection(collectionId, settings) {
-    try {
-        // Purge all vectors from the backend
-        await purgeVectorIndex(collectionId, settings);
-    } catch (e) {
-        log.warn(`VectFox diagnostics: cleanup purge of ${collectionId} failed:`, e);
-    }
-    // Always unregister from registry to prevent ghost entries
-    const registryKey = `${settings.embedding_provider}:${collectionId}`;
-    unregisterCollection(registryKey);
-    unregisterCollection(collectionId); // Also try without source prefix
-}
 
 /**
  * Generates a unique test collection ID

@@ -25,18 +25,18 @@ import { extractTextKeywords, extractLorebookKeywords } from '../keyword-search/
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
 
 /**
- * Full cleanup for test collections - purges vectors AND unregisters from registry
+ * Clean up a diagnostic test collection, as the production and visualizer tests do after each test: purge its vectors,
+ * and unregister it under the "backend:collectionId" key the registry holds it by, even when the purge fails, so no
+ * ghost entry stays in the registry.
  * @param {string} collectionId - The test collection to clean up
  * @param {object} settings - VectFox settings
  */
-async function cleanupTestCollection(collectionId, settings) {
+export async function cleanupTestCollection(collectionId, settings) {
     try {
-        // Purge all vectors from the backend
         await purgeVectorIndex(collectionId, settings);
     } catch (e) {
         log.warn(`VectFox diagnostics: cleanup purge of ${collectionId} failed:`, e);
     }
-    // Always unregister it, under the "backend:collectionId" key the registry holds it by, to prevent ghost entries
     unregisterCollection(buildRegistryKey(collectionId, settings));
 }
 
