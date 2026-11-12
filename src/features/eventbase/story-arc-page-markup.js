@@ -182,15 +182,18 @@ export function storyArcPageMarkup({ notice = '' } = {}) {
         })}
         ${notice}
         <nav class="vfx-subnav" role="tablist">
-            ${subnavButton({ tab: 'main', icon: 'fa-diagram-project', text: 'Main', isActive: true })}
+            ${subnavButton({ tab: 'main', icon: 'fa-sliders', text: 'Main', isActive: true })}
+            ${subnavButton({ tab: 'linkgraph', icon: 'fa-diagram-project', text: 'LinkGraph' })}
             ${subnavButton({ tab: 'entity', icon: 'fa-users', text: 'Entity' })}
         </nav>
         <div class="vfx-page" data-story-arc-panel="main">
-            ${storyWebCard()}
             ${modeCard()}
             ${blockSizeCard()}
             ${debugCard()}
             ${connectionCard()}
+        </div>
+        <div class="vfx-page" data-story-arc-panel="linkgraph" style="display:none;">
+            ${storyWebCard()}
         </div>
         <div class="vfx-page" data-story-arc-panel="entity" style="display:none;">
             ${entityCard()}

@@ -2,9 +2,11 @@
  * ============================================================================
  * STORY ARC PAGE
  * ============================================================================
- * Runs the StoryArc page on the settings panel's rail, and its two tabs: Main, with
- * the story web, and Entity, with the merged names and the names it hides. The page reads the chat's events
- * each time it shows, and again when asked; its web stops while it is hidden.
+ * Runs the StoryArc page on the settings panel's rail, and its three tabs: Main, with
+ * the mode and its settings, LinkGraph, with the story web, and Entity, with the merged
+ * names and the names it hides. The page reads the chat's events each time it shows,
+ * and again when asked. The web is drawn when the LinkGraph tab shows, and stops while
+ * that tab or the page is hidden.
  * ============================================================================
  */
 
@@ -20,6 +22,8 @@ import { drawStoryWeb } from './story-arc-web.js';
 import { buildStoryWeb, linksOfNode, selectedEventMarkup } from './story-arc-web-core.js';
 
 const TOAST_TITLE = 'VectFox StoryArc';
+/** The tab the story web is on. */
+const WEB_TAB = 'linkgraph';
 
 const page = {
     isOpen: false,
@@ -31,6 +35,7 @@ const page = {
     isShowingHidden: false,
     web: null,
     webData: null,
+    isWebDue: false, // the events are read and no web is drawn for them yet
     webViewStatus: '',
     isWebFloating: null,
     openTab: 'main',
@@ -220,6 +225,17 @@ async function drawWeb() {
     }
 }
 
+/**
+ * Draw the web for the events read once its tab shows: drawn in a hidden tab, it would lay out at no size. A tab left
+ * while it draws pauses it, so it lays out when its tab shows again.
+ */
+async function drawWebOnItsTab() {
+    if (!page.isOpen || page.openTab !== WEB_TAB || !page.isWebDue) return;
+    page.isWebDue = false;
+    await drawWeb();
+    page.web?.setPaused(page.openTab !== WEB_TAB);
+}
+
 async function findLinks() {
     const question = elementOf(STORY_ARC_ELEMENT_ID.webQuery).value.trim();
     if (!question || !page.web) return;
@@ -269,12 +285,14 @@ function showTab(tab) {
     for (const panel of root.querySelectorAll('[data-story-arc-panel]')) {
         panel.style.display = panel.dataset.storyArcPanel === tab ? '' : 'none';
     }
-    page.web?.setPaused(tab !== 'main');
+    page.web?.setPaused(tab !== WEB_TAB);
+    drawWebOnItsTab().catch(error => log.error('[VectFox-StoryArc] The story web could not be drawn:', error));
 }
 
-/** Read the chat's events, then paint both tabs from them. */
+/** Read the chat's events, then paint the Entity tab from them, and the web when its tab shows. */
 async function readAndPaintPage() {
     closeWeb();
+    page.isWebDue = false;
     const chat = await readChatStoryEvents(page.settings, { shouldLogResolution: false });
     if (!page.isOpen) return;
     showProblem(STORY_ARC_ELEMENT_ID.webProblem, chat.problem);
@@ -293,8 +311,8 @@ async function readAndPaintPage() {
     page.merges = readEntityMerges([chat.registryKey]);
     page.hiddenNames = readHiddenEntityNames(chat.registryKey);
     paintEntityTab();
-    await drawWeb();
-    page.web?.setPaused(page.openTab !== 'main');
+    page.isWebDue = true;
+    await drawWebOnItsTab();
 }
 
 /**

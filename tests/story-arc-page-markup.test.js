@@ -45,7 +45,7 @@ describe('storyArcPageMarkup', () => {
     });
 
     it('offers the Block size slider from 0.4 to 1.0 on the Main tab, beside the number that owns its value', () => {
-        const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="entity"'));
+        const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="linkgraph"'));
         const range = /<input type="range" class="vfx-range" data-vfx-slider-for="VectFox_story_arc_block_scale"[^>]*>/.exec(mainPanel)?.[0];
         expect(range).toContain('min="0.4"');
         expect(range).toContain('max="1.0"');
@@ -59,9 +59,13 @@ describe('storyArcPageMarkup', () => {
         for (const id of Object.values(STORY_ARC_ELEMENT_ID)) expect(markup).toContain(`id="${id}"`);
     });
 
-    it('has the Main and Entity tabs', () => {
-        expect(markup).toContain('data-story-arc-tab="main"');
-        expect(markup).toContain('data-story-arc-panel="entity"');
+    it('has the Main, LinkGraph and Entity tabs, in that order, with the story web on LinkGraph', () => {
+        const tabs = [...markup.matchAll(/data-story-arc-tab="([^"]+)"/g)].map(match => match[1]);
+        expect(tabs).toEqual(['main', 'linkgraph', 'entity']);
+        const linkGraphPanel = markup.slice(markup.indexOf('data-story-arc-panel="linkgraph"'), markup.indexOf('data-story-arc-panel="entity"'));
+        expect(linkGraphPanel).toContain(`id="${STORY_ARC_ELEMENT_ID.webCanvas}"`);
+        const mainPanel = markup.slice(markup.indexOf('data-story-arc-panel="main"'), markup.indexOf('data-story-arc-panel="linkgraph"'));
+        expect(mainPanel).not.toContain(`id="${STORY_ARC_ELEMENT_ID.webCanvas}"`);
     });
 
     it('uses only its own classes, state classes and Font Awesome icons', () => {
