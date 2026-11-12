@@ -13,8 +13,7 @@ import { saveSettingsDebounced, extension_settings } from '../../sillytavern/set
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
-import { deleteSecret } from '../../sillytavern/secrets.js';
-import { OPENROUTER_KEY_BOX, QDRANT_KEY_BOX, VLLM_KEY_BOX, wireKeyBox } from './api-key-saving.js';
+import { clearKeyBox, OPENROUTER_KEY_BOX, QDRANT_KEY_BOX, VLLM_KEY_BOX, wireKeyBox } from './api-key-boxes.js';
 import {
     getOpenRouterApiKey,
     getCustomApiKey,
@@ -27,7 +26,6 @@ import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
-import { confirmPopup } from '../../sillytavern/popup.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
@@ -345,48 +343,6 @@ export async function refreshAutoSyncCheckbox(settings) {
         markerValue: status.markerValue,
         unfinishedWindowCount: status.unfinishedWindowCount,
     }));
-}
-
-/**
- * Delete a shared VectFox API key from ST's secret store and refresh every input that
- * displays it. ONE implementation reused by all "Clear saved key" buttons (Embedding /
- * Summarization / AgentMode, OpenRouter + vLLM) so the delete + refresh logic never drifts.
- *
- * Deletes the ACTIVE entry in each slot (the key the UI says is saved); vLLM/Custom keys live
- * in two slots (CUSTOM for chat-side, VLLM for embedding-side) so both are cleared. The
- * placeholder refresh rides the existing `vectfox:*-key-changed` document events that every
- * placeholder updater already listens to — so all three places re-render from one trigger.
- * Each slot is also the one SillyTavern's own chat reads, so the confirm says so.
- *
- * @param {{ slots: string[], changedEvent: string, label: string, getCurrent: () => string }} opts
- */
-async function clearSharedApiKey({ slots, changedEvent, label, getCurrent }) {
-    if (typeof getCurrent === 'function' && !getCurrent()) {
-        log.lifecycle(`VectFox: no ${label} API key is saved, so there is nothing to delete.`);
-        return;
-    }
-    const isConfirmed = await confirmPopup([
-        { text: 'Delete the saved key?' },
-        { text: 'Provider:', name: label },
-        { text: 'Lost: the key VectFox\'s embedding, EventBase model and Agent Mode send, and SillyTavern\'s own chat on the same provider.' },
-        { text: 'Delete key deletes it. Cancel keeps it.' },
-    ], { okButton: 'Delete key', isDestructive: true });
-    if (!isConfirmed) return;
-    const failed = [];
-    for (const slot of slots) {
-        try {
-            await deleteSecret(slot); // no id → removes the active entry and refreshes SillyTavern's secret state
-        } catch (err) {
-            log.error(`[VectFox] deleteSecret(${slot}) failed:`, err);
-            failed.push(slot);
-        }
-    }
-    $(document).trigger(changedEvent); // every placeholder updater re-renders from this
-    if (failed.length) {
-        toastr.error(`Failed to delete ${label} key — see console.`);
-    } else {
-        log.lifecycle(`VectFox: ${label} API key deleted.`);
-    }
 }
 
 /**
@@ -908,25 +864,12 @@ function bindSettingsEvents(settings, callbacks) {
     $(document).on('vectfox:vllm-key-changed', updateAgenticVllmKeyDisplay);
     wireKeyBox('#VectFox_agentic_vllm_apikey', VLLM_KEY_BOX);
 
-    // "Clear saved key" buttons — all 6 (Embedding / Summarize / AgentMode × OpenRouter / vLLM)
-    // funnel through the single clearSharedApiKey() helper so the delete + refresh never drifts.
-    // Each clears every slot its key box saves in (api-key-saving.js).
-    const _openRouterClearOpts = {
-        slots: OPENROUTER_KEY_BOX.slots.map(({ slot }) => slot),
-        changedEvent: OPENROUTER_KEY_BOX.changedEvent,
-        label: OPENROUTER_KEY_BOX.label,
-        getCurrent: () => getOpenRouterApiKey(),
-    };
-    const _vllmClearOpts = {
-        slots: VLLM_KEY_BOX.slots.map(({ slot }) => slot),
-        changedEvent: VLLM_KEY_BOX.changedEvent,
-        label: VLLM_KEY_BOX.label,
-        getCurrent: () => getCustomApiKey(),
-    };
+    // The 6 trash buttons (Embedding, Summarize and Agent Mode, for OpenRouter and vLLM) each delete the key their
+    // provider uses now in every slot its key box saves in (api-key-boxes.js).
     ['#VectFox_openrouter_apikey_clear', '#VectFox_summarize_openrouter_apikey_clear', '#VectFox_agentic_openrouter_apikey_clear']
-        .forEach(sel => $(sel).on('click', () => clearSharedApiKey(_openRouterClearOpts)));
+        .forEach(sel => $(sel).on('click', () => clearKeyBox(OPENROUTER_KEY_BOX)));
     ['#VectFox_vllm_api_key_clear', '#VectFox_summarize_vllm_apikey_clear', '#VectFox_agentic_vllm_apikey_clear']
-        .forEach(sel => $(sel).on('click', () => clearSharedApiKey(_vllmClearOpts)));
+        .forEach(sel => $(sel).on('click', () => clearKeyBox(VLLM_KEY_BOX)));
 
     bindNumberSetting(settings, { id: 'VectFox_agentic_chat_depth', key: 'agentic_retrieval_chat_depth', initial: settings.agentic_retrieval_chat_depth ?? 3, isInteger: true });
     bindNumberSetting(settings, { id: 'VectFox_agentic_max_queries', key: 'agentic_retrieval_max_queries', initial: settings.agentic_retrieval_max_queries ?? 6, isInteger: true });
