@@ -10,6 +10,7 @@
     "check:import-graph": "depcruise src/index.js --config .dependency-cruiser.cjs",
     "check:named-exports": "node tools/check-named-exports.mjs",
     "check:host-imports": "node tools/check-host-imports.mjs",
+    "capture-endpoint": "node tools/capture-endpoint.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
