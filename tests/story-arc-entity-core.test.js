@@ -22,6 +22,7 @@ import {
     hasEntityMerges,
     listEntities,
     mergeEntityNames,
+    separateHiddenEntities,
     splitEntityName,
     withKeptEntityNames,
 } from '../src/features/eventbase/story-arc-entity-core.js';
@@ -216,6 +217,27 @@ describe('mergeEntityNames', () => {
         const before = { Rose: ['Rosie'] };
         mergeEntityNames(before, 'Rosa', 'Rose');
         expect(before).toEqual({ Rose: ['Rosie'] });
+    });
+});
+
+describe('mergeEntityNames, the kept name', () => {
+    it('names the name the merged entity goes by, through an other name too', () => {
+        expect(mergeEntityNames({}, 'Rosa', 'Rose').keptName).toBe('Rose');
+        expect(mergeEntityNames({ Rose: ['Rosie'] }, 'Rosa', 'rosie').keptName).toBe('Rose');
+    });
+});
+
+describe('separateHiddenEntities', () => {
+    const rows = [{ name: 'Rose' }, { name: 'Waitress' }, { name: 'waitress' }];
+
+    it('splits the rows by their own name, as written, in the order given', () => {
+        const { shownRows, hiddenRows } = separateHiddenEntities(rows, ['Waitress']);
+        expect(shownRows.map(row => row.name)).toEqual(['Rose', 'waitress']);
+        expect(hiddenRows.map(row => row.name)).toEqual(['Waitress']);
+    });
+
+    it('shows every row with nothing hidden, and ignores a hidden name no row has', () => {
+        expect(separateHiddenEntities(rows, ['Nobody'])).toEqual({ shownRows: rows, hiddenRows: [] });
     });
 });
 

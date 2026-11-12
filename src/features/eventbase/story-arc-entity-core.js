@@ -210,6 +210,23 @@ export function filterEntities(rows, word) {
 }
 
 /**
+ * Rows split by whether the Entity tab hides their name. Hiding keeps a name off that
+ * list only: StoryArc still reads every hidden name, in the search, the router and the
+ * block.
+ *
+ * @param {{name: string}[]} rows
+ * @param {string[]} hiddenNames - Kept names
+ * @returns {{shownRows: object[], hiddenRows: object[]}}
+ */
+export function separateHiddenEntities(rows, hiddenNames) {
+    const hidden = new Set(hiddenNames);
+    return {
+        shownRows: rows.filter(row => !hidden.has(row.name)),
+        hiddenRows: rows.filter(row => hidden.has(row.name)),
+    };
+}
+
+/**
  * Merge one name into another: the target stays the kept name, and the source's name
  * and its own other names become other names of it. A target that is already another
  * entity's other name means that entity.
@@ -217,7 +234,8 @@ export function filterEntities(rows, word) {
  * @param {Record<string, string[]>} merges
  * @param {string} sourceName
  * @param {string} targetName
- * @returns {{isMerged: boolean, merges: Record<string, string[]>, reason?: string}} merges is a new object
+ * @returns {{isMerged: boolean, merges: Record<string, string[]>, keptName?: string, reason?: string}} merges is a
+ *          new object, and keptName the name the merged entity goes by
  */
 export function mergeEntityNames(merges, sourceName, targetName) {
     const keptByOther = keptNameByOtherName(merges);
@@ -227,7 +245,7 @@ export function mergeEntityNames(merges, sourceName, targetName) {
     if (!source || !target) return { isMerged: false, merges, reason: 'Choose a name to merge into.' };
     if (isSameName(source, target)) return { isMerged: false, merges, reason: `"${sourceName.trim()}" and "${targetName.trim()}" are already one entity.` };
     const { [source]: sourceOthers = [], ...rest } = merges;
-    return { isMerged: true, merges: { ...rest, [target]: [...(merges[target] ?? []), source, ...sourceOthers] } };
+    return { isMerged: true, merges: { ...rest, [target]: [...(merges[target] ?? []), source, ...sourceOthers] }, keptName: target };
 }
 
 /**

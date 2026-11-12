@@ -1,6 +1,6 @@
 /* story-arc-page.css — the StoryArc page's own rules on top of the GUI-DNA: the tabs along the top of the page,
- * and the story web, a surface it draws itself. Layout and genes are the DNA's. The web's colours are channels, so its canvas
- * can draw them at any strength (story-arc-web.js). */
+ * the story web, a surface it draws itself, and the holder of the Entity tab's hidden-names button. Layout and genes are
+ * the DNA's. The web's colours are channels, so its canvas can draw them at any strength (story-arc-web.js). */
 
 #VectFox_panel_storyarc {
     --vfx-web-heat-few: 96, 165, 250;
@@ -11,6 +11,11 @@
     --vfx-web-caused-by: 45, 212, 191;
     --vfx-web-reveals: 251, 191, 36;
     --vfx-web-ring: 248, 250, 252;
+}
+
+/* The holder takes no box, so its button sits in the control row as the row's own child, and an empty holder adds no gap. */
+.vfx-ui .vfx-story-arc-hidden-toggle {
+    display: contents;
 }
 
 .vfx-ui .vfx-subnav {

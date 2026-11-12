@@ -25,7 +25,12 @@ vi.mock('../src/features/eventbase/story-arc-web.js', () => ({
 vi.mock('../src/features/eventbase/story-arc-links.js', () => ({
     readChatStoryEvents: async () => ({ events: host.events, registryKey: 'a-collection', problem: '' }),
 }));
-vi.mock('../src/features/eventbase/story-arc-entities.js', () => ({ readEntityMerges: () => ({}), saveEntityMerges: () => {} }));
+vi.mock('../src/features/eventbase/story-arc-entities.js', () => ({
+    readEntityMerges: () => ({}),
+    saveEntityMerges: () => {},
+    readHiddenEntityNames: () => [],
+    saveHiddenEntityNames: () => {},
+}));
 vi.mock('../src/features/eventbase/story-arc-retrieval.js', () => ({ findStoryWebEvents: async () => ({}) }));
 
 function typeInto(id, value, eventName) {

@@ -1,5 +1,6 @@
 /**
- * A collection exported and imported through the Database Browser keeps its StoryArc links.
+ * A collection exported and imported through the Database Browser keeps its StoryArc links, and the entity merges and
+ * hidden names of StoryArc's Entity tab.
  *
  * Runs the real exportCollection, importCollection and link graph. Only the host and the plugin's
  * chunk endpoints are faked; the fake stores points the way the plugin does, where a point's hash
@@ -54,6 +55,8 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
 import { extension_settings } from '../../../../extensions.js';
 import { purgeVectorIndex } from '../src/features/vector-backend/index.js';
 import { exportCollection, importCollection } from '../src/features/collections/collection-export.js';
+import { getCollectionMeta, setCollectionMeta } from '../src/features/collections/collection-metadata.js';
+import { buildRegistryKey } from '../src/shared/collection-ids.js';
 import { buildStoryLinkGraph, measureStoryLinkCoverage } from '../src/features/eventbase/story-arc-links-core.js';
 
 const SETTINGS = { vector_backend: 'qdrant', embedding_provider: 'openrouter' };
@@ -134,5 +137,25 @@ describe('a Database Browser export and import of a linked collection', () => {
         expect(before.parents.size).toBe(2);
         expect(after.parents.size).toBe(2);
         expect(measureStoryLinkCoverage(eventsAsRetrievalReadsThem())).toMatchObject({ linkedCount: 2, hasUsableLinks: true });
+    });
+
+    it('keeps the Entity tab\'s merges and hidden names', async () => {
+        const registryKey = buildRegistryKey(COLLECTION_ID, SETTINGS);
+        setCollectionMeta(registryKey, { storyEntityMerges: { Rose: ['Rosie'] }, storyEntityHiddenNames: ['Waitress'] });
+        const fileWithNames = await exportCollection(COLLECTION_ID, SETTINGS, { backend: 'qdrant', source: 'openrouter', model: '' });
+        extension_settings.vectfox.collections = {};
+
+        await importCollection(fileWithNames, SETTINGS, { overwrite: true });
+
+        expect(getCollectionMeta(registryKey)).toMatchObject({ storyEntityMerges: { Rose: ['Rosie'] }, storyEntityHiddenNames: ['Waitress'] });
+    });
+
+    it('imports a file from before hidden names with none hidden', async () => {
+        const registryKey = buildRegistryKey(COLLECTION_ID, SETTINGS);
+        delete exportFile.settings.storyEntityHiddenNames;
+
+        await importCollection(exportFile, SETTINGS, { overwrite: true });
+
+        expect(getCollectionMeta(registryKey).storyEntityHiddenNames).toEqual([]);
     });
 });

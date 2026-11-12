@@ -185,7 +185,8 @@ export async function forkEventBaseFromSource(settings, source) {
 
         progressTracker.updateProgress(3, 'Activating for this chat...');
         registerCollection(targetRegistryKey);
-        setCollectionMeta(targetRegistryKey, { scope: 'chat', storyEntityMerges: getCollectionMeta(source.registryKey).storyEntityMerges });
+        const { storyEntityMerges, storyEntityHiddenNames } = getCollectionMeta(source.registryKey);
+        setCollectionMeta(targetRegistryKey, { scope: 'chat', storyEntityMerges, storyEntityHiddenNames });
         setCollectionLock(targetRegistryKey, chatId);
         for (const lockKey of getChatLockedCollections(chatId)) {
             if (parseRegistryKey(lockKey).collectionId === source.collectionId) removeCollectionLock(lockKey, chatId);

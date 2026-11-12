@@ -5,11 +5,12 @@
  * The Entity tab's list, as markup from the gene builders: a page of rows, one per
  * entity, with the Merge or Split panel under the row that opened it, as the
  * mvu-helper Roster draws them. A row's buttons carry data-entity-action and the
- * entity's name. Pure: builds strings.
+ * entity's name. Hidden names have a list of their own, where each row can be shown
+ * again. Pure: builds strings.
  * ============================================================================
  */
 
-import { button, controlRow, emptyState, field, hint, iconButton, listRow, pager, recordCard, select, selectOption, statusPill } from '../../shared/gui-dna/gui-dna-core.js';
+import { button, controlRow, emptyState, field, hint, iconButton, listRow, notice, pager, recordCard, select, selectOption, statusPill } from '../../shared/gui-dna/gui-dna-core.js';
 import { escapeHtmlAttribute } from '../../shared/html-escape.js';
 
 export const ENTITY_ROWS_PER_PAGE = 20;
@@ -55,18 +56,37 @@ function splitPanel(row) {
     });
 }
 
-function entityRow(row, kind) {
+function entityRow(row, kind, isShowingHidden) {
     const forName = action => ({ 'entity-action': action, name: row.name });
+    const actions = isShowingHidden
+        ? [button({ text: 'Show again', icon: 'fa-eye', data: forName('unhide') })]
+        : [
+            iconButton({ icon: 'fa-code-merge', title: 'Merge into another name', data: forName('merge') }),
+            ...(row.otherNames.length ? [iconButton({ icon: 'fa-code-branch', title: 'Split a name off', data: forName('split') })] : []),
+            iconButton({ icon: 'fa-eye-slash', title: 'Hide this name from the list', data: forName('hide') }),
+        ];
     return listRow({
         icon: ICON_BY_KIND[kind],
         name: row.name,
         sub: row.otherNames.length ? { text: 'Also known as', name: row.otherNames.join(' · ') } : null,
         pills: [statusPill({ name: `${row.eventCount} ${row.eventCount === 1 ? 'event' : 'events'}`, status: row.otherNames.length ? 'accent' : 'neutral' })],
-        actions: [
-            iconButton({ icon: 'fa-code-merge', title: 'Merge into another name', data: forName('merge') }),
-            ...(row.otherNames.length ? [iconButton({ icon: 'fa-code-branch', title: 'Split a name off', data: forName('split') })] : []),
-        ],
+        actions,
     });
+}
+
+/**
+ * The button that opens the list of hidden names and goes back from it: none while this kind hides no name.
+ *
+ * @param {object} params
+ * @param {boolean} params.isShowingHidden - Whether the list shows the hidden names
+ * @param {boolean} params.hasHiddenNames - Whether this kind hides any name
+ * @returns {string}
+ */
+export function hiddenNamesButton({ isShowingHidden, hasHiddenNames }) {
+    if (!hasHiddenNames) return '';
+    return isShowingHidden
+        ? button({ text: 'Back to names', icon: 'fa-arrow-left', data: { 'entity-action': 'toggle-hidden' } })
+        : button({ text: 'Show hidden', icon: 'fa-eye', data: { 'entity-action': 'toggle-hidden' } });
 }
 
 /**
@@ -80,21 +100,26 @@ function entityRow(row, kind) {
  * @param {string|null} params.splittingName - The row whose Split panel is open
  * @param {string[]} params.nameChoices - The names of the kind shown, all of them whatever the search, which the
  *        Merge panel offers as the name to keep; any other name can still be typed
+ * @param {boolean} [params.isShowingHidden] - The rows are hidden names, each with Show again and no panel
  * @returns {{list: string, pagerMarkup: string, pageIndex: number}} pageIndex is within the pages there are
  */
-export function entityListMarkup({ rows, kind, pageIndex, mergingName, splittingName, nameChoices }) {
-    if (!rows.length) return { list: emptyState({ icon: 'fa-user-slash', text: 'No names here.' }), pagerMarkup: '', pageIndex: 0 };
+export function entityListMarkup({ rows, kind, pageIndex, mergingName, splittingName, nameChoices, isShowingHidden = false }) {
+    const hiddenNotice = isShowingHidden
+        ? notice({ status: 'info', text: 'Hidden names. StoryArc still reads them in every search. Show again puts a name back on the list.' })
+        : '';
+    if (!rows.length) return { list: hiddenNotice + emptyState({ icon: 'fa-user-slash', text: 'No names here.' }), pagerMarkup: '', pageIndex: 0 };
     const pageCount = Math.ceil(rows.length / ENTITY_ROWS_PER_PAGE);
     const shownPage = Math.min(pageIndex, pageCount - 1);
     const list = rows
         .slice(shownPage * ENTITY_ROWS_PER_PAGE, (shownPage + 1) * ENTITY_ROWS_PER_PAGE)
         .map((row) => {
+            if (isShowingHidden) return entityRow(row, kind, true);
             const panel = row.name === mergingName ? mergePanel(row, nameChoices) : row.name === splittingName ? splitPanel(row) : '';
-            return entityRow(row, kind) + panel;
+            return entityRow(row, kind, false) + panel;
         })
         .join('');
     const pagerMarkup = pageCount > 1
         ? pager({ page: shownPage, pageCount, previousData: { 'entity-action': 'page-previous' }, nextData: { 'entity-action': 'page-next' } })
         : '';
-    return { list, pagerMarkup, pageIndex: shownPage };
+    return { list: hiddenNotice + list, pagerMarkup, pageIndex: shownPage };
 }

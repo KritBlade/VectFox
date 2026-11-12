@@ -2,8 +2,9 @@
  * ============================================================================
  * STORY ARC ENTITIES, SAVED
  * ============================================================================
- * Where a collection's entity merges live: its metadata, which Export and Import
- * carry. What a merge means is in story-arc-entity-core.js.
+ * Where a collection's entity merges and the names the Entity tab hides live: its
+ * metadata, which Export and Import carry. What a merge means is in
+ * story-arc-entity-core.js. Hidden names are read by the Entity tab only.
  * ============================================================================
  */
 
@@ -26,4 +27,23 @@ export function readEntityMerges(collectionKeys) {
  */
 export function saveEntityMerges(collectionKey, merges) {
     setCollectionMeta(collectionKey, { storyEntityMerges: merges });
+}
+
+/**
+ * The kept names the Entity tab keeps off its list. StoryArc still reads every one of them.
+ *
+ * @param {string} collectionKey - Registry key
+ * @returns {string[]}
+ */
+export function readHiddenEntityNames(collectionKey) {
+    const hiddenNames = getCollectionMeta(collectionKey).storyEntityHiddenNames;
+    return Array.isArray(hiddenNames) ? hiddenNames : [];
+}
+
+/**
+ * @param {string} collectionKey - Registry key
+ * @param {string[]} hiddenNames
+ */
+export function saveHiddenEntityNames(collectionKey, hiddenNames) {
+    setCollectionMeta(collectionKey, { storyEntityHiddenNames: hiddenNames });
 }

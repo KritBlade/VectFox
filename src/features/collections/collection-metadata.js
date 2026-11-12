@@ -34,6 +34,8 @@ const defaultCollectionMeta = {
     queryCount: 0,
     // StoryArc's merged entity names, { kept name: [other names] } (eventbase/story-arc-entity-core.js).
     storyEntityMerges: {},
+    // Kept names StoryArc's Entity tab keeps off its list; StoryArc still reads them (eventbase/story-arc-entities.js).
+    storyEntityHiddenNames: [],
 
     // =========================================================================
     // ACTIVATION TRIGGERS

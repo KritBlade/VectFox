@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { STORY_ARC_ELEMENT_ID, storyArcPageMarkup } from '../src/features/eventbase/story-arc-page-markup.js';
-import { ENTITY_ROWS_PER_PAGE, entityListMarkup } from '../src/features/eventbase/story-arc-entity-ui.js';
+import { ENTITY_ROWS_PER_PAGE, entityListMarkup, hiddenNamesButton } from '../src/features/eventbase/story-arc-entity-ui.js';
 
 const rowsOf = count => Array.from({ length: count }, (_, place) => ({ name: `Name ${place}`, otherNames: [], eventCount: count - place }));
 const listParams = { kind: 'people', pageIndex: 0, mergingName: null, splittingName: null, nameChoices: [] };
@@ -123,5 +123,35 @@ describe('entityListMarkup', () => {
         const { list } = entityListMarkup({ ...listParams, rows: [{ name: '<i>Rose</i>', otherNames: [], eventCount: 1 }] });
         expect(list).not.toContain('<i>Rose</i>');
         expect(list).toContain('&lt;i&gt;Rose&lt;/i&gt;');
+    });
+
+    it('offers Hide on every row', () => {
+        const { list } = entityListMarkup({ ...listParams, rows: rowsOf(2) });
+        expect(list.match(/data-entity-action="hide"/g)).toHaveLength(2);
+        expect(list).not.toContain('data-entity-action="unhide"');
+    });
+
+    it('lists hidden names with Show again only, under a notice, and opens no panel', () => {
+        const merged = [{ name: 'Rose', otherNames: ['Rosie'], eventCount: 2 }];
+        const { list } = entityListMarkup({ ...listParams, rows: merged, isShowingHidden: true, mergingName: 'Rose' });
+        expect(list).toContain('data-entity-action="unhide"');
+        expect(list).toContain('Show again');
+        expect(list).toContain('StoryArc still reads them in every search.');
+        expect(list).toContain('Rosie');
+        for (const action of ['merge', 'split', 'hide', 'merge-confirm']) expect(list).not.toContain(`data-entity-action="${action}"`);
+    });
+});
+
+describe('hiddenNamesButton', () => {
+    it('is not there while the kind hides no name', () => {
+        expect(hiddenNamesButton({ isShowingHidden: false, hasHiddenNames: false })).toBe('');
+    });
+
+    it('says Show hidden on the list, and Back to names on the hidden list, both as the one toggle', () => {
+        const toList = hiddenNamesButton({ isShowingHidden: false, hasHiddenNames: true });
+        const back = hiddenNamesButton({ isShowingHidden: true, hasHiddenNames: true });
+        expect(toList).toContain('Show hidden');
+        expect(back).toContain('Back to names');
+        for (const markup of [toList, back]) expect(markup).toContain('data-entity-action="toggle-hidden"');
     });
 });

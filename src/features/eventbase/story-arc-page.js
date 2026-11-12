@@ -3,16 +3,16 @@
  * STORY ARC PAGE
  * ============================================================================
  * Runs the StoryArc page on the settings panel's rail, and its two tabs: Main, with
- * the story web, and Entity, with the merged names. The page reads the chat's events
+ * the story web, and Entity, with the merged names and the names it hides. The page reads the chat's events
  * each time it shows, and again when asked; its web stops while it is hidden.
  * ============================================================================
  */
 
 import { log } from '../../sillytavern/log.js';
 import { notice } from '../../shared/gui-dna/gui-dna-core.js';
-import { saveEntityMerges, readEntityMerges } from './story-arc-entities.js';
-import { buildEntityNameWriter, entityNamesLeftAlone, filterEntities, listEntities, mergeEntityNames, splitEntityName, withKeptEntityNames } from './story-arc-entity-core.js';
-import { ENTITY_MERGE_TARGET_ID, ENTITY_SPLIT_NAME_ID, entityListMarkup } from './story-arc-entity-ui.js';
+import { readEntityMerges, readHiddenEntityNames, saveEntityMerges, saveHiddenEntityNames } from './story-arc-entities.js';
+import { buildEntityNameWriter, entityNamesLeftAlone, filterEntities, listEntities, mergeEntityNames, separateHiddenEntities, splitEntityName, withKeptEntityNames } from './story-arc-entity-core.js';
+import { ENTITY_MERGE_TARGET_ID, ENTITY_SPLIT_NAME_ID, entityListMarkup, hiddenNamesButton } from './story-arc-entity-ui.js';
 import { readChatStoryEvents } from './story-arc-links.js';
 import { STORY_ARC_ELEMENT_ID, STORY_ARC_PAGE_ID } from './story-arc-page-markup.js';
 import { findStoryWebEvents } from './story-arc-retrieval.js';
@@ -27,6 +27,8 @@ const page = {
     collectionKey: '',
     events: [],
     merges: {},
+    hiddenNames: [],
+    isShowingHidden: false,
     web: null,
     webData: null,
     webViewStatus: '',
@@ -51,18 +53,28 @@ function showProblem(id, problem) {
 // ---------------------------------------------------------------------------- Entity tab
 
 function paintEntityTab() {
-    const kindRows = listEntities(page.events, page.merges, page.entityKind);
+    const { shownRows, hiddenRows } = separateHiddenEntities(listEntities(page.events, page.merges, page.entityKind), page.hiddenNames);
+    // The hidden list closes once this kind hides no name, as when its last one is shown again.
+    if (!hiddenRows.length) page.isShowingHidden = false;
     const { list, pagerMarkup, pageIndex } = entityListMarkup({
-        rows: filterEntities(kindRows, page.entityWord),
+        rows: filterEntities(page.isShowingHidden ? hiddenRows : shownRows, page.entityWord),
         kind: page.entityKind,
         pageIndex: page.entityPageIndex,
         mergingName: page.mergingName,
         splittingName: page.splittingName,
-        nameChoices: kindRows.map(row => row.name),
+        nameChoices: shownRows.map(row => row.name),
+        isShowingHidden: page.isShowingHidden,
     });
     page.entityPageIndex = pageIndex;
     elementOf(STORY_ARC_ELEMENT_ID.entityList).innerHTML = list;
     elementOf(STORY_ARC_ELEMENT_ID.entityPager).innerHTML = pagerMarkup;
+    elementOf(STORY_ARC_ELEMENT_ID.entityHiddenToggle).innerHTML = hiddenNamesButton({ isShowingHidden: page.isShowingHidden, hasHiddenNames: hiddenRows.length > 0 });
+}
+
+/** Save which names the Entity tab hides. Only this tab reads them, so nothing else repaints. */
+function applyHiddenNames(hiddenNames) {
+    page.hiddenNames = hiddenNames;
+    saveHiddenEntityNames(page.collectionKey, hiddenNames);
 }
 
 /** Save a change to the merges, and show it wherever names are shown. */
@@ -80,7 +92,7 @@ function applyMerges(merges) {
 
 async function confirmMerge(sourceName) {
     const targetName = elementOf(ENTITY_MERGE_TARGET_ID)?.value ?? '';
-    const { isMerged, merges, reason } = mergeEntityNames(page.merges, sourceName, targetName);
+    const { isMerged, merges, reason, keptName } = mergeEntityNames(page.merges, sourceName, targetName);
     if (!isMerged) {
         toastr.warning(reason, TOAST_TITLE);
         return;
@@ -94,7 +106,10 @@ async function confirmMerge(sourceName) {
         ...(leftAlone.length ? [{ text: 'Stays its own entity, unless you merge it too:', name: leftAlone.join(' · ') }] : []),
         { text: 'StoryArc then sees one entity. Stored events stay as they are, and Split undoes this.' },
     ], { okButton: 'Merge' });
-    if (isConfirmed) applyMerges(merges);
+    if (!isConfirmed) return;
+    // A name typed as the one to keep may be hidden; merging into it shows it again, so the merged row stays in view.
+    if (page.hiddenNames.includes(keptName)) applyHiddenNames(page.hiddenNames.filter(name => name !== keptName));
+    applyMerges(merges);
 }
 
 async function runEntityAction(action, name) {
@@ -105,6 +120,15 @@ async function runEntityAction(action, name) {
         page.splittingName = page.splittingName === name ? null : name;
         page.mergingName = null;
     } else if (action === 'close-panel') {
+        page.mergingName = null;
+        page.splittingName = null;
+    } else if (action === 'hide') {
+        if (!page.hiddenNames.includes(name)) applyHiddenNames([...page.hiddenNames, name]);
+    } else if (action === 'unhide') {
+        applyHiddenNames(page.hiddenNames.filter(hidden => hidden !== name));
+    } else if (action === 'toggle-hidden') {
+        page.isShowingHidden = !page.isShowingHidden;
+        page.entityPageIndex = 0;
         page.mergingName = null;
         page.splittingName = null;
     } else if (action === 'page-previous') {
@@ -258,6 +282,7 @@ async function readAndPaintPage() {
     if (chat.problem) {
         page.events = [];
         page.merges = {};
+        page.hiddenNames = [];
         page.collectionKey = '';
         setWebStatus('');
         paintEntityTab();
@@ -266,6 +291,7 @@ async function readAndPaintPage() {
     page.events = chat.events;
     page.collectionKey = chat.registryKey;
     page.merges = readEntityMerges([chat.registryKey]);
+    page.hiddenNames = readHiddenEntityNames(chat.registryKey);
     paintEntityTab();
     await drawWeb();
     page.web?.setPaused(page.openTab !== 'main');

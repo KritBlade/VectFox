@@ -27,6 +27,7 @@ export const STORY_ARC_ELEMENT_ID = Object.freeze({
     entitySearch: 'VectFox_story_arc_entity_search',
     entityList: 'VectFox_story_arc_entity_list',
     entityPager: 'VectFox_story_arc_entity_pager',
+    entityHiddenToggle: 'VectFox_story_arc_entity_hidden_toggle',
 });
 
 const CHAT_CHIP = '<span class="vfx-chip"><i class="fa-solid fa-comments"></i><span>This chat</span></span>';
@@ -137,7 +138,7 @@ function connectionCard() {
 }
 
 function entityCard() {
-    const { entityProblem, entityKind, entitySearch, entityList, entityPager } = STORY_ARC_ELEMENT_ID;
+    const { entityProblem, entityKind, entitySearch, entityList, entityPager, entityHiddenToggle } = STORY_ARC_ELEMENT_ID;
     const kind = select({
         id: entityKind,
         title: 'Kind of name',
@@ -147,13 +148,14 @@ function entityCard() {
         ${cardHeader({
             icon: 'fa-users',
             title: 'Entities',
-            description: 'Merge the names of one person, place or faction. Nothing stored changes.',
+            description: 'Merge the names of one person, place or faction, or hide one. Nothing stored changes.',
             actions: CHAT_CHIP,
         })}
         <div class="vfx-card-body vfx-stack">
             <div class="vfx-control-row">
                 ${kind}
                 <input type="text" id="${entitySearch}" class="vfx-input" placeholder="Search names" title="Search names">
+                <span id="${entityHiddenToggle}" class="vfx-story-arc-hidden-toggle"></span>
             </div>
             <div id="${entityProblem}"></div>
             <div id="${entityList}" class="vfx-list"></div>
