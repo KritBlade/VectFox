@@ -5,9 +5,8 @@
  *
  * The version comes from the /health probe, which every plugin build answers with its version; the /version route is
  * missing from older plugins, the very ones the warning is for. These tests pin that a too-old plugin is always
- * surfaced, that "no plugin" stays silent, and that the floor never drops below 3.4.3, the first plugin that requests a
- * profile URL already ending in /embeddings as it is. Raising the floor is a manifest.json edit these tests follow
- * without a change.
+ * surfaced, that "no plugin" stays silent, and that the floor never drops below 3.4.4, the first plugin that passes on
+ * no server reply and no part of a key. Raising the floor is a manifest.json edit these tests follow without a change.
  */
 
 import { readFileSync } from 'node:fs';
@@ -73,12 +72,13 @@ beforeEach(() => {
 afterEach(() => { delete globalThis.toastr; delete globalThis.fetch; });
 
 describe('the floor in manifest.json', () => {
-    it('is a version, and never older than 3.4.3, the first plugin that requests a profile URL ending in /embeddings as it is', async () => {
+    it('is a version, and never older than 3.4.4, the first plugin that passes on no server reply and no part of a key', async () => {
         // Below 3.4.0 the plugin ignores the key ID on llama.cpp and SillyTavern sends its active key instead. Below
-        // 3.4.3 it adds /embeddings to an OpenRouter profile's https://openrouter.ai/api/v1/embeddings, a 404.
+        // 3.4.3 it adds /embeddings to an OpenRouter profile's https://openrouter.ai/api/v1/embeddings, a 404. Below
+        // 3.4.4 it returns a provider's reply, which can quote the key masked, and the Qdrant key's last 4 characters.
         expect(FLOOR).toMatch(/^\d+\.\d+\.\d+$/);
         const { isSimilharityVersionBehind } = await import('../src/shared/similharity-plugin.js');
-        expect(isSimilharityVersionBehind(FLOOR, '3.4.3')).toBe(false);
+        expect(isSimilharityVersionBehind(FLOOR, '3.4.4')).toBe(false);
     });
 
     it('is what the probe reads, beside the plugin it found', async () => {

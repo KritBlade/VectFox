@@ -38,6 +38,7 @@ import { getModelFromSettings, refuseSillyTavernEmbeddingRoute } from '../embedd
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { formatBytes } from '../../shared/byte-size.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 // ============================================================================
 // HELPERS
@@ -472,7 +473,7 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
         }
 
         if (!response.ok) {
-            const error = await response.text();
+            const error = await readErrorBody(response);
             throw new Error(`Failed to insert chunks: ${error}`);
         }
 

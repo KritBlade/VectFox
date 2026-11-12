@@ -25,7 +25,6 @@
  */
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
-import { extension_settings } from '../../sillytavern/settings.js';
 import { oai_settings } from '../../sillytavern/connection-settings.js';
 import { VectorBackend } from './backend-interface.js';
 import {
@@ -42,6 +41,7 @@ import { INTERNAL_COLLECTION_IDS } from '../../shared/collection-ids.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { log } from '../../sillytavern/log.js';
 import { chunkPayload } from './stored-chunk.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 
 /**
@@ -57,11 +57,6 @@ async function getProviderSpecificParams(settings, isQuery = false) {
     const source = settings.embedding_provider;
 
     switch (source) {
-        case 'extras':
-            params.extrasUrl = extension_settings.apiUrl;
-            params.extrasKey = extension_settings.apiKey;
-            break;
-
         case 'cohere':
             params.input_type = isQuery ? 'search_query' : 'search_document';
             break;
@@ -217,7 +212,7 @@ export class StandardBackend extends VectorBackend {
                 // Likely collection doesn't exist
                 return [];
             }
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`Failed to get saved hashes: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -462,7 +457,7 @@ export class StandardBackend extends VectorBackend {
             });
 
             if (!response.ok) {
-                const errorBody = await response.text().catch(() => 'No response body');
+                const errorBody = await readErrorBody(response, 'No response body');
                 // The plugin embeds server-side, so a retired/unknown embedding model
                 // surfaces here in the forwarded body — often wrapped as 500, hence
                 // enforceStatusGate:false. Surface it instead of silently failing ingestion.
@@ -522,7 +517,7 @@ export class StandardBackend extends VectorBackend {
             });
 
             if (!response.ok) {
-                const errorBody = await response.text().catch(() => 'No response body');
+                const errorBody = await readErrorBody(response, 'No response body');
                 throw new Error(`Failed to delete vectors (plugin): ${response.status} ${response.statusText} - ${errorBody}`);
             }
             return;
@@ -543,7 +538,7 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`Failed to delete vectors: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
@@ -619,7 +614,7 @@ export class StandardBackend extends VectorBackend {
             log.verbose(`[VectFox] plugin query response: status=${response.status} ok=${response.ok}`);
 
             if (!response.ok) {
-                const errorBody = await response.text().catch(() => 'No response body');
+                const errorBody = await readErrorBody(response, 'No response body');
                 log.error(`[VectFox] plugin query failed: ${errorBody}`);
                 throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
                 throw new Error(`Failed to query collection (plugin): ${response.status} ${response.statusText} - ${errorBody}`);
@@ -668,7 +663,7 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
             throw new Error(`Failed to query collection: ${response.status} ${response.statusText} - ${errorBody}`);
         }
@@ -824,7 +819,7 @@ export class StandardBackend extends VectorBackend {
             });
             result.nativeOk = response.ok;
             if (!response.ok) {
-                const body = await response.text().catch(() => '');
+                const body = await readErrorBody(response);
                 log.warn(`[test cleanup] native /api/vector/purge ${response.status} for ${collectionId}: ${body.slice(0, 120)}`);
             }
         } catch (e) {
@@ -863,7 +858,7 @@ export class StandardBackend extends VectorBackend {
                         }),
                     });
                     if (!response.ok) {
-                        const errBody = await response.text().catch(() => 'No response body');
+                        const errBody = await readErrorBody(response, 'No response body');
                         errors.push(`source="${source}" model="${model}": ${response.status} ${errBody}`);
                     }
                 } catch (e) {
@@ -891,7 +886,7 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`Failed to purge collection: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
@@ -911,7 +906,7 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`Failed to purge all: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
@@ -950,7 +945,7 @@ export class StandardBackend extends VectorBackend {
                 // empty rows for collections that actually have data. 5xx
                 // is treated as a transient plugin outage — warn and fall
                 // back to native list (hashes only) so the UI stays usable.
-                const errBody = await response.text().catch(() => '<no body>');
+                const errBody = await readErrorBody(response, '<no body>');
                 if (response.status >= 400 && response.status < 500) {
                     // Log BEFORE throwing so the failure leaves a console trace
                     // even if the throw is caught silently upstream. This branch
@@ -1026,7 +1021,7 @@ export class StandardBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`Failed to update chunk metadata: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 

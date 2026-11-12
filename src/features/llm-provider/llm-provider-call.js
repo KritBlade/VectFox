@@ -41,6 +41,7 @@ import { isConnectionError, notifyConnectionError, notifyUpstreamRejection } fro
 import { log } from '../../sillytavern/log.js';
 import { completionCutReason, completionFinishReason, describeNoTextAnswer } from './completion-finish.js';
 import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape } from './connection-profile-core.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 /**
  * Neutral error from a shared LLM call. Callers switch on `kind` to map this
@@ -325,7 +326,7 @@ export async function postChatCompletion({
     });
 
     if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
+        const errText = await readErrorBody(response, response.statusText);
 
         if (authBranch && (response.status === 401 || response.status === 403)) {
             throw new LlmCallError(

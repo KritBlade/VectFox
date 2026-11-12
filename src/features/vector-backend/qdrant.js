@@ -44,6 +44,7 @@ import { log } from '../../sillytavern/log.js';
 import { invalidateCollectionMetadata, settleTokenizerMismatch } from './tokenizer-lock.js';
 import { buildRegistryKey } from '../../shared/collection-ids.js';
 import { chunkPayload, textWithKeywordSuffix } from './stored-chunk.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
 // shows in the registry. The registry sits above the backends, so index.js sets it at startup.
@@ -217,7 +218,7 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to initialize Qdrant: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -337,7 +338,7 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to get saved hashes for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -410,7 +411,7 @@ export class QdrantBackend extends VectorBackend {
             });
 
             if (!response.ok) {
-                const errorBody = await response.text().catch(() => 'No response body');
+                const errorBody = await readErrorBody(response, 'No response body');
 
                 // Configuration errors, so auto-sync pauses and the sticky toast shows them.
                 if (_isDimensionMismatch(errorBody)) {
@@ -473,7 +474,7 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to delete vectors from ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
     }
@@ -531,7 +532,7 @@ export class QdrantBackend extends VectorBackend {
         }
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             const failMs = (performance.now() - tNetStart).toFixed(1);
             log.warn(`[Qdrant timing] queryCollection FAILED after ${failMs}ms (HTTP ${response.status}).${embedHint} Server said: ${errorBody.slice(0, 300)}`);
             throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
@@ -627,7 +628,7 @@ export class QdrantBackend extends VectorBackend {
                         })),
                     };
                 } else {
-                    const errorBody = await response.text().catch(() => 'No response body');
+                    const errorBody = await readErrorBody(response, 'No response body');
                     const errorMsg = `${response.status} ${response.statusText} - ${errorBody}`;
                     log.error(`VectFox: Query failed for ${collectionId}: ${errorMsg}`);
                     results[collectionId] = { hashes: [], metadata: [], error: errorMsg };
@@ -665,7 +666,7 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to purge collection ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -705,7 +706,7 @@ export class QdrantBackend extends VectorBackend {
 
         if (!response.ok) {
             if (response.status === 404) return null;
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to get chunk ${hash} from ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -733,7 +734,7 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to list chunks in ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -758,7 +759,7 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to update chunk metadata in ${collectionId} (hash: ${hash}): ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -782,7 +783,7 @@ export class QdrantBackend extends VectorBackend {
         });
 
         if (!response.ok) {
-            const errorBody = await response.text().catch(() => 'No response body');
+            const errorBody = await readErrorBody(response, 'No response body');
             throw new Error(`[Qdrant] Failed to get stats for ${collectionId}: ${response.status} ${response.statusText} - ${errorBody}`);
         }
 
@@ -995,7 +996,7 @@ export class QdrantBackend extends VectorBackend {
             };
         }
 
-        const errorBody = await response.text().catch(() => '(no body)');
+        const errorBody = await readErrorBody(response, '(no body)');
         const failMs = (performance.now() - tNetStart).toFixed(1);
         if (_isDimensionMismatch(errorBody)) {
             // Deliberate dead end, NOT a fallback: a vector size mismatch fails
@@ -1114,7 +1115,7 @@ export class QdrantBackend extends VectorBackend {
                 };
             }
 
-            const errorBody = await response.text().catch(() => '(no body)');
+            const errorBody = await readErrorBody(response, '(no body)');
             const failMs = (performance.now() - tNetStart).toFixed(1);
             if (_isDimensionMismatch(errorBody)) {
                 _warnDimensionMismatch(errorBody);

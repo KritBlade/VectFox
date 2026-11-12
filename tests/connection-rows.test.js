@@ -31,6 +31,7 @@ const host = vi.hoisted(() => ({
 vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
 vi.mock('../src/sillytavern/secrets.js', () => ({ SECRET_KEYS: {}, deleteSecret: vi.fn(), readSecretState: vi.fn(), secret_state: {}, writeSecret: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: new Proxy({}, { get: () => () => {} }) }));
+vi.mock('../src/sillytavern/installed-extensions.js', () => ({ extensionNames: [] }));
 vi.mock('../src/sillytavern/settings.js', () => ({
     extension_settings: host.extensionSettings,
     saveSettingsDebounced: host.saveSettingsDebounced,

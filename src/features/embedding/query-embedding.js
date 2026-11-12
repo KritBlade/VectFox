@@ -14,6 +14,7 @@ import { getModelFromSettings } from './providers.js';
 import { throwIfEmbeddingConfigError } from './embedding-request-failure.js';
 import { warnIfEmbeddingSlow } from './embedding-latency-warning.js';
 import { log } from '../../sillytavern/log.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 /**
  * @param {string} searchText - Query text to embed
@@ -31,7 +32,7 @@ export async function fetchQueryEmbedding(searchText, settings, providerParams) 
         body: JSON.stringify({ text: searchText, source, model, ...providerParams }),
     });
     if (!response.ok) {
-        const errorBody = await response.text().catch(() => '(no body)');
+        const errorBody = await readErrorBody(response, '(no body)');
         throwIfEmbeddingConfigError(settings, { status: response.status, responseText: errorBody });
         throw new Error(`Query embedding via '${source}' failed: ${response.status} ${response.statusText} - ${errorBody.slice(0, 300)}`);
     }

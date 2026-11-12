@@ -4,7 +4,8 @@
  * report it and stop. Never edit this file to make it pass.
  *
  * Invariant 6 reads the request-shape builder itself, a pure module with no host imports. Invariant 7 is the plugin's
- * own test.
+ * own test. Invariants 8 and 9 keep any part of a key out of what VectFox shows and logs: a provider can quote the key
+ * it refused, and SillyTavern's masked value ends with the key's last characters.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -110,5 +111,31 @@ describe('credential invariants (plan §10)', () => {
         expect(hitsOf(/overridePayload,/, { codeOnly: true, files: [wrapper] })).toHaveLength(1);
         expect(wrapper.lines.filter(line => /\.\.\.overridePayload/.test(line)).map(line => line.trim()))
             .toEqual(['const payload = connectionProfileStoresKey(profile) ? overridePayload : { ...overridePayload, secret_id: NO_KEY_SECRET_ID };']);
+    });
+
+    it('8: every failed reply VectFox reads goes through readErrorBody, which removes anything key-shaped', () => {
+        // The reads of a response's or a file's text that are content, never a failure: files the user picks, a
+        // fetched web page, a video transcript, the BM25 dictionary.
+        const CONTENT_READS = [
+            /await file\.text\(\)/,
+            /pageTextFromHtml\(await response\.text\(\)/,
+            /const transcript = await response\.text\(\);/,
+            /const dictText = await resp\.text\(\);/,
+        ];
+        const textReads = sourceFiles
+            .filter(file => file.path !== 'src/shared/server-error-text.js')
+            .flatMap(file => file.lines.flatMap((line, index) => (
+                /\.text\(\)/.test(line) && !isCommentLine(line) ? [{ hit: `${file.path}:${index + 1}`, line }] : []
+            )));
+        expect(textReads.filter(read => !CONTENT_READS.some(pattern => pattern.test(read.line))).map(read => read.hit)).toEqual([]);
+        // The guard was found at the reads, rather than nothing left to check.
+        expect(hitsOf(/await readErrorBody\(/, { codeOnly: true }).length).toBeGreaterThan(30);
+    });
+
+    it('9: no text VectFox shows or logs is built from a key, a masked one included', () => {
+        expect(hitsOf(/(?:savedKey|legacyPlaintext|apiKey|masked|secret\w*)\.slice\(\s*-/i, { codeOnly: true })).toEqual([]);
+        expect(hitsOf(/\$\{\s*(?:savedKey|masked|presence\.masked|legacyPlaintext|apiKey)\s*\}/, { codeOnly: true })).toEqual([]);
+        // Similharity before 3.4.4 answers /qdrant/key-status with the key's last 4 characters, which is never read.
+        expect(hitsOf(/presence\.masked|data\?\.masked|data\.masked/, { codeOnly: true })).toEqual([]);
     });
 });

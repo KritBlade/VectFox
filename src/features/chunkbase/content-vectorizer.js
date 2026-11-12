@@ -67,6 +67,7 @@ import {
     sourceOptionsMarkup,
     wikiPluginMarkup,
 } from './content-vectorizer-markup.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 const ALL_TYPE_IDS = CONTENT_TYPE_GROUPS.flatMap(group => group.typeIds);
 
@@ -364,7 +365,7 @@ async function sha1Hex(text) {
 const postToSillyTavern = (url, body) => fetch(url, { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify(body) });
 
 async function failedResponseReason(response) {
-    const text = await response.text().catch(() => '');
+    const text = await readErrorBody(response);
     return text.trim() || `SillyTavern answered ${response.status}`;
 }
 

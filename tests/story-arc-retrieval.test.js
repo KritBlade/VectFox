@@ -748,6 +748,23 @@ describe('retrieveEventsForTurn with StoryArc mode', () => {
             expect(resolveStoryLinkLlmConfig({})).toEqual({ ok: false, reason: 'missing_model' });
         });
 
+        // SillyTavern's masked value ends with the key's last characters.
+        it('carries no key, masked or not, only that one is saved', () => {
+            expect(resolveStoryLinkLlmConfig({ story_arc_link_provider: 'openrouter', story_arc_link_model: 'link-model' })).not.toHaveProperty('apiKey');
+            expect(resolveStoryLinkLlmConfig({ story_arc_link_provider: 'vllm', story_arc_link_model: 'link-model', agent_provider: 'vllm', agent_vllm_url: 'http://agent:8000' })).not.toHaveProperty('apiKey');
+        });
+
+        // The StoryArc page has no URL row, and a page on another provider hides its own.
+        it('on vLLM reads only a URL a page shows: the AgentMode page\'s, else the EventBase model\'s', () => {
+            const onVllm = { story_arc_link_provider: 'vllm', story_arc_link_model: 'link-model' };
+            expect(resolveStoryLinkLlmConfig({ ...onVllm, agent_provider: 'vllm', agent_vllm_url: 'http://agent:8000', chat_provider: 'vllm', chat_vllm_url: 'http://core:8000' }))
+                .toMatchObject({ ok: true, vllmUrl: 'http://agent:8000' });
+            expect(resolveStoryLinkLlmConfig({ ...onVllm, agent_provider: '', agent_vllm_url: 'http://hidden-agent:8000', chat_provider: 'vllm', chat_vllm_url: 'http://core:8000' }))
+                .toMatchObject({ ok: true, vllmUrl: 'http://core:8000' });
+            expect(resolveStoryLinkLlmConfig({ ...onVllm, agent_provider: 'connection_profile', agent_vllm_url: 'http://stale-agent:8000', chat_provider: 'connection_profile', chat_vllm_url: 'http://stale-core:8000' }))
+                .toEqual({ ok: false, reason: 'missing_vllm_url' });
+        });
+
         it('runs on its own connection profile, checked as chosen on the StoryArc page, still with no temperature', () => {
             checkConnectionProfileMock.mockReturnValue({ ok: true, profile: { model: 'profile-model' }, api: 'chat', storesKey: true });
             const config = resolveStoryLinkLlmConfig({ story_arc_link_provider: 'connection_profile', story_arc_link_connection_profile_id: 'profile-storyarc' });

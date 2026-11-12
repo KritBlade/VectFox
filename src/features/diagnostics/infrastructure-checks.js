@@ -29,6 +29,7 @@ import {
     resolveEmbeddingProfile,
     resolveProviderApiUrl
 } from '../embedding/index.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 /**
  * The collection the endpoint probes list, query and write to. SillyTavern's Standard storage creates it on first
@@ -328,7 +329,7 @@ export async function checkQdrantBackend(settings) {
         });
 
         if (!initResponse.ok) {
-            const errorText = await initResponse.text();
+            const errorText = await readErrorBody(initResponse);
             return {
                 name: backendName,
                 status: 'fail',

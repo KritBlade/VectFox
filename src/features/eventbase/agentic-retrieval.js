@@ -606,7 +606,7 @@ function _reportAgentLlmFailure(err, label, tStart, timeoutMs, nextStep = 'using
  * Resolve the planner's connection: the AgentMode page's boxes, with Same as EventBase model and each blank box
  * taken from the EventBase model (resolveInheritedConnection), whose profile it takes too.
  *
- * Returns { ok: true, provider, model, apiKey, vllmUrl } on success, { ok: true, provider, connectionProfileId, … } on
+ * Returns { ok: true, provider, model, vllmUrl } on success, { ok: true, provider, connectionProfileId, … } on
  * a profile, or { ok: false, reason, problem? } when it cannot run.
  */
 export function _resolveAgenticLLMConfig(settings = {}) {
@@ -635,7 +635,7 @@ export function resolveStoryLinkLlmConfig(settings) {
     const connection = resolveLlmConnection({
         provider: settings.story_arc_link_provider || 'openrouter',
         model: settings.story_arc_link_model,
-        vllmUrl: settings.agent_vllm_url || settings.chat_vllm_url,
+        vllmUrl: _shownVllmUrl(settings),
         connectionProfileId: resolveConnectionProfileId(settings, 'storyarc'),
         feature: 'StoryArc',
         page: 'StoryArc',
@@ -645,6 +645,21 @@ export function resolveStoryLinkLlmConfig(settings) {
         ...connection,
         parameterStyle: { ...resolveModelParameterStyle(settings), sendTemperature: false, reasoningEffort: null },
     };
+}
+
+/**
+ * The vLLM URL StoryArc's link model runs on: the AgentMode page's, else the Core page's EventBase model's, each only
+ * while its page runs on vLLM. The StoryArc page has no URL row of its own, and a page on another provider hides its
+ * row, so a URL left there would take the vLLM key to a server no page shows.
+ *
+ * @param {object} settings
+ * @returns {string} '' when no page shows a vLLM URL
+ */
+function _shownVllmUrl(settings) {
+    const isOnVllm = provider => String(provider ?? '').trim().toLowerCase() === 'vllm';
+    const agentUrl = isOnVllm(settings.agent_provider) ? String(settings.agent_vllm_url ?? '').trim() : '';
+    const eventBaseUrl = isOnVllm(settings.chat_provider) ? String(settings.chat_vllm_url ?? '').trim() : '';
+    return agentUrl || eventBaseUrl;
 }
 
 /**
@@ -686,7 +701,7 @@ export async function testStoryArcConnection(settings) {
  * @param {string} [params.connectionProfileId]
  * @param {string} [params.feature] - Names the feature in a profile's problem
  * @param {string} [params.page] - The page that chooses the profile, named in its problem
- * @returns {{ok: true, provider: string, model: string, apiKey?: string, vllmUrl?: string, connectionProfileId?: string,
+ * @returns {{ok: true, provider: string, model: string, vllmUrl?: string, connectionProfileId?: string,
  *     connectionProfilePage?: string}|{ok: false, reason: string, problem?: string}}
  */
 export function resolveLlmConnection({ provider: providerName, model: modelName, vllmUrl: rawVllmUrl, connectionProfileId = '', feature = AGENT_MODE, page = 'AgentMode' }) {
@@ -705,12 +720,12 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
 
     if (provider === 'openrouter') {
         // One shared OpenRouter key (SECRET_KEYS.OPENROUTER): the Embedding, EventBase model and
-        // Agent Mode key boxes all write that slot. See src/shared/api-keys.js.
-        const apiKey = getOpenRouterApiKey();
-        if (!apiKey) {
+        // Agent Mode key boxes all write that slot. Only whether it is saved is checked here: SillyTavern's
+        // proxy reads the key itself. See src/shared/api-keys.js.
+        if (!getOpenRouterApiKey()) {
             return { ok: false, reason: 'missing_openrouter_api_key' };
         }
-        return { ok: true, provider, model, apiKey };
+        return { ok: true, provider, model };
     }
 
     if (provider === 'vllm') {
@@ -718,14 +733,12 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
         if (!vllmUrl) {
             return { ok: false, reason: 'missing_vllm_url' };
         }
-        // Key lives in SECRET_KEYS.CUSTOM (masked client-side). getCustomApiKey
-        // returns the masked presence indicator; real key is read server-side
-        // by ST's chat-completions proxy. Same shared slot as summarize/agent.
-        const apiKey = getCustomApiKey();
-        if (!apiKey) {
+        // Key lives in SECRET_KEYS.CUSTOM. Only whether it is saved is checked here: the real key is read
+        // server-side by ST's chat-completions proxy. Same shared slot as summarize/agent.
+        if (!getCustomApiKey()) {
             return { ok: false, reason: 'missing_vllm_api_key' };
         }
-        return { ok: true, provider, model, vllmUrl, apiKey };
+        return { ok: true, provider, model, vllmUrl };
     }
 
     return { ok: false, reason: `unknown_provider_${provider}` };

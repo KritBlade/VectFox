@@ -351,7 +351,7 @@ export async function refreshAutoSyncCheckbox(settings) {
  * displays it. ONE implementation reused by all "Clear saved key" buttons (Embedding /
  * Summarization / AgentMode, OpenRouter + vLLM) so the delete + refresh logic never drifts.
  *
- * Deletes the ACTIVE entry in each slot (the masked key the UI shows); vLLM/Custom keys live
+ * Deletes the ACTIVE entry in each slot (the key the UI says is saved); vLLM/Custom keys live
  * in two slots (CUSTOM for chat-side, VLLM for embedding-side) so both are cleared. The
  * placeholder refresh rides the existing `vectfox:*-key-changed` document events that every
  * placeholder updater already listens to — so all three places re-render from one trigger.
@@ -773,17 +773,15 @@ function bindSettingsEvents(settings, callbacks) {
     // SECRET_KEYS.CUSTOM, the slot SillyTavern's Custom (OpenAI-compatible) chat source uses, for the
     // summarize and Agent Mode calls that go through /api/backends/chat-completions/generate with
     // `chat_completion_source: 'custom'`, and to SECRET_KEYS.VLLM for embedding. The key stays
-    // server-side; the input shows a masked placeholder. See src/shared/api-keys.js.
+    // server-side, and the input says only "Key saved": SillyTavern's masked value ends with the key's last
+    // characters, so no part of it is shown. See src/shared/api-keys.js.
     //
     // Each display function also listens for the `vectfox:vllm-key-changed` event, so saving the key in
     // any of the three inputs updates all three placeholders.
     const updateSummarizeVllmKeyDisplay = () => {
         const savedKey = getCustomApiKey();
         if (savedKey) {
-            const masked = savedKey.length > 4
-                ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
-                : '*'.repeat(savedKey.length);
-            $('#VectFox_summarize_vllm_apikey').attr('placeholder', `Key saved: ${masked}`);
+            $('#VectFox_summarize_vllm_apikey').attr('placeholder', 'Key saved');
         } else {
             $('#VectFox_summarize_vllm_apikey').attr('placeholder', 'Paste a key to save it');
         }
@@ -826,7 +824,7 @@ function bindSettingsEvents(settings, callbacks) {
 
     // OpenRouter API key (summarize input). One key serves embedding, summarize and Agent Mode: it is
     // written to SECRET_KEYS.OPENROUTER, the slot SillyTavern's own connection profiles use. The key
-    // stays server-side; the input shows a masked placeholder, and chat-completion calls go through
+    // stays server-side; the input says only "Key saved", and chat-completion calls go through
     // SillyTavern's /api/backends/chat-completions/generate proxy, which reads it. See
     // src/shared/api-keys.js.
     //
@@ -835,10 +833,7 @@ function bindSettingsEvents(settings, callbacks) {
     const updateSummarizeORKeyDisplay = () => {
         const savedKey = getOpenRouterApiKey();
         if (savedKey) {
-            const masked = savedKey.length > 4
-                ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
-                : '*'.repeat(savedKey.length);
-            $('#VectFox_summarize_openrouter_apikey').attr('placeholder', `Key saved: ${masked}`);
+            $('#VectFox_summarize_openrouter_apikey').attr('placeholder', 'Key saved');
         } else {
             $('#VectFox_summarize_openrouter_apikey').attr('placeholder', 'Paste a key to save it');
         }
@@ -927,10 +922,7 @@ function bindSettingsEvents(settings, callbacks) {
     const updateAgenticORKeyDisplay = () => {
         const savedKey = getOpenRouterApiKey();
         if (savedKey) {
-            const masked = savedKey.length > 4
-                ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
-                : '*'.repeat(savedKey.length);
-            $('#VectFox_agentic_openrouter_apikey').attr('placeholder', `Key saved: ${masked}`);
+            $('#VectFox_agentic_openrouter_apikey').attr('placeholder', 'Key saved');
         } else {
             $('#VectFox_agentic_openrouter_apikey').attr('placeholder', 'Paste a key to save it');
         }
@@ -968,10 +960,7 @@ function bindSettingsEvents(settings, callbacks) {
     const updateAgenticVllmKeyDisplay = () => {
         const savedKey = getCustomApiKey();
         if (savedKey) {
-            const masked = savedKey.length > 4
-                ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
-                : '*'.repeat(savedKey.length);
-            $('#VectFox_agentic_vllm_apikey').attr('placeholder', `Key saved: ${masked}`);
+            $('#VectFox_agentic_vllm_apikey').attr('placeholder', 'Key saved');
         } else {
             $('#VectFox_agentic_vllm_apikey').attr('placeholder', 'Paste a key to save it');
         }
@@ -1296,23 +1285,20 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Qdrant API key — stored in ST's secret_state under the custom slot
     // 'api_key_qdrant'. Client-side secret_state filters non-enum slots, so
-    // the masked placeholder comes from the plugin's /qdrant/key-status
+    // whether a key is saved comes from the plugin's /qdrant/key-status
     // endpoint, asynchronously. A plaintext settings.qdrant_api_key that the
-    // migration has not drained yet is shown masked instead.
+    // migration has not moved yet counts as saved. No part of a key is shown.
     const updateQdrantKeyDisplay = async () => {
         const legacyPlaintext = getQdrantApiKey(settings);
         if (legacyPlaintext) {
-            const masked = legacyPlaintext.length > 4
-                ? '*'.repeat(Math.min(legacyPlaintext.length - 4, 8)) + legacyPlaintext.slice(-4)
-                : '*'.repeat(legacyPlaintext.length);
-            $('#VectFox_qdrant_api_key').attr('placeholder', `Key saved: ${masked} (legacy plaintext, will migrate on next reload)`);
+            $('#VectFox_qdrant_api_key').attr('placeholder', 'Key saved in VectFox\'s settings; it moves to SillyTavern on the next reload');
             return;
         }
         // No plaintext — check server-side presence via plugin endpoint.
         try {
             const presence = await fetchQdrantApiKeyPresence();
             if (presence.set) {
-                $('#VectFox_qdrant_api_key').attr('placeholder', `Key saved: ${presence.masked}`);
+                $('#VectFox_qdrant_api_key').attr('placeholder', 'Key saved');
             } else {
                 $('#VectFox_qdrant_api_key').attr('placeholder', 'Your Qdrant Cloud API key');
             }
@@ -2120,10 +2106,7 @@ function bindSettingsEvents(settings, callbacks) {
     const updateVllmKeyDisplay = () => {
         const savedKey = getCustomApiKey();
         if (savedKey) {
-            const masked = savedKey.length > 4
-                ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
-                : '*'.repeat(savedKey.length);
-            $('#VectFox_vllm_api_key').attr('placeholder', `Key saved: ${masked}`);
+            $('#VectFox_vllm_api_key').attr('placeholder', 'Key saved');
         } else {
             $('#VectFox_vllm_api_key').attr('placeholder', 'Blank for a server that needs none');
         }
@@ -2279,10 +2262,7 @@ function bindSettingsEvents(settings, callbacks) {
     const updateOpenRouterKeyDisplay = () => {
         const savedKey = getOpenRouterApiKey();
         if (savedKey) {
-            const masked = savedKey.length > 4
-                ? '*'.repeat(Math.min(savedKey.length - 4, 8)) + savedKey.slice(-4)
-                : '*'.repeat(savedKey.length);
-            $('#VectFox_openrouter_apikey').attr('placeholder', `Key saved: ${masked}`);
+            $('#VectFox_openrouter_apikey').attr('placeholder', 'Key saved');
         } else {
             $('#VectFox_openrouter_apikey').attr('placeholder', 'Paste a key to save it');
         }
@@ -2299,7 +2279,7 @@ function bindSettingsEvents(settings, callbacks) {
             if (value) {
                 try {
                     await writeSecret(SECRET_KEYS.OPENROUTER, value);
-                    await readSecretState(); // refresh masked state for display
+                    await readSecretState(); // refresh which keys are saved, for display
                 } catch (err) {
                     log.error('[VectFox] writeSecret(SECRET_KEYS.OPENROUTER) failed:', err);
                     toastr.error('Failed to save OpenRouter key — see console');

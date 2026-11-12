@@ -17,11 +17,12 @@
  *   - OpenRouter (one key for embedding + summarize + agent):
  *     Stored in ST's well-known `SECRET_KEYS.OPENROUTER` slot. ST's
  *     `getSecretState` returns this slot as an array of `{value, label,
- *     active, id}` entries — but `value` is MASKED (e.g. "*******abcd")
- *     unless `allowKeysExposure: true` is set in `config.yaml` (default
- *     false). So `getOpenRouterApiKey()` returns the masked string when
- *     a key is configured, and empty string otherwise. That's a presence
- *     indicator — DON'T send it as a Bearer token; you'll get 401.
+ *     active, id}` entries — but `value` is MASKED, seven stars and the
+ *     key's last 3 characters in 1.19.0, unless `allowKeysExposure: true` is
+ *     set in `config.yaml` (default false). So `getOpenRouterApiKey()`
+ *     returns the masked string when a key is configured, and empty string
+ *     otherwise. That's a presence indicator: never show it, since it holds
+ *     the key's end, and DON'T send it as a Bearer token; you'll get 401.
  *
  *     Embedding works because it goes through ST's `/api/vector/insert`
  *     (or the Similharity plugin's `/api/plugins/similharity/chunks/insert`)
@@ -75,8 +76,15 @@
 
 import { extension_settings, saveSettings } from '../sillytavern/settings.js';
 import { SECRET_KEYS, secret_state, writeSecret, readSecretState } from '../sillytavern/secrets.js';
+import { extensionNames } from '../sillytavern/installed-extensions.js';
 import { log } from '../sillytavern/log.js';
 import { checkPluginAvailable } from './similharity-plugin.js';
+
+// Settings nothing reads any more that can hold a key in plaintext: the roots VectHare and VectHare+ kept their
+// settings in before the rename to VectFox, with key fields such as summarize_openrouter_api_key, and the
+// credentials of the retired BananaBread and Milvus backends.
+const RETIRED_SETTINGS_ROOTS = ['vecthare', 'vecthareplus'];
+const RETIRED_CREDENTIAL_FIELDS = ['bananabread_api_key', 'milvus_token', 'milvus_password'];
 
 // ─── Internal helpers ───────────────────────────────────────────────────
 
@@ -158,7 +166,7 @@ export function getCustomApiKey() {
  *
  * For client-side presence checks (UI placeholder, "is the key set"), call
  * `fetchQdrantApiKeyPresence()` below — it round-trips to the plugin's
- * `/qdrant/key-status` endpoint, which returns `{set, masked}`.
+ * `/qdrant/key-status` endpoint, and keeps only whether a key is saved.
  *
  * This reader returns the plaintext field until migrateLegacyApiKeys() drains
  * it into the slot, and '' after; the UI and the backends then rely on the
@@ -174,34 +182,33 @@ export function getQdrantApiKey(settings) {
 
 /**
  * Async presence fetch for the Qdrant API key via the Similharity plugin's
- * `/qdrant/key-status` endpoint. Returns `{set: false, masked: ''}` when the
- * plugin is unreachable so callers can degrade gracefully.
+ * `/qdrant/key-status` endpoint. Keeps only whether a key is saved: plugins
+ * before 3.4.4 answer `masked` with the key's last 4 characters, which is
+ * never read. Returns `{set: false}` when the plugin is unreachable so callers
+ * can degrade gracefully.
  *
- * @returns {Promise<{set: boolean, masked: string}>}
+ * @returns {Promise<{set: boolean}>}
  */
 export async function fetchQdrantApiKeyPresence() {
     try {
         // No plugin → no /qdrant/key-status endpoint. Skip the request so the
         // browser doesn't log a red 404 on plugin-less (fully supported) setups.
         if (!(await checkPluginAvailable())) {
-            return { set: false, masked: '' };
+            return { set: false };
         }
         const response = await fetch('/api/plugins/similharity/qdrant/key-status', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
         });
         if (!response.ok) {
-            return { set: false, masked: '' };
+            return { set: false };
         }
         const data = await response.json();
-        return {
-            set: !!data?.set,
-            masked: typeof data?.masked === 'string' ? data.masked : '',
-        };
+        return { set: !!data?.set };
     } catch (err) {
         // The caller treats this as "presence unknown" and does not render the key indicator.
         log.warn('VectFox: Qdrant key-status check failed:', err);
-        return { set: false, masked: '' };
+        return { set: false };
     }
 }
 
@@ -420,12 +427,13 @@ export async function migrateLegacyApiKeys() {
             // secret_state, so we can't presence-check from JS. Plugin-side
             // this overwrites any prior value — acceptable for the first
             // migration pass (slot is brand new for VectFox users).
-            try {
-                await writeSecret(QDRANT_SLOT, rawQdrantPlaintext.trim());
+            // SillyTavern's writeSecret never throws: it answers the new key's ID, or null when the write failed.
+            const savedId = await writeSecret(QDRANT_SLOT, rawQdrantPlaintext.trim());
+            if (savedId) {
                 moves.push(`Qdrant → wrote to secret_state.${QDRANT_SLOT} (len=${rawQdrantPlaintext.trim().length})`);
                 writeSucceeded = true;
-            } catch (err) {
-                log.warn('[VectFox migrate] writeSecret(api_key_qdrant) failed:', err?.message || err);
+            } else {
+                log.warn(`[VectFox migrate] writeSecret(${QDRANT_SLOT}) did not save the key`);
                 moves.push(`Qdrant → writeSecret(${QDRANT_SLOT}) FAILED — plaintext key PRESERVED in settings.json for safety, retry next reload`);
                 // writeSucceeded stays false → plaintext stays in settings.json
             }
@@ -459,6 +467,26 @@ export async function migrateLegacyApiKeys() {
         moves.push(hadValue
             ? `Ollama → removed plaintext ollama_api_key from settings.json (ST does not authenticate ollama; field was a no-op)`
             : `Ollama → removed empty plaintext ollama_api_key from settings.json`);
+    }
+
+    // ─── Retired settings that can hold a key: deleted unread, logged by name only ───
+    // A VectHare extension still installed owns its root, so the roots stay while one is.
+    const isVectHareInstalled = extensionNames.some(name => /vecthare/i.test(name));
+    for (const root of RETIRED_SETTINGS_ROOTS) {
+        if (!Object.prototype.hasOwnProperty.call(extension_settings, root)) continue;
+        if (isVectHareInstalled) {
+            moves.push(`Kept extension_settings.${root}: a VectHare extension is installed and reads it`);
+            continue;
+        }
+        delete extension_settings[root];
+        mutated = true;
+        moves.push(`Removed extension_settings.${root}, where VectHare kept its settings before the rename, as it can hold plaintext keys`);
+    }
+    for (const field of RETIRED_CREDENTIAL_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(vf, field)) continue;
+        delete vf[field];
+        mutated = true;
+        moves.push(`Removed ${field}, a credential of a retired backend`);
     }
 
     if (mutated) {

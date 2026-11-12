@@ -553,7 +553,7 @@ jQuery(async () => {
         await migrateLegacyApiKeys();
     } catch (err) {
         log.warn('[VectFox] migrateLegacyApiKeys failed:', err?.message || err);
-        // Non-fatal — readers fall back to legacy plaintext slots if migration didn't complete.
+        // Non-fatal: the Qdrant key reader uses a plaintext key the migration did not move; nothing else reads one.
     }
 
     // `settings` IS the store, never a copy of it. Collection locks, the collection registry and

@@ -8,7 +8,7 @@
     "css": "src/vectfox.css",
     "author": "Kritbalde",
     "version": "3.6.127",
-    "similharity_minimum_version": "3.4.3",
+    "similharity_minimum_version": "3.4.4",
     "homePage": "https://github.com/KritBlade/VectFox",
     "description": "Advanced RAG system with temporal decay, importance weighting, and intelligent chunking",
     "auto_update": true,

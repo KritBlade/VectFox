@@ -21,6 +21,7 @@ import { embeddingProfileRequestFields, getModelFromSettings, resolveProviderApi
 import { deleteCollection, unregisterCollection } from '../collections/index.js';
 import { buildRegistryKey, getRegistryBackend } from '../../shared/collection-ids.js';
 import { extractTextKeywords, extractLorebookKeywords } from '../keyword-search/index.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
 
@@ -147,7 +148,7 @@ export async function testEmbeddingGeneration(settings) {
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
+            const errorText = await readErrorBody(response);
             return {
                 name: '[PROD] Embedding Generation',
                 status: 'fail',
@@ -224,7 +225,7 @@ export async function testVectorStorage(settings) {
         });
 
         if (!insertResponse.ok) {
-            const errorText = await insertResponse.text();
+            const errorText = await readErrorBody(insertResponse);
             return {
                 name: '[PROD] Vector Storage',
                 status: 'fail',
@@ -461,7 +462,7 @@ export async function testPluginEmbeddingGeneration(settings) {
         });
 
         if (!insertResponse.ok) {
-            const errorText = await insertResponse.text();
+            const errorText = await readErrorBody(insertResponse);
             return {
                 name: '[PROD] Plugin Embedding Gen',
                 status: 'fail',

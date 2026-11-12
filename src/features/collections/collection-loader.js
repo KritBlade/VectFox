@@ -31,6 +31,7 @@ import {
     sanitizeNameSegment,
 } from '../../shared/collection-ids.js';
 import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from '../../shared/similharity-plugin.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 /**
  * Detect collection IDs that VECTFOX should NOT register or query.
@@ -700,7 +701,7 @@ export async function deleteVectorsFolder() {
         headers: getRequestHeaders(),
     });
     if (!response.ok) {
-        const body = await response.text();
+        const body = await readErrorBody(response);
         throw new Error(`Similharity's purge-all returned ${response.status}: ${body.slice(0, 200)}`);
     }
 }
@@ -782,7 +783,7 @@ export async function cleanupCorruptedCollections() {
                 });
 
                 if (!purgeResp.ok) {
-                    const body = await purgeResp.text().catch(() => '');
+                    const body = await readErrorBody(purgeResp);
                     throw new Error(`HTTP ${purgeResp.status}: ${body.substring(0, 200)}`);
                 }
 

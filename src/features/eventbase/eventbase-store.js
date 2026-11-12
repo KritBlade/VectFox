@@ -23,6 +23,7 @@ import {
 } from '../collections/index.js';
 import { buildEmbedText } from './eventbase-schema.js';
 import { log } from '../../sillytavern/log.js';
+import { readErrorBody } from '../../shared/server-error-text.js';
 
 // Re-export so callers can import from here if needed
 export { buildEventBaseCollectionId };
@@ -1204,7 +1205,7 @@ export async function ensureEventBaseIndexes(settings) {
                 body: JSON.stringify({ collectionId }),
             });
             if (!resp.ok) {
-                const msg = await resp.text().catch(() => resp.statusText);
+                const msg = await readErrorBody(resp, resp.statusText);
                 errors.push(`${collectionId}: ${msg}`);
             }
         } catch (err) {
