@@ -468,15 +468,15 @@ Use **Qdrant vector database** for any ultra fast and accurate delopment — A3 
 
 That's it! VectFox will be downloaded and enabled automatically.
 
-### Step 2: Install Similharity Plugin (Required for Qdrant — Optional but recommended for Standard)
+### Step 2: Install Similharity Plugin (Required for Qdrant and for most embedding profiles)
 
-**Required if using Qdrant backend.** Optional if using the Standard backend, but installing it unlocks additional functionality even there:
+**You need it if you use the Qdrant backend, or embed on a llama.cpp, KoboldCPP or Custom profile.** That includes OpenRouter's embedding models, since they come in through a Custom profile. On the Standard backend with any other embedding, it's optional, but it unlocks more even there:
 
 | Feature                                   | Standard without plugin             | Standard with plugin            | **Qdrant (Cloud or Local)** ⭐                                                    |
 | ----------------------------------------- | ----------------------------------- | ------------------------------- | --------------------------------------------------------------------------------- |
 | Event search & injection                  | ✅ Full functionality               | ✅ Full functionality           | ✅ Full functionality                                                             |
 | Summarizer Injection (recent-turn memory) | ❌ Needs per-event metadata         | ✅ Available                    | ✅ Available                                                                      |
-| Embedding & vectorization                 | ✅ Works                            | ✅ Works                        | ✅ Works                                                                          |
+| Embedding & vectorization                 | ⚠️ Not on a llama.cpp, KoboldCPP or Custom profile | ✅ Works                        | ✅ Works                                                                          |
 | Keywords stored in DB (boost search)      | ❌ Saved to local settings only     | ✅ Stored in vector DB          | ✅ Stored in vector DB                                                            |
 | Event importance score                    | ❌ Lost (native API drops metadata) | ⚠️ Stored, not used in re-rank | ✅ Stored & used in re-rank                                                       |
 | View Chunks in Database Browser           | ❌ Not available                    | ✅ Available                    | ✅ Available                                                                      |
@@ -485,7 +485,7 @@ That's it! VectFox will be downloaded and enabled automatically.
 | Scales to large datasets                  | ⚠️ Degrades on long story          | ⚠️ Degrades on long story      | ✅ 10 k+ messages, stays fast                                                     |
 | Setup                                     | None                                | Plugin install                  | Plugin install + Free cloud account **or** [local install](Doc/Qdrant_install.md) |
 
-If you are on the Standard backend and do not install the plugin, event search and injection still work correctly — you just won't have chunk inspection or keyword metadata. For the best retrieval quality, **Qdrant is strongly recommended** — the free cloud tier at https://qdrant.tech/ requires no local setup at all.
+On the Standard backend without the plugin, event search and injection still work. You just don't get chunk inspection, keyword metadata, or embedding on a llama.cpp, KoboldCPP or Custom profile. For the best retrieval quality, I strongly recommend **Qdrant**. The free cloud tier at https://qdrant.tech/ needs no local setup at all.
 
 #### First-time on Windows? Install Git and Node.js first
 
@@ -528,21 +528,31 @@ Restart SillyTavern.
 
 ### Step 3: Configure VectFox
 
-1. In the extensions panel, click **Open VectFox** and go to the **Core** page.
-2. Choose your vector backend (Standard or Qdrant).
-3. Select your embedding provider (Transformers, vLLM, Ollama, OpenRouter, etc.).
+VectFox runs on SillyTavern connection profiles. A profile is a connection you saved in SillyTavern: its API, model, URL and key, all in one. VectFox only remembers which profile you picked, so your key stays in SillyTavern.
 
-   - 💡 **Recommended:** use `baai/bge-m3` or `qwen/qwen3-embedding-8b` through **OpenRouter**. It's extremely cheap ($0.00000015/run), multilingual (excellent CJK + Latin), and produces high-quality dense vectors for the corpus size VectFox targets. The better embedding model you use, the better result you will receive from recall, this is the most important model that you do NOT want to use cheap model.
-4. Under **EventBase model**, pick OpenRouter or vLLM and a model. It writes the events when you vectorize.
+Think of a contact on your phone. You save the number once, and every app that needs it just picks the contact. Change the number in the contact, and every app gets the new one.
 
-   - 💡 **Recommended OpenRouter models:** for a cheap & fast extraction path, use `openai/gpt-4o-mini` or `google/gemini-3.1-flash-lite` — both keep cost and ingestion latency low. If you want higher extraction quality and don't mind paying more, `x-ai/grok-4.3` is a stronger but more expensive option. Avoid older model IDs such as `x-ai/grok-4.1-fast` if OpenRouter returns a 404/deprecation error; model availability changes over time, so verify the exact ID on OpenRouter before long ingestion runs. The same recommendation applies to the **Agent Mode LLM** (configured separately in the AgentMode tab). If you leave the AgentMode model field blank, it uses the **EventBase model** settings.
-5. Configure API keys if using cloud providers (OpenRouter / vLLM ).
-6. Under **Keywords**, choose the language of your story.
-7. Most settings work fine on default — feel free to tweak.
-8. Open your chat in SillyTavern, then click the VectFox extension icon again. You **HAVE** to click "Vectorize Content" and choose **Chat History** to vectorize your first DB.
-9. Turn on **Auto-sync this chat** in the **AutoSync** tab if you need it. Its **Auto-sync window** sets how many turns go into each run.
-10. Vectorize your lorebook / World Info if needed in the **WorldInfo** tab.
-11. (Optional) Turn on **Agent Mode** in the AgentMode tab once everything else works. Leave Provider on **Same as EventBase model** and Model blank, and it uses the **EventBase model** settings. Then the same cheap, fast model from step 4 also drives the planner. See "How It Works → Agent Mode" above for what it does.
+You need 2 profiles: one for embedding, and one for the model that writes events. Embedding needs an embedding model, so it can't share a profile with chat.
+
+1. **Make your profiles in SillyTavern.** Open **API Connections** and set up the connection the same way you do for chat. Then press **Create a new connection profile** under **Connection Profile** and give it a name. Do this once for each profile.
+2. **Open VectFox.** In the extensions panel, click **Open VectFox** and go to the **Core** page.
+3. **Vector backend.** Choose Standard or Qdrant. For Qdrant, paste your **Cluster URL** and **API key** here.
+4. **Embedding.** Set **Provider** to **SillyTavern profile**, pick your embedding profile in **Profile**, and press **Test connection**.
+   - The profile has to be Ollama, llama.cpp or KoboldCPP (Text Completion), or Custom (Chat Completion). All but Ollama need the Similharity plugin from Step 2.
+   - **Recommended:** `baai/bge-m3` or `qwen/qwen3-embedding-8b` through **OpenRouter**. Make a Custom profile with the URL `https://openrouter.ai/api/v1/embeddings` and your OpenRouter key. With that URL, SillyTavern lists OpenRouter's embedding models, so you can pick one. It's extremely cheap ($0.00000015/run) and multilingual (excellent CJK + Latin).
+   - The better the embedding model, the better your recall. This is the most important model, the one you do NOT want to go cheap on.
+   - **Transformers (local)** runs inside SillyTavern with no profile, and plain **Ollama** still works without one.
+5. **EventBase model.** Set **Provider** to **SillyTavern profile**, pick a chat profile in **Profile**, and press **Test connection**. This model writes the events when you vectorize.
+   - Any profile SillyTavern can chat on works. VectFox sends its own prompts, so the profile's preset is not used.
+   - **Recommended models:** for a cheap and fast extraction, `openai/gpt-4o-mini` or `google/gemini-3.1-flash-lite`. If you want better extraction and don't mind paying more, `x-ai/grok-4.3` is stronger. Model IDs change over time, so check the exact ID on OpenRouter before a long run. An old ID such as `x-ai/grok-4.1-fast` can come back as a 404.
+6. **Keywords.** Pick your story's language in **CJK tokenizer**. Pick it before you vectorize, and stick with it (see the FAQ).
+7. Most other settings work fine on default. Feel free to tweak.
+8. **Vectorize your chat once.** Open your chat, go to the **Action** page, press **Vectorize content**, pick **Chat**, then press **Vectorize**. You **HAVE** to do this to build your first DB.
+9. **Keep it in sync.** Turn on **Auto-sync this chat** on the **AutoSync** page if you want it automatic. **Turns** sets how many turns go into each run. Or press **Sync chat** on the **Action** page to catch up by hand.
+10. (Optional) Vectorize your lorebook in **Vectorize content** > **Lorebook**, and set it up on the **WorldInfo** page.
+11. (Optional) Turn on **Agent Mode** on the **AgentMode** page once everything else works. Leave **Provider** on **Same as EventBase model**, and the planner runs on the EventBase model's profile. So the same cheap, fast model from step 5 also drives the planner. See "How It Works" > "Agent Mode" above for what it does.
+
+**Manual OpenRouter and vLLM are going away.** They are still in the Provider dropdowns and work like before, with their own key boxes. But a VectFox release 3 months after the one that brought SillyTavern profiles removes them. If you still use one, VectFox tells you once, and lists every dropdown to move.
 
 ---
 
@@ -631,25 +641,27 @@ Hedging fixes this. If a request hasn't answered within the time limit (15s), Ve
 > 💡 Leave it on — it only ever activates when something is already going wrong, and it makes flaky cloud providers far less painful. It's automatically skipped for **local** models (Ollama, Transformers, llama.cpp, KoboldCpp), where a second connection wouldn't change anything. Set it to `0` to disable.
 
 **How do I configure NanoGPT as a provider?**
-First select **vLLM** as the provider — that's the OpenAI-compatible slot that exposes the custom URL fields NanoGPT needs. From there the embedding and summariser endpoints must be set up *differently*; the same base URL won't work for both. These settings are courtesy of Reddit user **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)**:
+Make 2 Custom profiles in SillyTavern, one for embedding and one for the EventBase model. NanoGPT needs a different URL for each, so one profile can't do both. These settings are courtesy of Reddit user **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)**:
 
-| Setting             | Value                                                                                          |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| **Embeddings URL**  | `https://nano-gpt.com/api/v1/embeddings` — the full path is required; the base URL alone fails |
-| **Embeddings Model**| `Qwen/Qwen3-Embedding-8B`                                                                       |
-| **Summariser URL**  | `https://nano-gpt.com/api/v1/` — leave it at the base; appending `chat/completions` oddly fails the tests |
-| **Summariser Model**| `nvidia/nemotron-3-ultra-550b-a55b` (or any chat model you prefer)                              |
+| Profile             | URL                                                                                 | Model                                                       |
+| ------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Embedding**       | `https://nano-gpt.com/api/v1/embeddings` (the full path, the base URL alone fails)  | `Qwen/Qwen3-Embedding-8B`                                   |
+| **EventBase model** | `https://nano-gpt.com/api/v1` (the base, SillyTavern adds `/chat/completions` itself) | `nvidia/nemotron-3-ultra-550b-a55b`, or any chat model you like |
+
+To make one, open **API Connections**, pick **Chat Completion** and **Custom (OpenAI-compatible)**, paste the URL and your NanoGPT key, and type the model ID. Then save it under **Connection Profile**. On the **Core** page, pick each profile in **Embedding** and **EventBase model**. The embedding profile needs the Similharity plugin from Step 2.
+
+If you set NanoGPT up on the vLLM slot before, it still works until manual vLLM goes away.
 
 A couple of gotchas:
 
-- **Enable paid models.** For embeddings to pass VectFox's connection tests, toggle **"Enable paid models on API"** on in your NanoGPT account settings.
-- **Zero output tokens is normal.** The NanoGPT usage page shows **zero output tokens** for every embedding run — that's expected (embeddings don't generate output tokens), not a sign anything is broken.
+- **Enable paid models.** For embeddings to pass VectFox's connection tests, turn on **"Enable paid models on API"** in your NanoGPT account settings.
+- **Zero output tokens is normal.** The NanoGPT usage page shows **zero output tokens** for every embedding run. That's expected, since embeddings don't generate output tokens. Nothing is broken.
 
 ---
 
 ## 🐛 Troubleshooting
 
-**"No embeddings available"** — Click the Vectorize Content icon, Enable Vectors extension in main ST settings, select an embedding provider, add API key if needed, run Diagnostics.
+**"No embeddings available"**: open VectFox, go to **Core** > **Embedding** and press **Test connection**. On a profile, the readout under **Profile** says what the server needs. Then run **Diagnostics** on the **Action** page, which checks the plugin, the backend and the embedding call.
 
 **Events/chunks not retrieved** — Open the chat first, not SillyTavern's lobby. Open the Database Browser and find the chat's collection. Its row should say "Locked to this chat". If it doesn't, open the collection's settings and switch on "Active for this chat".
 
