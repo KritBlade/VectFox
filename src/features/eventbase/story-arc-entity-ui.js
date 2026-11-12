@@ -78,7 +78,8 @@ function entityRow(row, kind) {
  * @param {number} params.pageIndex
  * @param {string|null} params.mergingName - The row whose Merge panel is open
  * @param {string|null} params.splittingName - The row whose Split panel is open
- * @param {string[]} params.nameChoices - Every name a merge can target
+ * @param {string[]} params.nameChoices - The names of the kind shown, all of them whatever the search, which the
+ *        Merge panel offers as the name to keep; any other name can still be typed
  * @returns {{list: string, pagerMarkup: string, pageIndex: number}} pageIndex is within the pages there are
  */
 export function entityListMarkup({ rows, kind, pageIndex, mergingName, splittingName, nameChoices }) {

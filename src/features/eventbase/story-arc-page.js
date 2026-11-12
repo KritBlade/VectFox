@@ -20,7 +20,6 @@ import { drawStoryWeb } from './story-arc-web.js';
 import { buildStoryWeb, linksOfNode, selectedEventMarkup } from './story-arc-web-core.js';
 
 const TOAST_TITLE = 'VectFox StoryArc';
-const ENTITY_KINDS = ['people', 'factions', 'places'];
 
 const page = {
     isOpen: false,
@@ -52,15 +51,14 @@ function showProblem(id, problem) {
 // ---------------------------------------------------------------------------- Entity tab
 
 function paintEntityTab() {
-    const rows = filterEntities(listEntities(page.events, page.merges, page.entityKind), page.entityWord);
-    const nameChoices = [...new Set(ENTITY_KINDS.flatMap(kind => listEntities(page.events, page.merges, kind).map(row => row.name)))];
+    const kindRows = listEntities(page.events, page.merges, page.entityKind);
     const { list, pagerMarkup, pageIndex } = entityListMarkup({
-        rows,
+        rows: filterEntities(kindRows, page.entityWord),
         kind: page.entityKind,
         pageIndex: page.entityPageIndex,
         mergingName: page.mergingName,
         splittingName: page.splittingName,
-        nameChoices,
+        nameChoices: kindRows.map(row => row.name),
     });
     page.entityPageIndex = pageIndex;
     elementOf(STORY_ARC_ELEMENT_ID.entityList).innerHTML = list;
