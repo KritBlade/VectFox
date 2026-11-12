@@ -10,7 +10,7 @@
  *   - a label wraps Chinese anywhere and keeps a Latin word whole, and a hover card stays inside the canvas,
  *   - a selected event's markup escapes story text,
  *   - the web's lights run only in the whole web at rest while it floats, hold under the pointer, and go out otherwise,
- *   - few light at once, at most 6 sparks and 4 flares, never two on one link or dot, and spread over the web in time,
+ *   - few light at once, at most 14 sparks and 6 flares, never two on one link or dot, and spread over the web in time,
  *   - a spark runs from the earlier event to the later, goes on only along a link to a later event, up to 4 links,
  *   - a flare swells and fades, and a step leaves the lights it was given as they were.
  */
@@ -342,8 +342,8 @@ describe('the web\'s lights', () => {
             expect(lightCounts(0, 0)).toEqual({ sparks: 0, flares: 0 });
         });
 
-        it('lights at most 6 sparks and 4 flares, however big the web', () => {
-            expect(lightCounts(5000, 9000)).toEqual({ sparks: 6, flares: 4 });
+        it('lights at most 14 sparks and 6 flares, however big the web', () => {
+            expect(lightCounts(5000, 9000)).toEqual({ sparks: 14, flares: 6 });
         });
     });
 

@@ -214,14 +214,14 @@ export function colourAlong(share, stops) {
  * links and dots stay quiet, and a free place waits a random rest before it lights again.
  */
 const LIGHTS = {
-    linksPerSpark: 80,
-    mostSparks: 6,
-    sparkRestSeconds: 1.5,
+    linksPerSpark: 50,
+    mostSparks: 14,
+    sparkRestSeconds: 0.6,
     sparkGoesOnChance: 0.55,
     mostLinksPerSpark: 4,
-    nodesPerFlare: 120,
-    mostFlares: 4,
-    flareRestSeconds: 1.2,
+    nodesPerFlare: 100,
+    mostFlares: 6,
+    flareRestSeconds: 1,
     flareSeconds: { low: 2.4, high: 3.6 },
     flarePeak: { low: 2.2, high: 3.2 },
     flareRiseShare: 0.3,
