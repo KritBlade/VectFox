@@ -17,7 +17,6 @@ import { clearKeyBox, OPENROUTER_KEY_BOX, QDRANT_KEY_BOX, VLLM_KEY_BOX, wireKeyB
 import {
     getOpenRouterApiKey,
     getCustomApiKey,
-    getQdrantApiKey,
     fetchQdrantApiKeyPresence,
 } from '../../shared/api-keys.js';
 import { openDatabaseBrowser } from '../database-browser/index.js';
@@ -987,8 +986,7 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Helper: gate the Qdrant backend on the Similharity server plugin being
     // installed. Qdrant depends entirely on the plugin's /api/plugins/similharity/...
-    // endpoints (and selecting it is what lets a qdrant_api_key get written into
-    // extension settings), so when the plugin is absent we must prevent the user
+    // endpoints, so when the plugin is absent we must prevent the user
     // from landing on Qdrant at all. Standard backend can fall back to ST's
     // native Vectors extension, but Qdrant cannot run without the plugin.
     //
@@ -1139,15 +1137,8 @@ function bindSettingsEvents(settings, callbacks) {
     // Qdrant API key — stored in ST's secret_state under the custom slot
     // 'api_key_qdrant'. Client-side secret_state filters non-enum slots, so
     // whether a key is saved comes from the plugin's /qdrant/key-status
-    // endpoint, asynchronously. A plaintext settings.qdrant_api_key that the
-    // migration has not moved yet counts as saved. No part of a key is shown.
+    // endpoint, asynchronously. No part of a key is shown.
     const updateQdrantKeyDisplay = async () => {
-        const legacyPlaintext = getQdrantApiKey(settings);
-        if (legacyPlaintext) {
-            $('#VectFox_qdrant_api_key').attr('placeholder', 'Key saved in VectFox\'s settings; it moves to SillyTavern on the next reload');
-            return;
-        }
-        // No plaintext — check server-side presence via plugin endpoint.
         try {
             const presence = await fetchQdrantApiKeyPresence();
             if (presence.set) {

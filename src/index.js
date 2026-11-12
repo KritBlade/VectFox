@@ -72,8 +72,7 @@ const defaultSettings = {
     // the Similharity plugin reads server-side; the UI learns whether it is set from
     // /api/plugins/similharity/qdrant/key-status. migrateLegacyApiKeys() moves a plaintext
     // settings.qdrant_api_key into the slot on load, and a default here would bring the field back (see
-    // the OpenRouter key below). Readers: getQdrantApiKey (the plaintext value while it is not yet moved)
-    // and fetchQdrantApiKeyPresence in src/shared/api-keys.js.
+    // the OpenRouter key below). Reader: fetchQdrantApiKeyPresence in src/shared/api-keys.js.
     qdrant_use_cloud: false,
     qdrant_multitenancy: false, // Use single collection with content_type field instead of separate collections
     embedding_ollama_url: '',
@@ -553,7 +552,7 @@ jQuery(async () => {
         await migrateLegacyApiKeys();
     } catch (err) {
         log.warn('[VectFox] migrateLegacyApiKeys failed:', err?.message || err);
-        // Non-fatal: the Qdrant key reader uses a plaintext key the migration did not move; nothing else reads one.
+        // Non-fatal: nothing reads a plaintext key, and the next start moves what this one did not.
     }
 
     // `settings` IS the store, never a copy of it. Collection locks, the collection registry and

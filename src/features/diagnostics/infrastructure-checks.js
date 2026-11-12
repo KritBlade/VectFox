@@ -317,8 +317,6 @@ export async function checkQdrantBackend(settings) {
             port: settings.qdrant_port || 6333,
             url: isCloud ? settings.qdrant_url : null,
             // The plugin reads the key server-side from the secret_state slot 'api_key_qdrant'.
-            // A plaintext key not yet moved there is handled by QdrantBackend's normal init, not
-            // here — diagnostics run on their own and do not read the plaintext key.
             apiKey: null,
         };
 

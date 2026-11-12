@@ -451,7 +451,7 @@ async function isQdrantReachable() {
                 const { getRequestHeaders } = await import('/script.js');
                 // Mirror QdrantBackend.initialize's config-building logic.
                 const config = vf.qdrant_use_cloud
-                    ? { url: vf.qdrant_url || null, apiKey: vf.qdrant_api_key || null, host: null, port: null }
+                    ? { url: vf.qdrant_url || null, apiKey: null, host: null, port: null }
                     : { host: vf.qdrant_host || 'localhost', port: vf.qdrant_port || 6333, url: null, apiKey: null };
                 const resp = await fetch('/api/plugins/similharity/backend/init/qdrant', {
                     method: 'POST',

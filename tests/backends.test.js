@@ -606,7 +606,7 @@ describe('QdrantBackend', () => {
             expect(callBody.url).toBeNull();
         });
 
-        it('should initialize Qdrant Cloud', async () => {
+        it('should initialize Qdrant Cloud with no key, so Similharity reads it on the server, a key left in settings included', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
 
             const settings = {
@@ -620,8 +620,9 @@ describe('QdrantBackend', () => {
 
             const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
             expect(callBody.url).toBe('https://my-cluster.cloud.qdrant.io');
-            expect(callBody.apiKey).toBe('my-api-key');
+            expect(callBody.apiKey).toBeNull();
             expect(callBody.host).toBeNull();
+            expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('my-api-key');
         });
     });
 

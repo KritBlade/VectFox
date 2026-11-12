@@ -39,7 +39,6 @@ import {
 } from '../embedding/index.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { VECTOR_LIST_LIMIT } from '../../shared/constants.js';
-import { getQdrantApiKey } from '../../shared/api-keys.js';
 import { log } from '../../sillytavern/log.js';
 import { invalidateCollectionMetadata, settleTokenizerMismatch } from './tokenizer-lock.js';
 import { buildRegistryKey } from '../../shared/collection-ids.js';
@@ -185,18 +184,15 @@ export class QdrantBackend extends VectorBackend {
             // Cloud mode: use URL. The Similharity plugin resolves the API key
             // server-side from ST's secret slot 'api_key_qdrant': with apiKey
             // null, its /backend/init/qdrant handler reads the key via readSecret()
-            // before passing config to qdrantBackend.initialize. A plaintext
-            // settings.qdrant_api_key that the migration has not drained yet
-            // (getQdrantApiKey) is sent instead.
-            const legacyPlaintext = getQdrantApiKey(settings);
+            // before passing config to qdrantBackend.initialize.
             config = {
                 url: settings.qdrant_url || null,
-                apiKey: legacyPlaintext || null,
+                apiKey: null,
                 // Explicitly clear local settings to prevent conflicts
                 host: null,
                 port: null,
             };
-            log.lifecycle('VectFox: Initializing Qdrant Cloud:', config.url, legacyPlaintext ? '(using legacy plaintext key — will migrate)' : '(plugin resolves key from secret_state)');
+            log.lifecycle('VectFox: Initializing Qdrant Cloud:', config.url);
         } else {
             // Local mode: use host and port
             config = {
@@ -209,7 +205,7 @@ export class QdrantBackend extends VectorBackend {
             log.lifecycle('VectFox: Initializing local Qdrant:', `${config.host}:${config.port}`);
         }
 
-        log.lifecycle('VectFox: Sending Qdrant config to Similharity plugin:', JSON.stringify({ ...config, apiKey: config.apiKey ? '***redacted***' : undefined }));
+        log.lifecycle('VectFox: Sending Qdrant config to Similharity plugin:', JSON.stringify(config));
 
         const response = await fetch('/api/plugins/similharity/backend/init/qdrant', {
             method: 'POST',

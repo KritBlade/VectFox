@@ -86,6 +86,9 @@ import { checkPluginAvailable } from './similharity-plugin.js';
 const RETIRED_SETTINGS_ROOTS = ['vecthare', 'vecthareplus'];
 const RETIRED_CREDENTIAL_FIELDS = ['bananabread_api_key', 'milvus_token', 'milvus_password'];
 
+// SillyTavern's slot for the Qdrant Cloud key, a custom name as SECRET_KEYS has no Qdrant entry.
+const QDRANT_KEY_SLOT = 'api_key_qdrant';
+
 // ─── Internal helpers ───────────────────────────────────────────────────
 
 /**
@@ -156,31 +159,6 @@ export function getCustomApiKey() {
 }
 
 /**
- * Read a plaintext Qdrant API key left in settings (`settings.qdrant_api_key`).
- *
- * The key lives in ST's secret_state under the custom slot `api_key_qdrant`.
- * That slot is NOT in ST's `SECRET_KEYS` enum, so `getSecretState` (and
- * therefore client-side `secret_state.api_key_qdrant`) does NOT surface it.
- * Server-side `readSecret(directories, 'api_key_qdrant')` DOES read it — that's
- * how the Similharity plugin auth-flows the real key value into Qdrant.
- *
- * For client-side presence checks (UI placeholder, "is the key set"), call
- * `fetchQdrantApiKeyPresence()` below — it round-trips to the plugin's
- * `/qdrant/key-status` endpoint, and keeps only whether a key is saved.
- *
- * This reader returns the plaintext field until migrateLegacyApiKeys() drains
- * it into the slot, and '' after; the UI and the backends then rely on the
- * async presence fetch and the server-side read respectively.
- *
- * @param {object} [settings] - extension_settings.vectfox
- * @returns {string} the plaintext value, or '' once migrated
- */
-export function getQdrantApiKey(settings) {
-    const v = settings?.qdrant_api_key;
-    return (typeof v === 'string') ? v.trim() : '';
-}
-
-/**
  * Async presence fetch for the Qdrant API key via the Similharity plugin's
  * `/qdrant/key-status` endpoint. Keeps only whether a key is saved: plugins
  * before 3.4.4 answer `masked` with the key's last 4 characters, which is
@@ -215,24 +193,42 @@ export async function fetchQdrantApiKeyPresence() {
 // ─── One-shot legacy field migration ────────────────────────────────────
 
 /**
+ * Save a key moved out of settings.json in a SillyTavern slot. SillyTavern's writeSecret never throws: it answers the
+ * saved key's ID, or null when it did not save the key. Only null means not saved, as in the key boxes.
+ *
+ * @param {string} slot
+ * @param {string} value - The key, trimmed
+ * @returns {Promise<boolean>} whether SillyTavern saved it
+ */
+async function isSavedInSillyTavern(slot, value) {
+    const savedId = await writeSecret(slot, value);
+    if (savedId !== null) return true;
+    log.warn(`[VectFox migrate] SillyTavern did not save the key moved out of settings.json in ${slot}`);
+    return false;
+}
+
+/**
  * Move legacy plaintext key fields out of `extension_settings.vectfox` into
- * SillyTavern's secret store. Runs once at init from `index.js`.
+ * SillyTavern's secret store. Runs at every start from `index.js`.
  *
- * OpenRouter — legacy fields `summarize_openrouter_api_key`,
- * `agentic_retrieval_openrouter_api_key` and `openrouter_api_key`: the first
- * non-empty value goes to `SECRET_KEYS.OPENROUTER` ONLY IF that slot is empty
- * (a value the user set through ST's own UI is kept); all three fields are
- * deleted.
+ * Every legacy key field is deleted whether or not SillyTavern saves its key,
+ * as VectFox never keeps a key in settings.json. One red toast names each key
+ * SillyTavern did not save and asks the user to paste it again.
  *
- * vLLM — legacy fields `summarize_vllm_api_key`,
- * `agentic_retrieval_vllm_api_key` and `vllm_api_key`: the first non-empty
+ * OpenRouter: legacy fields `summarize_openrouter_api_key`,
+ * `agentic_retrieval_openrouter_api_key` and `openrouter_api_key`. The first
+ * non-empty value goes to `SECRET_KEYS.OPENROUTER` only if that slot is empty,
+ * so a key the user set through ST's own UI is kept.
+ *
+ * vLLM: legacy fields `summarize_vllm_api_key`,
+ * `agentic_retrieval_vllm_api_key` and `vllm_api_key`. The first non-empty
  * value goes to `SECRET_KEYS.CUSTOM` (chat side) and `SECRET_KEYS.VLLM`
- * (embedding side), each only if empty; all three fields are deleted.
+ * (embedding side), each only if empty.
  *
- * qdrant_api_key: drained to secret_state custom slot 'api_key_qdrant'
- * (gated on Similharity plugin probe — see Qdrant drain block below).
+ * qdrant_api_key: goes to SillyTavern's slot 'api_key_qdrant', which
+ * Similharity reads on the server.
  *
- * ollama_api_key: deleted (no destination — ST does not authenticate Ollama).
+ * ollama_api_key: deleted, as ST does not authenticate Ollama.
  *
  * Idempotent: on subsequent runs the legacy fields are already absent
  * and the function is a no-op.
@@ -269,6 +265,7 @@ export async function migrateLegacyApiKeys() {
 
     let mutated = false;
     const moves = []; // human-readable log entries
+    const unsavedKeyNames = []; // providers whose key SillyTavern did not save, for the toast
 
     // ─── OpenRouter consolidation ───
     const orLegacy = [
@@ -289,16 +286,13 @@ export async function migrateLegacyApiKeys() {
     }
     if (orValue) {
         const existing = _readSecretValue(SECRET_KEYS.OPENROUTER);
-        if (!existing) {
-            try {
-                await writeSecret(SECRET_KEYS.OPENROUTER, orValue);
-                moves.push(`OpenRouter → wrote to SECRET_KEYS.OPENROUTER (was empty)`);
-            } catch (err) {
-                log.warn('[VectFox migrate] writeSecret(SECRET_KEYS.OPENROUTER) failed:', err?.message || err);
-                moves.push(`OpenRouter → writeSecret FAILED, key not migrated`);
-            }
-        } else {
+        if (existing) {
             moves.push(`OpenRouter → SECRET_KEYS.OPENROUTER already has a key, keeping that one (didn't clobber)`);
+        } else if (await isSavedInSillyTavern(SECRET_KEYS.OPENROUTER, orValue)) {
+            moves.push(`OpenRouter → wrote to SECRET_KEYS.OPENROUTER (was empty)`);
+        } else {
+            moves.push(`OpenRouter → SillyTavern did not save the key in SECRET_KEYS.OPENROUTER, deleted from settings.json all the same`);
+            unsavedKeyNames.push('OpenRouter');
         }
     }
 
@@ -332,122 +326,50 @@ export async function migrateLegacyApiKeys() {
         // embedding-side proxy reads SECRET_KEYS.VLLM, so one key serves both.
         // Each write is don't-clobber, so an existing ST main-chat config (Custom
         // source) or ST vLLM Text Completion config keeps its own value.
+        let isVllmKeySaved = true;
         const existingCustom = _readSecretValue(SECRET_KEYS.CUSTOM);
-        if (!existingCustom) {
-            try {
-                await writeSecret(SECRET_KEYS.CUSTOM, vllmValue);
-                moves.push(`vLLM → wrote to SECRET_KEYS.CUSTOM (was empty)`);
-            } catch (err) {
-                log.warn('[VectFox migrate] writeSecret(SECRET_KEYS.CUSTOM) failed:', err?.message || err);
-                moves.push(`vLLM → writeSecret(SECRET_KEYS.CUSTOM) FAILED, chat-side key not migrated — re-enter via VectFox UI`);
-            }
-        } else {
+        if (existingCustom) {
             const msg = `vLLM → SECRET_KEYS.CUSTOM already has a value (likely from ST main-chat config) — kept that one for chat-side. To override, clear ST's Custom OpenAI-compatible key and re-enter via VectFox UI.`;
             log.warn(`[VectFox migrate] ${msg}`);
             moves.push(msg);
+        } else if (await isSavedInSillyTavern(SECRET_KEYS.CUSTOM, vllmValue)) {
+            moves.push(`vLLM → wrote to SECRET_KEYS.CUSTOM (was empty)`);
+        } else {
+            moves.push(`vLLM → SillyTavern did not save the key in SECRET_KEYS.CUSTOM, deleted from settings.json all the same`);
+            isVllmKeySaved = false;
         }
 
         const existingVllm = _readSecretValue(SECRET_KEYS.VLLM);
-        if (!existingVllm) {
-            try {
-                await writeSecret(SECRET_KEYS.VLLM, vllmValue);
-                moves.push(`vLLM → wrote to SECRET_KEYS.VLLM (was empty, used by embedding path)`);
-            } catch (err) {
-                log.warn('[VectFox migrate] writeSecret(SECRET_KEYS.VLLM) failed:', err?.message || err);
-                moves.push(`vLLM → writeSecret(SECRET_KEYS.VLLM) FAILED, embedding-side key not migrated — configure via ST's Text Completion → vLLM UI`);
-            }
-        } else {
+        if (existingVllm) {
             const msg = `vLLM → SECRET_KEYS.VLLM already has a value (from ST Text Completion → vLLM config) — kept that one for embedding-side.`;
             log.warn(`[VectFox migrate] ${msg}`);
             moves.push(msg);
-        }
-    }
-
-    // ─── Qdrant API key → 'api_key_qdrant' (custom slot) drain ───
-    // The Qdrant Cloud key belongs in SillyTavern's secret_state slot 'api_key_qdrant': the client sends
-    // `apiKey: null` to the Similharity plugin, which reads the slot server-side with readSecret. The
-    // slot name is custom because SECRET_KEYS has no Qdrant entry; writeSecret accepts any name, but the
-    // client-side secret_state hides non-enum slots, so the UI checks presence through the plugin's
-    // /qdrant/key-status endpoint (fetchQdrantApiKeyPresence above).
-    //
-    // ⚠️ The drain probes /qdrant/key-status first. A Similharity plugin without that endpoint cannot
-    // read the slot, so writing the key there and deleting settings.qdrant_api_key would break Qdrant
-    // Cloud auth. The probe gates both the write and the delete; without the endpoint the drain does
-    // nothing and runs again on the next load.
-    const QDRANT_SLOT = 'api_key_qdrant';
-    let pluginSupportsQdrantSecretSlot = false;
-    // Only probe the plugin if there's actually a legacy plaintext field to
-    // drain. On a fresh / no-plugin install there's nothing to migrate, so
-    // pinging /qdrant/key-status just produces a misleading 404 warning.
-    if (Object.prototype.hasOwnProperty.call(vf, 'qdrant_api_key')) {
-        // First, the canonical plugin-presence check (session-cached /health
-        // probe). This separates "no plugin installed at all" from "plugin
-        // installed but without /qdrant/key-status" — the two cases that the
-        // /qdrant/key-status 404 alone can't tell apart.
-        let pluginUp = false;
-        try {
-            pluginUp = await checkPluginAvailable();
-        } catch (err) {
-            log.warn(`[VectFox migrate] Plugin availability check failed; skipping Qdrant key migration this run. Plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);
-        }
-
-        if (!pluginUp) {
-            // No plugin → nothing can read secret_state.api_key_qdrant back, so
-            // migrating would strand the key. Skip and keep the plaintext value.
-            // NOT a warning: running without the plugin is a supported choice,
-            // not an error. Gated/verbose so it stays out of the normal console
-            // and only surfaces when someone is actually debugging migration.
-            log.verbose(`[VectFox migrate] Similharity server plugin not installed — Qdrant key migration skipped (expected when running plugin-less). Plaintext qdrant_api_key in settings.json is PRESERVED.`);
+        } else if (await isSavedInSillyTavern(SECRET_KEYS.VLLM, vllmValue)) {
+            moves.push(`vLLM → wrote to SECRET_KEYS.VLLM (was empty, used by embedding path)`);
         } else {
-            // Plugin is up; now capability-probe the specific endpoint to confirm
-            // it's new enough to support the secret_state Qdrant slot.
-            try {
-                const probe = await fetch('/api/plugins/similharity/qdrant/key-status', {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' },
-                });
-                pluginSupportsQdrantSecretSlot = probe.ok;
-                if (!probe.ok) {
-                    log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe returned ${probe.status} — the Similharity plugin predates that endpoint. Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Update the Similharity plugin (cd plugins/similharity && git pull && restart ST) to enable secret_state storage.`);
-                }
-            } catch (err) {
-                log.warn(`[VectFox migrate] Plugin /qdrant/key-status probe failed (plugin unreachable or without that endpoint). Skipping Qdrant key migration this run; plaintext key in settings.json is PRESERVED. Reason:`, err?.message || err);
-            }
+            moves.push(`vLLM → SillyTavern did not save the key in SECRET_KEYS.VLLM, deleted from settings.json all the same`);
+            isVllmKeySaved = false;
         }
+        if (!isVllmKeySaved) unsavedKeyNames.push('vLLM');
     }
 
-    if (pluginSupportsQdrantSecretSlot) {
-        const rawQdrantPlaintext = vf?.qdrant_api_key;
-        const hasPlaintextField = Object.prototype.hasOwnProperty.call(vf, 'qdrant_api_key');
-        const hasPlaintextValue = typeof rawQdrantPlaintext === 'string' && rawQdrantPlaintext.trim().length > 0;
-        let writeSucceeded = !hasPlaintextValue; // nothing to write = trivially succeeded
-
-        if (hasPlaintextValue) {
-            // No don't-clobber check: custom slot is undefined in client-side
-            // secret_state, so we can't presence-check from JS. Plugin-side
-            // this overwrites any prior value — acceptable for the first
-            // migration pass (slot is brand new for VectFox users).
-            // SillyTavern's writeSecret never throws: it answers the new key's ID, or null when the write failed.
-            const savedId = await writeSecret(QDRANT_SLOT, rawQdrantPlaintext.trim());
-            if (savedId) {
-                moves.push(`Qdrant → wrote to secret_state.${QDRANT_SLOT} (len=${rawQdrantPlaintext.trim().length})`);
-                writeSucceeded = true;
-            } else {
-                log.warn(`[VectFox migrate] writeSecret(${QDRANT_SLOT}) did not save the key`);
-                moves.push(`Qdrant → writeSecret(${QDRANT_SLOT}) FAILED — plaintext key PRESERVED in settings.json for safety, retry next reload`);
-                // writeSucceeded stays false → plaintext stays in settings.json
-            }
-        }
-
-        // Delete the plaintext field ONLY after a confirmed-successful write
-        // (or when there was no value to migrate). Never delete in a half-
-        // migrated state — the user's only working key would be lost.
-        if (writeSucceeded && hasPlaintextField) {
-            delete vf.qdrant_api_key;
-            mutated = true;
-            if (!hasPlaintextValue) {
-                moves.push(`Qdrant → removed empty plaintext qdrant_api_key from settings.json`);
-            }
+    // ─── Qdrant API key → 'api_key_qdrant' (custom slot) ───
+    // The Qdrant Cloud key belongs in SillyTavern's slot 'api_key_qdrant': the client sends `apiKey: null` to the
+    // Similharity plugin, which reads the slot server-side with readSecret. SillyTavern writes the slot itself, so
+    // the move needs no plugin, and a plugin installed later reads the key there. The slot name is custom because
+    // SECRET_KEYS has no Qdrant entry, and the client-side secret_state hides non-enum slots, so nothing here can
+    // see a key the slot already holds. The moved key becomes the one in use, as it was the key VectFox sent.
+    if (Object.prototype.hasOwnProperty.call(vf, 'qdrant_api_key')) {
+        const qdrantValue = typeof vf.qdrant_api_key === 'string' ? vf.qdrant_api_key.trim() : '';
+        delete vf.qdrant_api_key;
+        mutated = true;
+        if (!qdrantValue) {
+            moves.push(`Qdrant → removed empty plaintext qdrant_api_key from settings.json`);
+        } else if (await isSavedInSillyTavern(QDRANT_KEY_SLOT, qdrantValue)) {
+            moves.push(`Qdrant → wrote to secret_state.${QDRANT_KEY_SLOT} (len=${qdrantValue.length})`);
+        } else {
+            moves.push(`Qdrant → SillyTavern did not save the key in ${QDRANT_KEY_SLOT}, deleted from settings.json all the same`);
+            unsavedKeyNames.push('Qdrant');
         }
     }
 
@@ -510,6 +432,18 @@ export async function migrateLegacyApiKeys() {
         try { await readSecretState(); } catch (error) { log.warn('[VectFox migrate] secret_state refresh failed:', error); }
     } else {
         log.lifecycle('[VectFox migrate] No legacy API-key fields found — nothing to migrate');
+    }
+
+    if (unsavedKeyNames.length > 0) {
+        const isOneKey = unsavedKeyNames.length === 1;
+        const names = new Intl.ListFormat('en', { type: 'conjunction' }).format(unsavedKeyNames);
+        toastr.error(
+            isOneKey
+                ? `SillyTavern did not save your ${names} key when VectFox moved it out of settings.json. Paste it again in VectFox's settings.`
+                : `SillyTavern did not save your ${names} keys when VectFox moved them out of settings.json. Paste them again in VectFox's settings.`,
+            isOneKey ? 'Key not saved' : 'Keys not saved',
+            { timeOut: 0, extendedTimeOut: 0 },
+        );
     }
 
     return { summary: moves.length > 0 ? moves.join('; ') : 'nothing-to-migrate' };
