@@ -40,8 +40,8 @@ describe('AgentMode page markup', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it('offers Same as EventBase model first and a SillyTavern profile last, and starts both provider rows hidden', () => {
-        expect([...document.getElementById('VectFox_agentic_provider').options].map(option => option.value)).toEqual(['', 'openrouter', 'vllm', 'connection_profile']);
+    it('offers Same as EventBase model first and a SillyTavern profile second, and starts both provider rows hidden', () => {
+        expect([...document.getElementById('VectFox_agentic_provider').options].map(option => option.value)).toEqual(['', 'connection_profile', 'openrouter', 'vllm']);
         for (const id of ['VectFox_agentic_openrouter_row', 'VectFox_agentic_vllm_row']) {
             expect(document.getElementById(id).style.display, id).toBe('none');
         }

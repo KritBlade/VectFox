@@ -64,11 +64,11 @@ function vectorBackendCard() {
 
 function embeddingCard() {
     const providers = [
+        selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
         selectOption({ value: 'transformers', text: 'Transformers (local)' }),
         selectOption({ value: 'ollama', text: 'Ollama' }),
         selectOption({ value: 'openrouter', text: 'OpenRouter' }),
         selectOption({ value: 'vllm', text: 'vLLM' }),
-        selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
     ];
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-microchip', title: 'Embedding', description: 'The model that turns text into vectors, and how its calls go out.' })}
@@ -142,9 +142,9 @@ function eventModelCard() {
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_summarize_provider' }),
                 select({ id: 'VectFox_summarize_provider', options: [
+                    selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
                     selectOption({ value: 'openrouter', text: 'OpenRouter' }),
                     selectOption({ value: 'vllm', text: 'vLLM' }),
-                    selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
                 ] }),
             ], { isSpan: true })}
             ${connectionProfileRows('VectFox_summarize', { hintText: 'Its model, URL and key are used. Make profiles under Connection Profiles in SillyTavern.' })}

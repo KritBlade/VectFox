@@ -117,9 +117,9 @@ function connectionCard() {
         id: 'VectFox_story_arc_link_provider',
         title: 'Link provider',
         options: [
+            selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
             selectOption({ value: 'openrouter', name: 'OpenRouter' }),
             selectOption({ value: 'vllm', name: 'vLLM' }),
-            selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
         ],
     });
     const model = '<input type="text" id="VectFox_story_arc_link_model" class="vfx-input" placeholder="openai/gpt-6-luna">';

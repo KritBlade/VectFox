@@ -4,8 +4,8 @@
  *
  * These tests run VectFox's real start-up in src/index.js and hand the object it gives
  * the panel to that same line. They also check the connection defaults that start-up
- * fills in: a new install's LLM consumers start on a SillyTavern profile, none chosen,
- * and an existing install keeps the provider it saved (connection plan §1).
+ * fills in: a new install's LLM consumers and embedding start on a SillyTavern profile,
+ * none chosen, and an existing install keeps the provider it saved (connection plan §1, §3).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -198,19 +198,20 @@ describe('connection defaults at start-up', () => {
         vi.unstubAllGlobals();
     });
 
-    it('starts a new install\'s EventBase model and StoryArc on a SillyTavern profile, none chosen, the others as before', async () => {
+    it('starts a new install\'s EventBase model, StoryArc and embedding on a SillyTavern profile, none chosen, the others as before', async () => {
         const { extension_settings } = await loadPage({});
         expect(extension_settings.vectfox).toMatchObject({
             chat_provider: 'connection_profile', chat_connection_profile_id: '',
             story_arc_link_provider: 'connection_profile', story_arc_link_connection_profile_id: '',
             agent_provider: '', agent_connection_profile_id: '',
             reformat_provider: '', reformat_connection_profile_id: '',
-            embedding_provider: 'transformers', embedding_connection_profile_id: '',
+            embedding_provider: 'custom', embedding_connection_profile_id: '',
         });
     });
 
     it('keeps the providers an existing install saved', async () => {
-        const { extension_settings } = await loadPage({ chat_provider: 'openrouter', story_arc_link_provider: 'vllm' });
-        expect(extension_settings.vectfox).toMatchObject({ chat_provider: 'openrouter', story_arc_link_provider: 'vllm' });
+        const saved = { chat_provider: 'openrouter', story_arc_link_provider: 'vllm', embedding_provider: 'transformers' };
+        const { extension_settings } = await loadPage(saved);
+        expect(extension_settings.vectfox).toMatchObject(saved);
     });
 });

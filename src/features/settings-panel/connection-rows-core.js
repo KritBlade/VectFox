@@ -67,7 +67,7 @@ export function chatProfileReadoutLines(description, { isInherited = false } = {
 export function embeddingProfileReadoutLines({ resolved, kind, hasEmbeddingProfiles }) {
     const howToMakeOne = hasEmbeddingProfiles ? [] : [{ text: 'SillyTavern has no Ollama, llama.cpp, KoboldCPP or Custom profile yet. Make one under Connection Profiles in SillyTavern.', status: 'warning' }];
     if (!resolved || !kind) return howToMakeOne;
-    if (resolved.problem) return [{ name: resolved.problem, status: 'warning' }];
+    if (resolved.problem) return [{ name: resolved.problem, status: 'warning' }, ...howToMakeOne];
     return [
         { text: 'URL', name: resolved.url },
         resolved.model ? { text: 'Model', name: resolved.model } : { text: 'Model: none named, the server embeds with its own' },

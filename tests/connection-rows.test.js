@@ -3,11 +3,12 @@
  *
  * The Provider dropdowns of the EventBase model, Agent Mode, Auto-Reformat, StoryArc and embedding, on their real page
  * markup (src/features/settings-panel/connection-rows.js, connection plan §1 and §3): each offers a SillyTavern
- * profile; choosing it shows a Profile dropdown of the profiles SillyTavern can use and a readout, and hides the rows a
- * profile supplies; a deleted profile and the Connection Manager switched off say so in the dropdown; the dropdowns
- * repaint when SillyTavern makes, saves or deletes a profile; Agent Mode and Auto-Reformat on Same as EventBase model
- * name the EventBase model's profile; embedding never stores the profile option itself, and choosing a profile stores
- * its ID and type; each Test connection runs its feature's test on the panel's settings and reports the answer.
+ * profile first, after Same as EventBase model where it has that; choosing it shows a Profile dropdown of the profiles
+ * SillyTavern can use and a readout, and hides the rows a profile supplies; a deleted profile and the Connection
+ * Manager switched off say so in the dropdown; the dropdowns repaint when SillyTavern makes, saves or deletes a profile;
+ * Agent Mode and Auto-Reformat on Same as EventBase model name the EventBase model's profile; embedding never stores the
+ * profile option itself, opens on it for a new install's Custom type with no profile, and choosing a profile stores its
+ * ID and type; each Test connection runs its feature's test on the panel's settings and reports the answer.
  */
 /* global document, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -119,9 +120,20 @@ beforeEach(() => {
 });
 
 describe('a chat consumer\'s Provider dropdown', () => {
-    it('offers a SillyTavern profile on all five dropdowns, and on the EventBase model shows the Profile rows in place of its model, key and URL', () => {
+    it('lists SillyTavern profile first on all five dropdowns, after Same as EventBase model on the two that have it', () => {
+        mount(baseSettings());
+        const valuesOf = id => optionsOf(id).map(option => option.value);
+        expect(valuesOf('VectFox_summarize_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
+        expect(valuesOf('VectFox_story_arc_link_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
+        expect(valuesOf('VectFox_source')).toEqual(['connection_profile', 'transformers', 'ollama', 'openrouter', 'vllm']);
+        for (const id of ['VectFox_agentic_provider', 'VectFox_reformat_provider']) {
+            expect(valuesOf(id), id).toEqual(['', 'connection_profile', 'openrouter', 'vllm']);
+        }
+        expect(PROVIDER_SELECTS.map(id => optionsOf(id).find(option => option.value === 'connection_profile').text)).toEqual(Array(5).fill('SillyTavern profile'));
+    });
+
+    it('shows the Profile rows on the EventBase model in place of its model, key and URL', () => {
         const settings = mount(baseSettings());
-        for (const id of PROVIDER_SELECTS) expect(optionsOf(id).map(option => option.value), id).toContain('connection_profile');
         expect(isShown(element('VectFox_summarize_settings'))).toBe(true);
         expect(isShown(element('VectFox_summarize_connection_profile_rows'))).toBe(false);
 
@@ -269,7 +281,7 @@ describe('embedding\'s Provider dropdown', () => {
         host.resolvedEmbedding = { profileName: 'Lantern', url: 'http://lantern.local/v1', model: 'lantern-embed', storesKey: false, problem: '' };
         choose('VectFox_embedding_connection_profile', 'p-lantern');
         expect(linesOf('VectFox_embedding_connection_profile_readout')).toEqual([
-            'URL: http://lantern.local/v1', 'Model: lantern-embed', 'The server needs: An OpenAI-style /embeddings route under the profile\'s URL.', 'No key stored: none is sent',
+            'URL: http://lantern.local/v1', 'Model: lantern-embed', 'The server needs: An OpenAI-style /embeddings route: the profile\'s URL if it ends in /embeddings, else under it.', 'No key stored: none is sent',
         ]);
 
         host.resolvedEmbedding = { profileName: 'Meadow', url: 'http://meadow.local:11434', model: 'meadow-embed', storesKey: false, problem: '' };
@@ -297,6 +309,19 @@ describe('embedding\'s Provider dropdown', () => {
         mount({ ...baseSettings(), embedding_provider: 'ollama', embedding_connection_profile_id: '' });
         expect(element('VectFox_source').value).toBe('ollama');
         expect(isShown(element('VectFox_ollama_manual_rows'))).toBe(true);
+    });
+
+    it('opens a new install\'s Custom type with no profile on the SillyTavern profile option, none chosen, and says what to do', () => {
+        host.context.extensionSettings.connectionManager.profiles = profileFixtures().slice(0, 1);
+        host.resolvedEmbedding = { profileName: '', url: '', model: '', storesKey: false, problem: 'Embedding: no connection profile is chosen. Choose one on the Core page.' };
+        mount({ ...baseSettings(), embedding_provider: 'custom', embedding_connection_profile_id: '' });
+        expect(element('VectFox_source').value).toBe('connection_profile');
+        expect(isShown(element('VectFox_embedding_connection_profile_rows'))).toBe(true);
+        expect(optionsOf('VectFox_embedding_connection_profile')).toEqual([{ value: '', text: 'Choose a profile', isDisabled: true, isSelected: true }]);
+        expect(linesOf('VectFox_embedding_connection_profile_readout')).toEqual([
+            'Embedding: no connection profile is chosen. Choose one on the Core page.',
+            'SillyTavern has no Ollama, llama.cpp, KoboldCPP or Custom profile yet. Make one under Connection Profiles in SillyTavern.',
+        ]);
     });
 
     it('says how to make a profile when SillyTavern has none it can embed on', () => {

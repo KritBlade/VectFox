@@ -18,7 +18,7 @@ export const EMBEDDING_PROFILE_PROVIDERS = Object.freeze({
     ollama: Object.freeze({ name: 'Ollama', requiresModel: true, hasManualFields: true, sendsKeyId: false, serverNeeds: 'The embedding model pulled in Ollama.' }),
     llamacpp: Object.freeze({ name: 'llama.cpp', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'llama.cpp started with --embedding.' }),
     koboldcpp: Object.freeze({ name: 'KoboldCPP', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'KoboldCPP 1.87 or later, with an embedding model loaded.' }),
-    custom: Object.freeze({ name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true, serverNeeds: 'An OpenAI-style /embeddings route under the profile\'s URL.' }),
+    custom: Object.freeze({ name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true, serverNeeds: 'An OpenAI-style /embeddings route: the profile\'s URL if it ends in /embeddings, else under it.' }),
 });
 
 /**

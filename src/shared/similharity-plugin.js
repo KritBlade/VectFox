@@ -5,8 +5,9 @@
  *
  * The oldest version is `similharity_minimum_version` in VectFox's manifest.json, its one place: a release that needs
  * a newer plugin changes that field and nothing else. It is a floor, not an exact match, so a plugin-only fix never
- * nags users who are up to date. It never drops below 3.4.0, the first plugin that sends a llama.cpp, KoboldCPP or
- * Custom profile's key by its ID (tests/similharity-version-floor.test.js).
+ * nags users who are up to date. It never drops below 3.4.3: 3.4.0 is the first plugin that sends a llama.cpp,
+ * KoboldCPP or Custom profile's key by its ID, and 3.4.3 the first that requests a profile URL already ending in
+ * /embeddings as it is (tests/similharity-version-floor.test.js).
  */
 
 import { getRequestHeaders } from '../sillytavern/requests.js';

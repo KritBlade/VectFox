@@ -60,7 +60,9 @@ const defaultSettings = {
     panel_theme: 'dark',
 
     // Core vector settings
-    embedding_provider: 'transformers', // transformers | ollama | openrouter | vllm; on a connection profile, the profile's type: ollama | llamacpp | koboldcpp | custom
+    // A new install starts on the SillyTavern profile option with none chosen: Custom with no profile ID, which the
+    // Core page shows as that option, and which embeds nothing until a profile is chosen.
+    embedding_provider: 'custom', // transformers | ollama | openrouter | vllm; on a connection profile, the profile's type: ollama | llamacpp | koboldcpp | custom
     embedding_connection_profile_id: '', // the SillyTavern connection profile embedding runs on: always on llamacpp, koboldcpp and custom, and on ollama while set
     vector_backend: 'qdrant', // Backend: 'standard' (ST Vectra) | 'qdrant'
     qdrant_host: '127.0.0.1',

@@ -32,7 +32,7 @@ describe('embeddingProfileProblem', () => {
             ollama: { name: 'Ollama', requiresModel: true, hasManualFields: true, sendsKeyId: false, serverNeeds: 'The embedding model pulled in Ollama.' },
             llamacpp: { name: 'llama.cpp', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'llama.cpp started with --embedding.' },
             koboldcpp: { name: 'KoboldCPP', requiresModel: false, hasManualFields: false, sendsKeyId: true, serverNeeds: 'KoboldCPP 1.87 or later, with an embedding model loaded.' },
-            custom: { name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true, serverNeeds: 'An OpenAI-style /embeddings route under the profile\'s URL.' },
+            custom: { name: 'Custom', requiresModel: true, hasManualFields: false, sendsKeyId: true, serverNeeds: 'An OpenAI-style /embeddings route: the profile\'s URL if it ends in /embeddings, else under it.' },
         });
         expect(embeddingProfileKind('__proto__')).toBeNull();
         expect(embeddingProfileKind('vllm')).toBeNull();

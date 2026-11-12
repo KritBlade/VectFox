@@ -204,7 +204,7 @@ export function requiresUrl(providerId) {
  * The embedding server's base URL for a URL-based provider, which every request that needs it reads here.
  *
  * On a connection profile, the URL the profile names. A profile that cannot be used throws instead, before any
- * request, as does a llama.cpp, KoboldCPP or Custom profile without Similharity 3.4.0 or later: it never falls back to
+ * request, as does a llama.cpp, KoboldCPP or Custom profile below the Similharity floor in manifest.json: it never falls back to
  * the provider's own URL fields, SillyTavern's server URL or the plugin's default.
  *
  * On a manual provider, the URL the provider's own fields hold (`embedding_ollama_url_override` and
@@ -240,7 +240,8 @@ export function resolveProviderApiUrl(settings, source = settings?.embedding_pro
 /**
  * What an embedding request on a llama.cpp, KoboldCPP or Custom profile names besides the source and model: the
  * profile's server URL, and its key's ID when it stores a key. Empty for every other provider. Every params builder
- * spreads it, so a profile that cannot be used, or one without Similharity 3.4.0 or later, stops before any request.
+ * spreads it, so a profile that cannot be used, or one below the Similharity floor in manifest.json, stops before any
+ * request.
  * It waits for the Similharity probe first, so the plugin check never reads a probe that has not settled.
  *
  * @param {object} settings - VectFox settings
