@@ -449,15 +449,15 @@ CJK를 위한 더 나은 단일 문자 필터링, 고신호 1자 RPG/일상생�
 
 그게 다입니다! VectFox가 자동으로 다운로드되고 활성화됩니다.
 
-### 단계 2: Similharity 플러그인 설치 (Qdrant 필수 — Standard 선택 사항이지만 권장)
+### 단계 2: Similharity 플러그인 설치 (Qdrant와 대부분의 임베딩 프로필에 필수)
 
-**Qdrant 백엔드 사용 시 필수입니다.** Standard 백엔드에서는 선택 사항이지만, 설치하면 Standard에서도 추가 기능을 사용할 수 있습니다:
+**Qdrant 백엔드를 쓰거나, llama.cpp·KoboldCPP·Custom 프로필로 임베딩한다면 필수입니다.** OpenRouter 임베딩 모델도 Custom 프로필로 들어오므로 여기에 포함됩니다. Standard 백엔드에서 그 외의 임베딩을 쓴다면 선택 사항이지만, Standard에서도 설치하면 더 많은 기능을 쓸 수 있습니다:
 
 | 기능 | Standard (플러그인 없음) | Standard (플러그인 있음) | **Qdrant (Cloud / Local)** ⭐ |
 |---|---|---|---|
 | 이벤트 검색 및 주입 | ✅ 완전한 기능 | ✅ 완전한 기능 | ✅ 완전한 기능 |
 | Summarizer Injection(최근 턴 기억) | ❌ 이벤트별 메타데이터 필요 | ✅ 사용 가능 | ✅ 사용 가능 |
-| 임베딩 및 벡터화 | ✅ 작동 | ✅ 작동 | ✅ 작동 |
+| 임베딩 및 벡터화 | ⚠️ llama.cpp·KoboldCPP·Custom 프로필에서는 불가 | ✅ 작동 | ✅ 작동 |
 | 키워드를 DB에 저장 (검색 부스트) | ❌ 로컬 설정에만 저장 | ✅ 벡터 DB에 저장 | ✅ 벡터 DB에 저장 |
 | 이벤트 중요도 점수 | ❌ 손실됨 (네이티브 API가 메타데이터 폐기) | ⚠️ 저장되지만 재순위에는 미사용 | ✅ 저장 및 재순위에 사용 |
 | 데이터베이스 브라우저에서 청크 보기 | ❌ 사용 불가 | ✅ 사용 가능 | ✅ 사용 가능 |
@@ -466,7 +466,7 @@ CJK를 위한 더 나은 단일 문자 필터링, 고신호 1자 RPG/일상생�
 | 대규모 데이터셋 확장 | ⚠️ 긴 스토리에서 성능 저하 | ⚠️ 긴 스토리에서 성능 저하 | ✅ 1만+ 메시지에서도 빠름 |
 | 설치 | 불필요 | 플러그인 설치 | 플러그인 설치 + 무료 클라우드 계정 **또는** [로컬 설치](Doc/Qdrant_install.md) |
 
-Standard 백엔드를 사용하면서 플러그인을 설치하지 않아도 이벤트 검색과 주입은 정상적으로 작동합니다. 다만 청크 검사나 키워드 메타데이터는 사용할 수 없습니다. 최상의 검색 품질을 원한다면 **Qdrant를 강력히 권장합니다** —— https://qdrant.tech/ 의 무료 클라우드 티어는 로컬 설치가 전혀 필요 없습니다.
+Standard 백엔드에서 플러그인이 없어도 이벤트 검색과 주입은 작동합니다. 다만 청크 검사, 키워드 메타데이터, llama.cpp·KoboldCPP·Custom 프로필 임베딩은 쓸 수 없습니다. 최상의 검색 품질을 원한다면 **Qdrant**를 강력히 추천합니다. https://qdrant.tech/ 의 무료 클라우드 티어는 로컬 설치가 전혀 필요 없습니다.
 
 #### Windows에서 처음 사용하나요? 먼저 Git과 Node.js 설치
 
@@ -507,20 +507,32 @@ enableServerPlugins: true
 SillyTavern 재시작.
 
 ### 단계 3: VectFox 설정
-1. 익스텐션 패널에서 **Open VectFox**를 누르고 **Core** 페이지를 엽니다.
-2. 벡터 저장소 선택 (Standard 또는 Qdrant).
-3. 임베딩 제공자 선택 (Transformers, vLLM, Ollama, OpenRouter, etc.).
-   - 💡 **권장:** **OpenRouter**를 통해 `qwen/qwen3-embedding-8b`를 사용하세요. 매우 저렴하고 다국어 지원이 뛰어나며 (CJK 및 라틴 문자 모두 우수) VectFox가 대상으로 하는 코퍼스 규모에 대해 고품질 밀집 벡터를 생성합니다. 사용하는 임베딩 모델이 좋을수록 회상(recall) 결과도 좋아집니다 — 이것은 가장 중요한 모델이므로, 절대 저렴한 모델은 쓰지 마세요.
-4. **EventBase model**에서 OpenRouter 또는 vLLM과 모델을 고릅니다. 벡터화할 때 이 모델이 이벤트를 씁니다.
-   - 💡 **추천 OpenRouter 모델:** 저렴하고 빠른 추출 경로로는 `openai/gpt-4o-mini` 또는 `google/gemini-3.1-flash-lite`를 사용하세요 — 둘 다 비용과 수집 지연을 낮게 유지합니다. 더 높은 추출 품질을 원하고 비용을 더 지불해도 괜찮다면, `x-ai/grok-4.3`이 더 강력하지만 더 비싼 선택지입니다. OpenRouter가 오래된 모델 ID(예: `x-ai/grok-4.1-fast`)에 대해 404 또는 사용 중단 오류를 반환한다면 해당 ID는 피하세요. 모델 가용성은 시간이 지나며 바뀔 수 있으므로, 긴 수집 작업을 실행하기 전에 OpenRouter에서 정확한 모델 ID를 확인하세요. **Agent Mode LLM** (AgentMode 탭에서 별도 설정)에도 같은 권장이 적용됩니다. AgentMode의 모델 필드를 비워두면 **EventBase model** 설정을 사용합니다.
-5. 클라우드 제공자(OpenRouter / vLLM )를 사용한다면 API 키를 구성합니다.
-6. **Keywords**에서 스토리의 언어를 선택합니다.
-7. 대부분의 설정은 기본값으로 두면 됩니다 — 자유롭게 조정하세요.
-8. SillyTavern에서 채팅을 클릭한 다음 VectFox 익스텐션 아이콘을 다시 클릭하세요. 첫 DB를 벡터화하려면 "Vectorize Content"를 클릭하고 **Chat History**를 선택**해야 합니다**.
-9. 필요시 **AutoSync** 탭에서 **Auto-sync this chat**을 활성화합니다. 한 번 실행에 들어가는 턴 수는 **Auto-sync window**로 정합니다.
-10. 필요시 **WorldInfo** 탭에서 로어북 / World Info를 벡터화합니다.
-11. (선택) 다른 설정이 모두 작동하면 **AgentMode** 탭에서 **Agent Mode**를 켤 수 있습니다. Provider를 **Same as EventBase model**로 두고 Model을 비워두면 **EventBase model** 설정을 사용합니다. 즉 단계 4에서 고른 저렴하고 빠른 모델이 플래너도 구동합니다. 자세한 작동 방식은 위의 "작동 방식 → Agent Mode" 섹션을 참조하세요.
 
+VectFox는 SillyTavern 연결 프로필(connection profile)로 작동합니다. 프로필은 SillyTavern에 저장한 연결입니다. API, 모델, URL, 키가 한데 묶여 있습니다. VectFox는 어떤 프로필을 골랐는지만 기억하므로, 키는 SillyTavern 안에 그대로 남습니다.
+
+휴대폰의 연락처와 같습니다. 번호를 한 번 저장해 두면, 필요한 앱은 그 연락처를 고르기만 하면 됩니다. 연락처의 번호를 바꾸면 모든 앱이 새 번호를 씁니다.
+
+프로필은 2개가 필요합니다. 하나는 임베딩용, 하나는 이벤트를 쓰는 모델용입니다. 임베딩에는 임베딩 모델이 필요하므로 채팅과 같은 프로필을 쓸 수 없습니다.
+
+1. **SillyTavern에서 프로필 만들기.** **API Connections**를 열고, 채팅할 때와 같은 방식으로 연결을 설정합니다. 그런 다음 **Connection Profile** 아래의 **Create a new connection profile**을 누르고 이름을 붙입니다. 프로필마다 한 번씩 합니다.
+2. **VectFox 열기.** 익스텐션 패널에서 **Open VectFox**를 누르고 **Core** 페이지로 갑니다.
+3. **벡터 백엔드.** Standard 또는 Qdrant를 고릅니다. Qdrant라면 **Cluster URL**과 **API key**를 여기에 붙여 넣습니다.
+4. **Embedding.** **Provider**를 **SillyTavern profile**로 두고, **Profile**에서 임베딩 프로필을 고른 뒤 **Test connection**을 누릅니다.
+   - 프로필은 Ollama, llama.cpp, KoboldCPP(Text Completion) 또는 Custom(Chat Completion)이어야 합니다. Ollama를 뺀 나머지는 단계 2의 Similharity 플러그인이 필요합니다.
+   - **추천:** **OpenRouter**를 통한 `baai/bge-m3` 또는 `qwen/qwen3-embedding-8b`. URL이 `https://openrouter.ai/api/v1/embeddings`인 Custom 프로필을 만들고 OpenRouter 키를 넣으세요. 이 URL이면 SillyTavern이 OpenRouter 임베딩 모델 목록을 보여 주므로 거기서 고를 수 있습니다. 매우 저렴하고(회당 $0.00000015) 다국어에 강합니다(CJK와 라틴 문자 모두 우수).
+   - 임베딩 모델이 좋을수록 회상(recall)도 좋아집니다. 가장 중요한 모델이니, 여기만큼은 싼 모델을 쓰지 **마세요**.
+   - **Transformers (local)**는 프로필 없이 SillyTavern 안에서 돌아갑니다. 일반 **Ollama**도 프로필 없이 그대로 쓸 수 있습니다.
+5. **EventBase model.** **Provider**를 **SillyTavern profile**로 두고, **Profile**에서 채팅 프로필을 고른 뒤 **Test connection**을 누릅니다. 벡터화할 때 이 모델이 이벤트를 씁니다.
+   - SillyTavern으로 채팅할 수 있는 프로필이면 무엇이든 됩니다. VectFox는 자체 프롬프트를 보내므로 프로필의 프리셋은 쓰이지 않습니다.
+   - **추천 모델:** 싸고 빠른 추출에는 `openai/gpt-4o-mini` 또는 `google/gemini-3.1-flash-lite`. 돈을 더 내더라도 더 나은 추출을 원한다면 `x-ai/grok-4.3`이 더 강력합니다. 모델 ID는 시간이 지나며 바뀌므로, 긴 실행 전에 OpenRouter에서 정확한 ID를 확인하세요. `x-ai/grok-4.1-fast` 같은 오래된 ID는 404가 돌아올 수 있습니다.
+6. **Keywords.** **CJK tokenizer**에서 스토리의 언어를 고릅니다. 벡터화하기 전에 고르고, 그 뒤로는 바꾸지 마세요(FAQ 참조).
+7. 나머지 대부분의 설정은 기본값으로 괜찮습니다. 필요하면 자유롭게 조정하세요.
+8. **채팅을 한 번 벡터화하기.** 채팅을 열고 **Action** 페이지에서 **Vectorize content**를 누르고 **Chat**을 고른 뒤 **Vectorize**를 누릅니다. 첫 DB를 만들려면 이 단계가 **꼭** 필요합니다.
+9. **동기화 유지.** 자동으로 하려면 **AutoSync** 페이지에서 **Auto-sync this chat**을 켭니다. **Turns**는 한 번 실행에 들어가는 턴 수를 정합니다. 직접 따라잡고 싶다면 **Action** 페이지에서 **Sync chat**을 누르세요.
+10. (선택) **Vectorize content** > **Lorebook**에서 로어북을 벡터화하고, **WorldInfo** 페이지에서 설정합니다.
+11. (선택) 다른 것이 모두 작동하면 **AgentMode** 페이지에서 **Agent Mode**를 켭니다. **Provider**를 **Same as EventBase model**로 두면 플래너가 EventBase model의 프로필로 돌아갑니다. 그래서 단계 5의 싸고 빠른 모델이 플래너도 구동합니다. 자세한 내용은 위의 "작동 방식" > "Agent Mode"를 참조하세요.
+
+**수동 OpenRouter와 vLLM은 사라집니다.** 지금은 아직 Provider 드롭다운에 있고, 전용 키 입력란과 함께 예전처럼 작동합니다. 하지만 SillyTavern 프로필이 들어온 릴리스의 3개월 뒤 VectFox 릴리스에서 제거됩니다. 아직 쓰고 있다면 VectFox가 한 번 알려 주고, 바꿔야 할 드롭다운을 모두 보여 줍니다.
 
 ---
 
@@ -606,25 +618,27 @@ Qdrant에 RBAC를 추가하고 플러그인에 사용자별 ACL을 구현하는 
 > 💡 켜 두세요. 이미 무언가 잘못되고 있을 때만 작동하며, 불안정한 클라우드 제공자의 고통을 크게 줄여줍니다. **로컬** 모델(Ollama, Transformers, llama.cpp, KoboldCpp)에서는 자동으로 건너뜁니다(새 연결을 만들어도 라우팅이 바뀌지 않기 때문). `0`으로 설정하면 비활성화됩니다.
 
 **NanoGPT를 제공자로 어떻게 설정하나요?**
-먼저 제공자를 **vLLM**로 선택하세요 — OpenAI 호환이며 NanoGPT에 필요한 사용자 지정 URL 필드를 노출하는 슬롯입니다. 그런 다음 임베딩 엔드포인트와 요약 엔드포인트를 *다르게* 설정해야 합니다. 같은 base URL로는 둘 다 작동하지 않습니다. 아래 설정은 Reddit 사용자 **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)** 님이 제공해 주셨습니다:
+SillyTavern에서 Custom 프로필을 2개 만드세요. 하나는 임베딩용, 하나는 EventBase model용입니다. NanoGPT는 각각 다른 URL이 필요해서 프로필 하나로는 둘 다 할 수 없습니다. 아래 설정은 Reddit 사용자 **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)** 님이 제공해 주셨습니다:
 
-| 설정              | 값                                                                                              |
-| ----------------- | ---------------------------------------------------------------------------------------------- |
-| **임베딩 URL**    | `https://nano-gpt.com/api/v1/embeddings` — 전체 경로가 필요합니다. base URL만으로는 실패합니다  |
-| **임베딩 모델**   | `Qwen/Qwen3-Embedding-8B`                                                                       |
-| **요약 URL**      | `https://nano-gpt.com/api/v1/` — base 그대로 두세요. `chat/completions`를 붙이면 이상하게 테스트에 실패합니다 |
-| **요약 모델**     | `nvidia/nemotron-3-ultra-550b-a55b`(또는 선호하는 채팅 모델)                                     |
+| 프로필              | URL                                                                                       | 모델                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **임베딩**          | `https://nano-gpt.com/api/v1/embeddings`(전체 경로가 필요합니다. base URL만으로는 실패합니다) | `Qwen/Qwen3-Embedding-8B`                                 |
+| **EventBase model** | `https://nano-gpt.com/api/v1`(base 그대로 두세요. `/chat/completions`는 SillyTavern이 붙입니다) | `nvidia/nemotron-3-ultra-550b-a55b` 또는 원하는 채팅 모델 |
+
+만드는 법: **API Connections**를 열고 **Chat Completion**과 **Custom (OpenAI-compatible)**을 고른 뒤, URL과 NanoGPT 키를 붙여 넣고 모델 ID를 입력합니다. 그런 다음 **Connection Profile**에서 프로필로 저장합니다. **Core** 페이지의 **Embedding**과 **EventBase model**에서 각각 해당 프로필을 고르세요. 임베딩 프로필에는 단계 2의 Similharity 플러그인이 필요합니다.
+
+전에 vLLM 슬롯으로 NanoGPT를 설정했다면, 수동 vLLM이 사라질 때까지는 그대로 작동합니다.
 
 주의할 점 두 가지:
 
 - **유료 모델 활성화.** 임베딩이 VectFox의 연결 테스트를 통과하려면 NanoGPT 계정 설정에서 **"Enable paid models on API"**를 켜세요.
-- **출력 토큰 0은 정상입니다.** NanoGPT 사용량 페이지는 모든 임베딩 실행에 대해 **출력 토큰 0**을 표시합니다 — 이는 예상된 동작이며(임베딩은 출력 토큰을 생성하지 않음) 무언가 고장 났다는 신호가 아닙니다.
+- **출력 토큰 0은 정상입니다.** NanoGPT 사용량 페이지는 모든 임베딩 실행에 대해 **출력 토큰 0**을 표시합니다. 임베딩은 출력 토큰을 만들지 않으므로 예상된 동작입니다. 고장 난 것이 아닙니다.
 
 ---
 
 ## 🐛 문제 해결
 
-**"No embeddings available"** — Vectorize Content 아이콘을 클릭하고, 메인 ST 설정에서 Vectors 확장 기능을 활성화한 후, 임베딩 제공자를 선택하고, 필요 시 API 키를 추가한 다음 Diagnostics를 실행하세요.
+**"No embeddings available"**: VectFox를 열고 **Core** > **Embedding**에서 **Test connection**을 누르세요. 프로필을 쓰고 있다면 **Profile** 아래 안내에 서버에 필요한 것이 적혀 있습니다. 그런 다음 **Action** 페이지에서 **Diagnostics**를 실행하세요. 플러그인, 백엔드, 임베딩 호출을 확인합니다.
 
 **이벤트/청크가 검색되지 않음** — 먼저 채팅을 여세요. SillyTavern 로비에서는 안 됩니다.
 Database Browser를 열고 그 채팅의 컬렉션을 찾으세요. 행에 "Locked to this chat"이 보이면 됩니다. 보이지 않으면 컬렉션 설정을 열고 "Active for this chat"을 켜세요.

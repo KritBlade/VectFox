@@ -450,15 +450,15 @@ CJK 的單字元過濾更完善，並針對高訊號的單字 RPG/日常生活/�
 
 就這樣！VectFox 會自動下載並啟用。
 
-### 步驟 2：安裝 Similharity 插件（Qdrant 必要 — Standard 可選但建議安裝）
+### 步驟 2：安裝 Similharity 插件（Qdrant 與多數嵌入設定檔必要）
 
-**使用 Qdrant 後端時必須安裝。** 使用 Standard 後端時為可選，但安裝後即使在 Standard 上也能解鎖額外功能：
+**使用 Qdrant 後端，或用 llama.cpp、KoboldCPP、Custom 設定檔做嵌入時，必須安裝。** 這也包括 OpenRouter 的嵌入模型，因為它們是透過 Custom 設定檔接入的。使用 Standard 後端搭配其他嵌入方式時為可選，但即使在 Standard 上，安裝後也能解鎖更多功能：
 
 | 功能 | Standard（無插件） | Standard（有插件） | **Qdrant（Cloud / Local）** ⭐ |
 |---|---|---|---|
 | 事件搜尋與注入 | ✅ 完整功能 | ✅ 完整功能 | ✅ 完整功能 |
 | Summarizer Injection（近期回合記憶） | ❌ 需要每事件元資料 | ✅ 支援 | ✅ 支援 |
-| 嵌入與向量化 | ✅ 正常運作 | ✅ 正常運作 | ✅ 正常運作 |
+| 嵌入與向量化 | ⚠️ 不支援 llama.cpp、KoboldCPP、Custom 設定檔 | ✅ 正常運作 | ✅ 正常運作 |
 | 關鍵字儲存於 DB（提升搜尋） | ❌ 僅儲存於本機設定 | ✅ 儲存於向量 DB | ✅ 儲存於向量 DB |
 | 事件重要性分數 | ❌ 遺失（原生 API 會捨棄元資料） | ⚠️ 已儲存，但未用於重新排序 | ✅ 已儲存並用於重新排序 |
 | 在資料庫瀏覽器中檢視區塊 | ❌ 不支援 | ✅ 支援 | ✅ 支援 |
@@ -467,7 +467,7 @@ CJK 的單字元過濾更完善，並針對高訊號的單字 RPG/日常生活/�
 | 擴展至大型資料集 | ⚠️ 長篇故事下效能下降 | ⚠️ 長篇故事下效能下降 | ✅ 1 萬+ 訊息仍保持快速 |
 | 安裝設定 | 無需 | 安裝插件 | 安裝插件 + 免費雲端帳號 **或** [本機安裝](Doc/Qdrant_install.md) |
 
-如果你使用 Standard 後端且未安裝插件，事件搜尋與注入仍可正常運作，只是無法進行區塊檢視或使用關鍵字元資料。若追求最佳的檢索品質，**強烈建議使用 Qdrant** —— https://qdrant.tech/ 的免費雲端方案完全不需要本機設定。
+在 Standard 後端不安裝插件時，事件搜尋與注入仍可正常運作。只是無法使用區塊檢視、關鍵字元資料，也不能用 llama.cpp、KoboldCPP、Custom 設定檔做嵌入。若追求最佳的檢索品質，我強烈建議使用 **Qdrant**。https://qdrant.tech/ 的免費雲端方案完全不需要本機設定。
 
 #### 第一次在 Windows 上使用？請先安裝 Git 與 Node.js
 
@@ -508,20 +508,32 @@ enableServerPlugins: true
 重啟 SillyTavern。
 
 ### 步驟 3：設定 VectFox
-1. 在擴充元件面板按下 **Open VectFox**，開啟 **Core** 頁面。
-2. 選擇你的向量儲存（Standard 或 Qdrant）。
-3. 選擇你的嵌入供應商 (Transformers, vLLM, Ollama, OpenRouter, etc.).
-   - 💡 **推薦：** 透過 **OpenRouter** 使用 `qwen/qwen3-embedding-8b`。這個模型非常便宜，多語支援優秀（CJK 與拉丁語系都好），對 VectFox 這種規模的語料庫能產出高品質的密集向量。你使用的嵌入模型越好，召回（recall）的結果就越好——這是最重要的一個模型，千萬不要為了省錢而用便宜的模型。
-4. 在 **EventBase model** 選擇 OpenRouter 或 vLLM 以及模型。向量化時，由這個模型寫出事件。
-   - 💡 **推薦的 OpenRouter 模型：** 如果想要便宜又快速的萃取路徑，使用 `openai/gpt-4o-mini` 或 `google/gemini-3.1-flash-lite`——兩者都能把成本與向量化延遲維持在低點。如果你想要更高的萃取品質且不介意多付一些費用，`x-ai/grok-4.3` 是更強但更貴的選擇。如果 OpenRouter 對較舊的模型 ID（例如 `x-ai/grok-4.1-fast`）回傳 404 或棄用錯誤，請避免使用它；模型可用性會隨時間改變，因此在長時間向量化之前，請先在 OpenRouter 確認確切的模型 ID。**Agent Mode LLM**（在 AgentMode 分頁另外設定）也適用同樣的推薦。如果你把 AgentMode 的模型欄位留空，它會使用 **EventBase model** 的設定。
-5. 如果使用雲端供應商（OpenRouter / vLLM ），請設定 API 金鑰。
-6. 在 **Keywords** 中選擇你故事使用的語言。
-7. 大多數設定維持預設值即可，但你也可以依需求調整。
-8. 在 SillyTavern 中進入你的聊天，然後再次點擊 VectFox 擴充元件圖示。你**必須**點擊 "Vectorize Content"，並選擇 **Chat History** 來向量化你的第一個 DB。
-9. 如有需要，請在 **AutoSync** 分頁啟用 **Auto-sync this chat**。每次執行包含幾個回合，由 **Auto-sync window** 決定。
-10. 如有需要，請在 **WorldInfo** 分頁向量化你的世界書/World Info。
-11. （選用）在其他設定都正常後，可以到 **AgentMode** 分頁開啟 **Agent Mode**。把 Provider 留在 **Same as EventBase model**、Model 留空，就會使用 **EventBase model** 的設定，這樣步驟 4 中那個便宜快速的模型也會用來驅動規劃師。完整功能說明請見上方「它是怎麼運作的 → Agent Mode」章節。
 
+VectFox 使用 SillyTavern 的連線設定檔（connection profile）運作。設定檔就是你在 SillyTavern 存下來的一組連線：API、模型、URL 和金鑰，全部放在一起。VectFox 只記住你選了哪個設定檔，所以你的金鑰一直留在 SillyTavern 裡。
+
+就像手機裡的聯絡人。號碼存一次，任何需要它的 App 直接選這個聯絡人就好。改了聯絡人裡的號碼，每個 App 都會拿到新的號碼。
+
+你需要 2 個設定檔：一個給嵌入，一個給寫出事件的模型。嵌入需要嵌入模型，所以不能跟聊天共用同一個設定檔。
+
+1. **在 SillyTavern 建立設定檔。** 打開 **API Connections**，用你平常設定聊天的方式設好連線。然後在 **Connection Profile** 下按 **Create a new connection profile**，取個名字。每個設定檔各做一次。
+2. **打開 VectFox。** 在擴充元件面板按下 **Open VectFox**，進入 **Core** 頁面。
+3. **向量後端。** 選擇 Standard 或 Qdrant。使用 Qdrant 的話，把你的 **Cluster URL** 和 **API key** 貼在這裡。
+4. **Embedding。** 把 **Provider** 設為 **SillyTavern profile**，在 **Profile** 選你的嵌入設定檔，然後按 **Test connection**。
+   - 設定檔必須是 Ollama、llama.cpp 或 KoboldCPP（Text Completion），或 Custom（Chat Completion）。除了 Ollama 以外，都需要步驟 2 的 Similharity 插件。
+   - **推薦：** 透過 **OpenRouter** 使用 `baai/bge-m3` 或 `qwen/qwen3-embedding-8b`。建立一個 Custom 設定檔，URL 填 `https://openrouter.ai/api/v1/embeddings`，再填你的 OpenRouter 金鑰。用這個 URL，SillyTavern 會列出 OpenRouter 的嵌入模型讓你挑。非常便宜（每次 $0.00000015），多語支援優秀（CJK 與拉丁語系都好）。
+   - 嵌入模型越好，召回（recall）的結果就越好。這是最重要的一個模型，千萬**不要**為了省錢用便宜的。
+   - **Transformers (local)** 在 SillyTavern 裡直接執行，不需要設定檔。一般的 **Ollama** 不用設定檔也照樣能用。
+5. **EventBase model。** 把 **Provider** 設為 **SillyTavern profile**，在 **Profile** 選一個聊天用的設定檔，然後按 **Test connection**。向量化時，由這個模型寫出事件。
+   - 任何 SillyTavern 能用來聊天的設定檔都可以。VectFox 送出的是自己的提示詞，所以設定檔的預設（preset）不會被使用。
+   - **推薦模型：** 想要便宜又快速的萃取，用 `openai/gpt-4o-mini` 或 `google/gemini-3.1-flash-lite`。如果想要更好的萃取品質，也不介意多付一點，`x-ai/grok-4.3` 更強。模型 ID 會隨時間改變，所以長時間向量化之前，先在 OpenRouter 確認確切的 ID。像 `x-ai/grok-4.1-fast` 這種舊 ID 可能會回傳 404。
+6. **Keywords。** 在 **CJK tokenizer** 選你故事使用的語言。要在向量化之前選好，之後就不要改（見 FAQ）。
+7. 其他大多數設定維持預設值即可，也可以依需求調整。
+8. **先把聊天向量化一次。** 打開你的聊天，進入 **Action** 頁面，按 **Vectorize content**，選 **Chat**，再按 **Vectorize**。你**必須**做這一步，才會建立你的第一個 DB。
+9. **保持同步。** 想要自動的話，在 **AutoSync** 頁面開啟 **Auto-sync this chat**。**Turns** 決定每次執行包含幾個回合。或者在 **Action** 頁面按 **Sync chat** 手動補上。
+10. （選用）在 **Vectorize content** > **Lorebook** 向量化你的世界書，然後在 **WorldInfo** 頁面設定。
+11. （選用）其他都正常後，到 **AgentMode** 頁面開啟 **Agent Mode**。把 **Provider** 留在 **Same as EventBase model**，規劃師就會用 EventBase model 的設定檔。所以步驟 5 那個便宜又快速的模型，也會用來驅動規劃師。完整說明請見上方「它是怎麼運作的」>「Agent Mode」。
+
+**手動的 OpenRouter 和 vLLM 即將移除。** 它們目前還在 Provider 下拉選單裡，用法跟以前一樣，也有自己的金鑰欄位。但在加入 SillyTavern 設定檔的版本之後 3 個月，會有一個 VectFox 版本把它們移除。如果你還在用，VectFox 會提醒你一次，並列出每個需要改的下拉選單。
 
 ---
 
@@ -607,25 +619,27 @@ VectFox + Similharity 是為**個人使用設計的** — 適合在自己的機�
 > 💡 保持開啟即可。它只在事情已經出問題時才會觸發，能大幅減輕不穩定雲端提供者帶來的痛苦。對於**本機**模型（Ollama、Transformers、llama.cpp、KoboldCpp）會自動跳過（新建連線也改變不了路由）。設為 `0` 可關閉。
 
 **要怎麼把 NanoGPT 設定為提供者？**
-首先把提供者選為 **vLLM**——那是相容於 OpenAI、會顯示 NanoGPT 所需自訂 URL 欄位的選項。接著嵌入端點與摘要端點需要*不同*的設定方式；同一個 base URL 無法同時用於兩者。以下設定由 Reddit 使用者 **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)** 提供：
+在 SillyTavern 建立 2 個 Custom 設定檔，一個給嵌入，一個給 EventBase model。NanoGPT 兩者需要不同的 URL，所以一個設定檔沒辦法同時用。以下設定由 Reddit 使用者 **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)** 提供：
 
-| 設定                | 值                                                                                              |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| **嵌入 URL**        | `https://nano-gpt.com/api/v1/embeddings` — 必須使用完整路徑；單用 base URL 會失敗               |
-| **嵌入模型**        | `Qwen/Qwen3-Embedding-8B`                                                                       |
-| **摘要 URL**        | `https://nano-gpt.com/api/v1/` — 維持 base 即可；附加 `chat/completions` 反而會莫名測試失敗     |
-| **摘要模型**        | `nvidia/nemotron-3-ultra-550b-a55b`（或任何你偏好的聊天模型）                                    |
+| 設定檔              | URL                                                                                    | 模型                                                        |
+| ------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **嵌入**            | `https://nano-gpt.com/api/v1/embeddings`（必須用完整路徑，只填 base URL 會失敗）          | `Qwen/Qwen3-Embedding-8B`                                   |
+| **EventBase model** | `https://nano-gpt.com/api/v1`（填 base 即可，SillyTavern 會自己加上 `/chat/completions`） | `nvidia/nemotron-3-ultra-550b-a55b`，或任何你喜歡的聊天模型 |
+
+建立方式：打開 **API Connections**，選 **Chat Completion** 和 **Custom (OpenAI-compatible)**，貼上 URL 和你的 NanoGPT 金鑰，輸入模型 ID。然後在 **Connection Profile** 存成設定檔。在 **Core** 頁面的 **Embedding** 和 **EventBase model** 各選對應的設定檔。嵌入用的設定檔需要步驟 2 的 Similharity 插件。
+
+如果你之前是用 vLLM 欄位設定 NanoGPT，在手動 vLLM 移除之前都還能用。
 
 兩個注意事項：
 
 - **啟用付費模型。** 為了讓嵌入通過 VectFox 的連線測試，請在你的 NanoGPT 帳號設定中開啟 **「Enable paid models on API」**。
-- **輸出 token 為零是正常的。** NanoGPT 用量頁面對每次嵌入執行都顯示**零輸出 token**——這是預期行為（嵌入不會產生輸出 token），並不代表有任何問題。
+- **輸出 token 為零是正常的。** NanoGPT 用量頁面對每次嵌入執行都顯示**零輸出 token**。這是預期行為，因為嵌入不會產生輸出 token，並不代表有問題。
 
 ---
 
 ## 🐛 疑難排解
 
-**"No embeddings available"** — 點擊Vectorize Content 圖標, 在 ST 主要設定中啟用 Vectors 擴充元件，選擇一個嵌入供應商，必要時加入 API 金鑰，然後執行 Diagnostics。
+**"No embeddings available"**：打開 VectFox，進入 **Core** > **Embedding**，按 **Test connection**。使用設定檔時，**Profile** 下方的說明會寫出伺服器需要什麼。然後在 **Action** 頁面執行 **Diagnostics**，它會檢查插件、後端和嵌入呼叫。
 
 **事件/片段沒有被檢索到** — 請先打開聊天，SillyTavern 的大廳不行。
 打開 Database Browser，找到該聊天的集合。該列顯示「Locked to this chat」就沒問題。若沒有顯示，請打開集合的設定，開啟「Active for this chat」。

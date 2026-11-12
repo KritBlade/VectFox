@@ -447,15 +447,15 @@ CJK の 1 文字フィルタリングを改善し、信号の強い 1 文字の 
 
 これで完了です！VectFox は自動でダウンロードされ、有効化されます。
 
-### ステップ 2：Similharity プラグインをインストール（Qdrant は必須 — Standard は任意だが推奨）
+### ステップ 2：Similharity プラグインをインストール（Qdrant と多くの埋め込みプロファイルで必須）
 
-**Qdrant バックエンドを使用する場合は必須です。** Standard バックエンドでは任意ですが、インストールすると Standard でも追加機能が利用できます：
+**Qdrant バックエンドを使う場合、または llama.cpp・KoboldCPP・Custom のプロファイルで埋め込みをする場合は必須です。** OpenRouter の埋め込みモデルも Custom プロファイル経由なので含まれます。Standard バックエンドでそれ以外の埋め込みを使うなら任意ですが、Standard でもインストールすると使える機能が増えます：
 
 | 機能 | Standard（プラグインなし） | Standard（プラグインあり） | **Qdrant（Cloud / Local）** ⭐ |
 |---|---|---|---|
 | イベント検索・注入 | ✅ 完全に動作 | ✅ 完全に動作 | ✅ 完全に動作 |
 | Summarizer Injection（直近ターンの記憶） | ❌ イベント単位のメタデータが必要 | ✅ 利用可 | ✅ 利用可 |
-| エンベディング・ベクトル化 | ✅ 動作 | ✅ 動作 | ✅ 動作 |
+| エンベディング・ベクトル化 | ⚠️ llama.cpp・KoboldCPP・Custom プロファイルでは不可 | ✅ 動作 | ✅ 動作 |
 | キーワードを DB に保存（検索ブースト） | ❌ ローカル設定のみに保存 | ✅ ベクトル DB に保存 | ✅ ベクトル DB に保存 |
 | イベント重要度スコア | ❌ 失われる（ネイティブ API がメタデータを破棄） | ⚠️ 保存されるが再ランクには未使用 | ✅ 保存され再ランクに使用 |
 | データベースブラウザでチャンクを表示 | ❌ 利用不可 | ✅ 利用可能 | ✅ 利用可能 |
@@ -464,7 +464,7 @@ CJK の 1 文字フィルタリングを改善し、信号の強い 1 文字の 
 | 大規模データセットへのスケール | ⚠️ 長編で性能低下 | ⚠️ 長編で性能低下 | ✅ 1 万件以上のメッセージでも高速 |
 | セットアップ | 不要 | プラグインのインストール | プラグインのインストール + 無料クラウドアカウント **または** [ローカルインストール](Doc/Qdrant_install.md) |
 
-Standard バックエンドでプラグインをインストールしなくても、イベント検索と注入は正常に動作します。チャンクの閲覧やキーワードメタデータが使えなくなるだけです。最良の検索品質を求めるなら **Qdrant を強く推奨します** —— https://qdrant.tech/ の無料クラウド枠はローカルセットアップが一切不要です。
+Standard バックエンドでプラグインがなくても、イベント検索と注入は動作します。ただし、チャンクの閲覧、キーワードメタデータ、llama.cpp・KoboldCPP・Custom プロファイルでの埋め込みは使えません。最良の検索品質を求めるなら、**Qdrant** を強くおすすめします。https://qdrant.tech/ の無料クラウド枠はローカルセットアップが一切不要です。
 
 #### 初めて Windows で使う場合：まず Git と Node.js をインストール
 
@@ -505,20 +505,32 @@ enableServerPlugins: true
 SillyTavern を再起動します。
 
 ### ステップ 3：VectFox を設定する
-1. 拡張機能パネルで **Open VectFox** を押し、**Core** ページを開きます。
-2. ベクトルストレージを選びます（Standard または Qdrant）。
-3. エンベディングプロバイダーを選びます (Transformers, vLLM, Ollama, OpenRouter, etc.).。
-   - 💡 **おすすめ：** **OpenRouter** 経由で `qwen/qwen3-embedding-8b` を使ってください。非常に安価で、多言語対応に優れ（CJK・ラテン双方とも優秀）、VectFox が想定するコーパス規模に対して高品質な密ベクトルを生成します。使う埋め込みモデルが良いほど想起（recall）の結果も良くなります——これは最も重要なモデルなので、安価なモデルだけは絶対に使わないでください。
-4. **EventBase model** で OpenRouter か vLLM と、そのモデルを選びます。ベクトル化のとき、このモデルがイベントを書きます。
-   - 💡 **OpenRouter のおすすめモデル：** 安価で高速な抽出パスには `openai/gpt-4o-mini` または `google/gemini-3.1-flash-lite` を使用してください——どちらもコストと取り込みのレイテンシを低く保てます。より高い抽出品質が必要で追加のコストを許容できる場合は、`x-ai/grok-4.3` がより強力ですが高価な選択肢です。OpenRouter が古いモデル ID（例：`x-ai/grok-4.1-fast`）に対して 404 や非推奨エラーを返す場合、その ID は避けてください。モデルの提供状況は時間とともに変わるため、長時間の取り込みを実行する前に OpenRouter 上で正確なモデル ID を確認してください。**Agent Mode の LLM**（AgentMode タブで別途設定）にも同じ推奨が当てはまります。AgentMode のモデル欄を空欄のままにしておくと、**EventBase model** の設定が使われます。
-5. クラウドプロバイダー（OpenRouter / vLLM ）を使う場合は、API キーを設定します。
-6. **Keywords** で、あなたのストーリーの言語を選びます。
-7. ほとんどの設定はデフォルトのままで大丈夫ですが、必要に応じて自由に調整してください。
-8. SillyTavern で対象のチャットを開き、もう一度 VectFox 拡張アイコンをクリックします。最初の DB をベクトル化するには、**必ず** "Vectorize Content" をクリックし、**Chat History** を選んでください。
-9. 必要であれば、**AutoSync** タブで **Auto-sync this chat** を有効化します。1 回の実行に入るターン数は **Auto-sync window** で決まります。
-10. 必要であれば、**WorldInfo** タブでロアブック / World Info をベクトル化します。
-11. （オプション）他の設定が動作することを確認したら、**AgentMode** タブで **Agent Mode** をオンにできます。Provider を **Same as EventBase model** のまま、Model を空欄にすれば、**EventBase model** の設定が使われます。つまりステップ 4 で選んだ安価で高速なモデルがプランナーも動かします。詳しい仕組みは上の「どう動くのか → Agent Mode」セクションを参照してください。
 
+VectFox は SillyTavern の接続プロファイル（connection profile）で動きます。プロファイルとは、SillyTavern に保存した接続のことです。API、モデル、URL、キーがひとまとめになっています。VectFox が覚えるのは選んだプロファイルだけなので、キーは SillyTavern の中に残ったままです。
+
+スマホの連絡先と同じです。番号は一度保存すれば、必要なアプリはその連絡先を選ぶだけ。連絡先の番号を変えれば、どのアプリも新しい番号を使います。
+
+プロファイルは 2 つ必要です。1 つは埋め込み用、もう 1 つはイベントを書くモデル用です。埋め込みには埋め込みモデルが必要なので、チャット用と同じプロファイルは使えません。
+
+1. **SillyTavern でプロファイルを作る。** **API Connections** を開き、チャットと同じ要領で接続を設定します。次に **Connection Profile** の **Create a new connection profile** を押して名前を付けます。プロファイルごとに 1 回ずつ行います。
+2. **VectFox を開く。** 拡張機能パネルで **Open VectFox** を押し、**Core** ページを開きます。
+3. **ベクトルバックエンド。** Standard か Qdrant を選びます。Qdrant なら **Cluster URL** と **API key** をここに貼り付けます。
+4. **Embedding。** **Provider** を **SillyTavern profile** にして、**Profile** で埋め込み用のプロファイルを選び、**Test connection** を押します。
+   - プロファイルは Ollama、llama.cpp、KoboldCPP（Text Completion）か、Custom（Chat Completion）である必要があります。Ollama 以外は、ステップ 2 の Similharity プラグインが必要です。
+   - **おすすめ：** **OpenRouter** 経由の `baai/bge-m3` か `qwen/qwen3-embedding-8b`。URL を `https://openrouter.ai/api/v1/embeddings` にした Custom プロファイルを作り、OpenRouter のキーを入れます。この URL なら SillyTavern が OpenRouter の埋め込みモデルを一覧に出すので、そこから選べます。とても安く（1 回 $0.00000015）、多言語に強いです（CJK もラテン文字も優秀）。
+   - 埋め込みモデルが良いほど、想起（recall）も良くなります。これは一番重要なモデルなので、ここだけは安いモデルを**使わないで**ください。
+   - **Transformers (local)** はプロファイルなしで SillyTavern の中で動きます。普通の **Ollama** もプロファイルなしでそのまま使えます。
+5. **EventBase model。** **Provider** を **SillyTavern profile** にして、**Profile** でチャット用のプロファイルを選び、**Test connection** を押します。ベクトル化のとき、このモデルがイベントを書きます。
+   - SillyTavern でチャットに使えるプロファイルなら何でも使えます。VectFox は自分のプロンプトを送るので、プロファイルのプリセットは使われません。
+   - **おすすめモデル：** 安くて速い抽出なら `openai/gpt-4o-mini` か `google/gemini-3.1-flash-lite`。費用が増えてもより良い抽出がほしいなら、`x-ai/grok-4.3` がより強力です。モデル ID は時間とともに変わるので、長い実行の前に OpenRouter で正確な ID を確認してください。`x-ai/grok-4.1-fast` のような古い ID は 404 が返ることがあります。
+6. **Keywords。** **CJK tokenizer** でストーリーの言語を選びます。ベクトル化の前に選び、その後は変えないでください（FAQ 参照）。
+7. それ以外のほとんどの設定はデフォルトのままで大丈夫です。必要に応じて調整してください。
+8. **まずチャットを 1 回ベクトル化する。** チャットを開き、**Action** ページで **Vectorize content** を押して **Chat** を選び、**Vectorize** を押します。最初の DB を作るには、これが**必須**です。
+9. **同期を保つ。** 自動にしたいなら、**AutoSync** ページで **Auto-sync this chat** をオンにします。**Turns** で 1 回の実行に入るターン数が決まります。手動で追いつきたいときは、**Action** ページの **Sync chat** を押します。
+10. （オプション）**Vectorize content** > **Lorebook** でロアブックをベクトル化し、**WorldInfo** ページで設定します。
+11. （オプション）他がすべて動いたら、**AgentMode** ページで **Agent Mode** をオンにします。**Provider** を **Same as EventBase model** のままにすると、プランナーは EventBase model のプロファイルで動きます。つまりステップ 5 の安くて速いモデルがプランナーも動かします。詳しくは上の「どう動くのか」>「Agent Mode」を参照してください。
+
+**手動の OpenRouter と vLLM はなくなります。** 今はまだ Provider ドロップダウンにあり、専用のキー欄も含めて以前どおり動きます。ただし、SillyTavern プロファイルが入ったリリースの 3 か月後の VectFox リリースで削除されます。まだ使っている場合は、VectFox が一度だけお知らせし、変更が必要なドロップダウンをすべて表示します。
 
 ---
 
@@ -603,25 +615,27 @@ Qdrant への RBAC 追加とプラグインへのユーザーごとの ACL 実�
 > 💡 有効のままにしておいてください。何かがすでにおかしくなっているときにしか作動せず、不安定なクラウドプロバイダーの苦痛を大幅に和らげます。**ローカル**モデル（Ollama、Transformers、llama.cpp、KoboldCpp）では自動的にスキップされます（新しい接続を張ってもルーティングは変わらないため）。`0` に設定すると無効化できます。
 
 **NanoGPT をプロバイダーとして設定するには？**
-まずプロバイダーを **vLLM** に選択してください——これは OpenAI 互換で、NanoGPT に必要なカスタム URL フィールドを表示するスロットです。そのうえで埋め込みエンドポイントと要約エンドポイントを*別々に*設定する必要があります。同じ base URL では両方には使えません。以下の設定は Reddit ユーザー **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)** のご厚意によるものです：
+SillyTavern で Custom プロファイルを 2 つ作ります。1 つは埋め込み用、もう 1 つは EventBase model 用です。NanoGPT はそれぞれ別の URL が必要なので、1 つのプロファイルで両方はできません。以下の設定は Reddit ユーザー **[u/aturbofrog](https://www.reddit.com/user/aturbofrog/)** のご厚意によるものです：
 
-| 設定               | 値                                                                                              |
-| ------------------ | ---------------------------------------------------------------------------------------------- |
-| **埋め込み URL**   | `https://nano-gpt.com/api/v1/embeddings` — フルパスが必須。base URL のみでは失敗します          |
-| **埋め込みモデル** | `Qwen/Qwen3-Embedding-8B`                                                                       |
-| **要約 URL**       | `https://nano-gpt.com/api/v1/` — base のままにします。`chat/completions` を付けると不思議とテストに失敗します |
-| **要約モデル**     | `nvidia/nemotron-3-ultra-550b-a55b`（または好みのチャットモデル）                                |
+| プロファイル        | URL                                                                                        | モデル                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| **埋め込み**        | `https://nano-gpt.com/api/v1/embeddings`（フルパスが必須。base URL だけでは失敗します）       | `Qwen/Qwen3-Embedding-8B`                                      |
+| **EventBase model** | `https://nano-gpt.com/api/v1`（base のままで OK。`/chat/completions` は SillyTavern が付けます） | `nvidia/nemotron-3-ultra-550b-a55b`、または好みのチャットモデル |
+
+作り方：**API Connections** を開き、**Chat Completion** と **Custom (OpenAI-compatible)** を選び、URL と NanoGPT のキーを貼り付けて、モデル ID を入力します。それから **Connection Profile** でプロファイルとして保存します。**Core** ページの **Embedding** と **EventBase model** で、それぞれのプロファイルを選びます。埋め込み用のプロファイルには、ステップ 2 の Similharity プラグインが必要です。
+
+以前 vLLM の枠で NanoGPT を設定していた場合も、手動 vLLM がなくなるまではそのまま動きます。
 
 注意点が 2 つ：
 
 - **有料モデルを有効化。** 埋め込みが VectFox の接続テストを通過するには、NanoGPT のアカウント設定で **「Enable paid models on API」** をオンにしてください。
-- **出力トークンがゼロでも正常。** NanoGPT の使用量ページは、埋め込み実行のたびに**出力トークン 0** と表示します——これは想定どおり（埋め込みは出力トークンを生成しません）で、何かが壊れているわけではありません。
+- **出力トークンがゼロでも正常。** NanoGPT の使用量ページは、埋め込み実行のたびに**出力トークン 0** と表示します。埋め込みは出力トークンを生成しないので、これは想定どおりです。何も壊れていません。
 
 ---
 
 ## 🐛 トラブルシューティング
 
-**"No embeddings available"** — Vectorize Content アイコンをクリックし、メイン ST 設定で Vectors 拡張機能を有効にし、エンベッディングプロバイダーを選択し、必要に応じて API キーを追加してから、Diagnostics を実行してください。
+**"No embeddings available"**：VectFox を開き、**Core** > **Embedding** で **Test connection** を押します。プロファイルを使っている場合は、**Profile** の下の表示にサーバーに必要なものが書かれています。次に **Action** ページで **Diagnostics** を実行してください。プラグイン、バックエンド、埋め込みの呼び出しをチェックします。
 
 **イベント/チャンクが検索されない** — まずチャットを開いてください。SillyTavern のロビーではだめです。
 Database Browser を開き、そのチャットのコレクションを探します。行に「Locked to this chat」と出ていれば大丈夫です。出ていなければ、コレクションの設定を開いて「Active for this chat」をオンにしてください。
