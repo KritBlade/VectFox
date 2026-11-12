@@ -51,6 +51,7 @@ import {
     parseYouTubeId,
     previewOf,
     startFromMessageOf,
+    syncUpToDateLines,
     usesEventBaseWindows,
 } from './content-vectorizer-core.js';
 import {
@@ -853,9 +854,11 @@ async function hasPriorExtractionState(chatUUID) {
  * @param {string} typeId - The page the run belongs to
  * @param {{source: object|null, startFromMessage: number, parallelWindows: number, resetCaches: boolean}} run - source
  *   null or of type current: the open chat; of type file: an uploaded chat
+ * @returns {Promise<{shouldClose: boolean, message: string, hasReadNothing: boolean}|null>} How the run ended
+ *   (eventBaseRunEnding); null when it did not start or failed, having said why
  */
 async function runEventBaseBackfill(typeId, { source, startFromMessage, parallelWindows, resetCaches }) {
-    if (activeRun) return;
+    if (activeRun) return null;
     log.lifecycle(`[EventBase] runEventBaseBackfill: starting... (resetCaches=${resetCaches})`);
     const signal = startRun(typeId);
     // On a touch screen the panel shows at once and the dialog closes, so the quick exits below still leave the
@@ -864,6 +867,7 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
     if (isPanelShownAtStart) progressTracker.show('EventBase Extraction', 0, 'Windows', { unitLabel: 'Messages', foundLabel: 'Events' });
     closeForProgressOnTouch();
     let endMessage = '';
+    let ending = null;
 
     try {
         const { runEventBaseIngestion, countUnfinishedWindows, notifyUnfinishedWindows, prepareForFreshExtraction } = await import('../eventbase/index.js');
@@ -874,7 +878,7 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
             const allMessages = (source.messages || []).filter(message => message.mes && message.mes.trim().length > 0);
             if (!allMessages.length) {
                 toastr.warning('The chat file holds no messages EventBase can read.', 'EventBase');
-                return;
+                return null;
             }
             const skipped = Math.min(startFromMessage - 1, allMessages.length);
             if (skipped > 0) log.lifecycle(`[EventBase] Archive start-from message ${startFromMessage} — skipping first ${skipped} messages, ${allMessages.length - skipped} remaining`);
@@ -891,10 +895,10 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
             result = await runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches });
         }
         // No result: the run could not start, and said why.
-        if (!result) return;
+        if (!result) return null;
 
         const unfinishedWindowCount = countUnfinishedWindows(result);
-        const ending = eventBaseRunEnding(result, { isStopped: signal.aborted, unfinishedWindowCount });
+        ending = eventBaseRunEnding(result, { isStopped: signal.aborted, unfinishedWindowCount });
         // The workflow put its verdict on the progress panel; a stop gets the count saved, and windows left a sticky
         // notice, as they are the user's to send again.
         if (signal.aborted) progressTracker.complete(false, `Stopped — saved ${result.eventsExtracted} events from ${result.windowsProcessed} windows so far`);
@@ -906,8 +910,9 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
     } catch (error) {
         if (isStoppedError(error)) {
             log.lifecycle('[EventBase] Ingestion stopped by user');
-            endMessage = eventBaseRunEnding(null, { isStopped: true }).message;
-            return;
+            ending = eventBaseRunEnding(null, { isStopped: true });
+            endMessage = ending.message;
+            return ending;
         }
         // Insert failures carry Qdrant's own words, too long for a toast; a dialog lets the user read and copy them.
         if (error?.code === 'insert_failed_max_retries') {
@@ -917,7 +922,7 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
                 { text: 'VectFox tried 3 times. Nothing was half written, and the next run starts where this one stopped.' },
                 { text: 'The database said:', name: error.message },
             ], { isWide: true });
-            return;
+            return null;
         }
         if (error?.code === 'insert_verification_failed') {
             log.error('[EventBase] Insert verification failed:', error);
@@ -927,7 +932,7 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
                 { text: 'Details:', name: error.message },
                 { text: 'Delete the collection and vectorize again once the cause is fixed. The console has more.' },
             ], { isWide: true });
-            return;
+            return null;
         }
         log.error('[EventBase] Backfill failed:', error);
         progressTracker.complete(false, `EventBase failed: ${error.message}`);
@@ -937,6 +942,7 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
     } finally {
         endRun(endMessage);
     }
+    return ending;
 }
 
 /**
@@ -1030,7 +1036,9 @@ export async function backfillCurrentChatWithProgress() {
 /**
  * The Action page's Sync chat: once the user confirms, read what EventBase has not read of the open chat, as Resume does
  * with the dialog's defaults, without the dialog. A chat with nothing stored yet opens Vectorize Content on its Chat
- * page instead, since a first read takes that page's choices, and a chat with nothing unread says so.
+ * page instead, since a first read takes that page's choices. A chat with nothing to read says so in a dialog: up to
+ * date as the AutoSync page has it, or read further than the chat now goes. So does a run that finds nothing new, as no
+ * page of the dialog is open to say it.
  *
  * @returns {Promise<{ran: boolean, reason?: string}>}
  */
@@ -1052,14 +1060,20 @@ export async function syncOpenChat() {
         return { ran: false, reason: 'no-collection' };
     }
     if (status.state === 'vectorization-ahead') {
-        toastr.info('Nothing to sync: this chat\'s EventBase was read further than the chat now goes.', 'VectFox');
+        await noticePopup([
+            { icon: 'fa-circle-info', text: 'Nothing to sync.' },
+            { text: 'EventBase has read this chat further than it now goes, as after you delete messages. It reads again once the chat gets past that point.' },
+        ]);
         return { ran: false, reason: 'ahead' };
     }
-    const tip = status.vectorizationTip ?? getVectorizationTip(getChatUUID()) ?? 0;
-    const unreadMessages = Math.max(0, (status.chatMessageCount ?? 0) - tip);
+    const messageCount = status.chatMessageCount ?? 0;
+    const readCount = status.vectorizationTip ?? getVectorizationTip(getChatUUID()) ?? null;
+    const unreadMessages = Math.max(0, messageCount - (readCount ?? 0));
     const unfinishedWindows = status.unfinishedWindowCount ?? 0;
-    if (unreadMessages === 0 && unfinishedWindows === 0) {
-        toastr.info('This chat is in sync: EventBase has read every message.', 'VectFox');
+    // Up to date is the AutoSync page's verdict: the last full window read and none failed. Messages past it wait for
+    // the chat to go on, and a run now would read nothing.
+    if (status.state === 'fully-vectorized' || (unreadMessages === 0 && unfinishedWindows === 0)) {
+        await noticePopup(syncUpToDateLines({ readCount, messageCount }));
         return { ran: false, reason: 'in-sync' };
     }
     if (!hasLlmConfig(settings)) return { ran: false, reason: 'no-model' };
@@ -1069,7 +1083,8 @@ export async function syncOpenChat() {
         { text: 'Sync reads them on the EventBase model, with a progress bar you can stop.' },
     ], { okButton: 'Sync' });
     if (!isConfirmed) return { ran: false, reason: 'cancelled' };
-    await runEventBaseBackfill('chat', { source: null, startFromMessage: 1, parallelWindows: DEFAULT_PARALLEL_WINDOWS, resetCaches: false });
+    const ending = await runEventBaseBackfill('chat', { source: null, startFromMessage: 1, parallelWindows: DEFAULT_PARALLEL_WINDOWS, resetCaches: false });
+    if (ending?.hasReadNothing) await noticePopup([{ icon: 'fa-circle-info', text: ending.message }]);
     return { ran: true };
 }
 

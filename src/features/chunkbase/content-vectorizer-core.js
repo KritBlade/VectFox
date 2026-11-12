@@ -64,19 +64,40 @@ export function startFromMessageOf(text) {
 
 /**
  * What the dialog does once an EventBase run ends: it closes after a clean read of something new, and otherwise stays
- * open, its page saying why where nothing else has. Windows left unread get a sticky notice of their own.
+ * open, its page saying why where nothing else has. Windows left unread get a sticky notice of their own. hasReadNothing
+ * marks a run that found nothing new, which Sync chat says itself, as no page of the dialog is open to say it.
  *
  * @param {{windowsProcessed: number}|null} result - The run's result; null when a stop threw before it had one
  * @param {{isStopped?: boolean, unfinishedWindowCount?: number}} ending
- * @returns {{shouldClose: boolean, message: string}}
+ * @returns {{shouldClose: boolean, message: string, hasReadNothing: boolean}}
  */
 export function eventBaseRunEnding(result, { isStopped = false, unfinishedWindowCount = 0 } = {}) {
-    if (isStopped) return { shouldClose: false, message: 'Stopped. Resume adds what EventBase has not read yet.' };
-    if (!result || unfinishedWindowCount > 0) return { shouldClose: false, message: '' };
+    if (isStopped) return { shouldClose: false, message: 'Stopped. Resume adds what EventBase has not read yet.', hasReadNothing: false };
+    if (!result || unfinishedWindowCount > 0) return { shouldClose: false, message: '', hasReadNothing: false };
     if (result.windowsProcessed === 0) {
-        return { shouldClose: false, message: 'Nothing new to read. A message that does not fill a window waits for the next one.' };
+        return { shouldClose: false, message: 'Nothing new to read. A message that does not fill a window waits for the next one.', hasReadNothing: true };
     }
-    return { shouldClose: true, message: '' };
+    return { shouldClose: true, message: '', hasReadNothing: false };
+}
+
+/**
+ * Sync chat's answer for a chat that is up to date, as the AutoSync page calls it: how far EventBase has read, and why
+ * the newest messages wait, when some do.
+ *
+ * @param {{readCount: number|null, messageCount: number}} counts - readCount, the messages EventBase has read, null
+ *   when it is not known
+ * @returns {object[]} noticePopup lines
+ */
+export function syncUpToDateLines({ readCount, messageCount }) {
+    const isCounted = typeof readCount === 'number';
+    const shownReadCount = isCounted ? Math.min(readCount, messageCount) : 0;
+    return [
+        { icon: 'fa-circle-check', text: 'This chat is up to date.' },
+        ...(isCounted ? [{ parts: [{ text: 'EventBase has read ' }, { name: String(shownReadCount) }, { text: ' of its ' }, { name: String(messageCount) }, { text: ' messages.' }] }] : []),
+        ...(isCounted && shownReadCount < messageCount
+            ? [{ text: 'The rest wait until the chat goes on. EventBase reads a window only once it is full, and the latest turn only once it settles.' }]
+            : []),
+    ];
 }
 
 /** A file's name without its extension. */

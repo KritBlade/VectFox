@@ -15,6 +15,7 @@ import {
     chatCharacterName,
     chunkingControls,
     eventBaseRunEnding,
+    syncUpToDateLines,
     extractCharNameFromArchiveFilename,
     extractCharaFromPng,
     extractFandomId,
@@ -154,22 +155,46 @@ describe('preview', () => {
 
 describe('the end of an EventBase run', () => {
     it('closes after a clean read of something new', () => {
-        expect(eventBaseRunEnding({ windowsProcessed: 4 }, { unfinishedWindowCount: 0 })).toEqual({ shouldClose: true, message: '' });
+        expect(eventBaseRunEnding({ windowsProcessed: 4 }, { unfinishedWindowCount: 0 })).toEqual({ shouldClose: true, message: '', hasReadNothing: false });
     });
 
     it('stays open saying so when nothing was new, a message short of a window included', () => {
         const ending = eventBaseRunEnding({ windowsProcessed: 0 }, { unfinishedWindowCount: 0 });
         expect(ending.shouldClose).toBe(false);
         expect(ending.message).toBe('Nothing new to read. A message that does not fill a window waits for the next one.');
+        expect(ending.hasReadNothing).toBe(true);
     });
 
     it('stays open on a stop, with or without a result, pointing at Resume', () => {
         expect(eventBaseRunEnding({ windowsProcessed: 2 }, { isStopped: true }).message).toContain('Resume');
+        expect(eventBaseRunEnding({ windowsProcessed: 0 }, { isStopped: true }).hasReadNothing).toBe(false);
         expect(eventBaseRunEnding(null, { isStopped: true }).shouldClose).toBe(false);
     });
 
     it('stays open quietly when windows were left, whose notice says the rest, or when the run never started', () => {
-        expect(eventBaseRunEnding({ windowsProcessed: 3 }, { unfinishedWindowCount: 1 })).toEqual({ shouldClose: false, message: '' });
-        expect(eventBaseRunEnding(null)).toEqual({ shouldClose: false, message: '' });
+        expect(eventBaseRunEnding({ windowsProcessed: 3 }, { unfinishedWindowCount: 1 })).toEqual({ shouldClose: false, message: '', hasReadNothing: false });
+        expect(eventBaseRunEnding({ windowsProcessed: 0 }, { unfinishedWindowCount: 1 }).hasReadNothing).toBe(false);
+        expect(eventBaseRunEnding(null)).toEqual({ shouldClose: false, message: '', hasReadNothing: false });
+    });
+});
+
+describe('Sync chat\'s answer for a chat that is up to date', () => {
+    it('says how far EventBase has read, and why the rest waits', () => {
+        expect(syncUpToDateLines({ readCount: 12, messageCount: 13 })).toEqual([
+            { icon: 'fa-circle-check', text: 'This chat is up to date.' },
+            { parts: [{ text: 'EventBase has read ' }, { name: '12' }, { text: ' of its ' }, { name: '13' }, { text: ' messages.' }] },
+            { text: 'The rest wait until the chat goes on. EventBase reads a window only once it is full, and the latest turn only once it settles.' },
+        ]);
+    });
+
+    it('says nothing waits when every message is read, and never more read than the chat holds', () => {
+        expect(syncUpToDateLines({ readCount: 40, messageCount: 40 })).toHaveLength(2);
+        const lines = syncUpToDateLines({ readCount: 15, messageCount: 13 });
+        expect(lines).toHaveLength(2);
+        expect(lines[1].parts[1]).toEqual({ name: '13' });
+    });
+
+    it('gives no count when how far EventBase has read is not known', () => {
+        expect(syncUpToDateLines({ readCount: null, messageCount: 13 })).toEqual([{ icon: 'fa-circle-check', text: 'This chat is up to date.' }]);
     });
 });

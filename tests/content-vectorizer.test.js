@@ -6,7 +6,8 @@
  * SillyTavern's CSRF token, which the old dialog left out so every fetch got a 403; the Character fields and the
  * Lorebook's Include disabled entries, which nothing read, reach the run; a chat's Vectorize asks before reading again;
  * the dialog closes after a clean read of something new and otherwise stays open saying why; the close is announced
- * once, after any run; the Action page's Sync chat reads what EventBase has not read once the user confirms.
+ * once, after any run; the Action page's Sync chat reads what EventBase has not read once the user confirms, and says
+ * in a dialog when there is nothing to read, the AutoSync page's Up to date included, or a run found nothing new.
  */
 /* global document, window, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -98,7 +99,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
 const { openContentVectorizer, backfillCurrentChatWithProgress, syncOpenChat } = await import('../src/features/chunkbase/content-vectorizer.js');
 const { vectorizeContent } = await import('../src/features/chunkbase/content-vectorization.js');
 const { runEventBaseOnOpenChat } = await import('../src/features/chunkbase/chat-vectorization.js');
-const { confirmPopup, closePanelPopup } = await import('../src/sillytavern/popup.js');
+const { confirmPopup, closePanelPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 
 const $id = id => document.getElementById(id);
@@ -365,6 +366,13 @@ describe('Sync chat', () => {
         expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 3, skipTipFallback: false });
         expect(host.dialogs).toHaveLength(0);
         expect(closed).toEqual([]);
+        expect(noticePopup).not.toHaveBeenCalled();
+    });
+
+    it('says in a dialog when the run it was told to start finds nothing new, as no page of Vectorize Content is open to say it', async () => {
+        host.runResult = { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
+        expect(await syncOpenChat()).toEqual({ ran: true });
+        expect(noticePopup).toHaveBeenCalledWith([{ icon: 'fa-circle-info', text: 'Nothing new to read. A message that does not fill a window waits for the next one.' }]);
     });
 
     it('opens Vectorize Content on the Chat page for a chat with nothing stored yet, and asks nothing', async () => {
@@ -376,10 +384,20 @@ describe('Sync chat', () => {
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
 
-    it('says the chat is in sync, and asks nothing, when EventBase has read every message', async () => {
+    it('says in a dialog that the chat is up to date, and asks nothing, when EventBase has read every message', async () => {
         host.syncStatus = { state: 'fully-vectorized', chatMessageCount: 40, vectorizationTip: 40, unfinishedWindowCount: 0 };
         expect(await syncOpenChat()).toEqual({ ran: false, reason: 'in-sync' });
-        expect(toastr.info).toHaveBeenCalledWith(expect.stringContaining('in sync'), 'VectFox');
+        expect(noticePopup.mock.calls[0][0][0]).toEqual({ icon: 'fa-circle-check', text: 'This chat is up to date.' });
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('takes the AutoSync page\'s Up to date over its own count, when the newest message waits for the next window', async () => {
+        host.syncStatus = { state: 'fully-vectorized', chatMessageCount: 13, commitBoundary: 11, vectorizationTip: 12, unfinishedWindowCount: 0 };
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'in-sync' });
+        const [lines] = noticePopup.mock.calls[0];
+        expect(lines[1]).toEqual({ parts: [{ text: 'EventBase has read ' }, { name: '12' }, { text: ' of its ' }, { name: '13' }, { text: ' messages.' }] });
+        expect(lines[2].text).toMatch(/^The rest wait until the chat goes on\./);
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
@@ -392,12 +410,15 @@ describe('Sync chat', () => {
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
 
-    it('says why it does nothing with no chat open, or an EventBase read further than the chat goes', async () => {
+    it('says why it does nothing: a toast with no chat open, a dialog for an EventBase read further than the chat goes', async () => {
         for (const [state, reason] of [['no-chat', 'no-chat'], ['vectorization-ahead', 'ahead']]) {
             host.syncStatus = { state, chatMessageCount: 10 };
             expect(await syncOpenChat(), state).toEqual({ ran: false, reason });
         }
-        expect(toastr.info).toHaveBeenCalledTimes(2);
+        expect(toastr.info).toHaveBeenCalledTimes(1);
+        expect(toastr.info).toHaveBeenCalledWith('Open a chat to sync it.', 'VectFox');
+        expect(noticePopup).toHaveBeenCalledTimes(1);
+        expect(noticePopup.mock.calls[0][0][0]).toEqual({ icon: 'fa-circle-info', text: 'Nothing to sync.' });
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
