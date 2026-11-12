@@ -22,6 +22,8 @@
  * ============================================================================
  */
 
+import { assertSendableHeaders, fetchOnSameHost } from './request-safety.js';
+
 // Qdrant on-disk constants. NEVER change these without an upgrade routine —
 // they live inside user Qdrant databases.
 const SENTINEL_POINT_TYPE = '_vectfox_meta';
@@ -171,6 +173,8 @@ class QdrantBackend {
      */
     async _request(method, endpoint, body = null, maxRetries = 3) {
         const url = `${this.baseUrl}${endpoint}`;
+        // Before the retries: Node's refusal of a header value quotes the value, and would read as a network error.
+        assertSendableHeaders(this._getHeaders(), 'Qdrant');
 
         // Add explicit timeout of 60s to prevent indefinite hangs during heavy operations (like wait=true)
         const controller = new AbortController();
@@ -188,7 +192,8 @@ class QdrantBackend {
         let lastError;
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                const response = await fetch(url, options);
+                // The api-key header would follow a redirect to another host, so only a redirect on this host is followed.
+                const response = await fetchOnSameHost(fetch, url, options);
                 clearTimeout(timeoutId);
 
                 if (!response.ok) {

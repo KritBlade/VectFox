@@ -150,10 +150,29 @@ test(`a Custom batch splits at ${OPENAI_STYLE_BATCH_LIMIT} texts and comes back 
     assert.deepEqual(embeddings.map(embedding => embedding[1]), texts.map(text => text.length));
 });
 
-test('a refusal throws with the status and the server\'s own text', async () => {
-    const refusal = () => ({ ok: false, status: 401, statusText: 'Unauthorized', text: async () => '{"error":"Invalid API key"}' });
+test('a refusal throws with the status and a fixed hint, never the server\'s reply, which can quote the key', async () => {
+    const echo = '{"error":{"message":"Incorrect API key provided: sk-proj-************Ab1C"}}';
+    const refusal = () => ({ ok: false, status: 401, statusText: 'Unauthorized', text: async () => echo });
     const { host } = stubSillyTavern({ reply: refusal });
-    await assert.rejects(embed('custom', ['a harbor at dusk'], {}, host), { message: 'Custom embedding: 401 Unauthorized {"error":"Invalid API key"}' });
+    await assert.rejects(embed('custom', ['a harbor at dusk'], {}, host), { message: 'Custom embedding: 401 Unauthorized (the server refused the API key)' });
+});
+
+test('a key holding a line break is refused before any request, by the header\'s name only', async () => {
+    const { host, requests } = stubSillyTavern();
+    host.readSecret = () => 'made-up-key\nX-Injected: 1';
+    await assert.rejects(embed('custom', ['a harbor at dusk'], { secretId: PROFILE_KEY_ID }, host), (error) => {
+        assert.match(error.message, /^Custom embedding: the Authorization header holds a line break/);
+        assert.equal(error.message.includes('made-up-key'), false);
+        return true;
+    });
+    assert.equal(requests.length, 0);
+});
+
+test('saved keys that cannot be read stop the request, without quoting the parse error', async () => {
+    const { host, requests } = stubSillyTavern();
+    host.readSecret = () => { throw new SyntaxError('Unexpected token, "..made-up-key-fragment.." is not valid JSON'); };
+    await assert.rejects(embed('custom', ['a harbor at dusk'], { secretId: PROFILE_KEY_ID }, host), { message: "Custom embedding: SillyTavern's saved keys could not be read (SyntaxError), so nothing was sent." });
+    assert.equal(requests.length, 0);
 });
 
 test('a reply without one embedding per text throws', async () => {

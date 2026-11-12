@@ -50,6 +50,8 @@ import sanitize from 'sanitize-filename';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
 import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource, loadSillyTavernEmbeddingHost } from './openai-style-embedding.js';
+import { errorFreeOfServerReply, errorWithoutServerReply, redactKeyMaterial, serverFailureText } from './server-failure-text.js';
+import { assertSendableHeaders } from './request-safety.js';
 
 const pluginName = 'similharity';
 // The plugin's version is written only in package.json; /health, /version and the startup line report it.
@@ -82,20 +84,18 @@ function _readQdrantApiKey(req) {
     try {
         return _stReadSecret(req.user.directories, 'api_key_qdrant', null) || '';
     } catch (err) {
-        console.warn(`[${pluginName}] readSecret(api_key_qdrant) failed:`, err?.message || err);
+        // A secrets.json that does not parse throws a message quoting the text around the fault, which can be part of
+        // a key, so only the error's kind is logged.
+        console.warn(`[${pluginName}] readSecret(api_key_qdrant) failed (${err?.name ?? 'Error'}): SillyTavern's saved keys could not be read.`);
         return '';
     }
 }
 
 /**
- * Mask an API key for safe client-side display. Mirrors the masking pattern
- * ST uses for non-EXPORTABLE secrets — last 4 chars visible, rest stars.
+ * What /qdrant/key-status gives as `masked` when a key is saved: a fixed mark, never any part of the key. VectFox
+ * before 3.6.128 shows it after "Key saved:", so the field stays for those versions.
  */
-function _maskApiKey(key) {
-    if (!key || typeof key !== 'string') return '';
-    if (key.length <= 4) return '*'.repeat(key.length);
-    return '*'.repeat(Math.min(key.length - 4, 8)) + key.slice(-4);
-}
+const KEY_SAVED_MARK = '********';
 
 /**
  * Flatten an error to a client-safe message that preserves the underlying cause.
@@ -115,7 +115,8 @@ function formatError(error) {
         if (causeMsg && !msg.includes(causeMsg)) msg += ` (cause: ${causeMsg})`;
         if (cause.code && !msg.includes(cause.code)) msg += ` [${cause.code}]`;
     }
-    return msg;
+    // The last guard before the client: nothing shaped like a key goes out, a masked one included.
+    return redactKeyMaterial(msg);
 }
 
 /**
@@ -640,11 +641,11 @@ export async function init(router) {
      * Presence indicator for the Qdrant API key in ST's secret_state slot
      * `api_key_qdrant`. The slot name is custom (not in ST's SECRET_KEYS
      * enum), so client-side `secret_state.api_key_qdrant` is always
-     * undefined — VectFox's UI calls this endpoint to render the
-     * "Key saved: *****xyz" placeholder. Real key value never leaves the
-     * server; only the masked last-4 suffix is returned.
+     * undefined, and VectFox's UI calls this endpoint to say whether a key is
+     * saved. No part of the key leaves the server.
      *
-     * Response: { set: boolean, masked: string }
+     * Response: { set: boolean, masked: string }, where masked is KEY_SAVED_MARK
+     * or ''
      */
     router.get('/qdrant/key-status', async (req, res) => {
         try {
@@ -652,7 +653,7 @@ export async function init(router) {
             if (!apiKey) {
                 return res.json({ set: false, masked: '' });
             }
-            return res.json({ set: true, masked: _maskApiKey(apiKey) });
+            return res.json({ set: true, masked: KEY_SAVED_MARK });
         } catch (error) {
             console.error(`[${pluginName}] /qdrant/key-status error:`, error);
             res.status(500).json({ error: formatError(error) });
@@ -737,8 +738,11 @@ async function getVectorsForSource(source, texts, model, directories, req) {
         const results = [];
         for (let i = 0; i < texts.length; i += BATCH_SIZE) {
             const slice = texts.slice(i, i + BATCH_SIZE);
-            const vectors = await getOpenAIBatchVector(slice, source, directories, effectiveModel);
-            results.push(...vectors);
+            try {
+                results.push(...await getOpenAIBatchVector(slice, source, directories, effectiveModel));
+            } catch (error) {
+                throw errorWithoutServerReply(error);
+            }
         }
         return results;
     }
@@ -1472,6 +1476,18 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
         const [embedding] = await embedOpenAiStyle(source, [text], model, directories, req);
         return embedding;
     }
+    try {
+        return await getEmbeddingFromSillyTavernSource(source, text, model, directories, req);
+    } catch (error) {
+        throw errorWithoutServerReply(error);
+    }
+}
+
+/**
+ * One text's embedding from a source SillyTavern's own embedding functions serve, or from Ollama and vLLM with a key
+ * the request gives.
+ */
+async function getEmbeddingFromSillyTavernSource(source, text, model, directories, req) {
     switch (source) {
         case 'transformers': {
             const { getTransformersVector } = await import('../../src/vectors/embedding.js');
@@ -1504,14 +1520,16 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
                 return await getOllamaVector(text, apiUrl, model, keep, directories);
             }
             const ollamaUrl = new URL('/api/embeddings', apiUrl.replace(/\/$/, ''));
+            const ollamaHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+            assertSendableHeaders(ollamaHeaders, 'Ollama');
             const ollamaResp = await fetch(ollamaUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                headers: ollamaHeaders,
                 body: JSON.stringify({ model, prompt: text, keep_alive: keep ? -1 : undefined }),
             });
             if (!ollamaResp.ok) {
-                const errText = await ollamaResp.text();
-                throw new Error(`Ollama: Failed to get vector: ${ollamaResp.statusText} ${errText}`);
+                const failure = serverFailureText({ status: ollamaResp.status, statusText: ollamaResp.statusText, reply: await ollamaResp.text() });
+                throw errorFreeOfServerReply(`Ollama: Failed to get vector: ${failure}`);
             }
             const ollamaData = await ollamaResp.json();
             if (!Array.isArray(ollamaData?.embedding)) throw new Error('Ollama: API response missing embedding array');
@@ -1529,14 +1547,16 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
             const urlJoinMod = await import('url-join');
             const urlJoin2 = urlJoinMod.default;
             const vllmUrl = new URL(urlJoin2(trimV1(apiUrl), '/v1/embeddings'));
+            const vllmHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+            assertSendableHeaders(vllmHeaders, 'vLLM');
             const vllmResp = await fetch(vllmUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                headers: vllmHeaders,
                 body: JSON.stringify({ input: [text], model }),
             });
             if (!vllmResp.ok) {
-                const errText = await vllmResp.text();
-                throw new Error(`VLLM: Failed to get vector for text: ${vllmResp.statusText} ${errText}`);
+                const failure = serverFailureText({ status: vllmResp.status, statusText: vllmResp.statusText, reply: await vllmResp.text() });
+                throw errorFreeOfServerReply(`VLLM: Failed to get vector for text: ${failure}`);
             }
             const vllmData = await vllmResp.json();
             if (!Array.isArray(vllmData?.data)) throw new Error('VLLM: API response was not an array');

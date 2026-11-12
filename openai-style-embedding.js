@@ -9,6 +9,11 @@
 //
 // A request with no ID sends no key. SillyTavern's lookups read the active key when given no ID, which would send it
 // to this request's server, so an ID no secret has goes in its place.
+//
+// A refusal passes on its status and a fixed hint, never the server's reply, which can quote the key it refused.
+
+import { errorFreeOfServerReply, serverFailureText } from './server-failure-text.js';
+import { assertSendableHeaders } from './request-safety.js';
 
 const NO_KEY_SECRET_ID = 'similharity-no-key';
 
@@ -61,13 +66,19 @@ export async function loadSillyTavernEmbeddingHost() {
  */
 function keyHeaders(kind, serverUrl, secretId, directories, host) {
     const id = secretId || NO_KEY_SECRET_ID;
-    if (!kind.textgenType) {
-        const key = host.readSecret(directories, host.SECRET_KEYS.CUSTOM, id);
-        return key ? { Authorization: `Bearer ${key}` } : {};
+    try {
+        if (!kind.textgenType) {
+            const key = host.readSecret(directories, host.SECRET_KEYS.CUSTOM, id);
+            return key ? { Authorization: `Bearer ${key}` } : {};
+        }
+        const headers = {};
+        host.setAdditionalHeadersByType(headers, host.TEXTGEN_TYPES[kind.textgenType], serverUrl, directories, id);
+        return headers;
+    } catch (error) {
+        // A secrets.json that does not parse throws a message quoting the text around the fault, which can be part of
+        // a key, so only the error's kind goes on.
+        throw errorFreeOfServerReply(`${kind.name} embedding: SillyTavern's saved keys could not be read (${error?.name ?? 'Error'}), so nothing was sent.`);
     }
-    const headers = {};
-    host.setAdditionalHeadersByType(headers, host.TEXTGEN_TYPES[kind.textgenType], serverUrl, directories, id);
-    return headers;
 }
 
 /** The URL a request goes to: the server URL when it already ends in /embeddings, else the source's route on it. */
@@ -104,7 +115,8 @@ function embeddingsOfReply(data, count, name) {
  *   and the user's SillyTavern directories, where the key lists are
  * @param {object} host - From loadSillyTavernEmbeddingHost
  * @returns {Promise<number[][]>}
- * @throws {Error} With no server URL, before any request; with the status and the server's text when it refuses
+ * @throws {Error} With no server URL, before any request; with the status and a fixed hint when it refuses, never
+ *   the server's reply
  */
 export async function getOpenAiStyleEmbeddings(source, texts, { apiUrl, model, secretId, directories }, host) {
     const kind = SOURCES[source];
@@ -115,6 +127,7 @@ export async function getOpenAiStyleEmbeddings(source, texts, { apiUrl, model, s
     assertUrl(endpoint, serverUrl, kind.name);
 
     const headers = { 'Content-Type': 'application/json', ...keyHeaders(kind, serverUrl, secretId, directories, host) };
+    assertSendableHeaders(headers, `${kind.name} embedding`);
     const embeddings = [];
     for (let start = 0; start < texts.length; start += OPENAI_STYLE_BATCH_LIMIT) {
         const input = texts.slice(start, start + OPENAI_STYLE_BATCH_LIMIT);
@@ -124,7 +137,8 @@ export async function getOpenAiStyleEmbeddings(source, texts, { apiUrl, model, s
             body: JSON.stringify(model ? { input, model } : { input }),
         });
         if (!response.ok) {
-            throw new Error(`${kind.name} embedding: ${response.status} ${response.statusText} ${await response.text()}`.trim());
+            const failure = serverFailureText({ status: response.status, statusText: response.statusText, reply: await response.text() });
+            throw errorFreeOfServerReply(`${kind.name} embedding: ${failure}`);
         }
         embeddings.push(...embeddingsOfReply(await response.json(), input.length, kind.name));
     }
