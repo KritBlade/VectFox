@@ -7,7 +7,7 @@
  * and readout it shows, the rows a profile supplies hidden while one is chosen, the
  * profile Agent Mode and Auto-Reformat take from the EventBase model, and each card's
  * Test connection. The Profile dropdowns repaint when a profile is made, saved or
- * deleted in SillyTavern.
+ * deleted in SillyTavern, and embedding's readout once the Similharity probe settles.
  * ============================================================================
  */
 
@@ -16,6 +16,7 @@ import { log } from '../../sillytavern/log.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { connectionProfileRowIds } from '../../shared/connection-profile-rows-markup.js';
+import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { resultList, selectOption } from '../../shared/gui-dna/gui-dna-core.js';
 import { setShown } from '../../shared/gui-dna/gene-behaviours.js';
 import { testAutoReformatConnection } from '../chunkbase/index.js';
@@ -261,4 +262,9 @@ export function wireConnectionRows(settings, { onEmbeddingProviderChange }) {
     });
     refreshChatConsumers();
     refreshEmbeddingRows();
+    // A llama.cpp, KoboldCPP or Custom profile's readout reads the Similharity probe, which may not have settled when
+    // the panel is drawn at startup, so the readout is drawn again once it has.
+    checkPluginAvailable().then(refreshEmbeddingRows, error => {
+        log.warn('VectFox: the Similharity probe failed, so the embedding readout shows how it stood before:', error);
+    });
 }

@@ -7,8 +7,9 @@
  * SillyTavern can use and a readout, and hides the rows a profile supplies; a deleted profile and the Connection
  * Manager switched off say so in the dropdown; the dropdowns repaint when SillyTavern makes, saves or deletes a profile;
  * Agent Mode and Auto-Reformat on Same as EventBase model name the EventBase model's profile; embedding never stores the
- * profile option itself, opens on it for a new install's Custom type with no profile, and choosing a profile stores its
- * ID and type; each Test connection runs its feature's test on the panel's settings and reports the answer.
+ * profile option itself, opens on it for a new install's Custom type with no profile, choosing a profile stores its ID
+ * and type, and its readout is drawn again once the Similharity probe settles; each Test connection runs its feature's
+ * test on the panel's settings and reports the answer.
  */
 /* global document, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -22,6 +23,7 @@ const host = vi.hoisted(() => ({
     context: null,
     listeners: {},
     resolvedEmbedding: null,
+    probe: null,
     backend: null,
     tests: { eventbase: null, agent: null, reformat: null, storyarc: null },
 }));
@@ -40,6 +42,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     testStoryArcConnection: (...args) => host.tests.storyarc(...args),
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: vi.fn(async () => host.backend) }));
+vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: () => host.probe }));
 vi.mock('../src/features/embedding/index.js', async () => {
     const core = await vi.importActual('../src/features/embedding/embedding-profile-core.js');
     return { embeddingProfileKind: core.embeddingProfileKind, resolveEmbeddingProfile: vi.fn(() => host.resolvedEmbedding) };
@@ -105,6 +108,7 @@ beforeEach(() => {
     vi.stubGlobal('toastr', { info: vi.fn(), success: vi.fn(), error: vi.fn() });
     host.listeners = {};
     host.resolvedEmbedding = null;
+    host.probe = Promise.resolve(true);
     host.backend = null;
     for (const name of Object.keys(host.tests)) host.tests[name] = vi.fn(async () => ({ content: 'OK', cutReason: null }));
     host.context = {
@@ -322,6 +326,19 @@ describe('embedding\'s Provider dropdown', () => {
             'Embedding: no connection profile is chosen. Choose one on the Core page.',
             'SillyTavern has no Ollama, llama.cpp, KoboldCPP or Custom profile yet. Make one under Connection Profiles in SillyTavern.',
         ]);
+    });
+
+    it('draws the readout again once the Similharity probe settles, so the startup panel never keeps its unsettled answer', async () => {
+        let settleProbe;
+        host.probe = new Promise(resolve => { settleProbe = resolve; });
+        host.resolvedEmbedding = { profileName: 'Lantern', url: '', model: '', storesKey: true, problem: 'Embedding: profile "Lantern" is a Custom profile, which needs a Similharity version VectFox could not read from its manifest.json, so no request is sent. The console says why.' };
+        mount({ ...baseSettings(), embedding_provider: 'custom', embedding_connection_profile_id: 'p-lantern' });
+        expect(linesOf('VectFox_embedding_connection_profile_readout')[0]).toMatch(/could not read from its manifest\.json/);
+
+        host.resolvedEmbedding = { profileName: 'Lantern', url: 'http://lantern.local/v1/embeddings', model: 'lantern-embed', storesKey: true, problem: '' };
+        settleProbe(true);
+        await settle();
+        expect(linesOf('VectFox_embedding_connection_profile_readout').slice(0, 2)).toEqual(['URL: http://lantern.local/v1/embeddings', 'Model: lantern-embed']);
     });
 
     it('says how to make a profile when SillyTavern has none it can embed on', () => {
