@@ -1662,8 +1662,15 @@ async function scanAllSourcesForCollections(vectorsPath) {
                     const collections = await qdrantBackend.getCollections();
 
                     for (const collectionName of collections) {
-                        const items = await qdrantBackend.listItems(collectionName, {});
-                        console.log('Discovered Qdrant Collection:', collectionName + " " + items.length + " items");
+                        // One exact count per collection, no point read. This used to
+                        // be listItems(): every point, payload included, scrolled page
+                        // by page only to keep the length — tens of MB per page load.
+                        const chunkCount = await qdrantBackend.countPoints(collectionName, {});
+                        // Deleted since getCollections() answered: no count to report,
+                        // so it gets no entry (and no ghost in VectFox's registry).
+                        if (chunkCount === null) continue;
+
+                        console.log('Discovered Qdrant Collection:', collectionName + " " + chunkCount + " chunks");
 
                         // Extract source from collection name (format: "source:id" or "backend:source:id")
                         let source = 'unknown';
@@ -1674,16 +1681,18 @@ async function scanAllSourcesForCollections(vectorsPath) {
                         } else if (parts.length === 3) {
                             // Format: "backend:source:id"
                             source = parts[1];
-                        } else if (items.length > 0 && items[0].metadata?.embeddingSource) {
-                            // Fallback: get from item metadata
-                            source = items[0].metadata.embeddingSource;
+                        } else if (chunkCount > 0) {
+                            // Fallback: the source the stored points carry, read from one
+                            // point — not from all of them, and not at all when the
+                            // collection holds none.
+                            source = await qdrantBackend.firstPointSource(collectionName);
                         }
 
                          allCollections.push({
                             id: collectionName,
                             source: source,
                             backend: 'qdrant',
-                            chunkCount: items.length,
+                            chunkCount: chunkCount,
                             modelCount: 1
                         });
                     }

@@ -1255,6 +1255,122 @@ class QdrantBackend {
     }
 
     /**
+     * Count a collection's points without reading any of them.
+     *
+     * The collection listing used to learn a chunk count by scrolling every point
+     * with its payload and keeping the length — for a large library that is tens
+     * of megabytes decoded per page load for a number Qdrant already keeps. This
+     * asks for the number instead.
+     *
+     * `exact: true` is explicit rather than left to Qdrant's default, because
+     * `chunkCount` decides whether VectFox treats a collection as a ghost; an
+     * estimate would not do. Sentinel exclusion is the canonical one
+     * ({@link _buildFilterExcludingSentinel}), so the count matches what
+     * {@link listItems} returned for the same filters.
+     *
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
+     * @param {object} filters - Payload filters {type, sourceId}
+     * @returns {Promise<number|null>} The count, or null when the collection does not exist
+     */
+    async countPoints(collectionName, filters = {}) {
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
+
+        collectionName = this._parseCollectionName(collectionName);
+        const mainCollection = collectionName;
+
+        const must = [];
+        if (filters.type) {
+            must.push({ key: 'type', match: { value: filters.type } });
+        }
+        if (filters.sourceId) {
+            must.push({ key: 'sourceId', match: { value: filters.sourceId } });
+        }
+
+        try {
+            const response = await this._request('POST', `/collections/${mainCollection}/points/count`, {
+                filter: this._buildFilterExcludingSentinel(must),
+                exact: true,
+            });
+            const count = response?.result?.count;
+            if (typeof count !== 'number') {
+                // A 200 without a number is not a count: report none, and say so,
+                // rather than passing a silent zero to a caller holding a ghost.
+                console.warn(`[Qdrant] Count of ${mainCollection} came back without a number`);
+                return 0;
+            }
+            return count;
+        } catch (error) {
+            // A 404 is the only evidence of a collection deleted between the
+            // listing and this call — but an older Qdrant, or a proxy in front
+            // of it, 404s this route too, and reading that as "every collection
+            // was deleted" would empty VectFox's registry of a healthy store.
+            // So the collection itself is asked, on this path only.
+            if (/\bfailed: 404\b/.test(error.message) && await this._isMissing(mainCollection)) {
+                console.warn(`[Qdrant] Collection ${mainCollection} is gone, so the listing leaves it out`);
+                return null;
+            }
+            // Any other failure still reports zero, as the empty scroll this
+            // replaced did, and the route keeps answering.
+            console.warn(`[Qdrant] Failed to count points in ${mainCollection}:`, error.message);
+            return 0;
+        }
+    }
+
+    /**
+     * Whether Qdrant says the collection does not exist (as opposed to failing
+     * for another reason, or answering at all). Asked only where a count read a
+     * 404, to tell a deleted collection from a route that is not there.
+     *
+     * @private
+     * @param {string} collectionName - Collection name, already parsed
+     * @returns {Promise<boolean>} True only when Qdrant answers "no such collection"
+     */
+    async _isMissing(collectionName) {
+        try {
+            await this._request('GET', `/collections/${collectionName}`);
+            return false;
+        } catch (error) {
+            return /\bfailed: 404\b/.test(error.message);
+        }
+    }
+
+    /**
+     * The embedding source of a collection's first stored point, or 'unknown'.
+     *
+     * The listing resolves a collection's source from its name when the name
+     * encodes one ("source:id" or "backend:source:id"). When it does not, it
+     * needs the source the collection was built with, which the points carry.
+     * That fallback used to read every point with its payload to keep the first
+     * one; this reads one point.
+     *
+     * It is deliberately not implemented on top of {@link listItems}: that one
+     * pages until the collection is exhausted, so a one-item limit would still
+     * walk the whole collection.
+     *
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
+     * @returns {Promise<string>} The first point's `embeddingSource`, or 'unknown'
+     */
+    async firstPointSource(collectionName) {
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
+
+        collectionName = this._parseCollectionName(collectionName);
+        const mainCollection = collectionName;
+
+        try {
+            const response = await this._request('POST', `/collections/${mainCollection}/points/scroll`, {
+                limit: 1,
+                with_payload: true,
+                with_vector: false,
+                filter: this._buildFilterExcludingSentinel(),
+            });
+            return response?.result?.points?.[0]?.payload?.embeddingSource || 'unknown';
+        } catch (error) {
+            console.warn(`[Qdrant] Failed to read the first point of ${mainCollection}:`, error.message);
+            return 'unknown';
+        }
+    }
+
+    /**
      * Get all saved hashes from a collection (MULTITENANCY)
      * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {object} filters - Payload filters {type, sourceId}
