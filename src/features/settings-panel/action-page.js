@@ -15,7 +15,7 @@ import { log } from '../../sillytavern/log.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { textarea } from '../../shared/gui-dna/gui-dna-core.js';
-import { clearInterceptorPrompts, openContentVectorizer } from '../chunkbase/index.js';
+import { clearInterceptorPrompts, openContentVectorizer, syncOpenChat } from '../chunkbase/index.js';
 import { cleanupCorruptedCollections, deleteVectorsFolder } from '../collections/index.js';
 import { openDatabaseBrowser } from '../database-browser/index.js';
 import { openDiagnostics, refreshHealthPill } from '../diagnostics/index.js';
@@ -200,8 +200,10 @@ export function wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkSt
     });
 
     $(`#${ID.vectorizeContent}`).on('click', () => openContentVectorizer());
-    // Vectorize Content on the chat tab, whose Resume button is the one vectorization path for a chat.
-    $(`#${ID.syncChat}`).on('click', () => openContentVectorizer('chat'));
+    // Reads what EventBase has not read of this chat once the user confirms, as Resume does, without the dialog.
+    $(`#${ID.syncChat}`).on('click', () => {
+        syncOpenChat().catch(error => log.error('VectFox: Sync chat failed:', error));
+    });
     $(`#${ID.databaseBrowser}`).on('click', () => {
         openDatabaseBrowser().catch(error => log.error('VectFox: the Database Browser failed to open:', error));
     });

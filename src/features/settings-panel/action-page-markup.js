@@ -77,7 +77,7 @@ function memoryCard() {
         <div class="vfx-card-body">
             <div class="vfx-action-grid">
                 ${actionCard({ icon: 'fa-circle-plus', title: 'Vectorize Content', description: 'Store a chat, lorebook, character card, web or wiki page, document or YouTube transcript.', button: { id: ID.vectorizeContent, text: 'Vectorize content', icon: 'fa-plus' }, isPrimary: true })}
-                ${actionCard({ icon: 'fa-rotate', title: 'Sync chat', description: 'Opens Vectorize Content on this chat, to store what its collection is missing.', button: { id: ID.syncChat, text: 'Sync chat', icon: 'fa-rotate' } })}
+                ${actionCard({ icon: 'fa-rotate', title: 'Sync chat', description: 'Reads the messages EventBase has not read in this chat yet, after you confirm.', button: { id: ID.syncChat, text: 'Sync chat', icon: 'fa-rotate' } })}
                 ${actionCard({ icon: 'fa-folder-open', title: 'Database Browser', description: 'Every stored collection, with its chunks and events, locks, names and exports.', button: { id: ID.databaseBrowser, text: 'Open browser', icon: 'fa-folder-open' } })}
                 ${actionCard({ icon: 'fa-eraser', title: 'Text Cleaning', description: 'The patterns that strip markup and noise from messages before VectFox reads them.', button: { id: ID.textCleaning, text: 'Edit patterns', icon: 'fa-pen' } })}
                 ${actionCard({ icon: 'fa-chart-line', title: 'Progress', description: 'Shows the progress panel of a vectorization again after you hid it.', button: { id: ID.reopenProgress, text: 'Show progress', icon: 'fa-eye' } })}

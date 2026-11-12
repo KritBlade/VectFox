@@ -20,6 +20,7 @@ const host = vi.hoisted(() => ({
     reopenProgress: vi.fn(),
     clearInterceptorPrompts: vi.fn(),
     openContentVectorizer: vi.fn(),
+    syncOpenChat: vi.fn(async () => ({ ran: true })),
     cleanupCorruptedCollections: vi.fn(),
     deleteVectorsFolder: vi.fn(),
     openDatabaseBrowser: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock('../src/sillytavern/settings.js', () => ({
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: host.confirmPopup, noticePopup: host.noticePopup }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: host.logError, warn: () => {}, lifecycle: () => {} } }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { reopen: host.reopenProgress } }));
-vi.mock('../src/features/chunkbase/index.js', () => ({ clearInterceptorPrompts: host.clearInterceptorPrompts, openContentVectorizer: host.openContentVectorizer }));
+vi.mock('../src/features/chunkbase/index.js', () => ({ clearInterceptorPrompts: host.clearInterceptorPrompts, openContentVectorizer: host.openContentVectorizer, syncOpenChat: host.syncOpenChat }));
 vi.mock('../src/features/collections/index.js', () => ({ cleanupCorruptedCollections: host.cleanupCorruptedCollections, deleteVectorsFolder: host.deleteVectorsFolder }));
 vi.mock('../src/features/database-browser/index.js', () => ({ openDatabaseBrowser: host.openDatabaseBrowser }));
 vi.mock('../src/features/diagnostics/index.js', () => ({ openDiagnostics: host.openDiagnostics, refreshHealthPill: host.refreshHealthPill }));
@@ -128,7 +129,7 @@ describe('Action page', () => {
         wireActionPage(settings, actions);
         const opened = [
             [ID.vectorizeContent, host.openContentVectorizer, []],
-            [ID.syncChat, host.openContentVectorizer, ['chat']],
+            [ID.syncChat, host.syncOpenChat, []],
             [ID.databaseBrowser, host.openDatabaseBrowser, []],
             [ID.textCleaning, host.openTextCleaningDialog, []],
             [ID.openChecks, host.openDiagnostics, ['checks']],
@@ -141,6 +142,13 @@ describe('Action page', () => {
             expect(opener, id).toHaveBeenCalledTimes(1);
             expect(opener, id).toHaveBeenCalledWith(...args);
         }
+    });
+
+    it('logs a Sync chat that fails', async () => {
+        host.syncOpenChat.mockRejectedValueOnce(new Error('backend gone'));
+        wireActionPage(settings, actions);
+        $(`#${ID.syncChat}`).trigger('click');
+        await vi.waitFor(() => expect(host.logError).toHaveBeenCalledWith(expect.stringContaining('Sync chat'), expect.any(Error)));
     });
 
     it('logs a Database Browser that fails to open', async () => {

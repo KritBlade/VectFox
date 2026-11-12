@@ -1027,6 +1027,52 @@ export async function backfillCurrentChatWithProgress() {
     return { ran: true };
 }
 
+/**
+ * The Action page's Sync chat: once the user confirms, read what EventBase has not read of the open chat, as Resume does
+ * with the dialog's defaults, without the dialog. A chat with nothing stored yet opens Vectorize Content on its Chat
+ * page instead, since a first read takes that page's choices, and a chat with nothing unread says so.
+ *
+ * @returns {Promise<{ran: boolean, reason?: string}>}
+ */
+export async function syncOpenChat() {
+    if (activeRun) {
+        toastr.info('A vectorization is already running', 'VectFox');
+        return { ran: false, reason: 'busy' };
+    }
+    const settings = extension_settings.vectfox;
+    const { getChatAutoSyncStatus, getVectorizationTip } = await import('../eventbase/index.js');
+    const status = await getChatAutoSyncStatus(settings);
+    if (status.state === 'no-chat') {
+        toastr.info('Open a chat to sync it.', 'VectFox');
+        return { ran: false, reason: 'no-chat' };
+    }
+    if (status.state === 'no-collection') {
+        toastr.info('This chat has nothing stored yet, so Vectorize Content opens to read it the first time.', 'VectFox');
+        openContentVectorizer('chat');
+        return { ran: false, reason: 'no-collection' };
+    }
+    if (status.state === 'vectorization-ahead') {
+        toastr.info('Nothing to sync: this chat\'s EventBase was read further than the chat now goes.', 'VectFox');
+        return { ran: false, reason: 'ahead' };
+    }
+    const tip = status.vectorizationTip ?? getVectorizationTip(getChatUUID()) ?? 0;
+    const unreadMessages = Math.max(0, (status.chatMessageCount ?? 0) - tip);
+    const unfinishedWindows = status.unfinishedWindowCount ?? 0;
+    if (unreadMessages === 0 && unfinishedWindows === 0) {
+        toastr.info('This chat is in sync: EventBase has read every message.', 'VectFox');
+        return { ran: false, reason: 'in-sync' };
+    }
+    if (!hasLlmConfig(settings)) return { ran: false, reason: 'no-model' };
+    const isConfirmed = await confirmPopup([
+        { icon: 'fa-rotate', text: 'Messages EventBase has not read:', name: String(unreadMessages) },
+        ...(unfinishedWindows > 0 ? [{ text: 'Windows that failed before, read again:', name: String(unfinishedWindows) }] : []),
+        { text: 'Sync reads them on the EventBase model, with a progress bar you can stop.' },
+    ], { okButton: 'Sync' });
+    if (!isConfirmed) return { ran: false, reason: 'cancelled' };
+    await runEventBaseBackfill('chat', { source: null, startFromMessage: 1, parallelWindows: DEFAULT_PARALLEL_WINDOWS, resetCaches: false });
+    return { ran: true };
+}
+
 // ── Wiring ──────────────────────────────────────────────────────────────────────────────────────────────
 
 const typeOfElement = element => element.closest('[data-cv-type]')?.dataset.cvType ?? null;

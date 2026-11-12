@@ -6,9 +6,9 @@
  * SillyTavern's CSRF token, which the old dialog left out so every fetch got a 403; the Character fields and the
  * Lorebook's Include disabled entries, which nothing read, reach the run; a chat's Vectorize asks before reading again;
  * the dialog closes after a clean read of something new and otherwise stays open saying why; the close is announced
- * once, after any run.
+ * once, after any run; the Action page's Sync chat reads what EventBase has not read once the user confirms.
  */
-/* global document, window -- this file runs under the jsdom environment */
+/* global document, window, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import $ from 'jquery';
@@ -21,6 +21,8 @@ const host = vi.hoisted(() => ({
     fetched: [],
     priorWindows: false,
     runResult: null,
+    syncStatus: null,
+    llmCheck: { ok: true },
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root, saveSettingsDebounced: vi.fn() }));
@@ -66,7 +68,7 @@ vi.mock('../src/features/chunkbase/content-vectorization.js', () => ({
     resolveAndPrepareContent: vi.fn(async (typeId, source) => ({ text: String(source.content || '') })),
 }));
 vi.mock('../src/features/chunkbase/chunking.js', () => ({ chunkText: vi.fn(async text => (Array.isArray(text) ? text : [text])) }));
-vi.mock('../src/features/llm-provider/index.js', () => ({ validateLLMConfig: () => ({ ok: true }), resolveInheritedConnection: () => ({ provider: 'openrouter', model: 'm' }) }));
+vi.mock('../src/features/llm-provider/index.js', () => ({ validateLLMConfig: () => host.llmCheck, resolveInheritedConnection: () => ({ provider: 'openrouter', model: 'm' }) }));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => '' }));
 vi.mock('../src/shared/collection-ids.js', () => ({ buildArchiveEventCollectionId: () => 'vf_archive' }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({
@@ -90,9 +92,10 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     runEventBaseIngestion: vi.fn(),
     countUnfinishedWindows: () => 0,
     notifyUnfinishedWindows: vi.fn(),
+    getChatAutoSyncStatus: vi.fn(async () => host.syncStatus),
 }));
 
-const { openContentVectorizer, backfillCurrentChatWithProgress } = await import('../src/features/chunkbase/content-vectorizer.js');
+const { openContentVectorizer, backfillCurrentChatWithProgress, syncOpenChat } = await import('../src/features/chunkbase/content-vectorizer.js');
 const { vectorizeContent } = await import('../src/features/chunkbase/content-vectorization.js');
 const { runEventBaseOnOpenChat } = await import('../src/features/chunkbase/chat-vectorization.js');
 const { confirmPopup, closePanelPopup } = await import('../src/sillytavern/popup.js');
@@ -125,6 +128,8 @@ beforeEach(async () => {
     host.answer = true;
     host.priorWindows = false;
     host.runResult = { eventsExtracted: 3, windowsProcessed: 1, windowsSkipped: 0 };
+    host.syncStatus = { state: 'partial', chatMessageCount: 40, vectorizationTip: 30, unfinishedWindowCount: 0 };
+    host.llmCheck = { ok: true };
     host.root.vectfox = { eventbase_window_size: 4, eventbase_window_overlap: 1 };
     host.context = {
         chatId: 'chat.jsonl',
@@ -339,6 +344,63 @@ describe('a chat run that reads nothing new, stops or fails', () => {
         expect(runState('chat')).toBe('');
     });
 
+});
+
+describe('Sync chat', () => {
+    it('asks with what EventBase has not read, and runs nothing on Cancel', async () => {
+        host.syncStatus = { state: 'partial', chatMessageCount: 40, vectorizationTip: 30, unfinishedWindowCount: 2 };
+        host.answer = false;
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'cancelled' });
+        const [lines, options] = confirmPopup.mock.calls[0];
+        expect(lines.slice(0, 2)).toEqual([
+            { icon: 'fa-rotate', text: 'Messages EventBase has not read:', name: '10' },
+            { text: 'Windows that failed before, read again:', name: '2' },
+        ]);
+        expect(options).toMatchObject({ okButton: 'Sync' });
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('reads them on Sync as Resume does with the dialog\'s defaults, with no dialog and no close announced', async () => {
+        expect(await syncOpenChat()).toEqual({ ran: true });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 3, skipTipFallback: false });
+        expect(host.dialogs).toHaveLength(0);
+        expect(closed).toEqual([]);
+    });
+
+    it('opens Vectorize Content on the Chat page for a chat with nothing stored yet, and asks nothing', async () => {
+        host.syncStatus = { state: 'no-collection' };
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'no-collection' });
+        await vi.waitFor(() => expect(host.dialogs).toHaveLength(1));
+        expect(page('chat').hidden).toBe(false);
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('says the chat is in sync, and asks nothing, when EventBase has read every message', async () => {
+        host.syncStatus = { state: 'fully-vectorized', chatMessageCount: 40, vectorizationTip: 40, unfinishedWindowCount: 0 };
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'in-sync' });
+        expect(toastr.info).toHaveBeenCalledWith(expect.stringContaining('in sync'), 'VectFox');
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('stops at the EventBase model\'s check before it asks', async () => {
+        host.llmCheck = { ok: false, reason: 'EventBase: no connection profile is chosen. Choose one on the Core page.' };
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'no-model' });
+        expect(toastr.error).toHaveBeenCalledWith(expect.stringContaining('no connection profile is chosen'), 'Configuration required', expect.any(Object));
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('says why it does nothing with no chat open, or an EventBase read further than the chat goes', async () => {
+        for (const [state, reason] of [['no-chat', 'no-chat'], ['vectorization-ahead', 'ahead']]) {
+            host.syncStatus = { state, chatMessageCount: 10 };
+            expect(await syncOpenChat(), state).toEqual({ ran: false, reason });
+        }
+        expect(toastr.info).toHaveBeenCalledTimes(2);
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
 });
 
 describe('the auto-sync catch-up', () => {
