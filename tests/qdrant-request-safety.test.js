@@ -26,16 +26,24 @@ afterEach(() => {
     qdrantBackend.apiKey = null;
 });
 
-test('a Qdrant key with a line break is refused before any request, without its value', async () => {
+test('a Qdrant key with a line break inside is refused before any request, without its value', async () => {
     const seen = stubFetch([() => new Response('{}')]);
     qdrantBackend.baseUrl = 'http://qdrant.test:6333';
-    qdrantBackend.apiKey = `${MADE_UP_KEY}\n`;
+    qdrantBackend.apiKey = `made-up\n${MADE_UP_KEY}`;
     await assert.rejects(qdrantBackend._request('GET', '/collections', null, 0), (error) => {
         assert.match(error.message, /^Qdrant: the api-key header holds a line break/);
         assert.equal(error.message.includes(MADE_UP_KEY), false);
         return true;
     });
     assert.equal(seen.length, 0);
+});
+
+test('a Qdrant key ending in a line break is sent, as before 3.4.4, for Node trims it', async () => {
+    const seen = stubFetch([() => new Response('{"result":{"collections":[]}}')]);
+    qdrantBackend.baseUrl = 'http://qdrant.test:6333';
+    qdrantBackend.apiKey = `${MADE_UP_KEY}\r\n`;
+    await qdrantBackend._request('GET', '/collections', null, 0);
+    assert.equal(seen.length, 1);
 });
 
 test('a redirect to another host is refused, and the key reaches no other host', async () => {

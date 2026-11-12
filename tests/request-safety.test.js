@@ -10,8 +10,8 @@ import { assertSendableHeaders, fetchOnSameHost } from '../request-safety.js';
 
 const MADE_UP_KEY = 'made-up-qdrant-key-7Hq2';
 
-test('a header value with a line break is refused by its name, without its value', () => {
-    for (const value of [`${MADE_UP_KEY}\n`, `Bearer ${MADE_UP_KEY}\r\nX-Other: 1`, `${MADE_UP_KEY}\u0000`, `${MADE_UP_KEY}\u007f`]) {
+test('a header value with a line break inside is refused by its name, without its value', () => {
+    for (const value of [`made-up\n${MADE_UP_KEY}`, `Bearer ${MADE_UP_KEY}\r\nX-Other: 1`, `${MADE_UP_KEY}\u0000`, `${MADE_UP_KEY}\u007f`, `${MADE_UP_KEY}\u0001\n`]) {
         assert.throws(() => assertSendableHeaders({ 'Content-Type': 'application/json', 'api-key': value }, 'Qdrant'), (error) => {
             assert.equal(error.message.includes(MADE_UP_KEY), false);
             assert.match(error.message, /^Qdrant: the api-key header holds a line break or another control character/);
@@ -23,6 +23,12 @@ test('a header value with a line break is refused by its name, without its value
 test('ordinary header values, a tab included, pass', () => {
     assertSendableHeaders({ 'api-key': MADE_UP_KEY, Authorization: `Bearer\t${MADE_UP_KEY}`, 'Content-Type': 'application/json' }, 'Qdrant');
     assertSendableHeaders(undefined, 'Qdrant');
+});
+
+test('line breaks, tabs and spaces at either end pass, as Node trims them and sends the rest', () => {
+    for (const value of [`${MADE_UP_KEY}\n`, `${MADE_UP_KEY}\r\n`, `\r\n ${MADE_UP_KEY}`, ` \t${MADE_UP_KEY}\t `]) {
+        assertSendableHeaders({ 'api-key': value }, 'Qdrant');
+    }
 });
 
 /** A fetch that answers from a list, recording each call. */

@@ -1,6 +1,6 @@
-// Tests that no server reply and no part of a key leave the plugin: a failed reply becomes its status and a fixed hint
-// that keeps the words VectFox reads, an error from SillyTavern's own embedding functions loses the reply it quotes,
-// anything key-shaped is removed before the client sees it, and /qdrant/key-status returns no part of the key.
+// Tests that no server reply and no part of a key leave the plugin: a failed reply becomes its status and fixed hints
+// that keep the words released VectFox reads, an error from SillyTavern's own embedding functions loses the reply it
+// quotes, anything key-shaped is removed before the client sees it, and /qdrant/key-status returns no part of the key.
 //
 //   node --test tests/
 
@@ -16,9 +16,13 @@ const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // A made-up key, masked the way OpenAI's 401 quotes the key it refused.
 const MASKED_ECHO = '{"error":{"message":"Incorrect API key provided: sk-proj-********************************Ab1C. You can find your API key at https://platform.openai.com/account/api-keys.","code":"invalid_api_key"}}';
 
-// The words VectFox 3.6.39 reads to tell a model or setup error from the rest, as its model-http-errors.js has them.
+// What released VectFox reads in the text, the same in 3.6.17 (main) and 3.6.39 (Dev): model-http-errors.js's setup
+// words, vector-api.js's retry words, matched in lower case, and model-config-notifier.js's isConnectionError.
 const VECTFOX_MODEL_CONFIG_WORDS = /(deprecated|no endpoints?|no allowed providers?|not found|not_found|no such model|unknown model|invalid model|not a valid model|does not exist|doesn't exist)/i;
-// And VectFox's key-refusal words (connection plan §4 row 4) and busy words (embedding-failure.js).
+const VECTFOX_RETRY_WORDS = ['network', 'timeout', 'timed out', 'failed to fetch', 'fetch', 'suspended', '429', 'rate limit', 'too many requests', '502', '503', '504'];
+const isRetriedByVectFox = text => VECTFOX_RETRY_WORDS.some(word => text.toLowerCase().includes(word));
+const VECTFOX_CONNECTION_WORDS = /econnrefused|enotfound|eai_again|econnreset|etimedout|ehostunreach|enetunreach|epipe|getaddrinfo|fetch failed|failed to fetch|socket hang up|connection refused|refused to connect|could not connect|err_invalid_url|invalid url|err_connection|net::err|network ?error|connection error|dns lookup/i;
+// And VectFox's key-refusal words (connection plan §4 row 4) and busy words (embedding-failure.js), from 3.6.128.
 const VECTFOX_KEY_WORDS = /unauthorized|authorization|api key|api_key|apikey|authentication|credential/i;
 const VECTFOX_BUSY_WORDS = /\b429\b|rate.?limit|too many requests|overloaded|over capacity|\bbusy\b|\b50[234]\b|bad gateway|service unavailable|gateway time-?out|timed? ?out|timeout/i;
 
@@ -47,11 +51,14 @@ test('a model error keeps a word VectFox reads as a setup error, on a 404 and on
     }
 });
 
-// The words VectFox 3.6.39 retries an embedding on (vector-api.js), matched as it matches them, in lower case.
-const VECTFOX_RETRY_WORDS = ['network', 'timeout', 'timed out', 'failed to fetch', 'fetch', 'suspended', '429', 'rate limit', 'too many requests', '502', '503', '504'];
-const isRetriedByVectFox = text => VECTFOX_RETRY_WORDS.some(word => text.toLowerCase().includes(word));
+test('every hint a reply earns is given, in a fixed order', () => {
+    assert.equal(serverFailureText({ status: 401, statusText: 'Unauthorized', reply: '{"error":{"message":"User not found.","code":401}}' }),
+        '401 Unauthorized (the server refused the API key and says the model was not found or is not valid)');
+    assert.equal(serverFailureText({ status: 500, reply: 'overloaded, the upstream timed out: fetch failed' }),
+        '500 (the server is busy or hit a rate limit, timed out and reports a network error)');
+});
 
-test('a busy or slow server keeps the words VectFox reads as busy and retries on', () => {
+test('a busy, slow or unreachable server keeps the words VectFox reads as busy and retries on', () => {
     for (const [status, statusText, reply] of [
         [429, 'Too Many Requests', 'slow down'],
         [500, 'Internal Server Error', 'Rate limit exceeded for this model'],
@@ -63,8 +70,10 @@ test('a busy or slow server keeps the words VectFox reads as busy and retries on
         assert.match(text, VECTFOX_BUSY_WORDS, reply);
         assert.ok(isRetriedByVectFox(text), `${reply} -> ${text}`);
     }
-    // As SillyTavern's own functions give it, with a status text and no code.
-    assert.ok(isRetriedByVectFox(errorWithoutServerReply(new Error('VLLM: Failed to get vector for text: Internal Server Error rate limit hit')).message));
+    const unreachable = serverFailureText({ status: 500, statusText: 'Internal Server Error', reply: '{"error":"litellm.APIConnectionError: Connection error."}' });
+    assert.equal(unreachable, '500 Internal Server Error (the server reports a network error)');
+    assert.ok(isRetriedByVectFox(unreachable));
+    assert.match(unreachable, VECTFOX_CONNECTION_WORDS);
 });
 
 test('a refused key or a missing model is not retried, as before', () => {
@@ -77,23 +86,71 @@ test('any other failure gives its status alone', () => {
     assert.equal(serverFailureText({}), '');
 });
 
-test('an error from SillyTavern\'s own embedding functions loses the reply it quotes', () => {
+test('an error from SillyTavern\'s own embedding functions loses the reply it quotes, and gets its code back', () => {
     const fromSillyTavern = new Error(`VLLM: Failed to get vector for text: Unauthorized ${MASKED_ECHO}`);
     const error = errorWithoutServerReply(fromSillyTavern);
-    assert.equal(error.message, 'VLLM: Failed to get vector for text: Unauthorized (the server refused the API key)');
+    assert.equal(error.message, 'VLLM: Failed to get vector for text: 401 Unauthorized (the server refused the API key)');
     assert.equal(error.cause, undefined);
 
     const batch = errorWithoutServerReply(new Error('Ollama: Failed to get batch vectors: Not Found {"error":"model \\"nomic\\" not found"}'));
-    assert.equal(batch.message, 'Ollama: Failed to get batch vectors: Not Found (the server says the model was not found or is not valid)');
+    assert.equal(batch.message, 'Ollama: Failed to get batch vectors: 404 Not Found (the server says the model was not found or is not valid)');
+
+    const gateway = errorWithoutServerReply(new Error('VLLM: Failed to get vector for text: Bad Gateway <html><title>502 Bad Gateway</title><center>nginx</center></html>'));
+    assert.equal(gateway.message, 'VLLM: Failed to get vector for text: 502 Bad Gateway');
 
     const bare = errorWithoutServerReply(new Error('LlamaCpp: Failed to get vector for text:  '));
     assert.equal(bare.message, 'LlamaCpp: Failed to get vector for text');
 });
 
-test('an error of another shape keeps its words, with anything key-shaped removed', () => {
+// Replies a server can give, as SillyTavern's own functions quote them and as the plugin's own requests see them.
+const FAILED_REPLIES = [
+    [502, 'Bad Gateway', '<html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx</center></body></html>'],
+    [502, 'Bad Gateway', ''],
+    [503, 'Service Unavailable', '<!DOCTYPE html><title>503 Service Temporarily Unavailable</title>'],
+    [503, 'Service Unavailable', '{"code":50505,"message":"Model service overloaded. Please try again later."}'],
+    [504, 'Gateway Timeout', '<html><body><h1>504 Gateway Time-out</h1>The server didn\'t respond in time.</body></html>'],
+    [429, 'Too Many Requests', '{"error":"Rate limit reached for requests"}'],
+    [400, 'Bad Request', '{"code":20012,"message":"Model does not exist. Please check it carefully.","data":null}'],
+    [404, 'Not Found', '{"object":"error","message":"The model `bge-m3` does not exist.","type":"NotFoundError","param":null,"code":404}'],
+    [404, 'Not Found', '{"error":"model \\"nomic-embed-text\\" not found, try pulling it first"}'],
+    [401, 'Unauthorized', '{"error":{"message":"User not found.","code":401}}'],
+    [401, 'Unauthorized', MASKED_ECHO],
+    [500, 'Internal Server Error', '{"error":{"message":"litellm.APIConnectionError: Connection error.","type":null,"param":null,"code":"500"}}'],
+    [500, 'Internal Server Error', '{"error":"fetch failed"}'],
+    [500, 'Internal Server Error', '{"error":"upstream request timed out"}'],
+    [500, 'Internal Server Error', '{"error":"connect ECONNREFUSED 10.0.0.7:8000"}'],
+    [400, 'Bad Request', '{"object":"error","message":"This model\'s maximum context length is 8192 tokens. However, you requested 9000 tokens.","type":"BadRequestError","code":400}'],
+    [500, 'Internal Server Error', '{"error":{"code":500,"message":"input is too large to process. increase the physical batch size","type":"server_error"}}'],
+    [500, 'Internal Server Error', ''],
+];
+
+test('released VectFox loses no setup error, retry or connection error it read in the reply', () => {
+    for (const [status, statusText, reply] of FAILED_REPLIES) {
+        // What the plugin passed on before 3.4.4, then what it passes on now, from SillyTavern's functions and its own.
+        const quoted = `VLLM: Failed to get vector for text: ${statusText} ${reply}`;
+        for (const passedOn of [
+            errorWithoutServerReply(new Error(quoted)).message,
+            `VLLM: Failed to get vector for text: ${serverFailureText({ status, statusText, reply })}`,
+        ]) {
+            const label = `${status} ${reply.slice(0, 60)} -> ${passedOn}`;
+            assert.equal(VECTFOX_MODEL_CONFIG_WORDS.test(passedOn), VECTFOX_MODEL_CONFIG_WORDS.test(quoted), `setup error: ${label}`);
+            if (isRetriedByVectFox(quoted)) assert.ok(isRetriedByVectFox(passedOn), `retry: ${label}`);
+            if (VECTFOX_CONNECTION_WORDS.test(quoted)) assert.match(passedOn, VECTFOX_CONNECTION_WORDS, `connection: ${label}`);
+            if ([429, 502, 503, 504].includes(status)) assert.ok(isRetriedByVectFox(passedOn), `retried by its status: ${label}`);
+            if (reply) assert.equal(passedOn.includes(reply), false, `reply quoted: ${label}`);
+        }
+    }
+});
+
+test('an error of another shape keeps its words and its cause, with anything key-shaped removed', () => {
     assert.equal(errorWithoutServerReply(new Error('API request failed')).message, 'API request failed');
     const leaked = errorWithoutServerReply(new Error(`Upstream said ${MASKED_ECHO}`));
     assert.equal(/sk-proj|Ab1C|\*{3}/.test(leaked.message), false);
+
+    const refused = Object.assign(new Error('connect ECONNREFUSED 10.0.0.7:8000'), { code: 'ECONNREFUSED' });
+    const network = errorWithoutServerReply(new TypeError('fetch failed', { cause: refused }));
+    assert.equal(network.message, 'fetch failed');
+    assert.equal(network.cause, refused);
 });
 
 test('an error the plugin built without a reply passes as it is', () => {
@@ -108,9 +165,26 @@ test('key shapes are removed, and ordinary error text is not', () => {
         assert.ok(redacted.includes('[key removed]'), text);
         assert.equal(redacted.includes(made), false);
     }
-    for (const text of ['No endpoints found for baai/bge-m3', 'Qwen/Qwen3-Embedding-8B not found', 'Wrong input: Vector dimension error: expected dim: 1024, got 384', 'fetch failed (cause: connect ECONNREFUSED 127.0.0.1:6333) [ECONNREFUSED]']) {
+    for (const text of ['No endpoints found for baai/bge-m3', 'Qwen/Qwen3-Embedding-8B not found', 'Wrong input: Vector dimension error: expected dim: 1024, got 384', 'fetch failed (cause: connect ECONNREFUSED 127.0.0.1:6333) [ECONNREFUSED]', 'see https://example.test/v1/embeddings or mail ops@example.test']) {
         assert.equal(redactKeyMaterial(text), text);
     }
+});
+
+test('a header value Node quotes when it refuses it is removed whole, a line break inside included', () => {
+    // As Node 24's fetch words it for a key holding a line break.
+    const quoted = 'Headers.append: "Bearer made-up-key-first\nmade-up-key-rest" is an invalid header value.';
+    assert.equal(redactKeyMaterial(quoted), 'Headers.append: "[key removed]" is an invalid header value.');
+});
+
+test('the user and password written into a URL are removed, and the host kept', () => {
+    assert.equal(redactKeyMaterial('Request cannot be constructed from a URL that includes credentials: https://ops:made-up-pass@vllm.example.test/v1/embeddings'),
+        'Request cannot be constructed from a URL that includes credentials: https://[key removed]@vllm.example.test/v1/embeddings');
+});
+
+test('a long reply with no key in it is read in linear time', () => {
+    const started = performance.now();
+    redactKeyMaterial(`${'A'.repeat(50_000)} "${'b'.repeat(50_000)} ${'//c'.repeat(20_000)}`);
+    assert.ok(performance.now() - started < 1000, `took ${Math.round(performance.now() - started)} ms`);
 });
 
 test('/qdrant/key-status returns a fixed mark, never part of the key, and formatError redacts', () => {

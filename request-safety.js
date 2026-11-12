@@ -1,20 +1,23 @@
-// Two guards on a request that carries a key. Node's fetch quotes a header value it refuses in its error, so a key
-// holding a line break or another control character would reach the error text and the logs: such a header is
-// refused first, by its name only. And Node keeps a custom key header, such as Qdrant's `api-key`, when it follows a
-// redirect to another host: fetchOnSameHost follows a redirect only while it stays on the host the request was sent to.
+// Two guards on a request that carries a key. Node's fetch quotes in its error a header value with a line break
+// inside, so such a key would reach the error text and the logs: a header holding a line break or another control
+// character is refused first, by its name only. And Node keeps a custom key header, such as Qdrant's `api-key`, when it
+// follows a redirect to another host: fetchOnSameHost follows a redirect only while it stays on the host the request
+// was sent to.
 
-// Header values may hold a tab, and nothing else below 0x20, nor DEL.
+// Header values may hold a tab, and nothing else below 0x20, nor DEL. Node first trims tabs, spaces and line breaks
+// from both ends of a value, as the Fetch standard says, and sends what is left, so only what is left is checked.
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000a-\u001f\u007f]/;
+const EDGE_WHITESPACE = /^[\t\n\r ]+|[\t\n\r ]+$/g;
 
 /**
- * Throw, naming the header but never its value, when a header value holds a control character.
+ * Throw, naming the header but never its value, when a header value holds a control character Node would not trim.
  *
  * @param {Record<string, unknown>} headers
  * @param {string} what - Names the request in the message, such as "Qdrant"
  */
 export function assertSendableHeaders(headers, what) {
     for (const [name, value] of Object.entries(headers ?? {})) {
-        if (CONTROL_CHARACTER.test(String(value))) {
+        if (CONTROL_CHARACTER.test(String(value).replace(EDGE_WHITESPACE, ''))) {
             throw new Error(`${what}: the ${name} header holds a line break or another control character, so nothing was sent. Save the key again in SillyTavern.`);
         }
     }
