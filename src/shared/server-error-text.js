@@ -4,15 +4,18 @@
  * Similharity before 3.4.4 passes such a reply on, so every failed reply VectFox reads goes through readErrorBody.
  */
 
-// Vendor key prefixes (OpenAI, OpenRouter, Anthropic, xAI, Groq, NVIDIA, Hugging Face, Google), a masked key
-// (characters around a run of stars or bullets), and a Bearer token. Similharity's server-failure-text.js keeps the
-// same shapes.
+// Key shapes and what replaces each: the value Node's fetch quotes when it refuses a header, vendor prefixes (OpenAI,
+// OpenRouter, Anthropic, xAI, Groq, NVIDIA, Hugging Face, Google), a masked key (up to 64 characters each side of a
+// run of stars or bullets), a Bearer token, and the user and password written into a URL. Every shape runs in time
+// linear in the text, so a long reply cannot stall it. Similharity's server-failure-text.js keeps the same shapes.
 const KEY_SHAPES = [
-    /\b(?:sk|pk|rk)-[A-Za-z0-9_\-*•.]{6,}/g,
-    /\b(?:xai|gsk|nvapi|hf)[-_][A-Za-z0-9_\-*•]{10,}/g,
-    /\bAIza[0-9A-Za-z_\-*]{20,}/g,
-    /[A-Za-z0-9_-]*(?:\*{3,}|•{2,})[A-Za-z0-9_-]*/g,
-    /\bBearer\s+\S+/gi,
+    [/"[^"]*(?=" is an invalid header)/g, '"[key removed]'],
+    [/\b(?:sk|pk|rk)-[A-Za-z0-9_\-*•.]{6,}/g, '[key removed]'],
+    [/\b(?:xai|gsk|nvapi|hf)[-_][A-Za-z0-9_\-*•]{10,}/g, '[key removed]'],
+    [/\bAIza[0-9A-Za-z_\-*]{20,}/g, '[key removed]'],
+    [/[A-Za-z0-9_-]{0,64}(?:\*{3,}|•{2,})[A-Za-z0-9_-]{0,64}/g, '[key removed]'],
+    [/\bBearer\s+\S+/gi, '[key removed]'],
+    [/(\/\/)[^\s/?#@]+@/g, '$1[key removed]@'],
 ];
 
 /**
@@ -22,7 +25,7 @@ const KEY_SHAPES = [
  * @returns {string}
  */
 export function redactKeyMaterial(text) {
-    return KEY_SHAPES.reduce((out, shape) => out.replace(shape, '[key removed]'), String(text ?? ''));
+    return KEY_SHAPES.reduce((out, [shape, replacement]) => out.replace(shape, replacement), String(text ?? ''));
 }
 
 /**

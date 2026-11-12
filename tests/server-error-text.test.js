@@ -32,9 +32,26 @@ describe('redactKeyMaterial', () => {
             'Wrong input: Vector dimension error: expected dim: 1024, got 384',
             'fetch failed (cause: connect ECONNREFUSED 127.0.0.1:6333) [ECONNREFUSED]',
             'Custom embedding: 401 Unauthorized (the server refused the API key)',
+            'see https://example.test/v1/embeddings or mail ops@example.test',
         ]) {
             expect(redactKeyMaterial(text)).toBe(text);
         }
+    });
+
+    it('removes a header value Node quotes when it refuses it, a line break inside included', () => {
+        expect(redactKeyMaterial('Headers.append: "Bearer made-up-first\nmade-up-rest" is an invalid header value.'))
+            .toBe('Headers.append: "[key removed]" is an invalid header value.');
+    });
+
+    it('removes the user and password written into a URL, and keeps the host', () => {
+        expect(redactKeyMaterial('Request cannot be constructed from a URL that includes credentials: https://ops:made-up-pass@vllm.example.test/v1'))
+            .toBe('Request cannot be constructed from a URL that includes credentials: https://[key removed]@vllm.example.test/v1');
+    });
+
+    it('reads a long reply with no key in it in linear time', () => {
+        const started = performance.now();
+        redactKeyMaterial(`${'A'.repeat(50_000)} "${'b'.repeat(50_000)} ${'//c'.repeat(20_000)}`);
+        expect(performance.now() - started).toBeLessThan(1000);
     });
 });
 
