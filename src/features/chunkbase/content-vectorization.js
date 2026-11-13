@@ -328,10 +328,9 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
             } catch (error) {
                 log.error('VectFox: insertVectorItems failed', error);
                 progressTracker.addError?.(error.message || String(error));
-                // Distinguish an embedder-call failure from a storage-write failure
-                // (#4): they were both reported as "Failed to write embeddings",
-                // which misleads when the real problem is the embedding provider
-                // URL/model. A connection failure already raised its own red toast
+                // An embedder-call failure and a storage-write failure get different
+                // headlines, so a wrong embedding provider URL or model is not
+                // reported as a storage fault. A connection failure already raised its own red toast
                 // via notifyConnectionError, and the caller shows a configuration
                 // failure's sticky toast, so neither gets a second one here.
                 const isEmbedFail = error?.code === 'embedding_generation_failed'

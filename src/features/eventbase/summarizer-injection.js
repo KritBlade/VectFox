@@ -162,8 +162,7 @@ function blankPromptClone(m) {
  * leaving any message raw INSIDE the span punches an interior `undefined` hole that crashes
  * prompt building ("Message role not set" → `chatPrompt.media` on undefined → "An unknown
  * error occurred while counting tokens"). So we wipe EVERY message in the span — including
- * empty and tool/system ones — and skip only null slots. (This mid-span skip was the
- * original crash: we used to `continue` past empty messages, breaking contiguity.)
+ * empty and tool/system ones — and skip only null slots.
  *
  * Gated to Summarizer Injection (forces auto-sync window=1 → the tip stays current).
  *

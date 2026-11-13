@@ -54,7 +54,7 @@ export async function fetchCollectionMetadata(actualCollectionId) {
 }
 
 /**
- * Invalidate the cached sentinel for a collection (e.g. after migration or purge).
+ * Forget the cached sentinel for a collection, so the next search reads it again after a purge.
  */
 export function invalidateCollectionMetadata(actualCollectionId) {
     metadataCache.delete(actualCollectionId);
