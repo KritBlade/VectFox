@@ -2,19 +2,20 @@
  * ============================================================================
  * STANDARD BACKEND (Vectra - ST Native)
  * ============================================================================
- * Uses ST's native /api/vector/* endpoints as the primary path.
+ * Stores vectors in SillyTavern's own Vectra index, through ST's /api/vector/* routes or the Similharity plugin.
  * This is the default backend — no setup required.
  *
  * ## Plugin dependency rule
  *
- * The Similharity plugin (/api/plugins/similharity/*) is an OPTIONAL
- * enhancement here, NOT a requirement. Every method that calls the plugin
- * MUST check `this.pluginAvailable` first and fall back to a native-API path
- * when the plugin is absent. The standard backend must be fully functional
- * without the plugin installed.
+ * On Transformers, Ollama (manual or on a profile), OpenRouter and vLLM the Similharity plugin
+ * (/api/plugins/similharity/*) is an OPTIONAL enhancement: every method that calls the plugin MUST check
+ * `this.pluginAvailable` first and fall back to ST's own route when the plugin is absent, so the backend stays fully
+ * functional without it. Plugin-enhanced features (metadata, chunk listing, chunk editing) degrade to reduced
+ * functionality — never to a hard error.
  *
- * Plugin-enhanced features (metadata, chunk listing, chunk editing) degrade
- * gracefully to reduced functionality — never to a hard error.
+ * On a llama.cpp, KoboldCPP or Custom profile the plugin is REQUIRED: ST's own routes take no key ID and would send
+ * the slot's active key. With the plugin absent, insert, query and multi-collection search stop before any request
+ * (refuseSillyTavernEmbeddingRoute); with it, multi-collection search queries each collection through the plugin.
  *
  * See Doc/dev_helper.md §15 for the full plugin dependency policy.
  *

@@ -811,12 +811,12 @@ The Similharity plugin (`/api/plugins/similharity/*`) is built for Qdrant. Its r
 
 VectFox warns when the installed similharity server plugin is older than the version it needs. Code: `checkSimilharityVersion()` in **`src/app/network-startup.js`**, run by the network startup:
 
-- Constant `SIMILHARITY_MIN_VERSION` is a **floor**, not an exact match (`isSimilharityVersionBehind`): a newer plugin build passes. Bump it only when VectFox needs a newer plugin feature.
-- The installed version comes from the `/health` probe that `checkPluginAvailable()` already made (`getDetectedPluginVersion()`), so every plugin build reports one at no extra request.
-- Below the floor, or no version reported: `log.warn(...)` + a `toastr.warning` telling the user to **restart SillyTavern so it auto-updates the server plugin**, or to reinstall it with git when it came from a ZIP. Soft warning only — init continues.
-- No plugin installed → silent; that is a supported setup.
+- The floor is `similharity_minimum_version` in VectFox's `manifest.json`, its one place. It is a **floor**, not an exact match (`isSimilharityVersionBehind` in `src/shared/similharity-plugin.js`): a newer plugin build passes. Raise it only when VectFox needs a newer plugin feature.
+- The installed version comes from the `/health` probe that `checkPluginAvailable()` already made (`similharityStanding()`), so every plugin build reports one at no extra request.
+- Below the floor, or no version reported: `log.warn(...)` + a `toastr.warning` telling the user to **restart SillyTavern so it auto-updates the server plugin**, or to reinstall it with git when it came from a ZIP. Soft warning only — init continues. Embedding on a llama.cpp, KoboldCPP or Custom profile is the exception: below the floor it stops before any request (see the rule below).
+- No plugin installed → silent; that is a supported setup, except for embedding on those three profile types.
 
-Search hint: grep `SIMILHARITY_MIN_VERSION`.
+Search hint: grep `similharity_minimum_version`.
 
 ### Deployment scope — local / LAN only
 
@@ -834,12 +834,13 @@ If you deploy ST in a context where untrusted users share the same instance — 
 
 Full threat-model reasoning: `InternalProject/Vectfox/plans/executed/review-fix.md` §H-4. The plugin's own header (`similharity/index.js`) carries the same scope statement.
 
-### Rule: plugin is Qdrant-native, optional-only on standard
+### Rule: plugin required on Qdrant, optional on Standard except for profiles that send a key ID
 
-| Backend               | Plugin role                                                                          |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| **Qdrant**            | Required. All inserts, queries, chunk listing, and management go through the plugin. |
-| **Standard (Vectra)** | Optional enhancement only. Standard backend must be fully functional without it.     |
+| Backend | Plugin role |
+| --- | --- |
+| **Qdrant** | Required. All inserts, queries, chunk listing, and management go through the plugin. |
+| **Standard (Vectra)**, embedding on Transformers, Ollama (manual or on a profile), OpenRouter or vLLM | Optional enhancement only. The Standard backend must be fully functional without it. |
+| **Standard (Vectra)**, embedding on a llama.cpp, KoboldCPP or Custom profile | Required, at the floor or later. SillyTavern's own `/api/vector/*` routes take no key ID and would send the slot's active key, so insert, query and multi-collection search stop before any request without the plugin (`refuseSillyTavernEmbeddingRoute`), and below the floor (`resolveProviderApiUrl`). |
 
 ### Standard backend — what the plugin enhances (when installed)
 
@@ -852,15 +853,17 @@ Full threat-model reasoning: `InternalProject/Vectfox/plans/executed/review-fix.
 | Stats                         | Hash count only            | Plugin`/chunks/stats` — rich stats                                        |
 | Collection discovery          | Registry only              | Plugin`/collections` — filesystem scan                                    |
 
+Multi-collection search uses SillyTavern's `/api/vector/query-multi` with or without the plugin. On a llama.cpp, KoboldCPP or Custom profile the table's "Without plugin" column does not apply: those three refuse there, and multi-collection search embeds the text once and queries each collection through the plugin's `/chunks/query`.
+
 ### The rule for new code
 
-- **Standard backend (`src/features/vector-backend/standard.js`):** Every plugin call MUST be gated by `this.pluginAvailable`. Every gated call MUST have a native-API fallback. No unconditional plugin calls.
+- **Standard backend (`src/features/vector-backend/standard.js`):** Every plugin call MUST be gated by `this.pluginAvailable`. Every gated call MUST have a native-API fallback, except on a llama.cpp, KoboldCPP or Custom profile, where the fallback is `refuseSillyTavernEmbeddingRoute`, never SillyTavern's own route. No unconditional plugin calls.
 - **UI and other modules (outside `src/features/vector-backend/`):** Check `browserState.pluginAvailable` (UI) or make an explicit health check before calling plugin endpoints. Show a graceful message if unavailable — never throw an unhandled error.
-- **Import/export (`src/features/collections/collection-export.js`):** `insertChunksWithVectors` uses native `/api/vector/insert` for standard backend unconditionally — plugin is never called for inserts on standard backend regardless of plugin availability. This is intentional: standard-backend import must work without the plugin.
+- **Import/export (`src/features/collections/collection-export.js`):** `insertChunksWithVectors` uses native `/api/vector/insert` for the Standard backend, never the plugin, whether or not it is installed, so a Standard import works without the plugin. A llama.cpp, KoboldCPP or Custom profile is refused first (`refuseSillyTavernEmbeddingRoute`), with the advice to import into Qdrant.
 
 ### Why the separation matters
 
-Routing standard-backend inserts through the plugin would make import depend on it: users without the plugin could not import collections. The native ST API supports pre-computed vector inserts via an `embeddings` map — there is no reason to route standard backend inserts through the plugin. The plugin's value on standard backend is read-side enhancement (metadata retrieval, chunk listing), not write-side.
+Routing Standard imports through the plugin would make import depend on it: users without the plugin could not import collections. SillyTavern's own route takes pre-computed vectors through its `embeddings` map, so an import needs no plugin. Live inserts and queries do go through the plugin when it is installed, for the keywords and importance it stores and returns.
 
 ### Test-suite coverage matrix — which tests run in which configuration?
 
