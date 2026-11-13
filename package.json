@@ -1,6 +1,6 @@
 {
   "name": "similharity",
-  "version": "3.4.6",
+  "version": "3.4.8",
   "description": "Vector database backend extensions for Similharity - Qdrant and enhanced Vectra with full metadata storage",
   "main": "index.js",
   "type": "module",
