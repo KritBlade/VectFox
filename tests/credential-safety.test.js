@@ -87,7 +87,7 @@ describe('credential invariants (plan §10)', () => {
         // The plan's table, written out here so a change to the builder's own list cannot widen it unseen.
         const PLAN_KEYS = {
             chat: ['max_completion_tokens', 'reasoning_effort', 'response_format', 'temperature'],
-            text: ['temperature'],
+            text: ['n_predict', 'num_predict', 'temperature'],
         };
         expect(Object.fromEntries(Object.entries(CONNECTION_PROFILE_OVERRIDE_KEYS).map(([api, keys]) => [api, [...keys].sort()]))).toEqual(PLAN_KEYS);
         const sent = new Set();
@@ -105,7 +105,7 @@ describe('credential invariants (plan §10)', () => {
             }
         }
         // The builder was exercised, rather than an empty payload passing.
-        expect(sent.size).toBe(5);
+        expect(sent.size).toBe(7);
         // The wrapper spreads the builder's payload and adds one key, only for a profile with no stored key.
         const wrapper = fileAt('src/sillytavern/connection-profiles.js');
         expect(hitsOf(/overridePayload,/, { codeOnly: true, files: [wrapper] })).toHaveLength(1);

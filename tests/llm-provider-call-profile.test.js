@@ -40,12 +40,14 @@ function extractMessageFromData(data, activeApi) {
 const CONNECT_API_MAP = {
     custom: { selected: 'openai', source: 'custom' },
     claude: { selected: 'openai', source: 'claude' },
+    cohere: { selected: 'openai', source: 'cohere' },
     llamacpp: { selected: 'textgenerationwebui', type: 'llamacpp' },
     ollama: { selected: 'textgenerationwebui', type: 'ollama' },
 };
 const PROFILES = {
     custom: { id: 'p-custom', name: 'Harbor custom', api: 'custom', model: 'harbor-model', 'secret-id': 'secret-3' },
     claude: { id: 'p-claude', name: 'Harbor claude', api: 'claude', model: 'claude-model', 'secret-id': 'secret-4' },
+    cohere: { id: 'p-cohere', name: 'Harbor cohere', api: 'cohere', model: 'command-model', 'secret-id': 'secret-5' },
     llamacpp: { id: 'p-llama', name: 'Harbor llama', api: 'llamacpp', model: '' },
     ollama: { id: 'p-ollama', name: 'Harbor ollama', api: 'ollama', model: 'harbor-text' },
 };
@@ -105,17 +107,35 @@ describe('a chat call on a connection profile', () => {
         expect((await call(PROFILES.claude)).content).toBe('[{"name":"bell"}]');
     });
 
-    it('reads a Text Completion reply, llama.cpp\'s content and Ollama\'s response, sending only temperature and the no-key ID', async () => {
+    it('reads a Text Completion reply, llama.cpp\'s content and Ollama\'s response, sending only temperature, the max tokens as num_predict and n_predict, and the no-key ID', async () => {
         host.reply = { choices: [{ text: '[{"name":"lamp"}]', finish_reason: 'stop' }] };
         expect((await call(PROFILES.ollama)).content).toBe('[{"name":"lamp"}]');
         const [, , maxTokens, , overridePayload] = sentRequest();
         expect(maxTokens).toBe(900);
-        expect(Object.keys(overridePayload).sort()).toEqual(['secret_id', 'temperature']);
+        expect(Object.keys(overridePayload).sort()).toEqual(['n_predict', 'num_predict', 'secret_id', 'temperature']);
+        expect(overridePayload).toMatchObject({ num_predict: 900, n_predict: 900 });
 
         host.reply = { content: '[{"name":"rope"}]' };
         expect((await call(PROFILES.llamacpp)).content).toBe('[{"name":"rope"}]');
         host.reply = { response: '[{"name":"oar"}]' };
         expect((await call(PROFILES.ollama)).content).toBe('[{"name":"oar"}]');
+    });
+
+    it('reads a cut in Ollama\'s, llama.cpp\'s and Cohere\'s own replies, and a finished one as finished', async () => {
+        host.reply = { response: '[{"name":"o', done: true, done_reason: 'length' };
+        await expect(call(PROFILES.ollama)).resolves.toMatchObject({ content: '[{"name":"o', finishReason: 'length', cutReason: 'length' });
+        host.reply = { response: '[{"name":"oar"}]', done: true, done_reason: 'stop' };
+        await expect(call(PROFILES.ollama)).resolves.toMatchObject({ finishReason: 'stop', cutReason: null });
+
+        host.reply = { content: '[{"name":"ro', stop: true, stop_type: 'limit' };
+        await expect(call(PROFILES.llamacpp)).resolves.toMatchObject({ finishReason: 'length', cutReason: 'length (native: limit)' });
+        host.reply = { content: '[{"name":"rope"}]', stop: true, stop_type: 'eos' };
+        await expect(call(PROFILES.llamacpp)).resolves.toMatchObject({ finishReason: 'stop', cutReason: null });
+
+        host.reply = { finish_reason: 'MAX_TOKENS', message: { role: 'assistant', content: [{ type: 'text', text: '[{"name":"ke' }] } };
+        await expect(call(PROFILES.cohere)).resolves.toMatchObject({ content: '[{"name":"ke', finishReason: 'length', cutReason: 'length (native: MAX_TOKENS)' });
+        host.reply = { finish_reason: 'COMPLETE', message: { role: 'assistant', content: [{ type: 'text', text: '[{"name":"keel"}]' }] } };
+        await expect(call(PROFILES.cohere)).resolves.toMatchObject({ finishReason: 'stop', cutReason: null });
     });
 
     it('treats a budget spent before the answer as the manual path does', async () => {

@@ -58,8 +58,13 @@ describe('the request a profile call sends', () => {
             .toEqual({ maxTokens: 900, overridePayload: {} });
     });
 
-    it('overrides on Text Completion only temperature, whatever the switches', () => {
-        expect(connectionProfileRequestShape({ api: 'text', ...switches })).toEqual({ maxTokens: 900, overridePayload: { temperature: 0.2 } });
+    it('overrides on Text Completion only temperature and the max tokens as num_predict and n_predict, whatever the other switches', () => {
+        expect(connectionProfileRequestShape({ api: 'text', ...switches })).toEqual({
+            maxTokens: 900,
+            overridePayload: { temperature: 0.2, num_predict: 900, n_predict: 900 },
+        });
+        expect(connectionProfileRequestShape({ api: 'text', ...switches, sendTemperature: false, tokenLimitParameter: 'max_tokens', reasoningEffort: null, responseFormat: null }))
+            .toEqual({ maxTokens: 900, overridePayload: { num_predict: 900, n_predict: 900 } });
     });
 
     it('never sends a key outside the closed set, for any combination of switches', () => {

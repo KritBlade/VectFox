@@ -17,12 +17,13 @@ const textOf = value => String(value ?? '').trim();
 /**
  * The keys a profile request may override, by the kind of request (plan §2). Closed: SillyTavern spreads the override
  * last, so any other key could replace the profile's URL or API and send its key to another host. Text Completion gets
- * less, as SillyTavern forwards its body to most servers as it is. The wrapper adds one more key, for a profile that
- * stores no key: the ID that matches none.
+ * temperature and the two token-limit names SillyTavern's own main reply sends every Text Completion server, and
+ * nothing else, as SillyTavern forwards its body to most servers as it is. The wrapper adds one more key, for a profile
+ * that stores no key: the ID that matches none.
  */
 export const CONNECTION_PROFILE_OVERRIDE_KEYS = Object.freeze({
     chat: Object.freeze(['temperature', 'max_completion_tokens', 'reasoning_effort', 'response_format']),
-    text: Object.freeze(['temperature']),
+    text: Object.freeze(['temperature', 'num_predict', 'n_predict']),
 });
 
 /**
@@ -57,7 +58,10 @@ export function resolveConnectionProfileId(settings, consumer) {
 /**
  * The request's max-token argument and override keys, from the same switches the manual path reads
  * (resolveModelParameterStyle). Chat Completion: temperature when it is sent, max_completion_tokens in place of the
- * max-token argument when chosen, reasoning_effort and response_format when given. Text Completion: temperature only.
+ * max-token argument when chosen, reasoning_effort and response_format when given. Text Completion: temperature when
+ * it is sent, and the max tokens again as num_predict and n_predict, as SillyTavern's own main reply sends them:
+ * SillyTavern's request service sends the max-token argument only as max_tokens, its server passes Ollama only
+ * Ollama's own option names, so Ollama reads num_predict, and llama.cpp's /completion documents only n_predict.
  * Only the keys CONNECTION_PROFILE_OVERRIDE_KEYS lists for the API leave this function.
  *
  * @param {object} request
@@ -75,6 +79,7 @@ export function connectionProfileRequestShape({ api, maxTokens, temperature, sen
     const wanted = {
         ...(sendTemperature ? { temperature } : {}),
         ...(isCompletionTokenLimit ? { max_completion_tokens: maxTokens } : {}),
+        ...(api === 'text' ? { num_predict: maxTokens, n_predict: maxTokens } : {}),
         ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
         ...(responseFormat ? { response_format: responseFormat } : {}),
     };
