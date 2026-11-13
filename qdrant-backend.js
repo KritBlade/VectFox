@@ -170,11 +170,21 @@ class QdrantBackend {
      * @param {string} endpoint - API endpoint
      * @param {object|null} body - Request body
      * @param {number} maxRetries - Maximum retry attempts for transient failures
+     * @param {object|null} extraHeaders - Headers for this request only, such as an encoding preference
      */
-    async _request(method, endpoint, body = null, maxRetries = 3) {
+    async _request(method, endpoint, body = null, maxRetries = 3, extraHeaders = null) {
         const url = `${this.baseUrl}${endpoint}`;
+        const headers = this._getHeaders();
+        if (extraHeaders) {
+            // A per-request header may add a preference; it never replaces the
+            // key or the content type, whatever its casing.
+            const reserved = new Set(Object.keys(headers).map(name => name.toLowerCase()));
+            for (const [name, value] of Object.entries(extraHeaders)) {
+                if (!reserved.has(name.toLowerCase())) headers[name] = value;
+            }
+        }
         // Before the retries: Node's refusal of a header value quotes the value, and would read as a network error.
-        assertSendableHeaders(this._getHeaders(), 'Qdrant');
+        assertSendableHeaders(headers, 'Qdrant');
 
         // Add explicit timeout of 60s to prevent indefinite hangs during heavy operations (like wait=true)
         const controller = new AbortController();
@@ -182,7 +192,7 @@ class QdrantBackend {
 
         const options = {
             method,
-            headers: this._getHeaders(),
+            headers,
             signal: controller.signal,
         };
         if (body) {
@@ -339,10 +349,17 @@ class QdrantBackend {
             this.serverVersion = null;
         }
 
-        // Ensure indexes exist on any existing multitenancy collection
+        // Ensure indexes exist on any existing multitenancy collection. It is
+        // ensured before the loop because a fresh install has no collections
+        // yet, and the loop's set is de-duplicated so a store that already
+        // holds it is read once per init, not twice.
         await this.ensurePayloadIndexes(MULTITENANCY_COLLECTION);
         const collections = await this.getCollections();
+        const ensured = new Set([MULTITENANCY_COLLECTION]);
         for (const collectionName of collections || []) {
+            const storedName = this._parseCollectionName(collectionName);
+            if (ensured.has(storedName)) continue;
+            ensured.add(storedName);
             await this.ensurePayloadIndexes(collectionName);
         }
     }
@@ -414,8 +431,25 @@ class QdrantBackend {
     }
 
     /**
-     * Create payload indexes for filterable fields
-     * @param {string} collectionName - Collection name
+     * Create the payload indexes a collection lacks, and nothing it already has.
+     *
+     * Every collection used to receive all twenty indexes on every page load,
+     * and every one of them answered "already exists" — 700 sequential writes
+     * for the reporter's 35 collections, 5.4 s of the sandbox page load. Qdrant
+     * already knows which indexes a collection has: its collection info carries
+     * `payload_schema`, one entry per indexed field. So this reads that once and
+     * creates only what the map does not cover.
+     *
+     * Presence is the test, plus the reported data type where Qdrant reports one
+     * (see {@link _payloadIndexMatches} for the tenant flag, which is
+     * deliberately not compared). A schema read that fails for any reason other
+     * than "no such collection" degrades to the old behaviour and creates every
+     * index, so a hiccup during the read cannot leave a collection unindexed. A
+     * 404 means the collection is gone: no writes, no throw — the read answers
+     * the existence question the collection-list check used to ask.
+     *
+     * @param {string} collectionName - Collection name, with or without a source prefix
+     * @returns {Promise<boolean>} False when the collection does not exist, true otherwise
      */
     async createPayloadIndexes(collectionName) {
         collectionName = this._parseCollectionName(collectionName);
@@ -460,7 +494,33 @@ class QdrantBackend {
             { field: 'event_type',  schema: 'keyword' },
         ];
 
+        let payloadSchema = null;
+        try {
+            // Ask for this ~2 KB JSON uncompressed. Qdrant gzips and chunks it
+            // otherwise, and on a kept-alive connection Node's fetch finishes
+            // reading that body ~40 ms late (measured: 40.2 ms gzipped against
+            // 0.8 ms identity, both on 127.0.0.1). The diff turns twenty cheap
+            // writes into one read per collection, and that read must not cost
+            // more than the write it replaced.
+            const info = await this._request('GET', `/collections/${collectionName}`, null, 3, {
+                'accept-encoding': 'identity',
+            });
+            payloadSchema = info?.result?.payload_schema || {};
+        } catch (error) {
+            if (/\bfailed: 404\b/.test(error.message)) {
+                console.debug(`[Qdrant] Collection ${collectionName} is gone, so no indexes are created`);
+                return false;
+            }
+            // Any other failure re-asserts the full set, as before the diff: a
+            // failed read must never leave a collection without indexes.
+            console.warn(`[Qdrant] Could not read the payload schema of ${collectionName}, so every index is re-asserted:`, error.message);
+        }
+
         for (const { field, schema } of indexConfigs) {
+            const configuredType = typeof schema === 'object' ? schema.type : schema;
+            if (payloadSchema && this._payloadIndexMatches(payloadSchema[field], configuredType)) {
+                continue;
+            }
             try {
                 await this._request('PUT', `/collections/${collectionName}/index`, {
                     field_name: field,
@@ -469,12 +529,44 @@ class QdrantBackend {
                 const schemaType = typeof schema === 'object' ? `${schema.type}${schema.is_tenant ? ' (tenant)' : ''}` : schema;
                 console.log(`[Qdrant] Created index for ${field} (${schemaType})`);
             } catch (error) {
-                // Index might already exist, that's fine
+                // Index might already exist, that's fine — a concurrent creation
+                // must not fail init, nor stop the remaining fields.
                 if (!error.message?.includes('already exists') && !error.message?.includes('409')) {
                     console.warn(`[Qdrant] Failed to create index for ${field}:`, error.message);
                 }
             }
         }
+
+        return true;
+    }
+
+    /**
+     * Whether a collection's reported payload schema already satisfies one
+     * configured index.
+     *
+     * Presence is the test; a reported `data_type` that disagrees with the
+     * configured schema is re-issued, because the data type is the one thing a
+     * creation on an existing field can change. An entry with no reported type
+     * counts as present — an older server that does not report types must not
+     * turn into a write storm.
+     *
+     * `is_tenant` is deliberately not compared. Qdrant 1.20 does report it under
+     * `params`, but a creation on an existing field leaves the flag as it was,
+     * and older servers omit `params` entirely, so comparing it could only buy
+     * writes that repair nothing. The consequence, stated for the reviewer: an
+     * index created before tenant flags existed stays as it is — exactly as it
+     * stayed under the old unconditional re-assertion.
+     *
+     * @private
+     * @param {object|undefined} reported - `payload_schema[field]`, when the collection reports one
+     * @param {string} configuredType - The configured `data_type` for the field
+     * @returns {boolean} True when the index is present and, if the type is reported, of the right type
+     */
+    _payloadIndexMatches(reported, configuredType) {
+        if (!reported) return false;
+        const reportedType = reported.data_type;
+        if (!reportedType) return true;
+        return reportedType === configuredType;
     }
 
     /**
@@ -546,15 +638,19 @@ class QdrantBackend {
     }
 
     /**
-     * Ensure payload indexes exist on an existing collection
-     * @param {string} collectionName - Collection name
+     * Ensure payload indexes exist on an existing collection.
+     *
+     * The collection-list existence check this used to make before creating is
+     * gone: {@link createPayloadIndexes} reads the collection's own schema, and
+     * a 404 on that read answers the same question in the request it already
+     * needs.
+     *
+     * @param {string} collectionName - Collection name, with or without a source prefix
      */
     async ensurePayloadIndexes(collectionName) {
         try {
-            const collections = await this._request('GET', '/collections');
-            const exists = collections.result?.collections?.some(c => c.name === collectionName);
+            const exists = await this.createPayloadIndexes(collectionName);
             if (exists) {
-                await this.createPayloadIndexes(collectionName);
                 console.log(`[Qdrant] Ensured payload indexes for ${collectionName}`);
             }
         } catch (error) {
@@ -1251,6 +1347,127 @@ class QdrantBackend {
         } catch (error) {
             console.error(`[Qdrant] Failed to list items from ${mainCollection}:`, error.message);
             return [];
+        }
+    }
+
+    /**
+     * Count a collection's points without reading any of them.
+     *
+     * The collection listing used to learn a chunk count by scrolling every point
+     * with its payload and keeping the length — for a large library that is tens
+     * of megabytes decoded per page load for a number Qdrant already keeps. This
+     * asks for the number instead.
+     *
+     * `exact: true` is explicit rather than left to Qdrant's default, because
+     * `chunkCount` decides whether VectFox treats a collection as a ghost; an
+     * estimate would not do. Sentinel exclusion is the canonical one
+     * ({@link _buildFilterExcludingSentinel}), so the count matches what
+     * {@link listItems} returned for the same filters.
+     *
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
+     * @param {object} filters - Payload filters {type, sourceId}
+     * @returns {Promise<number|null>} The count, or null when the collection does not exist
+     */
+    async countPoints(collectionName, filters = {}) {
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
+
+        collectionName = this._parseCollectionName(collectionName);
+        const mainCollection = collectionName;
+
+        const must = [];
+        if (filters.type) {
+            must.push({ key: 'type', match: { value: filters.type } });
+        }
+        if (filters.sourceId) {
+            must.push({ key: 'sourceId', match: { value: filters.sourceId } });
+        }
+
+        try {
+            const response = await this._request('POST', `/collections/${mainCollection}/points/count`, {
+                filter: this._buildFilterExcludingSentinel(must),
+                exact: true,
+            });
+            const count = response?.result?.count;
+            if (typeof count !== 'number') {
+                // A 200 without a number is not a count: report none, and say so,
+                // rather than passing a silent zero to a caller holding a ghost.
+                console.warn(`[Qdrant] Count of ${mainCollection} came back without a number`);
+                return 0;
+            }
+            return count;
+        } catch (error) {
+            // A 404 is the only evidence of a collection deleted between the
+            // listing and this call — but an older Qdrant, or a proxy in front
+            // of it, 404s this route too, and reading that as "every collection
+            // was deleted" would empty VectFox's registry of a healthy store.
+            // So the collection itself is asked, on this path only.
+            if (/\bfailed: 404\b/.test(error.message) && await this._isMissing(mainCollection)) {
+                console.warn(`[Qdrant] Collection ${mainCollection} is gone, so the listing leaves it out`);
+                return null;
+            }
+            // Any other failure still reports zero, as the empty scroll this
+            // replaced did, and the route keeps answering.
+            console.warn(`[Qdrant] Failed to count points in ${mainCollection}:`, error.message);
+            return 0;
+        }
+    }
+
+    /**
+     * Whether Qdrant says the collection does not exist (as opposed to failing
+     * for another reason, or answering at all). Asked only where a count read a
+     * 404, to tell a deleted collection from a route that is not there.
+     *
+     * @private
+     * @param {string} collectionName - Collection name, already parsed
+     * @returns {Promise<boolean>} True only when Qdrant answers "no such collection"
+     */
+    async _isMissing(collectionName) {
+        try {
+            await this._request('GET', `/collections/${collectionName}`);
+            return false;
+        } catch (error) {
+            return /\bfailed: 404\b/.test(error.message);
+        }
+    }
+
+    /**
+     * The embedding source of a collection's first stored point, or 'unknown'.
+     *
+     * The listing resolves a collection's source from its name when the name
+     * encodes one ("source:id" or "backend:source:id"). When it does not, it
+     * needs the source the collection was built with, which the points carry.
+     * That fallback used to read every point with its payload to keep the first
+     * one; this reads one point.
+     *
+     * It is deliberately not implemented on top of {@link listItems}: that one
+     * pages until the collection is exhausted, so a one-item limit would still
+     * walk the whole collection.
+     *
+     * The read asks for `embeddingSource` alone rather than the whole payload.
+     * Qdrant gzips and chunks the full ~3 KB point, and on a kept-alive
+     * connection Node finishes reading it ~40 ms late; the selected 131 B body
+     * answers in about 1 ms, and this method never read any other field.
+     *
+     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
+     * @returns {Promise<string>} The first point's `embeddingSource`, or 'unknown'
+     */
+    async firstPointSource(collectionName) {
+        if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
+
+        collectionName = this._parseCollectionName(collectionName);
+        const mainCollection = collectionName;
+
+        try {
+            const response = await this._request('POST', `/collections/${mainCollection}/points/scroll`, {
+                limit: 1,
+                with_payload: ['embeddingSource'],
+                with_vector: false,
+                filter: this._buildFilterExcludingSentinel(),
+            });
+            return response?.result?.points?.[0]?.payload?.embeddingSource || 'unknown';
+        } catch (error) {
+            console.warn(`[Qdrant] Failed to read the first point of ${mainCollection}:`, error.message);
+            return 'unknown';
         }
     }
 
