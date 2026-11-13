@@ -46,12 +46,12 @@
 
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import sanitize from 'sanitize-filename';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
 import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource, loadSillyTavernEmbeddingHost } from './openai-style-embedding.js';
 import { errorFreeOfServerReply, errorWithoutServerReply, redactKeyMaterial, serverFailureText } from './server-failure-text.js';
 import { assertSendableHeaders } from './request-safety.js';
+import { moveTopLevelTransformersIndexes, vectraIndexFolder, vectraModelFolder } from './vectra-folders.js';
 
 const pluginName = 'similharity';
 // The plugin's version is written only in package.json; /health, /version and the startup line report it.
@@ -352,9 +352,7 @@ export async function init(router) {
                         }
 
                         // Get file size
-                        const indexPath = model
-                            ? path.join(directories.vectors, sanitize(source), sanitize(collectionId), sanitize(model), 'index.json')
-                            : path.join(directories.vectors, sanitize(source), sanitize(collectionId), 'index.json');
+                        const indexPath = path.join(await vectraIndexFolderFor(directories, collectionId, source, model), 'index.json');
 
                         let storageSize = 0;
                         try {
@@ -523,6 +521,11 @@ export async function init(router) {
      */
     router.get('/collections', async (req, res) => {
         try {
+            try {
+                await moveTransformersCollectionsOnce(req.user.directories);
+            } catch (error) {
+                console.warn(`[${pluginName}] collections: Transformers collections were not moved into their model folders, so discovery lists them where they are:`, error);
+            }
             const vectorsPath = req.user.directories.vectors;
             const { collections: allCollections, qdrantScanned } = await scanAllSourcesForCollections(vectorsPath);
 
@@ -671,9 +674,11 @@ export async function init(router) {
 
             switch (backend) {
                 case 'vectra':
-                case 'standard':
-                    res.json({ success: true, message: 'Vectra requires no initialization' });
+                case 'standard': {
+                    const transformersMoves = await moveTransformersCollectionsOnce(req.user.directories);
+                    res.json({ success: true, message: 'Vectra ready', movedTransformersCollections: transformersMoves.moved.length });
                     break;
+                }
 
                 case 'qdrant':
                     // VectFox sends apiKey: null for a Qdrant with a URL, and
@@ -1402,15 +1407,49 @@ async function getVectorsForSource(source, texts, model, directories, req) {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Get vectra index for a collection
- */
-async function getIndex(directories, collectionId, source, model) {
-    const pathToFile = model
-        ? path.join(directories.vectors, sanitize(source), sanitize(collectionId), sanitize(model))
-        : path.join(directories.vectors, sanitize(source), sanitize(collectionId));
+/** config.yaml's Transformers embedding model, read with SillyTavern's own reader, as its vector routes read it. */
+async function configuredTransformersModel() {
+    const { getConfigValue } = await import('../../src/util.js');
+    return String(getConfigValue('extensions.models.embedding', '') ?? '');
+}
 
-    const store = new vectra.LocalIndex(pathToFile);
+// One move of a user's top-level Transformers indexes per server start, by vectors directory.
+const transformersMovesByVectorsPath = new Map();
+
+/**
+ * Move this user's top-level Transformers indexes into their model folders (vectra-folders.js), once per server
+ * start. Every Transformers read and write waits for it. A move that fails is forgotten, so the next call tries again.
+ *
+ * @param {object} directories - The user's directories
+ * @returns {Promise<{moved: string[], kept: string[], emptied: string[]}>}
+ */
+function moveTransformersCollectionsOnce(directories) {
+    const vectorsPath = directories.vectors;
+    if (!transformersMovesByVectorsPath.has(vectorsPath)) {
+        const moving = (async () => moveTopLevelTransformersIndexes(vectorsPath, await configuredTransformersModel()))();
+        // The caller that awaits `moving` reports its error; this only lets the next call try again.
+        moving.catch(() => transformersMovesByVectorsPath.delete(vectorsPath));
+        transformersMovesByVectorsPath.set(vectorsPath, moving);
+    }
+    return transformersMovesByVectorsPath.get(vectorsPath);
+}
+
+/**
+ * The folder holding a Vectra collection's index.json: the one SillyTavern's own vector routes use, config.yaml's
+ * model for Transformers when the request names none (vectra-folders.js).
+ */
+async function vectraIndexFolderFor(directories, collectionId, source, model) {
+    let transformersModel = '';
+    if (source === 'transformers') {
+        await moveTransformersCollectionsOnce(directories);
+        if (!model) transformersModel = await configuredTransformersModel();
+    }
+    return vectraIndexFolder(directories.vectors, collectionId, source, vectraModelFolder(source, model, transformersModel));
+}
+
+/** A collection's Vectra index, made empty when it does not exist yet. */
+async function getIndex(directories, collectionId, source, model) {
+    const store = new vectra.LocalIndex(await vectraIndexFolderFor(directories, collectionId, source, model));
 
     if (!await store.isIndexCreated()) {
         await store.createIndex();
