@@ -23,7 +23,7 @@ import { openDatabaseBrowser } from '../database-browser/index.js';
 import { openContentVectorizer } from '../chunkbase/index.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
-import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
+import { describeStoryLinkPass, hideStoryArcPage, normalizeGhostStep, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
@@ -1310,6 +1310,13 @@ function bindSettingsEvents(settings, callbacks) {
     // Per-turn token-saved readout, fed by window.VectFox_LastGhost (set inside
     // applyGhosting on every enabled generation). Refreshed on init, on toggle, and
     // after each AI reply / swipe via the event subscriptions below.
+    // A batched wipe adds where the line sits. The note is omitted at step 1 (plain
+    // rolling, nothing to say) and when ghosting is paused by an infinite World Info
+    // floor, which publishes no next-jump countdown.
+    const _ghostBatchNote = (g) => {
+        if (!(g?.step > 1) || !Number.isFinite(g.rawKept) || !Number.isFinite(g.nextJumpIn)) return '';
+        return ` Batch ${g.step}: boundary after message ${g.cutoff}, ${g.rawKept} kept raw, next jump in ${g.nextJumpIn}.`;
+    };
     const _refreshGhostReadout = () => {
         const $el = $('#VectFox_eventbase_ghost_readout .vfx-notice-text');
         if ($el.length === 0) return;
@@ -1320,11 +1327,14 @@ function bindSettingsEvents(settings, callbacks) {
         const g = window.VectFox_LastGhost;
         if (!g || typeof g.wiped !== 'number') {
             $el.text('Last turn: no reply yet.');
-        } else if (g.wiped === 0) {
-            $el.text('Last turn: nothing blanked, as no vectorized message is older than those kept.');
+            return;
+        }
+        const note = _ghostBatchNote(g);
+        if (g.wiped === 0) {
+            $el.text(`Last turn: nothing blanked, as no vectorized message is older than those kept.${note}`);
         } else {
             const messages = g.wiped === 1 ? '1 message' : `${g.wiped.toLocaleString()} messages`;
-            $el.html(`Last turn: <strong>${messages}</strong> blanked, about <strong>${g.approxTokens.toLocaleString()} tokens</strong> (${g.charsRemoved.toLocaleString()} characters) saved.`);
+            $el.html(`Last turn: <strong>${messages}</strong> blanked, about <strong>${g.approxTokens.toLocaleString()} tokens</strong> (${g.charsRemoved.toLocaleString()} characters) saved.${note}`);
         }
     };
 
@@ -1333,8 +1343,11 @@ function bindSettingsEvents(settings, callbacks) {
     const _applyGhostAvailability = () => {
         const summOn = !!settings.summarizer_injection_enabled;
         const ghostOn = !!settings.eventbase_ghost_enabled;
+        const off = !summOn || !ghostOn;
         $('#VectFox_eventbase_ghost_enabled').prop('disabled', !summOn);
-        $('#VectFox_eventbase_ghost_keep_recent, [data-vfx-slider-for="VectFox_eventbase_ghost_keep_recent"]').prop('disabled', !summOn || !ghostOn);
+        $('#VectFox_eventbase_ghost_keep_recent, [data-vfx-slider-for="VectFox_eventbase_ghost_keep_recent"]')
+            .add('#VectFox_eventbase_ghost_step, [data-vfx-slider-for="VectFox_eventbase_ghost_step"]')
+            .prop('disabled', off);
         $('#VectFox_eventbase_ghost_needs_summarizer').toggle(!summOn);
         _refreshGhostReadout();
     };
@@ -1353,6 +1366,9 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     bindNumberSetting(settings, { id: 'VectFox_eventbase_ghost_keep_recent', key: 'eventbase_ghost_keep_recent', initial: settings.eventbase_ghost_keep_recent ?? 10, isInteger: true });
+    // A hand-edited value above the slider's ceiling is shown clamped (the wipe clamps it too,
+    // in normalizeGhostStep), so the UI can never display a batch the boundary is not on.
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_ghost_step', key: 'eventbase_ghost_step', initial: normalizeGhostStep(settings.eventbase_ghost_step), isInteger: true });
 
     // While Summarizer Injection is on, the auto-sync window is held at 1 turn, so each reply
     // is extracted before the next injection. The box's own events set it, which saves it and

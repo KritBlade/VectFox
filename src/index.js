@@ -272,6 +272,10 @@ const defaultSettings = {
     // tip is extracted before it could be wiped.
     eventbase_ghost_enabled: false,
     eventbase_ghost_keep_recent: 10,              // recent messages kept verbatim; everything older that's vectorized is wiped. range 1-50 (summarizer injects ~20 events to cover the wiped span)
+    // Batch size of the wipe boundary: 1 moves it every turn (rolling). Larger values move
+    // it only every N messages, so the prompt's leading prefix stays byte-stable between
+    // jumps for provider prompt caching; the raw window can grow to keep-recent + N - 1.
+    eventbase_ghost_step: 1,
     // Per-chat marker: auto-sync only processes windows whose start >= marker.
     // Stamped at "max(source_window_end across existing events) + 1" when auto-sync
     // is enabled on a non-empty collection, or at current chat length when collection

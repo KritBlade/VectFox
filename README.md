@@ -176,6 +176,7 @@ Once Summarizer Injection guarantees the recent thread is always in the prompt, 
 - **Scales to any chat length.** "Keep the last N raw" auto-scales — a 2,000-message chat sends roughly the same number of raw turns as a 200-message one, with everything older served from memory. Token cost stops growing with chat length.
 - **Recall is the dial.** The fewer raw turns you keep, the more the AI relies on retrieval quality — so **check your recall as you keep fewer** and stop where the model still tracks the scene cleanly.
 - **World Info stays safe.** The wipe is floored so it never blanks a message World Info needs to scan, and it auto-pauses if WI could scan the whole chat — keyword triggers keep firing at any setting.
+- **Cache-friendly batches (optional).** Set *Blank in batches of* above 1 (e.g. 10–20, with the default 10 kept raw) and the wipe boundary only advances in whole batches, so the prompt prefix stays byte-identical across turns and prompt caching (DeepSeek, etc.) can reuse it. The raw window grows up to *Messages kept verbatim + batch − 1* between jumps; make sure your context fits it. Batch size 1 keeps today's rolling behaviour.
 
 Because it leans entirely on EventBase being current, ghosting **requires Summarizer Injection** (which in turn forces the auto-sync window to 1, keeping the database one turn behind the live chat). Enable it right under Summarizer Injection in the **AutoSync** tab; default off.
 

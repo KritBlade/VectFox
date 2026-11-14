@@ -100,6 +100,16 @@ export const AGENTIC_MAX_TOKENS_MAX = 32000;
  */
 export const CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT = 0.25;
 
+/**
+ * Most messages one ghosting batch may span (`eventbase_ghost_step`). Ghosting snaps
+ * its wipe boundary DOWN to a multiple of the batch size, so this is also the slider's
+ * ceiling: a hand-edited settings.json can never put the boundary on a grid the slider
+ * cannot show. Shared by the clamp in summarizer-injection.js and the slider on the
+ * AutoSync page's Ghosting card, so the wipe, the display and the range attribute
+ * cannot drift apart.
+ */
+export const GHOST_STEP_MAX = 100;
+
 // =============================================================================
 // CHAT PROVIDERS
 // =============================================================================
