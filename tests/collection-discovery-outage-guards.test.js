@@ -123,6 +123,48 @@ describe('discoverViaPlugin × qdrantScanned', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Guard 1b — with "One shared collection" on, discovery never measures VectFox's collections against Qdrant's
+// physical names (issue #30): they all live in vectfox_main, so only a plugin that lists its tenants can prune.
+// ---------------------------------------------------------------------------
+describe('discoverViaPlugin × the shared Qdrant collection', () => {
+    const SHARED_SETTINGS = { vector_backend: 'qdrant', qdrant_multitenancy: true };
+    const QDRANT_ID = QDRANT_KEY.slice('qdrant:'.length);
+    const GONE_KEY = 'qdrant:vf_eventbase_qdrant_testpersona_deleted_chat';
+
+    it('keeps every qdrant entry when the plugin lists the shared collection by its physical name only', async () => {
+        seedRegistry([QDRANT_KEY]);
+        // A plugin before 3.4.8: it reached Qdrant, but reports vectfox_main itself, not its tenants.
+        mockPluginFetch({
+            success: true,
+            qdrantScanned: true,
+            collections: [VECTRA_LIVE, { id: 'vectfox_main', backend: 'qdrant', source: 'custom', chunkCount: 300 }],
+        });
+
+        await discoverExistingCollections(SHARED_SETTINGS);
+
+        expect(getCollectionRegistry()).toContain(QDRANT_KEY);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('the tenants of the shared Qdrant collection were not listed'));
+    });
+
+    it('registers the tenants the plugin lists, and prunes an entry no tenant answers for', async () => {
+        seedRegistry([QDRANT_KEY, GONE_KEY]);
+        mockPluginFetch({
+            success: true,
+            qdrantScanned: true,
+            qdrantTenantsScanned: true,
+            collections: [VECTRA_LIVE, { id: QDRANT_ID, backend: 'qdrant', source: 'custom', chunkCount: 40, sharedCollection: 'vectfox_main' }],
+        });
+
+        await discoverExistingCollections(SHARED_SETTINGS);
+
+        const registry = getCollectionRegistry();
+        expect(registry).toContain(QDRANT_KEY);
+        expect(registry).not.toContain(GONE_KEY);
+        expect(registry).not.toContain('qdrant:vectfox_main');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Guard 2 — cleanupOrphanedMeta refuses the mass wipe
 // ---------------------------------------------------------------------------
 describe('cleanupOrphanedMeta outage refusal', () => {

@@ -59,6 +59,7 @@ import {
   writeImportedStoryLinks,
 } from "../eventbase/index.js";
 import {
+  qdrantTarget,
   queryMultipleCollections,
 } from "../vector-backend/index.js";
 import { getRequestHeaders } from "../../sillytavern/requests.js";
@@ -1200,12 +1201,16 @@ async function scanKeywords(button) {
     const keywordCounts = new Map();
     for (const collection of collectionsToScan) {
       try {
+        const target = collection.backend === "qdrant"
+          ? qdrantTarget(collection.id, browserState.settings)
+          : { collectionId: collection.id, filters: {} };
         const response = await fetch("/api/plugins/similharity/chunks/list", {
           method: "POST",
           headers: getRequestHeaders(),
           body: JSON.stringify({
             backend: collection.backend || "vectra",
-            collectionId: collection.id,
+            collectionId: target.collectionId,
+            filters: target.filters,
             source: collection.source || "transformers",
             model: collection.model || "",
             limit: 500,

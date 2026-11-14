@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import { insertVectorItems } from '../vector-backend/index.js';
+import { insertVectorItems, qdrantTarget } from '../vector-backend/index.js';
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
@@ -1163,7 +1163,8 @@ export async function ensureEventBaseIndexes(settings) {
     if (settings?.vector_backend !== 'qdrant') return;
     if (extension_settings?.vectfox?.eventbase_indexes_v1_backfilled) return;
 
-    // Collect all EventBase + ArchiveEvent Qdrant collections from the registry.
+    // Collect all EventBase + ArchiveEvent Qdrant collections from the registry, by the Qdrant collection that holds
+    // their points: with "One shared collection" on, every one of them is vectfox_main, indexed once.
     const qdrantCollections = [];
     for (const registryKey of getCollectionRegistry()) {
         const parsed = parseRegistryKey(registryKey);
@@ -1174,7 +1175,8 @@ export async function ensureEventBaseIndexes(settings) {
             colId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE) ||
             colId.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)
         ) {
-            qdrantCollections.push(colId);
+            const { collectionId: physical } = qdrantTarget(colId, settings);
+            if (!qdrantCollections.includes(physical)) qdrantCollections.push(physical);
         }
     }
 

@@ -23,6 +23,7 @@ vi.mock('../src/features/vector-backend/index.js', async () => ({
     ...backend,
     textWithoutKeywordSuffix: (await import('../src/features/vector-backend/stored-chunk.js')).textWithoutKeywordSuffix,
     describeEmbeddingFailure: (await import('../src/features/vector-backend/embedding-failure.js')).describeEmbeddingFailure,
+    qdrantTarget: (await import('../src/features/vector-backend/qdrant-target.js')).qdrantTarget,
 }));
 vi.mock('../src/features/collections/index.js', () => ({
     getChunkMetadata: hash => host.stored[String(hash)] ?? null,

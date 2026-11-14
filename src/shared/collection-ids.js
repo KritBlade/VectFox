@@ -31,12 +31,15 @@ export const COLLECTION_PREFIXES = {
     VECTFOX_DOCUMENT: 'vf_document_',
     VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_',
     VECTFOX_EVENTBASE: 'vf_eventbase_',
+    // LoreBase's per-book passage index; no timestamp, unlike the old vf_lorebook_ collections.
+    VECTFOX_LOREBASE: 'vf_lorebase_',
 };
 
 /** Collection types */
 export const COLLECTION_TYPES = {
     CHAT: 'chat',
     LOREBOOK: 'lorebook',
+    LOREBASE: 'lorebase',
     CHARACTER: 'character',
     DOCUMENT: 'document',
     ARCHIVE_EVENT: 'archive_event',
@@ -504,6 +507,16 @@ export function parseCollectionId(collectionId) {
         return {
             type: COLLECTION_TYPES.LOREBOOK,
             rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_LOREBOOK, ''),
+            scope: COLLECTION_SCOPES.CHARACTER,
+            format: 'vectfox',
+        };
+    }
+
+    // LoreBase index: vf_lorebase_*, locked to a chat or character like a lorebook
+    if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_LOREBASE)) {
+        return {
+            type: COLLECTION_TYPES.LOREBASE,
+            rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_LOREBASE, ''),
             scope: COLLECTION_SCOPES.CHARACTER,
             format: 'vectfox',
         };

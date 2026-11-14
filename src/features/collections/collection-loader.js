@@ -495,9 +495,10 @@ let pluginCollectionData = null;
 
 /**
  * Discovers existing collections using server plugin (scans file system)
+ * @param {object} settings - VectFox settings, for whether Qdrant keeps every collection in one shared collection
  * @returns {Promise<string[]>} Array of discovered collection IDs
  */
-async function discoverViaPlugin() {
+async function discoverViaPlugin(settings) {
     try {
         log.trace('🔍 VectFox: Requesting collection discovery from plugin...');
 
@@ -644,7 +645,13 @@ async function discoverViaPlugin() {
             // Older plugins don't report the flag at all (undefined); treat that as
             // not-scanned too — a lingering ghost registry entry is recoverable from
             // the DB browser, silently wiped locks are not.
-            const qdrantVerified = data.qdrantScanned === true;
+            //
+            // With "One shared collection" on, Qdrant's physical names say nothing about VectFox's collections: they
+            // all live in vectfox_main. The plugin lists each of its tenants as a collection and says so with
+            // qdrantTenantsScanned; without that (a plugin before 3.4.8, or a Qdrant before 1.12), no qdrant entry
+            // is pruned (issue #30: discovery pruned every lorebook, with its locks).
+            const qdrantVerified = data.qdrantScanned === true
+                && (!settings?.qdrant_multitenancy || data.qdrantTenantsScanned === true);
             const updatedRegistry = getCollectionRegistry();
             const staleCandidates = updatedRegistry.filter(key => !pluginKeySet.has(key));
             const staleEntries = qdrantVerified
@@ -652,7 +659,10 @@ async function discoverViaPlugin() {
                 : staleCandidates.filter(key => parseRegistryKey(key).backend !== 'qdrant');
             const preservedUnverified = staleCandidates.length - staleEntries.length;
             if (preservedUnverified > 0) {
-                log.warn(`VectFox: Qdrant was not reachable during discovery — keeping ${preservedUnverified} qdrant registry entr${preservedUnverified === 1 ? 'y' : 'ies'} (and their locks/metadata) instead of pruning. They will re-verify on the next discovery once Qdrant is back.`);
+                const why = data.qdrantScanned === true
+                    ? 'the tenants of the shared Qdrant collection were not listed (Similharity before 3.4.8, or Qdrant before 1.12)'
+                    : 'Qdrant was not reachable during discovery';
+                log.warn(`VectFox: ${why} — keeping ${preservedUnverified} qdrant registry entr${preservedUnverified === 1 ? 'y' : 'ies'} (and their locks/metadata) instead of pruning. They will re-verify on the next discovery that lists them.`);
             }
             if (staleEntries.length > 0) {
                 log.trace(`   🗑️  Removing ${staleEntries.length} stale registry entries:`);
@@ -741,6 +751,8 @@ export async function cleanupCorruptedCollections() {
         // Pick out everything our discovery filter would skip
         const targets = [];
         for (const collection of data.collections) {
+            // A tenant of the shared Qdrant collection is a VectFox collection, never a corrupted or SillyTavern one.
+            if (collection.sharedCollection) continue;
             const backend = collection.backend || 'standard';
             let collectionId = collection.id;
             if (collectionId.startsWith(`${backend}:`)) {

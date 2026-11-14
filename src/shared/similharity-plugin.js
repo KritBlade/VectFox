@@ -8,7 +8,8 @@
  * nags users who are up to date. It never drops below 3.4.4: 3.4.0 is the first plugin that sends a llama.cpp,
  * KoboldCPP or Custom profile's key by its ID, 3.4.3 the first that requests a profile URL already ending in
  * /embeddings as it is, and 3.4.4 the first that passes on no server reply and no part of a key
- * (tests/similharity-version-floor.test.js).
+ * (tests/similharity-version-floor.test.js). 3.4.8 is the first that keeps the collections of the shared Qdrant
+ * collection apart on every path and lists them to discovery (issue #30).
  */
 
 import { getRequestHeaders } from '../sillytavern/requests.js';

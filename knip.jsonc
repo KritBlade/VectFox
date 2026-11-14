@@ -5,7 +5,8 @@
     "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
     // src/index.js is the manifest's "js" entry; bm25-scorer.js loads the vendored jieba glue by URL.
     // story-arc-web.js loads the vendored graph library by URL.
-    "entry": ["src/index.js!", "src/vendor/jieba/jieba_rs_wasm.js!", "src/vendor/force-graph-1.52.0.min.js!"],
+    // LoreBase is built ahead of the review screen (B5) that imports it from the app; until then its barrel is an entry.
+    "entry": ["src/index.js!", "src/vendor/jieba/jieba_rs_wasm.js!", "src/vendor/force-graph-1.52.0.min.js!", "src/features/lorebase/index.js!"],
     // The gene builders are generated from mvu-helper's whole set, and pages move to them one at a time.
     "ignore": ["src/shared/gui-dna/gui-dna-core.js"],
     "project": [
@@ -18,7 +19,7 @@
     "ignoreExportsUsedInFile": true,
     // SillyTavern's own modules: by relative paths that leave this repo, or by URL from e2e page code.
     "ignoreUnresolved": [
-        "^(\\.\\./){3,}(script|extensions|constants|shared|openai|popup|secrets|textgen-settings|utils|world-info)\\.js$",
+        "^(\\.\\./){3,}(script|extensions|constants|shared|openai|popup|secrets|textgen-settings|user|utils|world-info)\\.js$",
         "^/(script|scripts/extensions|scripts/utils)\\.js$"
     ]
 }

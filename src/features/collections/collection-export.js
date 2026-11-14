@@ -20,7 +20,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
-import { insertVectorItems, purgeVectorIndex, encodeSparseVector, textWithKeywordSuffix } from '../vector-backend/index.js';
+import { insertVectorItems, purgeVectorIndex, encodeSparseVector, qdrantTarget, textWithKeywordSuffix } from '../vector-backend/index.js';
 import {
     getCollectionMeta,
     setCollectionMeta,
@@ -73,12 +73,14 @@ export const EXPORT_FILE_EXTENSION = '.vectfox.json';
  */
 async function fetchChunksWithVectors(collectionId, settings) {
     const backendName = settings.vector_backend || 'standard';
+    const target = backendName === 'qdrant' ? qdrantTarget(collectionId, settings) : { collectionId, filters: {} };
     const response = await fetch('/api/plugins/similharity/chunks/list', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({
             backend: backendName === 'standard' ? 'vectra' : backendName,
-            collectionId: collectionId,
+            collectionId: target.collectionId,
+            filters: target.filters,
             source: settings.embedding_provider || 'transformers',
             model: getModelFromSettings(settings),
             limit: 50000, // High limit to get all chunks
@@ -410,13 +412,15 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
     // dominates total time, so larger batches roughly amortize that cost. 100 chunks ≈ 5 MB
     // for 4096-dim vectors — well under the limit.
     const BATCH_SIZE = 100;
+    const target = backendName === 'qdrant' ? qdrantTarget(collectionId, settings) : { collectionId, filters: {} };
     const items = chunks.map(c => {
         const item = {
             hash: c.hash,
             text: c.text,
             index: c.index,
             vector: c.vector,
-            metadata: c.metadata || {},
+            // In vectfox_main each point names its collection; an exported point still names the one it came from.
+            metadata: { ...(c.metadata || {}), ...target.filters },
         };
         // Qdrant's A3 hybrid path needs a sparse vector per point (text_sparse named slot), built as the live
         // insert builds it: from the text with its keywords appended, which replaces a suffix text read back
@@ -458,7 +462,7 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
                 headers: getRequestHeaders(),
                 body: JSON.stringify({
                     backend: backendName === 'standard' ? 'vectra' : backendName,
-                    collectionId,
+                    collectionId: target.collectionId,
                     source: settings.embedding_provider || 'transformers',
                     model,
                     items: batch,

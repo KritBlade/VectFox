@@ -42,7 +42,7 @@ vi.mock('../src/shared/progress-tracker.js', () => ({
         addError: vi.fn(),
     },
 }));
-vi.mock('../src/features/vector-backend/index.js', () => ({
+vi.mock('../src/features/vector-backend/index.js', async () => ({
     insertVectorItems: vi.fn(),
     purgeVectorIndex: vi.fn(),
     textWithKeywordSuffix: vi.fn(text => text),
@@ -50,6 +50,7 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     getSavedHashes: vi.fn(),
     getBackend: vi.fn(),
     setInsertedCollectionRegistrar: vi.fn(),
+    qdrantTarget: (await import('../src/features/vector-backend/qdrant-target.js')).qdrantTarget,
 }));
 
 import { extension_settings } from '../../../../extensions.js';

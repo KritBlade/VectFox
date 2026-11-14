@@ -65,6 +65,9 @@ vi.mock('../src/shared/similharity-plugin.js', () => ({
         }
     }),
     resetPluginAvailableCache: vi.fn(),
+    // The installed plugin meets the floor unless a test says otherwise.
+    similharityStanding: vi.fn(() => ({ isFound: true, version: '3.4.8', requiredVersion: '3.4.8', isCurrent: true })),
+    PLUGIN_UPDATE_INSTRUCTIONS: 'Restart SillyTavern so it can auto-update the server plugin.',
 }));
 
 // Mock providers.js
@@ -102,6 +105,8 @@ vi.mock('../src/shared/constants.js', () => ({
 // Import backends after mocks are set up
 import { StandardBackend } from '../src/features/vector-backend/standard.js';
 import { QdrantBackend, setInsertedCollectionRegistrar } from '../src/features/vector-backend/qdrant.js';
+import { qdrantTarget } from '../src/features/vector-backend/qdrant-target.js';
+import { similharityStanding } from '../src/shared/similharity-plugin.js';
 import { buildRegistryKey } from '../src/shared/collection-ids.js';
 import { VectorBackend } from '../src/features/vector-backend/backend-interface.js';
 
@@ -666,8 +671,8 @@ describe('QdrantBackend', () => {
 
             const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
             expect(callBody.collectionId).toBe('vectfox_main');
-            expect(callBody.filter).toBeDefined();
-            expect(callBody.filter.must[0].key).toBe('content_type');
+            expect(callBody.filters).toEqual({ content_type: 'vf_chat_abc123' });
+            expect(callBody.filter).toBeUndefined();
         });
 
         it('should use separate collections in non-multitenancy mode', async () => {
@@ -678,7 +683,84 @@ describe('QdrantBackend', () => {
 
             const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
             expect(callBody.collectionId).toBe('vf_chat_abc123');
+            expect(callBody.filters).toEqual({});
             expect(callBody.filter).toBeUndefined();
+        });
+    });
+
+    describe('the shared collection: every request keeps to the points of one collection (issue #30)', () => {
+        const shared = { ...defaultSettings, qdrant_multitenancy: true };
+        const tenant = { content_type: 'vf_chat_abc123' };
+        const bodyOf = call => JSON.parse(fetchMock.mock.calls[call][1].body);
+
+        it('routes a collection, or its registry key, to vectfox_main with the collection as the tenant', () => {
+            expect(qdrantTarget('qdrant:vf_chat_abc123', shared)).toEqual({ collectionId: 'vectfox_main', filters: tenant });
+            expect(qdrantTarget('qdrant:vf_chat_abc123', defaultSettings)).toEqual({ collectionId: 'vf_chat_abc123', filters: {} });
+        });
+
+        it('sends the tenant as filters on a delete, a search, a listing, a metadata change and the stats', async () => {
+            fetchMock.mockImplementation(async () => mockFetchResponse({ results: [], items: [], stats: {} }));
+
+            await backend.deleteVectorItems('vf_chat_abc123', [1, 2], shared);
+            await backend.queryCollection('vf_chat_abc123', 'search', 5, shared, [0.1, 0.2]);
+            await backend.listChunks('vf_chat_abc123', shared);
+            await backend.updateChunkMetadata('vf_chat_abc123', 1, { enabled: false }, shared);
+            await backend.getStats('vf_chat_abc123', shared);
+
+            for (const call of [0, 1, 2, 3, 4]) {
+                expect(bodyOf(call)).toMatchObject({ collectionId: 'vectfox_main', filters: tenant });
+                expect(bodyOf(call).filter).toBeUndefined();
+            }
+        });
+
+        it('passes the tenant to a single chunk read in its query string', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({ chunk: null }));
+
+            await backend.getChunk('vf_chat_abc123', 1, shared);
+
+            const url = new URL(fetchMock.mock.calls[0][0], 'http://localhost');
+            expect(url.searchParams.get('collectionId')).toBe('vectfox_main');
+            expect(JSON.parse(url.searchParams.get('filters'))).toEqual(tenant);
+        });
+
+        it('keeps the cosine lookup of a hybrid search to the tenant, as the hybrid query itself is', async () => {
+            fetchMock.mockImplementation(async (url) => (url.endsWith('collection-metadata')
+                ? mockFetchResponse({ payload: null, supported: true })
+                : mockFetchResponse({ results: [] })));
+
+            await backend.hybridQuery('vf_chat_abc123', 'search', 5, shared, {}, [0.4, 0.5]);
+
+            const searches = fetchMock.mock.calls.filter(([url]) => /chunks\/(hybrid-query|query)$/.test(url));
+            expect(searches).toHaveLength(2);
+            for (const [, options] of searches) {
+                expect(JSON.parse(options.body)).toMatchObject({ collectionId: 'vectfox_main', filters: tenant });
+            }
+        });
+
+        it('purges the points of the collection from vectfox_main by its tenant', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({ success: true }));
+
+            await backend.purgeVectorIndex('vf_chat_abc123', shared);
+
+            expect(bodyOf(0)).toMatchObject({ collectionId: 'vectfox_main', filters: tenant });
+        });
+
+        it('deletes nothing and says why when Similharity is older than the floor, which would ignore the tenant', async () => {
+            similharityStanding.mockReturnValueOnce({ isFound: true, version: '3.4.6', requiredVersion: '3.4.8', isCurrent: false })
+                .mockReturnValueOnce({ isFound: true, version: '3.4.6', requiredVersion: '3.4.8', isCurrent: false });
+
+            await expect(backend.purgeVectorIndex('vf_chat_abc123', shared))
+                .rejects.toThrow('Deleting a collection from the shared Qdrant collection needs Similharity 3.4.8 or later, and 3.4.6 is installed');
+            expect(fetchMock).not.toHaveBeenCalled();
+        });
+
+        it('purges a collection of its own whole, with no tenant, when the shared collection is off', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({ success: true }));
+
+            await backend.purgeVectorIndex('vf_chat_abc123', defaultSettings);
+
+            expect(bodyOf(0).collectionId).toBe('vf_chat_abc123');
+            expect(bodyOf(0).filters).toBeUndefined();
         });
     });
 

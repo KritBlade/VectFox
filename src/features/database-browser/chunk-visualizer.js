@@ -16,7 +16,7 @@
  */
 
 import { deleteChunkMetadata, getChunkMetadata, saveChunkMetadata } from '../collections/index.js';
-import { deleteVectorItems, describeEmbeddingFailure, insertVectorItems, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
+import { deleteVectorItems, describeEmbeddingFailure, insertVectorItems, qdrantTarget, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
 import { eventPointHash, packTimelineSortKey } from '../eventbase/index.js';
 import { languageModeLabel } from '../keyword-search/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
@@ -121,15 +121,18 @@ export async function openChunkVisualizer(collection, settings) {
  *
  * @param {object} collection
  * @param {number} limit - 0 for all
+ * @param {object} settings - VectFox settings, for where a Qdrant collection's points are
  * @returns {Promise<{items: object[], total: number}>}
  */
-async function fetchChunks(collection, limit) {
+async function fetchChunks(collection, limit, settings) {
+    const target = collection.backend === 'qdrant' ? qdrantTarget(collection.id, settings) : { collectionId: collection.id, filters: {} };
     const response = await fetch('/api/plugins/similharity/chunks/list', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({
             backend: collection.backend || 'vectra',
-            collectionId: collection.id,
+            collectionId: target.collectionId,
+            filters: target.filters,
             source: collection.source || 'transformers',
             model: collection.model || '',
             ...(limit ? { limit } : {}),
@@ -169,7 +172,7 @@ async function loadChunks(root, session) {
     root.querySelector(`#${ids.list}`).innerHTML = chunksLoadingMarkup();
     root.querySelector(`#${ids.listFooter}`).innerHTML = '';
     try {
-        const { items, total } = await fetchChunks(session.collection, listChoices.fetchLimit);
+        const { items, total } = await fetchChunks(session.collection, listChoices.fetchLimit, session.settings);
         if (loadNumber !== session.loadCount) return;
         session.chunks = items.map(loadedChunk);
         session.totalCount = total;
@@ -193,9 +196,8 @@ async function loadChunks(root, session) {
  */
 async function showCollectionRecord(root, session) {
     if ((session.settings?.vector_backend || 'standard') !== 'qdrant') return;
-    const id = String(session.collection.id);
-    const withoutBackend = id.startsWith('qdrant:') ? id.slice('qdrant:'.length) : id;
-    const collectionId = withoutBackend.includes(':') ? withoutBackend.split(':')[1] : withoutBackend;
+    // The record sits on the Qdrant collection itself, which with "One shared collection" on is vectfox_main.
+    const { collectionId } = qdrantTarget(String(session.collection.id), session.settings);
     try {
         const response = await fetch('/api/plugins/similharity/chunks/collection-metadata', {
             method: 'POST',

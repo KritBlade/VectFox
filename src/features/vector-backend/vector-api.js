@@ -25,6 +25,7 @@ import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getBackend, getBackendForCollection, invalidateBackendHealth, recordQuery, recordInsert, recordDelete, recordError } from './backend-registry.js';
 import { resolveBackendForCollection } from '../../shared/collection-ids.js';
 import { getModelFromSettings } from '../embedding/index.js';
+import { qdrantTarget } from './qdrant-target.js';
 import { isInvalidModelConfigError } from '../../shared/model-config-notifier.js';
 import {
     getOverfetchAmount,
@@ -396,12 +397,14 @@ export async function getSavedHashes(collectionId, settings, includeMetadata = f
     // Use unified chunks API to get full metadata (works with all backends)
     try {
         const backendName = settings.vector_backend || 'standard';
+        const target = backendName === 'qdrant' ? qdrantTarget(collectionId, settings) : { collectionId, filters: {} };
         const response = await fetch('/api/plugins/similharity/chunks/list', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 backend: backendName === 'standard' ? 'vectra' : backendName,
-                collectionId: collectionId,
+                collectionId: target.collectionId,
+                filters: target.filters,
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings),
                 limit: 10000

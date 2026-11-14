@@ -31,6 +31,7 @@ import { tokenize } from '../keyword-search/index.js';
 import { getModelFromSettings } from '../embedding/index.js';
 import { log } from '../../sillytavern/log.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
+import { qdrantTarget } from './qdrant-target.js';
 
 const _cache = new Map(); // collectionId -> { totalDocs, documentFrequencies, avgDocLength, builtAt }
 const _inflight = new Map(); // collectionId -> Promise (dedupe concurrent fetches)
@@ -122,12 +123,14 @@ async function _buildStats(collectionId, settings) {
 
     // Stage 1 — HTTP fetch
     const tFetch = _now();
+    const target = _pluginBackendName(settings) === 'qdrant' ? qdrantTarget(collectionId, settings) : { collectionId, filters: {} };
     const response = await fetch('/api/plugins/similharity/chunks/list', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({
             backend: _pluginBackendName(settings),
-            collectionId,
+            collectionId: target.collectionId,
+            filters: target.filters,
             source: settings?.embedding_provider || 'transformers',
             model: getModelFromSettings(settings),
             limit: FETCH_LIMIT,

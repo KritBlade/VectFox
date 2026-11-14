@@ -9,8 +9,8 @@
  *
  * MULTITENANCY MODE (qdrant_multitenancy = true):
  * - Uses a single shared collection: "vectfox_main"
- * - Adds content_type metadata field to distinguish different sources
- * - Uses Qdrant filtering to query only the relevant content_type
+ * - Each point carries its collection's ID in the indexed tenant field content_type
+ * - Every request about a collection's points sends that tenant as a filter (qdrantTarget)
  * - More efficient for resource usage, suitable for smaller deployments
  *
  * SEPARATE COLLECTIONS MODE (qdrant_multitenancy = false, DEFAULT):
@@ -44,6 +44,8 @@ import { invalidateCollectionMetadata, settleTokenizerMismatch } from './tokeniz
 import { buildRegistryKey } from '../../shared/collection-ids.js';
 import { chunkPayload, textWithKeywordSuffix } from './stored-chunk.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
+import { PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../../shared/similharity-plugin.js';
+import { TENANT_FIELD, qdrantTarget, stripRegistryPrefix } from './qdrant-target.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
 // shows in the registry. The registry sits above the backends, so index.js sets it at startup.
@@ -122,10 +124,6 @@ function _embedTimeoutHint(settings) {
     return `NOTE: this request embeds server-side via '${source}' before querying Qdrant. Qdrant on LAN answers in <50ms, so a timeout/504 here points to the embedding provider ('${source}'), NOT Qdrant.`;
 }
 
-// NOTE: `vectfox_main` is kept verbatim for on-disk compatibility
-// with existing user Qdrant data. Do not rebrand. See InternalProject/Vectfox/plans/executed/vectfox-rename-plan.md §1.5.
-const MULTITENANCY_COLLECTION = 'vectfox_main';
-
 
 /**
  * The embedding fields a plugin request carries besides the source and model: a URL-based provider's server URL,
@@ -135,7 +133,7 @@ const MULTITENANCY_COLLECTION = 'vectfox_main';
  * @returns {Promise<object>}
  * @throws {Error} With `code: 'invalid_model_config'`, when embedding runs on a profile that cannot be used
  */
-async function getPluginProviderParams(settings) {
+export async function getPluginProviderParams(settings) {
     const params = {};
 
     switch (settings.embedding_provider) {
@@ -159,19 +157,6 @@ async function getPluginProviderParams(settings) {
     }
 
     return { ...params, ...(await embeddingProfileRequestFields(settings)) };
-}
-
-/**
- * Determines the actual collection name to use based on multitenancy setting
- * @param {string} collectionId - Original collection ID
- * @param {object} settings - VectFox settings
- * @returns {string} - Actual collection name to use
- */
-function getActualCollectionId(collectionId, settings) {
-    if (settings.qdrant_multitenancy) {
-        return MULTITENANCY_COLLECTION;
-    }
-    return collectionId;
 }
 
 export class QdrantBackend extends VectorBackend {
@@ -245,31 +230,7 @@ export class QdrantBackend extends VectorBackend {
      * @returns {string} - Just the collection ID part
      */
     _stripRegistryPrefix(collectionId) {
-        if (!collectionId || typeof collectionId !== 'string') {
-            return collectionId;
-        }
-
-        const knownBackends = ['standard', 'vectra', 'qdrant'];
-        const knownSources = ['transformers', 'openai', 'cohere', 'ollama', 'llamacpp',
-            'vllm', 'koboldcpp', 'webllm', 'openrouter'];
-
-        const parts = collectionId.split(':');
-
-        // New format: backend:collectionId (2-part, part[0] is a known backend)
-        if (parts.length >= 2 && knownBackends.includes(parts[0]) && !knownSources.includes(parts[1])) {
-            return parts.slice(1).join(':');
-        }
-        // Old 3-part format: backend:source:collectionId
-        if (parts.length >= 3 && knownBackends.includes(parts[0]) && knownSources.includes(parts[1])) {
-            return parts.slice(2).join(':');
-        }
-        // Legacy source-only prefix: source:collectionId
-        if (parts.length >= 2 && knownSources.includes(parts[0])) {
-            return parts.slice(1).join(':');
-        }
-
-        // Already plain collection ID
-        return collectionId;
+        return stripRegistryPrefix(collectionId);
     }
 
     /**
@@ -307,25 +268,16 @@ export class QdrantBackend extends VectorBackend {
     }
 
     async getSavedHashes(collectionId, settings) {
-        const strippedCollectionId = this._stripRegistryPrefix(collectionId);
-        const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
+        const target = qdrantTarget(collectionId, settings);
 
         const body = {
             backend: BACKEND_TYPE,
-            collectionId: actualCollectionId,
+            collectionId: target.collectionId,
+            filters: target.filters,
             source: settings.embedding_provider || 'transformers',
             model: getModelFromSettings(settings),
             limit: VECTOR_LIST_LIMIT,
         };
-
-        // Add content_type filter for multitenancy mode
-        if (settings.qdrant_multitenancy) {
-            body.filter = {
-                must: [
-                    { key: 'content_type', match: { value: strippedCollectionId } }
-                ]
-            };
-        }
 
         const response = await fetch('/api/plugins/similharity/chunks/list', {
             method: 'POST',
@@ -345,9 +297,8 @@ export class QdrantBackend extends VectorBackend {
     async insertVectorItems(collectionId, items, settings, abortSignal = null) {
         if (items.length === 0) return;
 
-        // Strip registry key prefix to get the actual collection ID for Qdrant
         const strippedCollectionId = this._stripRegistryPrefix(collectionId);
-        const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
+        const actualCollectionId = qdrantTarget(collectionId, settings).collectionId;
 
         // Compute sparse vectors per item. The browser owns tokenization (CJK pipeline lives
         // here), so we encode each item's text into Qdrant's {indices, values} format and
@@ -384,9 +335,9 @@ export class QdrantBackend extends VectorBackend {
                         // and a vector the plugin embeds from it, match them.
                         const textWithKeywords = textWithKeywordSuffix(item.text || '', metadata.keywords);
 
-                        // Add content_type for multitenancy mode
+                        // The tenant field, so each point of vectfox_main says which collection it belongs to
                         if (settings.qdrant_multitenancy) {
-                            metadata.content_type = strippedCollectionId;
+                            metadata[TENANT_FIELD] = strippedCollectionId;
                         }
 
                         return {
@@ -443,25 +394,16 @@ export class QdrantBackend extends VectorBackend {
     }
 
     async deleteVectorItems(collectionId, hashes, settings) {
-        const strippedCollectionId = this._stripRegistryPrefix(collectionId);
-        const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
+        const target = qdrantTarget(collectionId, settings);
 
         const body = {
             backend: BACKEND_TYPE,
-            collectionId: actualCollectionId,
+            collectionId: target.collectionId,
+            filters: target.filters,
             hashes: hashes,
             source: settings.embedding_provider || 'transformers',
             model: getModelFromSettings(settings),
         };
-
-        // Add content_type filter for multitenancy mode
-        if (settings.qdrant_multitenancy) {
-            body.filter = {
-                must: [
-                    { key: 'content_type', match: { value: strippedCollectionId } }
-                ]
-            };
-        }
 
         const response = await fetch('/api/plugins/similharity/chunks/delete', {
             method: 'POST',
@@ -476,12 +418,12 @@ export class QdrantBackend extends VectorBackend {
     }
 
     async queryCollection(collectionId, searchText, topK, settings, queryVector = null) {
-        const strippedCollectionId = this._stripRegistryPrefix(collectionId);
-        const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
+        const target = qdrantTarget(collectionId, settings);
 
         const body = {
             backend: BACKEND_TYPE,
-            collectionId: actualCollectionId,
+            collectionId: target.collectionId,
+            filters: target.filters,
             searchText: searchText,
             topK: topK,
             threshold: 0.0,
@@ -499,15 +441,6 @@ export class QdrantBackend extends VectorBackend {
         } else {
             log.warn('[Qdrant] No queryVector or searchText provided');
             return { hashes: [], metadata: [] };
-        }
-
-        // Add content_type filter for multitenancy mode
-        if (settings.qdrant_multitenancy) {
-            body.filter = {
-                must: [
-                    { key: 'content_type', match: { value: strippedCollectionId } }
-                ]
-            };
         }
 
         // The plugin embeds server-side only when no queryVector was sent; only
@@ -569,12 +502,12 @@ export class QdrantBackend extends VectorBackend {
 
         for (const collectionId of collectionIds) {
             try {
-                const strippedCollectionId = this._stripRegistryPrefix(collectionId);
-                const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
+                const target = qdrantTarget(collectionId, settings);
 
                 const body = {
                     backend: BACKEND_TYPE,
-                    collectionId: actualCollectionId,
+                    collectionId: target.collectionId,
+                    filters: target.filters,
                     searchText: searchText,
                     topK: topK,
                     threshold: threshold,
@@ -593,15 +526,6 @@ export class QdrantBackend extends VectorBackend {
                     log.warn(`[Qdrant] No queryVector or searchText for ${collectionId}`);
                     results[collectionId] = { hashes: [], metadata: [] };
                     continue;
-                }
-
-                // Add content_type filter for multitenancy mode
-                if (settings.qdrant_multitenancy) {
-                    body.filter = {
-                        must: [
-                            { key: 'content_type', match: { value: strippedCollectionId } }
-                        ]
-                    };
                 }
 
                 const response = await fetch('/api/plugins/similharity/chunks/query', {
@@ -639,21 +563,27 @@ export class QdrantBackend extends VectorBackend {
     }
 
     async purgeVectorIndex(collectionId, settings) {
-        const strippedId = this._stripRegistryPrefix(collectionId);
-        const actualCollectionId = getActualCollectionId(strippedId, settings);
+        const target = qdrantTarget(collectionId, settings);
+        const actualCollectionId = target.collectionId;
 
+        // In vectfox_main a purge deletes one collection's points by its tenant filter. A plugin older than the floor
+        // ignores that filter and answers that it purged nothing, so this stops rather than report a deletion that
+        // did not happen.
+        if (settings?.qdrant_multitenancy && !similharityStanding().isCurrent) {
+            const { version, requiredVersion } = similharityStanding();
+            throw new Error(`Deleting a collection from the shared Qdrant collection needs Similharity ${requiredVersion} or later`
+                + `${version ? `, and ${version} is installed` : ''}, so nothing was deleted. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+        }
+
+        // With a shared collection, the tenant filter deletes this collection's points only; with none, the plugin
+        // deletes the collection's own Qdrant collection.
         const body = {
             backend: BACKEND_TYPE,
             collectionId: actualCollectionId,
             source: settings.embedding_provider || 'transformers',
             model: getModelFromSettings(settings),
+            ...(settings?.qdrant_multitenancy ? { filters: target.filters } : {}),
         };
-
-        // Multitenancy: send sourceId filter so the plugin deletes only the logical
-        // collection's points from vectfox_main (instead of the entire shared collection).
-        if (settings?.qdrant_multitenancy) {
-            body.filters = { sourceId: strippedId };
-        }
 
         const response = await fetch('/api/plugins/similharity/chunks/purge', {
             method: 'POST',
@@ -690,10 +620,11 @@ export class QdrantBackend extends VectorBackend {
      * Get a single chunk by hash
      */
     async getChunk(collectionId, hash, settings) {
-        const actualCollectionId = this._stripRegistryPrefix(collectionId);
+        const target = qdrantTarget(collectionId, settings);
         const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}?` + new URLSearchParams({
             backend: BACKEND_TYPE,
-            collectionId: actualCollectionId, // Use separate collection per content type
+            collectionId: target.collectionId,
+            filters: JSON.stringify(target.filters),
             source: settings.embedding_provider || 'transformers',
             model: getModelFromSettings(settings),
         }), {
@@ -714,13 +645,14 @@ export class QdrantBackend extends VectorBackend {
      * List chunks with pagination
      */
     async listChunks(collectionId, settings, options = {}) {
-        const actualCollectionId = this._stripRegistryPrefix(collectionId);
+        const target = qdrantTarget(collectionId, settings);
         const response = await fetch('/api/plugins/similharity/chunks/list', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 backend: BACKEND_TYPE,
-                collectionId: actualCollectionId, // Use separate collection per content type
+                collectionId: target.collectionId,
+                filters: target.filters,
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings),
                 offset: options.offset || 0,
@@ -741,13 +673,14 @@ export class QdrantBackend extends VectorBackend {
      * Update chunk metadata (no re-embedding)
      */
     async updateChunkMetadata(collectionId, hash, metadata, settings) {
-        const actualCollectionId = this._stripRegistryPrefix(collectionId);
+        const target = qdrantTarget(collectionId, settings);
         const response = await fetch(`/api/plugins/similharity/chunks/${encodeURIComponent(hash)}/metadata`, {
             method: 'PATCH',
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 backend: BACKEND_TYPE,
-                collectionId: actualCollectionId, // Use separate collection per content type
+                collectionId: target.collectionId,
+                filters: target.filters,
                 metadata: metadata,
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings),
@@ -766,13 +699,14 @@ export class QdrantBackend extends VectorBackend {
      * Get collection statistics
      */
     async getStats(collectionId, settings) {
-        const actualCollectionId = this._stripRegistryPrefix(collectionId);
+        const target = qdrantTarget(collectionId, settings);
         const response = await fetch('/api/plugins/similharity/chunks/stats', {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 backend: BACKEND_TYPE,
-                collectionId: actualCollectionId, // Use separate collection per content type
+                collectionId: target.collectionId,
+                filters: target.filters,
                 source: settings.embedding_provider || 'transformers',
                 model: getModelFromSettings(settings),
             }),
@@ -847,8 +781,8 @@ export class QdrantBackend extends VectorBackend {
             rrfK = 60
         } = hybridOptions;
 
-        const strippedCollectionId = this._stripRegistryPrefix(collectionId);
-        const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
+        const target = qdrantTarget(collectionId, settings);
+        const actualCollectionId = target.collectionId;
 
         // Native sparse vectors + Qdrant-server-side RRF. Single path for Qdrant.
         // (See InternalProject/Vectfox/plans/executed/qdrant-native-sparse-hybrid-rrf.md — winner of the A/B/C, others removed.)
@@ -919,11 +853,8 @@ export class QdrantBackend extends VectorBackend {
             ...(await getPluginProviderParams(settings)),
         };
 
-        // Multitenancy's content_type travels in the plugin's filters field,
-        // which its _buildHybridFilter reads.
-        if (settings.qdrant_multitenancy) {
-            body.filters = { content_type: strippedCollectionId };
-        }
+        // The tenant filter travels in the plugin's filters field, which its _buildHybridFilter reads.
+        body.filters = target.filters;
 
         if (log.enabled('verbose')) {
             const preview = String(searchText || '').replace(/\s+/g, ' ').slice(0, 280);
@@ -1032,8 +963,8 @@ export class QdrantBackend extends VectorBackend {
      * @returns {Promise<{hashes:number[], metadata:object[]}>}
      */
     async hybridQueryWithRerank(collectionId, searchText, topK, settings, rerankParams, hybridOptions = {}, queryVector = null) {
-        const strippedCollectionId = this._stripRegistryPrefix(collectionId);
-        const actualCollectionId = getActualCollectionId(strippedCollectionId, settings);
+        const target = qdrantTarget(collectionId, settings);
+        const actualCollectionId = target.collectionId;
 
         // Same sparse-query encoding path as hybridQuery() — including the
         // tokenizer-mode lock. If sparse setup fails, fall back to vector-only
@@ -1069,9 +1000,7 @@ export class QdrantBackend extends VectorBackend {
             ...(await getPluginProviderParams(settings)),
         };
 
-        if (settings.qdrant_multitenancy) {
-            body.filters = { content_type: strippedCollectionId };
-        }
+        body.filters = target.filters;
 
         if (log.enabled('verbose')) {
             const preview = String(searchText || '').replace(/\s+/g, ' ').slice(0, 280);
