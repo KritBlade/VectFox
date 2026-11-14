@@ -45,13 +45,20 @@ vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOrigina
 
 const postChatCompletionMock = vi.fn();
 const checkConnectionProfileMock = vi.fn();
-vi.mock('../src/features/llm-provider/index.js', async () => ({
-    postChatCompletion: (...args) => postChatCompletionMock(...args),
-    resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
-    resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
-    checkConnectionProfile: (...args) => checkConnectionProfileMock(...args),
-    LlmCallError: class LlmCallError extends Error {},
-}));
+// The real connection check reads the profile through this mock.
+vi.mock('../src/features/llm-provider/llm-provider-call.js', () => ({ checkConnectionProfile: (...args) => checkConnectionProfileMock(...args) }));
+vi.mock('../src/features/llm-provider/index.js', async () => {
+    const connection = await import('../src/features/llm-provider/llm-connection.js');
+    return {
+        postChatCompletion: (...args) => postChatCompletionMock(...args),
+        resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
+        resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
+        resolveLlmConnection: connection.resolveLlmConnection,
+        shownVllmUrl: connection.shownVllmUrl,
+        describeConnectionProblem: connection.describeConnectionProblem,
+        LlmCallError: class LlmCallError extends Error {},
+    };
+});
 
 const chatState = vi.hoisted(() => ({ chat: [] }));
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({ chat: chatState.chat }) }));

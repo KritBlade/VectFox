@@ -9,7 +9,7 @@
  * ============================================================================
  */
 
-import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
+import { chatProviderOptions } from '../../shared/connection-profile-rows-markup.js';
 import { hint, select, selectOption } from '../../shared/gui-dna/gui-dna-core.js';
 
 /**
@@ -22,12 +22,7 @@ import { hint, select, selectOption } from '../../shared/gui-dna/gui-dna-core.js
 export function inheritedProviderSelect(id) {
     return select({
         id,
-        options: [
-            selectOption({ value: '', text: 'Same as EventBase model' }),
-            selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
-            selectOption({ value: 'openrouter', text: 'OpenRouter' }),
-            selectOption({ value: 'vllm', text: 'vLLM' }),
-        ],
+        options: [selectOption({ value: '', text: 'Same as EventBase model' }), ...chatProviderOptions()],
     });
 }
 

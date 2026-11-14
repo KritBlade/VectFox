@@ -3,14 +3,16 @@
  * WORLDINFO PAGE, STATIC MARKUP
  * ============================================================================
  * The settings panel's WorldInfo page on GUI-DNA: semantic activation of the
- * chat's vectorized lorebooks, and how their entries are matched. Every control
- * keeps the id settings-panel.js wires it by, and the card the wiring shows and
- * hides keeps its id too. The status line under the switch is built here as
- * well. Pure: builds strings.
+ * chat's vectorized lorebooks, how their entries are matched, and LoreBase's
+ * model with its Accuracy. Every control keeps the id settings-panel.js or
+ * connection-rows.js wires it by, and the card the wiring shows and hides keeps
+ * its id too. The status line under the switch is built here as well. Pure:
+ * builds strings.
  * ============================================================================
  */
 
-import { detail, field, fieldLabel, hint, resultList } from '../../shared/gui-dna/gui-dna-core.js';
+import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
+import { detail, field, fieldLabel, hint, resultList, select, selectOption } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 
 const HIDDEN = ' style="display:none;"';
@@ -50,13 +52,40 @@ function matchingCard() {
     </section>`;
 }
 
+// LoreBase's own model (plan §5.6), and its Accuracy: the review at low reasoning effort, or at the model's default (D6).
+function loreBaseModelCard() {
+    const accuracy = select({
+        id: 'VectFox_lorebase_accuracy',
+        options: [selectOption({ value: 'default', text: 'Default Accuracy' }), selectOption({ value: 'high', text: 'High Accuracy' })],
+    });
+    return `<section class="vfx-card">
+        ${cardHeader({ icon: 'fa-plug', title: 'LoreBase model', description: 'The model that picks the selected entries a reply needs, and trims each one.' })}
+        <div class="vfx-card-body vfx-grid">
+            ${field([fieldLabel({ text: 'Provider', forId: 'VectFox_lorebase_provider' }), select({ id: 'VectFox_lorebase_provider', options: chatProviderOptions() })])}
+            ${field([
+                fieldLabel({ text: 'Model', forId: 'VectFox_lorebase_model' }),
+                '<input type="text" id="VectFox_lorebase_model" class="vfx-input" placeholder="openai/gpt-6-luna">',
+                hint({ text: 'LoreBase was tested on GPT-6 Luna.' }),
+            ])}
+            ${connectionProfileRows('VectFox_lorebase', { hintText: 'LoreBase was tested on GPT-6 Luna. The profile\'s model, URL and key are used.' })}
+            ${field([
+                fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
+                accuracy,
+                hint({ text: 'Default Accuracy answers a few seconds sooner; High Accuracy leaves out less lore.' }),
+                detail({ text: 'Each picked entry is reviewed at low reasoning effort on Default Accuracy, and at the model\'s own effort on High Accuracy.' }),
+            ], { isSpan: true })}
+            ${testConnectionButton('VectFox_lorebase', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' })}
+        </div>
+    </section>`;
+}
+
 /**
- * The WorldInfo page's cards: Semantic activation, and Matching, which shows while activation is on.
+ * The WorldInfo page's cards: Semantic activation; Matching, which shows while activation is on; and LoreBase model.
  *
  * @returns {string}
  */
 export function worldInfoPageMarkup() {
-    return activationCard() + matchingCard();
+    return activationCard() + matchingCard() + loreBaseModelCard();
 }
 
 /**

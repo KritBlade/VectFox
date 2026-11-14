@@ -10,8 +10,7 @@
 
 import { button, detail, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
-import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
-import { connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
+import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
 export const STORY_ARC_PAGE_ID = 'VectFox_panel_storyarc';
@@ -117,11 +116,7 @@ function connectionCard() {
     const provider = select({
         id: 'VectFox_story_arc_link_provider',
         title: 'Link provider',
-        options: [
-            selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
-            selectOption({ value: 'openrouter', name: 'OpenRouter' }),
-            selectOption({ value: 'vllm', name: 'vLLM' }),
-        ],
+        options: chatProviderOptions(),
     });
     const model = '<input type="text" id="VectFox_story_arc_link_model" class="vfx-input" placeholder="openai/gpt-6-luna">';
     return `<section class="vfx-card">

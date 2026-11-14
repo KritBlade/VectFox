@@ -10,7 +10,7 @@
  */
 
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
-import { connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
+import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 import { controlRow, detail, field, fieldLabel, grid, hint, input, notice, select, selectOption, textarea } from '../../shared/gui-dna/gui-dna-core.js';
 import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { clearKeyButton, keyInput } from './api-key-markup.js';
@@ -141,11 +141,7 @@ function eventModelCard() {
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_summarize_provider' }),
-                select({ id: 'VectFox_summarize_provider', options: [
-                    selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
-                    selectOption({ value: 'openrouter', text: 'OpenRouter' }),
-                    selectOption({ value: 'vllm', text: 'vLLM' }),
-                ] }),
+                select({ id: 'VectFox_summarize_provider', options: chatProviderOptions() }),
             ], { isSpan: true })}
             ${connectionProfileRows('VectFox_summarize', { hintText: 'Its model, URL and key are used. Make profiles under Connection Profiles in SillyTavern.' })}
             <div id="VectFox_summarize_settings" class="vfx-grid vfx-span"${HIDDEN}>

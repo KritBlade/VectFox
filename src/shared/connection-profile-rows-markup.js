@@ -2,19 +2,35 @@
  * ============================================================================
  * CONNECTION PROFILE ROWS, STATIC MARKUP
  * ============================================================================
- * What a Provider dropdown's SillyTavern profile option shows (connection plan §1):
- * the Profile dropdown, which the settings panel's wiring paints from SillyTavern's
- * profiles, and the readout under it; the readout of the profile a consumer takes
- * from the EventBase model; and a card's Test connection button. The Core,
- * AgentMode and ChunkBase pages and the StoryArc page draw them, each with its own
- * id prefix, so all five read alike. Pure: builds strings.
+ * What a chat consumer's Provider dropdown offers, and what its SillyTavern profile
+ * option shows (connection plan §1): the Profile dropdown, which the settings
+ * panel's wiring paints from SillyTavern's profiles, and the readout under it; the
+ * readout of the profile a consumer takes from the EventBase model; and a card's
+ * Test connection button. The Core, AgentMode, ChunkBase, StoryArc and WorldInfo
+ * pages draw them, each with its own id prefix, so all six read alike. Pure:
+ * builds strings.
  * ============================================================================
  */
 
-import { controlRow, field, fieldLabel, hint, select } from './gui-dna/gui-dna-core.js';
+import { CONNECTION_PROFILE_PROVIDER } from './constants.js';
+import { controlRow, field, fieldLabel, hint, select, selectOption } from './gui-dna/gui-dna-core.js';
 import { buttonWithId } from './gui-dna/panel-page-genes.js';
 
 const HIDDEN = ' style="display:none;"';
+
+/**
+ * A chat consumer's own Provider options: SillyTavern profile, then the manual OpenRouter and vLLM. Every chat
+ * consumer's dropdown lists them from here, so the manual two retire here (connection plan D1).
+ *
+ * @returns {string[]} Option markup, for select()
+ */
+export function chatProviderOptions() {
+    return [
+        selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
+        selectOption({ value: 'openrouter', text: 'OpenRouter' }),
+        selectOption({ value: 'vllm', text: 'vLLM' }),
+    ];
+}
 
 /** The ids of one consumer's profile rows and test button, from its prefix. */
 export function connectionProfileRowIds(prefix) {

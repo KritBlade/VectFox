@@ -31,7 +31,7 @@ export const CONNECTION_PROFILE_OVERRIDE_KEYS = Object.freeze({
  * through resolveInheritedConnection, so on Same as EventBase model they use the EventBase model's profile.
  *
  * @param {object} settings - VectFox settings
- * @param {'eventbase'|'agent'|'reformat'|'storyarc'} consumer
+ * @param {'eventbase'|'agent'|'reformat'|'storyarc'|'lorebase'} consumer
  * @returns {string}
  */
 export function resolveConnectionProfileId(settings, consumer) {
@@ -41,6 +41,8 @@ export function resolveConnectionProfileId(settings, consumer) {
         case 'storyarc':
             return textOf(settings?.story_arc_link_provider) === CONNECTION_PROFILE_PROVIDER
                 ? textOf(settings?.story_arc_link_connection_profile_id) : '';
+        case 'lorebase':
+            return textOf(settings?.lorebase_provider) === CONNECTION_PROFILE_PROVIDER ? textOf(settings?.lorebase_connection_profile_id) : '';
         case 'agent':
         case 'reformat': {
             const prefix = consumer === 'agent' ? 'agent' : 'reformat';

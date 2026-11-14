@@ -213,6 +213,12 @@ const defaultSettings = {
     world_info_retrieval_popup: false,  // Show popup toast when WI lorebook entries are retrieved
     world_info_respect_entry_disable: true, // Semantic WI: drop hits whose live lorebook entry is disabled (see resolveLiveEntries)
 
+    // LoreBase (lorebook plan B6): its own model, a profile none chosen on a new install, and its Accuracy (plan D6)
+    lorebase_provider: CONNECTION_PROFILE_PROVIDER,
+    lorebase_model: 'openai/gpt-6-luna',    // the model the route trials ran; read only on OpenRouter or vLLM
+    lorebase_connection_profile_id: '',     // read only while lorebase_provider is 'connection_profile'
+    lorebase_accuracy: 'default',           // 'default' reviews at low reasoning effort, 'high' at the model's default
+
     // Keyword Extraction
     custom_stopwords: '',               // Custom stopwords (comma-separated)
     cjk_tokenizer_mode: CJK_TOKENIZER_MODES.intl, // intl | jieba | jieba_tw | tiny_segmenter

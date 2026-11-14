@@ -22,12 +22,14 @@ describe('the profile each chat consumer runs on', () => {
         agent_provider: '', agent_connection_profile_id: 'profile-agent-hidden',
         reformat_provider: ON_PROFILE, reformat_connection_profile_id: 'profile-reformat',
         story_arc_link_provider: ON_PROFILE, story_arc_link_connection_profile_id: 'profile-storyarc',
+        lorebase_provider: ON_PROFILE, lorebase_connection_profile_id: 'profile-lorebase',
     };
 
     it('reads each consumer\'s own profile while it is on one', () => {
         expect(resolveConnectionProfileId(settings, 'eventbase')).toBe('profile-eventbase');
         expect(resolveConnectionProfileId(settings, 'reformat')).toBe('profile-reformat');
         expect(resolveConnectionProfileId(settings, 'storyarc')).toBe('profile-storyarc');
+        expect(resolveConnectionProfileId(settings, 'lorebase')).toBe('profile-lorebase');
     });
 
     it('runs Same as EventBase model on the EventBase model\'s profile, not the consumer\'s hidden one', () => {
@@ -36,8 +38,8 @@ describe('the profile each chat consumer runs on', () => {
     });
 
     it('has no profile on a manual provider, the stored ID kept but unused', () => {
-        const manual = { ...settings, chat_provider: 'vllm', agent_provider: 'openrouter', story_arc_link_provider: 'openrouter' };
-        expect(['eventbase', 'agent', 'storyarc'].map(consumer => resolveConnectionProfileId(manual, consumer))).toEqual(['', '', '']);
+        const manual = { ...settings, chat_provider: 'vllm', agent_provider: 'openrouter', story_arc_link_provider: 'openrouter', lorebase_provider: 'vllm' };
+        expect(['eventbase', 'agent', 'storyarc', 'lorebase'].map(consumer => resolveConnectionProfileId(manual, consumer))).toEqual(['', '', '', '']);
         expect(resolveConnectionProfileId({ ...manual, reformat_provider: '' }, 'reformat')).toBe('');
     });
 

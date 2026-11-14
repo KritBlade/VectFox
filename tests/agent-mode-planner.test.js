@@ -30,16 +30,23 @@ vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOrigina
 const postChatCompletionMock = vi.fn();
 const checkConnectionProfileMock = vi.fn();
 const sendConnectionTestMock = vi.fn();
-vi.mock('../src/features/llm-provider/index.js', async () => ({
-    postChatCompletion: (...args) => postChatCompletionMock(...args),
-    resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
-    // The real rule, so the tests of the planner's connection read what ships.
-    resolveInheritedConnection: (await import('../src/features/llm-provider/inherited-connection.js')).resolveInheritedConnection,
-    resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
-    checkConnectionProfile: (...args) => checkConnectionProfileMock(...args),
-    sendConnectionTest: (...args) => sendConnectionTestMock(...args),
-    LlmCallError: class LlmCallError extends Error {},
-}));
+// The real connection check reads the profile through this mock.
+vi.mock('../src/features/llm-provider/llm-provider-call.js', () => ({ checkConnectionProfile: (...args) => checkConnectionProfileMock(...args) }));
+vi.mock('../src/features/llm-provider/index.js', async () => {
+    const connection = await import('../src/features/llm-provider/llm-connection.js');
+    return {
+        postChatCompletion: (...args) => postChatCompletionMock(...args),
+        resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none' }),
+        // The real rules, so the tests of the planner's connection read what ships.
+        resolveInheritedConnection: (await import('../src/features/llm-provider/inherited-connection.js')).resolveInheritedConnection,
+        resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
+        resolveLlmConnection: connection.resolveLlmConnection,
+        shownVllmUrl: connection.shownVllmUrl,
+        describeConnectionProblem: connection.describeConnectionProblem,
+        sendConnectionTest: (...args) => sendConnectionTestMock(...args),
+        LlmCallError: class LlmCallError extends Error {},
+    };
+});
 
 const EARLIER_CHAT = [{ is_user: true, name: 'Rin', mes: 'an earlier line' }];
 const chatState = vi.hoisted(() => ({ chat: null }));

@@ -1538,6 +1538,23 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
+    // LoreBase model (WorldInfo page). Its Provider and Profile dropdowns are wired with every consumer's (connection-rows.js).
+    $('#VectFox_lorebase_model')
+        .val(settings.lorebase_model)
+        .on('input change', function() {
+            settings.lorebase_model = String($(this).val()).trim();
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
+    $('#VectFox_lorebase_accuracy')
+        .val(settings.lorebase_accuracy)
+        .on('change', function() {
+            settings.lorebase_accuracy = String($(this).val());
+            Object.assign(extension_settings.vectfox, settings);
+            saveSettingsDebounced();
+        });
+
     // Custom stopwords
     $('#VectFox_custom_stopwords')
         .val(settings.custom_stopwords || '')

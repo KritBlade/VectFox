@@ -2,7 +2,7 @@
  * ============================================================================
  * CONNECTION ROWS
  * ============================================================================
- * The Provider dropdowns of the four LLM consumers and of embedding (connection plan
+ * The Provider dropdowns of the five LLM consumers and of embedding (connection plan
  * §1, §3): what each saves, the SillyTavern profile option with the Profile dropdown
  * and readout it shows, the rows a profile supplies hidden while one is chosen, the
  * profile Agent Mode and Auto-Reformat take from the EventBase model, and each card's
@@ -23,6 +23,7 @@ import { testAutoReformatConnection } from '../chunkbase/index.js';
 import { embeddingProfileKind, resolveEmbeddingProfile } from '../embedding/index.js';
 import { testAgentModeConnection, testEventBaseConnection, testStoryArcConnection } from '../eventbase/index.js';
 import { describeChatConnectionProfile, resolveInheritedConnection } from '../llm-provider/index.js';
+import { testLoreBaseConnection } from '../lorebase/index.js';
 import { getBackend } from '../vector-backend/index.js';
 import { CHAT_CONSUMER_CONNECTIONS, chatProfileReadoutLines, embeddingProfileReadoutLines, ownProviderOf, profileSelectOptions } from './connection-rows-core.js';
 
@@ -38,7 +39,7 @@ const textOf = value => String(value ?? '').trim();
 const connectionOf = prefix => CHAT_CONSUMER_CONNECTIONS.find(connection => connection.prefix === prefix);
 
 /**
- * The four LLM consumers: their connection settings (connection-rows-core.js), their Test connection, and `manualRows`,
+ * The five LLM consumers: their connection settings (connection-rows-core.js), their Test connection, and `manualRows`,
  * each row a choice shows, given the consumer's view.
  */
 const CHAT_CONSUMERS = [
@@ -70,6 +71,10 @@ const CHAT_CONSUMERS = [
     {
         ...connectionOf('VectFox_story_arc_link'), test: testStoryArcConnection,
         manualRows: view => [[fieldOf('VectFox_story_arc_link_model'), !view.isOnProfile]],
+    },
+    {
+        ...connectionOf('VectFox_lorebase'), test: testLoreBaseConnection,
+        manualRows: view => [[fieldOf('VectFox_lorebase_model'), !view.isOnProfile]],
     },
 ];
 
@@ -192,7 +197,7 @@ async function runConnectionTest(button, feature, test) {
 }
 
 /**
- * Wire the five Provider dropdowns, their profile rows and their Test connection buttons.
+ * Wire the six Provider dropdowns, their profile rows and their Test connection buttons.
  *
  * @param {object} settings - The settings panel's settings object
  * @param {{onEmbeddingProviderChange: () => void}} hooks - Runs after embedding's provider or profile is saved

@@ -2,16 +2,19 @@
  * ============================================================================
  * CONNECTION ROWS, PURE RULES
  * ============================================================================
- * The four LLM consumers' connection settings, what a Profile dropdown offers and what
+ * The five LLM consumers' connection settings, what a Profile dropdown offers and what
  * a profile readout says (connection plan §1, §3), from facts connection-rows.js
  * gathers. Pure: no host imports.
  * ============================================================================
  */
 
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
+
 /**
- * The four LLM consumers' connection settings: the setting each Provider dropdown and Profile dropdown saves, the
+ * The five LLM consumers' connection settings: the setting each Provider dropdown and Profile dropdown saves, the
  * feature and page messages name, and `blankProvider`, what an unset provider means; '' is Same as EventBase model for
- * the two that `inheritsEventBase`.
+ * the two that `inheritsEventBase`. The manual-connection notice reads this list, so a consumer added here is named
+ * there while it runs on manual OpenRouter or vLLM.
  */
 export const CHAT_CONSUMER_CONNECTIONS = Object.freeze([
     {
@@ -29,6 +32,10 @@ export const CHAT_CONSUMER_CONNECTIONS = Object.freeze([
     {
         prefix: 'VectFox_story_arc_link', providerSelectId: 'VectFox_story_arc_link_provider', providerKey: 'story_arc_link_provider',
         profileKey: 'story_arc_link_connection_profile_id', feature: 'StoryArc', page: 'StoryArc', blankProvider: 'openrouter', inheritsEventBase: false,
+    },
+    {
+        prefix: 'VectFox_lorebase', providerSelectId: 'VectFox_lorebase_provider', providerKey: 'lorebase_provider',
+        profileKey: 'lorebase_connection_profile_id', feature: 'LoreBase', page: 'WorldInfo', blankProvider: CONNECTION_PROFILE_PROVIDER, inheritsEventBase: false,
     },
 ].map(connection => Object.freeze(connection)));
 

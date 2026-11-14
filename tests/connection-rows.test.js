@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * The Provider dropdowns of the EventBase model, Agent Mode, Auto-Reformat, StoryArc and embedding, on their real page
+ * The Provider dropdowns of the EventBase model, Agent Mode, Auto-Reformat, StoryArc, LoreBase and embedding, on their real page
  * markup (src/features/settings-panel/connection-rows.js, connection plan §1 and §3): each offers a SillyTavern
  * profile first, after Same as EventBase model where it has that; choosing it shows a Profile dropdown of the profiles
  * SillyTavern can use and a readout, and hides the rows a profile supplies; a deleted profile and the Connection
@@ -25,7 +25,7 @@ const host = vi.hoisted(() => ({
     resolvedEmbedding: null,
     probe: null,
     backend: null,
-    tests: { eventbase: null, agent: null, reformat: null, storyarc: null },
+    tests: { eventbase: null, agent: null, reformat: null, storyarc: null, lorebase: null },
 }));
 
 vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
@@ -42,6 +42,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     testEventBaseConnection: (...args) => host.tests.eventbase(...args),
     testStoryArcConnection: (...args) => host.tests.storyarc(...args),
 }));
+vi.mock('../src/features/lorebase/index.js', () => ({ testLoreBaseConnection: (...args) => host.tests.lorebase(...args) }));
 vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: vi.fn(async () => host.backend) }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: () => host.probe }));
 vi.mock('../src/features/embedding/index.js', async () => {
@@ -53,6 +54,7 @@ const { corePageMarkup } = await import('../src/features/settings-panel/core-pag
 const { agentModePageMarkup } = await import('../src/features/settings-panel/agentmode-page-markup.js');
 const { chunkBasePageMarkup } = await import('../src/features/settings-panel/chunkbase-page-markup.js');
 const { storyArcPageMarkup } = await import('../src/features/eventbase/story-arc-page-markup.js');
+const { worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { wireConnectionRows } = await import('../src/features/settings-panel/connection-rows.js');
 
 const CONNECT_API_MAP = {
@@ -74,13 +76,17 @@ const EVENT_TYPES = {
     CONNECTION_PROFILE_UPDATED: 'connection_profile_updated',
     CONNECTION_PROFILE_DELETED: 'connection_profile_deleted',
 };
-const PROVIDER_SELECTS = ['VectFox_summarize_provider', 'VectFox_agentic_provider', 'VectFox_reformat_provider', 'VectFox_story_arc_link_provider', 'VectFox_source'];
+const PROVIDER_SELECTS = [
+    'VectFox_summarize_provider', 'VectFox_agentic_provider', 'VectFox_reformat_provider', 'VectFox_story_arc_link_provider', 'VectFox_lorebase_provider',
+    'VectFox_source',
+];
 
 const baseSettings = () => ({
     chat_provider: 'openrouter', chat_connection_profile_id: '',
     agent_provider: '', agent_connection_profile_id: '',
     reformat_provider: '', reformat_connection_profile_id: '',
     story_arc_link_provider: 'openrouter', story_arc_link_connection_profile_id: '',
+    lorebase_provider: 'openrouter', lorebase_connection_profile_id: '',
     embedding_provider: 'transformers', embedding_connection_profile_id: '',
 });
 
@@ -97,7 +103,7 @@ function mount(settings) {
     document.body.innerHTML = `<div id="VectFox_settings">${corePageMarkup({
         languageModes: [{ value: 'intl', label: 'Default' }],
         retrievalTimeout: { minMs: 5000, maxMs: 120000, defaultMs: 30000 },
-    })}${agentModePageMarkup()}${chunkBasePageMarkup()}${storyArcPageMarkup()}</div>`;
+    })}${agentModePageMarkup()}${chunkBasePageMarkup()}${storyArcPageMarkup()}${worldInfoPageMarkup()}</div>`;
     host.extensionSettings.vectfox = settings;
     wireConnectionRows(settings, { onEmbeddingProviderChange: host.onEmbeddingProviderChange });
     return settings;
@@ -125,16 +131,17 @@ beforeEach(() => {
 });
 
 describe('a chat consumer\'s Provider dropdown', () => {
-    it('lists SillyTavern profile first on all five dropdowns, after Same as EventBase model on the two that have it', () => {
+    it('lists SillyTavern profile first on all six dropdowns, after Same as EventBase model on the two that have it', () => {
         mount(baseSettings());
         const valuesOf = id => optionsOf(id).map(option => option.value);
         expect(valuesOf('VectFox_summarize_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
         expect(valuesOf('VectFox_story_arc_link_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
+        expect(valuesOf('VectFox_lorebase_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
         expect(valuesOf('VectFox_source')).toEqual(['connection_profile', 'transformers', 'ollama', 'openrouter', 'vllm']);
         for (const id of ['VectFox_agentic_provider', 'VectFox_reformat_provider']) {
             expect(valuesOf(id), id).toEqual(['', 'connection_profile', 'openrouter', 'vllm']);
         }
-        expect(PROVIDER_SELECTS.map(id => optionsOf(id).find(option => option.value === 'connection_profile').text)).toEqual(Array(5).fill('SillyTavern profile'));
+        expect(PROVIDER_SELECTS.map(id => optionsOf(id).find(option => option.value === 'connection_profile').text)).toEqual(Array(6).fill('SillyTavern profile'));
     });
 
     it('shows the Profile rows on the EventBase model in place of its model, key and URL', () => {
@@ -256,6 +263,20 @@ describe('a chat consumer\'s Provider dropdown', () => {
         expect(isFieldShown('VectFox_story_arc_link_model')).toBe(false);
         expect(linesOf('VectFox_story_arc_link_connection_profile_readout')).toEqual(['API: openrouter', 'Model: harbor/chat-model']);
     });
+
+    it("hides LoreBase's Model while it runs on a profile, and opens an unset provider on the profile option", () => {
+        const settings = mount(baseSettings());
+        expect(isFieldShown('VectFox_lorebase_model')).toBe(true);
+        choose('VectFox_lorebase_provider', 'connection_profile');
+        choose('VectFox_lorebase_connection_profile', 'p-harbor');
+        expect(settings).toMatchObject({ lorebase_provider: 'connection_profile', lorebase_connection_profile_id: 'p-harbor' });
+        expect(isFieldShown('VectFox_lorebase_model')).toBe(false);
+        expect(linesOf('VectFox_lorebase_connection_profile_readout')).toEqual(['API: openrouter', 'Model: harbor/chat-model']);
+
+        mount({ ...baseSettings(), lorebase_provider: undefined });
+        expect(element('VectFox_lorebase_provider').value).toBe('connection_profile');
+        expect(isFieldShown('VectFox_lorebase_model')).toBe(false);
+    });
 });
 
 describe('embedding\'s Provider dropdown', () => {
@@ -357,7 +378,7 @@ describe('Test connection', () => {
         host.tests.agent = vi.fn(async () => { throw new Error('Agent Mode is on, but it has no model.'); });
         host.tests.reformat = vi.fn(async () => ({ content: 'OK', cutReason: 'length' }));
 
-        for (const prefix of ['VectFox_summarize', 'VectFox_agentic', 'VectFox_reformat', 'VectFox_story_arc_link']) {
+        for (const prefix of ['VectFox_summarize', 'VectFox_agentic', 'VectFox_reformat', 'VectFox_story_arc_link', 'VectFox_lorebase']) {
             element(`${prefix}_test_connection`).click();
         }
         await settle();
@@ -365,6 +386,7 @@ describe('Test connection', () => {
         for (const test of Object.values(host.tests)) expect(test).toHaveBeenCalledWith(settings);
         expect(toastr.success).toHaveBeenCalledWith('OK', 'EventBase: the connection works', expect.any(Object));
         expect(toastr.success).toHaveBeenCalledWith('OK', 'StoryArc: the connection works', expect.any(Object));
+        expect(toastr.success).toHaveBeenCalledWith('OK', 'LoreBase: the connection works', expect.any(Object));
         expect(toastr.success).toHaveBeenCalledWith('OK (cut short by the provider: length)', 'Auto-Reformat: the connection works', expect.any(Object));
         expect(toastr.error).toHaveBeenCalledWith('Agent Mode is on, but it has no model.', 'Agent Mode: the connection test failed', expect.any(Object));
         expect(element('VectFox_agentic_test_connection').disabled).toBe(false);
