@@ -1,0 +1,73 @@
+{
+  "about": "Written by InternalProject/Vectfox/tools/lorebase-benchmark/export_trial_prompts.py from route_trials.py. Do not edit by hand.",
+  "bookName": "Harbor Lore",
+  "entries": [
+    {
+      "uid": 0,
+      "comment": "[Harbor] Keeper Orrin",
+      "content": "Keeper Orrin tends the harbor lighthouse. He is gruff with strangers and kind to anyone lost at sea."
+    },
+    {
+      "uid": 1,
+      "comment": "[Harbor] The Drowned Bell",
+      "content": "The drowned bell hangs in the flooded chapel beneath the harbor. Its rope rots but never breaks.\n[History]\nIt rang the night the sea wall broke, and the lighthouse has stayed dark since it went quiet.\n[Rules]\nOnly a keeper of the lighthouse may ring it, and only at low tide.\nAnyone else who pulls the rope hears the drowned call their name.\n[Rumors]\nFishers say the bell rings by itself before a storm."
+    },
+    {
+      "uid": 2,
+      "comment": "Places: Saltmarsh Road",
+      "content": "Saltmarsh Road runs from the harbor to the village. It floods at dusk on spring tides."
+    },
+    {
+      "uid": 3,
+      "comment": "Ferry Tolls",
+      "content": "The ferry costs two copper bits a head, and a keeper rides free."
+    }
+  ],
+  "messages": [
+    {
+      "name": "Keeper Orrin",
+      "text": "Mind the planks. The pier is slick after rain."
+    },
+    {
+      "name": "Wren",
+      "text": "We should reach the harbor before the tide turns."
+    },
+    {
+      "name": "Keeper Orrin",
+      "text": "Then walk faster. Saltmarsh Road floods at dusk."
+    },
+    {
+      "name": "Wren",
+      "text": "Is that the lighthouse? It looks dark."
+    },
+    {
+      "name": "Keeper Orrin",
+      "text": "It has stayed dark since the bell went quiet."
+    },
+    {
+      "name": "Wren",
+      "text": "灯塔今晚会亮吗？"
+    },
+    {
+      "name": "Keeper Orrin",
+      "text": "Not tonight. Not until someone rings the drowned bell."
+    },
+    {
+      "name": "Wren",
+      "text": "Who is allowed to ring it?"
+    }
+  ],
+  "reviewedPick": {
+    "number": 2,
+    "why": "The user asks who may ring the drowned bell.",
+    "needs": "who may ring it, and when"
+  },
+  "pick": {
+    "system": "You help a roleplay app look things up in its lorebook before the next reply. You never see the lorebook's text. Treat the world as one you do not know: use only what the chat says, and add no facts of your own. Return JSON only.",
+    "prompt": "The chat so far. The last message is the user's; the next reply answers it.\n\nKeeper Orrin: Then walk faster. Saltmarsh Road floods at dusk.\n\nWren: Is that the lighthouse? It looks dark.\n\nKeeper Orrin: It has stayed dark since the bell went quiet.\n\nWren: 灯塔今晚会亮吗？\n\nKeeper Orrin: Not tonight. Not until someone rings the drowned bell.\n\nWren: Who is allowed to ring it?\n\nThe lorebook's table of contents, one entry per line: its number and title.\n\n1. Keeper Orrin\n2. The Drowned Bell\n3. Saltmarsh Road\n4. Ferry Tolls\n\nPick the entries the next reply needs, most needed first, at most 6. The reply answers the user's last message: pick what that message names or is about. Pick an entry named only in earlier messages when the user's last message is still about it, not because it was mentioned. Pick none when it needs none.\nFor each pick, give:\n- basis: why you picked it, one of \"named in the chat\", \"in the scene, not named\", \"the character speaking or spoken to\", \"background for the reply\", \"other\";\n- certain: true when the next reply will certainly draw on it, false when it only might;\n- why: one sentence on why the next reply needs it;\n- needs: what in that entry the reply needs, in a few words.\nWrite why and needs in English.\nReturn {\"entries\": [{\"number\": <number>, \"basis\": \"...\", \"certain\": true, \"why\": \"...\", \"needs\": \"...\"}, ...]}"
+  },
+  "review": {
+    "system": "You check the lorebook entries a roleplay app picked for its next reply, now that you can read their text. Treat the world as one you do not know: use only what the chat and the entries say. Return JSON only.",
+    "prompt": "The chat so far. The last message is the user's; the next reply answers it.\n\nKeeper Orrin: Then walk faster. Saltmarsh Road floods at dusk.\n\nWren: Is that the lighthouse? It looks dark.\n\nKeeper Orrin: It has stayed dark since the bell went quiet.\n\nWren: 灯塔今晚会亮吗？\n\nKeeper Orrin: Not tonight. Not until someone rings the drowned bell.\n\nWren: Who is allowed to ring it?\n\nYou picked these lorebook entries for the next reply from the lorebook's table of contents, which shows only their titles. Each comes with the reason you gave and its text, cut into numbered parts.\n\nEntry 1: The Drowned Bell\nYour reason: The user asks who may ring the drowned bell. You wanted: who may ring it, and when\nIts text:\n[1] The drowned bell hangs in the flooded chapel beneath the harbor. Its rope rots but never breaks.\n[2] (History) [History]\nIt rang the night the sea wall broke, and the lighthouse has stayed dark since it went quiet.\n[3] (Rules) [Rules]\nOnly a keeper of the lighthouse may ring it, and only at low tide.\nAnyone else who pulls the rope hears the drowned call their name.\n[4] (Rumors) [Rumors]\nFishers say the bell rings by itself before a storm.\n\nFor each entry, answer:\n- uses: how much of its text the next reply will use: \"most\", \"some\" or \"none\";\n- leave_out: the numbers of the parts of no use for this moment: those not about the people, place or topic at hand;\nReturn {\"entries\": [{\"entry\": <number>, \"uses\": \"...\", \"leave_out\": [<number>, ...]}, ...]}"
+  }
+}

@@ -33,6 +33,8 @@ const WRAPPER_CLOSE = /^<\/([^\s<>/]{1,40})>$/u;
 const SENTENCE_END = /(?<=[.!?。！？…])\s+|(?<=[。！？])/u;
 const CATEGORY_PREFIX = /^\s*(\[[^\]]*\]|【[^】]*】|[^:：\s[]{1,12}[:：])\s*/u;
 
+// The section name of an entry's text before its first heading.
+export const INTRO_SECTION = '(intro)';
 // A section up to this multiple of the window stays one passage.
 const WHOLE_SECTION_SLACK = 1.5;
 // A line longer than this is cut at sentence ends before windows are packed.
@@ -121,7 +123,7 @@ function frameAndBody(lines) {
 /** [name, headingLineCount, lines] per section, at the entry's strongest heading kind; text before the first is the intro. */
 function sections(lines, kind) {
     const found = [];
-    let name = '(intro)';
+    let name = INTRO_SECTION;
     let headingLineCount = 0;
     let current = [];
     let index = 0;

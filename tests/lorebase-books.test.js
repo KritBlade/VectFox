@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: {} }, saveSettingsDebounced: vi.fn() }));
 
 const { extension_settings, saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
-const { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSelection } = await import('../src/features/lorebase/index.js');
+const { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSelection } = await import('../src/features/lorebase/lorebase-books.js');
 
 const BOOK = 'Harbor Lore';
 
