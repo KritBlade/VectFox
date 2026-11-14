@@ -133,7 +133,7 @@ function _embedTimeoutHint(settings) {
  * @returns {Promise<object>}
  * @throws {Error} With `code: 'invalid_model_config'`, when embedding runs on a profile that cannot be used
  */
-export async function getPluginProviderParams(settings) {
+async function getPluginProviderParams(settings) {
     const params = {};
 
     switch (settings.embedding_provider) {

@@ -1,22 +1,13 @@
 /**
- * What VectFox keeps per lorebook for LoreBase (plan §5.2, §5.4): the entries the user picked and how each is used,
- * the chats and characters the book is locked to, and what its index was built with. One record per book, keyed by
- * the book's exact name, in VectFox's settings: never a key per entry (§3.3), and never in the lorebook file. The
- * record belongs to the book, not to one index, so a change of model or backend builds a new index from the same
- * picks, under the same locks (D7, D11).
+ * What VectFox keeps per lorebook for LoreBase (plan §5.2, §5.4): the entries the user selected for LoreBase to
+ * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), and the chats and
+ * characters the book is locked to (D11). One record per book, keyed by the book's exact name, in VectFox's settings:
+ * never a key per entry (§3.3), and never in the lorebook file.
  */
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 
 const BOOKS_KEY = 'lorebase_books';
-
-/** How a picked entry may be activated (plan §5.2): by its keys only, also by VectFox, or by VectFox alone. */
-export const ACTIVATION = Object.freeze({
-    KEYS: 'keys',
-    KEYS_AND_VECTFOX: 'keys_and_vectfox',
-    VECTFOX_ONLY: 'vectfox_only',
-});
-const ACTIVATIONS = new Set(Object.values(ACTIVATION));
 
 function allBooks() {
     const settings = extension_settings.vectfox;
@@ -25,13 +16,13 @@ function allBooks() {
 }
 
 function emptyRecord() {
-    return { picks: {}, lockedToChatIds: [], lockedToCharacterIds: [], index: null };
+    return { selectedUids: [], pinnedSections: [], lockedToChatIds: [], lockedToCharacterIds: [] };
 }
 
 /**
- * A book's record, or null when the user never picked anything in it.
+ * A book's record, or null when the user never selected anything in it.
  * @param {string} bookName
- * @returns {{picks: Object<string, {split: boolean, activation: string}>, lockedToChatIds: string[], lockedToCharacterIds: string[], index: object|null}|null}
+ * @returns {{selectedUids: string[], pinnedSections: string[], lockedToChatIds: string[], lockedToCharacterIds: string[]}|null}
  */
 export function getLoreBook(bookName) {
     return allBooks()[bookName] ?? null;
@@ -44,22 +35,23 @@ function recordFor(bookName) {
 }
 
 /**
- * Set the entries VectFox may use in a book. An entry absent from `picks` is not vectorized (every entry starts off,
- * D3). Each pick says whether Trim cuts it (split) and how it is activated.
+ * Set the entries LoreBase decides in a book: a selected entry goes in only when Luna picks it (D14). Every entry
+ * starts unselected (D3).
  * @param {string} bookName
- * @param {Object<string|number, {split?: boolean, activation?: string}>} picks - By entry uid
- * @throws {Error} When a pick names an activation LoreBase does not have
+ * @param {Iterable<string|number>} entryUids
  */
-export function setLoreBookPicks(bookName, picks) {
-    const clean = {};
-    for (const [uid, pick] of Object.entries(picks)) {
-        const activation = pick.activation ?? ACTIVATION.KEYS;
-        if (!ACTIVATIONS.has(activation)) {
-            throw new Error(`LoreBase: entry ${uid} of "${bookName}" has activation "${activation}", which is not one of ${[...ACTIVATIONS].join(', ')}.`);
-        }
-        clean[String(uid)] = { split: Boolean(pick.split), activation };
-    }
-    recordFor(bookName).picks = clean;
+export function setLoreBookSelection(bookName, entryUids) {
+    recordFor(bookName).selectedUids = [...new Set([...entryUids].map(String))];
+    saveSettingsDebounced();
+}
+
+/**
+ * Set the section names whose parts are kept whenever their entry is picked, whatever its review says (D10).
+ * @param {string} bookName
+ * @param {Iterable<string>} sectionNames
+ */
+export function setLoreBookPins(bookName, sectionNames) {
+    recordFor(bookName).pinnedSections = [...new Set([...sectionNames].map(name => String(name).trim()).filter(Boolean))];
     saveSettingsDebounced();
 }
 
@@ -93,15 +85,4 @@ export function isLoreBookLocked(bookName, { chatId, characterId }) {
     if (!record) return false;
     return (chatId != null && record.lockedToChatIds.includes(String(chatId)))
         || (characterId != null && record.lockedToCharacterIds.includes(String(characterId)));
-}
-
-/**
- * Record what a book's index was last built with: its ID, backend, embedding source and model (D7's check), and how
- * many passages it holds.
- * @param {string} bookName
- * @param {{id: string, backend: string, embeddingSource: string, embeddingModel: string, passageCount: number}|null} index
- */
-export function recordLoreBookIndex(bookName, index) {
-    recordFor(bookName).index = index ? { ...index, syncedAt: Date.now() } : null;
-    saveSettingsDebounced();
 }

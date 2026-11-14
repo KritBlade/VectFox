@@ -1,8 +1,8 @@
 /**
- * Cuts a lorebook entry into the passages LoreBase indexes (plan §5.3 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): the author's own markers first, then 300-token windows at line and
- * sentence ends, only inside a section that is still too long. A passage never crosses a section. A <tag> wrapper
- * around the whole entry is its frame, kept apart so a trim can keep the tags balanced.
+ * Cuts a lorebook entry into the passages LoreBase's review numbers as its parts (plan §5.3 of InternalProject/Vectfox/
+ * plans/lorebook-semantic-overhaul-passage-index.md): the author's own markers first, then 300-token windows at line
+ * and sentence ends, only inside a section that is still too long. A passage never crosses a section. A <tag> wrapper
+ * around the whole entry is its frame, kept apart so what is sent can keep the tags balanced.
  *
  * A port of the benchmark's splitter (InternalProject/Vectfox/tools/lorebase-benchmark/lore_passages.py), which the
  * live tests measured; it cuts the same passages. Pure: no SillyTavern, no network.
@@ -243,28 +243,20 @@ export function splitEntry(content, windowTokens = DEFAULT_WINDOW_TOKENS) {
 }
 
 /**
- * An entry's passages as LoreBase stores them: each with its place in the entry, its size, and the text it is
- * embedded as, prefixed with the entry's title and the section's name (plan §5.3).
+ * An entry's passages, the parts its review numbers: each with its section, its place in the entry and its size
+ * (plan §5.3).
  * @param {{uid: number, comment?: string, content?: string}} entry
  * @param {number} [windowTokens]
- * @returns {{title: string, frame: object|null, passages: Array<{section: string, text: string, passageIndex: number, passageCount: number, tokens: number, embeddingText: string}>}}
+ * @returns {{title: string, frame: object|null, passages: Array<{section: string, text: string, passageIndex: number, passageCount: number, tokens: number}>}}
  */
 export function entryPassages(entry, windowTokens = DEFAULT_WINDOW_TOKENS) {
     const { frame, passages } = splitEntry(entry.content, windowTokens);
-    const title = entryTitle(entry);
     return {
-        title,
+        title: entryTitle(entry),
         frame,
         passages: passages.map((passage, passageIndex) => {
             const text = passage.text.trim();
-            return {
-                section: passage.section,
-                text,
-                passageIndex,
-                passageCount: passages.length,
-                tokens: estimatedTokens(text),
-                embeddingText: passage.section === '(intro)' ? `${title} — ${text}` : `${title} / ${passage.section} — ${text}`,
-            };
+            return { section: passage.section, text, passageIndex, passageCount: passages.length, tokens: estimatedTokens(text) };
         }),
     };
 }

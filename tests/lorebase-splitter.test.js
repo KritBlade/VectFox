@@ -75,7 +75,7 @@ describe('sections', () => {
 });
 
 describe('the wrapper frame', () => {
-    it('keeps a <tag> wrapper around the whole entry apart, so a trim can keep the tags balanced', () => {
+    it('keeps a <tag> wrapper around the whole entry apart, so what is sent can keep the tags balanced', () => {
         const { frame, passages } = splitEntry('<second_character>\n【姓名】\n阿克娅\n</second_character>');
 
         expect(frame).toEqual({ open: '<second_character>', close: '</second_character>' });
@@ -83,13 +83,14 @@ describe('the wrapper frame', () => {
     });
 });
 
-describe('passages as they are stored', () => {
-    it('prefixes the text to embed with the entry title and the section, and numbers the passages', () => {
-        const { passages } = entryPassages({ uid: 4, comment: '[Mushoku] Roxy Migurdia', content: 'Roxy teaches water magic.\n## Speech\nShe speaks politely.' });
+describe('passages as the review numbers them', () => {
+    it('gives each passage its section and its place in the entry, under the entry title', () => {
+        const { title, passages } = entryPassages({ uid: 4, comment: '[Harbor] Keeper Orrin', content: 'Orrin trims the lamp at dusk.\n## Speech\nHe speaks in short words.' });
 
-        expect(passages.map(passage => passage.embeddingText)).toEqual([
-            'Roxy Migurdia — Roxy teaches water magic.',
-            'Roxy Migurdia / Speech — ## Speech\nShe speaks politely.',
+        expect(title).toBe('Keeper Orrin');
+        expect(passages.map(passage => [passage.section, passage.text])).toEqual([
+            ['(intro)', 'Orrin trims the lamp at dusk.'],
+            ['Speech', '## Speech\nHe speaks in short words.'],
         ]);
         expect(passages.map(passage => [passage.passageIndex, passage.passageCount])).toEqual([[0, 2], [1, 2]]);
     });

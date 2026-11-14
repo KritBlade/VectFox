@@ -6,7 +6,6 @@
 // setInsertedCollectionRegistrar lets src/index.js register the collections Qdrant inserts into without this
 // feature importing collections. qdrantTarget is where every request about one collection's Qdrant points goes, for
 // the features that call Similharity themselves (export, import, the Database Browser, the Chunk Visualizer).
-// getPluginProviderParams is the embedding fields every plugin request carries, for LoreBase's own requests.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export {
@@ -21,7 +20,7 @@ export {
 export { runBoundedRetrieval } from './bounded-retrieval.js';
 export { clearCorpusStatsCache } from './corpus-stats.js';
 export { reciprocalRankFusion, weightedCombination } from './hybrid-search.js';
-export { getPluginProviderParams, setInsertedCollectionRegistrar } from './qdrant.js';
+export { setInsertedCollectionRegistrar } from './qdrant.js';
 export { qdrantTarget } from './qdrant-target.js';
 export { describeEmbeddingFailure } from './embedding-failure.js';
 export { encodeSparseVector } from './sparse-vector-encoder.js';
