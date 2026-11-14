@@ -14,9 +14,10 @@
  * Note: Qdrant Cloud may have CORS issues when accessed from browser.
  * This backend runs server-side so CORS is not an issue here.
  *
- * Collections: VectFox names the collection on each call. With its multitenancy on, every chat shares one collection,
- * "vectfox_main", told apart by payload fields (type, sourceId) and filters such as {type: "chat", sourceId: "chat_001"}.
- * With it off, each chat has a collection of its own.
+ * Collections: VectFox names the collection on each call. With its multitenancy on, every collection shares one,
+ * "vectfox_main", told apart by the indexed tenant field `content_type`, which holds the collection's own ID, and
+ * filters such as {content_type: "vf_eventbase_..."}. With it off, each collection is a Qdrant collection of its own.
+ * Older clients scope by `type` and `sourceId`, which every path still reads.
  *
  * @author VectFox
  * ============================================================================
@@ -34,6 +35,16 @@ const SENTINEL_FLAG_KEY = '_vectfox_sentinel';
 // the upgrade button yet.
 let _legacyDataWarningFired = false;
 const MULTITENANCY_COLLECTION = 'vectfox_main';
+
+// The payload field that tells collections apart inside the shared one: VectFox writes each point's collection ID
+// there. Indexed as a tenant field, so a filter on it reads one tenant's points only.
+export const TENANT_FIELD = 'content_type';
+
+// The most tenants one discovery lists. A facet answer this long may be cut, so discovery then says it did not list
+// them all, and VectFox prunes nothing it did not see.
+const TENANT_FACET_LIMIT = 10000;
+
+const UUID_FORMAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Qdrant Backend Manager
@@ -424,6 +435,7 @@ class QdrantBackend {
         // Regular fields use simple type string
         const indexConfigs = [
             // TENANT FIELDS (is_tenant: true for optimized multitenancy)
+            { field: TENANT_FIELD, schema: { type: 'keyword', is_tenant: true } },
             { field: 'type', schema: { type: 'keyword', is_tenant: true } },
             { field: 'sourceId', schema: { type: 'keyword', is_tenant: true } },
             // REGULAR KEYWORD FIELDS
@@ -563,6 +575,22 @@ class QdrantBackend {
     }
 
     /**
+     * An item's Qdrant point ID: the ID the client chose (a whole number or a UUID), or else its hash, as a number.
+     * @private
+     * @param {{id?: number|string, hash: number|string}} item
+     * @returns {number|string}
+     * @throws {Error} When the chosen ID is neither a whole number nor a UUID, which Qdrant refuses
+     */
+    _pointIdOf(item) {
+        if (item.id === undefined || item.id === null) {
+            return typeof item.hash === 'string' ? parseInt(item.hash, 10) : item.hash;
+        }
+        if (Number.isSafeInteger(item.id) && item.id >= 0) return item.id;
+        if (typeof item.id === 'string' && UUID_FORMAT.test(item.id)) return item.id;
+        throw new Error(`[Qdrant] Point ID ${JSON.stringify(item.id)} is neither a whole number nor a UUID, so nothing was stored.`);
+    }
+
+    /**
      * Insert vector items into collection (MULTITENANCY)
      * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {Array} items - Items with {hash, text, vector, sparseVector?, metadata}
@@ -579,6 +607,9 @@ class QdrantBackend {
         // The chat's own collection, or vectfox_main with multitenancy on
         collectionName = this._parseCollectionName(collectionName);
         const mainCollection = collectionName;
+
+        // Every point ID first, so an unusable one stops the insert before anything is written.
+        const pointIds = items.map(item => this._pointIdOf(item));
 
         // Validate all items have vectors
         const missingVectors = items.filter(item => !item.vector || !Array.isArray(item.vector));
@@ -620,6 +651,8 @@ class QdrantBackend {
         // Ensure collection exists (use first vector's size)
         const vectorSize = expectedDimension;
         await this.ensureCollection(mainCollection, vectorSize, { nativeSparse });
+        // A shared collection made before the tenant field was indexed gets the index on its next insert.
+        if (items.some(item => item.metadata?.[TENANT_FIELD])) await this._ensureTenantIndex(mainCollection);
 
         // Sentinel handling: when native sparse is enabled, the CJK tokenizer mode is baked
         // into the indexed sparse vectors. Write the sentinel on first insert; verify it
@@ -648,8 +681,8 @@ class QdrantBackend {
         // IMPORTANT: Ensure hash is a number - Qdrant accepts unsigned integers or UUID strings,
         // but NOT numeric strings like "977206". JSON parsing from HTTP requests can sometimes
         // convert numbers to strings, so we explicitly coerce here.
-        const points = items.map(item => ({
-            id: typeof item.hash === 'string' ? parseInt(item.hash, 10) : item.hash, // Ensure numeric ID for Qdrant
+        const points = items.map((item, position) => ({
+            id: pointIds[position],
             // When the collection has a named sparse vector, Qdrant requires the point's vector
             // field to be an object keyed by vector name. Default dense vector is keyed by "".
             // Without sparse, keep the plain-array form so we don't break existing collections.
@@ -723,7 +756,7 @@ class QdrantBackend {
      * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {number[]} queryVector - Query vector
      * @param {number} topK - Number of results
-     * @param {object} filters - Payload filters {type, sourceId, minImportance, timestampAfter, etc.}
+     * @param {object} filters - The tenant ({content_type}, or the older {type, sourceId}) and narrowing filters such as minImportance
      * @returns {Promise<Array>} Results with {hash, text, score, metadata}
      */
     async queryCollection(collectionName, queryVector, topK = 10, filters = {}) {
@@ -740,66 +773,13 @@ class QdrantBackend {
                 return [];
             }
 
-            // Build filter conditions
-            const must = [];
-
-            if (filters.type) {
-                must.push({
-                    key: 'type',
-                    match: { value: filters.type }
-                });
-            }
-
-            if (filters.sourceId) {
-                must.push({
-                    key: 'sourceId',
-                    match: { value: filters.sourceId }
-                });
-            }
-
-            if (filters.minImportance !== undefined) {
-                must.push({
-                    key: 'importance',
-                    range: { gte: filters.minImportance }
-                });
-            }
-
-            if (filters.timestampAfter !== undefined) {
-                must.push({
-                    key: 'timestamp',
-                    range: { gte: filters.timestampAfter }
-                });
-            }
-
-            if (filters.characterName) {
-                must.push({
-                    key: 'characterName',
-                    match: { value: filters.characterName }
-                });
-            }
-
-            if (filters.chatId) {
-                must.push({
-                    key: 'chatId',
-                    match: { value: filters.chatId }
-                });
-            }
-
-            if (filters.embeddingSource) {
-                must.push({
-                    key: 'embeddingSource',
-                    match: { value: filters.embeddingSource }
-                });
-            }
-
-            // Build search payload — _buildFilterExcludingSentinel keeps the
-            // sentinel-exclusion rule consistent with every other read path
+            // _buildFilterExcludingSentinel keeps the sentinel-exclusion rule consistent with every other read path
             // (listItems, getSavedHashes, _buildHybridFilter).
             const searchPayload = {
                 vector: queryVector,
                 limit: topK,
                 with_payload: true,
-                filter: this._buildFilterExcludingSentinel(must),
+                filter: this._buildFilterExcludingSentinel(this._scopeMust(filters)),
             };
 
             // Search
@@ -852,16 +832,17 @@ class QdrantBackend {
     }
 
     /**
-     * Build a Qdrant filter object from VectFox's filter shape. Shared by all hybrid paths.
-     * Always excludes the VectFox sentinel point via {@link _buildFilterExcludingSentinel}.
-     * Returns `null` when there are no must clauses (only sentinel exclusion stays).
+     * The `must` clauses a request's filters name: the tenant (`content_type`, and the older `type` and `sourceId`)
+     * and the fields that narrow it. Every path that reads, counts, changes or deletes points takes its scope from here,
+     * so a filter one path understands, every path understands.
      * @private
-     * @returns {object|null}
+     * @param {object} [filters]
+     * @returns {Array<object>}
      */
-    _buildHybridFilter(filters) {
+    _scopeMust(filters = {}) {
         const must = [];
-        const should = [];
         const add = (key, clause) => must.push({ key, ...clause });
+        if (filters[TENANT_FIELD])      add(TENANT_FIELD,      { match: { value: filters[TENANT_FIELD] } });
         if (filters.type)               add('type',            { match: { value: filters.type } });
         if (filters.sourceId)           add('sourceId',        { match: { value: filters.sourceId } });
         if (filters.minImportance !== undefined) add('importance', { range: { gte: filters.minImportance } });
@@ -869,7 +850,29 @@ class QdrantBackend {
         if (filters.characterName)      add('characterName',   { match: { value: filters.characterName } });
         if (filters.chatId)             add('chatId',          { match: { value: filters.chatId } });
         if (filters.embeddingSource)    add('embeddingSource', { match: { value: filters.embeddingSource } });
-        if (filters.content_type)       add('content_type',    { match: { value: filters.content_type } });
+        // Planner-emitted hard importance floor.
+        if (typeof filters.importance_gte === 'number') add('importance', { range: { gte: filters.importance_gte } });
+        return must;
+    }
+
+    /**
+     * Whether filters name a tenant, so a change or delete they scope stays inside one collection of the shared one.
+     * @param {object} [filters]
+     * @returns {boolean}
+     */
+    _namesTenant(filters = {}) {
+        return Boolean(filters[TENANT_FIELD] || filters.type || filters.sourceId);
+    }
+
+    /**
+     * Build a Qdrant filter object from VectFox's filter shape. Shared by all hybrid paths.
+     * Always excludes the VectFox sentinel point via {@link _buildFilterExcludingSentinel}.
+     * @private
+     * @returns {object}
+     */
+    _buildHybridFilter(filters) {
+        const must = this._scopeMust(filters);
+        const should = [];
 
         // Planner-emitted *_any filters: OR within and across fields.
         // match: { any: [...] } works on both scalar and array payload fields.
@@ -886,11 +889,6 @@ class QdrantBackend {
             if (Array.isArray(vals) && vals.length > 0) {
                 should.push({ key: payloadKey, match: { any: vals } });
             }
-        }
-
-        // Planner-emitted hard importance floor.
-        if (typeof filters.importance_gte === 'number') {
-            must.push({ key: 'importance', range: { gte: filters.importance_gte } });
         }
 
         // Base filter with sentinel exclusion + any must clauses we've collected.
@@ -1174,7 +1172,7 @@ class QdrantBackend {
     /**
      * List all items in a collection (MULTITENANCY)
      * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
-     * @param {object} filters - Payload filters {type, sourceId}
+     * @param {object} filters - The tenant ({content_type}, or the older {type, sourceId}) and any narrowing filters
      * @param {object} options - Options { includeVectors, scrollLimit }
      * @returns {Promise<Array>} Array of items with {hash, text, metadata, vector?}
      */
@@ -1193,26 +1191,11 @@ class QdrantBackend {
                 return [];
             }
 
-            // Build filter conditions
-            const must = [];
-            if (filters.type) {
-                must.push({
-                    key: 'type',
-                    match: { value: filters.type }
-                });
-            }
-            if (filters.sourceId) {
-                must.push({
-                    key: 'sourceId',
-                    match: { value: filters.sourceId }
-                });
-            }
-
             // Sentinel exclusion is centralized in _buildFilterExcludingSentinel —
             // surfacing the sentinel in chunk listings breaks delete-by-hash flows
             // (chunk.hash is undefined → Qdrant rejects the delete with 400
             // PointsSelector format error).
-            const filter = this._buildFilterExcludingSentinel(must);
+            const filter = this._buildFilterExcludingSentinel(this._scopeMust(filters));
 
             // Scroll through all points
             const items = [];
@@ -1257,7 +1240,7 @@ class QdrantBackend {
     /**
      * Get all saved hashes from a collection (MULTITENANCY)
      * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
-     * @param {object} filters - Payload filters {type, sourceId}
+     * @param {object} filters - The tenant ({content_type}, or the older {type, sourceId}) and any narrowing filters
      * @returns {Promise<number[]>} Array of hashes
      */
     async getSavedHashes(collectionName, filters = {}) {
@@ -1274,26 +1257,11 @@ class QdrantBackend {
                 return [];
             }
 
-            // Build filter conditions
-            const must = [];
-            if (filters.type) {
-                must.push({
-                    key: 'type',
-                    match: { value: filters.type }
-                });
-            }
-            if (filters.sourceId) {
-                must.push({
-                    key: 'sourceId',
-                    match: { value: filters.sourceId }
-                });
-            }
-
             // Scroll through all points to get hashes. Sentinel exclusion is
             // centralized in _buildFilterExcludingSentinel — sentinel has no
             // `hash` field, so without the exclusion this list would contain
             // `undefined` entries that confuse exists/delete-by-hash callers.
-            const filter = this._buildFilterExcludingSentinel(must);
+            const filter = this._buildFilterExcludingSentinel(this._scopeMust(filters));
             const hashes = [];
             let offset = null;
 
@@ -1323,12 +1291,15 @@ class QdrantBackend {
     }
 
     /**
-     * Delete specific items by hash (MULTITENANCY)
-     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
+     * Delete items by hash. When the filters name a tenant, the delete matches the payload `hash` inside that tenant,
+     * so a hash two collections of the shared one both hold is deleted from one of them only. Without a tenant it
+     * deletes the points whose ID is the hash, as before.
+     * @param {string} collectionName - Collection name: the collection's own, or "vectfox_main" with multitenancy on
      * @param {number[]} hashes - Hashes to delete
+     * @param {object} [filters] - The tenant, {content_type}, and any narrowing filters
      * @returns {Promise<void>}
      */
-    async deleteVectors(collectionName, hashes) {
+    async deleteVectors(collectionName, hashes, filters = {}) {
         if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         if (hashes.length === 0) return;
 
@@ -1356,18 +1327,18 @@ class QdrantBackend {
         }
 
         // Throw on failure so the route returns 500 and the client UI sees the error.
-        await this._request('POST', `/collections/${mainCollection}/points/delete?wait=true`, {
-            points: numericHashes,
-        });
+        await this._request('POST', `/collections/${mainCollection}/points/delete?wait=true`, this._namesTenant(filters)
+            ? { filter: { must: [...this._scopeMust(filters), { key: 'hash', match: { any: numericHashes } }] } }
+            : { points: numericHashes });
 
-        console.log(`[Qdrant] Deleted ${numericHashes.length} items from ${mainCollection}`);
+        console.log(`[Qdrant] Deleted ${numericHashes.length} items from ${mainCollection}${filters[TENANT_FIELD] ? ` (${TENANT_FIELD}: ${filters[TENANT_FIELD]})` : ''}`);
     }
 
     /**
-     * Purge collection for a specific source (MULTITENANCY)
-     * Deletes all points matching type and sourceId filters
-     * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
-     * @param {object} filters - Payload filters {type, sourceId}
+     * Delete one tenant's points from a shared collection: every point the filters' tenant holds, {content_type} or the
+     * older {type, sourceId}. Filters that name no tenant throw rather than report a purge that deleted nothing.
+     * @param {string} collectionName - Collection name: the collection's own, or "vectfox_main" with multitenancy on
+     * @param {object} filters - The tenant to delete
      * @returns {Promise<void>}
      */
     async purgeCollection(collectionName, filters = {}) {
@@ -1384,32 +1355,17 @@ class QdrantBackend {
                 return;
             }
 
-            // Build filter conditions
-            const must = [];
-            if (filters.type) {
-                must.push({
-                    key: 'type',
-                    match: { value: filters.type }
-                });
-            }
-            if (filters.sourceId) {
-                must.push({
-                    key: 'sourceId',
-                    match: { value: filters.sourceId }
-                });
-            }
-
-            if (must.length === 0) {
-                console.warn('[Qdrant] No filters provided to purgeCollection - use purgeAll() instead');
-                return;
+            if (!this._namesTenant(filters)) {
+                throw new Error(`[Qdrant] A purge of ${mainCollection} by filter needs a tenant (${TENANT_FIELD}, type or sourceId), `
+                    + `and these filters name none: ${JSON.stringify(Object.keys(filters))}. Nothing was deleted.`);
             }
 
             // Delete points by filter
             await this._request('POST', `/collections/${mainCollection}/points/delete?wait=true`, {
-                filter: { must }
+                filter: { must: this._scopeMust(filters) }
             });
 
-            console.log(`[Qdrant] Purged ${mainCollection} (type: ${filters.type}, sourceId: ${filters.sourceId})`);
+            console.log(`[Qdrant] Purged ${mainCollection} (${TENANT_FIELD}: ${filters[TENANT_FIELD]}, type: ${filters.type}, sourceId: ${filters.sourceId})`);
         } catch (error) {
             if (error.message?.includes('404')) {
                 return;
@@ -1461,10 +1417,176 @@ class QdrantBackend {
     }
 
     /**
+     * Index the tenant field on a collection made before it was indexed, once per collection per process. A tenant
+     * filter works without the index but reads every point; the facet discovery uses needs it.
+     * @private
+     * @param {string} collectionName
+     * @returns {Promise<void>}
+     */
+    async _ensureTenantIndex(collectionName) {
+        this._tenantIndexed ??= new Set();
+        if (this._tenantIndexed.has(collectionName)) return;
+        try {
+            await this._request('PUT', `/collections/${collectionName}/index?wait=true`, {
+                field_name: TENANT_FIELD,
+                field_schema: { type: 'keyword', is_tenant: true },
+            });
+        } catch (error) {
+            if (!error.message?.includes('already exists') && !error.message?.includes('409')) throw error;
+        }
+        this._tenantIndexed.add(collectionName);
+    }
+
+    /**
+     * The tenants of a shared collection, each with its point count, from Qdrant's facet counts (Qdrant 1.12+).
+     * @param {string} collectionName
+     * @returns {Promise<Array<{tenant: string, count: number}>>}
+     * @throws {Error} When Qdrant cannot count them, or when the answer may be cut at the facet limit
+     */
+    async listTenants(collectionName) {
+        collectionName = this._parseCollectionName(collectionName);
+        await this._ensureTenantIndex(collectionName);
+        const response = await this._request('POST', `/collections/${collectionName}/facet`, {
+            key: TENANT_FIELD,
+            limit: TENANT_FACET_LIMIT,
+            exact: true,
+        });
+        const hits = response.result?.hits || [];
+        if (hits.length >= TENANT_FACET_LIMIT) {
+            throw new Error(`[Qdrant] ${collectionName} has at least ${TENANT_FACET_LIMIT} tenants, more than one discovery lists`);
+        }
+        // Qdrant 1.20 still reports a tenant whose points were all deleted, with a count of 0: it is gone.
+        return hits.filter(hit => hit.count > 0).map(hit => ({ tenant: String(hit.value), count: hit.count }));
+    }
+
+    /**
+     * The exact number of points the filters select, the sentinel left out.
+     * @param {string} collectionName
+     * @param {object} [filters]
+     * @returns {Promise<number>}
+     */
+    async countPoints(collectionName, filters = {}) {
+        collectionName = this._parseCollectionName(collectionName);
+        const response = await this._request('POST', `/collections/${collectionName}/points/count`, {
+            filter: this._buildFilterExcludingSentinel(this._scopeMust(filters)),
+            exact: true,
+        });
+        return response.result?.count ?? 0;
+    }
+
+    /**
+     * The embedding source one point the filters select was stored with, or 'unknown'.
+     * @private
+     * @param {string} collectionName
+     * @param {object} [filters]
+     * @returns {Promise<string>}
+     */
+    async _sampleEmbeddingSource(collectionName, filters = {}) {
+        const response = await this._request('POST', `/collections/${collectionName}/points/scroll`, {
+            filter: this._buildFilterExcludingSentinel(this._scopeMust(filters)),
+            limit: 1,
+            with_payload: { include: ['embeddingSource'] },
+            with_vector: false,
+        });
+        return response.result?.points?.[0]?.payload?.embeddingSource || 'unknown';
+    }
+
+    /**
+     * One hybrid search of one LoreBase index, pooled per entry (VectFox's lorebook passage index, its plan §5.6): a
+     * flat search fusing the dense and sparse legs by RRF, read in fused order, each entry keeping its best passages.
+     * Not Qdrant's grouped query, whose fused scores rise as earlier groups drop out. A dense search alongside gives
+     * each passage its cosine, the score a gate can hold to a bar; the fused score only ranks.
+     * @param {string} collectionName
+     * @param {number[]} denseVector
+     * @param {{indices: number[], values: number[]}} sparseVector
+     * @param {object} [filters] - The index's tenant, {content_type}
+     * @param {{prefetchLimit?: number, entries?: number, passagesPerEntry?: number}} [limits]
+     * @returns {Promise<Array<{entryKey: string, entryUid: number, score: number, cosine: number, passages: Array<{hash: number, passageIndex: number, sectionName: string, score: number, cosine: number}>}>>}
+     */
+    async pooledSearch(collectionName, denseVector, sparseVector, filters = {}, { prefetchLimit = 300, entries = 10, passagesPerEntry = 3 } = {}) {
+        if (!this.baseUrl) throw new Error('Qdrant not initialized');
+        collectionName = this._parseCollectionName(collectionName);
+        const filter = this._buildHybridFilter(filters);
+        const fields = ['entryKey', 'entryUid', 'sectionName', 'passageIndex', 'hash'];
+        const [fused, dense] = await Promise.all([
+            this._request('POST', `/collections/${collectionName}/points/query`, {
+                prefetch: [
+                    { query: denseVector, limit: prefetchLimit, filter },
+                    { query: sparseVector, using: 'text_sparse', limit: prefetchLimit, filter },
+                ],
+                query: { fusion: 'rrf' },
+                limit: prefetchLimit,
+                with_payload: fields,
+            }),
+            this._request('POST', `/collections/${collectionName}/points/query`, {
+                query: denseVector,
+                filter,
+                limit: prefetchLimit,
+                with_payload: false,
+            }),
+        ]);
+        const cosineOf = new Map((dense.result?.points || []).map(point => [String(point.id), point.score]));
+        const byEntry = new Map();
+        for (const point of fused.result?.points || []) {
+            const payload = point.payload || {};
+            if (payload.entryKey === undefined || payload.entryKey === null) continue;
+            const cosine = cosineOf.get(String(point.id)) ?? 0;
+            let entry = byEntry.get(payload.entryKey);
+            if (!entry) {
+                if (byEntry.size >= entries) continue;
+                entry = { entryKey: payload.entryKey, entryUid: payload.entryUid, score: point.score, cosine, passages: [] };
+                byEntry.set(payload.entryKey, entry);
+            }
+            entry.cosine = Math.max(entry.cosine, cosine);
+            if (entry.passages.length < passagesPerEntry) {
+                entry.passages.push({ hash: payload.hash, passageIndex: payload.passageIndex, sectionName: payload.sectionName, score: point.score, cosine });
+            }
+        }
+        return [...byEntry.values()];
+    }
+
+    /**
+     * What VectFox's collection discovery sees in Qdrant: each collection of its own, and each tenant of the shared
+     * collection as a collection of its own, which is how VectFox names it. `tenantsListed` is false when a shared
+     * collection's tenants could not all be listed (a Qdrant older than 1.12 has no facet counts); the shared
+     * collection is then listed by its own name, as before.
+     * @returns {Promise<{collections: Array<{id: string, source: string, chunkCount: number, sharedCollection?: string}>, tenantsListed: boolean}>}
+     */
+    async describeCollections() {
+        const collections = [];
+        let tenantsListed = true;
+        for (const name of await this.getCollections()) {
+            if (name === MULTITENANCY_COLLECTION) {
+                try {
+                    for (const { tenant, count } of await this.listTenants(name)) {
+                        collections.push({
+                            id: tenant,
+                            source: await this._sampleEmbeddingSource(name, { [TENANT_FIELD]: tenant }),
+                            chunkCount: count,
+                            sharedCollection: name,
+                        });
+                    }
+                    continue;
+                } catch (error) {
+                    tenantsListed = false;
+                    console.warn(`[Qdrant] The tenants of ${name} were not listed, so discovery shows it whole:`, error.message);
+                }
+            }
+            // A "source:id" or "backend:source:id" name carries its source; otherwise one point says it.
+            const parts = name.split(':');
+            const source = parts.length === 2 ? parts[0]
+                : parts.length === 3 ? parts[1]
+                    : await this._sampleEmbeddingSource(name);
+            collections.push({ id: name, source, chunkCount: await this.countPoints(name) });
+        }
+        return { collections, tenantsListed };
+    }
+
+    /**
      * Get a single item by hash (MULTITENANCY)
      * @param {string} collectionName - Collection name: the chat's own, or "vectfox_main" with multitenancy on
      * @param {number} hash - Item hash to find
-     * @param {object} filters - Payload filters {type, sourceId}
+     * @param {object} filters - The tenant ({content_type}, or the older {type, sourceId}) and any narrowing filters
      * @returns {Promise<object|null>} Item or null if not found
      */
     async getItem(collectionName, hash, filters = {}) {
@@ -1479,15 +1601,9 @@ class QdrantBackend {
         try {
             // Build filter to find specific item
             const must = [
-                { key: 'hash', match: { value: numericHash } }
+                { key: 'hash', match: { value: numericHash } },
+                ...this._scopeMust(filters),
             ];
-
-            if (filters.type) {
-                must.push({ key: 'type', match: { value: filters.type } });
-            }
-            if (filters.sourceId) {
-                must.push({ key: 'sourceId', match: { value: filters.sourceId } });
-            }
 
             const response = await this._request('POST', `/collections/${mainCollection}/points/scroll`, {
                 filter: { must },
@@ -1519,7 +1635,7 @@ class QdrantBackend {
      * @param {string} collectionName - Collection name
      * @param {number} hash - Item hash to update
      * @param {object} updates - Updated fields {text?, hash?, vector?, ...metadata}
-     * @param {object} filters - Multitenancy filters {type, sourceId}
+     * @param {object} filters - The tenant ({content_type}, or the older {type, sourceId}) and any narrowing filters
      * @returns {Promise<void>}
      */
     async updateItem(collectionName, hash, updates, filters = {}) {
@@ -1532,7 +1648,7 @@ class QdrantBackend {
         }
 
         // Delete old item
-        await this.deleteVectors(collectionName, [hash]);
+        await this.deleteVectors(collectionName, [hash], filters);
 
         // Merge updates with existing data
         const newHash = updates.hash || hash;
@@ -1554,7 +1670,7 @@ class QdrantBackend {
      * @param {string} collectionName - Collection name
      * @param {number} hash - Item hash to update
      * @param {object} metadata - New metadata fields to merge
-     * @param {object} filters - Multitenancy filters {type, sourceId}
+     * @param {object} filters - The tenant ({content_type}, or the older {type, sourceId}) and any narrowing filters
      * @returns {Promise<void>}
      */
     async updateItemMetadata(collectionName, hash, metadata, filters = {}) {
@@ -1564,11 +1680,11 @@ class QdrantBackend {
         const numericHash = typeof hash === 'string' ? parseInt(hash, 10) : hash;
 
         // Use Qdrant's native payload-update endpoint — no vector fetch/delete/reinsert needed.
-        // This works correctly for both plain-vector and named-vector (hybrid) collections.
-        await this._request('POST', `/collections/${collectionName}/points/payload?wait=true`, {
-            payload: metadata,
-            points: [numericHash],
-        });
+        // This works correctly for both plain-vector and named-vector (hybrid) collections. With a tenant named, the
+        // point is found by payload hash inside it, as deleteVectors finds it.
+        await this._request('POST', `/collections/${collectionName}/points/payload?wait=true`, this._namesTenant(filters)
+            ? { payload: metadata, filter: { must: [...this._scopeMust(filters), { key: 'hash', match: { value: numericHash } }] } }
+            : { payload: metadata, points: [numericHash] });
 
         console.log(`[Qdrant] Updated metadata for item ${hash}`);
     }
@@ -1591,7 +1707,7 @@ class QdrantBackend {
     /**
      * Get collection statistics (MULTITENANCY)
      * @param {string} collectionName - Collection name
-     * @param {object} filters - Payload filters {type, sourceId}
+     * @param {object} filters - The tenant ({content_type}, or the older {type, sourceId}) and any narrowing filters
      * @returns {Promise<object>} Statistics object
      */
     async getCollectionStats(collectionName, filters = {}) {
@@ -1695,14 +1811,8 @@ class QdrantBackend {
                 match: { text: String(id) }
             }));
 
-            // Also add type/sourceId filters as must conditions
-            const must = [];
-            if (filters.type) {
-                must.push({ key: 'type', match: { value: filters.type } });
-            }
-            if (filters.sourceId) {
-                must.push({ key: 'sourceId', match: { value: filters.sourceId } });
-            }
+            // The tenant and any narrowing filters as must conditions
+            const must = this._scopeMust(filters);
 
             const filter = { should };
             if (must.length > 0) {

@@ -461,7 +461,7 @@ export async function init(router) {
                     },
 
                     delete: async (collectionId, hashes, source, model, directories, filters = {}) => {
-                        await qdrantBackend.deleteVectors(collectionId, hashes);
+                        await qdrantBackend.deleteVectors(collectionId, hashes, filters);
                         return hashes.length;
                     },
 
@@ -527,13 +527,14 @@ export async function init(router) {
                 console.warn(`[${pluginName}] collections: Transformers collections were not moved into their model folders, so discovery lists them where they are:`, error);
             }
             const vectorsPath = req.user.directories.vectors;
-            const { collections: allCollections, qdrantScanned } = await scanAllSourcesForCollections(vectorsPath);
+            const { collections: allCollections, qdrantScanned, qdrantTenantsScanned } = await scanAllSourcesForCollections(vectorsPath);
 
             res.json({
                 success: true,
                 count: allCollections.length,
                 collections: allCollections,
                 qdrantScanned,
+                qdrantTenantsScanned,
             });
         } catch (error) {
             console.error(`[${pluginName}] collections error:`, error);
@@ -1315,6 +1316,50 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     });
 
     /**
+     * POST /api/plugins/similharity/lorebase/search
+     * One pooled hybrid search per LoreBase index (VectFox's lorebook passage index), all in one request: each
+     * target's best entries, each with its best passages, ranked within its own book.
+     * Body: { backend: 'qdrant', targets: [{label, collectionId, filters}], queryVector, sparseQueryVector,
+     *         prefetchLimit?, entriesPerBook?, passagesPerEntry? }
+     * Response: { results: [{label, entries}], timings: {queryMs} }
+     */
+    router.post('/lorebase/search', async (req, res) => {
+        try {
+            const {
+                backend = 'qdrant',
+                targets,
+                queryVector,
+                sparseQueryVector,
+                prefetchLimit = 300,
+                entriesPerBook = 10,
+                passagesPerEntry = 3,
+            } = req.body;
+            if (backend !== 'qdrant') {
+                return res.status(400).json({ error: `LoreBase search runs on Qdrant only, not ${backend}` });
+            }
+            if (!Array.isArray(targets) || targets.length === 0 || targets.some(target => !target?.collectionId)) {
+                return res.status(400).json({ error: 'targets must list at least one {label, collectionId, filters}' });
+            }
+            if (!Array.isArray(queryVector) || queryVector.length === 0) {
+                return res.status(400).json({ error: 'queryVector is required' });
+            }
+            if (!Array.isArray(sparseQueryVector?.indices) || !Array.isArray(sparseQueryVector?.values)) {
+                return res.status(400).json({ error: 'sparseQueryVector {indices, values} is required' });
+            }
+            const started = Date.now();
+            const limits = { prefetchLimit, entries: entriesPerBook, passagesPerEntry };
+            const results = await Promise.all(targets.map(async target => ({
+                label: target.label ?? target.collectionId,
+                entries: await qdrantBackend.pooledSearch(target.collectionId, queryVector, sparseQueryVector, target.filters || {}, limits),
+            })));
+            res.json({ success: true, results, timings: { queryMs: Date.now() - started } });
+        } catch (error) {
+            console.error(`[${pluginName}] lorebase/search error:`, error);
+            res.status(500).json({ error: formatError(error) });
+        }
+    });
+
+    /**
      * POST /api/plugins/similharity/chunks/purge
      * Purge all chunks in a collection
      * Body: { backend, collectionId, source?, model? }
@@ -1641,6 +1686,8 @@ function getStringHash(str) {
 async function scanAllSourcesForCollections(vectorsPath) {
     const allCollections = [];
     let qdrantScanned = false;
+    // Whether the shared collection's tenants were all listed; VectFox prunes no shared-collection entry otherwise.
+    let qdrantTenantsScanned = false;
 
     try {
         // Scan vectra indexes
@@ -1692,40 +1739,20 @@ async function scanAllSourcesForCollections(vectorsPath) {
             });
         }
 
-        // Scan Qdrant (uses REST API, so check if initialized via baseUrl)
+        // Scan Qdrant (uses REST API, so check if initialized via baseUrl). Each tenant of the shared collection is
+        // listed as the collection VectFox knows it as, so discovery never measures VectFox's collections against
+        // Qdrant's physical names.
         try {
             if (qdrantBackend.baseUrl) {
                 const healthy = await qdrantBackend.healthCheck();
                 if (healthy) {
-                    qdrantScanned = true; // qdrant was reachable and scanned
-                    const collections = await qdrantBackend.getCollections();
-
-                    for (const collectionName of collections) {
-                        const items = await qdrantBackend.listItems(collectionName, {});
-                        console.log('Discovered Qdrant Collection:', collectionName + " " + items.length + " items");
-
-                        // Extract source from collection name (format: "source:id" or "backend:source:id")
-                        let source = 'unknown';
-                        const parts = collectionName.split(':');
-                        if (parts.length === 2) {
-                            // Format: "source:id"
-                            source = parts[0];
-                        } else if (parts.length === 3) {
-                            // Format: "backend:source:id"
-                            source = parts[1];
-                        } else if (items.length > 0 && items[0].metadata?.embeddingSource) {
-                            // Fallback: get from item metadata
-                            source = items[0].metadata.embeddingSource;
-                        }
-
-                         allCollections.push({
-                            id: collectionName,
-                            source: source,
-                            backend: 'qdrant',
-                            chunkCount: items.length,
-                            modelCount: 1
-                        });
+                    const { collections, tenantsListed } = await qdrantBackend.describeCollections();
+                    for (const collection of collections) {
+                        console.log(`Discovered Qdrant collection: ${collection.id} ${collection.chunkCount} items${collection.sharedCollection ? ` in ${collection.sharedCollection}` : ''}`);
+                        allCollections.push({ ...collection, backend: 'qdrant', modelCount: 1 });
                     }
+                    qdrantScanned = true; // qdrant was reachable and scanned
+                    qdrantTenantsScanned = tenantsListed;
                 }
             }
         } catch (e) {
@@ -1736,7 +1763,7 @@ async function scanAllSourcesForCollections(vectorsPath) {
         console.error(`[${pluginName}] Error scanning collections:`, error);
     }
 
-    return { collections: allCollections, qdrantScanned };
+    return { collections: allCollections, qdrantScanned, qdrantTenantsScanned };
 }
 
 /**
