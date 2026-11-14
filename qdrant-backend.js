@@ -1492,60 +1492,6 @@ class QdrantBackend {
     }
 
     /**
-     * One hybrid search of one LoreBase index, pooled per entry (VectFox's lorebook passage index, its plan §5.6): a
-     * flat search fusing the dense and sparse legs by RRF, read in fused order, each entry keeping its best passages.
-     * Not Qdrant's grouped query, whose fused scores rise as earlier groups drop out. A dense search alongside gives
-     * each passage its cosine, the score a gate can hold to a bar; the fused score only ranks.
-     * @param {string} collectionName
-     * @param {number[]} denseVector
-     * @param {{indices: number[], values: number[]}} sparseVector
-     * @param {object} [filters] - The index's tenant, {content_type}
-     * @param {{prefetchLimit?: number, entries?: number, passagesPerEntry?: number}} [limits]
-     * @returns {Promise<Array<{entryKey: string, entryUid: number, score: number, cosine: number, passages: Array<{hash: number, passageIndex: number, sectionName: string, score: number, cosine: number}>}>>}
-     */
-    async pooledSearch(collectionName, denseVector, sparseVector, filters = {}, { prefetchLimit = 300, entries = 10, passagesPerEntry = 3 } = {}) {
-        if (!this.baseUrl) throw new Error('Qdrant not initialized');
-        collectionName = this._parseCollectionName(collectionName);
-        const filter = this._buildHybridFilter(filters);
-        const fields = ['entryKey', 'entryUid', 'sectionName', 'passageIndex', 'hash'];
-        const [fused, dense] = await Promise.all([
-            this._request('POST', `/collections/${collectionName}/points/query`, {
-                prefetch: [
-                    { query: denseVector, limit: prefetchLimit, filter },
-                    { query: sparseVector, using: 'text_sparse', limit: prefetchLimit, filter },
-                ],
-                query: { fusion: 'rrf' },
-                limit: prefetchLimit,
-                with_payload: fields,
-            }),
-            this._request('POST', `/collections/${collectionName}/points/query`, {
-                query: denseVector,
-                filter,
-                limit: prefetchLimit,
-                with_payload: false,
-            }),
-        ]);
-        const cosineOf = new Map((dense.result?.points || []).map(point => [String(point.id), point.score]));
-        const byEntry = new Map();
-        for (const point of fused.result?.points || []) {
-            const payload = point.payload || {};
-            if (payload.entryKey === undefined || payload.entryKey === null) continue;
-            const cosine = cosineOf.get(String(point.id)) ?? 0;
-            let entry = byEntry.get(payload.entryKey);
-            if (!entry) {
-                if (byEntry.size >= entries) continue;
-                entry = { entryKey: payload.entryKey, entryUid: payload.entryUid, score: point.score, cosine, passages: [] };
-                byEntry.set(payload.entryKey, entry);
-            }
-            entry.cosine = Math.max(entry.cosine, cosine);
-            if (entry.passages.length < passagesPerEntry) {
-                entry.passages.push({ hash: payload.hash, passageIndex: payload.passageIndex, sectionName: payload.sectionName, score: point.score, cosine });
-            }
-        }
-        return [...byEntry.values()];
-    }
-
-    /**
      * What VectFox's collection discovery sees in Qdrant: each collection of its own, and each tenant of the shared
      * collection as a collection of its own, which is how VectFox names it. `tenantsListed` is false when a shared
      * collection's tenants could not all be listed (a Qdrant older than 1.12 has no facet counts); the shared

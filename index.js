@@ -1316,50 +1316,6 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     });
 
     /**
-     * POST /api/plugins/similharity/lorebase/search
-     * One pooled hybrid search per LoreBase index (VectFox's lorebook passage index), all in one request: each
-     * target's best entries, each with its best passages, ranked within its own book.
-     * Body: { backend: 'qdrant', targets: [{label, collectionId, filters}], queryVector, sparseQueryVector,
-     *         prefetchLimit?, entriesPerBook?, passagesPerEntry? }
-     * Response: { results: [{label, entries}], timings: {queryMs} }
-     */
-    router.post('/lorebase/search', async (req, res) => {
-        try {
-            const {
-                backend = 'qdrant',
-                targets,
-                queryVector,
-                sparseQueryVector,
-                prefetchLimit = 300,
-                entriesPerBook = 10,
-                passagesPerEntry = 3,
-            } = req.body;
-            if (backend !== 'qdrant') {
-                return res.status(400).json({ error: `LoreBase search runs on Qdrant only, not ${backend}` });
-            }
-            if (!Array.isArray(targets) || targets.length === 0 || targets.some(target => !target?.collectionId)) {
-                return res.status(400).json({ error: 'targets must list at least one {label, collectionId, filters}' });
-            }
-            if (!Array.isArray(queryVector) || queryVector.length === 0) {
-                return res.status(400).json({ error: 'queryVector is required' });
-            }
-            if (!Array.isArray(sparseQueryVector?.indices) || !Array.isArray(sparseQueryVector?.values)) {
-                return res.status(400).json({ error: 'sparseQueryVector {indices, values} is required' });
-            }
-            const started = Date.now();
-            const limits = { prefetchLimit, entries: entriesPerBook, passagesPerEntry };
-            const results = await Promise.all(targets.map(async target => ({
-                label: target.label ?? target.collectionId,
-                entries: await qdrantBackend.pooledSearch(target.collectionId, queryVector, sparseQueryVector, target.filters || {}, limits),
-            })));
-            res.json({ success: true, results, timings: { queryMs: Date.now() - started } });
-        } catch (error) {
-            console.error(`[${pluginName}] lorebase/search error:`, error);
-            res.status(500).json({ error: formatError(error) });
-        }
-    });
-
-    /**
      * POST /api/plugins/similharity/chunks/purge
      * Purge all chunks in a collection
      * Body: { backend, collectionId, source?, model? }
