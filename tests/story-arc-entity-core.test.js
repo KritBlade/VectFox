@@ -6,7 +6,8 @@
  *   - a short name inside a different person's name is left alone, while a full name holding it as a part and a one-off spelling are rewritten,
  *   - the search asks for the other names of anyone the question names, except the rare ones,
  *   - the entity list counts a merged entity once and never loses one that no tag names,
- *   - merging carries a source's own other names, and splitting undoes it.
+ *   - merging carries a source's own other names, and splitting undoes it,
+ *   - a name's spellings that differ only in case are one name, in the list, the hidden names, a merge and the search.
  *
  * A name in CJK script takes its own path, matching as a substring and not as a whole
  * word. The tests of that path use plain words in place of names, which stay English.
@@ -20,9 +21,11 @@ import {
     entitySearchText,
     filterEntities,
     hasEntityMerges,
+    isHiddenEntityName,
     listEntities,
     mergeEntityNames,
     separateHiddenEntities,
+    showEntityNameAgain,
     splitEntityName,
     withKeptEntityNames,
 } from '../src/features/eventbase/story-arc-entity-core.js';
@@ -132,6 +135,12 @@ describe('entitySearchText', () => {
         const storedEvents = eventsHolding('Rose', 5);
         expect(entitySearchText({ queryText: 'How did Tom win?', subject: 'Tom', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did Tom win?');
     });
+
+    it('finds a name in the question in any case, and a Latin name only as a whole word', () => {
+        const storedEvents = [...eventsHolding('Rose', 5), ...eventsHolding('Rosa', 5)];
+        expect(entitySearchText({ queryText: 'How did rose win?', subject: '', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did rose win? Rosa');
+        expect(entitySearchText({ queryText: 'How did Rosalind win?', subject: '', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did Rosalind win?');
+    });
 });
 
 describe('entityNamesInMessage', () => {
@@ -172,6 +181,28 @@ describe('listEntities', () => {
         expect(listEntities(events, { Harbour: ['Bay'] }, 'places')).toEqual([{ name: 'Harbour', otherNames: ['Bay'], eventCount: 0 }]);
         expect(listEntities(events, { Harbour: ['Bay'] }, 'people').map(row => row.name)).not.toContain('Harbour');
     });
+
+    const casedEvents = [
+        { text: 'Rose', characters: ['Rose'] },
+        { text: 'Rose', characters: ['Rose', 'rose'] },
+        { text: 'ROSE', characters: ['ROSE'] },
+        { text: 'Rosie', characters: ['Rosie'] },
+    ];
+
+    it('lists a name\'s spellings that differ only in case as one row, in the spelling most events tag', () => {
+        expect(listEntities(casedEvents, {}, 'people')).toEqual([
+            { name: 'Rose', otherNames: [], eventCount: 3 },
+            { name: 'Rosie', otherNames: [], eventCount: 1 },
+        ]);
+    });
+
+    it('shows a merged entity by its kept name, whichever spelling the events tag', () => {
+        expect(listEntities(casedEvents, { rose: ['Rosie'] }, 'people')).toEqual([{ name: 'rose', otherNames: ['Rosie'], eventCount: 4 }]);
+        expect(listEntities(casedEvents, { Tom: ['ROSE'] }, 'people')).toEqual([
+            { name: 'Tom', otherNames: ['ROSE'], eventCount: 3 },
+            { name: 'Rosie', otherNames: [], eventCount: 1 },
+        ]);
+    });
 });
 
 describe('filterEntities', () => {
@@ -201,12 +232,19 @@ describe('mergeEntityNames', () => {
         expect(merges).toEqual({ Rose: ['Rosie', 'Rosa'] });
     });
 
-    it('refuses a name already in the target\'s entity', () => {
+    it('refuses a name already in the target\'s entity, in any case', () => {
         const before = { Rose: ['Rosie'] };
-        const result = mergeEntityNames(before, 'Rosie', 'ROSE');
-        expect(result.isMerged).toBe(false);
-        expect(result.reason).toContain('already one entity');
-        expect(result.merges).toBe(before);
+        for (const [sourceName, targetName] of [['Rosie', 'ROSE'], ['rose', 'ROSIE']]) {
+            const result = mergeEntityNames(before, sourceName, targetName);
+            expect(result.isMerged).toBe(false);
+            expect(result.reason).toContain('already one entity');
+            expect(result.merges).toBe(before);
+        }
+        expect(mergeEntityNames({}, 'rose', 'Rose').reason).toContain('already one entity');
+    });
+
+    it('resolves a kept name typed in another case to its entity', () => {
+        expect(mergeEntityNames({ Rose: ['Rosie'] }, 'Rosa', 'rose')).toEqual({ isMerged: true, merges: { Rose: ['Rosie', 'Rosa'] }, keptName: 'Rose' });
     });
 
     it('refuses an empty target', () => {
@@ -228,16 +266,26 @@ describe('mergeEntityNames, the kept name', () => {
 });
 
 describe('separateHiddenEntities', () => {
-    const rows = [{ name: 'Rose' }, { name: 'Waitress' }, { name: 'waitress' }];
+    const rows = [{ name: 'Rose' }, { name: 'Waitress' }, { name: 'Tom' }];
 
-    it('splits the rows by their own name, as written, in the order given', () => {
-        const { shownRows, hiddenRows } = separateHiddenEntities(rows, ['Waitress']);
-        expect(shownRows.map(row => row.name)).toEqual(['Rose', 'waitress']);
+    it('splits the rows by their name in any case, in the order given', () => {
+        const { shownRows, hiddenRows } = separateHiddenEntities(rows, ['waitress']);
+        expect(shownRows.map(row => row.name)).toEqual(['Rose', 'Tom']);
         expect(hiddenRows.map(row => row.name)).toEqual(['Waitress']);
     });
 
     it('shows every row with nothing hidden, and ignores a hidden name no row has', () => {
         expect(separateHiddenEntities(rows, ['Nobody'])).toEqual({ shownRows: rows, hiddenRows: [] });
+    });
+});
+
+describe('isHiddenEntityName and showEntityNameAgain', () => {
+    it('find and show again a name hidden in any case', () => {
+        const hiddenNames = ['Waitress', 'WAITRESS', 'Tom'];
+        expect(isHiddenEntityName(hiddenNames, 'waitress')).toBe(true);
+        expect(isHiddenEntityName(hiddenNames, 'Rose')).toBe(false);
+        expect(showEntityNameAgain(hiddenNames, 'waitress')).toEqual(['Tom']);
+        expect(hiddenNames).toEqual(['Waitress', 'WAITRESS', 'Tom']);
     });
 });
 

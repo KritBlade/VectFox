@@ -13,7 +13,7 @@
 import { log } from '../../sillytavern/log.js';
 import { notice } from '../../shared/gui-dna/gui-dna-core.js';
 import { readEntityMerges, readHiddenEntityNames, saveEntityMerges, saveHiddenEntityNames } from './story-arc-entities.js';
-import { buildEntityNameWriter, entityNamesLeftAlone, filterEntities, listEntities, mergeEntityNames, separateHiddenEntities, splitEntityName, withKeptEntityNames } from './story-arc-entity-core.js';
+import { buildEntityNameWriter, entityNamesLeftAlone, filterEntities, isHiddenEntityName, listEntities, mergeEntityNames, separateHiddenEntities, showEntityNameAgain, splitEntityName, withKeptEntityNames } from './story-arc-entity-core.js';
 import { ENTITY_MERGE_TARGET_ID, ENTITY_SPLIT_NAME_ID, entityListMarkup, hiddenNamesButton } from './story-arc-entity-ui.js';
 import { readChatStoryEvents } from './story-arc-links.js';
 import { STORY_ARC_ELEMENT_ID, STORY_ARC_PAGE_ID } from './story-arc-page-markup.js';
@@ -106,14 +106,14 @@ async function confirmMerge(sourceName) {
     const { confirmPopup } = await import('../../sillytavern/popup.js');
     const isConfirmed = await confirmPopup([
         { text: 'Merge these names?' },
-        { text: 'Kept:', name: targetName.trim() },
+        { text: 'Kept:', name: keptName },
         { text: 'Reads as the kept name:', name: sourceName },
         ...(leftAlone.length ? [{ text: 'Stays its own entity, unless you merge it too:', name: leftAlone.join(' · ') }] : []),
         { text: 'StoryArc then sees one entity. Stored events stay as they are, and Split undoes this.' },
     ], { okButton: 'Merge' });
     if (!isConfirmed) return;
     // A name typed as the one to keep may be hidden; merging into it shows it again, so the merged row stays in view.
-    if (page.hiddenNames.includes(keptName)) applyHiddenNames(page.hiddenNames.filter(name => name !== keptName));
+    if (isHiddenEntityName(page.hiddenNames, keptName)) applyHiddenNames(showEntityNameAgain(page.hiddenNames, keptName));
     applyMerges(merges);
 }
 
@@ -128,9 +128,9 @@ async function runEntityAction(action, name) {
         page.mergingName = null;
         page.splittingName = null;
     } else if (action === 'hide') {
-        if (!page.hiddenNames.includes(name)) applyHiddenNames([...page.hiddenNames, name]);
+        if (!isHiddenEntityName(page.hiddenNames, name)) applyHiddenNames([...page.hiddenNames, name]);
     } else if (action === 'unhide') {
-        applyHiddenNames(page.hiddenNames.filter(hidden => hidden !== name));
+        applyHiddenNames(showEntityNameAgain(page.hiddenNames, name));
     } else if (action === 'toggle-hidden') {
         page.isShowingHidden = !page.isShowingHidden;
         page.entityPageIndex = 0;
