@@ -529,7 +529,7 @@ VectFox는 SillyTavern 연결 프로필(connection profile)로 작동합니다. 
 7. 나머지 대부분의 설정은 기본값으로 괜찮습니다. 필요하면 자유롭게 조정하세요.
 8. **채팅을 한 번 벡터화하기.** 채팅을 열고 **Action** 페이지에서 **Vectorize content**를 누르고 **Chat**을 고른 뒤 **Vectorize**를 누릅니다. 첫 DB를 만들려면 이 단계가 **꼭** 필요합니다.
 9. **동기화 유지.** 자동으로 하려면 **AutoSync** 페이지에서 **Auto-sync this chat**을 켭니다. **Turns**는 한 번 실행에 들어가는 턴 수를 정합니다. 직접 따라잡고 싶다면 **Action** 페이지에서 **Sync chat**을 누르세요.
-10. (선택) 로어북 항목을 LoreBase가 고르게 합니다. **WorldInfo** 페이지에서 **Use LoreBase**를 켜고, **LoreBase model**을 설정하고, **Choose entries**를 눌러 LoreBase에 맡길 항목을 켠 뒤, 로어북을 채팅이나 캐릭터에 잠급니다.
+10. (선택) 로어북 항목을 LoreBase가 고르게 합니다. **WorldInfo** 페이지에서 **Use LoreBase**를 켜고, **LoreBase model**을 설정하고, **Choose entries**를 눌러 LoreBase에 맡길 항목을 켠 뒤, 로어북을 채팅이나 캐릭터에 잠급니다. 그 화면의 각 버튼 설명은 [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)(영어)에 있습니다.
    - SillyTavern의 **Vector Storage**에서 **Enabled for World Info**가 켜져 있으면, VectFox가 끌지 물어봅니다. Vector Storage는 자체 검색으로 로어북 항목을 보내기 때문에, LoreBase가 뺀 항목이라도 LoreBase에 맡긴 항목을 통째로 보냅니다. 켜 둔 채로 두면 LoreBase는 꺼진 채로 있습니다. Vector Storage의 채팅과 파일 검색은 그대로입니다.
    - 같은 페이지의 **LoreBase tester** 카드는 각 답장에서 LoreBase가 무엇을 했는지 보여줍니다. LoreBase model이 무엇을 왜 골랐는지, 각 항목의 어느 부분이 들어갔는지, 그리고 그게 몇 토큰이었는지를 SillyTavern의 키가 보냈을 양과 나란히 볼 수 있습니다. 답장이 무언가를 빠뜨렸다면, LoreBase가 뺀 것인지 확인할 수 있습니다. 기록은 페이지를 새로고침할 때까지 남습니다.
    - 프롬프트에서 LoreBase가 보내는 내용은 모두 하나의 `<VectLorebook>` 블록 안에 들어가고, 각 항목은 그 이름의 태그 안에 들어갑니다. 그래서 당신도 AI도 SillyTavern 자신의 항목과 구별할 수 있습니다.

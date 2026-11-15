@@ -527,7 +527,7 @@ VectFox は SillyTavern の接続プロファイル（connection profile）で�
 7. それ以外のほとんどの設定はデフォルトのままで大丈夫です。必要に応じて調整してください。
 8. **まずチャットを 1 回ベクトル化する。** チャットを開き、**Action** ページで **Vectorize content** を押して **Chat** を選び、**Vectorize** を押します。最初の DB を作るには、これが**必須**です。
 9. **同期を保つ。** 自動にしたいなら、**AutoSync** ページで **Auto-sync this chat** をオンにします。**Turns** で 1 回の実行に入るターン数が決まります。手動で追いつきたいときは、**Action** ページの **Sync chat** を押します。
-10. （オプション）ロアブックのエントリーを LoreBase に選ばせます。**WorldInfo** ページで **Use LoreBase** をオンにし、**LoreBase model** を設定し、**Choose entries** を押して LoreBase に任せたいエントリーをオンにし、ブックをチャットかキャラクターにロックします。
+10. （オプション）ロアブックのエントリーを LoreBase に選ばせます。**WorldInfo** ページで **Use LoreBase** をオンにし、**LoreBase model** を設定し、**Choose entries** を押して LoreBase に任せたいエントリーをオンにし、ブックをチャットかキャラクターにロックします。その画面の各ボタンの説明は [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)（英語）にあります。
    - SillyTavern の **Vector Storage** で **Enabled for World Info** がオンなら、VectFox はそれをオフにするか尋ねます。Vector Storage は独自の検索でロアブックのエントリーを送るため、LoreBase が外したエントリーでも、LoreBase に任せたエントリーを丸ごと送ってしまいます。オンのままにすると、LoreBase はオフのままです。Vector Storage のチャットとファイルの検索はそのままです。
    - 同じページの **LoreBase tester** カードには、各返信で LoreBase が何をしたかが表示されます。LoreBase model が何をなぜ選んだか、各エントリーのどの部分が入ったか、そしてそれが何トークンで、SillyTavern のキーなら何トークン送っていたかが分かります。返信が何かを忘れていたら、LoreBase が外したのかを確認できます。記録はページを再読み込みするまで残ります。
    - プロンプトでは、LoreBase が送るものはすべて 1 つの `<VectLorebook>` ブロックに入り、各エントリーはその名前のタグに入ります。だから、あなたも AI も SillyTavern 自身のエントリーと区別できます。
