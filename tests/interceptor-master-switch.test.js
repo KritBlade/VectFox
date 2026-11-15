@@ -7,9 +7,6 @@
  * owns (chunks, its per-position variants, EventBase, Summarizer), and that with the
  * master switch OFF it stops right after: no retrieval and no lifecycle logging.
  *
- * The lorebook block belongs to the GENERATION_STARTED handler and is covered in
- * world-info-integration.test.js.
- *
  * chat-vectorization.js reaches ST host modules (through src/sillytavern/) that don't
  * resolve under vitest, so those host modules and every other direct import are
  * stubbed, except constants.js, feature-gate.js and lru-cache.js, which stay real.
@@ -81,7 +78,6 @@ function seedPreviousGeneration() {
         '3_vectfox_pos12': { value: 'chunks at position 12' },
         '3_vectfox_eventbase': { value: '<VectFoxMemory>events</VectFoxMemory>' },
         '3_vectfox_summarizer': { value: '<VectFoxSummarizer>recent</VectFoxSummarizer>' },
-        '3_vectfox_lorebook': { value: '<VectFoxLorebook>lore</VectFoxLorebook>' },
         '1_memory': { value: 'another extension' },
     });
 }
@@ -102,9 +98,8 @@ describe('clearInterceptorPrompts', () => {
         for (const tag of INTERCEPTOR_TAGS) expect(valueOf(tag)).toBe('');
     });
 
-    it('leaves the lorebook block and other extensions alone', () => {
+    it("leaves other extensions' blocks alone", () => {
         clearInterceptorPrompts({ position: 1, depth: 2 });
-        expect(valueOf('3_vectfox_lorebook')).toBe('<VectFoxLorebook>lore</VectFoxLorebook>');
         expect(valueOf('1_memory')).toBe('another extension');
     });
 });

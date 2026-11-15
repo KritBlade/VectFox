@@ -20,11 +20,9 @@ import {
     extractCharaFromPng,
     extractFandomId,
     extractWikiName,
-    lorebookStats,
     pageTextFromHtml,
     parseCharacterJson,
     parseChatFile,
-    parseLorebookFile,
     parseYouTubeId,
     previewOf,
     startFromMessageOf,
@@ -57,9 +55,9 @@ describe('the rail and the chunking controls', () => {
         expect(chunkingControls('chat', 'per_message', false)).toMatchObject({ showsStrategy: false, showsWindows: true });
         expect(chunkingControls('document', 'adaptive', true)).toMatchObject({ showsStrategy: false, showsSize: false, showsWindows: false });
         expect(chunkingControls('document', 'adaptive', false)).toMatchObject({ showsStrategy: true, showsSize: true, showsBatch: false });
-        expect(chunkingControls('lorebook', 'per_entry', false)).toMatchObject({ showsStrategy: true, showsSize: false });
-        // Auto-Reformat reads only Document, URL and Wiki, so a lorebook ignores a stale accepted flag.
-        expect(chunkingControls('lorebook', 'per_entry', true).showsStrategy).toBe(true);
+        expect(chunkingControls('character', 'per_field', false)).toMatchObject({ showsStrategy: true, showsSize: false });
+        // Auto-Reformat reads only Document, URL and Wiki, so a character ignores a stale accepted flag.
+        expect(chunkingControls('character', 'per_field', true).showsStrategy).toBe(true);
     });
 
     it('holds a start message to whole numbers from 1', () => {
@@ -97,14 +95,7 @@ describe('chat files', () => {
     });
 });
 
-describe('lorebook and character files', () => {
-    it('reads a lorebook\'s entries with text, and refuses a file without entries', () => {
-        const entries = parseLorebookFile(JSON.stringify({ entries: { 0: { content: 'Gate' }, 1: { content: '' }, 2: { content: 'Tide', disable: true } } }));
-        expect(entries).toHaveLength(2);
-        expect(lorebookStats(entries)).toEqual({ entryCount: 2, enabledCount: 1, textLength: 8 });
-        expect(() => parseLorebookFile('{}')).toThrow('no entries');
-    });
-
+describe('character files', () => {
     it('unwraps a V2 JSON card, and refuses a file with no character', () => {
         expect(parseCharacterJson(JSON.stringify({ spec: 'chara_card_v2', data: { name: 'Keeper', description: 'Old.' } })).name).toBe('Keeper');
         expect(() => parseCharacterJson('{"x":1}')).toThrow('not a character card');

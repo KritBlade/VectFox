@@ -4,21 +4,22 @@
 
 EventBase is the **exclusive** retrieval path for chat content: chat history (live and uploaded archive `.jsonl`) always goes through EventBase ingestion + retrieval. There is no chunk path for chat.
 
-### Three pipelines, strict ownership
+### Two pipelines, strict ownership
 
 | Pipeline                      | Content scope                                                                                        | Owned collections                                  | Code entry point                                     |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
 | **EventBase pipeline**        | Chat history only (live chat + archive`.jsonl`)                                                      | `vf_eventbase_*`, `vf_archiveevent_*`              | `eventbase-workflow.js` → `eventbase-retrieval.js`   |
-| **Lorebook WI pipeline**      | Lorebooks / World Info                                                                               | `vf_lorebook_*`                                    | `world-info-integration.js` (injects `<VectFoxLorebook>`) |
 | **Standard (Chunk) pipeline** | Other non-chat content — Character Cards, URLs / web pages, custom documents, wiki pages, YouTube transcripts | `vf_character_*`, `vf_document_*`, user collections | `chat-vectorization.js` → `queryAndMergeCollections` |
 
 The pipelines never see each other's content. There is no overlap in collection prefixes or content types.
+
+Lorebooks are in neither. LoreBase (`src/features/lorebase/`) picks the entries a reply needs and sends them through SillyTavern's own World Info scan; it stores no vectors. The `vf_lorebook_*` collections vectorized before LoreBase are still listed, and nothing searches them.
 
 ### Key isolation rule (`src/features/chunkbase/chat-vectorization.js` → `gatherCollectionsToQuery`)
 
 - `vf_eventbase_*` → **always** skipped by the standard pipeline (EventBase pipeline owns them exclusively)
 - `vf_archiveevent_*` → **always** skipped by the standard pipeline (EventBase pipeline owns them exclusively)
-- `vf_lorebook_*` → **always** skipped by the standard pipeline (the Lorebook WI pipeline owns them)
+- `vf_lorebook_*` → **always** skipped by the standard pipeline (old vectorized lorebooks, which nothing searches)
 - There is no chat chunk collection type, so nothing else needs excluding.
 
 ### Archive Chat History — Two content paths
@@ -47,7 +48,7 @@ Exact export name:
 export const EXTRACTION_LEVELS = {
     off: {
         label: 'Off',
-        description: 'No auto-extraction, only WI trigger keys',
+        description: 'No auto-extraction',
         enabled: false,
     },
     minimal: {
@@ -193,7 +194,7 @@ Pressing Stop mid-pipeline waits for the in-flight insert to complete before exi
 
 ### Compatibility with other code paths
 
-The coordinator lives entirely inside `runEventBaseIngestion`. All 3 production callers (auto-sync via `synchronizeChat`, manual backfill via `runEventBaseOnOpenChat`, archive file upload) hit the same helper and get the pipelined behavior — they pass different flags (`isAutoSync`, `suppressAutoSyncPopup`, `parallelWindows`, `collectionIdOverride`). None of those flags interact with the extract/insert ordering. The chunk-base pipeline (lorebook / character / document / URL / wiki / YouTube via `vectorizeContent`) does not use it — it has no extract phase to overlap (chunking is synchronous and instant, and the entire chunk list is inserted in one call).
+The coordinator lives entirely inside `runEventBaseIngestion`. All 3 production callers (auto-sync via `synchronizeChat`, manual backfill via `runEventBaseOnOpenChat`, archive file upload) hit the same helper and get the pipelined behavior — they pass different flags (`isAutoSync`, `suppressAutoSyncPopup`, `parallelWindows`, `collectionIdOverride`). None of those flags interact with the extract/insert ordering. The chunk-base pipeline (character / document / URL / wiki / YouTube via `vectorizeContent`) does not use it — it has no extract phase to overlap (chunking is synchronous and instant, and the entire chunk list is inserted in one call).
 
 ### Key files
 
@@ -238,7 +239,7 @@ Gated to skip `localGpuSources` (Ollama / transformers / llama.cpp / KoboldCpp) 
 | Operation | Hedges? | Path |
 |---|---|---|
 | Manual **Vectorize Content** (chat → EventBase) | ✅ | `src/features/chunkbase/content-vectorizer.js` → `runEventBaseIngestion` → `insertEvents` → `insertVectorItems` |
-| Manual **Vectorize Content** (chunks: lorebook / docs / URLs / wiki) | ✅ | `content-vectorization.js` → `insertVectorItems` |
+| Manual **Vectorize Content** (chunks: docs / URLs / wiki) | ✅ | `content-vectorization.js` → `insertVectorItems` |
 | **Auto-Sync** | ✅ | `synchronizeChat` → `runEventBaseIngestion({ isAutoSync: true })` → `insertEvents` → `insertVectorItems` |
 | **Retrieval / per-turn search** | ❌ | `queryCollection` → `getQueryVector` (embeds the query once, one retry on failure) → every route and fallback reuses that vector. No hedge wrapper anywhere on this path. |
 | **Agent Mode** | ❌ | `agentic-retrieval.js` only calls `queryCollection` / `retrieveEvents` — it never inserts, so it never reaches the hedge. |
@@ -252,7 +253,7 @@ Note that **auto-sync is not a separate path** — it's the same `runEventBaseIn
 3. **A stalled search fails soft; a stalled ingest fails expensive.** If a retrieval embed genuinely hangs, the cost is one turn with degraded/no memory injection — annoying but self-correcting on the next message. A hung ingest wastes minutes of a long batch run and can leave the user staring at a frozen progress bar. Hedge's value is highest exactly where the blast radius is largest.
 4. **Idempotency only holds for writes.** Hedge's "fire a duplicate, race-first-wins, discard the loser" trick is safe because a duplicate **write** is a no-op (hash-deterministic Qdrant upsert overwrites the same point with identical data). A duplicate **query** isn't harmful, but it also buys nothing — you'd just pay for two embeds to shave time off a path that's already fast (see #2). Agent Mode compounds this: it already fans out 1–4 parallel queries, so adding per-query hedging would multiply planner-stage API cost for no latency win on an already-parallel, already-fast stage.
 
-**Read-path timeout.** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. Every per-turn retrieval runs through `runBoundedRetrieval()` ([`src/features/vector-backend/bounded-retrieval.js`](../src/features/vector-backend/bounded-retrieval.js)): in `rearrangeChat()` (the generation interceptor in [`src/features/chunkbase/chat-vectorization.js`](../src/features/chunkbase/chat-vectorization.js), which ST calls as `vectfox_rearrangeChat`, the manifest's `generate_interceptor`) the EventBase retrieval (`runEventBaseRetrieval`), the summarizer injection and the chunk retrieval (`queryAndMergeCollections` → `queryCollection`: chunks, lorebooks, documents); and the Lorebook WI lookup and its dry run in [`src/features/world-info/world-info-integration.js`](../src/features/world-info/world-info-integration.js). The budget is the `retrieval_timeout_ms` setting (Core page → Retrieval), read through `resolveRetrievalTimeoutMs()` ([src/shared/retrieval-budget.js](../src/shared/retrieval-budget.js)); its default, `RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000` ([src/shared/constants.js](../src/shared/constants.js)), matches the write-side hedge threshold for one consistent "too slow" number. EventBase adds the Agent Mode budget on top (`resolveEventBaseRetrievalTimeoutMs()`).
+**Read-path timeout.** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. Every per-turn retrieval runs through `runBoundedRetrieval()` ([`src/features/vector-backend/bounded-retrieval.js`](../src/features/vector-backend/bounded-retrieval.js)): in `rearrangeChat()` (the generation interceptor in [`src/features/chunkbase/chat-vectorization.js`](../src/features/chunkbase/chat-vectorization.js), which ST calls as `vectfox_rearrangeChat`, the manifest's `generate_interceptor`) the EventBase retrieval (`runEventBaseRetrieval`), the summarizer injection and the chunk retrieval (`queryAndMergeCollections` → `queryCollection`: chunks, documents). LoreBase's pick and reviews are not bounded by it: each of their calls has its own 30-second limit (`CALL_TIMEOUT_MS` in [`src/features/lorebase/lorebase-reply-core.js`](../src/features/lorebase/lorebase-reply-core.js)). The budget is the `retrieval_timeout_ms` setting (Core page → Retrieval), read through `resolveRetrievalTimeoutMs()` ([src/shared/retrieval-budget.js](../src/shared/retrieval-budget.js)); its default, `RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000` ([src/shared/constants.js](../src/shared/constants.js)), matches the write-side hedge threshold for one consistent "too slow" number. EventBase adds the Agent Mode budget on top (`resolveEventBaseRetrievalTimeoutMs()`).
 
 It's a **soft** timeout (Promise.race): on expiry the turn proceeds and the message sends WITHOUT that memory source — `runBoundedRetrieval` catches the timeout or error, logs it, toasts the user, and returns the caller's fallback (the chunk path's is `[]`, so downstream injects nothing). The orphaned `fetch` keeps running until ST's server-side timeout reaps it — there is no client `AbortSignal` on the read fetches, so this is a "stop waiting", not a "cancel the request". A stall is not retried: a stalled retrieval fails soft (one turn without memory, self-corrects next message), so a single bounded attempt is the right tradeoff. A query embedding that FAILS (e.g. a provider 429 "The engine is currently overloaded") is different — it fails fast, so `getQueryVector` ([src/features/vector-backend/vector-api.js](../src/features/vector-backend/vector-api.js)) retries it once, then fails the query. That is the only retry on the read path: the query is embedded once and every route and fallback reuses that vector, so a fallback never re-embeds.
 
@@ -585,7 +586,7 @@ chatFile: SillyTavern.getContext().chatId,
 
 Backend determines path; on Qdrant there is only one hybrid path (A3). On Standard, the user picks A1 vs A2.
 
-- **ChunkBase** owns non-chat content only: Lorebook / World Info, Character Cards, URLs / web pages, custom documents, wiki pages, YouTube transcripts. Uses `keyword_scoring_method`.
+- **ChunkBase** owns non-chat content only: Character Cards, URLs / web pages, custom documents, wiki pages, YouTube transcripts. Uses `keyword_scoring_method`.
 - **EventBase** owns chat content only: Current Chat history and uploaded Archive Chat history (`.jsonl`). Uses `eventbase_keyword_scoring_method` (internal, not in UI, defaults `'bm25'`).
 
 Both paths call `queryCollection()` but EventBase callers (`eventbase-retrieval.js`, `eventbase-workflow.js`, `eventbase-store.js`) always inject an `ebSettings` shim:
@@ -867,7 +868,7 @@ Routing Standard imports through the plugin would make import depend on it: user
 
 ### Test-suite coverage matrix — which tests run in which configuration?
 
-The `tests/Eventbase-test.spec.js` suite runs against a live ST instance. Each test has a different relationship with the plugin and the qdrant backend. Tests that can't run on the current environment **soft-skip** (marked ⏭️ in the Playwright report via `test.skip(...)`) rather than failing — this is critical because the suite runs in **serial mode**, and a hard FAIL would halt every subsequent test. A no-plugin user running the full suite would otherwise be stuck at TEST 001 and never reach the standard-backend tests that DO work on their machine.
+The `tests/Eventbase-test.spec.js` suite runs against a live ST instance. Each test has a different relationship with the plugin and the qdrant backend. Tests that can't run on the current environment **soft-skip** (marked ⏭️ in the Playwright report via `test.skip(...)`) rather than failing — this is critical because the suite runs in **serial mode**, and a hard FAIL would halt every subsequent test. A no-plugin user running the full suite would otherwise be stuck at the first Qdrant test (TEST 002) and never reach the standard-backend tests that DO work on their machine.
 
 VectFox runs in **three distinct deployment environments**. Each unlocks a different subset of features and exercises a different code path. The test suite soft-skips tests that aren't applicable to the current environment so users on any of the three setups get a clean `npm run test:e2e` run.
 
@@ -886,25 +887,21 @@ Marker key: ✅ runs, ⏭️ soft-skips, — n/a.
 | Test       | Description                                                                                          | Case 1 (no plugin)       | Case 2 (plugin, no qdrant)        | Case 3 (plugin + qdrant)          |
 | ---------- | ---------------------------------------------------------------------------------------------------- | ------------------------ | --------------------------------- | --------------------------------- |
 | **000**    | Every VectFox file loads from the deployed copy                                                      | ✅                       | ✅                                | ✅                                |
-| **001**    | Qdrant lorebook                                                                                      | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **002**    | Qdrant EventBase                                                                                     | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
-| **003**    | E2E qdrant                                                                                           | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
-| **004**    | DB Browser qdrant                                                                                    | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
-| **005**    | Standard lorebook                                                                                    | ✅                       | ✅ (plugin enhances)              | ✅ (plugin enhances)              |
+| **003**    | E2E qdrant: a locked EventBase collection returns results                                            | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
+| **004**    | DB Browser qdrant (a document collection)                                                            | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **006**    | Standard EventBase + parseEmbedText                                                                  | ✅                       | ✅ (plugin enhances)              | ✅ (plugin enhances)              |
-| **007**    | E2E standard                                                                                         | ✅                       | ✅ (plugin enhances)              | ✅ (plugin enhances)              |
+| **007**    | E2E standard: a locked EventBase collection returns results                                          | ✅                       | ✅ (plugin enhances)              | ✅ (plugin enhances)              |
 | **008**    | DB Browser standard + **plugin**                                                                     | ⏭️ no plugin            | ✅                                | ✅                                |
 | **009**    | DB Browser standard, **no plugin** path                                                              | ✅                       | ✅ (forces pluginAvailable=false) | ✅ (forces pluginAvailable=false) |
-| **010**    | Cross-collection lock isolation (qdrant)                                                             | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
-| **011**    | Cross-persona activation (qdrant)                                                                    | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **012**    | Cross-backend import (qdrant ↔ standard)                                                            | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
-| **013**    | Synthetic E2E qdrant                                                                                 | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
+| **013**    | Synthetic E2E qdrant: EventBase round-trip                                                           | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **014**    | Auto-sync backfill: fingerprint cache prevents duplicate windows                                     | ✅                       | ✅                                | ✅                                |
 | **015**    | Auto-sync window-size change: start marker filters obsolete windows                                  | ✅                       | ✅                                | ✅                                |
 | **016**    | `stampAutoSyncMarker` smart placement (Branch A early-exit, B no-candidate, C empty-candidate, re-stamp overwrites) | ✅                       | ✅                                | ✅                                |
 | **017**    | Pause button (`enabled=false`) blocks activation even when locked — the pause gate comes before the lock gate  | ✅                       | ✅                                | ✅                                |
 | **018**    | `shouldCollectionActivate` gate chain: lock required / trigger narrows / trigger and condition both pass / lock alone | ✅                       | ✅                                | ✅                                |
-| **019**    | WI / AutoSync refresh smoke: refresh paths are pure UI mirrors (locks/autoSync/enabled unchanged after 3× idempotent calls) | ✅                       | ✅                                | ✅                                |
+| **019**    | AutoSync refresh smoke: the refresh path is a pure UI mirror (locks/autoSync/enabled unchanged after 3× idempotent calls) | ✅                       | ✅                                | ✅                                |
 | **020**    | Qdrant: per-chunk override is backend-first (survives ext_settings wipe)                             | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **021**    | Standard+plugin: per-chunk override is backend-first (survives ext_settings wipe)                   | ⏭️ no plugin            | ✅                                | ✅                                |
 | **022**    | Standard+plugin: context/xmlTag wrapping + force link through retrieval (backend-first)              | ⏭️ no plugin            | ✅                                | ✅                                |
@@ -912,21 +909,21 @@ Marker key: ✅ runs, ⏭️ soft-skips, — n/a.
 | **024**    | EventBase LLM extraction: real provider round-trip (soft-skips without a chat model)                 | ✅                       | ✅                                | ✅                                |
 | **025**    | Auto-Reformat: real provider splits a multi-entity section (soft-skips without a model)              | ✅                       | ✅                                | ✅                                |
 | **026**    | Acronym glossary: deployed-module grounding smoke (no LLM)                                           | ✅                       | ✅                                | ✅                                |
-| **Totals** |                                                                                                      | **15 passed, 12 skipped** | **18 passed, 9 skipped**         | **27 passed, 0 skipped**          |
+| **Totals** |                                                                                                      | **14 passed, 9 skipped**  | **17 passed, 6 skipped**         | **23 passed, 0 skipped**          |
 
 ### Skip logic that drives the matrix
 
 | Helper                      | Used by                    | Skip condition                                                                                       |
 | --------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `skipIfQdrantUnavailable()` | TEST 001-004, 010-013, 020 | (a) Plugin probe fails, **or** (b) `qdrant_url`/`qdrant_host` not set in `extension_settings.vectfox`, **or** (c) qdrant config is set but qdrant is unreachable (emits a **WARNING** in the skip reason). |
+| `skipIfQdrantUnavailable()` | TEST 002-004, 012-013, 020 | (a) Plugin probe fails, **or** (b) `qdrant_url`/`qdrant_host` not set in `extension_settings.vectfox`, **or** (c) qdrant config is set but qdrant is unreachable (emits a **WARNING** in the skip reason). |
 | `skipIfNoPlugin()`          | TEST 008, 021, 022         | Plugin probe fails.                                                                                  |
-| (none)                      | TEST 000, 005-007, 009, 014-019, 023-026 | These run in every environment. Split by what they exercise: **000** = every VectFox file loads from the deployed copy; **023** = settle/commit lag; **024/025** = real LLM round trips, which log `[SKIP]` when no model is configured; **026** = glossary grounding smoke; **005-007** = real backend round-trips (standard backend embedding + chat retrieval); **009** = forces `pluginAvailable=false` to exercise no-plugin native path; **014-016** = pure-function auto-sync contracts (fingerprint cache, start marker, `stampAutoSyncMarker`); **017-019** = pure in-memory collection-metadata contracts (pause button overrides lock, gate chain, refresh-path purity). 014-019 don't need the plugin nor any backend — they operate directly on `extension_settings.vectfox` state and the registry. See [collection_helper.md → Auto-sync](collection_helper.md) for the 014/015/016 contract, and the same doc's "Pause/Resume" + "Manual vs auto-sync paths" sections for the 017/019 contract. |
+| (none)                      | TEST 000, 006-007, 009, 014-019, 023-026 | These run in every environment. Split by what they exercise: **000** = every VectFox file loads from the deployed copy; **023** = settle/commit lag; **024/025** = real LLM round trips, which log `[SKIP]` when no model is configured; **026** = glossary grounding smoke; **006-007** = real backend round-trips (standard backend embedding + chat retrieval); **009** = forces `pluginAvailable=false` to exercise no-plugin native path; **014-016** = pure-function auto-sync contracts (fingerprint cache, start marker, `stampAutoSyncMarker`); **017-019** = pure in-memory collection-metadata contracts (pause button overrides lock, gate chain, refresh-path purity). 014-019 don't need the plugin nor any backend — they operate directly on `extension_settings.vectfox` state and the registry. See [collection_helper.md → Auto-sync](collection_helper.md) for the 014/015/016 contract, and the same doc's "Pause/Resume" + "Manual vs auto-sync paths" sections for the 017/019 contract. |
 
 **The unreachable-qdrant case** (config present but server down) is a soft skip with a WARNING-flavored reason, NOT a hard failure. The reasoning:
 
 - A common case-2 user installed qdrant once, took it down, kept the VectFox settings. They're now a pure standard-backend user.
 - Hard-failing qdrant tests for these users would be confusing — nothing is "wrong" with their environment, they just don't use qdrant.
-- Serial mode means one hard failure halts the rest of the suite — exactly what we don't want for a user who'd benefit from TEST 005/006/007/008/009 all passing.
+- Serial mode means one hard failure halts the rest of the suite — exactly what we don't want for a user who'd benefit from TEST 006/007/008/009 all passing.
 
 If qdrant **is** actually broken (down for the wrong reason) and the user **does** care, the WARNING in the skip log is the signal. The plugin probe (`/health`) and qdrant probe (`/backend/init/qdrant`) are independent — the test framework lets the user know which gate they failed.
 
@@ -937,7 +934,7 @@ If qdrant **is** actually broken (down for the wrong reason) and the user **does
 - **TEST 008's "no plugin → skip"** is by design: this test specifically validates the plugin-enhanced standard backend path. The no-plugin counterpart is TEST 009.
 - **TEST 009 runs everywhere** because it forces `pluginAvailable = false` on the shared backend instance regardless of whether the plugin is actually installed. This guarantees no-plugin code-path coverage even on a fully-equipped dev machine.
 
-**TEST 005/006/007 run end-to-end on case 1 (no plugin) too** — they are not "skip when the plugin is missing". They gate bugs that exist only without the plugin: the plugin's discovery path pre-stamps each collection's scope and the native path does not, so only these tests exercise `getCollectionMeta`'s scope resolution and the lock checkbox on a no-plugin install.
+**TEST 006/007 run end-to-end on case 1 (no plugin) too** — they are not "skip when the plugin is missing". They exercise the standard backend's native path on a no-plugin install: the insert and `parseEmbedText` recovery (006), and retrieval through a chat lock (007).
 
 **Skip mechanism:**
 
@@ -953,20 +950,20 @@ If qdrant **is** actually broken (down for the wrong reason) and the user **does
 
 **Status**: Deferred; no code change.
 
-`rearrangeChat` ([src/features/chunkbase/chat-vectorization.js:949](../src/features/chunkbase/chat-vectorization.js#L949)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (It also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that master-switch gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
+`rearrangeChat` ([src/features/chunkbase/chat-vectorization.js:946](../src/features/chunkbase/chat-vectorization.js#L946)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (It also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that master-switch gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
 
-1. **Early (cheap)** at [line 1044-1051](../src/features/chunkbase/chat-vectorization.js#L1044): `hasCollections = gatherCollectionsToQuery(settings).length > 0` — passes if *any* chunk collection (not an event, archived-event or lorebook collection) has `enabled=true`, or while semantic activation (`enabled_world_info`) is on. No lock/scope/activation check.
-2. **Post-activation (expensive)** at [line 1085](../src/features/chunkbase/chat-vectorization.js#L1085): `filterActiveCollections` runs the full `shouldCollectionActivate` gate chain (pause → lock → triggers → conditions).
+1. **Early (cheap)** at [line 1041-1046](../src/features/chunkbase/chat-vectorization.js#L1041): `gatherCollectionsToQuery(settings).length > 0` — passes if *any* chunk collection (not an event, archived-event or lorebook collection) has `enabled=true`. No lock/scope/activation check.
+2. **Post-activation (expensive)** at [line 1070](../src/features/chunkbase/chat-vectorization.js#L1070): `filterActiveCollections` runs the full `shouldCollectionActivate` gate chain (pause → lock → triggers → conditions).
 
-EventBase-only users (the typical case) hit gate 1 and short-circuit while semantic activation is off — debug log `[VECTFOX ChunkBase] No enabled ChunkBase collections ...` fires once per generation to confirm.
+EventBase-only users (the typical case) hit gate 1 and short-circuit — debug log `[VECTFOX ChunkBase] No enabled ChunkBase collections ...` fires once per generation to confirm.
 
-**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1065-1072](../src/features/chunkbase/chat-vectorization.js#L1065-L1072) when a user has enabled chunk collections that aren't locked to the current chat or character.
+**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1055-1059](../src/features/chunkbase/chat-vectorization.js#L1055-L1059) when a user has enabled chunk collections that aren't locked to the current chat or character.
 
 **Why deferred**: activation requires a lock (gate 2 of `shouldCollectionActivate`), so a cheap `enabled AND (chat-locked OR character-locked)` pre-check matches every activation path. The saving is about 20ms per generation — not worth doing in isolation; revisit if/when we touch Phase B for another reason.
 
-**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([src/index.js:441](../src/index.js#L441) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
+**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([src/index.js:446](../src/index.js#L446) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
 
-**Search tag in code**: none yet. When acted on, target [src/features/chunkbase/chat-vectorization.js:1048](../src/features/chunkbase/chat-vectorization.js#L1048) (the `if (!hasCollections && !canQueryWI)` block).
+**Search tag in code**: none yet. When acted on, target [src/features/chunkbase/chat-vectorization.js:1042](../src/features/chunkbase/chat-vectorization.js#L1042) (the `if (!collectionsToQuery.length)` block).
 
 ---
 

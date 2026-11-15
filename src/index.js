@@ -26,7 +26,7 @@ import { setInsertedCollectionRegistrar } from './features/vector-backend/index.
 import { migrateLegacyApiKeys } from './shared/api-keys.js';
 import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
 import { migration_embedding_source_key } from './app/settings-migration-embedding-provider-key.js';
-import { migration_world_info_threshold_rrf_workaround, WORLD_INFO_THRESHOLD_DEFAULT } from './app/settings-migration-world-info-threshold.js';
+import { migration_remove_semantic_world_info_settings } from './app/settings-migration-semantic-world-info-settings.js';
 import { log } from './sillytavern/log.js';
 import {
     CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT,
@@ -42,7 +42,6 @@ import { runNetworkStartup } from './app/network-startup.js';
 // VectFox modules - UI
 import { mountSettingsPanel, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
-import { initializeWorldInfoIntegration } from './features/world-info/index.js';
 import { initializeLoreBase, prepareLoreForReply } from './features/lorebase/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
@@ -53,7 +52,7 @@ setInsertedCollectionRegistrar(registerCollection);
 // Default settings
 const defaultSettings = {
     // Master switch — when false, VectFox does no automatic runtime work
-    // (retrieval injection, auto-sync, lorebook WI injection). Default ON.
+    // (retrieval injection, auto-sync, LoreBase's picks). Default ON.
     // Single source of truth for reads: src/shared/feature-gate.js::isVectFoxEnabled.
     enabled: true,
 
@@ -114,7 +113,7 @@ const defaultSettings = {
 
     // Chat vectorization
     depth: 2,
-    // Placement of every VectFox block (memory, summarizer, lorebook). Their text changes each
+    // Placement of every VectFox block (memory, summarizer). Their text changes each
     // turn, so In-Chat keeps it below the static prompt and leaves that prefix cacheable.
     position: extension_prompt_types.IN_CHAT,
     protect: 5,
@@ -125,7 +124,7 @@ const defaultSettings = {
     retrieval_popup_on_start: true,    // Show popup when retrieval starts
     retrieval_popup_on_result: true,   // Show popup with number of retrieved results
     // How long one turn may spend on any single retrieval (EventBase, chunk,
-    // lorebook, summarizer injection) before it proceeds without that memory.
+    // summarizer injection) before it proceeds without that memory.
     // Agent Mode ADDS its own planner + fanout timeouts on top of this for the
     // EventBase path — see src/shared/retrieval-budget.js. UI: Core page → Retrieval.
     retrieval_timeout_ms: RETRIEVAL_TIMEOUT_DEFAULT_MS,
@@ -196,7 +195,7 @@ const defaultSettings = {
     hybrid_native_prefer: true,         // KEPT (no UI): A3 vs A2 selector for backends that support both. Default = prefer native.
 
     // RAG page: the text before, and the tag around, the events and chunks VectFox injects.
-    // Lorebook entries and Summarizer Injection carry their own tags.
+    // Summarizer Injection carries its own tag; LoreBase's entries go in through SillyTavern's World Info.
     rag_context: '',      // Goes before them; ST macros work
     rag_xml_tag: 'VectFoxMemory',      // Wraps them; empty sends them unwrapped
 
@@ -205,14 +204,6 @@ const defaultSettings = {
 
     // Collection registry (list of known collection IDs)
     vectfox_collection_registry: [],
-
-    // World Info Integration
-    enabled_world_info: false,          // Enable semantic WI activation
-    world_info_threshold: 0.3,          // Score threshold for WI activation
-    world_info_top_k: 3,                // Max entries to activate per lorebook
-    world_info_query_depth: 3,          // Recent messages to use for query
-    world_info_retrieval_popup: false,  // Show popup toast when WI lorebook entries are retrieved
-    world_info_respect_entry_disable: true, // Semantic WI: drop hits whose live lorebook entry is disabled (see resolveLiveEntries)
 
     // LoreBase (lorebook plan B6): its own model, a profile none chosen on a new install, and its Accuracy (plan D6)
     lorebase_provider: CONNECTION_PROFILE_PROVIDER,
@@ -540,20 +531,11 @@ jQuery(async () => {
         await saveSettings();
     }
 
-    // One-time reset of world_info_threshold values tuned against raw RRF scores
-    // (the 0.0x workaround for issue #11). Qdrant hybrid now returns cosine, so a
-    // 0.0x gate would flip from "makes Qdrant work" to "inject everything".
-    // Run-once via stamp — see src/app/settings-migration-world-info-threshold.js.
-    const _thresholdReset = migration_world_info_threshold_rrf_workaround(extension_settings.vectfox);
-    if (_thresholdReset.migrated) {
-        log.lifecycle(`VectFox: Reset world_info_threshold ${_thresholdReset.from} → ${WORLD_INFO_THRESHOLD_DEFAULT} (value was a workaround for the pre-cosine RRF score scale)`);
-        globalThis.toastr?.info(
-            `Your Lorebook similarity threshold (${_thresholdReset.from}) was a workaround for a scoring bug that is now fixed — scores are real 0-1 similarities on every backend. It has been reset to the default ${WORLD_INFO_THRESHOLD_DEFAULT}.`,
-            'VectFox — setting updated',
-            { timeOut: 15000 },
-        );
-    }
-    if (_thresholdReset.stamped) {
+    // Delete the settings of the vectorized lorebook search LoreBase replaced. Idempotent.
+    // See src/app/settings-migration-semantic-world-info-settings.js.
+    const _semanticWorldInfoRemoval = migration_remove_semantic_world_info_settings(extension_settings.vectfox);
+    if (_semanticWorldInfoRemoval.migrated > 0) {
+        log.lifecycle(`VectFox: Removed ${_semanticWorldInfoRemoval.migrated} semantic World Info setting(s): ${_semanticWorldInfoRemoval.keys.join(', ')}`);
         const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }
@@ -609,10 +591,7 @@ jQuery(async () => {
     // Initialize database browser
     initializeDatabaseBrowser(settings);
 
-    // Initialize world info integration hooks
-    initializeWorldInfoIntegration();
-
-    // LoreBase follows generations, so its pick knows a quiet-to-loud one as a reply
+    // LoreBase follows generations, so its pick knows a quiet-to-loud one as a reply, and arms each World Info scan
     initializeLoreBase();
 
     // Off-box startup work (discovery, EventBase index backfill, plugin version check).
@@ -635,7 +614,6 @@ jQuery(async () => {
         onChatEvent();
     };
     eventSource.on(event_types.MESSAGE_DELETED, trigger('MESSAGE_DELETED'));
-    // Note: Semantic WI injection happens in the generate_interceptor (rearrangeChat), not here
     eventSource.on(event_types.MESSAGE_SENT, trigger('MESSAGE_SENT'));
     eventSource.on(event_types.MESSAGE_RECEIVED, trigger('MESSAGE_RECEIVED'));
     eventSource.on(event_types.MESSAGE_SWIPED, trigger('MESSAGE_SWIPED'));

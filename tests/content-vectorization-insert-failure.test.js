@@ -25,10 +25,9 @@ vi.mock('../src/features/collections/index.js', () => ({
     saveChunkMetadata: vi.fn(),
     registerCollection: vi.fn(),
 }));
-vi.mock('../src/features/keyword-search/index.js', () => ({ extractLorebookKeywords: () => [], extractTextKeywords: () => [], extractBM25Keywords: () => [] }));
+vi.mock('../src/features/keyword-search/index.js', () => ({ extractTextKeywords: () => [], extractBM25Keywords: () => [] }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({ cleanContentOrNull: text => text }));
 vi.mock('../src/features/chunkbase/chunking.js', () => ({ chunkText: vi.fn(async text => [text]) }));
-vi.mock('../src/features/chunkbase/lorebook-content-preparer.js', () => ({ prepareLorebookContent: vi.fn() }));
 vi.mock('../src/features/chunkbase/reformat-store.js', () => ({ getReformatCache: () => null }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: new Proxy({}, { get: () => () => {} }) }));
 

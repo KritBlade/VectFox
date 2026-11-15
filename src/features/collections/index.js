@@ -65,7 +65,6 @@ export {
     setCollectionEnabled,
     setCollectionLock,
     setCollectionMeta,
-    shouldCollectionActivate,
 } from './collection-metadata.js';
 export {
     VALID_GENERATION_TYPES,

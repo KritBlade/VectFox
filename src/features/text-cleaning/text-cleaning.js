@@ -408,8 +408,8 @@ function applyPattern(text, pattern) {
 /**
  * Cleans text and returns null when nothing meaningful survives.
  *
- * Canonical entry point for content-preparation pipelines (lorebook,
- * character, document, URL, wiki, YouTube) — anywhere the pattern is
+ * Canonical entry point for content-preparation pipelines (character,
+ * document, URL, wiki, YouTube) — anywhere the pattern is
  * "clean a piece of content, then drop the unit entirely if nothing
  * is left." Bundles the clean + emptiness-check into one call so
  * callers can't accidentally skip the check.
@@ -421,8 +421,7 @@ function applyPattern(text, pattern) {
  *
  * Why one function rather than an `if (!cleanText(x).trim())` check at
  * each call site: a unit whose content cleans away entirely still carries
- * its surrounding metadata (a lorebook entry's `# <comment>` header and
- * auto-appended `[KEYWORDS: ...]`, a document's title), which would build
+ * its surrounding metadata (a document's title, a page's header), which would build
  * a valid-looking chunk with no content. Every content pipeline (character
  * per-field, document, URL, wiki, wiki per-page, YouTube) has that shape,
  * so the gate lives here once.

@@ -2,8 +2,8 @@
  * ============================================================================
  * ACRONYM GLOSSARY EXTRACTOR
  * ============================================================================
- * Pure, no ST dependencies — same convention as lorebook-content-preparer.js —
- * so this can be unit-tested without mocking SillyTavern globals.
+ * Pure, no ST dependencies, so this can be unit-tested without mocking
+ * SillyTavern globals.
  *
  * PROBLEM THIS SOLVES
  * A long-form document (world bible, lore doc, wiki export) typically spells

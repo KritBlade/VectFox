@@ -56,7 +56,7 @@ function vectorBackendCard() {
                     ${field([fieldLabel({ text: 'Cluster URL', forId: 'VectFox_qdrant_url' }), input({ id: 'VectFox_qdrant_url', placeholder: 'https://xxx.cloud.qdrant.io' }), hint({ text: 'Your cluster\'s URL, from the Qdrant Cloud console.' })])}
                     ${field([fieldLabel({ text: 'API key', forId: 'VectFox_qdrant_api_key' }), keyInput({ id: 'VectFox_qdrant_api_key', placeholder: 'Your Qdrant Cloud API key' }), hint({ text: 'Kept in SillyTavern\'s secret store, where Similharity reads it on the server.' })])}
                 </div>
-                ${switchRow({ id: 'VectFox_qdrant_multitenancy', title: 'One shared collection', description: 'Every chat in one collection, kept apart by filters. Off: one per chat, card or lorebook.', isSpan: true })}
+                ${switchRow({ id: 'VectFox_qdrant_multitenancy', title: 'One shared collection', description: 'Every chat in one collection, kept apart by filters. Off: one per chat, card or document.', isSpan: true })}
             </div>
         </div>
     </section>`;
@@ -231,7 +231,7 @@ function injectionCard() {
                 fieldLabel({ text: 'Position', forId: 'VectFox_injection_position', hasHelp: true }),
                 select({ id: 'VectFox_injection_position', options: positions }),
                 hint({ text: 'In chat keeps the prompt above the chat cacheable. The other two do not.' }),
-                detail({ text: 'Every VectFox block goes here: memory, summarizer and lorebook entries, except chunks whose collection or chunk sets its own. Their text changes each turn, so near the top of the prompt they stop the provider\'s prompt cache from reusing anything after them.' }),
+                detail({ text: 'Every VectFox block goes here: memory and summarizer, except chunks whose collection or chunk sets its own. Their text changes each turn, so near the top of the prompt they stop the provider\'s prompt cache from reusing anything after them.' }),
             ])}
             <div id="VectFox_injection_depth_row" class="vfx-field"${HIDDEN}>
                 ${fieldLabel({ text: 'Depth', forId: 'VectFox_injection_depth' })}

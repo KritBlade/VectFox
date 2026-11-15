@@ -638,10 +638,10 @@ async function discoverViaPlugin(settings) {
             // plugin actually reached. `qdrantScanned` is false when the Qdrant
             // health check failed — the scan then contains zero qdrant collections
             // not because they were deleted but because the server was unreachable.
-            // Pruning them here cascaded into cleanupOrphanedMeta() deleting their
+            // Pruning them here would cascade into cleanupOrphanedMeta() deleting their
             // metadata (chat/character locks, triggers, scope, names) on the next
-            // DB-browser refresh — a transient Qdrant hiccup permanently unlocked
-            // lorebooks (issue #11 "it stopped working out of the blue").
+            // DB-browser refresh, so a transient Qdrant hiccup would permanently
+            // unlock collections.
             // Older plugins don't report the flag at all (undefined); treat that as
             // not-scanned too — a lingering ghost registry entry is recoverable from
             // the DB browser, silently wiped locks are not.
@@ -649,7 +649,7 @@ async function discoverViaPlugin(settings) {
             // With "One shared collection" on, Qdrant's physical names say nothing about VectFox's collections: they
             // all live in vectfox_main. The plugin lists each of its tenants as a collection and says so with
             // qdrantTenantsScanned; without that (a plugin before 3.4.8, or a Qdrant before 1.12), no qdrant entry
-            // is pruned (issue #30: discovery pruned every lorebook, with its locks).
+            // is pruned, since that would drop every collection in it, with its locks.
             const qdrantVerified = data.qdrantScanned === true
                 && (!settings?.qdrant_multitenancy || data.qdrantTenantsScanned === true);
             const updatedRegistry = getCollectionRegistry();
@@ -1124,7 +1124,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
 /**
  * Returns true if the collection has 0 chunks according to the plugin discovery cache.
  * Used by retrieval to skip empty collections without querying them.
- * @param {string} registryKey - e.g. "vectra:vf_lorebook_story1_..."
+ * @param {string} registryKey - e.g. "vectra:vf_document_story1_..."
  * @returns {boolean}
  */
 export function isCollectionEmpty(registryKey) {

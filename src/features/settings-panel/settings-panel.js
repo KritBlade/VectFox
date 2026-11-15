@@ -19,7 +19,6 @@ import {
     getCustomApiKey,
     fetchQdrantApiKeyPresence,
 } from '../../shared/api-keys.js';
-import { openDatabaseBrowser } from '../database-browser/index.js';
 import { openContentVectorizer } from '../chunkbase/index.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
@@ -36,11 +35,10 @@ import { corePageMarkup } from './core-page-markup.js';
 import { eventBasePageMarkup } from './eventbase-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
 import { bindLoreBaseBooksCard, refreshLoreBaseBooks } from './lorebase-books-card.js';
-import { worldInfoPageMarkup, worldInfoStatusMarkup } from './worldinfo-page-markup.js';
+import { worldInfoPageMarkup } from './worldinfo-page-markup.js';
 import { bindNumberSetting } from './number-setting.js';
 import { wireConnectionRows } from './connection-rows.js';
 import { wireActionPage } from './action-page.js';
-import { getCollectionListing, getCollectionMeta } from '../collections/index.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import {
     CJK_TOKENIZER_MODES,
@@ -120,12 +118,7 @@ function panelTabsWithHooks() {
     const hooks = {
         action: { onOpen: refreshHealthPill },
         autosync: { onOpen: () => refreshAutoSyncCheckbox(extension_settings.vectfox) },
-        worldinfo: {
-            onOpen: () => {
-                refreshLoreBaseBooks();
-                return refreshWIStatus();
-            },
-        },
+        worldinfo: { onOpen: refreshLoreBaseBooks },
         storyarc: {
             onOpen: () => {
                 refreshStoryLinkStatus(extension_settings.vectfox);
@@ -135,55 +128,6 @@ function panelTabsWithHooks() {
         },
     };
     return PANEL_TABS.map(tab => ({ name: tab.name, ...hooks[tab.name] }));
-}
-
-/**
- * Paint the WorldInfo page's switch and status for the open chat. The switch is on iff at least
- * one own-persona lorebook is active for this chat, and enabled_world_info is kept in step with it.
- */
-export async function refreshWIStatus() {
-    const $status = $('#VectFox_wi_status');
-    if (!$status.length) return;
-
-    const settings = extension_settings.vectfox || {};
-    const $wiCheckbox = $('#VectFox_enabled_world_info');
-
-    // One helper keeps the setting and the switch identical across the three exit paths below.
-    const _setWIEnabled = (enabled) => {
-        if (settings.enabled_world_info !== enabled) {
-            settings.enabled_world_info = enabled;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        }
-        if ($wiCheckbox.length && $wiCheckbox.prop('checked') !== enabled) {
-            $wiCheckbox.prop('checked', enabled);
-            $('#VectFox_world_info_settings').toggle(enabled);
-        }
-    };
-
-    // Single source of truth for ownership AND isActive — getCollectionListing
-    // encodes the superadmin bypass + creatorHandle check + lock-state check.
-    const ownLorebookEntries = getCollectionListing(settings)
-        .filter(e => e.isOwn && e.collectionId.startsWith('vf_lorebook_'));
-
-    if (ownLorebookEntries.length === 0) {
-        $status.html(worldInfoStatusMarkup({ state: 'no-lorebooks' }));
-        _setWIEnabled(false);
-        return;
-    }
-
-    const activeIds = ownLorebookEntries
-        .filter(e => e.isActive)
-        .map(e => e.collectionId);
-
-    if (activeIds.length === 0) {
-        $status.html(worldInfoStatusMarkup({ state: 'none-active' }));
-        _setWIEnabled(false);
-        return;
-    }
-
-    $status.html(worldInfoStatusMarkup({ state: 'active', names: activeIds.map(id => getCollectionMeta(id)?.sourceName || id) }));
-    _setWIEnabled(true);
 }
 
 /** Show how far this chat's link pass has got, in the StoryArc tab. */
@@ -1472,77 +1416,6 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // Semantic activation (WorldInfo page). On needs an own-persona lorebook locked to this
-    // chat; off removes the lock that makes each active one active.
-    $('#VectFox_enabled_world_info')
-        .prop('checked', settings.enabled_world_info || false)
-        .on('change', async function() {
-            const enabled = $(this).prop('checked');
-            const $checkbox = $(this);
-
-            // Single source of truth — getCollectionListing handles superadmin
-            // bypass + creatorHandle ownership + isActive lock-state check.
-            const ownLorebookEntries = getCollectionListing(settings)
-                .filter(e => e.isOwn && e.collectionId.startsWith('vf_lorebook_'));
-
-            const chatId = getCurrentChatId();
-            const characterId = getContext()?.characterId;
-            const { removeCollectionLock, removeCollectionCharacterLock } = await import('../collections/index.js');
-
-            if (enabled) {
-                if (ownLorebookEntries.length === 0) {
-                    $checkbox.prop('checked', false);
-                    toastr.info('Vectorize a lorebook first to use semantic activation');
-                    openContentVectorizer('lorebook');
-                    return;
-                }
-
-                const hasActive = ownLorebookEntries.some(e => e.isActive);
-                if (!hasActive) {
-                    $checkbox.prop('checked', false);
-                    toastr.info('Lock a lorebook to this chat in Database Browser → Collection Settings');
-                    openDatabaseBrowser();
-                    return;
-                }
-            } else {
-                // Uncheck mirrors Collection Settings uncheck: remove the lock that's making each
-                // active own-persona lorebook active. After this, isActive returns false for all
-                // of them and the listing badge drops the 🔒.
-                let removed = 0;
-                for (const e of ownLorebookEntries) {
-                    if (!e.isActive) continue;
-                    const lockKey = e.registryKey || e.collectionId;
-                    if (e.meta.scope === 'chat' && chatId) {
-                        removeCollectionLock(lockKey, chatId);
-                        removed++;
-                    } else if (e.meta.scope === 'character' && characterId) {
-                        removeCollectionCharacterLock(lockKey, String(characterId));
-                        removed++;
-                    }
-                }
-                if (removed > 0) {
-                    document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
-                }
-            }
-
-            settings.enabled_world_info = enabled;
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-            $('#VectFox_world_info_settings').toggle(enabled);
-        });
-
-    // Matching (WorldInfo page).
-    bindNumberSetting(settings, { id: 'VectFox_world_info_top_k', key: 'world_info_top_k', initial: settings.world_info_top_k ?? 3, isInteger: true });
-    bindNumberSetting(settings, { id: 'VectFox_world_info_query_depth', key: 'world_info_query_depth', initial: settings.world_info_query_depth ?? 3, isInteger: true });
-
-    $('#VectFox_world_info_retrieval_popup')
-        .prop('checked', settings.world_info_retrieval_popup === true)
-        .on('change', function() {
-            settings.world_info_retrieval_popup = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
     // LoreBase books (WorldInfo page): drawn for the open chat, again on each chat change and as the page opens.
     bindLoreBaseBooksCard();
     refreshLoreBaseBooks();
@@ -1601,12 +1474,6 @@ function bindSettingsEvents(settings, callbacks) {
                 }
             }
         });
-
-    // Initialize world info settings visibility based on current setting
-    $('#VectFox_world_info_settings').toggle(settings.enabled_world_info || false);
-    refreshWIStatus();
-    document.addEventListener('vectfox:collections-updated', refreshWIStatus);
-    eventSource.on(event_types.CHAT_CHANGED, refreshWIStatus);
 
     // Chat auto-sync UI also follows the same events: collection list changes
     // (e.g. chat just got vectorized) and chat-changed shift the state.

@@ -953,8 +953,8 @@ async function deleteOneCollection(collection) {
     browserState.storyLinkCoverage.delete(key);
     browserState.storyLinkDescriptions.delete(key);
     renderCollections();
-    // The settings panel re-checks its Semantic WI and auto-sync checkboxes on
-    // this event; the deleted collection may have been what kept either one on.
+    // The settings panel re-checks its auto-sync checkbox on this event; the
+    // deleted collection may have been what kept it on.
     document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
 
     if (result.success) {

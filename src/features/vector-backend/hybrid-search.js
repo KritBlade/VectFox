@@ -161,12 +161,11 @@ async function clientSideHybridSearch(backend, collectionId, searchText, topK, s
         );
         log.verbose(`[HybridSearch] Raw vector results:`, vectorResults ? `hashes=${vectorResults.hashes?.length}, metadata=${vectorResults.metadata?.length}` : 'null');
     } catch (error) {
-        // Propagate. Returning an empty set here made a dead backend look exactly
-        // like a collection with no matching chunks, which is how a Qdrant-side
-        // failure could silently zero semantic lorebook activation with no log, no
-        // toast, and no error (GitHub issue #11). Every caller of queryCollection
-        // already catches — see src/features/eventbase/eventbase-retrieval.js, src/features/chunkbase/chat-vectorization.js,
-        // src/features/eventbase/agentic-retrieval.js, src/features/world-info/world-info-integration.js.
+        // Propagate. Returning an empty set here would make a dead backend look
+        // exactly like a collection with no matching chunks, with no log, no toast
+        // and no error. Every caller of queryCollection already catches — see
+        // src/features/eventbase/eventbase-retrieval.js, src/features/chunkbase/chat-vectorization.js,
+        // src/features/eventbase/agentic-retrieval.js.
         log.error(`[HybridSearch] Vector query failed for ${collectionId}:`, error);
         throw error;
     }

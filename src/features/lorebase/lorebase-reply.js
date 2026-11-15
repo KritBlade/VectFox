@@ -1,10 +1,11 @@
 /**
- * LoreBase on each reply (plan §5.5, §5.6, §5.8 of InternalProject/Vectfox/plans/
+ * LoreBase on each reply (plan §5.5 to §5.8 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md). VectFox's generation interceptor asks it for a reply's lore, after
  * SillyTavern's slash commands and never on a dry run, so a send that is only commands runs no pick (#29). The books
  * taking part are those SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its
  * chat or character through a rename; Luna picks among the entries selected in them, then reviews each pick, all at
- * once. A turn whose pick or review fails goes on without that lore, with a toast (D14).
+ * once, and the picks are held for the World Info scan that follows (lorebase-delivery.js). A turn whose pick or
+ * review fails goes on without that lore, with a toast (D14).
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
@@ -17,6 +18,7 @@ import { stripReasoningBlocks } from '../text-cleaning/index.js';
 import { getLoreBook, isLoreBookLocked, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
+import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
 import { CALL_TIMEOUT_MS, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
@@ -49,9 +51,10 @@ async function followChatRename({ oldFileName, newFileName } = {}) {
 
 /**
  * Follow generations, so a quiet-to-loud one counts as a reply, and renamed characters and chats, so a book locked to
- * one stays locked to it. Called once at start-up.
+ * one stays locked to it, and arm every World Info scan. Called once at start-up.
  */
 export function initializeLoreBase() {
+    initializeLoreBaseDelivery();
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, (type, options, isDryRun) => {
         // A dry run reaches no interceptor, so it must not stand in for the generation that does.
         if (isDryRun) return;
@@ -132,14 +135,16 @@ function reportReplyLore(lore, seconds) {
 }
 
 /**
- * This reply's lore, or null when LoreBase has nothing to do: VectFox off, a generation that is not a reply (D8), no
- * selected entry in the books taking part, or no user message for the reply to answer. Never throws: a failure is
- * logged and shown, and the reply goes on without the lore it could not get.
+ * This reply's lore, held for the World Info scan that follows, or null when LoreBase has nothing to do: VectFox off,
+ * a generation that is not a reply (D8), no selected entry in the books taking part, or no user message for the reply
+ * to answer. Each run first drops what the last one held, so a generation with no pick sends no selected entry. Never
+ * throws: a failure is logged and shown, and the reply goes on without the lore it could not get.
  * @param {string} type - The generation's type, as SillyTavern passes the generation interceptor
  * @param {object} settings - VectFox settings
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
  */
 export async function prepareLoreForReply(type, settings) {
+    holdLoreForNextScan(null);
     if (!isVectFoxEnabled(settings) || !isReplyGeneration(type, lastGeneration)) return null;
     try {
         const books = await booksTakingPart();
@@ -159,6 +164,7 @@ export async function prepareLoreForReply(type, settings) {
             scene: sceneText(messages), books, reviewEffort: reviewEffort(settings.lorebase_accuracy), ask: askOn(connection),
         });
         reportReplyLore(lore, (performance.now() - startedAt) / 1000);
+        holdLoreForNextScan(lore);
         return lore;
     } catch (error) {
         log.error('LoreBase: preparing the lore for this reply failed:', error);

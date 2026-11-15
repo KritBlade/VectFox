@@ -1,6 +1,6 @@
 /**
  * Diagnostics' rules for its dialog (diagnostics-dialog.js), with no host imports: the checks a run shows and how
- * they count, the report Copy report writes, and what each of the Query Tester's three retrievals says.
+ * they count, the report Copy report writes, and what each of the Query Tester's retrievals says.
  */
 
 /** The check categories in the order they show, with their icons. */
@@ -137,7 +137,7 @@ export const storedValue = value => (value === undefined || value === null || va
 /**
  * What one of the Query Tester's retrievals shows: the text it would inject with a count, or why it has none.
  *
- * @param {'eventbase'|'chunkbase'|'lorebook'} kind
+ * @param {'eventbase'|'chunkbase'} kind
  * @param {object|null} result - The retrieval's dry run
  * @param {{eventBaseThreshold: number}} settings
  * @returns {{count: string, text: string, reason: string}} count and text when it found something, else reason
@@ -147,7 +147,6 @@ export function queryOutcome(kind, result, { eventBaseThreshold }) {
         const counted = {
             eventbase: `${result.eventCount ?? '?'} events`,
             chunkbase: `${result.chunkCount ?? '?'} chunks`,
-            lorebook: `${result.entryCount ?? '?'} entries`,
         }[kind];
         return { count: counted, text: result.injectionText, reason: '' };
     }
@@ -161,15 +160,10 @@ function noResultReason(kind, result, eventBaseThreshold) {
         const lower = eventBaseThreshold > 0 ? ', or lower the Similarity threshold on the EventBase page' : '';
         return `Searched ${searched} collection(s) and no event matched. Try a more specific message${lower}.`;
     }
-    if (kind === 'chunkbase') {
-        if (result?.noCollections) return 'No ChunkBase collection is enabled.';
-        if (result?.noActive) return 'No collection passed its activation filters.';
-        if (result?.allDuplicates) return 'Every chunk found is already in the chat.';
-        return 'No chunk matched the message.';
-    }
-    if (result?.disabled) return 'Lorebook retrieval is off on the WorldInfo page.';
-    if (result?.noCollections) return 'No vectorized lorebook was found.';
-    return 'No entry matched the message.';
+    if (result?.noCollections) return 'No ChunkBase collection is enabled.';
+    if (result?.noActive) return 'No collection passed its activation filters.';
+    if (result?.allDuplicates) return 'Every chunk found is already in the chat.';
+    return 'No chunk matched the message.';
 }
 
 /** StoryArc's rule for an EventBase result, as the Query Tester notes it; '' when StoryArc did not route it. */

@@ -69,7 +69,7 @@ function _resolveBoundedSetting(raw, fallback, min, max) {
 
 /**
  * The base per-turn retrieval budget: how long any single retrieval path
- * (EventBase, chunk, lorebook, summarizer injection) may run before the turn
+ * (EventBase, chunk, summarizer injection) may run before the turn
  * proceeds without that memory.
  *
  * @param {object} [settings] - VectFox settings

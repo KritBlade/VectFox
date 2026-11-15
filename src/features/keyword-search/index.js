@@ -18,7 +18,6 @@ export {
 export {
     extractBM25Keywords,
     extractChatKeywords,
-    extractLorebookKeywords,
     extractTextKeywords,
 } from './keyword-extraction.js';
 export { LANGUAGE_MODES, languageModeLabel } from './language-modes.js';

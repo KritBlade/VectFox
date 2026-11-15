@@ -84,7 +84,7 @@ describe('the runner', () => {
         vi.doMock('../src/features/diagnostics/production-tests.js', () => Object.fromEntries([
             'testEmbeddingGeneration', 'testVectorStorage', 'testVectorRetrieval', 'testVectorDimensions', 'testChunkServerSync',
             'testDuplicateHashes', 'testPluginEmbeddingGeneration', 'testReciprocalRankFusion', 'testWeightedCombination',
-            'testKeywordExtraction', 'testLorebookKeywordExtraction', 'sweepLeftoverTestCollections',
+            'testKeywordExtraction', 'sweepLeftoverTestCollections',
         ].map(name => [name, recorded(name)]).concat([['isDiagnosticCollection', () => false]])));
         vi.doMock('../src/features/diagnostics/activation-tests.js', () => ({ testConditionalActivation: vi.fn(async () => []) }));
         vi.doMock('../src/features/diagnostics/visualizer-tests.js', () => ({ runVisualizerTests: vi.fn(async () => []) }));

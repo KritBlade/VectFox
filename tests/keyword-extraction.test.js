@@ -25,7 +25,6 @@ vi.mock('../../../../../script.js', () => ({
 import {
     EXTRACTION_LEVELS,
     DEFAULT_EXTRACTION_LEVEL,
-    extractLorebookKeywords,
     extractTextKeywords,
     extractChatKeywords,
     extractBM25Keywords,
@@ -77,133 +76,6 @@ describe('DEFAULT_EXTRACTION_LEVEL', () => {
 });
 
 // ============================================================================
-// extractLorebookKeywords Tests
-// ============================================================================
-
-describe('extractLorebookKeywords', () => {
-    it('should return empty array for null/undefined entry', () => {
-        expect(extractLorebookKeywords(null)).toEqual([]);
-        expect(extractLorebookKeywords(undefined)).toEqual([]);
-    });
-
-    it('should extract primary keys', () => {
-        const entry = {
-            key: ['magic', 'wizard', 'spell'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords).toContain('magic');
-        expect(keywords).toContain('wizard');
-        expect(keywords).toContain('spell');
-    });
-
-    it('should extract secondary keys', () => {
-        const entry = {
-            key: ['dragon'],
-            keysecondary: ['fire', 'scales'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords).toContain('dragon');
-        expect(keywords).toContain('fire');
-        expect(keywords).toContain('scales');
-    });
-
-    it('should normalize keys to lowercase', () => {
-        const entry = {
-            key: ['MAGIC', 'Wizard', 'SpElL'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords).toContain('magic');
-        expect(keywords).toContain('wizard');
-        expect(keywords).toContain('spell');
-    });
-
-    it('should deduplicate keywords', () => {
-        const entry = {
-            key: ['magic', 'MAGIC', 'Magic'],
-            keysecondary: ['magic'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords.filter(k => k === 'magic').length).toBe(1);
-    });
-
-    it('should filter out stopwords', () => {
-        const entry = {
-            key: ['the', 'magic', 'and', 'wizard'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords).not.toContain('the');
-        expect(keywords).not.toContain('and');
-        expect(keywords).toContain('magic');
-        expect(keywords).toContain('wizard');
-    });
-
-    it('should filter out short words (less than 2 chars)', () => {
-        const entry = {
-            key: ['a', 'b', 'magic'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords).not.toContain('a');
-        expect(keywords).not.toContain('b');
-        expect(keywords).toContain('magic');
-    });
-
-    it('should trim whitespace from keys', () => {
-        const entry = {
-            key: ['  magic  ', '  wizard  '],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords).toContain('magic');
-        expect(keywords).toContain('wizard');
-    });
-
-    it('should skip empty or whitespace-only keys', () => {
-        const entry = {
-            key: ['magic', '', '   ', 'wizard'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords.length).toBe(2);
-        expect(keywords).toContain('magic');
-        expect(keywords).toContain('wizard');
-    });
-
-    it('should handle non-string keys gracefully', () => {
-        const entry = {
-            key: ['magic', 123, null, undefined, {}, 'wizard'],
-        };
-        const keywords = extractLorebookKeywords(entry);
-        expect(keywords).toContain('magic');
-        expect(keywords).toContain('wizard');
-        expect(keywords.length).toBe(2);
-    });
-
-    it('should handle custom stopwords from settings', () => {
-        const entry = {
-            key: ['dragon', 'customword', 'wizard'],
-        };
-        const settings = {
-            custom_stopwords: 'customword, anotherword',
-        };
-        const keywords = extractLorebookKeywords(entry, settings);
-        expect(keywords).not.toContain('customword');
-        expect(keywords).toContain('dragon');
-        expect(keywords).toContain('wizard');
-    });
-
-    it('should process ST macros in custom stopwords', () => {
-        const entry = {
-            key: ['testcharacter', 'testuser', 'wizard'],
-        };
-        const settings = {
-            custom_stopwords: '{{char}}, {{user}}',
-        };
-        const keywords = extractLorebookKeywords(entry, settings);
-        expect(keywords).not.toContain('testcharacter');
-        expect(keywords).not.toContain('testuser');
-        expect(keywords).toContain('wizard');
-    });
-});
-
-// ============================================================================
 // extractTextKeywords Tests
 // ============================================================================
 
@@ -223,6 +95,25 @@ describe('extractTextKeywords', () => {
         const text = 'The wizard cast a powerful magic spell on the dragon.';
         const keywords = extractTextKeywords(text, { level: 'off' });
         expect(keywords).toEqual([]);
+    });
+
+    it('leaves out the custom stopwords in settings', () => {
+        const text = 'The dragon met the customword. The dragon, the customword and the wizard; the wizard and the customword.';
+        const wordsWith = settings => extractTextKeywords(text, { level: 'aggressive', settings }).map(keyword => keyword.text);
+        expect(wordsWith({})).toContain('customword');
+        const words = wordsWith({ custom_stopwords: 'customword, anotherword' });
+        expect(words).not.toContain('customword');
+        expect(words).toEqual(expect.arrayContaining(['dragon', 'wizard']));
+    });
+
+    it('reads SillyTavern macros in the custom stopwords', () => {
+        const text = 'TestCharacter met TestUser. TestCharacter, TestUser and the wizard; the wizard and TestCharacter.';
+        const wordsWith = settings => extractTextKeywords(text, { level: 'aggressive', settings }).map(keyword => keyword.text);
+        expect(wordsWith({})).toEqual(expect.arrayContaining(['testcharacter', 'testuser']));
+        const words = wordsWith({ custom_stopwords: '{{char}}, {{user}}' });
+        expect(words).not.toContain('testcharacter');
+        expect(words).not.toContain('testuser');
+        expect(words).toContain('wizard');
     });
 
     it('should extract keywords with default balanced level', () => {

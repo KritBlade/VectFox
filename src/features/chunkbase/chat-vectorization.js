@@ -241,7 +241,7 @@ function gatherCollectionsToQuery() {
     // Workflow isolation:
     //   vf_eventbase_*     → always excluded (EventBase pipeline owns them)
     //   vf_archiveevent_*  → always excluded (EventBase pipeline owns them)
-    //   vf_lorebook_*      → always excluded (Lorebook WI pipeline owns them, injects to <VectFoxLorebook>)
+    //   vf_lorebook_*      → always excluded (old vectorized lorebooks: LoreBase replaced them, and nothing searches them)
     for (const registryKey of registry) {
         const parsedKey = parseRegistryKey(registryKey);
         const collectionId = parsedKey.collectionId;
@@ -918,8 +918,6 @@ function injectChunksIntoPrompt(chunksToInject, settings) {
  * per-position variants, EventBase memory and Summarizer Injection. ST keeps an
  * extension prompt until it is overwritten, so a block that is not cleared keeps
  * reaching the model on every later generation — including turns VectFox skips.
- * The lorebook block is not included: the GENERATION_STARTED handler owns it and
- * fills it before the interceptor runs (see clearLorebookPrompt).
  *
  * @param {object} settings VECTFOX settings
  */
@@ -938,8 +936,8 @@ export function clearInterceptorPrompts(settings) {
 /**
  * The generation interceptor. On a live turn it runs EventBase retrieval, Summarizer
  * Injection and ghosting, then searches the enabled chunk collections (documents,
- * web pages, character cards) and injects the chunks it finds. Event and lorebook
- * collections are left out here: their own pipelines search them.
+ * web pages, character cards) and injects the chunks it finds. Event collections
+ * are left out here, as EventBase searches them, and so are old lorebook collections.
  *
  * @param {object[]} chat Current chat messages
  * @param {object} settings VECTFOX settings
@@ -1041,18 +1039,11 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
 
         // === STAGE 1: Gather collections to query ===
         const collectionsToQuery = gatherCollectionsToQuery(settings);
-        const hasCollections = collectionsToQuery.length > 0;
-        const canQueryWI = settings.enabled_world_info;
-
-        if (!hasCollections && !canQueryWI) {
-            log.trace('[VECTFOX ChunkBase] No enabled ChunkBase collections and World Info disabled — skipping non-chat chunk injection (this is normal if you only use EventBase).');
+        if (!collectionsToQuery.length) {
+            log.trace('[VECTFOX ChunkBase] No enabled ChunkBase collections — skipping non-chat chunk injection (this is normal if you only use EventBase).');
             return dryRun ? { injectionText: null, chunkCount: 0, noCollections: true } : undefined;
         }
-        if (hasCollections) {
-            log.verbose(`VectFox: Will query ${collectionsToQuery.length} collections:`, collectionsToQuery);
-        } else {
-            log.verbose('VectFox: No ChunkBase collections enabled (lorebooks are handled by the Lorebook WI pipeline)');
-        }
+        log.verbose(`VectFox: Will query ${collectionsToQuery.length} collections:`, collectionsToQuery);
 
         // === STAGE 2: Build search query ===
         const queryText = testMessage || buildSearchQuery(chat, settings);
@@ -1068,18 +1059,15 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
         log.trace(`VectFox: Extracted ${queryKeywords.length} keywords from query:`, queryKeywordTexts);
 
         // === STAGE 3: Filter by activation conditions ===
-        let activeCollections = [];
-        if (hasCollections) {
-            const searchContext = buildSearchContext(chat, settings.query || 10, {
-                generationType: type || 'normal',
-                isGroupChat: getContext().groupId != null,
-                currentCharacter: getContext().name2 || null,
-                activeLorebookEntries: [],
-                currentChatId: getCurrentChatId(),
-                currentCharacterId: getContext().characterId || null
-            });
-            activeCollections = await filterActiveCollections(collectionsToQuery, searchContext);
-        }
+        const searchContext = buildSearchContext(chat, settings.query || 10, {
+            generationType: type || 'normal',
+            isGroupChat: getContext().groupId != null,
+            currentCharacter: getContext().name2 || null,
+            activeLorebookEntries: [],
+            currentChatId: getCurrentChatId(),
+            currentCharacterId: getContext().characterId || null
+        });
+        let activeCollections = await filterActiveCollections(collectionsToQuery, searchContext);
 
         // Skip collections that have 0 chunks on disk — they're shown in DB Browser
         // so the user can delete them, but there's nothing to query.
@@ -1089,27 +1077,19 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             log.verbose(`VectFox: Skipped ${preEmptyFilter - activeCollections.length} empty collection(s) from retrieval`);
         }
 
-        // Allow WI-only mode even if no regular collections pass filters.
         // ChunkBase is optional: a chat that keeps its memory in EventBase alone
         // has no active chunk collections, which is a normal setup, not an error.
         // EventBase injection happens on its own path (eventbase-workflow.js)
         // and is unaffected by this branch.
-        if (activeCollections.length === 0 && !canQueryWI) {
-            log.trace('[VECTFOX ChunkBase] No active Standard/ChunkBase collections and World Info disabled — skipping non-chat chunk injection (this is normal if you only use EventBase).');
+        if (activeCollections.length === 0) {
+            log.trace('[VECTFOX ChunkBase] No active Standard/ChunkBase collections — skipping non-chat chunk injection (this is normal if you only use EventBase).');
             return dryRun ? { injectionText: null, chunkCount: 0, noActive: true } : undefined;
         }
-        if (activeCollections.length > 0) {
-            log.verbose(`✅ VectFox: ${activeCollections.length} collections passed activation filters:`, activeCollections);
-        }
+        log.verbose(`✅ VectFox: ${activeCollections.length} collections passed activation filters:`, activeCollections);
 
         // === STAGE 4: Query all collections and merge results ===
-        // Popup gating:
-        //   - retrieval_popup_on_start / retrieval_popup_on_result: ChunkBase chunks
-        //   - world_info_retrieval_popup: lorebook/WI entries (handled in
-        //     world-info-integration.js, untouched here)
-        // We suppress the ChunkBase popups when activeCollections is empty (WI-only mode)
-        // — the "0 results" message would just be misleading noise.
-        if (activeCollections.length > 0 && settings.retrieval_popup_on_start) {
+        // retrieval_popup_on_start and retrieval_popup_on_result toast ChunkBase's chunks.
+        if (settings.retrieval_popup_on_start) {
             toastr.info(`Retrieving context from ${activeCollections.length} collection(s)...`, 'VectFox Retrieval');
         }
 
@@ -1126,7 +1106,7 @@ export async function rearrangeChat(chat, settings, type, { dryRun = false, test
             },
         );
 
-        if (activeCollections.length > 0 && settings.retrieval_popup_on_result) {
+        if (settings.retrieval_popup_on_result) {
             toastr.success(`Retrieved ${chunks.length} result(s) from backend`, 'VectFox Retrieval');
         }
 

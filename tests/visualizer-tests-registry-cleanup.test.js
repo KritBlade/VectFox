@@ -23,7 +23,7 @@ vi.mock('../src/features/embedding/index.js', () => ({
     getModelFromSettings: () => '',
     resolveProviderApiUrl: () => undefined,
 }));
-vi.mock('../src/features/keyword-search/index.js', () => ({ extractTextKeywords: vi.fn(), extractLorebookKeywords: vi.fn() }));
+vi.mock('../src/features/keyword-search/index.js', () => ({ extractTextKeywords: vi.fn() }));
 vi.mock('../src/features/vector-backend/index.js', async () => {
     const { buildRegistryKey } = await vi.importActual('../src/shared/collection-ids.js');
     return {

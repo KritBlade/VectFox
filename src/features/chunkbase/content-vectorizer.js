@@ -43,11 +43,9 @@ import {
     fileExtension,
     fileStem,
     isReformatType,
-    lorebookStats,
     pageTextFromHtml,
     parseCharacterJson,
     parseChatFile,
-    parseLorebookFile,
     parseYouTubeId,
     previewOf,
     startFromMessageOf,
@@ -92,13 +90,13 @@ function currentChatView() {
 }
 
 /**
- * Open Vectorize Content on a type's page, the Chat page by default when a chat is open, else the Lorebook page.
+ * Open Vectorize Content on a type's page, the Chat page by default when a chat is open, else the Character page.
  * Resolves once the dialog is open; a run started in it goes on after it closes.
  *
  * @param {string|null} [initialType] - A content type's id
  */
 export function openContentVectorizer(initialType = null) {
-    const activeTypeId = ALL_TYPE_IDS.includes(initialType) ? initialType : (getContext()?.chatId ? 'chat' : 'lorebook');
+    const activeTypeId = ALL_TYPE_IDS.includes(initialType) ? initialType : (getContext()?.chatId ? 'chat' : 'character');
     if (session) {
         showTypePage(activeTypeId);
         return;
@@ -217,36 +215,31 @@ function showTypePage(typeId) {
     void loadPage(typeId);
 }
 
-/** Fill what a page reads from SillyTavern the first time it shows: the lorebooks or characters, the wiki plugin. */
+/** Fill what a page reads from SillyTavern the first time it shows: the characters, the wiki plugin. */
 async function loadPage(typeId) {
     const state = pageStateOf(typeId);
     if (!state || state.isLoaded) return;
     state.isLoaded = true;
-    if (typeId === 'lorebook' || typeId === 'character') await fillSourceSelect(typeId);
+    if (typeId === 'character') await fillSourceSelect(typeId);
     if (typeId === 'wiki') await showWikiPluginState();
 }
 
 async function fillSourceSelect(typeId) {
     const select = controlOf(typeId, 'source_select');
     try {
-        if (typeId === 'lorebook') {
-            const { world_names: worldNames = [] } = await import('../../sillytavern/world-info.js');
-            select.innerHTML = sourceOptionsMarkup(worldNames.map(name => ({ value: name, name })), 'No lorebooks found');
-        } else {
-            const context = getContext();
-            const characters = context?.characters || [];
-            const current = characters[context?.characterId];
-            const ordered = current ? [current, ...characters.filter(character => character !== current)] : characters;
-            select.innerHTML = sourceOptionsMarkup(ordered.map(character => ({ value: character.avatar, name: character.name, isCurrent: character === current })), 'No characters found');
-            if (current) await showSourceStats(typeId, current.avatar);
-        }
+        const context = getContext();
+        const characters = context?.characters || [];
+        const current = characters[context?.characterId];
+        const ordered = current ? [current, ...characters.filter(character => character !== current)] : characters;
+        select.innerHTML = sourceOptionsMarkup(ordered.map(character => ({ value: character.avatar, name: character.name, isCurrent: character === current })), 'No characters found');
+        if (current) await showSourceStats(typeId, current.avatar);
     } catch (error) {
-        log.error(`VectFox Vectorize Content: the ${typeId === 'lorebook' ? 'lorebooks' : 'characters'} could not be listed:`, error);
+        log.error('VectFox Vectorize Content: the characters could not be listed:', error);
         select.innerHTML = sourceOptionsMarkup([], 'They could not be listed');
     }
 }
 
-/** What the chosen lorebook or character holds, as pills under its select. */
+/** What the chosen character holds, as pills under its select. */
 async function showSourceStats(typeId, sourceId) {
     if (!sourceId) {
         paint(typeId, 'stats', '');
@@ -254,23 +247,12 @@ async function showSourceStats(typeId, sourceId) {
     }
     paint(typeId, 'stats', loadedSourceMarkup({ state: 'busy', busyText: 'Reading it…' }));
     try {
-        if (typeId === 'lorebook') {
-            const { loadWorldInfo } = await import('../../sillytavern/world-info.js');
-            const data = await loadWorldInfo(sourceId);
-            const stats = lorebookStats(Object.values(data?.entries || {}));
-            paint(typeId, 'stats', loadedSourceMarkup({ state: 'done', lines: [
-                { text: 'Entries', name: formatCount(stats.entryCount) },
-                { text: 'Enabled', name: formatCount(stats.enabledCount) },
-                { text: 'Text', name: `${formatCount(stats.textLength)} characters` },
-            ] }));
-        } else {
-            const character = getContext()?.characters?.find(each => each.avatar === sourceId);
-            const stats = characterStats(character);
-            paint(typeId, 'stats', loadedSourceMarkup({ state: 'done', lines: [
-                { text: 'Fields with text', name: `${stats.filledCount} of ${stats.fieldCount}` },
-                { text: 'Text', name: `${formatCount(stats.textLength)} characters` },
-            ] }));
-        }
+        const character = getContext()?.characters?.find(each => each.avatar === sourceId);
+        const stats = characterStats(character);
+        paint(typeId, 'stats', loadedSourceMarkup({ state: 'done', lines: [
+            { text: 'Fields with text', name: `${stats.filledCount} of ${stats.fieldCount}` },
+            { text: 'Text', name: `${formatCount(stats.textLength)} characters` },
+        ] }));
     } catch (error) {
         log.error('VectFox Vectorize Content: the source could not be read:', error);
         paint(typeId, 'stats', loadedSourceMarkup({ state: 'failed', reason: error.message }));
@@ -316,14 +298,6 @@ async function loadFile(typeId, file) {
                 { text: 'Messages', name: formatCount(messages.length) },
                 { text: 'Character', name: characterName },
                 { text: 'Text', name: `${formatCount(messages.reduce((sum, message) => sum + (message.mes?.length || 0), 0))} characters` },
-            ]);
-        } else if (typeId === 'lorebook') {
-            const entries = parseLorebookFile(await file.text());
-            state.sourceData = { type: 'file', filename: file.name, content: entries, entries, name: fileStem(file.name) };
-            const stats = lorebookStats(entries);
-            showLoadedFile(typeId, file.name, [
-                { text: 'Entries', name: formatCount(stats.entryCount) },
-                { text: 'Enabled', name: formatCount(stats.enabledCount) },
             ]);
         } else if (typeId === 'character') {
             const character = extension === 'png'
@@ -457,8 +431,8 @@ async function fetchTranscript() {
 }
 
 /**
- * The page's source, or why there is none: a file or fetch it loaded, its pasted text, the lorebook or character it
- * names, or the open chat.
+ * The page's source, or why there is none: a file or fetch it loaded, its pasted text, the character it names, or
+ * the open chat.
  *
  * @param {string} typeId
  * @returns {{source: object|null, problem: string}}
@@ -473,10 +447,10 @@ function sourceOf(typeId) {
         if (!text) return { source: null, problem: 'Paste the text first.' };
         return { source: { type: 'paste', content: text, name: controlOf(typeId, 'doc_name').value.trim() || 'Pasted Document' }, problem: '' };
     }
-    if (typeId === 'lorebook' || typeId === 'character') {
+    if (typeId === 'character') {
         const sourceId = controlOf(typeId, 'source_select').value;
-        if (!sourceId) return { source: null, problem: `Choose a ${typeId} first.` };
-        const character = typeId === 'character' ? getContext()?.characters?.find(each => each.avatar === sourceId) : null;
+        if (!sourceId) return { source: null, problem: 'Choose a character first.' };
+        const character = getContext()?.characters?.find(each => each.avatar === sourceId);
         return { source: { type: 'select', id: sourceId, name: character?.name || sourceId }, problem: '' };
     }
     if (typeId === 'chat') {
@@ -801,9 +775,6 @@ async function startVectorization(typeId) {
         });
         log.lifecycle(`VectFox Vectorize Content: ${typeId} vectorized into ${result.chunkCount} chunks`);
         await closeContentVectorizer();
-        // The settings panel refreshes the World Info status on this, so its switch turns on when the new
-        // collection is active here (global, or locked to this chat or character).
-        if (typeId === 'lorebook') document.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
     } catch (error) {
         if (isStoppedError(error)) {
             log.lifecycle('VectFox Vectorize Content: stopped by the user');
@@ -1161,7 +1132,6 @@ function readControl(control) {
             chooseCleaningPreset(control.value);
             return showCleaningPreset(control.value);
         case 'keyword_level': settings.keywordLevel = control.value; return undefined;
-        case 'include_disabled': settings.includeDisabled = control.checked; return undefined;
         case 'wiki_type': {
             const wiki = getContentType('wiki').sourceOptions.types.find(each => each.id === control.value);
             if (wiki) controlOf('wiki', 'wiki_url').placeholder = wiki.placeholder;

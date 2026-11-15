@@ -5,8 +5,9 @@
  *
  * Pins the state after the dead-code cleanups in InternalProject/Vectfox/plans/executed/
  * (delete-dead-chunk-chat-and-temporal-decay.md, unwire-dead-chat-vectorize-options.md,
- * centralize-collection-listing.md): the removed code stays deleted, and the live code
- * beside it stays in place.
+ * centralize-collection-listing.md) and B7 of plans/lorebook-semantic-overhaul-passage-index.md,
+ * which deleted the old vectorized lorebook path: the removed code stays deleted, and the
+ * live code beside it stays in place.
  *
  * Static analysis only: it reads source files and imports none of them, so it needs no
  * SillyTavern mocks and still runs when a module fails to resolve.
@@ -104,7 +105,7 @@ describe('Live code remains intact (regression guard)', () => {
         });
     });
 
-    describe('ChunkBase pipeline (lorebook / document / character / url / wiki / youtube)', () => {
+    describe('ChunkBase pipeline (document / character / url / wiki / youtube)', () => {
         it('src/features/chunkbase/chat-vectorization.js exists', () => {
             expect(existsRel('src/features/chunkbase/chat-vectorization.js')).toBe(true);
         });
@@ -120,7 +121,7 @@ describe('Live code remains intact (regression guard)', () => {
         });
 
         it('Keyword extraction is still wired for non-chat content', () => {
-            // extractTextKeywords is what lorebook/document/character ingestion calls
+            // extractTextKeywords is what document/character ingestion calls
             expect(readRel('src/features/chunkbase/content-vectorization.js'))
                 .toMatch(/extractTextKeywords\s*\(/);
         });
@@ -141,11 +142,6 @@ describe('Live code remains intact (regression guard)', () => {
             // The EventBase path resolves its active collection through the listing,
             // inside resolveActiveEventBaseCollection.
             expect(readRel('src/features/eventbase/eventbase-store.js'))
-                .toMatch(/getCollectionListing/);
-        });
-
-        it('settings-panel.js consumes getCollectionListing', () => {
-            expect(readRel('src/features/settings-panel/settings-panel.js'))
                 .toMatch(/getCollectionListing/);
         });
     });
@@ -451,6 +447,34 @@ describe('Dead code is removed (cleanup contract)', () => {
                 .not.toMatch(/defaults\s*:\s*\{[^}]*chunkSize/);
             expect(block, 'chat entry still declares batchSize in defaults')
                 .not.toMatch(/defaults\s*:\s*\{[^}]*batchSize/);
+        });
+    });
+
+    describe('LoreBase B7 — the old vectorized lorebook path', () => {
+        it('features/world-info, its vector search and rename check, is gone', () => {
+            expect(existsRel('src/features/world-info')).toBe(false);
+            expect(existsRel('src/app/settings-migration-world-info-threshold.js')).toBe(false);
+            expect(existsRel('src/features/chunkbase/lorebook-content-preparer.js')).toBe(false);
+        });
+
+        it('no source reads its settings, but the migration that deletes them from saved settings', () => {
+            const migration = 'src/app/settings-migration-semantic-world-info-settings.js';
+            const offenders = grepSourcesWithLines(
+                /\b(enabled_world_info|world_info_threshold|world_info_top_k|world_info_query_depth|world_info_retrieval_popup|world_info_respect_entry_disable|lorebook_xml_tag)\b/,
+            ).filter(hit => !hit.startsWith(`${migration}:`));
+            expect(existsRel(migration)).toBe(true);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+        });
+
+        it('no source sends the <VectFoxLorebook> block or offers its dry run', () => {
+            const offenders = grepSourcesWithLines(/VectFoxLorebook|LOREBOOK_PROMPT_TAG|clearLorebookPrompt|runLorebookWIDryRun|VectFox_WorldInfo/);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+        });
+
+        it('Vectorize Content no longer vectorizes a lorebook', () => {
+            const offenders = grepSourcesWithLines(/prepareLorebookContent|extractLorebookKeywords|buildLorebookCollectionId|parseLorebookFile|lorebookStats/);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+            expect(readRel('src/features/chunkbase/content-types.js')).not.toMatch(/\blorebook:\s*\{/);
         });
     });
 });

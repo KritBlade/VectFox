@@ -16,9 +16,6 @@
 /** Extension prompt tag for SillyTavern's prompt system */
 export const EXTENSION_PROMPT_TAG = '3_vectfox';
 
-/** Extension prompt tag for lorebook semantic WI injection */
-export const LOREBOOK_PROMPT_TAG = '3_vectfox_lorebook';
-
 /** Extension prompt tag for EventBase semantic-retrieval injection */
 export const EVENTBASE_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_eventbase`;
 
@@ -41,8 +38,8 @@ export const VECTOR_LIST_LIMIT = 10000;
  * effective value. Always read the effective budget through
  * resolveRetrievalTimeoutMs() in src/shared/retrieval-budget.js.
  *
- * Bounds every retrieval during generation -- chunks, the summarizer and
- * Lorebook WI; EventBase adds its Agent Mode budget on top -- so a hung
+ * Bounds every retrieval during generation -- chunks and the summarizer;
+ * EventBase adds its Agent Mode budget on top -- so a hung
  * embedding/query cannot freeze the whole conversation. On timeout the turn
  * proceeds WITHOUT that memory: runBoundedRetrieval() (src/features/vector-backend/bounded-retrieval.js)
  * races the retrieval softly, and the orphaned fetch is reaped later by ST's

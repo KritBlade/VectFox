@@ -3,8 +3,8 @@
  *
  * Vectorize Content's wiring (src/features/chunkbase/content-vectorizer.js), driven as a user would: the rail shows one
  * type's page and each page keeps what was typed on it; a run says on its page what it needs; a fetch carries
- * SillyTavern's CSRF token, which the old dialog left out so every fetch got a 403; the Character fields and the
- * Lorebook's Include disabled entries, which nothing read, reach the run; a chat's Vectorize asks before reading again;
+ * SillyTavern's CSRF token, which the old dialog left out so every fetch got a 403; the Character fields, which
+ * nothing read, reach the run; a chat's Vectorize asks before reading again;
  * the dialog closes after a clean read of something new and otherwise stays open saying why; the close is announced
  * once, after any run; the Action page's Sync chat reads what EventBase has not read once the user confirms, and says
  * in a dialog when there is nothing to read, the AutoSync page's Up to date included, or a run found nothing new.
@@ -30,10 +30,6 @@ vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => host.context }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json', 'X-CSRF-Token': 'token' }) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
-vi.mock('../src/sillytavern/world-info.js', () => ({
-    world_names: ['Harbor <Lore>', 'Tides'],
-    loadWorldInfo: vi.fn(async () => ({ entries: { 0: { content: 'Gate' }, 1: { content: 'Tide', disable: true } } })),
-}));
 vi.mock('../src/sillytavern/identifiers.js', () => ({ getStringHash: text => text.length }));
 vi.mock('../src/sillytavern/popup.js', () => ({
     // A dialog is on the page while open; closing asks its canClose, as SillyTavern's Close does.
@@ -166,13 +162,11 @@ describe('the rail', () => {
         expect($id('vectfox_cv_document_paste_text').value).toBe('The harbor wakes at dawn.');
     });
 
-    it('lists the lorebooks, names as written, and shows what the chosen one holds', async () => {
-        openContentVectorizer('lorebook');
-        const select = $id('vectfox_cv_lorebook_source_select');
-        await vi.waitFor(() => expect(select.options.length).toBe(3));
-        expect(select.options[1].textContent).toBe('Harbor <Lore>');
-        change(select, 'Tides');
-        await vi.waitFor(() => expect(page('lorebook').querySelector('[data-cv-region="stats"]').textContent).toContain('Enabled: 1'));
+    it('opens on Character while no chat is open', async () => {
+        host.context = { ...host.context, chatId: undefined, chat: [] };
+        openContentVectorizer();
+        expect(page('character').style.display).toBe('');
+        expect(page('chat').style.display).toBe('none');
     });
 
     it('pins the open character first', async () => {
@@ -243,7 +237,7 @@ describe('a run', () => {
         expect(vectorizeContent.mock.calls[0][0].source.content).toContain('every boat unloading its catch');
     });
 
-    it('carries the Character fields and the Lorebook\'s Include disabled entries into the run', async () => {
+    it('carries the Character fields into the run', async () => {
         openContentVectorizer('character');
         await vi.waitFor(() => expect($id('vectfox_cv_character_source_select').value).toBe('keeper.png'));
         const scenario = page('character').querySelectorAll('[data-cv-field]');
@@ -252,16 +246,6 @@ describe('a run', () => {
         actionOn('character', 'vectorize').click();
         await vi.waitFor(() => expect(vectorizeContent).toHaveBeenCalledTimes(1));
         expect(vectorizeContent.mock.calls[0][0].settings.fields.creator_notes).toBe(true);
-
-        await closeEveryDialog();
-        openContentVectorizer('lorebook');
-        const select = $id('vectfox_cv_lorebook_source_select');
-        await vi.waitFor(() => expect(select.options.length).toBe(3));
-        change(select, 'Tides');
-        change($id('vectfox_cv_lorebook_include_disabled'), true);
-        actionOn('lorebook', 'vectorize').click();
-        await vi.waitFor(() => expect(vectorizeContent).toHaveBeenCalledTimes(2));
-        expect(vectorizeContent.mock.calls[1][0].settings.includeDisabled).toBe(true);
     });
 
     it('saves a chat\'s window size as VectFox\'s setting', async () => {

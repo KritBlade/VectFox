@@ -21,7 +21,6 @@ import { openDatabaseBrowser } from '../database-browser/index.js';
 import { openDiagnostics, refreshHealthPill } from '../diagnostics/index.js';
 import { buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../eventbase/index.js';
 import { openTextCleaningDialog } from '../text-cleaning/index.js';
-import { clearLorebookPrompt } from '../world-info/index.js';
 import { ACTION_PAGE_ELEMENT_ID as ID, DEBUG_SWITCHES } from './action-page-markup.js';
 import { VECTFOX_OFF_NOTICE_HOOK, VECTFOX_TURN_ON_HOOK } from './panel-shell-markup.js';
 
@@ -176,7 +175,6 @@ export function wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkSt
                 // Take every VectFox block out of the prompt now. ST keeps extension prompts until they are
                 // overwritten, and quiet generations skip the interceptor that would otherwise clear them.
                 clearInterceptorPrompts(settings);
-                clearLorebookPrompt(settings);
                 await refreshAutoSyncCheckbox(settings);
                 return;
             }

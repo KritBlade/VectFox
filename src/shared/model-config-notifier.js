@@ -156,10 +156,8 @@ export function notifyUpstreamRejection(contextLabel, model, detail, isQuotaErro
 // A retrieval path that catches its own errors and returns an empty result set is
 // indistinguishable, from the user's seat, from a corpus with nothing relevant in
 // it: no toast, no error, the message just sends without the memory it should have
-// had. That is what GitHub issue #11 reported — semantic lorebook activation went
-// silent on one backend and there was nothing in the console at default log level
-// to say why. Retrieval callers still degrade gracefully (a failed lookup must
-// never break a generation), but the degradation is now announced.
+// had. Retrieval callers still degrade gracefully (a failed lookup must never
+// break a generation), but the degradation is announced.
 const _retrievalNotified = new Set();
 
 /**
@@ -174,7 +172,7 @@ const _retrievalNotified = new Set();
  * transient — a restarted Qdrant or a slow embedder recovers on its own, and a
  * sticky toast per turn would be worse than the silence it replaces.
  *
- * @param {string} contextLabel - 'Lorebook' | 'EventBase' | 'Chat memory' | …
+ * @param {string} contextLabel - 'EventBase' | 'Chat memory' | …
  * @param {string} sourceName - human-readable collection / book name
  * @param {unknown} detail - the caught error (or a message string)
  */
@@ -258,52 +256,4 @@ export function notifySetupIncomplete(contextLabel, message) {
  */
 export function resetSetupIncompleteNotifications() {
     _setupNotified.clear();
-}
-
-// ---------------------------------------------------------------------------
-// "Feature is on but nothing it needs is active" surfacing.
-// ---------------------------------------------------------------------------
-// Distinct from notifyRetrievalFailure: there, a query ran and broke. Here, no
-// query was ever issued because every candidate collection was filtered out
-// before the search — disabled, owned by another persona, or not activated by
-// any trigger/condition/lock. The user has the feature switched ON and vectorized
-// content sitting in the registry, so from their seat it simply does nothing, and
-// the per-collection reason is a log.trace nobody has enabled. Same silent class
-// as GitHub issue #11, different cause.
-const _noActiveSourceNotified = new Set();
-
-/**
- * De-duped warning toast for "this feature is enabled, you have vectorized
- * content, and none of it is eligible this turn — here is why".
- *
- * De-dup key is context + scope + reason, where scope is normally the current
- * chat id. Per-chat rather than per-session on purpose: the most common cause is
- * a lock that points at a different chat/character, which is exactly what the
- * user changes when they switch chats. A session-wide de-dup would show it once
- * in the chat where it did not matter and stay quiet in the one where it did.
- *
- * @param {string} contextLabel - 'Semantic Lorebook' | 'ChunkBase' | …
- * @param {string} scopeKey - current chat id (or any per-context de-dup key)
- * @param {string} reason - human-readable breakdown of why nothing qualified
- */
-export function notifyNoActiveCollections(contextLabel, scopeKey, reason) {
-    const key = `${contextLabel}|${scopeKey || ''}|${reason}`;
-    if (_noActiveSourceNotified.has(key)) return;
-    _noActiveSourceNotified.add(key);
-    try {
-        toastr.warning(
-            `${contextLabel} is ON but nothing was searched this turn. ${reason} `
-            + `Open the Database Browser to lock the collection to this chat or character.`,
-            `VectFox — ${contextLabel} inactive`,
-            { timeOut: 15000, extendedTimeOut: 5000 },
-        );
-    } catch (_) { /* toastr unavailable (e.g. unit tests) */ }
-}
-
-/**
- * Forget prior no-active-source notifications.
- * @internal Resets module state between tests.
- */
-export function resetNoActiveCollectionsNotifications() {
-    _noActiveSourceNotified.clear();
 }

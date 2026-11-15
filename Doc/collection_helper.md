@@ -103,7 +103,7 @@ These patterns will look correct but produce broken state:
 
 Separate concern from locks. It's a per-collection hard kill switch — when `false`, that one collection is blocked from any activation regardless of locks, triggers, or scope.
 
-> **Do not confuse with the global master switch.** This pause flag is **per-collection**, stored at `extension_settings.vectfox.collections[registryKey].enabled` and read via `isCollectionEnabled(registryKey)`. The VectFox master switch is a **different key** — top-level `extension_settings.vectfox.enabled`, read via `isVectFoxEnabled()` ([feature-gate.js](../src/shared/feature-gate.js)) — and gates *all* runtime work (retrieval injection, auto-sync, lorebook WI) globally. Same word, different scope and different storage path.
+> **Do not confuse with the global master switch.** This pause flag is **per-collection**, stored at `extension_settings.vectfox.collections[registryKey].enabled` and read via `isCollectionEnabled(registryKey)`. The VectFox master switch is a **different key** — top-level `extension_settings.vectfox.enabled`, read via `isVectFoxEnabled()` ([feature-gate.js](../src/shared/feature-gate.js)) — and gates *all* runtime work (retrieval injection, auto-sync, LoreBase's picks) globally. Same word, different scope and different storage path.
 
 - **UI:** Play/pause icon on each collection card in the Database Browser
 - **Write:** `setCollectionEnabled(collection.registryKey || collection.id, false)` → stores `{ enabled: false }` under `extension_settings.vectfox.collections[registryKey]`
@@ -113,26 +113,23 @@ Separate concern from locks. It's a per-collection hard kill switch — when `fa
 
 ## Async runtime activation — `shouldCollectionActivate`
 
-Used by any code path that must decide at runtime whether a collection is currently in scope, respecting triggers, advanced conditions, and manual locks. The semantic WI lorebook search path (`world-info-integration.js`) is the canonical example.
+Used by any code path that must decide at runtime whether a collection is currently in scope, respecting triggers, advanced conditions, and manual locks. Its one caller is ChunkBase's chunk retrieval (`rearrangeChat` in `chat-vectorization.js`), through `filterActiveCollections`.
 
 **Must receive the registry-key form.** Internally calls `getCollectionMeta(id)` and `isCollectionLockedToChat(id, chatId)`, both of which read from `extension_settings.vectfox.collections[id]` — keyed by `backend:id`. Passing a bare collection ID silently gets empty defaults and lock checks always return `false`.
 
 **Canonical pattern:**
 
 ```js
-import { getCollectionListing, shouldCollectionActivate } from '../collections/index.js';
+import { buildSearchContext, filterActiveCollections } from '../collections/index.js';
 
-const listing = getCollectionListing(settings);
-const currentChatId = getCurrentChatId() ? String(getCurrentChatId()) : null;
-const currentCharacterId = getContext().characterId != null ? String(getContext().characterId) : null;
-const context = { currentChatId, currentCharacterId, recentMessages };   // recentMessages (newest first) lets triggers match
-
-for (const entry of listing) {
-    if (!entry.collectionId.startsWith('vf_lorebook_')) continue;
-    if (entry.meta.enabled === false) continue;                           // paused
-    if (!(await shouldCollectionActivate(entry.registryKey, context))) continue;  // out of scope
-    // entry.registryKey is correct for all subsequent getCollectionMeta calls
-}
+// The context's recent messages (newest first) let triggers match.
+const context = buildSearchContext(chat, settings.query || 10, {
+    generationType: type || 'normal',
+    currentChatId: getCurrentChatId(),
+    currentCharacterId: getContext().characterId || null,
+});
+// registryKeys are the backend:id form; the result keeps those in scope, each still correct for getCollectionMeta.
+const activeKeys = await filterActiveCollections(registryKeys, context);
 ```
 
 Gate chain inside `shouldCollectionActivate` — every gate that applies must pass:
@@ -145,7 +142,7 @@ Gate chain inside `shouldCollectionActivate` — every gate that applies must pa
 5. Every gate above passed      → ACTIVE
 ```
 
-**Important:** the lock is the master switch, for semantic WI as for every other collection. Triggers and conditions only narrow a locked lorebook; an unlocked lorebook is out of scope and will not be searched, whatever its triggers.
+**Important:** the lock is the master switch for every collection. Triggers and conditions only narrow a locked collection; an unlocked one is out of scope and is not searched, whatever its triggers.
 
 ## ⚠️ Embedding model resolution — `getModelFromSettings`
 
@@ -256,7 +253,7 @@ Collections saved by older versions may have `scope: 'unknown'` on disk. They ke
 - No data migration needed — the read path corrects every access.
 - The stored `'unknown'` string stays on disk until the next `setCollectionMeta` call overwrites it. Harmless.
 
-TEST 005/006/007 cover the standard-backend no-plugin path, including the lock checkbox flow.
+TEST 006/007 cover the standard-backend no-plugin path, including retrieval through a chat lock.
 
 ## No global scope
 
@@ -305,36 +302,6 @@ The switch shows on when any lock matches here, a chat lock or a character lock,
 `collectionKey` is the registry-key form (`backend:id`): the browser passes `collection.registryKey || collection.id`.
 
 Each call only touches the lock for the **current** chat/character. Other chats or characters that have this collection locked keep their entries intact — `removeCollectionLock` filters by id, doesn't wipe the list.
-
-## WorldInfo page — the "Use in this chat" switch
-
-In `src/features/settings-panel/settings-panel.js`; [worldinfo-page-markup.js](../src/features/settings-panel/worldinfo-page-markup.js) builds the page and its status.
-
-**`refreshWIStatus`** (auto-sync from events) fires on:
-- WorldInfo tab click
-- After lorebook vectorization completes
-- `vectfox:collections-updated` custom event
-- `CHAT_CHANGED` event
-- Initial load
-
-It computes `activeIds` by filtering own-persona lorebooks (creatorHandle stamp) through `isCollectionActiveForContext`, then drives the switch through an inline `_setWIEnabled(bool)` helper and the status through `worldInfoStatusMarkup`:
-
-| Result | Switch | Tone | Status |
-|---|---|---|---|
-| 0 lorebooks (this persona) | off | warning | "No lorebook vectorized yet. Vectorize Content on the Action page stores one." |
-| 0 active | off | warning | "No lorebook is locked to this chat. Lock one in Database Browser → Collection Settings." |
-| ≥1 active | on | success | "Active for this chat: <names>" |
-
-**Critical:** `_setWIEnabled` calls `prop('checked', enabled)` directly. It does **not** call `.trigger('change')`. This is load-bearing — see "Manual vs auto-sync paths" below.
-
-**Manual change handler** (the user turns the switch):
-
-| Action | Behaviour |
-|---|---|
-| On + no own lorebooks | Back off, info toast, open Content Vectorizer (`'lorebook'`) |
-| On + no active | Back off, info toast, open DB Browser |
-| On + ≥1 active | Persist `enabled_world_info=true`, show the Matching card |
-| Off | For each currently-active own lorebook, remove the lock making it active (chat or character per scope). Dispatch `vectfox:collections-updated`. Persist `enabled_world_info=false`, hide the Matching card. |
 
 ## Auto-sync — the "Auto-sync this chat" switch
 
@@ -534,7 +501,7 @@ Called internally by the ingestion loop. Do not call from application code; reim
 | Function | File | Role |
 |---|---|---|
 | `synchronizeChat(settings, batchSize, triggerEvent)` | [chat-vectorization.js](../src/features/chunkbase/chat-vectorization.js) | The auto-sync coordinator. Gates on **the write target only** — `resolveEventBaseWriteTarget(settings, uuid)` then `isCollectionAutoSyncEnabled(active.registryKey)` — NOT a `.some()` across every collection (a leftover `autoSync=true` on a non-active sibling would fire while the toggle shows off). Then calls `runEventBaseIngestion({ isAutoSync: true, collectionIdOverride: active.collectionId })`. **The override is load-bearing**: it pins the write target to the resolved active collection so a group chat doesn't manufacture a new per-speaker collection each turn. Called from ST event hooks (MESSAGE_SENT, MESSAGE_RECEIVED, etc.) in [src/index.js](../src/index.js), which schedule nothing while the VectFox master switch is off; it also bails on its own master-switch check (`isVectFoxEnabled` — see [feature-gate.js](../src/shared/feature-gate.js)) when the switch goes off inside the debounce window. Pass `triggerEvent` so it can suppress the popup on MESSAGE_SENT mid-generation. |
-| `rearrangeChat(chat, settings, type, { dryRun, testMessage })` | [chat-vectorization.js](../src/features/chunkbase/chat-vectorization.js) | ST generation interceptor (manifest `generate_interceptor`, runs before the prompt is built). Handles semantic retrieval and prompt injection. **Separate concern from `synchronizeChat`** — retrieval does not trigger auto-sync extraction. Every live (non-quiet) generation first empties every block it owns via `clearInterceptorPrompts` (chunk block, per-position variants, EventBase, Summarizer), so a turn that injects nothing never resends last turn's memory; then it early-returns when the master switch is off (`isVectFoxEnabled`). The lorebook block is cleared by its own GENERATION_STARTED handler ([world-info-integration.js](../src/features/world-info/world-info-integration.js)). The `dryRun` / `testMessage` params support the Query Tester, which is exempt from the master switch so debugging still works. |
+| `rearrangeChat(chat, settings, type, { dryRun, testMessage })` | [chat-vectorization.js](../src/features/chunkbase/chat-vectorization.js) | ST generation interceptor (manifest `generate_interceptor`, runs before the prompt is built). Handles semantic retrieval and prompt injection. **Separate concern from `synchronizeChat`** — retrieval does not trigger auto-sync extraction. Every live (non-quiet) generation first empties every block it owns via `clearInterceptorPrompts` (chunk block, per-position variants, EventBase, Summarizer), so a turn that injects nothing never resends last turn's memory; then it early-returns when the master switch is off (`isVectFoxEnabled`). The `dryRun` / `testMessage` params support the Query Tester, which is exempt from the master switch so debugging still works. |
 
 ### Key-form parity
 
@@ -625,23 +592,21 @@ UI elements that mirror lock state are pulled in two ways. The distinction matte
 
 | Trigger | Calls `.trigger('change')` | Lock mutation? |
 |---|---|---|
-| User turns the semantic activation switch | (browser-native) | **Yes** — change handler removes/checks locks |
 | User turns the auto-sync switch | (browser-native) | **Yes** — change handler removes/sets chat lock |
 | User moves the lock switch in Collection Settings | (via Save button) | **Yes** — `writeLockHere` mutates |
-| `refreshWIStatus` auto-uncheck | **No** — `_setWIEnabled` uses `prop()` only | **No** — pure UI mirror |
 | `refreshAutoSyncCheckbox` auto-state | **No** — direct `prop()` | **No** — pure UI mirror |
 | Collection Settings after Manage locks | **No** — the switch is set directly | **No** — re-reads the locks Manage locks set |
 
-**Rule:** auto-sync paths must never invoke the change handler. Otherwise, opening the WorldInfo page could trigger lock removal as a side effect of the UI sync.
+**Rule:** auto-sync paths must never invoke the change handler. Otherwise, opening the AutoSync page could trigger lock removal as a side effect of the UI sync.
 
 ## Custom events
 
 | Event | Fired by | Listeners |
 |---|---|---|
-| `vectfox:collections-updated` | `editCollectionSettings` on a save or a lock change, the semantic activation switch turned off, the auto-sync switch | `refreshWIStatus`, `refreshAutoSyncCheckbox` |
+| `vectfox:collections-updated` | `editCollectionSettings` on a save or a lock change, the auto-sync switch | `refreshAutoSyncCheckbox` |
 | `vectfox:eventbase-synced` | `runEventBaseIngestion` at end of run | `refreshAutoSyncCheckbox` |
 
-Plus ST's `CHAT_CHANGED` — same two refresh handlers re-run.
+Plus ST's `CHAT_CHANGED` — the same refresh handler re-runs.
 
 ## Runtime activation chain (`shouldCollectionActivate`)
 
@@ -669,8 +634,8 @@ Triggers and conditions narrow a locked collection; neither can activate an unlo
 | `src/features/chunkbase/content-vectorization.js` | Default `scope='character'`, no `'global'` fallback |
 | `src/features/database-browser/database-browser.js` | The Active here pill (`activeHereLine`) |
 | `src/features/database-browser/collection-dialogs.js` | Collection Settings' lock switch (`lockAreaView`, `saveCollectionSettings`, `writeLockHere`) and Manage locks (`manageCollectionLocks`) |
-| `src/features/settings-panel/settings-panel.js` | `refreshWIStatus` + `_setWIEnabled`, `refreshAutoSyncCheckbox`, the semantic activation and auto-sync switch handlers, event listeners |
-| `src/features/chunkbase/content-vectorizer.js` | Scope picker without global, post-vectorization `refreshWIStatus` call |
+| `src/features/settings-panel/settings-panel.js` | `refreshAutoSyncCheckbox`, the auto-sync switch handler, event listeners |
+| `src/features/chunkbase/content-vectorizer.js` | Scope picker without global |
 
 ## Things you should NOT do
 

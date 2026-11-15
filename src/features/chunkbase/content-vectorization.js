@@ -22,16 +22,14 @@ import {
 } from '../collections/index.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
-    buildLorebookCollectionId,
     buildCharacterCollectionId,
     buildDocumentCollectionId,
     buildRegistryKey,
     getBackendFromCollectionId,
     sanitizeNameSegment,
 } from '../../shared/collection-ids.js';
-import { extractLorebookKeywords, extractTextKeywords, extractBM25Keywords } from '../keyword-search/index.js';
+import { extractTextKeywords, extractBM25Keywords } from '../keyword-search/index.js';
 import { cleanContentOrNull } from '../text-cleaning/index.js';
-import { prepareLorebookContent } from './lorebook-content-preparer.js';
 import { extractGlossary, injectGlossary } from './glossary-extractor.js';
 import { getReformatCache } from './reformat-store.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
@@ -69,7 +67,6 @@ export function resolveEffectiveSettings(callerSettings) {
 export async function vectorizeContent({ contentType, source, settings, abortSignal = null, continueMode = false, startFromMessage = 1 }) {
     // EventBase workflow only handles chat messages; non-chat content vectorization
     // continues with the legacy path regardless of eventbase_enabled.
-    // (Future phases may add EventBase handling for lorebooks/characters here.)
 
     const throwIfAborted = () => {
         if (abortSignal?.aborted) {
@@ -232,14 +229,14 @@ export async function vectorizeContent({ contentType, source, settings, abortSig
             finalChunks = hashedChunks;
         }
 
-        // Non-chat content (lorebook, character card, document, URL, wiki, YouTube) goes
+        // Non-chat content (character card, document, URL, wiki, YouTube) goes
         // straight into the vector store without LLM summarization — those sources are
         // typically short enough that the embedding model can index them directly.
         // Chat content never reaches this function (EventBase intercepts it upstream).
         //
         // The summarize-before-store pipeline below is intentionally preserved (commented out)
         // in case we want to re-enable per-chunk LLM summarization later (e.g. summarize a
-        // lorebook/document chunk BEFORE vectorizing it).
+        // document chunk BEFORE vectorizing it).
         //
         // REVIVAL NOTE — the block calls `summarizeText` and `isSummarizationFatalError`, which
         // do not exist. Re-enabling it means making the LLM call through `postChatCompletion`
@@ -421,16 +418,8 @@ async function resolveSource(contentType, source) {
 
         case 'file':
             // File uploads may already be parsed by the UI
-            // For lorebooks: source.entries contains parsed entries
             // For characters: source.character contains parsed character data
             // For chats: source.messages contains parsed messages
-            if (contentType === 'lorebook' && source.entries) {
-                return {
-                    content: source.entries,
-                    name: source.name || source.filename,
-                    entries: source.entries,
-                };
-            }
             if (contentType === 'character' && source.character) {
                 return {
                     content: source.character,
@@ -487,56 +476,17 @@ async function resolveSource(contentType, source) {
 }
 
 /**
- * Loads content from a selected source (lorebook, character, etc.)
+ * Loads content from a selected source: a character
  */
 async function loadSelectedSource(contentType, sourceId) {
     const context = getContext();
 
     switch (contentType) {
-        case 'lorebook':
-            return await loadLorebookContent(sourceId, context);
-
         case 'character':
             return await loadCharacterContent(sourceId, context);
 
         default:
             throw new Error(`Cannot load selected source for type: ${contentType}`);
-    }
-}
-
-/**
- * Loads lorebook/world info content by name
- */
-async function loadLorebookContent(lorebookName) {
-    try {
-        // Import ST's world-info module to load the lorebook
-        const worldInfoModule = await import('../../sillytavern/world-info.js');
-        const loadWorldInfo = worldInfoModule.loadWorldInfo;
-
-        if (!loadWorldInfo) {
-            throw new Error('World Info loader not available');
-        }
-
-        // Load the lorebook data
-        const data = await loadWorldInfo(lorebookName);
-
-        if (!data || !data.entries) {
-            throw new Error(`Lorebook "${lorebookName}" has no entries`);
-        }
-
-        const entries = Object.values(data.entries).filter(e => e.content);
-
-        log.lifecycle(`VectFox: Loaded lorebook "${lorebookName}" with ${entries.length} entries`);
-
-        return {
-            content: entries,
-            name: lorebookName,
-            entries: entries,
-        };
-
-    } catch (e) {
-        log.error('VectFox: Failed to load lorebook:', e);
-        throw new Error(`Failed to load lorebook "${lorebookName}": ${e.message}`);
     }
 }
 
@@ -563,9 +513,6 @@ async function loadCharacterContent(characterId, context) {
  */
 async function prepareContent(contentType, rawContent, settings) {
     switch (contentType) {
-        case 'lorebook':
-            return prepareLorebookContent(rawContent, settings);
-
         case 'character':
             return prepareCharacterContent(rawContent, settings);
 
@@ -591,8 +538,6 @@ async function prepareContent(contentType, rawContent, settings) {
     }
 }
 
-// prepareLorebookContent imported from ./lorebook-content-preparer.js
-
 /**
  * Prepares character content
  */
@@ -614,8 +559,7 @@ function prepareCharacterContent(rawContent, settings) {
     // For per_field strategy
     // Use cleanContentOrNull so a field whose entire content gets stripped
     // by user regex is dropped from `fields` rather than appearing under
-    // its label with an empty value. Same bug class as the lorebook
-    // empty-after-clean leak.
+    // its label with an empty value.
     if (settings.strategy === 'per_field') {
         const fields = {};
         for (const [fieldId, enabled] of Object.entries(selectedFields)) {
@@ -724,11 +668,9 @@ function prepareWikiContent(rawContent, settings) {
     // For per_page strategy, split back into individual pages
     // Per-page: clean ONLY the page content (not the `# Title` header).
     // Two behaviors in one update:
-    //   1. Drop pages whose content goes empty after cleaning — same
-    //      bug class as the lorebook empty-header leak.
+    //   1. Drop pages whose content goes empty after cleaning.
     //   2. Title is preserved verbatim — it's metadata, not content
-    //      the user's regex should touch. Previously the title was
-    //      inside the cleanText call alongside the content.
+    //      the user's regex should touch.
     if (settings.strategy === 'per_page' && rawContent.pages) {
         return {
             text: rawContent.pages
@@ -804,9 +746,6 @@ function generateCollectionId(contentType, source, settings) {
                 'Chat history must go through eventbase-workflow.js, not the chunk content pipeline.'
             );
 
-        case 'lorebook':
-            return buildLorebookCollectionId(sourceName, settings.vector_backend, timestamp);
-
         case 'character':
             return buildCharacterCollectionId(sourceName, settings.vector_backend, timestamp);
 
@@ -868,27 +807,8 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
         const chunkText = typeof chunk === 'string' ? chunk : chunk.text;
         let keywords = []; // Will hold {text} objects
         let entryName = null;
-        let entryUid = null;
 
-        // For lorebooks with per_entry, get keywords from the entry
-        if (contentType === 'lorebook' && preparedContent.entries?.[index]) {
-            const entry = preparedContent.entries[index];
-            entryName = entry.comment || entry.name || entry.key?.[0] || 'Entry';
-            entryUid = entry.uid;
-
-            // The entry's trigger keys, set by hand
-            const triggerKeys = extractLorebookKeywords(entry, VectFoxSettings);
-            keywords = triggerKeys.map(k => ({ text: k }));
-
-            // Then the words the level picks from its text
-            if (keywordLevel !== 'off') {
-                const autoKeywords = extractTextKeywords(entry.content || chunkText, {
-                    level: keywordLevel,
-                    settings: VectFoxSettings,
-                });
-                keywords = keywords.concat(autoKeywords);
-            }
-        } else if (contentType === 'chat') {
+        if (contentType === 'chat') {
             // For chat, use BM25/TF-IDF to find most distinctive words
             if (keywordLevel !== 'off') {
                 keywords = extractBM25Keywords(chunkText, {
@@ -910,7 +830,7 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
         // (name/aliases/keywords) that the frequency-based extraction above
         // doesn't know about. Add them as keywords and set
         // entryName so the Database Browser shows a sensible per-chunk title —
-        // same pattern as the lorebook/character special-cases in this function.
+        // as the character's name is below.
         // entryName also feeds the BM25 title-boost signal in hybrid-search.js.
         if (chunk.metadata?.entry_type) {
             entryName = chunk.metadata.name || entryName;
@@ -947,14 +867,11 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
             keywords: dedupedKeywords,
             metadata: {
                 // Chunk-level metadata first (chunkIndex/totalChunks/strategy/etc.)
-                // so the explicit fields below win on conflict. The per_entry strategy
-                // writes `entryName: undefined` for string inputs, which would otherwise
-                // clobber the real entryName resolved from preparedContent.entries.
+                // so the explicit fields below win on conflict.
                 ...(chunk.metadata || {}),
                 contentType,
                 sourceName: source.name || source.filename || 'Unknown',
                 entryName,
-                entryUid,
                 keywordLevel,
             },
         };
@@ -965,7 +882,7 @@ function enrichChunks(chunks, contentType, source, settings, preparedContent, Ve
  * Delete the underlying vector data for a content collection.
  *
  * The backend the data physically lives in is encoded in the collection ID
- * itself (e.g. `vf_lorebook_qdrant_…` vs `vf_lorebook_standard_…`). The
+ * itself (e.g. `vf_document_qdrant_…` vs `vf_document_standard_…`). The
  * helper auto-detects this from the ID when the caller doesn't pass a
  * `vector_backend` override, so cleanup ALWAYS targets the backend that
  * actually holds the data — never the user's currently-selected global.

@@ -20,7 +20,7 @@ import {
 import { embeddingProfileRequestFields, getModelFromSettings, resolveProviderApiUrl } from '../embedding/index.js';
 import { deleteCollection, unregisterCollection } from '../collections/index.js';
 import { buildRegistryKey, getRegistryBackend } from '../../shared/collection-ids.js';
-import { extractTextKeywords, extractLorebookKeywords } from '../keyword-search/index.js';
+import { extractTextKeywords } from '../keyword-search/index.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 
 const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
@@ -802,95 +802,6 @@ in claiming the legendary treasure that lay within the dragon's mountain fortres
             name: '[PROD] Keyword Extraction',
             status: 'fail',
             message: `Keyword extraction error: ${error.message}`,
-            category: 'production'
-        };
-    }
-}
-
-/**
- * Test: Lorebook keyword extraction
- * Tests extraction of keywords from lorebook entries
- */
-export async function testLorebookKeywordExtraction() {
-    try {
-        // Mock lorebook entry
-        const lorebookEntry = {
-            key: ['dragon', 'wyvern', 'Drake the Ancient'],
-            keysecondary: ['treasure', 'hoard', 'scales'],
-            content: 'A fearsome dragon that guards ancient treasures...'
-        };
-
-        const keywords = extractLorebookKeywords(lorebookEntry);
-
-        // Validate keywords were extracted
-        if (!Array.isArray(keywords) || keywords.length === 0) {
-            return {
-                name: '[PROD] Lorebook Keywords',
-                status: 'fail',
-                message: 'No keywords extracted from lorebook entry',
-                category: 'production'
-            };
-        }
-
-        // Should extract from both key and keysecondary
-        const hasMainKey = keywords.some(k => k === 'dragon' || k === 'wyvern');
-        const hasSecondaryKey = keywords.some(k => k === 'treasure' || k === 'hoard');
-
-        if (!hasMainKey || !hasSecondaryKey) {
-            return {
-                name: '[PROD] Lorebook Keywords',
-                status: 'fail',
-                message: 'Did not extract keywords from both key and keysecondary arrays',
-                category: 'production'
-            };
-        }
-
-        // Keywords should be normalized to lowercase
-        const allLowercase = keywords.every(k => k === k.toLowerCase());
-        if (!allLowercase) {
-            return {
-                name: '[PROD] Lorebook Keywords',
-                status: 'fail',
-                message: 'Keywords not normalized to lowercase',
-                category: 'production'
-            };
-        }
-
-        // Should deduplicate keywords
-        const uniqueKeywords = [...new Set(keywords)];
-        if (uniqueKeywords.length !== keywords.length) {
-            return {
-                name: '[PROD] Lorebook Keywords',
-                status: 'fail',
-                message: 'Keywords not deduplicated',
-                category: 'production'
-            };
-        }
-
-        // Test with empty entry
-        const emptyEntry = { key: [], keysecondary: [] };
-        const emptyKeywords = extractLorebookKeywords(emptyEntry);
-
-        if (emptyKeywords.length !== 0) {
-            return {
-                name: '[PROD] Lorebook Keywords',
-                status: 'fail',
-                message: 'Empty entry should return no keywords',
-                category: 'production'
-            };
-        }
-
-        return {
-            name: '[PROD] Lorebook Keywords',
-            status: 'pass',
-            message: `Extracted ${keywords.length} keywords: [${keywords.slice(0, 3).join(', ')}...]`,
-            category: 'production'
-        };
-    } catch (error) {
-        return {
-            name: '[PROD] Lorebook Keywords',
-            status: 'fail',
-            message: `Lorebook keyword extraction error: ${error.message}`,
             category: 'production'
         };
     }

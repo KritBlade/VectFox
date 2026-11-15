@@ -1,26 +1,24 @@
 /**
  * @vitest-environment jsdom
  *
- * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): its cards in
- * order, LoreBase's first; every control keeps the id its wiring uses; the Matching card starts hidden for the wiring
- * to show while semantic activation is on, with a slider on each number box's limits and no similarity threshold; the
- * page is drawn from GUI-DNA alone with none of the old debug tools; the LoreBase book list says what each book of the
- * open chat has selected and where it is locked; and the activation status says what activation finds in each state
- * with the tone that state takes.
+ * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): LoreBase's
+ * two cards and nothing of the old vector search; every control keeps the id its wiring uses; the page is drawn from
+ * GUI-DNA alone with none of the old debug tools; and the LoreBase book list says what each book of the open chat has
+ * selected and where it is locked.
  */
 /* global document -- this file runs under the jsdom environment */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-const { loreBaseBooksMarkup, worldInfoPageMarkup, worldInfoStatusMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
+const { loreBaseBooksMarkup, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 
 // The ids settings-panel.js and lorebase-books-card.js wire on the WorldInfo page.
-const WIRED_IDS = [
-    'VectFox_lorebase_books_card', 'VectFox_lorebase_books', 'VectFox_enabled_world_info', 'VectFox_wi_status', 'VectFox_world_info_settings',
-    'VectFox_world_info_top_k', 'VectFox_world_info_query_depth', 'VectFox_world_info_retrieval_popup',
+const WIRED_IDS = ['VectFox_lorebase_books_card', 'VectFox_lorebase_books', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy'];
+// The old vector search's controls, deleted with it.
+const OLD_SEARCH_IDS = [
+    'VectFox_enabled_world_info', 'VectFox_wi_status', 'VectFox_world_info_settings', 'VectFox_world_info_top_k',
+    'VectFox_world_info_query_depth', 'VectFox_world_info_retrieval_popup', 'VectFox_world_info_threshold',
 ];
-
-const limitsOf = id => { const box = document.getElementById(id); return [box.min, box.max, box.step]; };
 
 describe('WorldInfo page markup', () => {
     beforeEach(() => {
@@ -33,8 +31,8 @@ describe('WorldInfo page markup', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it("puts LoreBase's cards first, its books always shown, with the list empty and the door to the selection screen", () => {
-        expect([...document.querySelectorAll('.vfx-card-title')].map(title => title.textContent)).toEqual(['LoreBase books', 'LoreBase model', 'Semantic activation', 'Matching']);
+    it("holds LoreBase's two cards, its books always shown, with the list empty and the door to the selection screen", () => {
+        expect([...document.querySelectorAll('.vfx-card-title')].map(title => title.textContent)).toEqual(['LoreBase books', 'LoreBase model']);
         const books = document.getElementById('VectFox_lorebase_books_card');
         expect(books.style.display).toBe('');
         expect(document.getElementById('VectFox_lorebase_books').innerHTML).toBe('');
@@ -43,27 +41,8 @@ describe('WorldInfo page markup', () => {
         expect([opener.textContent.trim(), opener.dataset.lorebaseChoose, opener.classList.contains('vfx-btn-primary')]).toEqual(['Choose entries', '', true]);
     });
 
-    it('starts the Matching card hidden, holding every matching control, and the status empty', () => {
-        const matching = document.getElementById('VectFox_world_info_settings');
-        expect(matching.classList.contains('vfx-card')).toBe(true);
-        expect(matching.style.display).toBe('none');
-        for (const id of ['VectFox_world_info_top_k', 'VectFox_world_info_query_depth', 'VectFox_world_info_retrieval_popup']) {
-            expect(document.getElementById(id).closest('#VectFox_world_info_settings'), id).not.toBeNull();
-        }
-        expect(document.getElementById('VectFox_enabled_world_info').closest('#VectFox_world_info_settings')).toBeNull();
-        expect(document.getElementById('VectFox_wi_status').innerHTML).toBe('');
-    });
-
-    it("pairs a slider with each number, on its box's limits, and has no similarity threshold", () => {
-        const ranges = [...document.querySelectorAll('.vfx-range[data-vfx-slider-for]')];
-        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_world_info_top_k', 'VectFox_world_info_query_depth']);
-        for (const range of ranges) expect([range.min, range.max, range.step], range.dataset.vfxSliderFor).toEqual(limitsOf(range.dataset.vfxSliderFor));
-        expect(limitsOf('VectFox_world_info_top_k')).toEqual(['1', '20', '1']);
-        expect(limitsOf('VectFox_world_info_query_depth')).toEqual(['1', '10', '1']);
-        expect(document.getElementById('VectFox_world_info_threshold')).toBeNull();
-        for (const id of ['VectFox_enabled_world_info', 'VectFox_world_info_retrieval_popup']) {
-            expect(document.getElementById(id).getAttribute('role'), id).toBe('switch');
-        }
+    it("keeps none of the old vector search's controls", () => {
+        for (const id of OLD_SEARCH_IDS) expect(document.getElementById(id), id).toBeNull();
     });
 
     it('draws only GUI-DNA classes, with none of the old debug tools or unwired boxes', () => {
@@ -113,25 +92,5 @@ describe('loreBaseBooksMarkup', () => {
         expect(rowsOf({ hasChat: true, books: [{ bookName: 'The <b>Old</b> "Keep"', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false }] })[0])
             .toMatchObject({ name: 'The <b>Old</b> "Keep"', opens: 'The <b>Old</b> "Keep"' });
         expect(document.querySelector('.vfx-row b')).toBeNull();
-    });
-});
-
-describe('worldInfoStatusMarkup', () => {
-    const linesOf = (status) => {
-        document.body.innerHTML = worldInfoStatusMarkup(status);
-        return [...document.querySelectorAll('.vfx-result-line')].map(line => ({
-            tone: ['success', 'warning'].find(tone => line.classList.contains(`is-${tone}`)) ?? 'plain',
-            text: line.textContent.trim(),
-        }));
-    };
-
-    it('warns, naming where to go, when no lorebook is vectorized or none is locked to the chat', () => {
-        expect(linesOf({ state: 'no-lorebooks' })).toEqual([{ tone: 'warning', text: 'No lorebook vectorized yet. Vectorize Content on the Action page stores one.' }]);
-        expect(linesOf({ state: 'none-active' })).toEqual([{ tone: 'warning', text: 'No lorebook is locked to this chat. Lock one in Database Browser → Collection Settings.' }]);
-    });
-
-    it('names the active lorebooks as written, without reading them as markup', () => {
-        expect(linesOf({ state: 'active', names: ['Harbor Town', 'The <b>Old</b> Keep'] })).toEqual([{ tone: 'success', text: 'Active for this chat: Harbor Town, The <b>Old</b> Keep' }]);
-        expect(document.querySelector('.vfx-result-line b')).toBeNull();
     });
 });

@@ -17,7 +17,6 @@
  * - Creates separate collections per content type/source
  * - Each chat vectorization gets its own collection
  * - Each character gets its own collection
- * - Each lorebook gets its own collection
  * - Better organization and isolation of data
  * - Recommended for production use
  *
@@ -755,8 +754,8 @@ export class QdrantBackend extends VectorBackend {
      * Score contract: each result's `score` is the COSINE similarity (0-1) from a
      * parallel dense-only lookup, NOT the RRF fused score — RRF is rank-derived
      * (top hit ≈ 1/(rrfK+1) ≈ 0.016) and carries no similarity magnitude, which
-     * silently defeated every downstream threshold (world_info_threshold,
-     * score_threshold) tuned for 0-1 similarities. Result ORDER is still the RRF
+     * would defeat every downstream threshold (score_threshold) tuned for 0-1
+     * similarities. Result ORDER is still the RRF
      * fusion order; the raw fused score is kept as `fusionScore`.
      *
      * Throws on failure — it does NOT degrade to vector-only itself. Fallback for
@@ -815,8 +814,8 @@ export class QdrantBackend extends VectorBackend {
 
         // Cosine gate: RRF fused scores are rank-derived (top hit ≈ 1/(rrfK+1) =
         // 0.0164 at k=60) — they carry NO similarity magnitude, so thresholding
-        // them is meaningless. Every consumer of this method (lorebook WI's
-        // world_info_threshold, the chunk pipeline's score_threshold) gates on a
+        // them is meaningless. Every consumer of this method (the chunk
+        // pipeline's score_threshold) gates on a
         // 0-1 similarity, which is what Vectra returns and what these collections
         // measure natively (created with distance: 'Cosine'). So: a parallel
         // dense-only lookup fetches the real cosine per hash, and the returned

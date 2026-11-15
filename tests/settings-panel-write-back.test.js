@@ -70,9 +70,6 @@ vi.mock('../src/features/settings-panel/index.js', () => ({
 vi.mock('../src/features/database-browser/index.js', () => ({
     initializeDatabaseBrowser: vi.fn(),
 }));
-vi.mock('../src/features/world-info/index.js', () => ({
-    initializeWorldInfoIntegration: vi.fn(),
-}));
 vi.mock('../src/features/lorebase/index.js', () => ({
     initializeLoreBase: vi.fn(),
     prepareLoreForReply: vi.fn(async () => null),

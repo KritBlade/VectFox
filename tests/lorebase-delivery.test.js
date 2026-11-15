@@ -1,0 +1,149 @@
+/**
+ * LoreBase's delivery through SillyTavern's World Info scan (src/features/lorebase/lorebase-delivery.js, plan §5.7 and
+ * §6.8 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the listener runs after the ones
+ * extensions add as they load; a reply's picks go to the next scan in the same chat, and only to it; every scan blanks
+ * the keys of the entries LoreBase decides in the books locked here (D11); VectFox off leaves the scan alone.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const host = vi.hoisted(() => ({
+    listeners: {},
+    readyListeners: [],
+    chatId: 'chat-harbor',
+    context: null,
+    settings: { vectfox: {} },
+}));
+
+vi.mock('../src/sillytavern/chat.js', () => ({
+    getContext: () => host.context,
+    getCurrentChatId: () => host.chatId,
+}));
+vi.mock('../src/sillytavern/events.js', () => ({
+    eventSource: {
+        once: vi.fn((event, listener) => { if (event === 'app_ready') host.readyListeners.push(listener); }),
+        makeLast: vi.fn((event, listener) => { host.listeners[event] = listener; }),
+        emit: vi.fn(async () => {}),
+    },
+    event_types: { APP_READY: 'app_ready', WORLDINFO_ENTRIES_LOADED: 'worldinfo_entries_loaded', WORLDINFO_FORCE_ACTIVATE: 'worldinfo_force_activate' },
+}));
+vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: () => 'keeper-orrin' }));
+vi.mock('../src/sillytavern/world-info.js', () => ({
+    METADATA_KEY: 'world_info', getWorldInfoSettings: () => ({ world_info: { charLore: [] } }), selected_world_info: [], world_names: [],
+}));
+vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/sillytavern/log.js', () => ({
+    log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), domain: vi.fn(), enabled: () => false },
+}));
+
+const { eventSource } = await import('../src/sillytavern/events.js');
+const { holdLoreForNextScan, initializeLoreBaseDelivery } = await import('../src/features/lorebase/lorebase-delivery.js');
+
+initializeLoreBaseDelivery();
+
+const passage = text => ({ section: '(intro)', text, tokens: 5 });
+const lighthousePick = sentParts => ({
+    bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', uses: 'some', frame: null,
+    passages: [passage('The lighthouse stands on the north cliff.'), passage('Its keeper is Orrin.')], sentParts,
+});
+const loadedScan = () => ({
+    globalLore: [
+        { uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], content: 'The lighthouse stands on the north cliff.\nIts keeper is Orrin.' },
+        { uid: 1, world: 'Harbor Atlas', key: ['tidewarden'], content: 'The tidewardens read the harbor bells.' },
+        { uid: 2, world: 'Harbor Atlas', key: ['bell'], content: 'Left to its keys.' },
+    ],
+    characterLore: [{ uid: 7, world: 'Keeper Notes', key: ['lamp'], content: 'The lamp is never left dark.' }],
+    chatLore: [],
+    personaLore: [],
+});
+const scan = async (loaded = loadedScan()) => {
+    await host.listeners.worldinfo_entries_loaded(loaded);
+    return loaded;
+};
+const forcedActivations = () => eventSource.emit.mock.calls.filter(([event]) => event === 'worldinfo_force_activate').map(([, forced]) => forced);
+const keysOf = loaded => [...loaded.globalLore, ...loaded.characterLore].map(entry => entry.key);
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    host.chatId = 'chat-harbor';
+    host.context = { characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png' } }, characterId: '3' };
+    host.settings.vectfox = {
+        enabled: true,
+        lorebase_books: {
+            'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] },
+            'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },
+        },
+    };
+    holdLoreForNextScan(null);
+});
+
+describe('the scan listener', () => {
+    it('is made the last to run once the app is ready, after the listeners extensions added as they loaded', () => {
+        expect(host.readyListeners).toHaveLength(1);
+        host.readyListeners[0]();
+        expect(eventSource.makeLast).toHaveBeenCalledWith('worldinfo_entries_loaded', expect.any(Function));
+    });
+});
+
+describe('a reply and the scan that follows (§5.7)', () => {
+    it('blanks the keys of every entry LoreBase decides in the books locked here, and forces the pick with the parts kept', async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        const loaded = await scan();
+
+        expect(keysOf(loaded)).toEqual([[], [], ['bell'], []]);
+        expect(forcedActivations()).toEqual([[{ uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], content: 'The lighthouse stands on the north cliff.' }]]);
+    });
+
+    it('gives the picks to that scan alone: the next one blanks the same keys and forces nothing', async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1, 2])] });
+        await scan();
+        const next = await scan();
+
+        expect(forcedActivations()).toHaveLength(1);
+        expect(keysOf(next)).toEqual([[], [], ['bell'], []]);
+    });
+
+    it('holds nothing for a generation with no pick, so its scan sends no selected entry', async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        holdLoreForNextScan(null);
+        const loaded = await scan();
+
+        expect(forcedActivations()).toEqual([]);
+        expect(keysOf(loaded)).toEqual([[], [], ['bell'], []]);
+    });
+
+    it('forces nothing for a pick whose review kept no part', async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([])] });
+        await scan();
+        expect(forcedActivations()).toEqual([]);
+    });
+
+    it("drops the picks when the chat changed before the scan, as that scan loads another chat's books", async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        host.chatId = 'chat-other';
+        const loaded = await scan();
+
+        expect(forcedActivations()).toEqual([]);
+        // Not locked to this chat, Harbor Atlas is SillyTavern's here; Keeper Notes is locked to the character.
+        expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], []]);
+    });
+});
+
+describe('where LoreBase leaves the scan alone', () => {
+    it('leaves every key and forces nothing while VectFox is off, and drops the picks held', async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        host.settings.vectfox.enabled = false;
+        const loaded = await scan();
+        expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], ['lamp']]);
+
+        host.settings.vectfox.enabled = true;
+        await scan();
+        expect(forcedActivations()).toEqual([]);
+    });
+
+    it('leaves the books locked nowhere here to their keys', async () => {
+        host.settings.vectfox.lorebase_books['Keeper Notes'].lockedToCharacterAvatars = ['someone-else.png'];
+        host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = [];
+        const loaded = await scan();
+        expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], ['lamp']]);
+    });
+});

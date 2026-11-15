@@ -384,11 +384,11 @@ New collections auto-activate for the current chat. In a collection's settings, 
 
 ### 📡 Smarter status indicators
 
-Auto-Sync card shows whether the current chat is vectorized and how many events exist. World Info card shows vectorized lorebooks by name. Both link to the right vectorizer if something's missing.
+Auto-Sync card shows whether the current chat is vectorized and how many events exist, and links to the vectorizer if it's not. The WorldInfo page lists the lorebooks your chat loads, how many entries you picked for LoreBase in each, and where each book is locked.
 
 ### 🗂️ Tabbed interface
 
-Settings split into **Core** (backend, embedding, hybrid), **EventBase** (chat hsitory/archive chat file .jsonl), **ChunkBase** (lorebook/docs/URLs/wiki), **Action** (diagnostics, dev tools).
+Settings split into **Core** (backend, embedding, hybrid), **EventBase** (chat hsitory/archive chat file .jsonl), **ChunkBase** (docs/URLs/wiki), **Action** (diagnostics, dev tools).
 
 ### ⚡ Windows at once — Vectorization Speedup
 
@@ -549,7 +549,7 @@ You need 2 profiles: one for embedding, and one for the model that writes events
 7. Most other settings work fine on default. Feel free to tweak.
 8. **Vectorize your chat once.** Open your chat, go to the **Action** page, press **Vectorize content**, pick **Chat**, then press **Vectorize**. You **HAVE** to do this to build your first DB.
 9. **Keep it in sync.** Turn on **Auto-sync this chat** on the **AutoSync** page if you want it automatic. **Turns** sets how many turns go into each run. Or press **Sync chat** on the **Action** page to catch up by hand.
-10. (Optional) Vectorize your lorebook in **Vectorize content** > **Lorebook**, and set it up on the **WorldInfo** page.
+10. (Optional) Let LoreBase pick your lorebook entries. On the **WorldInfo** page, set up the **LoreBase model**, press **Choose entries**, turn on the entries you want LoreBase to decide, and lock the book to your chat or character.
 11. (Optional) Turn on **Agent Mode** on the **AgentMode** page once everything else works. Leave **Provider** on **Same as EventBase model**, and the planner runs on the EventBase model's profile. So the same cheap, fast model from step 5 also drives the planner. See "How It Works" > "Agent Mode" above for what it does.
 
 **Manual OpenRouter and vLLM are going away.** They are still in the Provider dropdowns and work like before, with their own key boxes. But a VectFox release 3 months after the one that brought SillyTavern profiles removes them. If you still use one, VectFox tells you once, and lists every dropdown to move.
@@ -588,9 +588,11 @@ Internally VectFox routes content through one of two retrieval paths, picked by 
 | Pipeline             | What it handles                                                                              |
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | **EventBase**        | Your chat history (live chat + uploaded`.jsonl` archives)                                    |
-| **Standard (Chunk)** | Everything else: Lorebook, Character Cards, URLs, documents, wiki pages, YouTube transcripts |
+| **Standard (Chunk)** | Everything else: Character Cards, URLs, documents, wiki pages, YouTube transcripts           |
 
 They never see each other's content — so the same chat message can't get retrieved twice (once as an event and once as a raw chunk). You don't normally need to think about this; it just means EventBase owns chat, and the standard chunk pipeline owns everything else.
+
+Lorebooks are in neither one. LoreBase picks the entries a reply needs, and SillyTavern's own World Info sends them.
 
 **Can I change the CJK tokenizer mid-chat?**
 No — don't do it. The CJK tokenizer is **locked into each Qdrant collection at upsert time** via a sentinel point. Switching modes after you've already vectorized content will trigger a "Tokenizer mismatch" warning modal on the next query, and your only real options are:
@@ -665,7 +667,7 @@ A couple of gotchas:
 
 **Events/chunks not retrieved** — Open the chat first, not SillyTavern's lobby. Open the Database Browser and find the chat's collection. Its row should say "Locked to this chat". If it doesn't, open the collection's settings and switch on "Active for this chat".
 
-**"What would the AI actually recall for this message?"** — Press **Test a query** on the Action page. Type any message and run it: Diagnostics shows what EventBase, ChunkBase and Lorebook WI would inject for it, and why one finds nothing, without sending anything to the chat. Useful for tuning thresholds and checking that important events are in.
+**"What would the AI actually recall for this message?"** — Press **Test a query** on the Action page. Type any message and run it: Diagnostics shows what EventBase and ChunkBase would inject for it, and why one finds nothing, without sending anything to the chat. Useful for tuning thresholds and checking that important events are in.
 
 **"Backend health check failed"** — On Qdrant, make sure the Qdrant server is running and the Similharity plugin is installed.
 

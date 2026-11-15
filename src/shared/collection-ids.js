@@ -99,7 +99,7 @@ export function normalizeBackendForId(backend) {
  */
 export function getBackendFromCollectionId(collectionId) {
     if (!collectionId || typeof collectionId !== 'string') return null;
-    // Strip the registry-key prefix if present (e.g. `qdrant:vf_lorebook_...`).
+    // Strip the registry-key prefix if present (e.g. `qdrant:vf_document_...`).
     const colonIdx = collectionId.indexOf(':');
     const bare = colonIdx > 0 ? collectionId.slice(colonIdx + 1) : collectionId;
     const match = bare.match(/^vf_[^_]+_([^_]+)_/);
@@ -321,9 +321,8 @@ export function sanitizeIdSegment(name, { maxLen = 30, trim = false, fallback = 
 /**
  * Sanitize a name segment for use in collection IDs (lowercase, alphanumeric +
  * underscores, length-capped). No edge-trim and no fallback word — matches the
- * positional name segment used by the lorebook/character/document builders and
- * the registry-scan matchers in collection-loader / content-vectorization /
- * world-info-integration.
+ * positional name segment used by the character/document builders and the
+ * registry-scan matchers in collection-loader / content-vectorization.
  *
  * @param {string} name
  * @param {number} maxLength
@@ -354,28 +353,6 @@ export function sanitizeHandleId(name) {
  */
 function _currentHandleId() {
     return sanitizeHandleId(getContext()?.name1);
-}
-
-/**
- * Builds a lorebook collection ID following the unified protocol:
- *   vf_lorebook_<backend>_<handle>_<name>_<timestamp>
- * Backend is optional but recommended; without it the format drops the backend segment:
- *   vf_lorebook_<handle>_<name>_<timestamp>
- *
- * @param {string} lorebookName Lorebook name
- * @param {string} [backend]    Vector backend (e.g. 'qdrant', 'standard')
- * @param {number} [timestamp]  Optional timestamp, defaults to Date.now()
- * @returns {string} Collection ID
- */
-export function buildLorebookCollectionId(lorebookName, backend, timestamp) {
-    const sanitizedName = sanitizeNameSegment(lorebookName, 50);
-    const handle = _currentHandleId();
-    const normalizedBackend = normalizeBackendForId(backend);
-    const ts = timestamp || Date.now();
-    if (normalizedBackend) {
-        return `${COLLECTION_PREFIXES.VECTFOX_LOREBOOK}${normalizedBackend}_${handle}_${sanitizedName}_${ts}`;
-    }
-    return `${COLLECTION_PREFIXES.VECTFOX_LOREBOOK}${handle}_${sanitizedName}_${ts}`;
 }
 
 /**

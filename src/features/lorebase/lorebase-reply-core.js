@@ -60,17 +60,27 @@ export function activeBookNames({ globalBooks, characterBooks, chatBook, persona
 }
 
 /**
- * The entries LoreBase decides in a book, in the book's own order: those the user selected, except where SillyTavern
- * keeps the entry its own (§5.2): a disabled entry, which it never sends; a constant one, which it always sends; and
- * one with sticky or cooldown, whose timers it finds again by a hash a forced entry lacks.
+ * Whether LoreBase decides an entry (§5.2): the user selected it, and SillyTavern does not keep it its own, as it keeps
+ * a disabled entry, which it never sends; a constant one, which it always sends; and one with sticky or cooldown, whose
+ * timers it finds again by a hash a forced entry lacks.
+ * @param {{uid: number|string, disable?: boolean, constant?: boolean, sticky?: number, cooldown?: number}} entry
+ * @param {Set<string>} selectedUids - The book's selected uids, as its record holds them
+ * @returns {boolean}
+ */
+export function isDecidedEntry(entry, selectedUids) {
+    return selectedUids.has(String(entry.uid))
+        && !entry.disable && !entry.constant && !(Number(entry.sticky) > 0) && !(Number(entry.cooldown) > 0);
+}
+
+/**
+ * The entries LoreBase decides in a book (isDecidedEntry), in the book's own order.
  * @param {{entries?: object}|null} book - The book as loadWorldInfo returns it
  * @param {{selectedUids: string[]}|null} record - The book's record, from getLoreBook
  * @returns {object[]}
  */
 export function decidedEntries(book, record) {
     const selected = new Set(record?.selectedUids ?? []);
-    return Object.values(book?.entries ?? {}).filter(entry => selected.has(String(entry.uid))
-        && !entry.disable && !entry.constant && !(Number(entry.sticky) > 0) && !(Number(entry.cooldown) > 0));
+    return Object.values(book?.entries ?? {}).filter(entry => isDecidedEntry(entry, selected));
 }
 
 /**

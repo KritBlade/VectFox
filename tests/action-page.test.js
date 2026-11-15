@@ -29,7 +29,6 @@ const host = vi.hoisted(() => ({
     buildSummarizerInjection: vi.fn(),
     refreshWorldInfoEntryDepthCache: vi.fn(),
     openTextCleaningDialog: vi.fn(),
-    clearLorebookPrompt: vi.fn(),
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({
@@ -45,7 +44,6 @@ vi.mock('../src/features/database-browser/index.js', () => ({ openDatabaseBrowse
 vi.mock('../src/features/diagnostics/index.js', () => ({ openDiagnostics: host.openDiagnostics, refreshHealthPill: host.refreshHealthPill }));
 vi.mock('../src/features/eventbase/index.js', () => ({ buildSummarizerInjection: host.buildSummarizerInjection, refreshWorldInfoEntryDepthCache: host.refreshWorldInfoEntryDepthCache }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({ openTextCleaningDialog: host.openTextCleaningDialog }));
-vi.mock('../src/features/world-info/index.js', () => ({ clearLorebookPrompt: host.clearLorebookPrompt }));
 
 const { ACTION_PAGE_ELEMENT_ID: ID, DEBUG_SWITCHES, actionPageMarkup, masterSwitchPillsMarkup } = await import('../src/features/settings-panel/action-page-markup.js');
 const { panelPageMarkup } = await import('../src/features/settings-panel/panel-shell-markup.js');
@@ -102,7 +100,6 @@ describe('Action page', () => {
         expect(host.extensionSettings.vectfox.enabled).toBe(false);
         expect(host.saveSettingsDebounced).toHaveBeenCalled();
         expect(host.clearInterceptorPrompts).toHaveBeenCalledWith(settings);
-        expect(host.clearLorebookPrompt).toHaveBeenCalledWith(settings);
         expect(actions.refreshAutoSyncCheckbox).toHaveBeenCalledWith(settings);
         expect(actions.runNetworkStartup).not.toHaveBeenCalled();
         expect(isShown(`#${ID.masterOffPill}`)).toBe(true);

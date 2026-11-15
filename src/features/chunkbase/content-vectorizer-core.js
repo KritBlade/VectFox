@@ -5,7 +5,7 @@
  * What content-vectorizer.js wires and content-vectorizer-markup.js draws, kept
  * free of the page: how the content types group in the rail, which chunking
  * controls a type and strategy show, and how an uploaded or fetched source
- * becomes data: chat files, lorebook and character files, PNG character cards,
+ * becomes data: chat files, character files, PNG character cards,
  * YouTube IDs, wiki names and the text of a web page.
  * ============================================================================
  */
@@ -14,7 +14,7 @@ import { getChunkingStrategy } from './content-types.js';
 
 /** The rail's groups, each with its content types in order. */
 export const CONTENT_TYPE_GROUPS = Object.freeze([
-    { title: 'From SillyTavern', typeIds: ['chat', 'lorebook', 'character'] },
+    { title: 'From SillyTavern', typeIds: ['chat', 'character'] },
     { title: 'From outside', typeIds: ['document', 'url', 'wiki', 'youtube'] },
 ]);
 
@@ -175,19 +175,7 @@ export function extractCharNameFromArchiveFilename(filename) {
     return (match ? match[1] : stem).trim();
 }
 
-// ── Lorebook and character files ────────────────────────────────────────────────────────────────────────
-
-/**
- * The entries of a lorebook file that hold text. Throws on a file with no entries.
- *
- * @param {string} text
- * @returns {object[]}
- */
-export function parseLorebookFile(text) {
-    const data = JSON.parse(text);
-    if (!data?.entries) throw new Error('This is not a lorebook: it has no entries.');
-    return Object.values(data.entries).filter(entry => entry?.content);
-}
+// ── Character files ─────────────────────────────────────────────────────────────────────────────────────
 
 /** A character from a JSON card, V2 cards unwrapped. Throws on a file that holds no character. */
 export function parseCharacterJson(text) {
@@ -239,15 +227,6 @@ export function extractCharaFromPng(bytes) {
         throw new Error(`The character in this PNG does not parse: ${error.message}`, { cause: error });
     }
     return card?.data && card.spec ? card.data : card;
-}
-
-/** Entries, enabled entries and characters of text in a lorebook. */
-export function lorebookStats(entries) {
-    return {
-        entryCount: entries.length,
-        enabledCount: entries.filter(entry => !entry.disable).length,
-        textLength: entries.reduce((sum, entry) => sum + (entry.content?.length || 0), 0),
-    };
 }
 
 /** Of a character's five main fields, how many hold text, and its characters of text. */

@@ -4,7 +4,7 @@
  * ============================================================================
  * Single source of truth for the global on/off toggle. VectFox does its
  * automatic work only when this returns true: prompt injection (chunks,
- * EventBase, Summarizer, Lorebook WI), ghosting, EventBase auto-sync, the
+ * EventBase, Summarizer), LoreBase's picks, ghosting, EventBase auto-sync, the
  * backend/network startup, and background refreshes that call the backend or
  * load lorebooks. Switching OFF empties every VectFox prompt block at once;
  * switching ON re-runs the startup and refresh work that was skipped.

@@ -195,11 +195,10 @@ export function healthMarkup(view) {
 
 // ── Query Tester ────────────────────────────────────────────────────────────────────────────────────
 
-/** The three retrievals the Query Tester runs, in the order it shows them. */
+/** The retrievals the Query Tester runs, in the order it shows them. */
 export const QUERY_RETRIEVALS = Object.freeze([
     { kind: 'eventbase', title: 'EventBase', icon: 'fa-timeline' },
     { kind: 'chunkbase', title: 'ChunkBase', icon: 'fa-cubes' },
-    { kind: 'lorebook', title: 'Lorebook WI', icon: 'fa-book-open' },
 ]);
 
 const queryOutputId = kind => `vectfox_diag_query_output_${kind}`;

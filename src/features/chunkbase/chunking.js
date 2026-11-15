@@ -17,7 +17,6 @@
  * - sentence: Group sentences to target size
  *
  * CONTENT STRATEGIES:
- * - per_entry: Each lorebook entry = one chunk
  * - per_field: Each character field = one chunk
  * - combined: Merge then chunk with adaptive
  *
@@ -275,27 +274,8 @@ const STRATEGIES = {
     },
 
     // =========================================================================
-    // CONTENT STRATEGIES (lorebook, character, etc.)
+    // CONTENT STRATEGIES (character, etc.)
     // =========================================================================
-
-    /**
-     * Per Entry - each lorebook entry becomes one chunk
-     */
-    per_entry: (entries) => {
-        if (!Array.isArray(entries)) {
-            return [typeof entries === 'string' ? entries : String(entries)];
-        }
-        return entries.map(e => {
-            const text = typeof e === 'string' ? e : (e.text || e.content || String(e));
-            return {
-                text,
-                metadata: {
-                    entryName: e.comment || e.name || e.key?.[0] || undefined,
-                    keys: e.key || e.keys || undefined,
-                },
-            };
-        });
-    },
 
     /**
      * Per Field - each character field becomes one chunk

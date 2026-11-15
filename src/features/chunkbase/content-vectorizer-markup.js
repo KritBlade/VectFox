@@ -29,7 +29,7 @@ import {
     statusPill,
     textarea,
 } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader, navBrand, navItem, pageHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { cardHeader, navBrand, navItem, pageHeader, sliderNumber } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtml as escape } from '../../shared/html-escape.js';
 import { CHARACTER_FIELDS, getChunkingStrategies, getContentType, getContentTypeDefaults, hasFeature } from './content-types.js';
 import { CONTENT_TYPE_GROUPS, isReformatType, usesEventBaseWindows } from './content-vectorizer-core.js';
@@ -51,7 +51,7 @@ const HIDDEN = ' hidden';
 const PAGE_HIDDEN = ' style="display:none;"';
 
 /** The rail's short name for each type; the page's header gives the full one. */
-const RAIL_TITLES = { chat: 'Chat', lorebook: 'Lorebook', character: 'Character', document: 'Document', url: 'Web page', wiki: 'Wiki', youtube: 'YouTube' };
+const RAIL_TITLES = { chat: 'Chat', character: 'Character', document: 'Document', url: 'Web page', wiki: 'Wiki', youtube: 'YouTube' };
 
 /** A type's icon in the rail and its header: Font Awesome solid, so YouTube's brand icon gives way to captions. */
 const typeIcon = type => (type.iconBrand ? 'fa-closed-captioning' : type.icon);
@@ -173,7 +173,6 @@ export function currentChatMarkup(chat) {
 
 function selectSource(type) {
     const typeId = type.id;
-    const label = typeId === 'lorebook' ? 'Lorebook' : 'Character';
     return stack([
         choiceField(typeId, [
             { value: 'existing', text: 'From SillyTavern', isSelected: true },
@@ -181,7 +180,7 @@ function selectSource(type) {
         ]),
         shownPart('existing', stack([
             field([
-                fieldLabel({ text: label, forId: cvId(typeId, 'source_select') }),
+                fieldLabel({ text: 'Character', forId: cvId(typeId, 'source_select') }),
                 select({ id: cvId(typeId, 'source_select'), options: [selectOption({ value: '', text: 'Loading…' })] }),
             ]),
             paintedRegion('stats'),
@@ -191,7 +190,7 @@ function selectSource(type) {
 }
 
 /**
- * The lorebooks or characters SillyTavern has, for the source select: the open character first.
+ * The characters SillyTavern has, for the source select: the open character first.
  *
  * @param {{value: string, name: string, isCurrent?: boolean}[]} sources
  * @param {string} emptyText - The option shown when there are none
@@ -381,7 +380,7 @@ function chunkingCard(type) {
 // ── Options ─────────────────────────────────────────────────────────────────────────────────────────────
 
 const KEYWORD_LEVELS = [
-    { value: 'off', text: 'Off: trigger keys only' },
+    { value: 'off', text: 'Off: no keywords' },
     { value: 'minimal', text: 'Minimal: the opening, 5 at most' },
     { value: 'balanced', text: 'Balanced: the header, 12 at most' },
     { value: 'aggressive', text: 'Aggressive: the whole text, 15 at most' },
@@ -416,11 +415,8 @@ function optionsCard(type, view) {
         parts.push(field([
             fieldLabel({ text: 'Keywords', forId: cvId(typeId, 'keyword_level') }),
             select({ id: cvId(typeId, 'keyword_level'), options: KEYWORD_LEVELS.map(level => selectOption({ ...level, isSelected: level.value === 'balanced' })) }),
-            hint({ text: typeId === 'lorebook' ? 'Trigger keys always count; the level adds words from the text.' : 'The level picks words from the text, the most frequent first.' }),
+            hint({ text: 'The level picks words from the text, the most frequent first.' }),
         ]));
-    }
-    if (hasFeature(typeId, 'respectDisabled')) {
-        parts.push(switchRow({ id: cvId(typeId, 'include_disabled'), title: 'Include disabled entries', description: 'Off skips the entries switched off in World Info.' }));
     }
     const header = cardHeader({ icon: 'fa-sliders', title: 'Options', description: 'What the chunks carry and where they are used.' });
     return card(cvId(typeId, 'options_card'), header, stack(parts));

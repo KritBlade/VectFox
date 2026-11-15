@@ -378,10 +378,10 @@ VectFox 可對任何語言進行分詞與索引——BM25/關鍵字處理完全�
 新集合會自動為目前聊天啟用。集合設定中的「Active for this chat」開關會控制聊天鎖定。設定中也會顯示有幾個鎖定，以及是否有鎖定符合這個聊天。
 
 ### 📡 更聰明的狀態指示器
-Auto-Sync 卡片會顯示目前聊天是否已向量化，以及有多少事件。World Info 卡片會以名稱顯示已向量化的世界書。如果有缺漏，兩者都會連結到正確的向量化器。
+Auto-Sync 卡片會顯示目前聊天是否已向量化，以及有多少事件。聊天尚未向量化時，會連結到向量化器。WorldInfo 頁面會列出這個聊天載入的世界書、每本書中為 LoreBase 選取的條目數，以及每本書鎖定在哪裡。
 
 ### 🗂️ 分頁介面
-設定分為 **Core**（後端、嵌入、混合）、**EventBase**（聊天歷史/封存 .jsonl 聊天檔）、**ChunkBase**（世界書/文件/URL/wiki）、**Action**（診斷、開發工具）。
+設定分為 **Core**（後端、嵌入、混合）、**EventBase**（聊天歷史/封存 .jsonl 聊天檔）、**ChunkBase**（文件/URL/wiki）、**Action**（診斷、開發工具）。
 
 ### ⚡ 平行視窗 — 加速向量化
 向量化一段長聊天時，通常會一次處理一個視窗：把視窗 1 送給 LLM → 等待 → 嵌入 → 送視窗 2 → 等待 → 嵌入 → …對於 2000 則訊息的聊天來說，這會產生大量串列等待時間。
@@ -530,7 +530,7 @@ VectFox 使用 SillyTavern 的連線設定檔（connection profile）運作。�
 7. 其他大多數設定維持預設值即可，也可以依需求調整。
 8. **先把聊天向量化一次。** 打開你的聊天，進入 **Action** 頁面，按 **Vectorize content**，選 **Chat**，再按 **Vectorize**。你**必須**做這一步，才會建立你的第一個 DB。
 9. **保持同步。** 想要自動的話，在 **AutoSync** 頁面開啟 **Auto-sync this chat**。**Turns** 決定每次執行包含幾個回合。或者在 **Action** 頁面按 **Sync chat** 手動補上。
-10. （選用）在 **Vectorize content** > **Lorebook** 向量化你的世界書，然後在 **WorldInfo** 頁面設定。
+10. （選用）讓 LoreBase 為你挑選世界書條目。在 **WorldInfo** 頁面設定 **LoreBase model**，按 **Choose entries**，開啟你想交給 LoreBase 決定的條目，再把這本書鎖定到你的聊天或角色。
 11. （選用）其他都正常後，到 **AgentMode** 頁面開啟 **Agent Mode**。把 **Provider** 留在 **Same as EventBase model**，規劃師就會用 EventBase model 的設定檔。所以步驟 5 那個便宜又快速的模型，也會用來驅動規劃師。完整說明請見上方「它是怎麼運作的」>「Agent Mode」。
 
 **手動的 OpenRouter 和 vLLM 即將移除。** 它們目前還在 Provider 下拉選單裡，用法跟以前一樣，也有自己的金鑰欄位。但在加入 SillyTavern 設定檔的版本之後 3 個月，會有一個 VectFox 版本把它們移除。如果你還在用，VectFox 會提醒你一次，並列出每個需要改的下拉選單。
@@ -570,9 +570,11 @@ VectFox 的 manifest 中設定了 `auto_update: true`。如果你是透過 `git 
 | 管線 | 處理什麼 |
 |---|---|
 | **EventBase** | 你的聊天歷史（即時聊天 + 上傳的 `.jsonl` 封存） |
-| **Standard（Chunk）** | 其他所有內容：世界書、角色卡、URL、文件、wiki 頁面、YouTube 字幕 |
+| **Standard（Chunk）** | 其他所有內容：角色卡、URL、文件、wiki 頁面、YouTube 字幕 |
 
 它們永遠看不到彼此的內容——所以同一則聊天訊息不會被檢索兩次（一次作為事件，一次作為原始片段）。你通常不需要特別思考這件事；這代表 EventBase 負責聊天，而標準片段管線負責其他所有內容。
+
+世界書不屬於任何一條。LoreBase 會挑出回覆需要的條目，再由 SillyTavern 自己的 World Info 送出。
 
 **我可以在聊天中途更改 CJK 分詞器模式嗎？**
 不行——不要這樣做。CJK 分詞器模式會在 upsert 時透過哨兵點**鎖定於每個 Qdrant 集合**。如果你已經向量化內容後才切換模式，下一次查詢時就會觸發「分詞器不匹配」警告對話框。你真正能選的只有：

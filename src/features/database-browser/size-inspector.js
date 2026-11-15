@@ -60,7 +60,7 @@ async function runScan() {
     lastScan.itemsByKey.clear();
 
     try {
-        // One path lists collections for the Database Browser, the WorldInfo page and auto-sync:
+        // One path lists collections for the Database Browser and auto-sync:
         // loadAllCollections handles plugin discovery, (backend, collectionId) collisions, scope
         // migration and each entry's source and model, so each entry carries
         // { id, registryKey, backend, source, model, chunkCount }. See Doc/collection_helper.md.

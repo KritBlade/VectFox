@@ -8,12 +8,12 @@ import { log } from '../../sillytavern/log.js';
  * ============================================================================
  * VectFox KEYWORD EXTRACTION
  * ============================================================================
- * The keywords a chunk is stored with, and the ones the chat retrieval picks from the chat: a lorebook entry's trigger
- * keys, and words picked from a text at its extraction level. On Qdrant a chunk's keywords join its sparse (BM25)
+ * The keywords a chunk is stored with, and the ones the chat retrieval picks from the chat: words picked from a text
+ * at its extraction level. On Qdrant a chunk's keywords join its sparse (BM25)
  * vector; the chat retrieval sets a chunk whose keywords hold one it picked to a full score.
  *
  * EXTRACTION LEVELS (EXTRACTION_LEVELS):
- *   - off: no extraction, only a lorebook entry's trigger keys
+ *   - off: no extraction
  *   - minimal: the first 1500 characters, at most 5 keywords
  *   - balanced: the first 5000 characters, at most 12 keywords
  *   - aggressive: the whole text, at most 15 keywords
@@ -24,7 +24,7 @@ import { log } from '../../sillytavern/log.js';
 export const EXTRACTION_LEVELS = {
     off: {
         label: 'Off',
-        description: 'No auto-extraction, only WI trigger keys',
+        description: 'No auto-extraction',
         enabled: false,
     },
     minimal: {
@@ -195,49 +195,6 @@ function getCombinedStopwords(settings = null) {
     for (const c of SIMPLIFIED_CHINESE_SINGLE_CHAR_ALLOWLIST) combined.delete(c);
 
     return combined;
-}
-
-/**
- * Extract keywords from a lorebook entry
- * @param {object} entry - Lorebook entry with key array
- * @param {object} settings - VectFox settings (optional)
- * @returns {string[]} Array of keywords
- */
-export function extractLorebookKeywords(entry, settings = null) {
-    if (!entry) return [];
-
-    const stopwords = getCombinedStopwords(settings);
-    const keywords = [];
-
-    // Primary keys (trigger words)
-    if (Array.isArray(entry.key)) {
-        entry.key.forEach(k => {
-            if (k && typeof k === 'string' && k.trim()) {
-                const normalized = k.trim().toLowerCase();
-                // Filter out stop words - they're too common to be useful as keywords
-                // Don't stem: keys are often names/titles that should match exactly
-                if (!stopwords.has(normalized) && normalized.length >= 2) {
-                    keywords.push(normalized);
-                }
-            }
-        });
-    }
-
-    // Secondary keys
-    if (Array.isArray(entry.keysecondary)) {
-        entry.keysecondary.forEach(k => {
-            if (k && typeof k === 'string' && k.trim()) {
-                const normalized = k.trim().toLowerCase();
-                // Filter out stop words
-                // Don't stem: keys are often names/titles that should match exactly
-                if (!stopwords.has(normalized) && normalized.length >= 2) {
-                    keywords.push(normalized);
-                }
-            }
-        });
-    }
-
-    return [...new Set(keywords)]; // Dedupe
 }
 
 /**

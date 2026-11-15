@@ -212,7 +212,7 @@ export function getCollectionMeta(collectionId) {
     // (single string comparison); only parses the ID when stored is null/
     // undefined/'unknown'. This is the single place that fixes every
     // downstream consumer of meta.scope (the Collection Settings lock switch,
-    // refreshWIStatus, the Database Browser's rows) without each of them
+    // the Database Browser's rows) without each of them
     // needing their own defensive read.
     merged.scope = getEffectiveScope(collectionId, merged);
 

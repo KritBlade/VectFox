@@ -6,7 +6,7 @@
  * features while sharing the same pipeline infrastructure.
  *
  * CHUNKING STRATEGY DESIGN:
- * - "unit" strategies (per_message, conversation_turns, message_batch, per_entry, per_field) = no size controls
+ * - "unit" strategies (per_message, conversation_turns, message_batch, per_field) = no size controls
  * - "text" strategies (adaptive, paragraph, section, sentence) = show size controls where applicable
  *
  * @author Kritblade
@@ -53,15 +53,6 @@ export const CHUNKING_STRATEGIES = {
     // =========================================================================
     // CONTENT STRATEGIES (unit-based, no size controls)
     // =========================================================================
-    per_entry: {
-        id: 'per_entry',
-        name: 'Per Entry',
-        description: 'Each lorebook entry becomes one chunk. Preserves WI structure.',
-        needsSize: false,
-        needsOverlap: false,
-        needsBatchSize: false,
-        bestFor: ['lorebook'],
-    },
     per_field: {
         id: 'per_field',
         name: 'Per Field',
@@ -101,7 +92,7 @@ export const CHUNKING_STRATEGIES = {
         needsSize: false,
         needsOverlap: false,
         needsBatchSize: false,
-        bestFor: ['document', 'url', 'lorebook'],
+        bestFor: ['document', 'url'],
     },
     section: {
         id: 'section',
@@ -176,36 +167,6 @@ export const CONTENT_TYPES = {
         sourceOptions: {
             allowUpload: true,
             uploadFormats: ['.txt', '.jsonl', '.json'],
-        },
-    },
-
-    lorebook: {
-        id: 'lorebook',
-        name: 'Lorebook / World Info',
-        icon: 'fa-book-atlas',
-        description: 'Vectorize world info entries for semantic activation',
-
-        features: {
-            keywordExtraction: true,
-            keyInheritance: true,
-            scopeControl: true,
-            respectDisabled: true,
-        },
-
-        chunkingStrategies: ['per_entry', 'paragraph', 'adaptive'],
-        defaultStrategy: 'per_entry',
-
-        defaults: {
-            chunkSize: 600,
-            autoKeywords: true,
-            scope: 'character',
-        },
-
-        sourceType: 'select',
-        sourceOptions: {
-            allowUpload: true,
-            uploadFormats: ['.json', '.lorebook'],
-            selectLabel: 'Select Lorebook',
         },
     },
 

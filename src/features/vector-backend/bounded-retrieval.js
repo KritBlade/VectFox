@@ -52,7 +52,7 @@ function raceWithTimeout(promise, ms, message = 'Operation timed out') {
  * @template T
  * @param {Promise<T>} promise - the retrieval already in flight
  * @param {object} options
- * @param {string} options.contextLabel - user-facing subsystem: 'EventBase' | 'Lorebook' | 'Chat memory' | 'Summarizer'
+ * @param {string} options.contextLabel - user-facing subsystem: 'EventBase' | 'Chat memory' | 'Summarizer'
  * @param {string} options.sourceName - what was being searched, in the user's words
  * @param {string} options.timeoutMessage - message for the timeout Error
  * @param {T} [options.fallback] - value returned when the retrieval fails (default undefined)

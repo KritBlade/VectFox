@@ -23,7 +23,6 @@ vi.mock('../src/features/embedding/index.js', () => ({ getModelFromSettings: vi.
 vi.mock('../src/features/keyword-search/index.js', () => ({
     applyKeywordBoost: vi.fn(),
     extractTextKeywords: vi.fn(),
-    extractLorebookKeywords: vi.fn(),
 }));
 vi.mock('../src/features/collections/index.js', () => ({
     unregisterCollection: vi.fn(),

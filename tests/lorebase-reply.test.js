@@ -2,8 +2,9 @@
  * LoreBase on each reply (src/features/lorebase/lorebase-reply.js, plan §5.5, §5.6, §5.8 of InternalProject/Vectfox/
  * plans/lorebook-semantic-overhaul-passage-index.md): the generation interceptor's ask for a reply's lore runs the pick
  * only on replies (D8), a quiet-to-loud generation included; reads the books SillyTavern loads that are locked to the
- * chat or character (D11); sends each call on LoreBase's connection as the trials sent them; and goes on without the
- * lore a failed call could not get, with the toast for it (D14).
+ * chat or character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore
+ * a failed call could not get, with the toast for it (D14); and holds a reply's picks for the World Info scan that
+ * follows, where a generation with no pick sends no selected entry (§5.7).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,8 +25,16 @@ vi.mock('../src/sillytavern/chat.js', () => ({
     substituteParams: text => text,
 }));
 vi.mock('../src/sillytavern/events.js', () => ({
-    eventSource: { on: (event, handler) => { host.handlers[event] = handler; } },
-    event_types: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHARACTER_RENAMED: 'character_renamed', CHAT_RENAMED: 'chat_renamed' },
+    eventSource: {
+        on: (event, handler) => { host.handlers[event] = handler; },
+        once: (event, handler) => { host.handlers[event] = handler; },
+        makeLast: (event, handler) => { host.handlers[event] = handler; },
+        emit: vi.fn(async () => {}),
+    },
+    event_types: {
+        GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHARACTER_RENAMED: 'character_renamed', CHAT_RENAMED: 'chat_renamed',
+        APP_READY: 'app_ready', WORLDINFO_ENTRIES_LOADED: 'worldinfo_entries_loaded', WORLDINFO_FORCE_ACTIVATE: 'worldinfo_force_activate',
+    },
 }));
 vi.mock('../src/sillytavern/identifiers.js', () => ({
     getCharaFilename: id => (id === '3' ? 'keeper-orrin' : null),
@@ -64,6 +73,7 @@ vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
     describeLoreBaseConnectionProblem: (reason, problem) => `${problem} Until then the entries selected for LoreBase stay out of replies.`,
 }));
 
+const { eventSource } = await import('../src/sillytavern/events.js');
 const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
 const { getSanitizedFilename } = await import('../src/sillytavern/identifiers.js');
 const { log } = await import('../src/sillytavern/log.js');
@@ -73,6 +83,7 @@ const { stripReasoningBlocks } = await import('../src/features/text-cleaning/ind
 const { initializeLoreBase, prepareLoreForReply } = await import('../src/features/lorebase/lorebase-reply.js');
 
 initializeLoreBase();
+host.handlers.app_ready();
 const afterCommands = (type, options, isDryRun = false) => host.handlers.generation_after_commands(type, options, isDryRun);
 
 const LIGHTHOUSE = { uid: 0, comment: 'Lighthouse of Vell', content: 'The lighthouse stands on the north cliff of Vell.' };
@@ -274,5 +285,45 @@ describe('a turn whose call fails goes on without that lore (D14)', () => {
         await prepareLoreForReply('normal', settings);
         expect(notifyInvalidModel).toHaveBeenCalledWith(refused.message);
         expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+    });
+});
+
+describe('the World Info scan that follows the reply (§5.7)', () => {
+    const scannedBooks = () => ({
+        globalLore: Object.values(host.books['Harbor Atlas'].entries).map(entry => ({ ...entry, world: 'Harbor Atlas', key: [entry.comment.toLowerCase()] })),
+        characterLore: [], chatLore: [], personaLore: [],
+    });
+    const scan = async () => {
+        const loaded = scannedBooks();
+        await host.handlers.worldinfo_entries_loaded(loaded);
+        return loaded;
+    };
+    const forcedActivations = () => eventSource.emit.mock.calls.filter(([event]) => event === 'worldinfo_force_activate').map(([, forced]) => forced);
+
+    it('sends the pick the review kept, and keeps every selected entry from firing by its keys', async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
+        await prepareLoreForReply('normal', settings);
+        const loaded = await scan();
+
+        expect(loaded.globalLore.map(entry => entry.key)).toEqual([[], []]);
+        expect(forcedActivations()).toEqual([[{ ...TIDEWARDENS, world: 'Harbor Atlas', key: ['tidewardens'] }]]);
+    });
+
+    it("sends no selected entry on a quiet generation's scan, which gets no pick (D8)", async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
+        await prepareLoreForReply('normal', settings);
+        afterCommands('quiet', { quietToLoud: false });
+        await prepareLoreForReply('quiet', settings);
+        const loaded = await scan();
+
+        expect(forcedActivations()).toEqual([]);
+        expect(loaded.globalLore.map(entry => entry.key)).toEqual([[], []]);
+    });
+
+    it('sends none of the selected entries when the pick fails (D14)', async () => {
+        postChatCompletion.mockRejectedValueOnce(new Error('Too Many Requests'));
+        await prepareLoreForReply('normal', settings);
+        await scan();
+        expect(forcedActivations()).toEqual([]);
     });
 });

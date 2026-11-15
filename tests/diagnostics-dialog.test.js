@@ -229,7 +229,6 @@ describe('the Diagnostics dialog', () => {
         host.query = {
             eventBase: { injectionText: 'The harbor master keeps the ledger.', eventCount: 2, storyArc: { ruleName: 'last_time' } },
             chunkBase: { noCollections: true },
-            lorebook: { disabled: true },
             eventBaseThreshold: 0,
         };
         void openDiagnostics('query');
@@ -244,7 +243,7 @@ describe('the Diagnostics dialog', () => {
         expect(results.querySelector('textarea').value).toBe('The harbor master keeps the ledger.');
         expect(results.querySelector('textarea').readOnly).toBe(true);
         expect(results.textContent).toContain('No ChunkBase collection is enabled.');
-        expect(results.textContent).toContain('Lorebook retrieval is off on the WorldInfo page.');
+        expect(results.textContent).not.toContain('Lorebook');
     });
 });
 

@@ -5,7 +5,7 @@
  * Diagnostics' dialog (diagnostics-dialog-markup.js draws it): Checks, Backend health and Query Tester, each opened
  * from its own button on the panel's Action page. Checks runs the diagnostics, Production tests only when switched on,
  * catching what the console says meanwhile, and copies a report; Backend health probes the backend every 5 seconds
- * while it shows; Query Tester dry-runs the three retrievals. Its handlers are delegated on its root.
+ * while it shows; Query Tester dry-runs EventBase's and ChunkBase's retrievals. Its handlers are delegated on its root.
  *
  * @author Kritblade
  * ============================================================================
@@ -262,11 +262,11 @@ async function runQuery() {
     }
     dialog.isQuerying = true;
     for (const button of actionButtons('query')) button.disabled = true;
-    setText('query-state', 'Running the three retrievals…');
+    setText('query-state', 'Running the retrievals…');
     try {
         const run = await runQueryTest(message);
         if (!dialog) return;
-        const results = { eventbase: run.eventBase, chunkbase: run.chunkBase, lorebook: run.lorebook };
+        const results = { eventbase: run.eventBase, chunkbase: run.chunkBase };
         const outcomes = Object.fromEntries(QUERY_RETRIEVALS.map(({ kind }) => [kind, queryOutcome(kind, results[kind], run)]));
         partOf('query-results').innerHTML = queryResultsMarkup(outcomes, run.eventBase);
         for (const output of partOf('query-results').querySelectorAll('textarea')) output.readOnly = true;
