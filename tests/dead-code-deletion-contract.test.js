@@ -459,11 +459,15 @@ describe('Dead code is removed (cleanup contract)', () => {
 
         it('no source reads its settings, but the migration that deletes them from saved settings', () => {
             const migration = 'src/app/settings-migration-semantic-world-info-settings.js';
+            // SillyTavern's Vector Storage names its own World Info switch enabled_world_info too, in its settings.
+            const vectorStorage = 'src/sillytavern/vector-storage.js';
             const offenders = grepSourcesWithLines(
                 /\b(enabled_world_info|world_info_threshold|world_info_top_k|world_info_query_depth|world_info_retrieval_popup|world_info_respect_entry_disable|lorebook_xml_tag)\b/,
-            ).filter(hit => !hit.startsWith(`${migration}:`));
+            ).filter(hit => !hit.startsWith(`${migration}:`) && !hit.startsWith(`${vectorStorage}:`));
             expect(existsRel(migration)).toBe(true);
             expect(offenders, offenders.join('\n')).toEqual([]);
+            // The one read there is Vector Storage's own setting, never one of VectFox's.
+            expect(grepSourcesWithLines(/\benabled_world_info\b/).filter(hit => hit.startsWith(`${vectorStorage}:`)).every(hit => hit.includes('vectors?.enabled_world_info'))).toBe(true);
         });
 
         it('no source sends the <VectFoxLorebook> block or offers its dry run', () => {

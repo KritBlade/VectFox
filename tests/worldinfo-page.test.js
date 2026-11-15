@@ -2,18 +2,21 @@
  * @vitest-environment jsdom
  *
  * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): LoreBase's
- * two cards and nothing of the old vector search; every control keeps the id its wiring uses; the page is drawn from
- * GUI-DNA alone with none of the old debug tools; and the LoreBase book list says what each book of the open chat has
- * selected and where it is locked.
+ * two cards, its switch first, and nothing of the old vector search; every control keeps the id its wiring uses; the
+ * page is drawn from GUI-DNA alone with none of the old debug tools; and the LoreBase book list says what each book of
+ * the open chat has selected and where it is locked.
  */
-/* global document -- this file runs under the jsdom environment */
+/* global document, Node -- this file runs under the jsdom environment */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const { loreBaseBooksMarkup, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 
 // The ids settings-panel.js and lorebase-books-card.js wire on the WorldInfo page.
-const WIRED_IDS = ['VectFox_lorebase_books_card', 'VectFox_lorebase_books', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy'];
+const WIRED_IDS = [
+    'VectFox_lorebase_enabled', 'VectFox_lorebase_off_notice', 'VectFox_lorebase_books_card', 'VectFox_lorebase_books',
+    'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
+];
 // The old vector search's controls, deleted with it.
 const OLD_SEARCH_IDS = [
     'VectFox_enabled_world_info', 'VectFox_wi_status', 'VectFox_world_info_settings', 'VectFox_world_info_top_k',
@@ -39,6 +42,15 @@ describe('WorldInfo page markup', () => {
         expect(document.getElementById('VectFox_lorebase_books').getAttribute('aria-live')).toBe('polite');
         const opener = books.querySelector('.vfx-btn[data-lorebase-choose]');
         expect([opener.textContent.trim(), opener.dataset.lorebaseChoose, opener.classList.contains('vfx-btn-primary')]).toEqual(['Choose entries', '', true]);
+    });
+
+    it("opens the books card on LoreBase's switch, off, before the list", () => {
+        const body = document.querySelector('#VectFox_lorebase_books_card .vfx-card-body');
+        const toggle = document.getElementById('VectFox_lorebase_enabled');
+        expect(body.querySelector('input, button, select')).toBe(toggle);
+        expect([toggle.type, toggle.checked]).toEqual(['checkbox', false]);
+        expect(body.textContent).toContain('Use LoreBase');
+        expect(document.getElementById('VectFox_lorebase_off_notice').compareDocumentPosition(document.getElementById('VectFox_lorebase_books')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it("keeps none of the old vector search's controls", () => {

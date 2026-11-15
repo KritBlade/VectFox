@@ -42,7 +42,7 @@ import { runNetworkStartup } from './app/network-startup.js';
 // VectFox modules - UI
 import { mountSettingsPanel, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
-import { initializeLoreBase, prepareLoreForReply } from './features/lorebase/index.js';
+import { initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
@@ -210,6 +210,7 @@ const defaultSettings = {
     lorebase_model: 'openai/gpt-6-luna',    // the model the route trials ran; read only on OpenRouter or vLLM
     lorebase_connection_profile_id: '',     // read only while lorebase_provider is 'connection_profile'
     lorebase_accuracy: 'default',           // 'default' reviews at low reasoning effort, 'high' at the model's default
+    lorebase_enabled: false,                // LoreBase's switch on the WorldInfo page: off until the user turns it on
 
     // Keyword Extraction
     custom_stopwords: '',               // Custom stopwords (comma-separated)
@@ -441,16 +442,11 @@ const onChatEvent = debounce(async () => await moduleWorker.update(), debounce_t
 
 /**
  * The generation interceptor, which SillyTavern runs after slash commands and never on a dry run: EventBase retrieval
- * and the chunk collections' search (rearrangeChat), and side by side with them LoreBase's pick and reviews. Both
- * finish before SillyTavern's World Info scan.
+ * and the chunk collections' search (rearrangeChat), and side by side with them LoreBase's pick and reviews, whose
+ * picks are held for SillyTavern's World Info scan once both are done.
  */
 async function vectfox_rearrangeChat(chat, _contextSize, _abort, type) {
-    const loreForReply = prepareLoreForReply(type, settings);
-    try {
-        await rearrangeChat(chat, settings, type);
-    } finally {
-        await loreForReply;
-    }
+    await prepareLoreBesideRetrieval(type, settings, () => rearrangeChat(chat, settings, type));
 }
 
 // Export to window for ST to call

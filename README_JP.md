@@ -527,7 +527,8 @@ VectFox は SillyTavern の接続プロファイル（connection profile）で�
 7. それ以外のほとんどの設定はデフォルトのままで大丈夫です。必要に応じて調整してください。
 8. **まずチャットを 1 回ベクトル化する。** チャットを開き、**Action** ページで **Vectorize content** を押して **Chat** を選び、**Vectorize** を押します。最初の DB を作るには、これが**必須**です。
 9. **同期を保つ。** 自動にしたいなら、**AutoSync** ページで **Auto-sync this chat** をオンにします。**Turns** で 1 回の実行に入るターン数が決まります。手動で追いつきたいときは、**Action** ページの **Sync chat** を押します。
-10. （オプション）ロアブックのエントリーを LoreBase に選ばせます。**WorldInfo** ページで **LoreBase model** を設定し、**Choose entries** を押して LoreBase に任せたいエントリーをオンにし、ブックをチャットかキャラクターにロックします。
+10. （オプション）ロアブックのエントリーを LoreBase に選ばせます。**WorldInfo** ページで **Use LoreBase** をオンにし、**LoreBase model** を設定し、**Choose entries** を押して LoreBase に任せたいエントリーをオンにし、ブックをチャットかキャラクターにロックします。
+   - SillyTavern の **Vector Storage** で **Enabled for World Info** がオンなら、VectFox はそれをオフにするか尋ねます。Vector Storage は独自の検索でロアブックのエントリーを送るため、LoreBase が外したエントリーでも、LoreBase に任せたエントリーを丸ごと送ってしまいます。オンのままにすると、LoreBase はオフのままです。Vector Storage のチャットとファイルの検索はそのままです。
 11. （オプション）他がすべて動いたら、**AgentMode** ページで **Agent Mode** をオンにします。**Provider** を **Same as EventBase model** のままにすると、プランナーは EventBase model のプロファイルで動きます。つまりステップ 5 の安くて速いモデルがプランナーも動かします。詳しくは上の「どう動くのか」>「Agent Mode」を参照してください。
 
 **手動の OpenRouter と vLLM はなくなります。** 今はまだ Provider ドロップダウンにあり、専用のキー欄も含めて以前どおり動きます。ただし、SillyTavern プロファイルが入ったリリースの 3 か月後の VectFox リリースで削除されます。まだ使っている場合は、VectFox が一度だけお知らせし、変更が必要なドロップダウンをすべて表示します。

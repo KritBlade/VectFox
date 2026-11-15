@@ -530,7 +530,8 @@ VectFox 使用 SillyTavern 的連線設定檔（connection profile）運作。�
 7. 其他大多數設定維持預設值即可，也可以依需求調整。
 8. **先把聊天向量化一次。** 打開你的聊天，進入 **Action** 頁面，按 **Vectorize content**，選 **Chat**，再按 **Vectorize**。你**必須**做這一步，才會建立你的第一個 DB。
 9. **保持同步。** 想要自動的話，在 **AutoSync** 頁面開啟 **Auto-sync this chat**。**Turns** 決定每次執行包含幾個回合。或者在 **Action** 頁面按 **Sync chat** 手動補上。
-10. （選用）讓 LoreBase 為你挑選世界書條目。在 **WorldInfo** 頁面設定 **LoreBase model**，按 **Choose entries**，開啟你想交給 LoreBase 決定的條目，再把這本書鎖定到你的聊天或角色。
+10. （選用）讓 LoreBase 為你挑選世界書條目。在 **WorldInfo** 頁面開啟 **Use LoreBase**，設定 **LoreBase model**，按 **Choose entries**，開啟你想交給 LoreBase 決定的條目，再把這本書鎖定到你的聊天或角色。
+   - 如果 SillyTavern 的 **Vector Storage** 開著 **Enabled for World Info**，VectFox 會問你要不要關掉它。Vector Storage 會用自己的搜尋送出世界書條目，所以就算 LoreBase 把條目排除了，它還是會把你交給 LoreBase 的條目整條送出。如果你選擇保留它，LoreBase 就會維持關閉。Vector Storage 的聊天與檔案搜尋不受影響。
 11. （選用）其他都正常後，到 **AgentMode** 頁面開啟 **Agent Mode**。把 **Provider** 留在 **Same as EventBase model**，規劃師就會用 EventBase model 的設定檔。所以步驟 5 那個便宜又快速的模型，也會用來驅動規劃師。完整說明請見上方「它是怎麼運作的」>「Agent Mode」。
 
 **手動的 OpenRouter 和 vLLM 即將移除。** 它們目前還在 Provider 下拉選單裡，用法跟以前一樣，也有自己的金鑰欄位。但在加入 SillyTavern 設定檔的版本之後 3 個月，會有一個 VectFox 版本把它們移除。如果你還在用，VectFox 會提醒你一次，並列出每個需要改的下拉選單。

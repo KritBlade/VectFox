@@ -529,7 +529,8 @@ VectFox는 SillyTavern 연결 프로필(connection profile)로 작동합니다. 
 7. 나머지 대부분의 설정은 기본값으로 괜찮습니다. 필요하면 자유롭게 조정하세요.
 8. **채팅을 한 번 벡터화하기.** 채팅을 열고 **Action** 페이지에서 **Vectorize content**를 누르고 **Chat**을 고른 뒤 **Vectorize**를 누릅니다. 첫 DB를 만들려면 이 단계가 **꼭** 필요합니다.
 9. **동기화 유지.** 자동으로 하려면 **AutoSync** 페이지에서 **Auto-sync this chat**을 켭니다. **Turns**는 한 번 실행에 들어가는 턴 수를 정합니다. 직접 따라잡고 싶다면 **Action** 페이지에서 **Sync chat**을 누르세요.
-10. (선택) 로어북 항목을 LoreBase가 고르게 합니다. **WorldInfo** 페이지에서 **LoreBase model**을 설정하고, **Choose entries**를 눌러 LoreBase에 맡길 항목을 켠 뒤, 로어북을 채팅이나 캐릭터에 잠급니다.
+10. (선택) 로어북 항목을 LoreBase가 고르게 합니다. **WorldInfo** 페이지에서 **Use LoreBase**를 켜고, **LoreBase model**을 설정하고, **Choose entries**를 눌러 LoreBase에 맡길 항목을 켠 뒤, 로어북을 채팅이나 캐릭터에 잠급니다.
+   - SillyTavern의 **Vector Storage**에서 **Enabled for World Info**가 켜져 있으면, VectFox가 끌지 물어봅니다. Vector Storage는 자체 검색으로 로어북 항목을 보내기 때문에, LoreBase가 뺀 항목이라도 LoreBase에 맡긴 항목을 통째로 보냅니다. 켜 둔 채로 두면 LoreBase는 꺼진 채로 있습니다. Vector Storage의 채팅과 파일 검색은 그대로입니다.
 11. (선택) 다른 것이 모두 작동하면 **AgentMode** 페이지에서 **Agent Mode**를 켭니다. **Provider**를 **Same as EventBase model**로 두면 플래너가 EventBase model의 프로필로 돌아갑니다. 그래서 단계 5의 싸고 빠른 모델이 플래너도 구동합니다. 자세한 내용은 위의 "작동 방식" > "Agent Mode"를 참조하세요.
 
 **수동 OpenRouter와 vLLM은 사라집니다.** 지금은 아직 Provider 드롭다운에 있고, 전용 키 입력란과 함께 예전처럼 작동합니다. 하지만 SillyTavern 프로필이 들어온 릴리스의 3개월 뒤 VectFox 릴리스에서 제거됩니다. 아직 쓰고 있다면 VectFox가 한 번 알려 주고, 바꿔야 할 드롭다운을 모두 보여 줍니다.

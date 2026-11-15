@@ -2,9 +2,9 @@
  * ============================================================================
  * WORLDINFO PAGE, STATIC MARKUP
  * ============================================================================
- * The settings panel's WorldInfo page on GUI-DNA: LoreBase's books for the
- * open chat, with the door to its selection screen, and LoreBase's model with
- * its Accuracy. Every control keeps the id settings-panel.js,
+ * The settings panel's WorldInfo page on GUI-DNA: LoreBase's switch, its books
+ * for the open chat, with the door to its selection screen, and LoreBase's
+ * model with its Accuracy. Every control keeps the id settings-panel.js,
  * lorebase-books-card.js or connection-rows.js wires it by. The LoreBase book
  * list is built here as well. Pure: builds strings.
  * ============================================================================
@@ -12,17 +12,21 @@
 
 import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 import {
-    button, controlRow, detail, emptyState, field, fieldLabel, hint, iconButton, listRow, select, selectOption, statusPill,
+    button, controlRow, detail, emptyState, field, fieldLabel, hint, iconButton, listRow, notice, select, selectOption, statusPill,
 } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader } from '../../shared/gui-dna/panel-page-genes.js';
+import { cardHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 
 const formatCount = count => Number(count).toLocaleString('en-US');
 
-// LoreBase's books (plan §5.2): the list loreBaseBooksMarkup draws for the open chat, and the selection screen's door.
+// LoreBase's switch (plan §5.9), off until the user turns it on, and its books (§5.2): the list loreBaseBooksMarkup
+// draws for the open chat, and the selection screen's door. While the switch is off, lorebase-books-card.js disables
+// the page's other LoreBase controls and shows the notice.
 function loreBaseBooksCard() {
     return `<section id="VectFox_lorebase_books_card" class="vfx-card">
         ${cardHeader({ icon: 'fa-book-open', title: 'LoreBase books', description: 'The lorebooks this chat loads. LoreBase decides selected entries in books locked here.' })}
         <div class="vfx-card-body vfx-stack">
+            ${switchRow({ id: 'VectFox_lorebase_enabled', title: 'Use LoreBase', description: 'Off: every entry fires by its keys, as SillyTavern does. Selections are kept.' })}
+            <div id="VectFox_lorebase_off_notice">${notice({ status: 'info', text: 'Turn on Use LoreBase to choose entries and set its model.' })}</div>
             <div id="VectFox_lorebase_books" aria-live="polite"></div>
             ${controlRow([button({ text: 'Choose entries', icon: 'fa-list-check', kind: 'primary', data: { 'lorebase-choose': '' } })])}
             ${hint({ text: "Choose any lorebook's entries for LoreBase, and lock the book to this chat or character." })}
@@ -36,7 +40,7 @@ function loreBaseModelCard() {
         id: 'VectFox_lorebase_accuracy',
         options: [selectOption({ value: 'default', text: 'Default Accuracy' }), selectOption({ value: 'high', text: 'High Accuracy' })],
     });
-    return `<section class="vfx-card">
+    return `<section id="VectFox_lorebase_model_card" class="vfx-card">
         ${cardHeader({ icon: 'fa-plug', title: 'LoreBase model', description: 'The model that picks the selected entries a reply needs, and trims each one.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([fieldLabel({ text: 'Provider', forId: 'VectFox_lorebase_provider' }), select({ id: 'VectFox_lorebase_provider', options: chatProviderOptions() })])}

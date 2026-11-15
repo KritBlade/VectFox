@@ -1,17 +1,18 @@
 /**
- * LoreBase on each reply (plan §5.5 to §5.8 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md). VectFox's generation interceptor asks it for a reply's lore, after
- * SillyTavern's slash commands and never on a dry run, so a send that is only commands runs no pick (#29). The books
- * taking part are those SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its
- * chat or character through a rename; Luna picks among the entries selected in them, then reviews each pick, all at
- * once, and the picks are held for the World Info scan that follows (lorebase-delivery.js). A turn whose pick or
- * review fails goes on without that lore, with a toast (D14).
+ * LoreBase on each reply (plan §5.5 to §5.9 of InternalProject/Vectfox/plans/
+ * lorebook-semantic-overhaul-passage-index.md), while it acts: its switch on, and Vector Storage's World Info search
+ * off, which a reply first settles with the user when both are on (lorebase-switch.js, lorebase-vector-storage.js).
+ * VectFox's generation interceptor asks it for a reply's lore beside its retrieval, after SillyTavern's slash commands
+ * and never on a dry run, so a send that is only commands runs no pick (#29). The books taking part are those
+ * SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its chat or character
+ * through a rename; Luna picks among the entries selected in them, then reviews each pick, all at once, and once the
+ * retrieval is done too the picks are held for the World Info scan that follows (lorebase-delivery.js). A turn whose
+ * pick or review fails goes on without that lore, with a toast (D14).
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
-import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
 import { parseJsonArrayFromLlm, postChatCompletion } from '../llm-provider/index.js';
 import { stripReasoningBlocks } from '../text-cleaning/index.js';
@@ -22,6 +23,8 @@ import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-deli
 import { CALL_TIMEOUT_MS, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
+import { isLoreBaseActive } from './lorebase-switch.js';
+import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
 
 const LOREBASE = 'LoreBase';
 
@@ -50,15 +53,18 @@ async function followChatRename({ oldFileName, newFileName } = {}) {
 }
 
 /**
- * Follow generations, so a quiet-to-loud one counts as a reply, and renamed characters and chats, so a book locked to
- * one stays locked to it, and arm every World Info scan. Called once at start-up.
+ * Follow generations, so a quiet-to-loud one counts as a reply and a reply first settles Vector Storage's World Info
+ * search with the user, and renamed characters and chats, so a book locked to one stays locked to it, and arm every
+ * World Info scan. Called once at start-up.
  */
 export function initializeLoreBase() {
     initializeLoreBaseDelivery();
-    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, (type, options, isDryRun) => {
+    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, async (type, options, isDryRun) => {
         // A dry run reaches no interceptor, so it must not stand in for the generation that does.
         if (isDryRun) return;
         lastGeneration = { type, isQuietToLoud: Boolean(options?.quietToLoud) };
+        // SillyTavern waits for this listener, and runs the interceptors after it, Vector Storage's among them.
+        if (isReplyGeneration(type, lastGeneration)) await settleVectorStorageConflict();
     });
     eventSource.on(event_types.CHARACTER_RENAMED, renameLoreBookCharacter);
     eventSource.on(event_types.CHAT_RENAMED, followChatRename);
@@ -135,17 +141,15 @@ function reportReplyLore(lore, seconds) {
 }
 
 /**
- * This reply's lore, held for the World Info scan that follows, or null when LoreBase has nothing to do: VectFox off,
- * a generation that is not a reply (D8), no selected entry in the books taking part, or no user message for the reply
- * to answer. Each run first drops what the last one held, so a generation with no pick sends no selected entry. Never
- * throws: a failure is logged and shown, and the reply goes on without the lore it could not get.
+ * This reply's lore, or null when LoreBase has nothing to do: LoreBase not acting (isLoreBaseActive), a generation
+ * that is not a reply (D8), no selected entry in the books taking part, or no user message for the reply to answer.
+ * Never throws: a failure is logged and shown, and the reply goes on without the lore it could not get.
  * @param {string} type - The generation's type, as SillyTavern passes the generation interceptor
  * @param {object} settings - VectFox settings
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
  */
 export async function prepareLoreForReply(type, settings) {
-    holdLoreForNextScan(null);
-    if (!isVectFoxEnabled(settings) || !isReplyGeneration(type, lastGeneration)) return null;
+    if (!isLoreBaseActive(settings) || !isReplyGeneration(type, lastGeneration)) return null;
     try {
         const books = await booksTakingPart();
         if (!books.length) return null;
@@ -164,11 +168,31 @@ export async function prepareLoreForReply(type, settings) {
             scene: sceneText(messages), books, reviewEffort: reviewEffort(settings.lorebase_accuracy), ask: askOn(connection),
         });
         reportReplyLore(lore, (performance.now() - startedAt) / 1000);
-        holdLoreForNextScan(lore);
         return lore;
     } catch (error) {
         log.error('LoreBase: preparing the lore for this reply failed:', error);
         showLeftOutLoreToast(leftOutLoreMessage([{ step: 'pick', detail: String(error?.message || error) }], 0));
         return null;
+    }
+}
+
+/**
+ * LoreBase's part of VectFox's generation interceptor: this reply's lore is prepared beside the interceptor's
+ * retrieval, and held for the World Info scan only once both are done (§6.8). SillyTavern scans a few milliseconds
+ * after the interceptor ends, while the retrieval can outlast the pick by seconds, in which a quiet generation would
+ * take or drop picks already held. Each run first drops what the last one held, so a generation with no pick sends no
+ * selected entry. A failed retrieval is thrown again once the picks are held, as the reply goes on without it.
+ * @param {string} type - The generation's type, as SillyTavern passes the generation interceptor
+ * @param {object} settings - VectFox settings
+ * @param {() => Promise<unknown>} retrieve - Starts the interceptor's retrieval
+ * @returns {Promise<void>}
+ */
+export async function prepareLoreBesideRetrieval(type, settings, retrieve) {
+    holdLoreForNextScan(null);
+    const lore = prepareLoreForReply(type, settings);
+    try {
+        await retrieve();
+    } finally {
+        holdLoreForNextScan(await lore);
     }
 }

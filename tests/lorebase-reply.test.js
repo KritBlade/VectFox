@@ -1,10 +1,11 @@
 /**
- * LoreBase on each reply (src/features/lorebase/lorebase-reply.js, plan §5.5, §5.6, §5.8 of InternalProject/Vectfox/
+ * LoreBase on each reply (src/features/lorebase/lorebase-reply.js, plan §5.5 to §5.9 of InternalProject/Vectfox/
  * plans/lorebook-semantic-overhaul-passage-index.md): the generation interceptor's ask for a reply's lore runs the pick
- * only on replies (D8), a quiet-to-loud generation included; reads the books SillyTavern loads that are locked to the
- * chat or character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore
- * a failed call could not get, with the toast for it (D14); and holds a reply's picks for the World Info scan that
- * follows, where a generation with no pick sends no selected entry (§5.7).
+ * only on replies (D8), a quiet-to-loud generation included, and only while LoreBase acts, a reply first settling
+ * Vector Storage's World Info search with the user; reads the books SillyTavern loads that are locked to the chat or
+ * character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore a failed
+ * call could not get, with the toast for it (D14); and holds a reply's picks for the World Info scan that follows once
+ * the retrieval beside them is done, where a generation with no pick sends no selected entry (§5.7, §6.8).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +18,7 @@ const host = vi.hoisted(() => ({
     books: {},
     settings: { vectfox: {} },
     connection: null,
+    isWorldInfoSearchOn: false,
 }));
 
 vi.mock('../src/sillytavern/chat.js', () => ({
@@ -72,6 +74,11 @@ vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
     resolveLoreBaseLlmConfig: () => host.connection,
     describeLoreBaseConnectionProblem: (reason, problem) => `${problem} Until then the entries selected for LoreBase stay out of replies.`,
 }));
+vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(), choicePopup: vi.fn() }));
+vi.mock('../src/sillytavern/vector-storage.js', () => ({
+    isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn,
+    turnOffVectorStorageWorldInfo: vi.fn(async () => { host.isWorldInfoSearchOn = false; return true; }),
+}));
 
 const { eventSource } = await import('../src/sillytavern/events.js');
 const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
@@ -80,7 +87,9 @@ const { log } = await import('../src/sillytavern/log.js');
 const { notifyInvalidModel, notifySetupIncomplete } = await import('../src/shared/model-config-notifier.js');
 const { postChatCompletion } = await import('../src/features/llm-provider/index.js');
 const { stripReasoningBlocks } = await import('../src/features/text-cleaning/index.js');
-const { initializeLoreBase, prepareLoreForReply } = await import('../src/features/lorebase/lorebase-reply.js');
+const { choicePopup } = await import('../src/sillytavern/popup.js');
+const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
+const { initializeLoreBase, prepareLoreBesideRetrieval, prepareLoreForReply } = await import('../src/features/lorebase/lorebase-reply.js');
 
 initializeLoreBase();
 host.handlers.app_ready();
@@ -114,10 +123,12 @@ beforeEach(() => {
     host.charLore = [];
     host.books = { 'Harbor Atlas': { entries: { 0: LIGHTHOUSE, 1: TIDEWARDENS } }, 'Keeper Notes': { entries: { 7: LAMP_RULES } }, 'Voyage Log': { entries: {} } };
     host.settings.vectfox = {
+        lorebase_enabled: true,
         lorebase_books: { 'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] } },
     };
-    settings = { enabled: true, lorebase_accuracy: 'default' };
+    settings = { enabled: true, lorebase_enabled: true, lorebase_accuracy: 'default' };
     host.connection = ON_PROFILE;
+    host.isWorldInfoSearchOn = false;
     // A fresh generation record for each test: a plain reply.
     afterCommands('normal', {});
 });
@@ -150,6 +161,40 @@ describe('which generations ask for lore (D8)', () => {
     it('does nothing while VectFox is off', async () => {
         expect(await prepareLoreForReply('normal', { ...settings, enabled: false })).toBeNull();
         expect(loadWorldInfo).not.toHaveBeenCalled();
+    });
+});
+
+describe("LoreBase's switch and Vector Storage's World Info search (§5.9)", () => {
+    it('picks nothing while LoreBase is off', async () => {
+        expect(await prepareLoreForReply('normal', { ...settings, lorebase_enabled: false })).toBeNull();
+        expect(loadWorldInfo).not.toHaveBeenCalled();
+    });
+
+    it("asks before a reply's interceptors when the search is on again, and picks once the user turns it off", async () => {
+        host.isWorldInfoSearchOn = true;
+        choicePopup.mockResolvedValueOnce('vector-storage');
+        postChatCompletion.mockResolvedValue(pickOf());
+
+        await afterCommands('normal', {});
+        expect(choicePopup).toHaveBeenCalledTimes(1);
+        expect(turnOffVectorStorageWorldInfo).toHaveBeenCalledTimes(1);
+        expect(await prepareLoreForReply('normal', settings)).toMatchObject({ picks: [], failures: [] });
+    });
+
+    it('sits out a reply whose question was closed, with both still on', async () => {
+        host.isWorldInfoSearchOn = true;
+        choicePopup.mockResolvedValueOnce(null);
+
+        await afterCommands('normal', {});
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(postChatCompletion).not.toHaveBeenCalled();
+    });
+
+    it('asks nothing on a quiet generation or a dry run, which are not replies', async () => {
+        host.isWorldInfoSearchOn = true;
+        await afterCommands('quiet', { quietToLoud: false });
+        await afterCommands('normal', {}, true);
+        expect(choicePopup).not.toHaveBeenCalled();
     });
 });
 
@@ -300,20 +345,47 @@ describe('the World Info scan that follows the reply (§5.7)', () => {
     };
     const forcedActivations = () => eventSource.emit.mock.calls.filter(([event]) => event === 'worldinfo_force_activate').map(([, forced]) => forced);
 
+    const noRetrieval = async () => {};
+    const tidewardensSent = [{ ...TIDEWARDENS, world: 'Harbor Atlas', key: ['tidewardens'] }];
+
     it('sends the pick the review kept, and keeps every selected entry from firing by its keys', async () => {
         postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
-        await prepareLoreForReply('normal', settings);
+        await prepareLoreBesideRetrieval('normal', settings, noRetrieval);
         const loaded = await scan();
 
         expect(loaded.globalLore.map(entry => entry.key)).toEqual([[], []]);
-        expect(forcedActivations()).toEqual([[{ ...TIDEWARDENS, world: 'Harbor Atlas', key: ['tidewardens'] }]]);
+        expect(forcedActivations()).toEqual([tidewardensSent]);
+    });
+
+    it('holds the picks only once the retrieval beside them is done, so a scan before then gets none of them (§6.8)', async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
+        let finishRetrieval;
+        const interceptor = prepareLoreBesideRetrieval('normal', settings, () => new Promise(resolve => { finishRetrieval = resolve; }));
+        // The pick and its review are done, and reported, while the retrieval still runs.
+        await vi.waitFor(() => expect(log.lifecycle).toHaveBeenCalled());
+        const between = await scan();
+        expect(forcedActivations()).toEqual([]);
+        expect(between.globalLore.map(entry => entry.key)).toEqual([[], []]);
+
+        finishRetrieval();
+        await interceptor;
+        await scan();
+        expect(forcedActivations()).toEqual([tidewardensSent]);
+    });
+
+    it('holds the picks when the retrieval beside them fails, and throws its failure again, as the reply goes on', async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
+        const timedOut = new Error('EventBase retrieval timed out');
+        await expect(prepareLoreBesideRetrieval('normal', settings, async () => { throw timedOut; })).rejects.toBe(timedOut);
+        await scan();
+        expect(forcedActivations()).toEqual([tidewardensSent]);
     });
 
     it("sends no selected entry on a quiet generation's scan, which gets no pick (D8)", async () => {
         postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
-        await prepareLoreForReply('normal', settings);
+        await prepareLoreBesideRetrieval('normal', settings, noRetrieval);
         afterCommands('quiet', { quietToLoud: false });
-        await prepareLoreForReply('quiet', settings);
+        await prepareLoreBesideRetrieval('quiet', settings, noRetrieval);
         const loaded = await scan();
 
         expect(forcedActivations()).toEqual([]);
@@ -322,7 +394,7 @@ describe('the World Info scan that follows the reply (§5.7)', () => {
 
     it('sends none of the selected entries when the pick fails (D14)', async () => {
         postChatCompletion.mockRejectedValueOnce(new Error('Too Many Requests'));
-        await prepareLoreForReply('normal', settings);
+        await prepareLoreBesideRetrieval('normal', settings, noRetrieval);
         await scan();
         expect(forcedActivations()).toEqual([]);
     });

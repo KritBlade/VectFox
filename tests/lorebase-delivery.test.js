@@ -1,8 +1,10 @@
 /**
  * LoreBase's delivery through SillyTavern's World Info scan (src/features/lorebase/lorebase-delivery.js, plan §5.7 and
- * §6.8 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the listener runs after the ones
- * extensions add as they load; a reply's picks go to the next scan in the same chat, and only to it; every scan blanks
- * the keys of the entries LoreBase decides in the books locked here (D11); VectFox off leaves the scan alone.
+ * §6.8 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the listener is made the last
+ * once the app is ready, and again each time the interceptor holds, after any listener added since; a reply's picks go
+ * to the next scan in the same chat, and only to it; every scan blanks the keys of the entries LoreBase decides in the
+ * books locked here (D11); while LoreBase does not act, with VectFox or its switch off or Vector Storage's World Info
+ * search on (§5.9), the scan is left alone.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,6 +14,7 @@ const host = vi.hoisted(() => ({
     chatId: 'chat-harbor',
     context: null,
     settings: { vectfox: {} },
+    isWorldInfoSearchOn: false,
 }));
 
 vi.mock('../src/sillytavern/chat.js', () => ({
@@ -31,6 +34,7 @@ vi.mock('../src/sillytavern/world-info.js', () => ({
     METADATA_KEY: 'world_info', getWorldInfoSettings: () => ({ world_info: { charLore: [] } }), selected_world_info: [], world_names: [],
 }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/sillytavern/vector-storage.js', () => ({ isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn }));
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), domain: vi.fn(), enabled: () => false },
 }));
@@ -66,8 +70,10 @@ beforeEach(() => {
     vi.clearAllMocks();
     host.chatId = 'chat-harbor';
     host.context = { characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png' } }, characterId: '3' };
+    host.isWorldInfoSearchOn = false;
     host.settings.vectfox = {
         enabled: true,
+        lorebase_enabled: true,
         lorebase_books: {
             'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] },
             'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },
@@ -79,8 +85,18 @@ beforeEach(() => {
 describe('the scan listener', () => {
     it('is made the last to run once the app is ready, after the listeners extensions added as they loaded', () => {
         expect(host.readyListeners).toHaveLength(1);
+        // The hold before each test came before the app was ready, which arms nothing.
+        expect(eventSource.makeLast).not.toHaveBeenCalled();
         host.readyListeners[0]();
         expect(eventSource.makeLast).toHaveBeenCalledWith('worldinfo_entries_loaded', expect.any(Function));
+    });
+
+    it('is made the last again each time the interceptor holds, after a listener added since, such as a TavernHelper script', () => {
+        const listener = host.listeners.worldinfo_entries_loaded;
+        eventSource.makeLast.mockClear();
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        holdLoreForNextScan(null);
+        expect(eventSource.makeLast.mock.calls).toEqual([['worldinfo_entries_loaded', listener], ['worldinfo_entries_loaded', listener]]);
     });
 });
 
@@ -137,6 +153,23 @@ describe('where LoreBase leaves the scan alone', () => {
 
         host.settings.vectfox.enabled = true;
         await scan();
+        expect(forcedActivations()).toEqual([]);
+    });
+
+    it('leaves every key and forces nothing while LoreBase is off, its selections kept', async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        host.settings.vectfox.lorebase_enabled = false;
+        const loaded = await scan();
+        expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], ['lamp']]);
+        expect(forcedActivations()).toEqual([]);
+        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].selectedUids).toEqual(['0', '1']);
+    });
+
+    it("leaves every key and forces nothing while Vector Storage's World Info search is on, as LoreBase sits out", async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        host.isWorldInfoSearchOn = true;
+        const loaded = await scan();
+        expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], ['lamp']]);
         expect(forcedActivations()).toEqual([]);
     });
 
