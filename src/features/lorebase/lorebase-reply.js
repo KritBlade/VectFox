@@ -7,7 +7,8 @@
  * SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its chat or character
  * through a rename; Luna picks among the entries selected in them, then reviews each pick, all at once, and once the
  * retrieval is done too the picks are held for the World Info scan that follows (lorebase-delivery.js). A turn whose
- * pick or review fails goes on without that lore, with a toast (D14).
+ * pick or review fails goes on without that lore, with a toast (D14). Each reply's outcome goes to the tester
+ * (lorebase-tester.js), with what that scan reads.
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
@@ -24,6 +25,7 @@ import { CALL_TIMEOUT_MS, decidedEntries, isReplyGeneration, loreForReply, leftO
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
 import { isLoreBaseActive } from './lorebase-switch.js';
+import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
 import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
 
 const LOREBASE = 'LoreBase';
@@ -54,11 +56,12 @@ async function followChatRename({ oldFileName, newFileName } = {}) {
 
 /**
  * Follow generations, so a quiet-to-loud one counts as a reply and a reply first settles Vector Storage's World Info
- * search with the user, and renamed characters and chats, so a book locked to one stays locked to it, and arm every
- * World Info scan. Called once at start-up.
+ * search with the user, and renamed characters and chats, so a book locked to one stays locked to it; arm every World
+ * Info scan; and let the tester follow each reply. Called once at start-up.
  */
 export function initializeLoreBase() {
     initializeLoreBaseDelivery();
+    initializeLoreBaseTester();
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, async (type, options, isDryRun) => {
         // A dry run reaches no interceptor, so it must not stand in for the generation that does.
         if (isDryRun) return;
@@ -167,7 +170,9 @@ export async function prepareLoreForReply(type, settings) {
         const lore = await loreForReply({
             scene: sceneText(messages), books, reviewEffort: reviewEffort(settings.lorebase_accuracy), ask: askOn(connection),
         });
-        reportReplyLore(lore, (performance.now() - startedAt) / 1000);
+        const seconds = (performance.now() - startedAt) / 1000;
+        reportReplyLore(lore, seconds);
+        recordReplyReport({ lore, books, type, accuracy: settings.lorebase_accuracy, seconds });
         return lore;
     } catch (error) {
         log.error('LoreBase: preparing the lore for this reply failed:', error);
@@ -181,18 +186,23 @@ export async function prepareLoreForReply(type, settings) {
  * retrieval, and held for the World Info scan only once both are done (§6.8). SillyTavern scans a few milliseconds
  * after the interceptor ends, while the retrieval can outlast the pick by seconds, in which a quiet generation would
  * take or drop picks already held. Each run first drops what the last one held, so a generation with no pick sends no
- * selected entry. A failed retrieval is thrown again once the picks are held, as the reply goes on without it.
+ * selected entry. A failed retrieval is thrown again once the picks are held, as the reply goes on without it. The
+ * tester keeps what the scan reads: the interceptor's chat, as the retrieval leaves it, and context size.
  * @param {string} type - The generation's type, as SillyTavern passes the generation interceptor
  * @param {object} settings - VectFox settings
  * @param {() => Promise<unknown>} retrieve - Starts the interceptor's retrieval
+ * @param {{chat: Array<{name: string, mes: string}>, maxContext: number}} replyScan - The interceptor's chat and
+ *   context size
  * @returns {Promise<void>}
  */
-export async function prepareLoreBesideRetrieval(type, settings, retrieve) {
+export async function prepareLoreBesideRetrieval(type, settings, retrieve, replyScan) {
     holdLoreForNextScan(null);
     const lore = prepareLoreForReply(type, settings);
     try {
         await retrieve();
     } finally {
-        holdLoreForNextScan(await lore);
+        const replyLore = await lore;
+        holdLoreForNextScan(replyLore);
+        keepReplyScan(replyLore, { ...replyScan, type });
     }
 }

@@ -4,8 +4,9 @@
  * only on replies (D8), a quiet-to-loud generation included, and only while LoreBase acts, a reply first settling
  * Vector Storage's World Info search with the user; reads the books SillyTavern loads that are locked to the chat or
  * character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore a failed
- * call could not get, with the toast for it (D14); and holds a reply's picks for the World Info scan that follows once
- * the retrieval beside them is done, where a generation with no pick sends no selected entry (§5.7, §6.8).
+ * call could not get, with the toast for it (D14); holds a reply's picks for the World Info scan that follows once
+ * the retrieval beside them is done, where a generation with no pick sends no selected entry (§5.7, §6.8); and hands
+ * each reply's outcome to the tester, with what that scan reads (§5.10).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -79,6 +80,9 @@ vi.mock('../src/sillytavern/vector-storage.js', () => ({
     isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn,
     turnOffVectorStorageWorldInfo: vi.fn(async () => { host.isWorldInfoSearchOn = false; return true; }),
 }));
+vi.mock('../src/features/lorebase/lorebase-tester.js', () => ({
+    initializeLoreBaseTester: vi.fn(), keepReplyScan: vi.fn(), recordReplyReport: vi.fn(),
+}));
 
 const { eventSource } = await import('../src/sillytavern/events.js');
 const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
@@ -89,10 +93,13 @@ const { postChatCompletion } = await import('../src/features/llm-provider/index.
 const { stripReasoningBlocks } = await import('../src/features/text-cleaning/index.js');
 const { choicePopup } = await import('../src/sillytavern/popup.js');
 const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
+const { initializeLoreBaseTester, keepReplyScan, recordReplyReport } = await import('../src/features/lorebase/lorebase-tester.js');
 const { initializeLoreBase, prepareLoreBesideRetrieval, prepareLoreForReply } = await import('../src/features/lorebase/lorebase-reply.js');
 
 initializeLoreBase();
 host.handlers.app_ready();
+// beforeEach clears the mocks, so start-up is counted here.
+const testerStartUps = initializeLoreBaseTester.mock.calls.length;
 const afterCommands = (type, options, isDryRun = false) => host.handlers.generation_after_commands(type, options, isDryRun);
 
 const LIGHTHOUSE = { uid: 0, comment: 'Lighthouse of Vell', content: 'The lighthouse stands on the north cliff of Vell.' };
@@ -397,5 +404,34 @@ describe('the World Info scan that follows the reply (§5.7)', () => {
         await prepareLoreBesideRetrieval('normal', settings, noRetrieval);
         await scan();
         expect(forcedActivations()).toEqual([]);
+    });
+});
+
+describe('the tester (§5.10)', () => {
+    const replyChat = [{ name: 'Wren', mes: 'Who keeps it tonight?' }];
+    const noRetrieval = async () => {};
+
+    it('follows the replies from start-up', () => {
+        expect(testerStartUps).toBe(1);
+    });
+
+    it("hands it each reply's lore with the books read, the type, the Accuracy and the seconds, then what the scan reads", async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
+        await prepareLoreBesideRetrieval('swipe', settings, noRetrieval, { chat: replyChat, maxContext: 8000 });
+
+        expect(recordReplyReport).toHaveBeenCalledTimes(1);
+        const [{ lore, books, type, accuracy, seconds }] = recordReplyReport.mock.calls[0];
+        expect(lore.picks.map(pick => pick.title)).toEqual(['Tidewardens']);
+        expect(books).toEqual([{ bookName: 'Harbor Atlas', entries: [LIGHTHOUSE, TIDEWARDENS], pinnedSections: [] }]);
+        expect([type, accuracy]).toEqual(['swipe', 'default']);
+        expect(seconds).toBeGreaterThanOrEqual(0);
+        expect(keepReplyScan).toHaveBeenCalledWith(lore, { chat: replyChat, maxContext: 8000, type: 'swipe' });
+    });
+
+    it('hands it nothing to report for a generation LoreBase picks nothing for', async () => {
+        afterCommands('quiet', { quietToLoud: false });
+        await prepareLoreBesideRetrieval('quiet', settings, noRetrieval, { chat: replyChat, maxContext: 8000 });
+        expect(recordReplyReport).not.toHaveBeenCalled();
+        expect(keepReplyScan).toHaveBeenCalledWith(null, { chat: replyChat, maxContext: 8000, type: 'quiet' });
     });
 });

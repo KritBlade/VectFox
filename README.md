@@ -384,7 +384,7 @@ New collections auto-activate for the current chat. In a collection's settings, 
 
 ### 📡 Smarter status indicators
 
-Auto-Sync card shows whether the current chat is vectorized and how many events exist, and links to the vectorizer if it's not. The WorldInfo page lists the lorebooks your chat loads, how many entries you picked for LoreBase in each, and where each book is locked.
+Auto-Sync card shows whether the current chat is vectorized and how many events exist, and links to the vectorizer if it's not. The WorldInfo page lists the lorebooks your chat loads, how many entries you picked for LoreBase in each, and where each book is locked. Its **LoreBase tester** card shows what LoreBase did on each reply.
 
 ### 🗂️ Tabbed interface
 
@@ -551,6 +551,7 @@ You need 2 profiles: one for embedding, and one for the model that writes events
 9. **Keep it in sync.** Turn on **Auto-sync this chat** on the **AutoSync** page if you want it automatic. **Turns** sets how many turns go into each run. Or press **Sync chat** on the **Action** page to catch up by hand.
 10. (Optional) Let LoreBase pick your lorebook entries. On the **WorldInfo** page, turn on **Use LoreBase**, set up the **LoreBase model**, press **Choose entries**, turn on the entries you want LoreBase to decide, and lock the book to your chat or character.
    - If SillyTavern's **Vector Storage** has **Enabled for World Info** on, VectFox asks to turn it off. Vector Storage sends lorebook entries by its own search, so it would send the entries you gave LoreBase in full, even when LoreBase leaves them out. If you keep it on, LoreBase stays off. Vector Storage's chat and file search stay as they are.
+   - The **LoreBase tester** card on the same page shows what LoreBase did on each reply. You see what the LoreBase model picked and why, which parts of each entry went in, and how many tokens that was next to what SillyTavern's keys would send. So if a reply forgot something, you can check if LoreBase left it out. It keeps your replies until you reload the page.
 11. (Optional) Turn on **Agent Mode** on the **AgentMode** page once everything else works. Leave **Provider** on **Same as EventBase model**, and the planner runs on the EventBase model's profile. So the same cheap, fast model from step 5 also drives the planner. See "How It Works" > "Agent Mode" above for what it does.
 
 **Manual OpenRouter and vLLM are going away.** They are still in the Provider dropdowns and work like before, with their own key boxes. But a VectFox release 3 months after the one that brought SillyTavern profiles removes them. If you still use one, VectFox tells you once, and lists every dropdown to move.

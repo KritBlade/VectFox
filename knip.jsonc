@@ -18,7 +18,7 @@
     "ignoreExportsUsedInFile": true,
     // SillyTavern's own modules: by relative paths that leave this repo, or by URL from e2e page code.
     "ignoreUnresolved": [
-        "^(\\.\\./){3,}(script|extensions|constants|shared|openai|popup|secrets|textgen-settings|user|utils|world-info)\\.js$",
+        "^(\\.\\./){3,}(script|extensions|constants|itemized-prompts|shared|openai|popup|secrets|textgen-settings|tokenizers|user|utils|world-info)\\.js$",
         "^/(script|scripts/extensions|scripts/utils)\\.js$"
     ]
 }

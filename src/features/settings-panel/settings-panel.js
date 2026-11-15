@@ -35,6 +35,7 @@ import { corePageMarkup } from './core-page-markup.js';
 import { eventBasePageMarkup } from './eventbase-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
 import { bindLoreBaseBooksCard, refreshLoreBaseBooks } from './lorebase-books-card.js';
+import { bindLoreBaseTester, refreshLoreBaseTester } from './lorebase-tester-card.js';
 import { worldInfoPageMarkup } from './worldinfo-page-markup.js';
 import { bindNumberSetting } from './number-setting.js';
 import { wireConnectionRows } from './connection-rows.js';
@@ -118,7 +119,12 @@ function panelTabsWithHooks() {
     const hooks = {
         action: { onOpen: refreshHealthPill },
         autosync: { onOpen: () => refreshAutoSyncCheckbox(extension_settings.vectfox) },
-        worldinfo: { onOpen: refreshLoreBaseBooks },
+        worldinfo: {
+            onOpen: () => {
+                refreshLoreBaseBooks();
+                refreshLoreBaseTester();
+            },
+        },
         storyarc: {
             onOpen: () => {
                 refreshStoryLinkStatus(extension_settings.vectfox);
@@ -1416,10 +1422,13 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
-    // LoreBase books (WorldInfo page): drawn for the open chat, again on each chat change and as the page opens.
+    // LoreBase books and tester (WorldInfo page): drawn for the open chat, again on each chat change and as the page opens.
     bindLoreBaseBooksCard();
     refreshLoreBaseBooks();
     eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseBooks);
+    bindLoreBaseTester();
+    refreshLoreBaseTester();
+    eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseTester);
 
     // LoreBase model (WorldInfo page). Its Provider and Profile dropdowns are wired with every consumer's (connection-rows.js).
     $('#VectFox_lorebase_model')

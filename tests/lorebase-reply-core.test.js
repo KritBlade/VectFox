@@ -142,13 +142,24 @@ describe("a reply's pick and reviews", () => {
         expect(lore).toMatchObject({ picks: [], reviewedPicks: [], failures: [] });
     });
 
+    it('times the pick, and each review on its own, for the tester (§5.10)', async () => {
+        const ask = vi.fn(async (_messages, request) => {
+            await new Promise(resolve => { setTimeout(resolve, isPick(request) ? 40 : 10); });
+            return isPick(request) ? [pickItem(1), pickItem(2)] : [{ entry: 1, uses: 'most', leave_out: [] }];
+        });
+        const lore = await loreForReply({ scene, books: [harborAtlas], reviewEffort: 'low', ask });
+        expect(lore.pickSeconds).toBeGreaterThanOrEqual(0.03);
+        expect(lore.reviewedPicks.map(reviewed => reviewed.seconds)).toEqual([expect.any(Number), expect.any(Number)]);
+        for (const reviewed of lore.reviewedPicks) expect(reviewed.seconds).toBeGreaterThanOrEqual(0.005);
+    });
+
     it('leaves every selected entry out when the pick fails, and asks no review', async () => {
         const error = timeout();
         const ask = vi.fn(async () => { throw error; });
         const lore = await loreForReply({ scene, books: [harborAtlas], reviewEffort: 'low', ask });
         expect(ask).toHaveBeenCalledTimes(1);
         expect(lore).toEqual({
-            contentCount: 2, picks: [], unreadItemCount: 0, reviewedPicks: [],
+            contentCount: 2, picks: [], unreadItemCount: 0, pickSeconds: expect.any(Number), reviewedPicks: [],
             failures: [{ step: 'pick', detail: 'it did not answer within 30 seconds', error }],
         });
     });
@@ -162,7 +173,10 @@ describe("a reply's pick and reviews", () => {
         });
         const lore = await loreForReply({ scene, books: [harborAtlas], reviewEffort: 'low', ask });
         expect(lore.reviewedPicks.map(({ title, sentParts }) => ({ title, sentParts }))).toEqual([{ title: 'Tidewardens', sentParts: [1] }]);
-        expect(lore.failures).toEqual([{ step: 'review', title: 'Lighthouse of Vell', detail: 'LoreBase: OpenRouter HTTP 429: Too Many Requests', error }]);
+        expect(lore.failures).toEqual([{
+            step: 'review', bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', detail: 'LoreBase: OpenRouter HTTP 429: Too Many Requests', error,
+            seconds: expect.any(Number),
+        }]);
     });
 
     it('fails a call whose answer cannot be read: a pick with no entries in it, or a review with no amount for entry 1', async () => {
@@ -174,7 +188,7 @@ describe("a reply's pick and reviews", () => {
         const reviewAsk = vi.fn(async (_messages, request) => (isPick(request) ? [pickItem(2)] : [{ entry: 2, uses: 'most', leave_out: [] }]));
         const lore = await loreForReply({ scene, books: [harborAtlas], reviewEffort: 'low', ask: reviewAsk });
         expect(lore.reviewedPicks).toEqual([]);
-        expect(lore.failures).toEqual([{ step: 'review', title: 'Tidewardens', detail: 'its answer could not be read' }]);
+        expect(lore.failures).toEqual([{ step: 'review', bookName: 'Harbor Atlas', uid: 1, title: 'Tidewardens', detail: 'its answer could not be read', seconds: expect.any(Number) }]);
     });
 });
 

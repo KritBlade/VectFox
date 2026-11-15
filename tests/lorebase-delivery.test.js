@@ -4,7 +4,8 @@
  * once the app is ready, and again each time the interceptor holds, after any listener added since; a reply's picks go
  * to the next scan in the same chat, and only to it; every scan blanks the keys of the entries LoreBase decides in the
  * books locked here (D11); while LoreBase does not act, with VectFox or its switch off or Vector Storage's World Info
- * search on (§5.9), the scan is left alone.
+ * search on (§5.9), the scan is left alone; and the tester's dry scan as SillyTavern alone (§5.10) is left alone too,
+ * but never while a generation's scan is due, and never counted when an interceptor held during it.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -40,7 +41,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 const { eventSource } = await import('../src/sillytavern/events.js');
-const { holdLoreForNextScan, initializeLoreBaseDelivery } = await import('../src/features/lorebase/lorebase-delivery.js');
+const { holdLoreForNextScan, initializeLoreBaseDelivery, scanLeftToSillyTavern } = await import('../src/features/lorebase/lorebase-delivery.js');
 
 initializeLoreBaseDelivery();
 
@@ -178,5 +179,44 @@ describe('where LoreBase leaves the scan alone', () => {
         host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = [];
         const loaded = await scan();
         expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], ['lamp']]);
+    });
+});
+
+describe("the tester's scan as SillyTavern alone (§5.10)", () => {
+    it('leaves that scan unarmed, every key kept and nothing forced, once the scan due since the last hold went', async () => {
+        await scan();
+        eventSource.emit.mockClear();
+        const loaded = await scanLeftToSillyTavern(() => scan());
+        expect(keysOf(loaded)).toEqual([['lighthouse'], ['tidewarden'], ['bell'], ['lamp']]);
+        expect(forcedActivations()).toEqual([]);
+    });
+
+    it("runs nothing while a generation's scan is due, from the interceptor's hold to that scan", async () => {
+        const run = vi.fn(() => scan());
+        expect(await scanLeftToSillyTavern(run)).toBeNull();
+        expect(run).not.toHaveBeenCalled();
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        expect(await scanLeftToSillyTavern(run)).toBeNull();
+        expect(run).not.toHaveBeenCalled();
+    });
+
+    it('counts for nothing when an interceptor holds during it, and arms every scan after that hold', async () => {
+        await scan();
+        eventSource.emit.mockClear();
+        const result = await scanLeftToSillyTavern(async () => {
+            holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+            return scan();
+        });
+        expect(result).toBeNull();
+        expect(forcedActivations()).toEqual([[{ uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], content: 'The lighthouse stands on the north cliff.' }]]);
+    });
+
+    it('runs one at a time', async () => {
+        await scan();
+        const inner = vi.fn();
+        let innerResult;
+        await scanLeftToSillyTavern(async () => { innerResult = await scanLeftToSillyTavern(inner); });
+        expect(innerResult).toBeNull();
+        expect(inner).not.toHaveBeenCalled();
     });
 });

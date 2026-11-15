@@ -13,7 +13,7 @@ EventBase is the **exclusive** retrieval path for chat content: chat history (li
 
 The pipelines never see each other's content. There is no overlap in collection prefixes or content types.
 
-Lorebooks are in neither. LoreBase (`src/features/lorebase/`), while its switch on the WorldInfo page is on, picks the entries a reply needs and sends them through SillyTavern's own World Info scan; it stores no vectors, and never runs beside the World Info search of SillyTavern's Vector Storage. The `vf_lorebook_*` collections vectorized before LoreBase are still listed, and nothing searches them.
+Lorebooks are in neither. LoreBase (`src/features/lorebase/`), while its switch on the WorldInfo page is on, picks the entries a reply needs and sends them through SillyTavern's own World Info scan; it stores no vectors, and never runs beside the World Info search of SillyTavern's Vector Storage. Its tester (`lorebase-tester.js`) keeps a report of each reply in page memory, for the WorldInfo page's tester card. The `vf_lorebook_*` collections vectorized before LoreBase are still listed, and nothing searches them.
 
 ### Key isolation rule (`src/features/chunkbase/chat-vectorization.js` → `gatherCollectionsToQuery`)
 
@@ -961,7 +961,7 @@ EventBase-only users (the typical case) hit gate 1 and short-circuit — debug l
 
 **Why deferred**: activation requires a lock (gate 2 of `shouldCollectionActivate`), so a cheap `enabled AND (chat-locked OR character-locked)` pre-check matches every activation path. The saving is about 20ms per generation — not worth doing in isolation; revisit if/when we touch Phase B for another reason.
 
-**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([src/index.js:446](../src/index.js#L446) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
+**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([src/index.js:449](../src/index.js#L449) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
 
 **Search tag in code**: none yet. When acted on, target [src/features/chunkbase/chat-vectorization.js:1042](../src/features/chunkbase/chat-vectorization.js#L1042) (the `if (!collectionsToQuery.length)` block).
 

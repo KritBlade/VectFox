@@ -11,6 +11,10 @@
  * ST-Prompt-Template, which drops, disables or renders entries at the same event: it is made SillyTavern's last once
  * the app is ready, and again each time the interceptor holds, as a listener added later, such as a TavernHelper
  * script's when its chat loads, would otherwise run after it and could give a selected entry its keys back.
+ *
+ * The tester (§5.10) scans as SillyTavern alone, dry, to learn what SillyTavern's keys would send: that scan is left
+ * alone, and what is held stays held. It runs only while no generation's scan is due, from an interceptor run to the
+ * scan that follows it, and counts only when no interceptor ran meanwhile; any scan after one is armed as ever.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
@@ -24,6 +28,12 @@ import { isLoreBaseActive } from './lorebase-switch.js';
 let heldLore = null;
 // Whether scans are armed: from the moment the app is ready, when the listener is first made the last.
 let isArmingScans = false;
+// Interceptor runs so far: each holds a reply's picks or none, and a World Info scan follows it.
+let holdCount = 0;
+// Whether an interceptor has held since the last scan, so a generation's scan is due.
+let isScanDue = false;
+// While the tester scans as SillyTavern alone: the hold count when it began; null otherwise.
+let scanAloneAtHold = null;
 
 /** Make the scan listener SillyTavern's last, after every listener added before now. */
 function makeScanListenerLast() {
@@ -38,7 +48,29 @@ function makeScanListenerLast() {
 export function holdLoreForNextScan(lore) {
     const deliveries = lore ? scanDeliveries(lore.reviewedPicks) : null;
     heldLore = deliveries?.size ? { chatId: getCurrentChatId() ?? null, deliveries } : null;
+    holdCount += 1;
+    isScanDue = true;
     if (isArmingScans) makeScanListenerLast();
+}
+
+/**
+ * Run the tester's dry scan as SillyTavern alone: LoreBase leaves it unarmed, so every entry fires by its keys. Not
+ * while a generation's scan is due, so that scan is never left unarmed.
+ * @template T
+ * @param {() => Promise<T>} scan - Runs the scan
+ * @returns {Promise<T|null>} The scan's result, or null when it did not run alone: a generation's scan was due, or an
+ *   interceptor ran during it, after which its scan may have been armed
+ */
+export async function scanLeftToSillyTavern(scan) {
+    if (isScanDue || scanAloneAtHold !== null) return null;
+    const startedAtHold = holdCount;
+    scanAloneAtHold = startedAtHold;
+    try {
+        const result = await scan();
+        return holdCount === startedAtHold ? result : null;
+    } finally {
+        scanAloneAtHold = null;
+    }
 }
 
 /** Each book's selected uids where it takes part in this scan: locked to the chat or its character (D11). */
@@ -57,6 +89,9 @@ function takingPartLookup() {
 
 /** Arm the scan that fired WORLDINFO_ENTRIES_LOADED, taking the picks held for it. */
 async function armLoadedScan(loaded) {
+    // The tester's scan as SillyTavern alone, with no interceptor run since it began: left as SillyTavern loaded it.
+    if (scanAloneAtHold !== null && scanAloneAtHold === holdCount) return;
+    isScanDue = false;
     const held = heldLore;
     heldLore = null;
     if (!isLoreBaseActive()) return;

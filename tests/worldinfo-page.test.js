@@ -2,20 +2,21 @@
  * @vitest-environment jsdom
  *
  * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): LoreBase's
- * two cards, its switch first, and nothing of the old vector search; every control keeps the id its wiring uses; the
- * page is drawn from GUI-DNA alone with none of the old debug tools; and the LoreBase book list says what each book of
- * the open chat has selected and where it is locked.
+ * three cards, its switch first, and nothing of the old vector search; every control keeps the id its wiring uses; the
+ * page is drawn from GUI-DNA alone with none of the old debug tools; the LoreBase book list says what each book of
+ * the open chat has selected and where it is locked; and the tester's report says what LoreBase did on a reply (§5.10).
  */
 /* global document, Node -- this file runs under the jsdom environment */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-const { loreBaseBooksMarkup, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
+const { loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 
-// The ids settings-panel.js and lorebase-books-card.js wire on the WorldInfo page.
+// The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
     'VectFox_lorebase_enabled', 'VectFox_lorebase_off_notice', 'VectFox_lorebase_books_card', 'VectFox_lorebase_books',
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
+    'VectFox_lorebase_tester_card', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
 ];
 // The old vector search's controls, deleted with it.
 const OLD_SEARCH_IDS = [
@@ -34,8 +35,8 @@ describe('WorldInfo page markup', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it("holds LoreBase's two cards, its books always shown, with the list empty and the door to the selection screen", () => {
-        expect([...document.querySelectorAll('.vfx-card-title')].map(title => title.textContent)).toEqual(['LoreBase books', 'LoreBase model']);
+    it("holds LoreBase's three cards, its books always shown, with the list empty and the door to the selection screen", () => {
+        expect([...document.querySelectorAll('.vfx-card-title')].map(title => title.textContent)).toEqual(['LoreBase books', 'LoreBase model', 'LoreBase tester']);
         const books = document.getElementById('VectFox_lorebase_books_card');
         expect(books.style.display).toBe('');
         expect(document.getElementById('VectFox_lorebase_books').innerHTML).toBe('');
@@ -104,5 +105,128 @@ describe('loreBaseBooksMarkup', () => {
         expect(rowsOf({ hasChat: true, books: [{ bookName: 'The <b>Old</b> "Keep"', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false }] })[0])
             .toMatchObject({ name: 'The <b>Old</b> "Keep"', opens: 'The <b>Old</b> "Keep"' });
         expect(document.querySelector('.vfx-row b')).toBeNull();
+    });
+});
+
+describe("the tester's report (§5.10)", () => {
+    const lighthouse = {
+        bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', basis: 'named in the chat', certain: true,
+        why: 'Wren asks who keeps the lamp.', needs: 'the keeper', wholeText: 'whole',
+        review: {
+            uses: 'some', seconds: 4.12,
+            parts: [{ text: 'The lighthouse stands on the north cliff.', isSent: true }, { text: 'It was raised after the long storm.', isSent: false }],
+            sentText: 'The lighthouse stands on the north cliff.',
+        },
+        failure: null, isInPrompt: true,
+    };
+    const tidewardens = {
+        bookName: 'Harbor Atlas', uid: 1, title: 'Tidewardens', basis: 'in the scene, not named', certain: false,
+        why: 'The bells may ring.', needs: 'the bells', wholeText: 'whole', review: null,
+        failure: 'it did not answer within 30 seconds', isInPrompt: null,
+    };
+    const measured = {
+        id: 7, chatId: 'chat', type: 'swipe', accuracy: 'default', madeAt: Date.UTC(2026, 10, 15, 15, 42, 10),
+        contentCount: 3, picks: [lighthouse, tidewardens], skipped: [{ bookName: 'Harbor Atlas', uid: 2, title: 'Old Pier' }],
+        unreadItemCount: 0,
+        failures: [{ step: 'review', title: 'Tidewardens', detail: 'it did not answer within 30 seconds' }],
+        seconds: { pick: 2.63, slowestReview: 4.12, total: 6.81 },
+        isUnderWay: false, messageIndex: 12, swipeId: 1, isMeasuring: false, measureFailure: null,
+        tokens: { sent: 412, pickedWhole: 1230, picks: [{ sent: 412, whole: 1230 }, null], promptWorldInfo: 5000 },
+        keysState: 'measured', keys: { entries: 3, tokens: 3456, worldInfo: 8044 },
+    };
+    const drawn = report => {
+        document.body.innerHTML = loreBaseReportMarkup(report);
+        return {
+            summary: [...document.querySelectorAll('.vfx-stack > .vfx-result > .vfx-result-line')].map(line => line.textContent),
+            records: [...document.querySelectorAll('.vfx-stack > .vfx-record')].map(record => ({
+                name: record.querySelector('.vfx-record-name').textContent,
+                pills: [...record.querySelector('.vfx-record-header').querySelectorAll('.vfx-pill')].map(pill => pill.textContent.trim()),
+                lines: [...record.querySelector('.vfx-record-body').children].filter(child => child.matches('.vfx-result'))
+                    .flatMap(list => [...list.querySelectorAll('.vfx-result-line')]).map(line => line.textContent),
+            })),
+        };
+    };
+
+    it('says the open chat has no report yet', () => {
+        expect(loreBaseReportMarkup(null)).toContain('No reply in this chat used LoreBase since the page loaded.');
+    });
+
+    it("sums the reply up: the pick, the time, the tokens against SillyTavern's keys, and each failure", () => {
+        expect(drawn(measured).summary).toEqual([
+            'Picked: 2 of 3 selected entries',
+            'Time: pick 2.6 s, slowest review 4.1 s, 6.8 s in all',
+            'LoreBase sent: 412 tokens, from 1,230 in the same entries whole',
+            "SillyTavern's keys: 3 selected entries, 3,456 tokens",
+            'World Info in the prompt: 5,000 tokens; SillyTavern alone 8,044 tokens',
+            'A review failed: Tidewardens: it did not answer within 30 seconds',
+        ]);
+    });
+
+    it("shows each pick with Luna's reasons and its review, its parts folded, then the entries left out", () => {
+        const { records } = drawn(measured);
+        expect(records).toEqual([
+            {
+                name: 'Lighthouse of Vell', pills: ['Certain', 'Uses some'],
+                lines: ['Book: Harbor Atlas', 'Basis: named in the chat', 'Why: Wren asks who keeps the lamp.', 'Wants: the keeper', 'Sends: 1 of 2 parts, 412 of 1,230 tokens, reviewed in 4.1 s'],
+            },
+            {
+                name: 'Tidewardens', pills: ['Might', 'Review failed'],
+                lines: ['Book: Harbor Atlas', 'Basis: in the scene, not named', 'Why: The bells may ring.', 'Wants: the bells', 'Review failed: it did not answer within 30 seconds'],
+            },
+            { name: 'Not picked', pills: ['1'], lines: ['Old Pier'] },
+        ]);
+        const parts = document.querySelector('[data-lorebase-parts="0"]');
+        expect([...parts.querySelectorAll('.vfx-pill')].map(pill => pill.textContent)).toEqual(['1 of 2 kept']);
+        expect([...parts.querySelectorAll('.vfx-result-line')].map(line => [line.textContent, line.classList.contains('is-success')])).toEqual([
+            ['The lighthouse stands on the north cliff.', true],
+            ['It was raised after the long storm.', false],
+        ]);
+        expect(parts.querySelector('.vfx-collapse')).not.toBeNull();
+        expect(document.querySelector('[data-lorebase-skipped] .vfx-collapse')).not.toBeNull();
+    });
+
+    it("marks a pick SillyTavern's World Info budget cut, and names each entry's book when the reply read several", () => {
+        const cut = { ...lighthouse, isInPrompt: false };
+        const skipped = [{ bookName: 'Wren Journal', uid: 4, title: 'Fog Season' }];
+        const { records } = drawn({ ...measured, picks: [cut], skipped, failures: [] });
+        expect(records[0].pills).toEqual(['Certain', 'Uses some', "Cut by SillyTavern's budget"]);
+        expect(records[1].lines).toEqual(['Fog Season · Wren Journal']);
+    });
+
+    it("waits for the reply to end, then for SillyTavern's keys while a reply is under way", () => {
+        expect(drawn({ ...measured, isUnderWay: true, tokens: null, keysState: 'unmeasured', keys: null }).summary)
+            .toContain('Tokens are counted once the reply ends.');
+        expect(drawn({ ...measured, keysState: 'waiting', keys: null }).summary).toEqual(expect.arrayContaining([
+            "What SillyTavern's keys would send is measured when no reply is under way.",
+            'World Info in the prompt: 5,000 tokens',
+        ]));
+        expect(drawn({ ...measured, keysState: 'unavailable', keys: null }).summary)
+            .toContain("What SillyTavern's keys would send was not measured for this reply.");
+    });
+
+    it('says when the pick failed, so nothing went in', () => {
+        const failed = { ...measured, picks: [], skipped: [], failures: [{ step: 'pick', title: null, detail: 'its answer could not be read' }] };
+        expect(drawn(failed).summary).toContain('The pick failed: its answer could not be read');
+        expect(document.body.textContent).toContain('The pick failed, so no entry went in.');
+    });
+
+    it('shows a title written like markup as written', () => {
+        drawn({ ...measured, picks: [{ ...lighthouse, title: 'The <b>Old</b> Keep' }], failures: [] });
+        expect(document.querySelector('.vfx-record-name').textContent).toBe('The <b>Old</b> Keep');
+        expect(document.querySelector('.vfx-record b')).toBeNull();
+    });
+
+    it('lists the Reply options newest first, each by its time, its kind and its message', () => {
+        const time = new Date(measured.madeAt).toLocaleTimeString('en-GB', { hour12: false });
+        document.body.innerHTML = `<select>${loreBaseReportOptions([
+            { ...measured, id: 9, type: 'normal', isUnderWay: true, messageIndex: null, swipeId: null },
+            measured,
+            { ...measured, id: 3, type: 'continue', messageIndex: 10, swipeId: 0 },
+        ], 7)}</select>`;
+        expect([...document.querySelectorAll('option')].map(option => [option.value, option.textContent, option.selected])).toEqual([
+            ['9', `${time} · send · under way`, false],
+            ['7', `${time} · swipe · message #12, swipe 2`, true],
+            ['3', `${time} · continue · message #10`, false],
+        ]);
     });
 });

@@ -443,10 +443,11 @@ const onChatEvent = debounce(async () => await moduleWorker.update(), debounce_t
 /**
  * The generation interceptor, which SillyTavern runs after slash commands and never on a dry run: EventBase retrieval
  * and the chunk collections' search (rearrangeChat), and side by side with them LoreBase's pick and reviews, whose
- * picks are held for SillyTavern's World Info scan once both are done.
+ * picks are held for SillyTavern's World Info scan once both are done. The chat and context size are the scan's, which
+ * LoreBase's tester keeps.
  */
-async function vectfox_rearrangeChat(chat, _contextSize, _abort, type) {
-    await prepareLoreBesideRetrieval(type, settings, () => rearrangeChat(chat, settings, type));
+async function vectfox_rearrangeChat(chat, contextSize, _abort, type) {
+    await prepareLoreBesideRetrieval(type, settings, () => rearrangeChat(chat, settings, type), { chat, maxContext: contextSize });
 }
 
 // Export to window for ST to call

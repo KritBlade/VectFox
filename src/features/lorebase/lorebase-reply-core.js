@@ -1,8 +1,8 @@
 /**
  * LoreBase on a reply, the pure rules (plan §5.6, §5.8 and D8 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md): which generations it serves, the books taking part and the entries it
- * decides in them, the pick and one review per pick, all sent at once on a call the caller supplies, and the toast for
- * a turn that left lore out (D14). Pure: no SillyTavern, no network.
+ * decides in them, the pick and one review per pick, all sent at once on a call the caller supplies and each timed for
+ * the tester (§5.10), and the toast for a turn that left lore out (D14). Pure: no SillyTavern, no network.
  */
 import { pickMessages, readPicks, tableOfContents } from './lorebase-pick-core.js';
 import { partsToSend, readReview, reviewMessages } from './lorebase-review-core.js';
@@ -104,18 +104,23 @@ function failureDetail(error) {
     return String(error?.message || error).replace(/\s+/g, ' ').trim();
 }
 
+const secondsSince = startedAt => (performance.now() - startedAt) / 1000;
+
 async function reviewPick(pick, { scene, books, effort, ask }) {
     const book = books.find(candidate => candidate.bookName === pick.bookName);
     const entry = book.entries.find(candidate => candidate.uid === pick.uid);
     const { frame, passages } = entryPassages(entry);
+    const failure = { step: 'review', bookName: pick.bookName, uid: pick.uid, title: pick.title };
+    const startedAt = performance.now();
     try {
         const items = await ask(reviewMessages(scene, pick, passages), { maxTokens: REVIEW_MAX_TOKENS, reasoningEffort: effort, identKeys: ['entry'] });
+        const seconds = secondsSince(startedAt);
         const review = readReview(items, passages.length);
-        if (!review) return { failure: { step: 'review', title: pick.title, detail: UNREADABLE_ANSWER } };
+        if (!review) return { failure: { ...failure, detail: UNREADABLE_ANSWER, seconds } };
         const sentParts = partsToSend(passages, review, book.pinnedSections);
-        return { reviewedPick: { bookName: pick.bookName, uid: pick.uid, title: pick.title, uses: review.uses, frame, passages, sentParts } };
+        return { reviewedPick: { bookName: pick.bookName, uid: pick.uid, title: pick.title, uses: review.uses, frame, passages, sentParts, seconds } };
     } catch (error) {
-        return { failure: { step: 'review', title: pick.title, detail: failureDetail(error), error } };
+        return { failure: { ...failure, detail: failureDetail(error), error, seconds: secondsSince(startedAt) } };
     }
 }
 
@@ -124,11 +129,13 @@ async function reviewPick(pick, { scene, books, effort, ask }) {
  * @property {number} contentCount - Entries in the table of contents the pick read
  * @property {object[]} picks - From readPicks, most needed first
  * @property {number} unreadItemCount - Items of the pick's answer that named no entry of the table
+ * @property {number} pickSeconds - How long the pick took to answer, or to fail
  * @property {Array<{bookName: string, uid: number, title: string, uses: string, frame: object|null, passages: object[],
- *   sentParts: number[]}>} reviewedPicks - Each pick whose review was read, with the numbers of the parts it sends:
- *   none when the review says the reply uses none of the entry
- * @property {Array<{step: string, title?: string, detail: string, error?: unknown}>} failures - The failed pick, or
- *   each failed review; `error` is what the call threw, and an answer that could not be read has none
+ *   sentParts: number[], seconds: number}>} reviewedPicks - Each pick whose review was read, with the numbers of the
+ *   parts it sends: none when the review says the reply uses none of the entry; and how long its review took
+ * @property {Array<{step: string, bookName?: string, uid?: number, title?: string, detail: string, error?: unknown,
+ *   seconds?: number}>} failures - The failed pick, or each failed review with its entry and how long it took; `error`
+ *   is what the call threw, and an answer that could not be read has none
  */
 
 /**
@@ -147,17 +154,23 @@ async function reviewPick(pick, { scene, books, effort, ask }) {
 export async function loreForReply({ scene, books, reviewEffort: effort, ask }) {
     const contents = tableOfContents(books);
     let picked;
+    const pickStartedAt = performance.now();
     try {
         const items = await ask(pickMessages(scene, contents), { maxTokens: PICK_MAX_TOKENS, reasoningEffort: PICK_REASONING_EFFORT, identKeys: ['number'] });
         picked = readPicks(items, contents);
     } catch (error) {
-        return { contentCount: contents.length, picks: [], unreadItemCount: 0, reviewedPicks: [], failures: [{ step: 'pick', detail: failureDetail(error), error }] };
+        return {
+            contentCount: contents.length, picks: [], unreadItemCount: 0, pickSeconds: secondsSince(pickStartedAt),
+            reviewedPicks: [], failures: [{ step: 'pick', detail: failureDetail(error), error }],
+        };
     }
+    const pickSeconds = secondsSince(pickStartedAt);
     const reviews = await Promise.all(picked.picks.map(pick => reviewPick(pick, { scene, books, effort, ask })));
     return {
         contentCount: contents.length,
         picks: picked.picks,
         unreadItemCount: picked.unreadItemCount,
+        pickSeconds,
         reviewedPicks: reviews.filter(review => review.reviewedPick).map(review => review.reviewedPick),
         failures: reviews.filter(review => review.failure).map(review => review.failure),
     };
