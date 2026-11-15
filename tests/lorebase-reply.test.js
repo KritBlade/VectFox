@@ -27,7 +27,11 @@ vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: { on: (event, handler) => { host.handlers[event] = handler; } },
     event_types: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHARACTER_RENAMED: 'character_renamed', CHAT_RENAMED: 'chat_renamed' },
 }));
-vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: id => (id === '3' ? 'keeper-orrin' : null) }));
+vi.mock('../src/sillytavern/identifiers.js', () => ({
+    getCharaFilename: id => (id === '3' ? 'keeper-orrin' : null),
+    // SillyTavern's server cleaner, which drops what a file name cannot hold.
+    getSanitizedFilename: vi.fn(async fileName => fileName.replace(/[/?<>\\:*|"]/gu, '')),
+}));
 vi.mock('../src/sillytavern/world-info.js', () => ({
     METADATA_KEY: 'world_info',
     getWorldInfoSettings: () => ({ world_info: { charLore: host.charLore } }),
@@ -61,6 +65,8 @@ vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
 }));
 
 const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
+const { getSanitizedFilename } = await import('../src/sillytavern/identifiers.js');
+const { log } = await import('../src/sillytavern/log.js');
 const { notifyInvalidModel, notifySetupIncomplete } = await import('../src/shared/model-config-notifier.js');
 const { postChatCompletion } = await import('../src/features/llm-provider/index.js');
 const { stripReasoningBlocks } = await import('../src/features/text-cleaning/index.js');
@@ -168,14 +174,25 @@ describe('the books taking part (D11)', () => {
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Keeper Notes']);
     });
 
-    it('keeps a book locked to a chat through its rename, which SillyTavern announces with the file names', async () => {
-        host.handlers.chat_renamed({ avatarId: 'keeper-orrin.png', groupId: undefined, oldFileName: 'chat-harbor.jsonl', newFileName: 'chat-harbor-storm.jsonl' });
-        host.chatId = 'chat-harbor-storm';
+    it('keeps a book locked to a chat through its rename, under the name the server saved its file as', async () => {
+        // SillyTavern announces the name as typed; its server saved the file without the colon and question mark.
+        await host.handlers.chat_renamed({ avatarId: 'keeper-orrin.png', groupId: undefined, oldFileName: 'chat-harbor.jsonl', newFileName: 'Harbor: the storm?.jsonl' });
+        host.chatId = 'Harbor the storm';
         postChatCompletion.mockResolvedValue(pickOf());
         await prepareLoreForReply('normal', settings);
 
-        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds).toEqual(['chat-harbor-storm']);
+        expect(getSanitizedFilename).toHaveBeenCalledWith('Harbor: the storm?.jsonl');
+        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds).toEqual(['Harbor the storm']);
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas']);
+    });
+
+    it("leaves a renamed chat's locks where they were, with a warning, when the server cannot say the saved name", async () => {
+        const failure = new Error('Not Found');
+        getSanitizedFilename.mockRejectedValueOnce(failure);
+        await host.handlers.chat_renamed({ avatarId: 'keeper-orrin.png', groupId: undefined, oldFileName: 'chat-harbor.jsonl', newFileName: 'chat-harbor-storm.jsonl' });
+
+        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds).toEqual(['chat-harbor']);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('saved under'), failure);
     });
 
     it('asks nothing when no book taking part has a selected entry LoreBase decides', async () => {

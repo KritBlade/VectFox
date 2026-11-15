@@ -7,6 +7,7 @@
  * once. A turn whose pick or review fails goes on without that lore, with a toast (D14).
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
+import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
@@ -30,6 +31,23 @@ let lastGeneration = null;
 const chatIdOfFile = fileName => String(fileName ?? '').replace(/\.jsonl$/u, '');
 
 /**
+ * Move a renamed chat's locks to the name its file was saved under, which is the chat's id from then on. SillyTavern's
+ * event carries the name as typed, but its server drops what a file name cannot hold (a colon, a question mark, quotes)
+ * before saving, so the same server cleaner is asked what it saved.
+ * @param {{oldFileName?: string, newFileName?: string}} renamed - CHAT_RENAMED's data
+ */
+async function followChatRename({ oldFileName, newFileName } = {}) {
+    let savedFileName;
+    try {
+        savedFileName = await getSanitizedFilename(String(newFileName ?? ''));
+    } catch (error) {
+        log.warn('LoreBase: could not learn the name a renamed chat was saved under, so its book locks stay on the old name:', error);
+        return;
+    }
+    renameLoreBookChat(chatIdOfFile(oldFileName), chatIdOfFile(savedFileName));
+}
+
+/**
  * Follow generations, so a quiet-to-loud one counts as a reply, and renamed characters and chats, so a book locked to
  * one stays locked to it. Called once at start-up.
  */
@@ -40,7 +58,7 @@ export function initializeLoreBase() {
         lastGeneration = { type, isQuietToLoud: Boolean(options?.quietToLoud) };
     });
     eventSource.on(event_types.CHARACTER_RENAMED, renameLoreBookCharacter);
-    eventSource.on(event_types.CHAT_RENAMED, ({ oldFileName, newFileName } = {}) => renameLoreBookChat(chatIdOfFile(oldFileName), chatIdOfFile(newFileName)));
+    eventSource.on(event_types.CHAT_RENAMED, followChatRename);
 }
 
 /**

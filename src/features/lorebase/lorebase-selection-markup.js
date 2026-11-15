@@ -106,7 +106,7 @@ function controlsCard(choices, bookName) {
                 input({ id: ids.search, placeholder: 'Search titles, keys and text', title: 'Search the entries' }),
                 select({ id: ids.size, title: 'Size', options: SIZE_CHOICES.map(size => selectOption({ value: String(size), text: sizeNames[size] })) }),
                 select({ id: ids.keys, title: 'Keys', options: [
-                    selectOption({ value: KEY_CHOICES.any, text: 'With or without keys' }),
+                    selectOption({ value: KEY_CHOICES.any, text: 'Any keys' }),
                     selectOption({ value: KEY_CHOICES.withKeys, text: 'With keys' }),
                     selectOption({ value: KEY_CHOICES.withoutKeys, text: 'Without keys' }),
                 ] }),
@@ -135,19 +135,29 @@ function categoriesPane() {
     </section>`;
 }
 
-function entriesPane() {
+/**
+ * The bulk bar: a row that ticks and a row that acts on the ticked. Untick all with Invert, and Turn on with Turn off,
+ * each sit in a row of their own inside it, which wraps to the next line whole, so on a phone neither pair splits.
+ */
+function bulkBar() {
     const bulkButton = (name, text, icon) => button({ text, icon, isDisabled: true, data: action(name) });
+    return controlRow([
+        button({ text: 'Tick all matching', icon: 'fa-check-double', data: action('tick-all') }),
+        controlRow([
+            button({ text: 'Untick all', icon: 'fa-square', data: action('untick-all') }),
+            button({ text: 'Invert', icon: 'fa-right-left', data: action('invert') }),
+        ]),
+    ]) + controlRow([
+        statusPill({ name: '0 ticked', data: { 'lorebase-ticked-count': '' } }),
+        controlRow([bulkButton('turn-on', 'Turn on', 'fa-toggle-on'), bulkButton('turn-off', 'Turn off', 'fa-toggle-off')]),
+    ]);
+}
+
+function entriesPane() {
     return `<section class="vfx-card is-pane">
         ${cardHeader({ icon: 'fa-list-check', title: 'Entries', description: 'Tick entries to turn LoreBase on or off for several at once.', isCollapsible: false })}
         <div class="vfx-card-body vfx-stack">
-            ${controlRow([
-                button({ text: 'Tick all matching', icon: 'fa-check-double', data: action('tick-all') }),
-                button({ text: 'Untick all', icon: 'fa-square', data: action('untick-all') }),
-                button({ text: 'Invert', icon: 'fa-right-left', data: action('invert') }),
-                statusPill({ name: '0 ticked', data: { 'lorebase-ticked-count': '' } }),
-                bulkButton('turn-on', 'Turn on', 'fa-toggle-on'),
-                bulkButton('turn-off', 'Turn off', 'fa-toggle-off'),
-            ])}
+            ${bulkBar()}
             <div id="${ids.entriesNotice}"></div>
             <div id="${ids.entries}" class="vfx-list">${emptyState({ icon: 'fa-spinner', text: 'Loading the lorebook…' })}</div>
             <div id="${ids.entriesFooter}"></div>
