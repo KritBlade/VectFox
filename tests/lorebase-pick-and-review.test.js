@@ -50,10 +50,11 @@ describe('the table of contents', () => {
 describe('reading the pick', () => {
     const contents = tableOfContents([{ bookName: 'Harbor Lore', entries: Array.from({ length: 9 }, (_, uid) => ({ uid, comment: `Entry ${uid}` })) }]);
 
-    it('keeps the picks in their order with their reasons, each entry once, at most 6', () => {
-        const items = [9, 3, 3, 1, 2, 4, 5, 6, 7].map(number => ({ number, basis: ' Named In The Chat ', why: ' The user asks. ', needs: ' who ', certain: number === 9 }));
-        const { picks, unreadItemCount } = readPicks(items, contents);
-        expect(picks.map(pick => pick.number)).toEqual([9, 3, 1, 2, 4, 5]);
+    it('keeps the picks in their order with their reasons, each entry once, at most 12', () => {
+        const fifteen = tableOfContents([{ bookName: 'Harbor Lore', entries: Array.from({ length: 15 }, (_, uid) => ({ uid, comment: `Entry ${uid}` })) }]);
+        const items = [9, 3, 3, 1, 2, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15].map(number => ({ number, basis: ' Named In The Chat ', why: ' The user asks. ', needs: ' who ', certain: number === 9 }));
+        const { picks, unreadItemCount } = readPicks(items, fifteen);
+        expect(picks.map(pick => pick.number)).toEqual([9, 3, 1, 2, 4, 5, 6, 7, 8, 10, 11, 12]);
         expect(picks[0]).toEqual({
             number: 9, bookName: 'Harbor Lore', uid: 8, title: 'Entry 8', basis: 'named in the chat', why: 'The user asks.', needs: 'who', certain: true,
         });
