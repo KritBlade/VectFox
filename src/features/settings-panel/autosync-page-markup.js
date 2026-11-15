@@ -12,6 +12,7 @@
 
 import { detail, field, fieldLabel, hint, input, notice, resultList, stack } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { GHOST_STEP_MAX } from '../../shared/constants.js';
 
 const HIDDEN = ' style="display:none;"';
 
@@ -67,6 +68,12 @@ function ghostingCard() {
                 sliderNumber({ id: 'VectFox_eventbase_ghost_keep_recent', min: 1, max: 50, step: 1, title: 'Messages' }),
                 hint({ text: 'Older vectorized messages are blanked. Lower saves more tokens.' }),
                 detail({ text: 'Every message World Info scans is kept as well, so keyword triggers still fire. The blanked turns live on only as events, so check recall as you lower it.' }),
+            ])}
+            ${field([
+                fieldLabel({ text: 'Blank in batches of', forId: 'VectFox_eventbase_ghost_step', hasHelp: true }),
+                sliderNumber({ id: 'VectFox_eventbase_ghost_step', min: 1, max: GHOST_STEP_MAX, step: 1, title: 'Messages per batch' }),
+                hint({ text: 'Bigger batches hold the wipe line still, so the provider can reuse its cached prefix.' }),
+                detail({ text: 'At 1, the default, the wipe line moves every turn. Higher batches hold it still, and the raw window grows up to the messages kept verbatim plus the batch size, minus one. Raise it only if the model can hold that much context.' }),
             ])}
             <div id="VectFox_eventbase_ghost_readout">${notice({ status: 'info', text: 'Last turn: no reply yet.' })}</div>
         </div>

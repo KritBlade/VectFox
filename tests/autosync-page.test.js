@@ -19,7 +19,7 @@ const WIRED_IDS = [
     'VectFox_autosync_popup', 'VectFox_autosync_show_progress_modal', 'VectFox_summarizer_injection_group', 'VectFox_summarizer_injection_enabled',
     'VectFox_summarizer_injection_count', 'VectFox_summarizer_injection_max_chars', 'VectFox_summarizer_injection_full_detail',
     'VectFox_eventbase_ghost_group', 'VectFox_eventbase_ghost_needs_summarizer', 'VectFox_eventbase_ghost_enabled', 'VectFox_eventbase_ghost_keep_recent',
-    'VectFox_eventbase_ghost_readout',
+    'VectFox_eventbase_ghost_step', 'VectFox_eventbase_ghost_readout',
 ];
 
 const limitsOf = id => { const box = document.getElementById(id); return [box.min, box.max, box.step]; };
@@ -50,13 +50,14 @@ describe('AutoSync page markup', () => {
         expect(document.getElementById('VectFox_eventbase_ghost_keep_recent').closest('#VectFox_eventbase_ghost_group')).not.toBeNull();
     });
 
-    it('pairs a slider with the window, the event count and the messages kept, on their boxes\' limits', () => {
+    it('pairs a slider with the window, the event count, the messages kept and the batch size, on their boxes\' limits', () => {
         const ranges = [...document.querySelectorAll('.vfx-range[data-vfx-slider-for]')];
-        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_autosync_window_turns', 'VectFox_summarizer_injection_count', 'VectFox_eventbase_ghost_keep_recent']);
+        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_autosync_window_turns', 'VectFox_summarizer_injection_count', 'VectFox_eventbase_ghost_keep_recent', 'VectFox_eventbase_ghost_step']);
         for (const range of ranges) expect([range.min, range.max, range.step], range.dataset.vfxSliderFor).toEqual(limitsOf(range.dataset.vfxSliderFor));
         expect(limitsOf('VectFox_eventbase_autosync_window_turns')).toEqual(['1', '20', '1']);
         expect(limitsOf('VectFox_summarizer_injection_count')).toEqual(['1', '50', '1']);
         expect(limitsOf('VectFox_eventbase_ghost_keep_recent')).toEqual(['1', '50', '1']);
+        expect(limitsOf('VectFox_eventbase_ghost_step')).toEqual(['1', '100', '1']);
         expect(limitsOf('VectFox_summarizer_injection_max_chars')).toEqual(['0', '100000', '500']);
         for (const id of ['VectFox_autosync_enabled', 'VectFox_autosync_popup', 'VectFox_autosync_show_progress_modal', 'VectFox_summarizer_injection_enabled',
             'VectFox_summarizer_injection_full_detail', 'VectFox_eventbase_ghost_enabled']) {

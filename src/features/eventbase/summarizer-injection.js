@@ -23,7 +23,7 @@ import { getWorldInfoSettings, getSortedEntries } from '../../sillytavern/world-
 import { getBackend } from '../vector-backend/index.js';
 import { getChatUUID } from '../../shared/collection-ids.js';
 import { resolveActiveEventBaseCollection, getVectorizationTip } from './eventbase-store.js';
-import { SUMMARIZER_PROMPT_TAG } from '../../shared/constants.js';
+import { SUMMARIZER_PROMPT_TAG, GHOST_STEP_MAX } from '../../shared/constants.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -140,18 +140,38 @@ function blankPromptClone(m) {
 }
 
 /**
+ * Normalize the ghost batch size (`eventbase_ghost_step`) to a whole number of messages
+ * in the slider's 1..GHOST_STEP_MAX range. Missing, non-numeric, zero, negative,
+ * fractional or non-finite values → 1 (rolling), so a corrupt settings value can never
+ * disable ghosting or break prompt assembly. Values above the maximum clamp down to it,
+ * so a hand-edited settings.json can never put the wipe on a grid the UI cannot show.
+ *
+ * @param {*} v
+ * @returns {number}
+ */
+export function normalizeGhostStep(v) {
+    const n = Math.floor(Number(v));
+    return Number.isFinite(n) && n >= 1 ? Math.min(n, GHOST_STEP_MAX) : 1;
+}
+
+/**
  * Ephemeral "ghosting": keep the most recent N messages verbatim and blank ALL older
  * already-vectorized messages from the OUTGOING prompt only. The chat array we get is
  * ST's interceptor working copy; we replace each wiped slot with a sanitized clone
  * (see blankPromptClone), so the saved chat + UI never change and the whole effect
  * resets on the next generation (nothing to un-ghost, branch-safe).
  *
- * Wipe boundary `cutoff = min(vectorizedInCore, chat.length - keepFloor)`:
+ * Wipe boundary `cutoff = min(vectorizedInCore, chat.length - keepFloor)`, then snapped
+ * DOWN to a multiple of the batch size (`eventbase_ghost_step`):
  *   - `vectorizedInCore` — the vectorization tip translated from FULL-chat index space
  *     into the coreChat space we actually receive (see below). Messages below it are in
  *     EventBase; nothing above it (not yet vectorized) is ever wiped.
  *   - `chat.length - keepFloor` — keeps the last `keepRecent` messages raw, with a hard
  *     floor of 1 so the current outgoing turn is NEVER blanked (even at keepRecent=0).
+ *   - snap-down — a batch size > 1 moves the boundary only every N messages, so the
+ *     prompt's leading prefix stays byte-stable between jumps (provider prompt caching
+ *     can reuse it). It can only wipe LESS than the rolling rule, so every bound above
+ *     still holds.
  * Messages [0, cutoff) are wiped. "Keep last N" auto-scales to any chat length.
  *
  * Wipe mechanism : flag each wiped message
@@ -180,8 +200,13 @@ export function applyGhosting(chat, settings) {
     }
     let wiped = 0;
     let charsRemoved = 0;
+    // Readout values published even when nothing is wiped this turn.
+    let cutoff = 0;
+    let rawKept = Array.isArray(chat) ? chat.length : 0;
+    let nextJumpIn = null;
 
     const keepRecent = Math.max(0, Math.floor(Number(settings.eventbase_ghost_keep_recent) || 0));
+    const batchSize = normalizeGhostStep(settings.eventbase_ghost_step);
     const uuid = getChatUUID();
     // tip = highest extracted message index + 1, in FULL-chat index space.
     const tip = uuid ? getVectorizationTip(uuid) : undefined;
@@ -212,7 +237,16 @@ export function applyGhosting(chat, settings) {
         //                   whole chat (uncapped min-activations), the floor is Infinity →
         //                   cutoff clamps to 0 → ghosting wipes nothing this turn.
         const keepFloor = Math.max(keepRecent, 1, worldInfoScanFloor());
-        const cutoff = Math.max(0, Math.min(vectorizedInCore, chat.length - keepFloor));
+        // Rolling boundary, then snap DOWN to the batch grid so the wipe line only moves
+        // every `batchSize` messages. 1 is the identity (today's behaviour).
+        const rawCutoff = Math.max(0, Math.min(vectorizedInCore, chat.length - keepFloor));
+        cutoff = batchSize > 1 ? Math.floor(rawCutoff / batchSize) * batchSize : rawCutoff;
+        rawKept = Math.max(0, chat.length - cutoff);
+        // Messages until the boundary next jumps. Omitted at batch 1 (no batching) or when an
+        // infinite WI floor pauses ghosting entirely (a countdown there would be noise).
+        if (batchSize > 1 && Number.isFinite(keepFloor)) {
+            nextJumpIn = Math.max(0, cutoff + batchSize - rawCutoff);
+        }
 
         // ST's ignore flag: drop the message from the prompt entirely. Optional — falls back
         // to the blanked clone alone when this ST build doesn't expose it.
@@ -244,9 +278,12 @@ export function applyGhosting(chat, settings) {
     // readout reflects "0 saved this turn" (e.g. tip hasn't advanced yet) instead of a
     // stale value from an earlier generation.
     const approxTokens = Math.round(charsRemoved / 4); // rough 4-chars/token heuristic
-    window.VectFox_LastGhost = { wiped, charsRemoved, approxTokens, at: Date.now() };
+    window.VectFox_LastGhost = { wiped, charsRemoved, approxTokens, at: Date.now(), step: batchSize, cutoff, rawKept, nextJumpIn };
     if (wiped > 0) {
-        log.domain('injection', 'lifecycle', `[Ghost] Wiped ${wiped} vectorized message(s) from prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved`);
+        const batchNote = batchSize > 1
+            ? ` [batch ${batchSize}; boundary ${cutoff}; raw window ${rawKept}; next jump in ${nextJumpIn}]`
+            : '';
+        log.domain('injection', 'lifecycle', `[Ghost] Wiped ${wiped} vectorized message(s) from prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved${batchNote}`);
     }
     return { wiped, charsRemoved };
 }

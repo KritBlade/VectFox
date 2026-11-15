@@ -55,6 +55,7 @@ export { hideStoryArcPage, showStoryArcPage, wireStoryArcPage } from './story-ar
 export {
     applyGhosting,
     buildSummarizerInjection,
+    normalizeGhostStep,
     refreshWorldInfoEntryDepthCache,
     runSummarizerInjection,
 } from './summarizer-injection.js';
