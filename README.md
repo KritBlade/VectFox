@@ -388,7 +388,7 @@ Auto-Sync card shows whether the current chat is vectorized and how many events 
 
 ### 🗂️ Tabbed interface
 
-Settings split into **Core** (backend, embedding, hybrid), **EventBase** (chat hsitory/archive chat file .jsonl), **ChunkBase** (docs/URLs/wiki), **Action** (diagnostics, dev tools).
+Settings split into **Core** (backend, embedding, hybrid), **ChatHistory** (EventBase: chat history/archive chat file .jsonl), **ChunkBase** (docs/URLs/wiki), **Action** (diagnostics, dev tools).
 
 ### ⚡ Windows at once — Vectorization Speedup
 
@@ -675,7 +675,7 @@ A couple of gotchas:
 
 **"Backend health check failed"** — On Qdrant, make sure the Qdrant server is running and the Similharity plugin is installed.
 
-**Slow performance** — Switch to Qdrant + A3 (single round-trip, server-side fusion). Lower **Events per reply** on the EventBase page. Use API embedding providers (parallel) instead of local GPU (sequential).
+**Slow performance** — Switch to Qdrant + A3 (single round-trip, server-side fusion). Lower **Events per reply** on the ChatHistory page. Use API embedding providers (parallel) instead of local GPU (sequential).
 
 **Vectorization is slow on large chat histories** — VectFox applies API rate limiting by default (60 calls per 60 seconds) to protect free-tier backends. To speed up vectorization: **Core page → Embedding → Rate limit → set "Max calls" to 0 to disable**. For production Qdrant, you can increase it to 100+ calls/min depending on your server capacity.
 

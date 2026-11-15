@@ -19,7 +19,7 @@ import { log } from '../../sillytavern/log.js';
  * similarity threshold in place of ChunkBase's.
  *
  * @param {object} settings - VectFox settings
- * @param {number} [threshold] - The similarity threshold, the EventBase page's when absent
+ * @param {number} [threshold] - The similarity threshold, the ChatHistory page's when absent
  * @returns {object}
  */
 export function eventSearchSettings(settings, threshold = settings.eventbase_score_threshold ?? 0) {
@@ -56,7 +56,7 @@ function shouldApplyThresholdAfterSearch(collectionId, settings) {
  * @param {object} settings - VectFox settings
  * @param {object} [options]
  * @param {number[]|null} [options.queryVector] - The query's embedding, when the caller has it
- * @param {number} [options.threshold] - The similarity threshold, the EventBase page's when absent
+ * @param {number} [options.threshold] - The similarity threshold, the ChatHistory page's when absent
  * @returns {Promise<{hashes: number[], metadata: object[]}>}
  */
 export async function searchEventCollection(collectionId, queryText, topK, settings, { queryVector = null, threshold } = {}) {

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * The settings panel's EventBase page on GUI-DNA (src/features/settings-panel/eventbase-page-markup.js): every
+ * The settings panel's ChatHistory page on GUI-DNA (src/features/settings-panel/chathistory-page-markup.js): every
  * control keeps the id settings-panel.js wires it by, the cosine warning starts hidden, each importance, the event
  * cap, the events per reply and the similarity threshold have a slider on their number box's limits, the other
  * numbers carry the limits the wiring holds them to, and the page is drawn from GUI-DNA alone.
@@ -10,9 +10,9 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-const { eventBasePageMarkup } = await import('../src/features/settings-panel/eventbase-page-markup.js');
+const { chatHistoryPageMarkup } = await import('../src/features/settings-panel/chathistory-page-markup.js');
 
-// The ids settings-panel.js wires on the EventBase page.
+// The ids settings-panel.js wires on the ChatHistory page.
 const WIRED_IDS = [
     'VectFox_eventbase_min_importance_store', 'VectFox_eventbase_max_events_per_window', 'VectFox_eventbase_temperature',
     'VectFox_eventbase_max_tokens', 'VectFox_eventbase_timeout_ms', 'VectFox_eventbase_disable_pipeline', 'VectFox_eventbase_retrieval_top_k',
@@ -23,9 +23,9 @@ const WIRED_IDS = [
 
 const limitsOf = id => { const box = document.getElementById(id); return [box.min, box.max, box.step]; };
 
-describe('EventBase page markup', () => {
+describe('ChatHistory page markup', () => {
     beforeEach(() => {
-        document.body.innerHTML = `<div id="VectFox_settings">${eventBasePageMarkup()}</div>`;
+        document.body.innerHTML = `<div id="VectFox_settings">${chatHistoryPageMarkup()}</div>`;
     });
 
     it('gives every wired control its own id, once', () => {

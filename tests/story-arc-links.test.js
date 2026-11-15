@@ -368,7 +368,7 @@ describe('linkNewStoryEvents', () => {
         expect(writtenLinks()).toEqual({ 3: [{ event_id: 'id1', type: 'continues', thread: 'A' }] });
     });
 
-    it('searches for link candidates with no similarity threshold, whatever the EventBase page sets', async () => {
+    it('searches for link candidates with no similarity threshold, whatever the ChatHistory page sets', async () => {
         listStoryEventsMock.mockResolvedValue([...decidedOlder, stored(3, 30)]);
         queryCollectionMock.mockResolvedValue({ hashes: [1, 2], metadata: [{ score: 0.1 }, { score: 0.2 }] });
         await run(['id3'], { eventbase_score_threshold: 0.6, score_threshold: 0.25 });

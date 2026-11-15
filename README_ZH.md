@@ -381,7 +381,7 @@ VectFox 可對任何語言進行分詞與索引——BM25/關鍵字處理完全�
 Auto-Sync 卡片會顯示目前聊天是否已向量化，以及有多少事件。聊天尚未向量化時，會連結到向量化器。WorldInfo 頁面會列出這個聊天載入的世界書、每本書中為 LoreBase 選取的條目數，以及每本書鎖定在哪裡。它的 **LoreBase tester** 卡片會顯示 LoreBase 在每次回覆中做了什麼。
 
 ### 🗂️ 分頁介面
-設定分為 **Core**（後端、嵌入、混合）、**EventBase**（聊天歷史/封存 .jsonl 聊天檔）、**ChunkBase**（文件/URL/wiki）、**Action**（診斷、開發工具）。
+設定分為 **Core**（後端、嵌入、混合）、**ChatHistory**（EventBase：聊天歷史/封存 .jsonl 聊天檔）、**ChunkBase**（文件/URL/wiki）、**Action**（診斷、開發工具）。
 
 ### ⚡ 平行視窗 — 加速向量化
 向量化一段長聊天時，通常會一次處理一個視窗：把視窗 1 送給 LLM → 等待 → 嵌入 → 送視窗 2 → 等待 → 嵌入 → …對於 2000 則訊息的聊天來說，這會產生大量串列等待時間。
@@ -654,7 +654,7 @@ VectFox + Similharity 是為**個人使用設計的** — 適合在自己的機�
 
 **"Backend health check failed"** — 如果使用 Qdrant，請確認 Qdrant 伺服器正在執行，且已安裝 Similharity 插件。
 
-**效能緩慢** — 切換到 Qdrant + A3（單次往返、伺服器端融合）。降低 EventBase 頁面的 **Events per reply**。使用 API 嵌入供應商（可平行）而不是本地 GPU（通常是串列）。
+**效能緩慢** — 切換到 Qdrant + A3（單次往返、伺服器端融合）。降低 ChatHistory 頁面的 **Events per reply**。使用 API 嵌入供應商（可平行）而不是本地 GPU（通常是串列）。
 
 **大型聊天記錄的向量化速度緩慢** — VectFox 預設套用 API 速率限制（每 60 秒 60 次呼叫），以保護免費層後端。加快向量化速度：**Core 頁面 → Embedding → Rate limit → 將「Max calls」設為 0 以停用**。若要使用生產環境 Qdrant，可根據伺服器容量增加到 100+ 次呼叫/分鐘。
 

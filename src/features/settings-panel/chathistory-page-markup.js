@@ -1,11 +1,11 @@
 /**
  * ============================================================================
- * EVENTBASE PAGE, STATIC MARKUP
+ * CHATHISTORY PAGE, STATIC MARKUP
  * ============================================================================
- * The settings panel's EventBase page on GUI-DNA: how the EventBase model turns the chat
- * into events, which stored events retrieval brings back, how they are scored, and the
- * prompt that extracts them. Every control keeps the id settings-panel.js wires it by.
- * Pure: builds strings.
+ * The settings panel's ChatHistory page on GUI-DNA, where EventBase is set up: how the
+ * EventBase model turns the chat into events, which stored events retrieval brings back,
+ * how they are scored, and the prompt that extracts them. Every control keeps the id
+ * settings-panel.js wires it by. Pure: builds strings.
  * ============================================================================
  */
 
@@ -21,7 +21,7 @@ function importanceSlider(id) {
 
 function extractionCard() {
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-wand-magic-sparkles', title: 'Extraction', description: 'How the EventBase model turns each window of the chat into events.' })}
+        ${cardHeader({ icon: 'fa-wand-magic-sparkles', title: 'EventBase extraction', description: 'How the EventBase model turns each window of the chat into events.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Min importance to store', forId: 'VectFox_eventbase_min_importance_store' }),
@@ -61,7 +61,7 @@ function retrievalCard() {
         selectOption({ value: 'summaryonly', text: 'Summary only' }),
     ];
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-filter', title: 'Retrieval', description: 'Which stored events reach the prompt, and how they are written there.' })}
+        ${cardHeader({ icon: 'fa-filter', title: 'EventBase retrieval', description: 'Which stored events reach the prompt, and how they are written there.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Events per reply', forId: 'VectFox_eventbase_retrieval_top_k' }),
@@ -97,7 +97,7 @@ function rerankWeightsCard() {
     ];
     const reset = buttonWithId({ id: 'VectFox_eventbase_reset_weights', text: 'Reset to defaults', icon: 'fa-rotate-left' });
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-scale-balanced', title: 'Re-rank weights', description: 'How retrieved events are scored. The four are saved adding up to 1.', actions: reset })}
+        ${cardHeader({ icon: 'fa-scale-balanced', title: 'EventBase re-rank weights', description: 'How retrieved events are scored. The four are saved adding up to 1.', actions: reset })}
         <div class="vfx-card-body vfx-grid">
             <div id="VectFox_eventbase_cosine_plugin_warning" class="vfx-notice is-warning vfx-span"${HIDDEN}><i class="fa-solid fa-triangle-exclamation"></i><p class="vfx-notice-text">Cosine is off: Standard without the Similharity plugin returns no vector scores, so its share goes to the other three.</p></div>
             ${weights.map(({ id, text, hintMarkup }) => field([
@@ -112,7 +112,7 @@ function rerankWeightsCard() {
 function extractionPromptCard() {
     const reset = buttonWithId({ id: 'VectFox_eventbase_prompt_reset', text: 'Reset to default', icon: 'fa-rotate-left' });
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-file-pen', title: 'Extraction prompt', description: 'The whole prompt sent for each window. Empty sends the built-in one.', actions: reset })}
+        ${cardHeader({ icon: 'fa-file-pen', title: 'EventBase extraction prompt', description: 'The whole prompt sent for each window. Empty sends the built-in one.', actions: reset })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Prompt', forId: 'VectFox_eventbase_custom_prompt', hasHelp: true }),
@@ -125,10 +125,10 @@ function extractionPromptCard() {
 }
 
 /**
- * The EventBase page's cards: Extraction, Retrieval, Re-rank weights and Extraction prompt.
+ * The ChatHistory page's cards: EventBase extraction, retrieval, re-rank weights and extraction prompt.
  *
  * @returns {string}
  */
-export function eventBasePageMarkup() {
+export function chatHistoryPageMarkup() {
     return extractionCard() + retrievalCard() + rerankWeightsCard() + extractionPromptCard();
 }

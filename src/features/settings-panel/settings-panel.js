@@ -32,7 +32,7 @@ import { agentModePageMarkup } from './agentmode-page-markup.js';
 import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
 import { chunkBasePageMarkup } from './chunkbase-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
-import { eventBasePageMarkup } from './eventbase-page-markup.js';
+import { chatHistoryPageMarkup } from './chathistory-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
 import { bindLoreBaseBooksCard, refreshLoreBaseBooks } from './lorebase-books-card.js';
 import { bindLoreBaseTester, refreshLoreBaseTester } from './lorebase-tester-card.js';
@@ -78,7 +78,7 @@ function panelMarkup() {
         panelPageMarkup('worldinfo', worldInfoPageMarkup()),
         panelPageMarkup('autosync', autoSyncPageMarkup()),
         panelPageMarkup('action', actionPageMarkup(), { status: `${masterSwitchPillsMarkup()}${getHealthPillHtml()}` }),
-        panelPageMarkup('eventbase', eventBasePageMarkup()),
+        panelPageMarkup('chathistory', chatHistoryPageMarkup()),
         storyArcPageMarkup({ notice: vectfoxOffNoticeMarkup() }),
         panelPageMarkup('agentmode', agentModePageMarkup()),
     ];

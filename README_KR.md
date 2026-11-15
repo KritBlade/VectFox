@@ -380,7 +380,7 @@ VectFox는 모든 언어를 토크나이즈하고 인덱싱할 수 있습니다�
 Auto-Sync 카드는 현재 채팅이 벡터화되었는지와 얼마나 많은 이벤트가 존재하는지 보여줍니다. 채팅이 벡터화되지 않았으면 벡터화 도구로 링크됩니다. WorldInfo 페이지는 채팅이 불러오는 로어북과, 각 로어북에서 LoreBase용으로 고른 항목 수, 각 로어북이 어디에 잠겨 있는지 보여줍니다. 그 **LoreBase tester** 카드는 각 답장에서 LoreBase가 무엇을 했는지 보여줍니다.
 
 ### 🗂️ 탭 인터페이스
-설정은 **Core**(백엔드, 임베딩, 하이브리드), **EventBase**(채팅 이력/아카이브 채팅 파일 .jsonl), **ChunkBase**(문서/URL/wiki), **Action**(진단, 개발 도구)으로 나뉩니다.
+설정은 **Core**(백엔드, 임베딩, 하이브리드), **ChatHistory**(EventBase: 채팅 이력/아카이브 채팅 파일 .jsonl), **ChunkBase**(문서/URL/wiki), **Action**(진단, 개발 도구)으로 나뉩니다.
 
 ### ⚡ 병렬 윈도우 — 벡터화 가속
 긴 채팅을 벡터화하는 것은 보통 한 번에 한 윈도우씩 처리합니다: 윈도우 1을 LLM에 보내고 → 기다리고 → 임베딩하고 → 윈도우 2 보내고 → 기다리고 → 임베딩하고 → ... 2000 메시지 채팅의 경우 이것은 많은 직렬 대기입니다.
@@ -653,7 +653,7 @@ Database Browser를 열고 그 채팅의 컬렉션을 찾으세요. 행에 "Lock
 
 **"Backend health check failed"** — Qdrant에서 Qdrant 서버가 실행 중이고 Similharity 플러그인이 설치되었는지 확인하세요.
 
-**느린 성능** — Qdrant + A3로 전환(단일 왕복, 서버측 융합). EventBase 페이지의 **Events per reply** 줄이기. 로컬 GPU(직렬) 대신 API 임베딩 제공자(병렬) 사용.
+**느린 성능** — Qdrant + A3로 전환(단일 왕복, 서버측 융합). ChatHistory 페이지의 **Events per reply** 줄이기. 로컬 GPU(직렬) 대신 API 임베딩 제공자(병렬) 사용.
 
 **대규모 채팅 기록의 벡터화가 느림** — VectFox는 기본적으로 API 레이트 제한을 적용합니다(60초당 60회 호출). 무료 티어 백엔드를 보호하기 위해 벡터화 속도를 높이려면: **Core 페이지 → Embedding → Rate limit → \"Max calls\"를 0으로 설정하여 비활성화**. 프로덕션 Qdrant의 경우 서버 용량에 따라 100+ 호출/분으로 증가할 수 있습니다.
 

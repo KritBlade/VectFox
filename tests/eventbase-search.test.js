@@ -40,7 +40,7 @@ describe('eventSearchSettings', () => {
         expect(eventSearchSettings({ keyword_scoring_method: 'hybrid', score_threshold: 0.25 })).toMatchObject({ keyword_scoring_method: 'bm25', score_threshold: 0 });
     });
 
-    it('takes a threshold given over the EventBase page\'s', () => {
+    it('takes a threshold given over the ChatHistory page\'s', () => {
         expect(eventSearchSettings({ eventbase_score_threshold: 0.4 }, 0).score_threshold).toBe(0);
     });
 });

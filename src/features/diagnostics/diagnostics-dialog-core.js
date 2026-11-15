@@ -157,7 +157,7 @@ function noResultReason(kind, result, eventBaseThreshold) {
     if (kind === 'eventbase') {
         const searched = (result?.lockedCollectionsCount ?? 0) + (result?.archiveCollectionsCount ?? 0);
         if (searched === 0) return 'No EventBase collection is locked to this chat.';
-        const lower = eventBaseThreshold > 0 ? ', or lower the Similarity threshold on the EventBase page' : '';
+        const lower = eventBaseThreshold > 0 ? ', or lower the Similarity threshold on the ChatHistory page' : '';
         return `Searched ${searched} collection(s) and no event matched. Try a more specific message${lower}.`;
     }
     if (result?.noCollections) return 'No ChunkBase collection is enabled.';
