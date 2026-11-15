@@ -533,7 +533,7 @@ VectFox는 SillyTavern 연결 프로필(connection profile)로 작동합니다. 
    - SillyTavern의 **Vector Storage**에서 **Enabled for World Info**가 켜져 있으면, VectFox가 끌지 물어봅니다. Vector Storage는 자체 검색으로 로어북 항목을 보내기 때문에, LoreBase가 뺀 항목이라도 LoreBase에 맡긴 항목을 통째로 보냅니다. 켜 둔 채로 두면 LoreBase는 꺼진 채로 있습니다. Vector Storage의 채팅과 파일 검색은 그대로입니다.
    - 같은 페이지의 **LoreBase tester** 카드는 각 답장에서 LoreBase가 무엇을 했는지 보여줍니다. LoreBase model이 무엇을 왜 골랐는지, 각 항목의 어느 부분이 들어갔는지, 그리고 그게 몇 토큰이었는지를 SillyTavern의 키가 보냈을 양과 나란히 볼 수 있습니다. 답장이 무언가를 빠뜨렸다면, LoreBase가 뺀 것인지 확인할 수 있습니다. 기록은 페이지를 새로고침할 때까지 남습니다.
    - 프롬프트에서 LoreBase가 보내는 내용은 모두 하나의 `<VectLorebook>` 블록 안에 들어가고, 각 항목은 그 이름의 태그 안에 들어갑니다. 그래서 당신도 AI도 SillyTavern 자신의 항목과 구별할 수 있습니다.
-   - 이전 VectFox로 로어북을 벡터화했다면, 그 오래된 컬렉션은 LoreBase와 함께 쓸 수 없습니다. 그래서 VectFox는 시작할 때 한 번 그것들을 삭제하고, 어떤 로어북에서 만들어졌는지 보여 줍니다. 모든 항목은 꺼진 상태로 시작하니, 그 로어북들의 항목을 다시 고르세요. 오래된 컬렉션의 채팅이나 캐릭터 잠금은 그 로어북으로 옮겨집니다.
+   - 이전 VectFox로 로어북을 벡터화했다면, 그 오래된 컬렉션은 LoreBase와 함께 쓸 수 없습니다. 그래서 VectFox는 시작할 때 한 번 그것들을 삭제하고, 어떤 로어북에서 만들어졌는지 보여 줍니다. 다시 벡터화할 필요는 없습니다. LoreBase는 로어북을 그대로 읽습니다. 위 단계대로 설정하기 전까지, 그 로어북들은 평소의 SillyTavern 로어북으로 작동합니다. 오래된 컬렉션의 채팅이나 캐릭터 잠금은 그 로어북으로 옮겨집니다.
 11. (선택) 다른 것이 모두 작동하면 **AgentMode** 페이지에서 **Agent Mode**를 켭니다. **Provider**를 **Same as EventBase model**로 두면 플래너가 EventBase model의 프로필로 돌아갑니다. 그래서 단계 5의 싸고 빠른 모델이 플래너도 구동합니다. 자세한 내용은 위의 "작동 방식" > "Agent Mode"를 참조하세요.
 
 **수동 OpenRouter와 vLLM은 사라집니다.** 지금은 아직 Provider 드롭다운에 있고, 전용 키 입력란과 함께 예전처럼 작동합니다. 하지만 SillyTavern 프로필이 들어온 릴리스의 3개월 뒤 VectFox 릴리스에서 제거됩니다. 아직 쓰고 있다면 VectFox가 한 번 알려 주고, 바꿔야 할 드롭다운을 모두 보여 줍니다.

@@ -59,9 +59,10 @@ export function oldLorebookCollections(registryKeys, { bookNames, chatLocksOf, c
 }
 
 /**
- * The notice once old collections are deleted: the books to choose entries for again, each once, whether their locks
- * moved to the books, how many came from no book SillyTavern still has, and how many others could not be deleted.
- * Shown only when at least one was deleted.
+ * The notice once old collections are deleted: that nothing needs vectorizing again, the books they came from, each
+ * once, which keep working as plain lorebooks, the steps to have LoreBase decide a book's entries, the lock among
+ * them, whether locks moved to the books, how many came from no book SillyTavern still has, and how many others could
+ * not be deleted. Shown only when at least one was deleted.
  * @param {{deleted: Array<{bookName: string|null, chatIds: string[], characterAvatars: string[]}>, failedCount: number}} outcome
  * @returns {object[]} The dialog's lines (sillytavern/popup-core.js)
  */
@@ -69,14 +70,23 @@ export function oldCollectionsNoticeLines({ deleted, failedCount }) {
     const books = [...new Set(deleted.map(collection => collection.bookName).filter(Boolean))].sort((first, second) => first.localeCompare(second));
     const bookless = deleted.filter(collection => !collection.bookName).length;
     const hasMovedLocks = deleted.some(collection => collection.bookName && (collection.chatIds.length || collection.characterAvatars.length));
-    const lines = [{ icon: 'fa-circle-info', text: 'LoreBase replaced vectorized lorebooks, so VectFox deleted their old collections.' }];
+    const lines = [
+        { icon: 'fa-circle-info', text: 'LoreBase replaced vectorized lorebooks, so VectFox deleted their old collections.' },
+        { text: 'Nothing needs vectorizing again: LoreBase reads each lorebook as it is.' },
+    ];
     if (books.length) {
-        lines.push({ text: 'LoreBase decides only the entries you turn on, and every entry starts off. To use LoreBase with these books, choose their entries:' });
+        lines.push({ text: 'These books keep working as plain SillyTavern lorebooks:' });
         lines.push(...books.map(bookName => ({ icon: 'fa-book', name: bookName })));
-        lines.push({ text: 'On the WorldInfo page, turn on Use LoreBase, press Choose entries in the LoreBase books card, and pick each book at the top.' });
+        lines.push(
+            { text: "To have LoreBase decide a book's entries instead:" },
+            { text: '1. Open a chat that uses the book. On the WorldInfo page, turn on Use LoreBase and set up the LoreBase model.' },
+            { text: '2. Press Choose entries in the LoreBase books card, and pick the book at the top.' },
+            { text: '3. Turn on the entries LoreBase should decide. Every entry starts off.' },
+            { text: '4. Turn on Lock to this chat or Lock to this character. LoreBase uses a book only where it is locked.' },
+        );
     }
     if (hasMovedLocks) {
-        lines.push({ text: 'Each book is locked to the chats and characters its old collections were locked to.' });
+        lines.push({ text: 'A book whose old collections were locked to chats or characters is already locked to the same ones.' });
     }
     if (bookless) {
         lines.push({ parts: [{ name: bookless }, { text: ' of them came from books SillyTavern no longer has under that name.' }] });

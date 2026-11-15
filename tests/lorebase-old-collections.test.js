@@ -96,7 +96,7 @@ describe('deleting the old lorebook collections at start', () => {
         expect(noticePopup).toHaveBeenCalledTimes(1);
         const [lines] = vi.mocked(noticePopup).mock.calls[0];
         expect(lines.filter(line => line.icon === 'fa-book').map(line => line.name)).toEqual(['Harbor Atlas', 'Tide Tables']);
-        expect(lines.map(shown)).toContain('Each book is locked to the chats and characters its old collections were locked to.');
+        expect(lines.map(shown)).toContain('A book whose old collections were locked to chats or characters is already locked to the same ones.');
     });
 
     it('waits for SillyTavern to load, as the books and characters are read there', async () => {

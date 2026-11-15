@@ -69,25 +69,38 @@ describe('the old lorebook collections in the registry', () => {
 describe('the notice', () => {
     const atlas = { bookName: 'Harbor Atlas', chatIds: [], characterAvatars: [] };
 
-    it('names each book once, in order, says how to choose its entries again, and why the collections are gone', () => {
+    const MOVED_LOCKS = 'A book whose old collections were locked to chats or characters is already locked to the same ones.';
+
+    it('says why the collections are gone and that nothing needs vectorizing again, then names each book once, in order', () => {
         const lines = oldCollectionsNoticeLines({ deleted: [{ ...atlas }, { bookName: 'Tide Tables', chatIds: [], characterAvatars: [] }, { ...atlas }], failedCount: 0 });
         expect(lines[0]).toMatchObject({ icon: 'fa-circle-info' });
+        expect(lines.map(shown)).toContain('Nothing needs vectorizing again: LoreBase reads each lorebook as it is.');
         expect(lines.filter(line => line.icon === 'fa-book').map(line => line.name)).toEqual(['Harbor Atlas', 'Tide Tables']);
-        expect(lines.map(shown).join('\n')).toContain('Choose entries');
-        expect(lines.map(shown).join('\n')).not.toContain('locked to');
+        expect(lines.map(shown)).not.toContain(MOVED_LOCKS);
+    });
+
+    it('gives the steps to have LoreBase decide a book\'s entries, the lock last', () => {
+        const text = oldCollectionsNoticeLines({ deleted: [{ ...atlas }], failedCount: 0 }).map(shown);
+        const steps = text.filter(line => /^\d\. /.test(line));
+        expect(steps.map(line => line[0])).toEqual(['1', '2', '3', '4']);
+        expect(steps[0]).toContain('Use LoreBase');
+        expect(steps[0]).toContain('LoreBase model');
+        expect(steps[1]).toContain('Choose entries');
+        expect(steps[3]).toContain('Lock to this chat');
     });
 
     it('says the books kept the locks when a collection with a book had any', () => {
         const lines = oldCollectionsNoticeLines({ deleted: [{ ...atlas, characterAvatars: ['keeper_orrin.png'] }], failedCount: 0 });
-        expect(lines.map(shown)).toContain('Each book is locked to the chats and characters its old collections were locked to.');
+        expect(lines.map(shown)).toContain(MOVED_LOCKS);
     });
 
-    it('counts the collections from books SillyTavern no longer has, and those it could not delete', () => {
+    it('counts the collections from books SillyTavern no longer has, and those it could not delete, with no steps', () => {
         const lines = oldCollectionsNoticeLines({ deleted: [{ bookName: null, chatIds: ['chat-1'], characterAvatars: [] }], failedCount: 2 });
         const text = lines.map(shown);
         expect(text).toContain('1 of them came from books SillyTavern no longer has under that name.');
         expect(text).toContain('VectFox could not delete 2 other old lorebook collections. It tries again at the next start.');
         expect(lines.some(line => line.icon === 'fa-book')).toBe(false);
-        expect(text.join('\n')).not.toContain('locked to');
+        expect(text.some(line => /^\d\. /.test(line))).toBe(false);
+        expect(text).not.toContain(MOVED_LOCKS);
     });
 });
