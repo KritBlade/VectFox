@@ -26,16 +26,18 @@ export function chatBookNames() {
 }
 
 /**
- * What a book can be locked to here: the open chat, and its character, with that character's name. Each is null when
- * there is none, as in a group chat for the character.
- * @returns {{chatId: string|null, characterId: string|null, characterName: string}}
+ * What a book can be locked to here: the open chat, and its character by its avatar file name, with that character's
+ * name. SillyTavern keys its own per-character settings by the avatar file name, which stays the same when characters
+ * are added or deleted, where the character's place in its list does not. Each is null when there is none, as in a
+ * group chat for the character.
+ * @returns {{chatId: string|null, characterAvatar: string|null, characterName: string}}
  */
 export function lockTarget() {
     const context = getContext();
-    const characterId = context.characterId ?? null;
+    const character = context.characterId === undefined || context.characterId === null ? null : context.characters?.[context.characterId];
     return {
         chatId: getCurrentChatId() ?? null,
-        characterId: characterId === null ? null : String(characterId),
-        characterName: characterId === null ? '' : String(context.characters?.[characterId]?.name ?? ''),
+        characterAvatar: character?.avatar ? String(character.avatar) : null,
+        characterName: character ? String(character.name ?? '') : '',
     };
 }

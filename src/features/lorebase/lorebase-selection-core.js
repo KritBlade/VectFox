@@ -188,26 +188,26 @@ const canBeOn = row => !row.keptBySillyTavern;
 const canBeTickedInBulk = row => canBeOn(row) && !isEngineLike(row);
 
 /**
- * The ticks after "Tick all shown": every shown row LoreBase can decide, but engine-like ones, which are ticked one
- * by one (§5.2). Ticks on rows the filters hide stay.
+ * The ticks after "Tick all matching": every row the filters let through that LoreBase can decide, drawn on the screen
+ * yet or not, but engine-like ones, which are ticked one by one (§5.2). Ticks on rows the filters hide stay.
  * @param {Set<string>} ticked
- * @param {SelectionRow[]} shownRows
+ * @param {SelectionRow[]} matchingRows
  * @returns {Set<string>}
  */
-export function tickAllShown(ticked, shownRows) {
-    return new Set([...ticked, ...shownRows.filter(canBeTickedInBulk).map(row => row.uid)]);
+export function tickAllMatching(ticked, matchingRows) {
+    return new Set([...ticked, ...matchingRows.filter(canBeTickedInBulk).map(row => row.uid)]);
 }
 
 /**
- * The ticks after "Invert": each shown row's tick flips, but an engine-like row or one SillyTavern keeps is never
- * ticked by it. Ticks on rows the filters hide stay.
+ * The ticks after "Invert": the tick of each row the filters let through flips, drawn on the screen yet or not, but an
+ * engine-like row or one SillyTavern keeps is never ticked by it. Ticks on rows the filters hide stay.
  * @param {Set<string>} ticked
- * @param {SelectionRow[]} shownRows
+ * @param {SelectionRow[]} matchingRows
  * @returns {Set<string>}
  */
-export function invertTicks(ticked, shownRows) {
+export function invertTicks(ticked, matchingRows) {
     const next = new Set(ticked);
-    for (const row of shownRows) {
+    for (const row of matchingRows) {
         if (next.has(row.uid)) next.delete(row.uid);
         else if (canBeTickedInBulk(row)) next.add(row.uid);
     }
@@ -215,25 +215,25 @@ export function invertTicks(ticked, shownRows) {
 }
 
 /**
- * The ticks after a shift-click: every shown row from the last row clicked to this one takes this row's new tick,
- * but a row SillyTavern keeps, which is never ticked.
+ * The ticks after a shift-click: every row the filters let through, from the last row clicked to this one, takes this
+ * row's new tick, but a row SillyTavern keeps, which is never ticked.
  * @param {Set<string>} ticked
- * @param {SelectionRow[]} shownRows
+ * @param {SelectionRow[]} matchingRows
  * @param {string} anchorUid - The row clicked before
  * @param {string} uid - The row shift-clicked
  * @param {boolean} isTicked - Its new tick
  * @returns {Set<string>}
  */
-export function tickRange(ticked, shownRows, anchorUid, uid, isTicked) {
+export function tickRange(ticked, matchingRows, anchorUid, uid, isTicked) {
     const next = new Set(ticked);
-    const from = shownRows.findIndex(row => row.uid === anchorUid);
-    const to = shownRows.findIndex(row => row.uid === uid);
+    const from = matchingRows.findIndex(row => row.uid === anchorUid);
+    const to = matchingRows.findIndex(row => row.uid === uid);
     if (from < 0 || to < 0) {
         if (isTicked) next.add(uid);
         else next.delete(uid);
         return next;
     }
-    for (const row of shownRows.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+    for (const row of matchingRows.slice(Math.min(from, to), Math.max(from, to) + 1)) {
         if (isTicked && canBeOn(row)) next.add(row.uid);
         else next.delete(row.uid);
     }

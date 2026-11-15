@@ -25,7 +25,7 @@ vi.mock('../src/sillytavern/chat.js', () => ({
 }));
 vi.mock('../src/sillytavern/events.js', () => ({
     eventSource: { on: (event, handler) => { host.handlers[event] = handler; } },
-    event_types: { GENERATION_AFTER_COMMANDS: 'generation_after_commands' },
+    event_types: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHARACTER_RENAMED: 'character_renamed', CHAT_RENAMED: 'chat_renamed' },
 }));
 vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: id => (id === '3' ? 'keeper-orrin' : null) }));
 vi.mock('../src/sillytavern/world-info.js', () => ({
@@ -88,7 +88,7 @@ beforeEach(() => {
     host.chatId = 'chat-harbor';
     host.context = {
         chat: [{ name: 'Keeper Orrin', mes: 'The lamp is lit.', is_user: false }, { name: 'Wren', mes: 'Who keeps it tonight?', is_user: true }],
-        characters: { 3: { data: { extensions: { world: 'Keeper Notes' } } } },
+        characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png', data: { extensions: { world: 'Keeper Notes' } } } },
         characterId: '3',
         chatMetadata: { world_info: 'Voyage Log' },
         powerUserSettings: { persona_description_lorebook: '' },
@@ -97,7 +97,7 @@ beforeEach(() => {
     host.charLore = [];
     host.books = { 'Harbor Atlas': { entries: { 0: LIGHTHOUSE, 1: TIDEWARDENS } }, 'Keeper Notes': { entries: { 7: LAMP_RULES } }, 'Voyage Log': { entries: {} } };
     host.settings.vectfox = {
-        lorebase_books: { 'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterIds: [] } },
+        lorebase_books: { 'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] } },
     };
     settings = { enabled: true, lorebase_accuracy: 'default' };
     host.connection = ON_PROFILE;
@@ -142,11 +142,11 @@ describe('the books taking part (D11)', () => {
         host.books['Tide Tables'] = { entries: { 2: { uid: 2, comment: 'Neap Tide', content: 'Neap tides come twice a month.' } } };
         host.books['Unloaded Book'] = { entries: { 0: { uid: 0, comment: 'Far Isles', content: 'Far to the west.' } } };
         host.settings.vectfox.lorebase_books = {
-            'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterIds: [] },
-            'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterIds: ['3'] },
+            'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] },
+            'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },
             // Selected but locked elsewhere, and selected and locked but not loaded by SillyTavern.
-            'Tide Tables': { selectedUids: ['2'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterIds: [] },
-            'Unloaded Book': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterIds: [] },
+            'Tide Tables': { selectedUids: ['2'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterAvatars: [] },
+            'Unloaded Book': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] },
         };
         postChatCompletion.mockResolvedValue(pickOf());
         await prepareLoreForReply('normal', settings);
@@ -155,8 +155,31 @@ describe('the books taking part (D11)', () => {
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas', 'Keeper Notes']);
     });
 
+    it('keeps a book locked to a character through a rename, which gives the character a new avatar file name', async () => {
+        host.settings.vectfox.lorebase_books = {
+            'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },
+        };
+        host.handlers.character_renamed('keeper-orrin.png', 'keeper-orrin-the-elder.png');
+        host.context.characters[3].avatar = 'keeper-orrin-the-elder.png';
+        postChatCompletion.mockResolvedValue(pickOf());
+        await prepareLoreForReply('normal', settings);
+
+        expect(host.settings.vectfox.lorebase_books['Keeper Notes'].lockedToCharacterAvatars).toEqual(['keeper-orrin-the-elder.png']);
+        expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Keeper Notes']);
+    });
+
+    it('keeps a book locked to a chat through its rename, which SillyTavern announces with the file names', async () => {
+        host.handlers.chat_renamed({ avatarId: 'keeper-orrin.png', groupId: undefined, oldFileName: 'chat-harbor.jsonl', newFileName: 'chat-harbor-storm.jsonl' });
+        host.chatId = 'chat-harbor-storm';
+        postChatCompletion.mockResolvedValue(pickOf());
+        await prepareLoreForReply('normal', settings);
+
+        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds).toEqual(['chat-harbor-storm']);
+        expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas']);
+    });
+
     it('asks nothing when no book taking part has a selected entry LoreBase decides', async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterIds: [] } };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
         expect(await prepareLoreForReply('normal', settings)).toBeNull();
         host.settings.vectfox.lorebase_books = {};
         expect(await prepareLoreForReply('normal', settings)).toBeNull();

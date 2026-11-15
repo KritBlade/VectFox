@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     BADGES, KEY_CHOICES, bookChoices, categoryList, filterRows, invertTicks, isEngineLike, liveSelection, pinnableSections,
-    selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllShown, tickRange,
+    selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange,
 } from '../src/features/lorebase/lorebase-selection-core.js';
 import { estimatedTokens } from '../src/features/lorebase/lorebase-splitter.js';
 
@@ -127,17 +127,17 @@ describe('the filters', () => {
 describe('the ticks the bulk bar acts on', () => {
     const rows = rowsOf();
 
-    it('ticks every shown row but engine-like ones and those SillyTavern keeps, keeping ticks the filters hide', () => {
-        const shown = filterRows(rows, { category: '[Harbor]' });
-        expect([...tickAllShown(new Set(['3']), shown)].sort()).toEqual(['0', '1', '3', '9']);
-        expect([...tickAllShown(new Set(), rows)].sort()).toEqual(['0', '1', '3', '4', '8', '9']);
+    it('ticks every matching row but engine-like ones and those SillyTavern keeps, keeping ticks the filters hide', () => {
+        const matching = filterRows(rows, { category: '[Harbor]' });
+        expect([...tickAllMatching(new Set(['3']), matching)].sort()).toEqual(['0', '1', '3', '9']);
+        expect([...tickAllMatching(new Set(), rows)].sort()).toEqual(['0', '1', '3', '4', '8', '9']);
     });
 
-    it("inverts the shown rows' ticks, never ticking an engine-like row or one SillyTavern keeps", () => {
+    it("inverts the matching rows' ticks, never ticking an engine-like row or one SillyTavern keeps", () => {
         expect([...invertTicks(new Set(['0', '2', '7']), rows)].sort()).toEqual(['1', '3', '4', '8', '9']);
     });
 
-    it('gives every shown row from the last one clicked to the shift-clicked one its new tick', () => {
+    it('gives every matching row from the last one clicked to the shift-clicked one its new tick', () => {
         expect([...tickRange(new Set(), rows, '3', '0', true)].sort()).toEqual(['0', '1', '2', '3']);
         expect([...tickRange(new Set(['0', '1', '2', '3', '4']), rows, '1', '3', false)].sort()).toEqual(['0', '4']);
         // A row SillyTavern keeps is never ticked, and an anchor the filters hide ticks the clicked row alone.

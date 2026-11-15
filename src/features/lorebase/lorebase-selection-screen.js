@@ -13,7 +13,7 @@ import { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLor
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import {
     bookChoices, categoryList, entrySectionNames, filterRows, invertTicks, liveSelection, pinnableSections, selectionAfterBulk,
-    selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllShown, tickRange, BADGES,
+    selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
 } from './lorebase-selection-core.js';
 import {
     NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup, entryRowMarkup,
@@ -33,8 +33,8 @@ function currentChoices() {
     return bookChoices(names, chatBookNames(), recordsOf(names));
 }
 
-/** The rows the filters in the controls card and the category shown let through. */
-function shownRows(root, session) {
+/** The rows the filters in the controls card and the category shown let through, drawn on the screen yet or not. */
+function matchingRows(root, session) {
     return filterRows(session.rows, {
         text: byId(root, ids.search).value,
         category: session.shownCategory,
@@ -53,7 +53,7 @@ function renderCounts(root, session) {
 }
 
 function renderEntries(root, session) {
-    const matching = shownRows(root, session);
+    const matching = matchingRows(root, session);
     const shown = matching.slice(0, session.shownLimit);
     byId(root, ids.entries).innerHTML = shown.length
         ? shown.map(row => entryRowMarkup(row, { isTicked: session.ticked.has(row.uid) })).join('')
@@ -79,10 +79,10 @@ function renderLocks(root, session) {
     const chatSwitch = byId(root, ids.lockChat);
     const characterSwitch = byId(root, ids.lockCharacter);
     chatSwitch.disabled = !target.chatId;
-    characterSwitch.disabled = !target.characterId;
+    characterSwitch.disabled = !target.characterAvatar;
     chatSwitch.checked = Boolean(target.chatId) && isLoreBookLocked(session.bookName, { chatId: target.chatId });
-    characterSwitch.checked = Boolean(target.characterId) && isLoreBookLocked(session.bookName, { characterId: target.characterId });
-    byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterId) });
+    characterSwitch.checked = Boolean(target.characterAvatar) && isLoreBookLocked(session.bookName, { characterAvatar: target.characterAvatar });
+    byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterAvatar) });
 }
 
 /** Save a new selection for the book shown, and redraw what it changes. */
@@ -149,7 +149,7 @@ async function showBook(root, session, bookName) {
 
 function onAction(root, session, element, event) {
     const name = element.dataset.lorebaseAction;
-    const shown = () => shownRows(root, session);
+    const matching = () => matchingRows(root, session);
     if (name === 'show-all-categories' || name === 'show-category') {
         session.shownCategory = name === 'show-category' ? element.dataset.lorebaseCategory : null;
         session.shownLimit = PAGE_SIZE;
@@ -162,8 +162,8 @@ function onAction(root, session, element, event) {
     } else if (name === 'toggle-entry') {
         toggleEntry(root, session, element.dataset.lorebaseUid);
     } else if (name === 'tick-all' || name === 'untick-all' || name === 'invert') {
-        if (name === 'tick-all') session.ticked = tickAllShown(session.ticked, shown());
-        else if (name === 'invert') session.ticked = invertTicks(session.ticked, shown());
+        if (name === 'tick-all') session.ticked = tickAllMatching(session.ticked, matching());
+        else if (name === 'invert') session.ticked = invertTicks(session.ticked, matching());
         else session.ticked = new Set();
         renderEntries(root, session);
     } else if (name === 'turn-on' || name === 'turn-off') {
@@ -179,7 +179,7 @@ function onAction(root, session, element, event) {
 function onTick(root, session, checkbox, event) {
     const uid = checkbox.dataset.lorebaseTick;
     if (event.shiftKey && session.anchorUid) {
-        session.ticked = tickRange(session.ticked, shownRows(root, session), session.anchorUid, uid, checkbox.checked);
+        session.ticked = tickRange(session.ticked, matchingRows(root, session), session.anchorUid, uid, checkbox.checked);
     } else {
         session.ticked = new Set(session.ticked);
         if (checkbox.checked) session.ticked.add(uid);
@@ -205,8 +205,8 @@ function bindScreen(root, session) {
         if (target.id === ids.book) {
             void showBook(root, session, target.value);
         } else if (target.id === ids.lockChat || target.id === ids.lockCharacter) {
-            const { chatId, characterId } = lockTarget();
-            setLoreBookLock(session.bookName, target.id === ids.lockChat ? { chatId } : { characterId }, target.checked);
+            const { chatId, characterAvatar } = lockTarget();
+            setLoreBookLock(session.bookName, target.id === ids.lockChat ? { chatId } : { characterAvatar }, target.checked);
             renderLocks(root, session);
         } else if (target.matches('[data-lorebase-pin]')) {
             const pinned = [...root.querySelectorAll('[data-lorebase-pin]')].filter(pin => pin.checked).map(pin => pin.dataset.lorebasePin);

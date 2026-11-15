@@ -2,9 +2,9 @@
  * LoreBase on each reply (plan §5.5, §5.6, §5.8 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md). VectFox's generation interceptor asks it for a reply's lore, after
  * SillyTavern's slash commands and never on a dry run, so a send that is only commands runs no pick (#29). The books
- * taking part are those SillyTavern loads that the user locked to the chat or character (D11); Luna picks among the
- * entries selected in them, then reviews each pick, all at once. A turn whose pick or review fails goes on without
- * that lore, with a toast (D14).
+ * taking part are those SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its
+ * chat or character through a rename; Luna picks among the entries selected in them, then reviews each pick, all at
+ * once. A turn whose pick or review fails goes on without that lore, with a toast (D14).
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
@@ -13,7 +13,7 @@ import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
 import { parseJsonArrayFromLlm, postChatCompletion } from '../llm-provider/index.js';
 import { stripReasoningBlocks } from '../text-cleaning/index.js';
-import { getLoreBook, isLoreBookLocked } from './lorebase-books.js';
+import { getLoreBook, isLoreBookLocked, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import { CALL_TIMEOUT_MS, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
@@ -26,13 +26,21 @@ const LOREBASE = 'LoreBase';
 // a quiet one is quiet-to-loud; GENERATION_AFTER_COMMANDS, which fires just before the interceptors run, carries it.
 let lastGeneration = null;
 
-/** Follow generations, so a quiet-to-loud one counts as a reply. Called once at start-up. */
+// SillyTavern names a renamed chat by its file, with the extension; a chat lock holds the chat's id, the name without it.
+const chatIdOfFile = fileName => String(fileName ?? '').replace(/\.jsonl$/u, '');
+
+/**
+ * Follow generations, so a quiet-to-loud one counts as a reply, and renamed characters and chats, so a book locked to
+ * one stays locked to it. Called once at start-up.
+ */
 export function initializeLoreBase() {
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, (type, options, isDryRun) => {
         // A dry run reaches no interceptor, so it must not stand in for the generation that does.
         if (isDryRun) return;
         lastGeneration = { type, isQuietToLoud: Boolean(options?.quietToLoud) };
     });
+    eventSource.on(event_types.CHARACTER_RENAMED, renameLoreBookCharacter);
+    eventSource.on(event_types.CHAT_RENAMED, ({ oldFileName, newFileName } = {}) => renameLoreBookChat(chatIdOfFile(oldFileName), chatIdOfFile(newFileName)));
 }
 
 /**

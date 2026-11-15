@@ -68,7 +68,7 @@ beforeEach(() => {
     host.worldNames.splice(0, host.worldNames.length, 'Voyage Log', 'Harbor Atlas', 'Zeta Notes');
     host.globalBooks.splice(0, host.globalBooks.length);
     host.chatId = 'chat-harbor';
-    host.context = { characters: { 3: { name: 'Keeper Orrin', data: { extensions: { world: 'Harbor Atlas' } } } }, characterId: '3', chatMetadata: {}, powerUserSettings: {} };
+    host.context = { characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png', data: { extensions: { world: 'Harbor Atlas' } } } }, characterId: '3', chatMetadata: {}, powerUserSettings: {} };
     host.settings.vectfox = {};
 });
 
@@ -85,7 +85,7 @@ describe('opening the screen', () => {
     });
 
     it('marks an entry added since the last opening as new, and drops deleted entries from the selection', async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1', '9'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterIds: [], seenUids: ['0', '1', '2', '3'] } };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1', '9'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [], seenUids: ['0', '1', '2', '3'] } };
         await openScreen();
         const newRows = [...document.querySelectorAll('[data-lorebase-entry]')].filter(element => element.textContent.includes('New'));
         expect(newRows.map(element => element.dataset.lorebaseEntry)).toEqual(['4']);
@@ -115,7 +115,7 @@ describe('choosing entries', () => {
         expect($id('vectfox_lorebase_categories').textContent).not.toContain('All on');
     });
 
-    it('acts on the ticked rows only: tick all shown skips the engine entry, shift-click ticks a range, the bar turns them on or off', async () => {
+    it('acts on the ticked rows only: tick all matching skips the engine entry, shift-click ticks a range, the bar turns them on or off', async () => {
         await openScreen();
         expect(actionButton('turn-on').disabled).toBe(true);
         actionButton('tick-all').click();
@@ -131,7 +131,7 @@ describe('choosing entries', () => {
         expect(record().selectedUids).toEqual(['0']);
     });
 
-    it('filters the rows by text and category, and the ticks follow what is shown', async () => {
+    it('filters the rows by text and category, and tick all matching ticks only the rows the filters let through', async () => {
         await openScreen();
         const search = $id('vectfox_lorebase_search');
         search.value = 'harbor bells';
@@ -149,11 +149,11 @@ describe('choosing entries', () => {
 });
 
 describe('locks, pins and books', () => {
-    it('locks the book to the open chat and to its character, and says why neither can be set with no chat open', async () => {
+    it('locks the book to the open chat and to its character by its avatar file, and says when either cannot be set', async () => {
         await openScreen();
         change($id('vectfox_lorebase_lock_chat'), true);
         change($id('vectfox_lorebase_lock_character'), true);
-        expect(record()).toMatchObject({ lockedToChatIds: ['chat-harbor'], lockedToCharacterIds: ['3'] });
+        expect(record()).toMatchObject({ lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: ['keeper-orrin.png'] });
         change($id('vectfox_lorebase_lock_chat'), false);
         expect(record().lockedToChatIds).toEqual([]);
 
@@ -164,6 +164,14 @@ describe('locks, pins and books', () => {
         expect($id('vectfox_lorebase_lock_chat').disabled).toBe(true);
         expect($id('vectfox_lorebase_lock_character').disabled).toBe(true);
         expect($id('vectfox_lorebase_lock_notice').textContent).toContain('Open a chat to lock this book');
+
+        // A group chat: the chat can be locked, and no one character.
+        document.body.innerHTML = '';
+        host.chatId = 'chat-harbor-crew';
+        await openScreen({ bookName: 'Harbor Atlas' });
+        expect($id('vectfox_lorebase_lock_chat').disabled).toBe(false);
+        expect($id('vectfox_lorebase_lock_character').disabled).toBe(true);
+        expect($id('vectfox_lorebase_lock_notice').textContent).toContain('A group chat has no one character');
     });
 
     it("pins a section of the entries the pick reads", async () => {

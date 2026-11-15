@@ -141,7 +141,7 @@ function entriesPane() {
         ${cardHeader({ icon: 'fa-list-check', title: 'Entries', description: 'Tick entries to turn LoreBase on or off for several at once.', isCollapsible: false })}
         <div class="vfx-card-body vfx-stack">
             ${controlRow([
-                button({ text: 'Tick all shown', icon: 'fa-check-double', data: action('tick-all') }),
+                button({ text: 'Tick all matching', icon: 'fa-check-double', data: action('tick-all') }),
                 button({ text: 'Untick all', icon: 'fa-square', data: action('untick-all') }),
                 button({ text: 'Invert', icon: 'fa-right-left', data: action('invert') }),
                 statusPill({ name: '0 ticked', data: { 'lorebase-ticked-count': '' } }),
