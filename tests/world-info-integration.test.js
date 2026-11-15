@@ -766,6 +766,20 @@ describe('GENERATION_STARTED lorebook handler', () => {
 
         expect(setExtensionPrompt).not.toHaveBeenCalled();
     });
+
+    it('clears the block and starts no retrieval on a quiet (background) generation', async () => {
+        // A quiet generation is a background call: its prompt is built by
+        // whoever asked for it (Megumin rebuilds its own, ST's classifiers and
+        // summaries want no lorebook text), so the semantic query's answer is
+        // discarded. It must not cost an embedding call and a vector search.
+        extension_settings.vectfox = { enabled_world_info: true, position: 1, depth: 4 };
+        await handleGenerationStarted('quiet', {}, false);
+
+        expect(setExtensionPrompt).toHaveBeenCalledTimes(1);
+        expect(setExtensionPrompt).toHaveBeenCalledWith('vectfox_lorebook', '', 1, 4, false);
+        expect(getContext).not.toHaveBeenCalled();
+        expect(queryCollection).not.toHaveBeenCalled();
+    });
 });
 
 

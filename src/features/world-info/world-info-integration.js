@@ -617,6 +617,9 @@ export function clearLorebookPrompt(settings) {
  *
  * A lorebook renamed after vectorization no longer matches its sourceName: rename
  * detection shows a blocking modal (open the Database Browser, or continue without it).
+ *
+ * Quiet (background) generations are not covered: their prompts are built or rebuilt by
+ * whoever asked for them, so the block is cleared and no query runs.
  */
 async function handleGenerationStarted(type, options, dryRun) {
     if (dryRun) return;
@@ -626,6 +629,14 @@ async function handleGenerationStarted(type, options, dryRun) {
     // Clear the previous lorebook injection before any other exit, so turning off
     // Semantic WI or the master switch never leaves last turn's block in the prompt.
     clearLorebookPrompt(settings);
+
+    // A quiet generation is a background call, not the story. Whoever asked for it
+    // builds its own prompt, so this block is discarded: Megumin empties and rebuilds
+    // the message array for every worker job, and ST's own quiet callers (summaries,
+    // emotion classification, image prompts) never wanted lorebook text. Clear it and
+    // stop — the retrieval behind it costs an embedding call and a vector search whose
+    // answer has nowhere to go.
+    if (type === 'quiet') return;
 
     if (!settings.enabled_world_info || !isVectFoxEnabled(settings)) return;
 
