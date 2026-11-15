@@ -353,7 +353,10 @@ describe('the World Info scan that follows the reply (§5.7)', () => {
     const forcedActivations = () => eventSource.emit.mock.calls.filter(([event]) => event === 'worldinfo_force_activate').map(([, forced]) => forced);
 
     const noRetrieval = async () => {};
-    const tidewardensSent = [{ ...TIDEWARDENS, world: 'Harbor Atlas', key: ['tidewardens'] }];
+    const tidewardensSent = [{
+        ...TIDEWARDENS, world: 'Harbor Atlas', key: ['tidewardens'], group: '', useProbability: false,
+        content: `<VectLorebook>\n<Tidewardens>\n${TIDEWARDENS.content}\n</Tidewardens>\n</VectLorebook>`,
+    }];
 
     it('sends the pick the review kept, and keeps every selected entry from firing by its keys', async () => {
         postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));

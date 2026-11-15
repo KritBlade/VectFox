@@ -15,7 +15,6 @@ import { itemizedPrompts } from '../../sillytavern/itemized-prompts.js';
 import { log } from '../../sillytavern/log.js';
 import { getTokenCountAsync } from '../../sillytavern/tokenizers.js';
 import { checkWorldInfo, world_info_include_names } from '../../sillytavern/world-info.js';
-import { scanKey } from './lorebase-delivery-core.js';
 import { scanLeftToSillyTavern } from './lorebase-delivery.js';
 import { pickTokens, replyReport, selectedTextsSentByKeys } from './lorebase-tester-core.js';
 
@@ -127,14 +126,18 @@ export function keepReplyScan(lore, { chat, maxContext, type }) {
     }
 }
 
-/** The reply's scan went: note which of its picks SillyTavern kept, as its World Info budget is the last cut. */
+/**
+ * The reply's scan went: note which of its picks SillyTavern kept, as its World Info budget is the last cut. The picks
+ * go in inside LoreBase's blocks, each carried by one entry, so a pick went in when an entry the scan activated holds
+ * what it sent.
+ */
 function noteScanOfReply(activatedEntries) {
     const report = reportUnderWay;
     if (!report || report.isScanSeen) return;
     report.isScanSeen = true;
-    const activated = new Set((activatedEntries ?? []).map(entry => scanKey(entry.world, entry.uid)));
+    const contents = (activatedEntries ?? []).map(entry => String(entry?.content ?? ''));
     for (const pick of report.picks) {
-        if (pick.review?.sentText) pick.isInPrompt = activated.has(scanKey(pick.bookName, pick.uid));
+        if (pick.review?.sentText) pick.isInPrompt = contents.some(content => content.includes(pick.review.sentText));
     }
 }
 

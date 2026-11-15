@@ -50,6 +50,11 @@ const lighthousePick = sentParts => ({
     bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', uses: 'some', frame: null,
     passages: [passage('The lighthouse stands on the north cliff.'), passage('Its keeper is Orrin.')], sentParts,
 });
+// The pick sending its first part, as the scan forces it: inside LoreBase's block, in a tag named by its title.
+const lighthouseBlock = {
+    uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], group: '', useProbability: false,
+    content: '<VectLorebook>\n<Lighthouse_of_Vell>\nThe lighthouse stands on the north cliff.\n</Lighthouse_of_Vell>\n</VectLorebook>',
+};
 const loadedScan = () => ({
     globalLore: [
         { uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], content: 'The lighthouse stands on the north cliff.\nIts keeper is Orrin.' },
@@ -102,12 +107,12 @@ describe('the scan listener', () => {
 });
 
 describe('a reply and the scan that follows (§5.7)', () => {
-    it('blanks the keys of every entry LoreBase decides in the books locked here, and forces the pick with the parts kept', async () => {
+    it('blanks the keys of every entry LoreBase decides in the books locked here, and forces the pick with the parts kept, in its block', async () => {
         holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
         const loaded = await scan();
 
         expect(keysOf(loaded)).toEqual([[], [], ['bell'], []]);
-        expect(forcedActivations()).toEqual([[{ uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], content: 'The lighthouse stands on the north cliff.' }]]);
+        expect(forcedActivations()).toEqual([[lighthouseBlock]]);
     });
 
     it('gives the picks to that scan alone: the next one blanks the same keys and forces nothing', async () => {
@@ -208,7 +213,7 @@ describe("the tester's scan as SillyTavern alone (§5.10)", () => {
             return scan();
         });
         expect(result).toBeNull();
-        expect(forcedActivations()).toEqual([[{ uid: 0, world: 'Harbor Atlas', key: ['lighthouse'], content: 'The lighthouse stands on the north cliff.' }]]);
+        expect(forcedActivations()).toEqual([[lighthouseBlock]]);
     });
 
     it('runs one at a time', async () => {

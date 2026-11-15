@@ -2,7 +2,8 @@
  * LoreBase's delivery through SillyTavern's World Info scan (plan §5.7, §6.6 and §6.8 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md). The generation interceptor holds a reply's picks for the scan that
  * follows it; at WORLDINFO_ENTRIES_LOADED, before SillyTavern scans, every entry LoreBase decides loses its keys in
- * the scan's copy, and the held picks are force-activated, so a selected entry goes in only when Luna picks it (D14).
+ * the scan's copy, and the held picks are force-activated inside LoreBase's <VectLorebook> block (lorebase-delivery-core.js),
+ * so a selected entry goes in only when Luna picks it (D14).
  * A scan with nothing held, such as a quiet generation's or a dry run's, sends no selected entry. While LoreBase does
  * not act (lorebase-switch.js), every scan is left to SillyTavern.
  *
@@ -21,7 +22,7 @@ import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
 import { getLoreBook, isLoreBookLocked } from './lorebase-books.js';
 import { lockTarget } from './lorebase-chat-books.js';
-import { armScan, scanDeliveries } from './lorebase-delivery-core.js';
+import { LOREBOOK_TAG, armScan, scanDeliveries } from './lorebase-delivery-core.js';
 import { isLoreBaseActive } from './lorebase-switch.js';
 
 // The picks of the last reply's interceptor, until a scan takes them: {chatId, deliveries}, or null.
@@ -97,19 +98,20 @@ async function armLoadedScan(loaded) {
     if (!isLoreBaseActive()) return;
     // A chat changed since the picks were made loads another chat's books: the picks are not for it.
     const deliveries = held && held.chatId === (getCurrentChatId() ?? null) ? held.deliveries : null;
-    let forced;
+    let armed;
     try {
-        forced = armScan(loaded, { selectedUidsOf: takingPartLookup(), deliveries });
+        armed = armScan(loaded, { selectedUidsOf: takingPartLookup(), deliveries });
     } catch (error) {
         log.error('LoreBase: arming the World Info scan failed, so this scan may send entries selected for LoreBase by their keys:', error);
         return;
     }
-    if (deliveries && forced.length < deliveries.size) {
-        log.verbose(`LoreBase: ${deliveries.size - forced.length} of ${deliveries.size} picks are not in this scan's books, so they are not sent`);
+    const { forced, sentCount } = armed;
+    if (deliveries && sentCount < deliveries.size) {
+        log.verbose(`LoreBase: ${deliveries.size - sentCount} of ${deliveries.size} picks are not in this scan's books, so they are not sent`);
     }
     if (!forced.length) return;
     await eventSource.emit(event_types.WORLDINFO_FORCE_ACTIVATE, forced);
-    log.verbose(`LoreBase: ${forced.length} picked entries go to this scan`);
+    log.verbose(`LoreBase: ${sentCount} picked entries go to this scan, in ${forced.length} <${LOREBOOK_TAG}> block(s)`);
 }
 
 /** Arm every World Info scan from now on, after the listeners SillyTavern's extensions added as they loaded. */

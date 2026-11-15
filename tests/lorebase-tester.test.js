@@ -129,10 +129,16 @@ describe("this session's reports", () => {
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('could not make'), expect.any(TypeError));
     });
 
+    it("notes a pick in the prompt when an entry the reply's scan activated carries what it sent, as LoreBase's block does", () => {
+        const report = reply({ isEnded: false });
+        host.handlers.world_info_activated([{ world: 'Harbor Atlas', uid: 0, content: `<VectLorebook>\n<Lighthouse_of_Vell>\n${lighthouse.content}\n</Lighthouse_of_Vell>\n</VectLorebook>` }]);
+        expect(report.picks[0].isInPrompt).toBe(true);
+    });
+
     it("notes which picks the reply's scan kept, then ties the report to the reply's message and its prompt's World Info", () => {
         const report = reply({ isEnded: false });
-        host.handlers.world_info_activated([{ world: 'Harbor Atlas', uid: 1 }]);
-        host.handlers.world_info_activated([{ world: 'Harbor Atlas', uid: 0 }]);
+        host.handlers.world_info_activated([{ world: 'Harbor Atlas', uid: 1, content: tidewardens.content }]);
+        host.handlers.world_info_activated([{ world: 'Harbor Atlas', uid: 0, content: lighthouse.content }]);
         expect(report.picks[0].isInPrompt).toBe(false);
 
         host.itemized.push({ mesId: 1, worldInfoString: 'older' }, { mesId: 2, worldInfoString: 'Keeper Orrin keeps the lamp.' });
