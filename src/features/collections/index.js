@@ -25,6 +25,7 @@ export {
     deleteCollection,
     deleteVectorsFolder,
     discoverExistingCollections,
+    discoveredIndexesOf,
     getCollectionListing,
     getCollectionRegistry,
     isCollectionEmpty,

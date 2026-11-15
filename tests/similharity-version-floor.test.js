@@ -22,6 +22,9 @@ vi.mock('../src/features/collections/collection-loader.js', () => ({
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     pruneOrphanedEventBaseChatMaps: vi.fn(),
 }));
+vi.mock('../src/features/lorebase/index.js', () => ({
+    deleteOldLorebookCollections: vi.fn(),
+}));
 
 // SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
 // read when embedding/providers.js loads.

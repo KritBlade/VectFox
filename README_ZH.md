@@ -534,6 +534,7 @@ VectFox 使用 SillyTavern 的連線設定檔（connection profile）運作。�
    - 如果 SillyTavern 的 **Vector Storage** 開著 **Enabled for World Info**，VectFox 會問你要不要關掉它。Vector Storage 會用自己的搜尋送出世界書條目，所以就算 LoreBase 把條目排除了，它還是會把你交給 LoreBase 的條目整條送出。如果你選擇保留它，LoreBase 就會維持關閉。Vector Storage 的聊天與檔案搜尋不受影響。
    - 同一頁的 **LoreBase tester** 卡片會顯示 LoreBase 在每次回覆中做了什麼。你可以看到 LoreBase model 挑了什麼、為什麼挑，每個條目送出了哪些部分，以及用了多少 token，並和 SillyTavern 的關鍵字會送出的量並排比較。如果回覆漏掉了什麼，你可以查看是不是 LoreBase 把它排除了。這些記錄會保留到你重新載入頁面為止。
    - 在提示詞中，LoreBase 送出的內容都放在一個 `<VectLorebook>` 區塊裡，每個條目放在以它命名的標籤中，所以你和 AI 都能把它和 SillyTavern 自己的條目分開。
+   - 如果你用舊版 VectFox 向量化過世界書，那些舊集合無法和 LoreBase 一起使用。所以 VectFox 會在啟動時刪除它們一次，並顯示它們來自哪些世界書。每個條目一開始都是關閉的，請重新為這些世界書挑選條目。舊集合對聊天或角色的鎖定，會移到它的世界書上。
 11. （選用）其他都正常後，到 **AgentMode** 頁面開啟 **Agent Mode**。把 **Provider** 留在 **Same as EventBase model**，規劃師就會用 EventBase model 的設定檔。所以步驟 5 那個便宜又快速的模型，也會用來驅動規劃師。完整說明請見上方「它是怎麼運作的」>「Agent Mode」。
 
 **手動的 OpenRouter 和 vLLM 即將移除。** 它們目前還在 Provider 下拉選單裡，用法跟以前一樣，也有自己的金鑰欄位。但在加入 SillyTavern 設定檔的版本之後 3 個月，會有一個 VectFox 版本把它們移除。如果你還在用，VectFox 會提醒你一次，並列出每個需要改的下拉選單。

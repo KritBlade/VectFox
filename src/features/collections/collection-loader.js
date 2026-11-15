@@ -1122,6 +1122,18 @@ export async function loadAllCollections(settings, autoDiscover = true) {
 }
 
 /**
+ * Where the plugin's last discovery found a collection: its backend and every {source, models} index holding it,
+ * which deleteCollection() purges, as the Database Browser passes them. Null before that discovery, without the
+ * plugin, or for a collection it did not find.
+ * @param {string} registryKey - "backend:id"
+ * @returns {{backend: string, sources: Array<{source: string, models: object[]}>}|null}
+ */
+export function discoveredIndexesOf(registryKey) {
+    const cached = pluginCollectionData?.[registryKey];
+    return cached ? { backend: cached.backend, sources: cached.sources || [] } : null;
+}
+
+/**
  * Returns true if the collection has 0 chunks according to the plugin discovery cache.
  * Used by retrieval to skip empty collections without querying them.
  * @param {string} registryKey - e.g. "vectra:vf_document_story1_..."

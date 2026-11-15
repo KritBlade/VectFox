@@ -13,7 +13,7 @@ EventBase is the **exclusive** retrieval path for chat content: chat history (li
 
 The pipelines never see each other's content. There is no overlap in collection prefixes or content types.
 
-Lorebooks are in neither. LoreBase (`src/features/lorebase/`), while its switch on the WorldInfo page is on, picks the entries a reply needs and sends them through SillyTavern's own World Info scan, inside one `<VectLorebook>` block for each place in the prompt they take; it stores no vectors, and never runs beside the World Info search of SillyTavern's Vector Storage. Its tester (`lorebase-tester.js`) keeps a report of each reply in page memory, for the WorldInfo page's tester card. The `vf_lorebook_*` collections vectorized before LoreBase are still listed, and nothing searches them.
+Lorebooks are in neither. LoreBase (`src/features/lorebase/`), while its switch on the WorldInfo page is on, picks the entries a reply needs and sends them through SillyTavern's own World Info scan, inside one `<VectLorebook>` block for each place in the prompt they take; it stores no vectors, and never runs beside the World Info search of SillyTavern's Vector Storage. Its tester (`lorebase-tester.js`) keeps a report of each reply in page memory, for the WorldInfo page's tester card. The `vf_lorebook_*` collections vectorized before LoreBase are deleted at start, once collection discovery has run (`lorebase-old-collections.js`): each one's chat and character locks move to the record of its book, which its ID names, and one notice names the books to choose entries for. Nothing searches them meanwhile.
 
 ### Key isolation rule (`src/features/chunkbase/chat-vectorization.js` → `gatherCollectionsToQuery`)
 

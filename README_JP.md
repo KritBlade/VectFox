@@ -531,6 +531,7 @@ VectFox は SillyTavern の接続プロファイル（connection profile）で�
    - SillyTavern の **Vector Storage** で **Enabled for World Info** がオンなら、VectFox はそれをオフにするか尋ねます。Vector Storage は独自の検索でロアブックのエントリーを送るため、LoreBase が外したエントリーでも、LoreBase に任せたエントリーを丸ごと送ってしまいます。オンのままにすると、LoreBase はオフのままです。Vector Storage のチャットとファイルの検索はそのままです。
    - 同じページの **LoreBase tester** カードには、各返信で LoreBase が何をしたかが表示されます。LoreBase model が何をなぜ選んだか、各エントリーのどの部分が入ったか、そしてそれが何トークンで、SillyTavern のキーなら何トークン送っていたかが分かります。返信が何かを忘れていたら、LoreBase が外したのかを確認できます。記録はページを再読み込みするまで残ります。
    - プロンプトでは、LoreBase が送るものはすべて 1 つの `<VectLorebook>` ブロックに入り、各エントリーはその名前のタグに入ります。だから、あなたも AI も SillyTavern 自身のエントリーと区別できます。
+   - 以前の VectFox でロアブックをベクトル化していた場合、その古いコレクションは LoreBase では使えません。そのため VectFox は起動時に一度だけそれらを削除し、どのブックから作られたかを表示します。すべてのエントリーはオフから始まるので、それらのブックのエントリーを選び直してください。古いコレクションのチャットやキャラクターへのロックは、そのブックに移ります。
 11. （オプション）他がすべて動いたら、**AgentMode** ページで **Agent Mode** をオンにします。**Provider** を **Same as EventBase model** のままにすると、プランナーは EventBase model のプロファイルで動きます。つまりステップ 5 の安くて速いモデルがプランナーも動かします。詳しくは上の「どう動くのか」>「Agent Mode」を参照してください。
 
 **手動の OpenRouter と vLLM はなくなります。** 今はまだ Provider ドロップダウンにあり、専用のキー欄も含めて以前どおり動きます。ただし、SillyTavern プロファイルが入ったリリースの 3 か月後の VectFox リリースで削除されます。まだ使っている場合は、VectFox が一度だけお知らせし、変更が必要なドロップダウンをすべて表示します。

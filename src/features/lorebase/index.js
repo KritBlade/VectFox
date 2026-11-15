@@ -11,12 +11,14 @@
 // and opens the screen. The tester keeps this session's reports of each reply, what Luna picked and why, what each
 // review kept and left out, the tokens against what SillyTavern's keys would send, and the seconds, for the WorldInfo
 // page's tester card. The folder also holds the entry splitter, which cuts the parts the review numbers; the per-book
-// record of selections, pins, locks and seen entries; and LoreBase's model connection, whose Test connection the
-// WorldInfo page runs.
+// record of selections, pins, locks and seen entries; LoreBase's model connection, whose Test connection the
+// WorldInfo page runs; and the start-up deletion of the old vectorized lorebook collections LoreBase replaced, whose
+// locks move to their books, with a notice naming the books.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { chatBookLocks } from './lorebase-chat-books.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
+export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval } from './lorebase-reply.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
 export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';
