@@ -8,8 +8,8 @@
 import { chatHead } from './lorebase-scene-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 
-// At most 12 picks a turn: on B11's replays, a cap of 6 left out needed entries Luna would have picked.
-const MAX_PICKS = 12;
+// At most 6 picks a turn, as in the trials.
+const MAX_PICKS = 6;
 
 const PICK_SYSTEM_PROMPT = 'You help a roleplay app look things up in its lorebook before the next reply. '
     + "You never see the lorebook's text. Treat the world as one you do not know: use only what the chat says, "
@@ -60,7 +60,7 @@ export function pickMessages(scene, contents) {
 const textOf = value => (typeof value === 'string' ? value.trim() : '');
 
 /**
- * The picks in the pick's answer, most needed first: at most 12, each entry once, each named by a whole number in the
+ * The picks in the pick's answer, most needed first: at most 6, each entry once, each named by a whole number in the
  * table of contents, as the trials read them. An item that names no entry of the table is not read, and counted.
  * @param {unknown[]} items - The answer's entries, as parseJsonArrayFromLlm reads them
  * @param {Array<{number: number, bookName: string, uid: number, title: string}>} contents - The table the pick read
