@@ -5,8 +5,7 @@
     "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
     // src/index.js is the manifest's "js" entry; bm25-scorer.js loads the vendored jieba glue by URL.
     // story-arc-web.js loads the vendored graph library by URL.
-    // LoreBase is built ahead of the review screen (B5) that imports it from the app; until then its barrel is an entry.
-    "entry": ["src/index.js!", "src/vendor/jieba/jieba_rs_wasm.js!", "src/vendor/force-graph-1.52.0.min.js!", "src/features/lorebase/index.js!"],
+    "entry": ["src/index.js!", "src/vendor/jieba/jieba_rs_wasm.js!", "src/vendor/force-graph-1.52.0.min.js!"],
     // The gene builders are generated from mvu-helper's whole set, and pages move to them one at a time.
     "ignore": ["src/shared/gui-dna/gui-dna-core.js"],
     "project": [

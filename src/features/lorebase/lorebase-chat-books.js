@@ -5,7 +5,8 @@
  */
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getCharaFilename } from '../../sillytavern/identifiers.js';
-import { METADATA_KEY, getWorldInfoSettings, selected_world_info } from '../../sillytavern/world-info.js';
+import { METADATA_KEY, getWorldInfoSettings, selected_world_info, world_names } from '../../sillytavern/world-info.js';
+import { getLoreBook, isLoreBookLocked } from './lorebase-books.js';
 import { activeBookNames } from './lorebase-reply-core.js';
 
 /**
@@ -39,5 +40,25 @@ export function lockTarget() {
         chatId: getCurrentChatId() ?? null,
         characterAvatar: character?.avatar ? String(character.avatar) : null,
         characterName: character ? String(character.name ?? '') : '',
+    };
+}
+
+/**
+ * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, how many entries
+ * are selected in it, and whether it is locked to this chat or to its character, where LoreBase decides them (D11).
+ * @returns {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
+ *   isLockedToCharacter: boolean}>}}
+ */
+export function chatBookLocks() {
+    const { chatId, characterAvatar } = lockTarget();
+    const known = new Set(world_names);
+    return {
+        hasChat: Boolean(chatId),
+        books: chatBookNames().filter(bookName => known.has(bookName)).map(bookName => ({
+            bookName,
+            selectedCount: getLoreBook(bookName)?.selectedUids.length ?? 0,
+            isLockedToChat: Boolean(chatId) && isLoreBookLocked(bookName, { chatId }),
+            isLockedToCharacter: Boolean(characterAvatar) && isLoreBookLocked(bookName, { characterAvatar }),
+        })),
     };
 }
