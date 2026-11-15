@@ -1,0 +1,238 @@
+/**
+ * LoreBase on each reply (src/features/lorebase/lorebase-reply.js, plan §5.5, §5.6, §5.8 of InternalProject/Vectfox/
+ * plans/lorebook-semantic-overhaul-passage-index.md): the generation interceptor's ask for a reply's lore runs the pick
+ * only on replies (D8), a quiet-to-loud generation included; reads the books SillyTavern loads that are locked to the
+ * chat or character (D11); sends each call on LoreBase's connection as the trials sent them; and goes on without the
+ * lore a failed call could not get, with the toast for it (D14).
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const host = vi.hoisted(() => ({
+    handlers: {},
+    context: null,
+    chatId: 'chat-harbor',
+    globalBooks: [],
+    charLore: [],
+    books: {},
+    settings: { vectfox: {} },
+    connection: null,
+}));
+
+vi.mock('../src/sillytavern/chat.js', () => ({
+    getContext: () => host.context,
+    getCurrentChatId: () => host.chatId,
+    substituteParams: text => text,
+}));
+vi.mock('../src/sillytavern/events.js', () => ({
+    eventSource: { on: (event, handler) => { host.handlers[event] = handler; } },
+    event_types: { GENERATION_AFTER_COMMANDS: 'generation_after_commands' },
+}));
+vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: id => (id === '3' ? 'keeper-orrin' : null) }));
+vi.mock('../src/sillytavern/world-info.js', () => ({
+    METADATA_KEY: 'world_info',
+    getWorldInfoSettings: () => ({ world_info: { charLore: host.charLore } }),
+    loadWorldInfo: vi.fn(async name => host.books[name] ?? null),
+    selected_world_info: host.globalBooks,
+}));
+vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/sillytavern/log.js', () => ({
+    log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), domain: vi.fn(), enabled: () => false },
+}));
+vi.mock('../src/shared/model-config-notifier.js', () => ({
+    isConnectionError: () => false, notifyConnectionError: vi.fn(), notifyUpstreamRejection: vi.fn(),
+    notifyInvalidModel: vi.fn(), notifySetupIncomplete: vi.fn(),
+}));
+// The real JSON reader, which needs these of SillyTavern and VectFox to load.
+vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
+vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => 'key', getCustomApiKey: () => 'key' }));
+vi.mock('../src/shared/model-http-errors.js', () => ({ getModelConfigErrorMessage: () => null }));
+vi.mock('../src/features/llm-provider/index.js', async () => {
+    const call = await vi.importActual('../src/features/llm-provider/llm-provider-call.js');
+    return { parseJsonArrayFromLlm: call.parseJsonArrayFromLlm, postChatCompletion: vi.fn() };
+});
+vi.mock('../src/features/text-cleaning/index.js', () => ({
+    cleanText: text => text,
+    stripGameSystemBlocks: text => text,
+    stripReasoningBlocks: vi.fn(text => text.replace(/<think>[\s\S]*?<\/think>/g, '')),
+}));
+vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
+    resolveLoreBaseLlmConfig: () => host.connection,
+    describeLoreBaseConnectionProblem: (reason, problem) => `${problem} Until then the entries selected for LoreBase stay out of replies.`,
+}));
+
+const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
+const { notifyInvalidModel, notifySetupIncomplete } = await import('../src/shared/model-config-notifier.js');
+const { postChatCompletion } = await import('../src/features/llm-provider/index.js');
+const { stripReasoningBlocks } = await import('../src/features/text-cleaning/index.js');
+const { initializeLoreBase, prepareLoreForReply } = await import('../src/features/lorebase/lorebase-reply.js');
+
+initializeLoreBase();
+const afterCommands = (type, options, isDryRun = false) => host.handlers.generation_after_commands(type, options, isDryRun);
+
+const LIGHTHOUSE = { uid: 0, comment: 'Lighthouse of Vell', content: 'The lighthouse stands on the north cliff of Vell.' };
+const TIDEWARDENS = { uid: 1, comment: 'Tidewardens', content: 'The tidewardens read the harbor bells.' };
+const LAMP_RULES = { uid: 7, comment: 'Lamp Rules', content: 'The lamp is never left dark.' };
+const ON_PROFILE = {
+    ok: true, provider: 'connection_profile', model: 'openai/gpt-6-luna', connectionProfileId: 'p-harbor', connectionProfilePage: 'WorldInfo',
+    parameterStyle: { sendTemperature: false, tokenLimitParameter: 'max_tokens', reasoningEffort: null },
+};
+const answer = entries => ({ content: JSON.stringify({ entries }), cutReason: null });
+const pickOf = (...numbers) => answer(numbers.map(number => ({ number, basis: 'named in the chat', certain: true, why: 'it is asked after', needs: 'who keeps it' })));
+const reviewOf = (uses, leaveOut = []) => answer([{ entry: 1, uses, leave_out: leaveOut }]);
+const userContent = callIndex => postChatCompletion.mock.calls[callIndex][0].messages[1].content;
+
+let settings;
+beforeEach(() => {
+    vi.clearAllMocks();
+    globalThis.toastr = { warning: vi.fn() };
+    host.chatId = 'chat-harbor';
+    host.context = {
+        chat: [{ name: 'Keeper Orrin', mes: 'The lamp is lit.', is_user: false }, { name: 'Wren', mes: 'Who keeps it tonight?', is_user: true }],
+        characters: { 3: { data: { extensions: { world: 'Keeper Notes' } } } },
+        characterId: '3',
+        chatMetadata: { world_info: 'Voyage Log' },
+        powerUserSettings: { persona_description_lorebook: '' },
+    };
+    host.globalBooks.splice(0, host.globalBooks.length, 'Harbor Atlas');
+    host.charLore = [];
+    host.books = { 'Harbor Atlas': { entries: { 0: LIGHTHOUSE, 1: TIDEWARDENS } }, 'Keeper Notes': { entries: { 7: LAMP_RULES } }, 'Voyage Log': { entries: {} } };
+    host.settings.vectfox = {
+        lorebase_books: { 'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterIds: [] } },
+    };
+    settings = { enabled: true, lorebase_accuracy: 'default' };
+    host.connection = ON_PROFILE;
+    // A fresh generation record for each test: a plain reply.
+    afterCommands('normal', {});
+});
+
+describe('which generations ask for lore (D8)', () => {
+    it('asks nothing on impersonate or a quiet generation, and picks on a quiet-to-loud one', async () => {
+        postChatCompletion.mockResolvedValue(pickOf());
+        expect(await prepareLoreForReply('impersonate', settings)).toBeNull();
+        afterCommands('quiet', { quietToLoud: false });
+        expect(await prepareLoreForReply('quiet', settings)).toBeNull();
+        // A dry run reaches no interceptor, so it does not stand in for the generation that does.
+        afterCommands('quiet', { quietToLoud: true }, true);
+        expect(await prepareLoreForReply('quiet', settings)).toBeNull();
+        expect(postChatCompletion).not.toHaveBeenCalled();
+
+        afterCommands('quiet', { quietToLoud: true });
+        expect(await prepareLoreForReply('quiet', settings)).toMatchObject({ picks: [], failures: [] });
+        expect(postChatCompletion).toHaveBeenCalledTimes(1);
+    });
+
+    it('picks on normal sends, swipes, regenerates and continues', async () => {
+        postChatCompletion.mockResolvedValue(pickOf());
+        for (const type of ['normal', 'swipe', 'regenerate', 'continue']) {
+            afterCommands(type, {});
+            await prepareLoreForReply(type, settings);
+        }
+        expect(postChatCompletion).toHaveBeenCalledTimes(4);
+    });
+
+    it('does nothing while VectFox is off', async () => {
+        expect(await prepareLoreForReply('normal', { ...settings, enabled: false })).toBeNull();
+        expect(loadWorldInfo).not.toHaveBeenCalled();
+    });
+});
+
+describe('the books taking part (D11)', () => {
+    it("reads only the books SillyTavern loads that are locked to this chat or character, each with its selected entries", async () => {
+        host.charLore = [{ name: 'keeper-orrin', extraBooks: ['Tide Tables'] }];
+        host.books['Tide Tables'] = { entries: { 2: { uid: 2, comment: 'Neap Tide', content: 'Neap tides come twice a month.' } } };
+        host.books['Unloaded Book'] = { entries: { 0: { uid: 0, comment: 'Far Isles', content: 'Far to the west.' } } };
+        host.settings.vectfox.lorebase_books = {
+            'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterIds: [] },
+            'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterIds: ['3'] },
+            // Selected but locked elsewhere, and selected and locked but not loaded by SillyTavern.
+            'Tide Tables': { selectedUids: ['2'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterIds: [] },
+            'Unloaded Book': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterIds: [] },
+        };
+        postChatCompletion.mockResolvedValue(pickOf());
+        await prepareLoreForReply('normal', settings);
+
+        expect(userContent(0)).toContain("number and title.\n\n1. Tidewardens\n2. Lamp Rules\n\nPick the entries");
+        expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas', 'Keeper Notes']);
+    });
+
+    it('asks nothing when no book taking part has a selected entry LoreBase decides', async () => {
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterIds: [] } };
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        host.settings.vectfox.lorebase_books = {};
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(postChatCompletion).not.toHaveBeenCalled();
+        expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+    });
+
+    it('asks nothing when the chat holds no user message for the reply to answer', async () => {
+        host.context.chat = [{ name: 'Keeper Orrin', mes: 'Welcome to Vell.', is_user: false }];
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(postChatCompletion).not.toHaveBeenCalled();
+    });
+});
+
+describe("the calls on LoreBase's connection", () => {
+    it('sends no temperature, the pick at low effort, and each review at the effort Accuracy sets', async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
+        const lore = await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'high' });
+
+        const sent = {
+            provider: 'connection_profile', model: 'openai/gpt-6-luna', connectionProfileId: 'p-harbor', connectionProfilePage: 'WorldInfo',
+            timeoutMs: 30000, contextLabel: 'LoreBase', shouldNotifyProviderFailure: false, sendTemperature: false, tokenLimitParameter: 'max_tokens',
+        };
+        const [pickRequest, reviewRequest] = postChatCompletion.mock.calls.map(([request]) => request);
+        expect(pickRequest).toMatchObject({ ...sent, maxTokens: 9500, reasoningEffort: 'low' });
+        expect(reviewRequest).toMatchObject({ ...sent, maxTokens: 10000, reasoningEffort: null });
+        for (const request of [pickRequest, reviewRequest]) expect(request).not.toHaveProperty('temperature');
+        expect(userContent(1)).toContain('Entry 1: Tidewardens\nYour reason: it is asked after You wanted: who keeps it');
+        expect(lore.reviewedPicks).toMatchObject([{ bookName: 'Harbor Atlas', uid: 1, uses: 'most', sentParts: [1] }]);
+    });
+
+    it('reads the answer, not the reasoning a thinking model writes before it', async () => {
+        postChatCompletion.mockResolvedValueOnce({ content: `<think>Maybe ${JSON.stringify({ entries: [{ number: 2 }] })}</think>${pickOf(1).content}`, cutReason: null })
+            .mockResolvedValueOnce(reviewOf('some'));
+        const lore = await prepareLoreForReply('normal', settings);
+        expect(stripReasoningBlocks).toHaveBeenCalled();
+        expect(lore.picks.map(pick => pick.title)).toEqual(['Lighthouse of Vell']);
+    });
+
+    it('says where to fix a connection that cannot run, and asks nothing', async () => {
+        host.connection = { ok: false, reason: 'connection_profile', problem: 'LoreBase: no connection profile is chosen. Choose one on the WorldInfo page.' };
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(notifySetupIncomplete).toHaveBeenCalledWith('LoreBase',
+            'LoreBase: no connection profile is chosen. Choose one on the WorldInfo page. Until then the entries selected for LoreBase stay out of replies.');
+        expect(postChatCompletion).not.toHaveBeenCalled();
+    });
+});
+
+describe('a turn whose call fails goes on without that lore (D14)', () => {
+    it('shows the yellow toast for a failed pick, and the reply still goes', async () => {
+        postChatCompletion.mockRejectedValueOnce(Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }));
+        const lore = await prepareLoreForReply('normal', settings);
+        expect(lore).toMatchObject({ picks: [], reviewedPicks: [], failures: [{ step: 'pick' }] });
+        expect(globalThis.toastr.warning).toHaveBeenCalledWith(
+            'LoreBase could not pick the lore for this reply, so none of the entries selected for LoreBase go in. '
+            + 'Regenerate the message to try again. Details: it did not answer within 30 seconds',
+            'VectFox — LoreBase left lore out', { timeOut: 30000, extendedTimeOut: 10000 });
+    });
+
+    it('names the entry whose review failed, while the other pick goes in', async () => {
+        postChatCompletion.mockImplementation(async ({ messages }) => {
+            if (messages[1].content.includes('Pick the entries')) return pickOf(1, 2);
+            if (messages[1].content.includes('Entry 1: Lighthouse of Vell')) return { content: 'I would rather not say.', cutReason: null };
+            return reviewOf('most');
+        });
+        const lore = await prepareLoreForReply('normal', settings);
+        expect(lore.reviewedPicks.map(reviewed => reviewed.title)).toEqual(['Tidewardens']);
+        expect(globalThis.toastr.warning.mock.calls[0][0]).toBe('LoreBase could not review its pick "Lighthouse of Vell", so it is left out of this reply '
+            + 'while the other picks go in. Regenerate the message to try again. Details: its answer could not be read');
+    });
+
+    it('sends a model the provider refuses to the configuration toast, since regenerating cannot fix it', async () => {
+        const refused = Object.assign(new Error('LoreBase: OpenRouter has no model "openai/gpt-6-lunar". Check Model in the profile.'), { kind: 'model_config' });
+        postChatCompletion.mockRejectedValueOnce(refused);
+        await prepareLoreForReply('normal', settings);
+        expect(notifyInvalidModel).toHaveBeenCalledWith(refused.message);
+        expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+    });
+});

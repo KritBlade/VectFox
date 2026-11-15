@@ -73,6 +73,10 @@ vi.mock('../src/features/database-browser/index.js', () => ({
 vi.mock('../src/features/world-info/index.js', () => ({
     initializeWorldInfoIntegration: vi.fn(),
 }));
+vi.mock('../src/features/lorebase/index.js', () => ({
+    initializeLoreBase: vi.fn(),
+    prepareLoreForReply: vi.fn(async () => null),
+}));
 vi.mock('../src/features/keyword-search/index.js', () => ({
     CJK_TOKENIZER_MODES: { intl: 'intl', jieba: 'jieba', jieba_tw: 'jieba_tw' },
     setCjkTokenizerMode: vi.fn(),

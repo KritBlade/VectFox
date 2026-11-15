@@ -32,6 +32,8 @@ describe('the book record', () => {
     it('has no record for a book nothing was selected in, and unlocks what it locked', () => {
         expect(getLoreBook('Another Book')).toBeNull();
         expect(isLoreBookLocked('Another Book', { chatId: 'chat-1' })).toBe(false);
+        // Each reply reads the records of the books it loads, so a read writes nothing to the settings.
+        expect(extension_settings.vectfox).toEqual({});
 
         setLoreBookLock(BOOK, { characterId: 7 }, true);
         expect(isLoreBookLocked(BOOK, { characterId: '7' })).toBe(true);

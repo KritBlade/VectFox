@@ -20,12 +20,13 @@ function emptyRecord() {
 }
 
 /**
- * A book's record, or null when the user never selected anything in it.
+ * A book's record, or null when the user never selected anything in it. Reading writes nothing: each reply reads the
+ * records of the books it loads.
  * @param {string} bookName
  * @returns {{selectedUids: string[], pinnedSections: string[], lockedToChatIds: string[], lockedToCharacterIds: string[]}|null}
  */
 export function getLoreBook(bookName) {
-    return allBooks()[bookName] ?? null;
+    return extension_settings.vectfox[BOOKS_KEY]?.[bookName] ?? null;
 }
 
 function recordFor(bookName) {

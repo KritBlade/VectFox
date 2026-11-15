@@ -43,6 +43,7 @@ import { runNetworkStartup } from './app/network-startup.js';
 import { mountSettingsPanel, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { initializeWorldInfoIntegration } from './features/world-info/index.js';
+import { initializeLoreBase, prepareLoreForReply } from './features/lorebase/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
@@ -448,10 +449,17 @@ let _lastChatTriggerEvent = null;
 const onChatEvent = debounce(async () => await moduleWorker.update(), debounce_timeout.relaxed);
 
 /**
- * Generation interceptor - searches and injects relevant messages
+ * The generation interceptor, which SillyTavern runs after slash commands and never on a dry run: EventBase retrieval
+ * and the chunk collections' search (rearrangeChat), and side by side with them LoreBase's pick and reviews. Both
+ * finish before SillyTavern's World Info scan.
  */
 async function vectfox_rearrangeChat(chat, _contextSize, _abort, type) {
-    await rearrangeChat(chat, settings, type);
+    const loreForReply = prepareLoreForReply(type, settings);
+    try {
+        await rearrangeChat(chat, settings, type);
+    } finally {
+        await loreForReply;
+    }
 }
 
 // Export to window for ST to call
@@ -603,6 +611,9 @@ jQuery(async () => {
 
     // Initialize world info integration hooks
     initializeWorldInfoIntegration();
+
+    // LoreBase follows generations, so its pick knows a quiet-to-loud one as a reply
+    initializeLoreBase();
 
     // Off-box startup work (discovery, EventBase index backfill, plugin version check).
     // Master switch OFF → skip it entirely; the switch re-runs this when turned back ON,
