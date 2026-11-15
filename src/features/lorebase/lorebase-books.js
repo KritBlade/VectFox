@@ -1,8 +1,9 @@
 /**
  * What VectFox keeps per lorebook for LoreBase (plan §5.2, §5.4): the entries the user selected for LoreBase to
- * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), and the chats and
- * characters the book is locked to (D11). One record per book, keyed by the book's exact name, in VectFox's settings:
- * never a key per entry (§3.3), and never in the lorebook file.
+ * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), the chats and characters
+ * the book is locked to (D11), and the entries it held when the selection screen last opened it, so a later one shows
+ * as new. One record per book, keyed by the book's exact name, in VectFox's settings: never a key per entry (§3.3),
+ * and never in the lorebook file.
  */
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
@@ -20,10 +21,12 @@ function emptyRecord() {
 }
 
 /**
- * A book's record, or null when the user never selected anything in it. Reading writes nothing: each reply reads the
- * records of the books it loads.
+ * A book's record, or null when the user never selected, pinned, locked or opened anything in it. Reading writes
+ * nothing: each reply reads the records of the books it loads. `seenUids` is missing until the selection screen first
+ * opens the book.
  * @param {string} bookName
- * @returns {{selectedUids: string[], pinnedSections: string[], lockedToChatIds: string[], lockedToCharacterIds: string[]}|null}
+ * @returns {{selectedUids: string[], pinnedSections: string[], lockedToChatIds: string[], lockedToCharacterIds: string[],
+ *   seenUids?: string[]}|null}
  */
 export function getLoreBook(bookName) {
     return extension_settings.vectfox[BOOKS_KEY]?.[bookName] ?? null;
@@ -53,6 +56,16 @@ export function setLoreBookSelection(bookName, entryUids) {
  */
 export function setLoreBookPins(bookName, sectionNames) {
     recordFor(bookName).pinnedSections = [...new Set([...sectionNames].map(name => String(name).trim()).filter(Boolean))];
+    saveSettingsDebounced();
+}
+
+/**
+ * Keep the entries a book holds as the selection screen opens it, so an entry added later shows as new there.
+ * @param {string} bookName
+ * @param {Iterable<string|number>} entryUids
+ */
+export function setLoreBookSeenEntries(bookName, entryUids) {
+    recordFor(bookName).seenUids = [...new Set([...entryUids].map(String))];
     saveSettingsDebounced();
 }
 

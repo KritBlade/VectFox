@@ -1,0 +1,38 @@
+/* pick-rows.css — a list row with a tick box beside it, for the lists whose rows a bulk bar acts on: the Database
+ * Browser's collections, the Chunk Visualizer's chunks (database-browser/) and LoreBase's selection screen (lorebase/).
+ * The markup is `.vfx-pick-row` holding `.vfx-pick-check`, the tick box, and `.vfx-pick-body`, the row. */
+
+.vfx-ui .vfx-pick-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+/* The tick box, centred on the first line of the row beside it: past the row's border and padding, one line tall.
+   SillyTavern's form controls keep their own font, so the box is centred rather than offset by its size. */
+.vfx-ui .vfx-pick-check {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    height: 1lh;
+    margin-top: 11px;
+    cursor: pointer;
+}
+
+/* A touch target of 40px, still centred on that line. */
+@media (max-width: 720px) {
+    .vfx-ui .vfx-pick-check {
+        width: 40px;
+        height: 40px;
+        margin: calc(11px + 0.5lh - 20px) -8px 0;
+    }
+}
+
+.vfx-ui .vfx-pick-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}

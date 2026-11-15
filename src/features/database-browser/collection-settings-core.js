@@ -11,7 +11,7 @@
  * ============================================================================
  */
 
-import { counted } from './counted.js';
+import { counted } from '../../shared/counted.js';
 
 /** Each kind of condition rule, in the order the Kind select lists them. */
 export const CONDITION_KINDS = [

@@ -6,18 +6,17 @@
  * entries selected in them, then reviews each pick, all at once. A turn whose pick or review fails goes on without
  * that lore, with a toast (D14).
  */
-import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
-import { getCharaFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
-import { METADATA_KEY, getWorldInfoSettings, loadWorldInfo, selected_world_info } from '../../sillytavern/world-info.js';
+import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
 import { parseJsonArrayFromLlm, postChatCompletion } from '../llm-provider/index.js';
 import { stripReasoningBlocks } from '../text-cleaning/index.js';
 import { getLoreBook, isLoreBookLocked } from './lorebase-books.js';
+import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
-import { CALL_TIMEOUT_MS, activeBookNames, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
+import { CALL_TIMEOUT_MS, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
 
@@ -36,29 +35,15 @@ export function initializeLoreBase() {
     });
 }
 
-/** Where SillyTavern's scan takes its books from this generation (world-info.js, getSortedEntries). */
-function lorebookSources(context) {
-    const character = context.characters?.[context.characterId];
-    const fileName = getCharaFilename(context.characterId);
-    const extraBooks = getWorldInfoSettings().world_info?.charLore?.find(item => item.name === fileName)?.extraBooks ?? [];
-    return {
-        globalBooks: [...selected_world_info],
-        characterBooks: [character?.data?.extensions?.world, ...extraBooks].filter(Boolean),
-        chatBook: context.chatMetadata?.[METADATA_KEY] || null,
-        personaBook: context.powerUserSettings?.persona_description_lorebook || null,
-    };
-}
-
 /**
  * The books taking part in this reply (D11): those SillyTavern loads that the user locked to this chat or character,
  * each with the entries LoreBase decides in it.
  * @returns {Promise<Array<{bookName: string, entries: object[], pinnedSections: string[]}>>}
  */
 async function booksTakingPart() {
-    const context = getContext();
-    const where = { chatId: getCurrentChatId() ?? null, characterId: context.characterId ?? null };
+    const where = lockTarget();
     const books = [];
-    for (const bookName of activeBookNames(lorebookSources(context))) {
+    for (const bookName of chatBookNames()) {
         const record = getLoreBook(bookName);
         if (!record?.selectedUids.length || !isLoreBookLocked(bookName, where)) continue;
         const entries = decidedEntries(await loadWorldInfo(bookName), record);

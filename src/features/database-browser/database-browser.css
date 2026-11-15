@@ -1,42 +1,7 @@
 /* database-browser.css — the Database Browser's own rules beside the GUI-DNA (database-browser-markup.js and
- * chunk-visualizer-markup.js): each collection's or chunk's selection box beside its row, the StoryArc links row drawn
- * as a branch under a collection and the open chunk's row. The Chunk Visualizer's title and
- * phone layout are in shared/gui-dna/workbench.css. */
-
-.vfx-ui .vfx-pick-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-}
-
-/* The selection box, centred on the first line of the row beside it: past the row's border and padding, one line
-   tall. SillyTavern's form controls keep their own font, so the box is centred rather than offset by its size. */
-.vfx-ui .vfx-pick-check {
-    display: flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    height: 1lh;
-    margin-top: 11px;
-    cursor: pointer;
-}
-
-/* A touch target of 40px, still centred on that line. */
-@media (max-width: 720px) {
-    .vfx-ui .vfx-pick-check {
-        width: 40px;
-        height: 40px;
-        margin: calc(11px + 0.5lh - 20px) -8px 0;
-    }
-}
-
-.vfx-ui .vfx-pick-body {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-}
+ * chunk-visualizer-markup.js): the StoryArc links row drawn as a branch under a collection, and the open chunk's row.
+ * The tick box beside each row is in shared/gui-dna/pick-rows.css; the Chunk Visualizer's title and phone layout are
+ * in shared/gui-dna/workbench.css. */
 
 .vfx-ui .vfx-pick-body > .vfx-row + .vfx-row {
     margin-left: 24px;

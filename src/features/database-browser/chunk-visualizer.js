@@ -59,7 +59,7 @@ import {
     tokenizerLockMarkup,
 } from './chunk-visualizer-markup.js';
 import { IN_CHAT_POSITION, sanitizeXmlTag } from './collection-settings-core.js';
-import { counted } from './counted.js';
+import { counted } from '../../shared/counted.js';
 
 /** The list's order and filter, and how many chunks a load asks for (0 for all), kept from one opening to the next. */
 const listChoices = { sort: 'index', filter: 'all', fetchLimit: 0 };

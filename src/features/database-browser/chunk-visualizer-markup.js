@@ -38,7 +38,7 @@ import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
 import { CHUNK_FILTERS, CHUNK_SORTS, LINK_MODES } from './chunk-visualizer-core.js';
 import { INJECTION_POSITIONS, IN_CHAT_POSITION } from './collection-settings-core.js';
 import { collectionTypeIcon } from './database-browser-markup.js';
-import { counted } from './counted.js';
+import { counted } from '../../shared/counted.js';
 
 /** The ids chunk-visualizer.js finds the visualizer's controls by. */
 export const VISUALIZER_IDS = Object.freeze({

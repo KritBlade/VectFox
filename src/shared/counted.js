@@ -1,5 +1,6 @@
 /**
- * A count with its noun, for the Database Browser's lines: "1 chunk", "3 chunks". Pure.
+ * A count with its noun, as a line of the Database Browser or the LoreBase selection screen shows it: "1 chunk",
+ * "3 chunks". Pure.
  *
  * @param {number} count
  * @param {string} singular

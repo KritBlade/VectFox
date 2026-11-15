@@ -35,7 +35,7 @@ import {
 import { buttonWithId, cardHeader, dangerZone, navBrand, navItem, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
 import { formatBytes } from '../../shared/byte-size.js';
-import { counted } from './counted.js';
+import { counted } from '../../shared/counted.js';
 
 export const BROWSER_ROOT_ID = 'vectfox_database_browser';
 

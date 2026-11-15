@@ -28,6 +28,15 @@ const USES = ['most', 'some', 'none'];
 const TEMPLATE_CODE_OPENER = '<%';
 
 /**
+ * Whether text holds template code, which LoreBase never trims (D9).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function hasTemplateCode(text) {
+    return String(text ?? '').includes(TEMPLATE_CODE_OPENER);
+}
+
+/**
  * The review's messages for one picked entry: the scene, then the entry alone as entry 1, with the reasons the pick
  * gave and its parts, each numbered and, unless it is the intro, named by its section.
  * @param {string} scene - From sceneText
@@ -71,7 +80,7 @@ export function readReview(items, partCount) {
 export function partsToSend(passages, review, pinnedSections) {
     if (review.uses === 'none') return [];
     const numbers = passages.map((_, index) => index + 1);
-    if (passages.some(passage => passage.text.includes(TEMPLATE_CODE_OPENER))) return numbers;
+    if (passages.some(passage => hasTemplateCode(passage.text))) return numbers;
     const leftOut = new Set(review.leaveOut);
     return numbers.filter(number => !leftOut.has(number) || pinnedSections.includes(passages[number - 1].section));
 }
