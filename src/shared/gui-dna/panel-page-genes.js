@@ -92,16 +92,17 @@ export function switchRow({ id, title, description, isSpan = false }) {
 /**
  * A slider beside its number box. The box owns the value and the id; the shell keeps the slider on it
  * (panel-shell.js), and the box takes an exact value where a long range is hard to hit by dragging. `title` names
- * the slider for a screen reader. Disabling the box does not disable the slider: the wiring disables both.
+ * the slider for a screen reader. `value` starts the box, for a control no saved setting fills. Disabling the box
+ * does not disable the slider: the wiring disables both.
  *
- * @param {{id: string, min: number, max: number, step: number, title: string}} slider
+ * @param {{id: string, min: number, max: number, step: number, title: string, value?: number}} slider
  * @returns {string}
  */
-export function sliderNumber({ id, min, max, step, title }) {
+export function sliderNumber({ id, min, max, step, title, value = '' }) {
     const limits = `min="${escape(String(min))}" max="${escape(String(max))}" step="${escape(String(step))}"`;
     return '<div class="vfx-slider">'
         + `<input type="range" class="vfx-range" data-vfx-slider-for="${escape(id)}" ${limits} title="${escape(title)}">`
-        + input({ id, type: 'number', min, max, step })
+        + input({ id, type: 'number', min, max, step, value })
         + '</div>';
 }
 

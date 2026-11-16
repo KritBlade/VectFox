@@ -38,7 +38,7 @@ export {
     runEventBaseRetrieval,
 } from './eventbase-workflow.js';
 export { getEventBaseExtractionPrompt } from './prompts-i18n.js';
-export { STORY_LINKS_FILE_TYPE, describeStoryLinkCoverage, describeStoryLinksImport } from './story-arc-links-core.js';
+export { STORY_LINKS_FILE_TYPE, describeStoryLinkCoverage, describeStoryLinksImport, linkParallelCallsOf } from './story-arc-links-core.js';
 export {
     buildCollectionLinksFile,
     deleteStoryLinks,

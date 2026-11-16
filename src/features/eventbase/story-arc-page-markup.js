@@ -9,7 +9,8 @@
  */
 
 import { button, detail, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { cardHeader, pageHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { LINK_PARALLEL_CALLS_DEFAULT, LINK_PARALLEL_CALLS_MAX } from './story-arc-links-core.js';
 import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
@@ -76,6 +77,11 @@ function modeCard() {
         ${cardHeader({ icon: 'fa-link', title: 'StoryArc mode', description: 'The switch, and the links it follows.' })}
         <div class="vfx-card-body vfx-stack">
             ${switchRow({ id: 'VectFox_story_arc_mode_enabled', title: 'Enable StoryArc mode', description: 'Adds one small LLM call per message, on the link model. Needs Qdrant.' })}
+            ${field([
+                fieldLabel({ text: 'Events at once', forId: 'VectFox_story_arc_link_parallel_calls' }),
+                sliderNumber({ id: 'VectFox_story_arc_link_parallel_calls', min: 1, max: LINK_PARALLEL_CALLS_MAX, step: 1, title: 'Events', value: LINK_PARALLEL_CALLS_DEFAULT }),
+                hint({ text: 'How many events Regenerate links decides at once. More is faster but risks rate limits.' }),
+            ])}
             <div class="vfx-control-row">
                 <button type="button" id="VectFox_story_arc_regenerate_links" class="vfx-btn vfx-btn-primary"><i class="fa-solid fa-link"></i><span>Regenerate links</span></button>
             </div>

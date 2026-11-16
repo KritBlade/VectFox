@@ -404,6 +404,8 @@ The **Windows at once** slider (the Chunking card on Vectorize Content's Chat pa
 
 Use **1** if you're on a strict rate-limited free tier or a single local GPU. Crank to **8** if you're on a paid cloud provider and want a 2000-message chat ingested in minutes instead of an hour.
 
+**Regenerate links** on the **StoryArc** page has the same kind of slider, **Events at once**: how many events its link model decides at the same time, from 1 to 8. It starts at 3 each time the page opens.
+
 ### 🧹 Multilingual keyword quality
 
 Better single-character filtering for CJK, mode-specific exceptions for high-signal 1-character RPG/Slice of Life/school terms.

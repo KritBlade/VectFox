@@ -22,7 +22,7 @@ import {
 import { openContentVectorizer } from '../chunkbase/index.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
-import { describeStoryLinkPass, hideStoryArcPage, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
+import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
@@ -164,9 +164,10 @@ function _describeLinkEstimate({ eventCount, inputTokens, outputTokens, minutes,
     return `${eventCount} events: ${cost}, about ${minutes} minutes, about ${Math.round(inputTokens / 1000)}k input and ${Math.round(outputTokens / 1000)}k output tokens`;
 }
 
-/** Show a link pass's cost, and run it if the player accepts. */
+/** Show a link pass's cost, and run it if the player accepts, with as many events at once as the card's slider says. */
 async function _runStoryLinkButton(settings) {
-    const pass = await describeStoryLinkPass(settings);
+    const parallelCalls = linkParallelCallsOf($('#VectFox_story_arc_link_parallel_calls').val());
+    const pass = await describeStoryLinkPass(settings, parallelCalls);
     if (pass.problem) {
         toastr.warning(pass.problem, 'VectFox StoryArc');
         return;
@@ -188,7 +189,7 @@ async function _runStoryLinkButton(settings) {
         ],
     });
     if (!choice) return;
-    await runStoryLinkPass({ collectionId, settings, shouldRelinkDecided: choice === 'all' });
+    await runStoryLinkPass({ collectionId, settings, shouldRelinkDecided: choice === 'all', parallelCalls });
 }
 
 /**

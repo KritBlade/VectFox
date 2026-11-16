@@ -17,6 +17,7 @@ import {
     describeStoryLinksImport,
     earlierEventsOf,
     estimateStoryLinkPass,
+    linkParallelCallsOf,
     inTimelineOrder,
     measureStoryLinkCoverage,
     mergeLinkCandidates,
@@ -241,14 +242,34 @@ describe('buildStoryLinkGraph and walkStoryLinks', () => {
 });
 
 describe('estimateStoryLinkPass', () => {
-    it('gives tokens, minutes and cost', () => {
-        const estimate = estimateStoryLinkPass(1437, { input: 0.0000001, output: 0.0000005 });
+    it('gives tokens, minutes and cost, the minutes as measured with 8 events at once', () => {
+        const estimate = estimateStoryLinkPass(1437, { input: 0.0000001, output: 0.0000005 }, 8);
         expect(estimate.minutes).toBe(19);
         expect(estimate.costUsd).toBeCloseTo(0.49, 2);
     });
 
+    it('takes longer with fewer events at once, at the same cost', () => {
+        const price = { input: 0.0000001, output: 0.0000005 };
+        expect(estimateStoryLinkPass(1437, price, 3).minutes).toBe(50);
+        expect(estimateStoryLinkPass(1437, price, 3).costUsd).toBe(estimateStoryLinkPass(1437, price, 8).costUsd);
+    });
+
     it('gives no cost when the price is unknown', () => {
-        expect(estimateStoryLinkPass(10, null).costUsd).toBeNull();
+        expect(estimateStoryLinkPass(10, null, 3).costUsd).toBeNull();
+    });
+});
+
+describe('linkParallelCallsOf', () => {
+    it('reads the Events at once box as a whole number from 1 to 8', () => {
+        expect(linkParallelCallsOf('5')).toBe(5);
+        expect(linkParallelCallsOf(0)).toBe(1);
+        expect(linkParallelCallsOf('12')).toBe(8);
+        expect(linkParallelCallsOf('2.7')).toBe(2);
+    });
+
+    it('starts at 3, as Vectorize Content does, for a box that holds no number', () => {
+        expect(linkParallelCallsOf('')).toBe(3);
+        expect(linkParallelCallsOf(undefined)).toBe(3);
     });
 });
 

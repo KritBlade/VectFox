@@ -24,7 +24,8 @@ import { generationRateLimiter, generationRateLimitSettings } from './generation
 import { isStoryArcActive } from './story-arc-core.js';
 import {
     LINK_NEAREST_COUNT,
-    LINK_PARALLEL_CALLS,
+    LINK_PARALLEL_CALLS_DEFAULT,
+    LINK_PARALLEL_CALLS_MAX,
     STORY_LINK_PROMPT,
     buildStoryLinkMessage,
     buildStoryLinksFile,
@@ -52,6 +53,8 @@ const MAX_CONSECUTIVE_FAILURES = 10;
 /** More new events than this wait for the StoryArc button, so a large import never spends without showing its cost. */
 const NEW_EVENT_LINK_LIMIT = 50;
 const NEW_EVENT_PARALLEL_CALLS = 3;
+/** Links put back from a file or deleted at once: database writes with no LLM call, as many as a pass's most. */
+const LINK_WRITES_AT_ONCE = LINK_PARALLEL_CALLS_MAX;
 /** Hits a new event's candidates come from. Older events far outnumber newer ones, so few hits are lost as later events. */
 const NEW_EVENT_POOL_SIZE = 40;
 
@@ -189,9 +192,10 @@ export async function readChatStoryEvents(settings, resolveOptions) {
  * What a link pass on the current chat would do and cost, for the StoryArc tab to show first.
  *
  * @param {object} settings
+ * @param {number} [parallelCalls] - Events decided at once, from the tab's Events at once
  * @returns {Promise<{problem: string}|{collectionId: string, coverage: object, allEstimate: object, undecidedEstimate: object, model: string}>}
  */
-export async function describeStoryLinkPass(settings) {
+export async function describeStoryLinkPass(settings, parallelCalls = LINK_PARALLEL_CALLS_DEFAULT) {
     const { problem, collectionId, events } = await readChatStoryEvents(settings);
     if (problem) return { problem };
     const llmConnection = resolveStoryLinkLlmConfig(settings);
@@ -201,8 +205,8 @@ export async function describeStoryLinkPass(settings) {
     return {
         collectionId,
         coverage,
-        allEstimate: estimateStoryLinkPass(coverage.totalCount, price),
-        undecidedEstimate: estimateStoryLinkPass(coverage.totalCount - coverage.decidedCount, price),
+        allEstimate: estimateStoryLinkPass(coverage.totalCount, price, parallelCalls),
+        undecidedEstimate: estimateStoryLinkPass(coverage.totalCount - coverage.decidedCount, price, parallelCalls),
         model: settings.story_arc_link_model,
     };
 }
@@ -225,9 +229,10 @@ export async function readStoryLinkCoverage(settings) {
  * @param {string} params.collectionId - The collection whose cost was shown
  * @param {object} params.settings
  * @param {boolean} params.shouldRelinkDecided - true redoes every event; false only those no pass has decided
+ * @param {number} [params.parallelCalls] - Events decided at once, from the tab's Events at once
  * @returns {Promise<{decidedCount: number, failedCount: number, isStopped: boolean}>}
  */
-export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDecided }) {
+export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDecided, parallelCalls = LINK_PARALLEL_CALLS_DEFAULT }) {
     const llmConnection = resolveStoryLinkLlmConfig(settings);
     if (!llmConnection.ok) throw new Error(llmConnection.problem ?? `StoryArc link model is not ready: ${llmConnection.reason}`);
 
@@ -252,7 +257,7 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
 
         const { finishedCount, linkedCount, failedCount, droppedLinkCount, stopReason } = await _linkEvents({
             events: toLink,
-            parallelCalls: LINK_PARALLEL_CALLS,
+            parallelCalls,
             findCandidates: (event) => {
                 // Without its vector an event would choose from recent events alone, and count as decided.
                 if (!event.vector) throw new Error('Its stored vector could not be read.');
@@ -452,7 +457,7 @@ async function _storeLinksOnEvents(writes, collectionId, settings, wording) {
         }
     };
     try {
-        await Promise.all(Array.from({ length: Math.min(LINK_PARALLEL_CALLS, writes.length) }, runWorker));
+        await Promise.all(Array.from({ length: Math.min(LINK_WRITES_AT_ONCE, writes.length) }, runWorker));
         const outcome = `${writtenCount} of ${writes.length} events ${wording.doneWord}, ${failedCount} failed`;
         log.lifecycle(`[VectFox-StoryArc] ${wording.logName} on ${collectionId}: ${outcome}${stopReason ? `. Stopped: ${stopReason}` : ''}`);
         if (stopReason) {

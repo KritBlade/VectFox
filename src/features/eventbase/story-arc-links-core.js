@@ -55,28 +55,47 @@ const LINK_RECENT_COUNT = 3;
 /** Below this share of decided events, walks would stop at undecided events, so recipes do not use links. */
 const USABLE_DECIDED_SHARE = 0.9;
 
-/** Parallel LLM calls in a link pass, the same as EventBase's own import at its highest. A browser on plain HTTP sends at most 6 to one server at a time. */
-export const LINK_PARALLEL_CALLS = 8;
+/**
+ * Events a link pass from the StoryArc tab decides at once, its Events at once slider: as many as Vectorize Content
+ * reads windows at once, by default and at most. A browser on plain HTTP sends at most 6 to one server at a time.
+ */
+export const LINK_PARALLEL_CALLS_DEFAULT = 3;
+export const LINK_PARALLEL_CALLS_MAX = 8;
 /** Per event, measured on a 1,437-event pass with GPT-6 Luna at medium reasoning, from a browser on plain HTTP. */
 const LINK_INPUT_TOKENS_PER_EVENT = 1810;
 const LINK_OUTPUT_TOKENS_PER_EVENT = 320;
-const LINK_PASS_SECONDS_PER_EVENT = 0.78;
+/** One event's call, from the same pass: 0.78 seconds an event with 8 at once. */
+const LINK_CALL_SECONDS = 6.24;
 
 /**
- * What a link pass would likely cost. Other models think more or less, so this is a guide.
+ * The events a link pass decides at once, from the Events at once box: a whole number from 1 to the most, or the
+ * default for a box that holds no number.
+ *
+ * @param {string|number} value
+ * @returns {number}
+ */
+export function linkParallelCallsOf(value) {
+    const count = Number.parseInt(value, 10);
+    return Number.isFinite(count) ? Math.min(LINK_PARALLEL_CALLS_MAX, Math.max(1, count)) : LINK_PARALLEL_CALLS_DEFAULT;
+}
+
+/**
+ * What a link pass would likely cost, and how long it takes with so many events at once. Other models think more or
+ * less, so this is a guide.
  *
  * @param {number} eventCount
  * @param {{input: number, output: number}|null} pricePerToken - Null when the price is unknown
+ * @param {number} parallelCalls - Events decided at once
  * @returns {{eventCount: number, inputTokens: number, outputTokens: number, minutes: number, costUsd: number|null}}
  */
-export function estimateStoryLinkPass(eventCount, pricePerToken) {
+export function estimateStoryLinkPass(eventCount, pricePerToken, parallelCalls) {
     const inputTokens = eventCount * LINK_INPUT_TOKENS_PER_EVENT;
     const outputTokens = eventCount * LINK_OUTPUT_TOKENS_PER_EVENT;
     return {
         eventCount,
         inputTokens,
         outputTokens,
-        minutes: Math.ceil(eventCount * LINK_PASS_SECONDS_PER_EVENT / 60),
+        minutes: Math.ceil(eventCount * LINK_CALL_SECONDS / parallelCalls / 60),
         costUsd: pricePerToken ? inputTokens * pricePerToken.input + outputTokens * pricePerToken.output : null,
     };
 }
