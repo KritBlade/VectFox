@@ -523,7 +523,7 @@ VectFox は SillyTavern の接続プロファイル（connection profile）で�
 5. **EventBase model。** **Provider** を **SillyTavern profile** にして、**Profile** でチャット用のプロファイルを選び、**Test connection** を押します。ベクトル化のとき、このモデルがイベントを書きます。
    - SillyTavern でチャットに使えるプロファイルなら何でも使えます。VectFox は自分のプロンプトを送るので、プロファイルのプリセットは使われません。
    - **おすすめモデル：** 安くて速い抽出なら `openai/gpt-4o-mini` か `google/gemini-3.1-flash-lite`。費用が増えてもより良い抽出がほしいなら、`x-ai/grok-4.3` がより強力です。モデル ID は時間とともに変わるので、長い実行の前に OpenRouter で正確な ID を確認してください。`x-ai/grok-4.1-fast` のような古い ID は 404 が返ることがあります。
-6. **Keywords。** **CJK tokenizer** でストーリーの言語を選びます。ベクトル化の前に選び、その後は変えないでください（FAQ 参照）。
+6. **Keywords。** **CJK tokenizer** でストーリーの言語を選びます。ベクトル化の前に選び、その後は変えないでください（FAQ 参照）。中国語・日本語・韓国語を選んでいても、別の言語で書かれたチャットのイベントは、そのチャットの言語で書かれます。
 7. それ以外のほとんどの設定はデフォルトのままで大丈夫です。必要に応じて調整してください。
 8. **まずチャットを 1 回ベクトル化する。** チャットを開き、**Action** ページで **Vectorize content** を押して **Chat** を選び、**Vectorize** を押します。最初の DB を作るには、これが**必須**です。
 9. **同期を保つ。** 自動にしたいなら、**AutoSync** ページで **Auto-sync this chat** をオンにします。**Turns** で 1 回の実行に入るターン数が決まります。手動で追いつきたいときは、**Action** ページの **Sync chat** を押します。

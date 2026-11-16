@@ -32,6 +32,8 @@ import {
     truncateCodePoints,
 } from './eventbase-schema.js';
 import { cleanText } from '../text-cleaning/index.js';
+import { isCjkLanguageText } from './prompts-i18n.js';
+import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { log } from '../../sillytavern/log.js';
 
@@ -139,17 +141,14 @@ function _detectScript(text) {
 }
 
 /**
- * Infers the human language for the LLM hint, even for mixed-script excerpts.
- * Returns null when the excerpt is clearly Latin-only.
+ * The CJK language an excerpt is written in, for the LLM hint, even for a mixed-script excerpt; null when it is not
+ * written in one (isCjkLanguageText).
  */
 function _inferLanguageHint(text) {
-    if (!text) return null;
+    if (!isCjkLanguageText(text)) return null;
     const hangul = (text.match(/[\uAC00-\uD7AF]/g) || []).length;
     const hiragana = (text.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
     const cjk = (text.match(/[\u3000-\u9FFF\uF900-\uFAFF]/g) || []).length + hangul + hiragana;
-    const latin = (text.match(/[a-zA-Z]/g) || []).length;
-    const total = cjk + latin;
-    if (total === 0 || cjk / total < 0.15) return null; // too little CJK to guess
     if (hangul > hiragana && hangul > cjk * 0.3) return '\uD55C\uAD6D\uC5B4 (Korean)';
     if (hiragana > 5) return '\u65E5\u672C\u8A9E (Japanese)';
     return '\u4E2D\u6587 (Chinese)';
@@ -328,9 +327,11 @@ function _resolveWindowRealWorldDate(messages) {
  * @param {number} params.windowEnd   - 0-based end index (inclusive)
  * @param {object} params.settings    - VectFox settings
  * @param {number} [params.windowIndex] - Window index for error reporting
+ * @param {{promptMode: string, isCjkStory: boolean}} [params.storyLanguage] - From readStoryLanguage on the run's
+ *        messages; a window on its own reads its own
  * @returns {Promise<object[]>} Array of full EventRecord objects (ingestion fields attached)
  */
-export async function extractEvents({ messages, windowStart, windowEnd, settings, windowIndex = 0 }) {
+export async function extractEvents({ messages, windowStart, windowEnd, settings, windowIndex = 0, storyLanguage = readStoryLanguage(messages, settings) }) {
     // Logging routes through src/sillytavern/log.js. Per-window flow → Verbose; per-item
     // parse detail → Trace; raw LLM/parser dumps → 'raw_llm' domain deep-dive.
 
@@ -370,14 +371,15 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
 
     const maxCount = settings.eventbase_max_events_per_window || 5;
 
-    // Detect dominant script BEFORE building prompt so we can inject an explicit language hint
+    // The window's script is checked after the reply. The prompt follows the story's language, and in a CJK story a
+    // window written in CJK also names its language, which a non-CJK mode's prompt would not write.
     const excerptScript = _detectScript(excerptText);
-    const languageHint = _inferLanguageHint(excerptText);
+    const languageHint = storyLanguage.isCjkStory ? _inferLanguageHint(excerptText) : null;
     let basePrompt = buildExtractionPrompt(
         excerptText,
         maxCount,
         settings.eventbase_custom_prompt || '',
-        settings.cjk_tokenizer_mode || 'intl',
+        storyLanguage.promptMode,
     );
     if (languageHint) {
         basePrompt = `DETECTED EXCERPT LANGUAGE: ${languageHint}. You MUST write ALL string fields in that language — no exceptions.\n\n${basePrompt}`;

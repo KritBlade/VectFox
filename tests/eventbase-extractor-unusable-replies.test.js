@@ -24,7 +24,7 @@ vi.mock('../src/shared/model-http-errors.js', () => ({ getModelConfigErrorMessag
 vi.mock('../src/shared/model-config-notifier.js', () => ({
     isConnectionError: () => false, notifyConnectionError: vi.fn(), notifyUpstreamRejection: vi.fn(),
 }));
-vi.mock('../src/features/text-cleaning/index.js', () => ({ cleanText: (text) => text }));
+vi.mock('../src/features/text-cleaning/index.js', () => ({ cleanText: text => text, stripGameSystemBlocks: text => text, stripReasoningBlocks: text => text }));
 vi.mock('../src/features/eventbase/eventbase-message-hash.js', () => ({ hashSourceMessage: (message) => message.mes.length }));
 vi.mock('../src/sillytavern/log.js', () => ({
     log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), domain: vi.fn(), enabled: () => false },

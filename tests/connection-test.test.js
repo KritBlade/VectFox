@@ -21,7 +21,7 @@ vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
 vi.mock('../../../../extensions.js', () => ({ getContext: () => ({}) }));
 vi.mock('../src/sillytavern/secrets.js', () => ({ SECRET_KEYS: {}, deleteSecret: vi.fn(), readSecretState: vi.fn(), secret_state: {}, writeSecret: vi.fn() }));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => 'masked', getCustomApiKey: () => 'masked' }));
-vi.mock('../src/features/text-cleaning/index.js', () => ({ cleanText: text => text }));
+vi.mock('../src/features/text-cleaning/index.js', () => ({ cleanText: text => text, stripGameSystemBlocks: text => text, stripReasoningBlocks: text => text }));
 vi.mock('../src/features/eventbase/eventbase-message-hash.js', () => ({ hashSourceMessage: message => message.mes.length }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: new Proxy({}, { get: () => () => {} }) }));
 

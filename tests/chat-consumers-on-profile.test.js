@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
 vi.mock('../../../../extensions.js', () => ({ extension_settings: { vectfox: {} } }));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => 'key', getCustomApiKey: () => 'key' }));
-vi.mock('../src/features/text-cleaning/index.js', () => ({ cleanText: (text) => text }));
+vi.mock('../src/features/text-cleaning/index.js', () => ({ cleanText: text => text, stripGameSystemBlocks: text => text, stripReasoningBlocks: text => text }));
 vi.mock('../src/features/eventbase/eventbase-message-hash.js', () => ({ hashSourceMessage: (message) => message.mes.length }));
 
 const calls = vi.hoisted(() => ({ post: null }));

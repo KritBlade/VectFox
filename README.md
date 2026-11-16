@@ -545,7 +545,7 @@ You need 2 profiles: one for embedding, and one for the model that writes events
 5. **EventBase model.** Set **Provider** to **SillyTavern profile**, pick a chat profile in **Profile**, and press **Test connection**. This model writes the events when you vectorize.
    - Any profile SillyTavern can chat on works. VectFox sends its own prompts, so the profile's preset is not used.
    - **Recommended models:** for a cheap and fast extraction, `openai/gpt-4o-mini` or `google/gemini-3.1-flash-lite`. If you want better extraction and don't mind paying more, `x-ai/grok-4.3` is stronger. Model IDs change over time, so check the exact ID on OpenRouter before a long run. An old ID such as `x-ai/grok-4.1-fast` can come back as a 404.
-6. **Keywords.** Pick your story's language in **CJK tokenizer**. Pick it before you vectorize, and stick with it (see the FAQ).
+6. **Keywords.** Pick your story's language in **CJK tokenizer**. Pick it before you vectorize, and stick with it (see the FAQ). If you pick Chinese, Japanese or Korean, a chat written in another language still gets its events in its own language.
 7. Most other settings work fine on default. Feel free to tweak.
 8. **Vectorize your chat once.** Open your chat, go to the **Action** page, press **Vectorize content**, pick **Chat**, then press **Vectorize**. You **HAVE** to do this to build your first DB.
 9. **Keep it in sync.** Turn on **Auto-sync this chat** on the **AutoSync** page if you want it automatic. **Turns** sets how many turns go into each run. Or press **Sync chat** on the **Action** page to catch up by hand.

@@ -25,6 +25,7 @@ import { isDuplicateEvent, removeEventsVisibleInContext, retrieveEvents } from '
 import { seatPlannerHits } from './planner-seats-core.js';
 import { searchEventCollection } from './eventbase-search.js';
 import { buildPlannerUserMessage, getAgenticPlannerPrompt } from './prompts-i18n.js';
+import { readStoryLanguage } from './story-language.js';
 import { cleanText, stripReasoningBlocks, stripGameSystemBlocks } from '../text-cleaning/index.js';
 import {
     describeConnectionProblem,
@@ -265,13 +266,15 @@ async function _searchPlannedQueries(params) {
         recentTurns,
         userMessage: keywordQuery || '',
     });
+    // The searches are written in the story's language, as its events are.
+    const plannerPromptMode = readStoryLanguage(getContext().chat || [], settings ?? {}).promptMode;
 
     if (isAgentDebugOn) {
         // Prompt size only — the full prompt is intentionally NOT dumped to keep
         // the log readable. The narrative-context preview above already shows
         // what the planner sees per turn; the static system prompt is
         // getAgenticPlannerPrompt() in src/features/eventbase/prompts-i18n.js.
-        const systemPromptText = getAgenticPlannerPrompt(settings?.cjk_tokenizer_mode);
+        const systemPromptText = getAgenticPlannerPrompt(plannerPromptMode);
         const approxTokens = Math.round((systemPromptText.length + userMessage.length) / 4);
         log.domain('agent', 'lifecycle', `[VectFox-Agentic] LLM prompt size: system+user approx ${approxTokens} tokens (${systemPromptText.length}+${userMessage.length} chars)`);
     }
@@ -286,7 +289,7 @@ async function _searchPlannedQueries(params) {
         // AbortSignal.timeout (created inside callLlmForJson) is unaffected.
         plan = await generationRateLimiter.execute(
             () => callLlmForJson({
-                systemPrompt: getAgenticPlannerPrompt(settings?.cjk_tokenizer_mode),
+                systemPrompt: getAgenticPlannerPrompt(plannerPromptMode),
                 userMessage,
                 llmConnection,
                 timeoutMs,

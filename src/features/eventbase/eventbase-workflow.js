@@ -27,6 +27,7 @@ import { searchEventCollection } from './eventbase-search.js';
 import { EVENTBASE_PROMPT_TAG } from '../../shared/constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
 import { extractEvents } from './eventbase-extractor.js';
+import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
@@ -245,6 +246,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const disablePipeline = settings?.eventbase_disable_pipeline === true;
 
     if (!messages?.length) return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
+
+    // Every window of a run writes in the story's language, read once from its latest messages.
+    const storyLanguage = readStoryLanguage(messages, settings);
+    log.lifecycle(`[EventBase] Story language: ${storyLanguage.isCjkStory ? 'CJK' : 'not CJK'}, so the "${storyLanguage.promptMode}" extraction prompt (CJK tokenizer mode "${settings.cjk_tokenizer_mode || 'intl'}")`);
 
     // If the fingerprint cache says windows were extracted but Qdrant has no data
     // (e.g. collection was deleted externally), reset the cache so we start fresh.
@@ -530,6 +535,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                             windowEnd: win.end,
                             settings,
                             windowIndex: wIdx,
+                            storyLanguage,
                         }),
                         generationRateLimitSettings(settings),
                         'extraction',

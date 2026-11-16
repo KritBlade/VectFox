@@ -5,8 +5,10 @@
  * Single source of truth for all localised prompt strings.
  *
  * The agentic planner and EventBase extraction pick their prompts from here
- * based on the user's CJK Tokenizer Mode setting, which doubles as the
- * "story language" selector.
+ * by the user's CJK Tokenizer Mode setting, which doubles as the story
+ * language, unless a Chinese, Japanese or Korean mode reads a story written in
+ * another language: that story takes the "others" prompts, which write in the
+ * story's own language and name none (storyLanguageOf).
  *
  * Supported modes (mirrors CJK_TOKENIZER_MODES in bm25-scorer.js):
  *   intl            → English / Latin           (English examples)
@@ -20,6 +22,54 @@
  * language rules tell the LLM to keep a name as the chat writes it.
  * ============================================================================
  */
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORY LANGUAGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The tokenizer modes whose prompts write a Chinese, Japanese or Korean story. */
+const CJK_LANGUAGE_MODES = new Set(['jieba', 'jieba_tw', 'tiny_segmenter', 'korean']);
+/** A text with this share of CJK letters or more is written in a CJK language. A whole Chinese chat measures 0.3 to 0.7. */
+const CJK_LANGUAGE_MIN_SHARE = 0.15;
+const CJK_LETTER = /[\u3000-\u9FFF\uF900-\uFAFF\uAC00-\uD7AF]/g;
+const LATIN_LETTER = /[a-zA-Z]/g;
+
+/**
+ * The share of a text's letters that are CJK: Chinese characters, kana, hangul and CJK punctuation, against Latin
+ * letters. 0 for a text with neither.
+ *
+ * @param {string} text
+ * @returns {number}
+ */
+export function cjkShareOf(text) {
+    const cjk = (String(text ?? '').match(CJK_LETTER) ?? []).length;
+    const total = cjk + (String(text ?? '').match(LATIN_LETTER) ?? []).length;
+    return total ? cjk / total : 0;
+}
+
+/**
+ * Whether a text is written in a Chinese, Japanese or Korean language.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isCjkLanguageText(text) {
+    return cjkShareOf(text) >= CJK_LANGUAGE_MIN_SHARE;
+}
+
+/**
+ * The prompt variant a story's events and queries are written with: the mode's own, unless the mode writes a CJK
+ * language and the story is written in another, as an English story read under Traditional Chinese is. That story
+ * takes the "others" variant, which writes in the story's own language.
+ *
+ * @param {string} mode - The CJK Tokenizer Mode setting
+ * @param {string} storyText - The story's latest messages, as Text Cleaning leaves them
+ * @returns {{promptMode: string, isCjkStory: boolean}}
+ */
+export function storyLanguageOf(mode, storyText) {
+    const isCjkStory = isCjkLanguageText(storyText);
+    return { promptMode: CJK_LANGUAGE_MODES.has(mode) && !isCjkStory ? 'others' : mode, isCjkStory };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENTIC PLANNER SYSTEM PROMPT
@@ -68,11 +118,10 @@ Output STRICT JSON with exactly two fields:
 
   queries    1–6 short search strings (5–15 words). Prefer one query per distinct
              backstory reference in the user message; add more only while each
-             stays distinct on an axis below. LANGUAGE: match the recent
-             chat — CHECK the chat's language before writing (English chat →
-             English queries; Chinese chat → Chinese queries; Japanese → Japanese;
-             etc.). Each query MUST differ on at least one of these axes — not
-             just wording:
+             stays distinct on an axis below. LANGUAGE: write every query in
+             the same language as the recent chat — CHECK the chat's language
+             before writing. Each query MUST differ on at least one of these
+             axes — not just wording:
                • TIME        (early arc vs recent vs aftermath)
                • PERSPECTIVE (character A's view vs character B's view)
                • GRANULARITY (specific event vs general pattern over time)
@@ -359,11 +408,11 @@ User: Kai에게 — "네 아버지는 마침내 누명을 벗었어, 네 누나�
 
 const _PLANNER_EXAMPLES_OTHERS =
 `══ LANGUAGE RULE ═════════════════════════════════════════════════════
-Detect the story language from the chat. Write ALL queries
-in that language only. Do NOT default to English — match the roleplay language.
+Write ALL queries in the same language as the chat, and only in it. The
+examples below show the pattern only: never take their language.
 Proper nouns (names, places, items) keep their exact form from the chat.
 
-══ EXAMPLES (shown in English — apply the same pattern in your detected language) ══
+══ EXAMPLES (the pattern only — write yours in the chat's language) ══
 
 Example 1 — Causal "why" chain (plot-driven, RPG/mystery/thriller):
 User: "Do you remember why we had to pay off Kai's debt?"
@@ -519,11 +568,11 @@ const _EXTRACTION_LANG_KOREAN =
 
 const _EXTRACTION_LANG_OTHERS =
 `1. LANGUAGE — MANDATORY:
-   - Detect the dominant language of the excerpt. All string fields MUST be in THAT language.
-   - Do NOT default to English unless the excerpt is in English.
-   - If the excerpt mixes languages, follow the dominant language of each individual field's source content.
+   - All string fields MUST be in the same language as the excerpt.
+   - The examples in this prompt show the shape of each field only: never take their language.
+   - If the excerpt mixes languages, follow the language most of each field's source content is in.
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
-   - CONCEPTS examples (English shown — translate the SHAPE into the detected language):
+   - CONCEPTS examples (the shape to follow — write yours in the excerpt's language):
        GOOD (abstract themes that recur): "sacrifice", "trust", "obligation",
              "isolation", "redemption", "the cost of victory"
        BAD  (entity / action / mechanic — belong in OTHER fields):
@@ -706,11 +755,11 @@ const _EXTRACTION_EXAMPLES_KOREAN =
 
 `;
 
-// "others" reuses the English example with a notice — the LLM will follow the
-// LANGUAGE rule from this variant's _EXTRACTION_LANG block to write its own
-// output in whatever language the excerpt actually uses.
+// "others" reuses the English example as a shape only — the LLM follows the
+// LANGUAGE rule from this variant's _EXTRACTION_LANG block, which names no
+// language, to write its own output in whatever language the excerpt uses.
 const _EXTRACTION_EXAMPLES_OTHERS =
-`One event (English excerpt — apply the same field structure in your detected language):
+`One event (its shape only — write yours in the excerpt's language):
 [{"event_type":"relationship_change","importance":7,"summary":"Aria takes the blame for Leon's mistake in front of the commander, shielding him from punishment at personal cost. Leon is visibly shaken by her sacrifice and vows to repay her.","cause":"Leon froze during the mission briefing and Aria covered for him without hesitation.","result":"Leon feels indebted to Aria; their dynamic shifts from rivalry to fragile trust.","characters":["Aria","Leon","Commander Voss"],"locations":["Command Tent"],"factions":["Iron Company"],"DateTime":null,"scene_time":"","items":[],"concepts":["sacrifice","debt","trust"],"keywords":["blame","shield","punishment","mistake","sacrifice","debt","trust","rivalry","vow","repay","commander","mission briefing","froze","covered"],"open_threads":["Will Leon repay Aria?","How will Commander Voss react if he finds out?"],"should_persist":true}]
 
 `;

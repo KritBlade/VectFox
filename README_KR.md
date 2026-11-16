@@ -525,7 +525,7 @@ VectFox는 SillyTavern 연결 프로필(connection profile)로 작동합니다. 
 5. **EventBase model.** **Provider**를 **SillyTavern profile**로 두고, **Profile**에서 채팅 프로필을 고른 뒤 **Test connection**을 누릅니다. 벡터화할 때 이 모델이 이벤트를 씁니다.
    - SillyTavern으로 채팅할 수 있는 프로필이면 무엇이든 됩니다. VectFox는 자체 프롬프트를 보내므로 프로필의 프리셋은 쓰이지 않습니다.
    - **추천 모델:** 싸고 빠른 추출에는 `openai/gpt-4o-mini` 또는 `google/gemini-3.1-flash-lite`. 돈을 더 내더라도 더 나은 추출을 원한다면 `x-ai/grok-4.3`이 더 강력합니다. 모델 ID는 시간이 지나며 바뀌므로, 긴 실행 전에 OpenRouter에서 정확한 ID를 확인하세요. `x-ai/grok-4.1-fast` 같은 오래된 ID는 404가 돌아올 수 있습니다.
-6. **Keywords.** **CJK tokenizer**에서 스토리의 언어를 고릅니다. 벡터화하기 전에 고르고, 그 뒤로는 바꾸지 마세요(FAQ 참조).
+6. **Keywords.** **CJK tokenizer**에서 스토리의 언어를 고릅니다. 벡터화하기 전에 고르고, 그 뒤로는 바꾸지 마세요(FAQ 참조). 중국어, 일본어, 한국어를 골랐더라도 다른 언어로 쓰인 채팅의 이벤트는 그 채팅의 언어로 쓰입니다.
 7. 나머지 대부분의 설정은 기본값으로 괜찮습니다. 필요하면 자유롭게 조정하세요.
 8. **채팅을 한 번 벡터화하기.** 채팅을 열고 **Action** 페이지에서 **Vectorize content**를 누르고 **Chat**을 고른 뒤 **Vectorize**를 누릅니다. 첫 DB를 만들려면 이 단계가 **꼭** 필요합니다.
 9. **동기화 유지.** 자동으로 하려면 **AutoSync** 페이지에서 **Auto-sync this chat**을 켭니다. **Turns**는 한 번 실행에 들어가는 턴 수를 정합니다. 직접 따라잡고 싶다면 **Action** 페이지에서 **Sync chat**을 누르세요.

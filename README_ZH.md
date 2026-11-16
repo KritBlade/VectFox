@@ -526,7 +526,7 @@ VectFox 使用 SillyTavern 的連線設定檔（connection profile）運作。�
 5. **EventBase model。** 把 **Provider** 設為 **SillyTavern profile**，在 **Profile** 選一個聊天用的設定檔，然後按 **Test connection**。向量化時，由這個模型寫出事件。
    - 任何 SillyTavern 能用來聊天的設定檔都可以。VectFox 送出的是自己的提示詞，所以設定檔的預設（preset）不會被使用。
    - **推薦模型：** 想要便宜又快速的萃取，用 `openai/gpt-4o-mini` 或 `google/gemini-3.1-flash-lite`。如果想要更好的萃取品質，也不介意多付一點，`x-ai/grok-4.3` 更強。模型 ID 會隨時間改變，所以長時間向量化之前，先在 OpenRouter 確認確切的 ID。像 `x-ai/grok-4.1-fast` 這種舊 ID 可能會回傳 404。
-6. **Keywords。** 在 **CJK tokenizer** 選你故事使用的語言。要在向量化之前選好，之後就不要改（見 FAQ）。
+6. **Keywords。** 在 **CJK tokenizer** 選你故事使用的語言。要在向量化之前選好，之後就不要改（見 FAQ）。即使你選了中文、日文或韓文，用其他語言寫的聊天，事件仍會用那個聊天的語言寫成。
 7. 其他大多數設定維持預設值即可，也可以依需求調整。
 8. **先把聊天向量化一次。** 打開你的聊天，進入 **Action** 頁面，按 **Vectorize content**，選 **Chat**，再按 **Vectorize**。你**必須**做這一步，才會建立你的第一個 DB。
 9. **保持同步。** 想要自動的話，在 **AutoSync** 頁面開啟 **Auto-sync this chat**。**Turns** 決定每次執行包含幾個回合。或者在 **Action** 頁面按 **Sync chat** 手動補上。
