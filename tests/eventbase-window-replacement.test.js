@@ -179,18 +179,18 @@ describe('a window extracted again', () => {
         expect(callsByWindow()).toEqual({ 0: 1, 2: 1, 4: 1 });
     });
 
-    it('replaces nothing in a run started from a later message, even where a reply repeated word for word matches', async () => {
+    it('replaces the windows a run from a later message reads again, and keeps the ones before it, even where a reply repeated word for word matches', async () => {
         const chatUUID = newChatUUID();
         // Every user reply is the same words, so it hashes the same wherever it sits.
         const chat = buildChat(8).map(message => (message.is_user ? { ...message, mes: 'Go on.' } : message));
         await run(chat, chatUUID);
-        const firstEvents = state.points.map(point => point.metadata.event_id);
+        const firstEventsOfWindow0 = eventIdsOfWindow(0);
 
         clearExtractionCachesForChat(chatUUID);
-        await run(chat.slice(2), chatUUID, { skipTipFallback: true, isReadFromChatStart: false });
+        await run(chat, chatUUID, { skipTipFallback: true, startFromMessage: 3 });
 
-        expect(state.points.map(point => point.metadata.event_id)).toEqual(expect.arrayContaining(firstEvents));
-        expect(deleteVectorItems).not.toHaveBeenCalled();
+        expect(callsByWindow()).toEqual({ 0: 1, 2: 1, 4: 1, 6: 1 });
+        expect(eventIdsOfWindow(0)).toEqual(firstEventsOfWindow0);
     });
 
     it('keeps a window\'s earlier events when its new reading finds none', async () => {

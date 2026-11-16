@@ -204,7 +204,7 @@ describe('a dropped file', () => {
         expect(reachedBody).toEqual([]);
     });
 
-    it('tells EventBase whether a chat file is read from its first message, as only then can a window read again replace its events', async () => {
+    it('hands EventBase the whole chat file and the message to start at, so its windows count from the file\'s first message', async () => {
         const chatFile = [
             { chat_metadata: { integrity: 'harbor-file' }, user_name: 'Rook', character_name: 'Harbor Keeper' },
             { name: 'Harbor Keeper', is_user: false, mes: 'The gate is shut.' },
@@ -218,13 +218,15 @@ describe('a dropped file', () => {
 
         actionOn('chat', 'resume').click();
         await vi.waitFor(() => expect(runEventBaseIngestion).toHaveBeenCalledTimes(1));
-        expect(runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ isReadFromChatStart: true });
+        expect(runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ startFromMessage: 1 });
+        expect(runEventBaseIngestion.mock.calls[0][0].messages).toHaveLength(4);
         await vi.waitFor(() => expect(actionOn('chat', 'resume').disabled).toBe(false));
 
         change($id('vectfox_cv_chat_start_from'), '3');
         actionOn('chat', 'resume').click();
         await vi.waitFor(() => expect(runEventBaseIngestion).toHaveBeenCalledTimes(2));
-        expect(runEventBaseIngestion.mock.calls[1][0]).toMatchObject({ isReadFromChatStart: false });
+        expect(runEventBaseIngestion.mock.calls[1][0]).toMatchObject({ startFromMessage: 3 });
+        expect(runEventBaseIngestion.mock.calls[1][0].messages).toHaveLength(4);
     });
 
     it('loads nothing on a page that takes no file, and still stops at the dialog', async () => {
@@ -292,7 +294,7 @@ describe('a chat\'s Vectorize', () => {
         expect(host.dialogs).toHaveLength(1);
     });
 
-    it('says a window read again replaces its events, and from a later message that some may repeat', async () => {
+    it('says a window read again replaces its events, from a later message too', async () => {
         const popupTexts = call => confirmPopup.mock.calls[call][0].map(line => line.text);
         host.priorWindows = true;
         host.answer = false;
@@ -304,8 +306,7 @@ describe('a chat\'s Vectorize', () => {
         change($id('vectfox_cv_chat_start_from'), '41');
         actionOn('chat', 'vectorize').click();
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(2));
-        expect(popupTexts(1)).toContain('From a later message, its windows can differ from the ones it read before, so some events may repeat.');
-        expect(popupTexts(1)).not.toContain('Each window it reads again replaces the events it had, so they do not repeat.');
+        expect(popupTexts(1)).toEqual(popupTexts(0));
     });
 
     it('reads it again on Read again, then closes, announcing the close once the run is over', async () => {

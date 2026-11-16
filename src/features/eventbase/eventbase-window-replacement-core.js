@@ -10,13 +10,14 @@
  *
  * A stored event is replaced when it is of the same window (the same first and
  * last message), shares at least one message with the new extraction, and was
- * written before it. A run that starts part way numbers its windows from its own
- * first message, so it replaces nothing (isReadFromChatStart in
- * runEventBaseIngestion), and the shared message is a second check against the
- * events such runs stored before. It is not enough alone: a message repeated word
- * for word, as a short user reply often is, has the same hash wherever it sits.
- * The time keeps two sessions extracting one window at once from removing each
- * other's newer events.
+ * written before it. Every run numbers its windows from the chat's first
+ * message, a run from a later message included (runEventBaseIngestion), so the
+ * same first and last message is the same window. The shared message keeps a
+ * window from removing the events of other messages stored under its number, as
+ * a message deleted or added earlier in the chat leaves them. It is a loose
+ * check: a message repeated word for word, as a short user reply often is, has
+ * the same hash wherever it sits. The time keeps two sessions extracting one
+ * window at once from removing each other's newer events.
  *
  * StoryArc links that pointed at a replaced event move to the first new event of
  * its window, so a walk still passes through that moment.

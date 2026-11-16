@@ -109,28 +109,6 @@ export function getCommitBoundary(messages, settings) {
 // ---------------------------------------------------------------------------
 
 /**
- * Run the EventBase ingestion pipeline over a slice of chat messages.
- *
- * Sliding window approach:
- *   - Window size:    settings.eventbase_window_size    (default 2; may be overridden via windowSizeOverride param)
- *   - Overlap:        settings.eventbase_window_overlap (default 0; may be overridden via windowOverlapOverride param)
- * Each window is sent to the LLM for structured event extraction.
- * Already-extracted windows are skipped (dedup by source hashes).
- *
- * Auto-sync callers pass *Override params (derived from
- * settings.eventbase_autosync_window_turns) so they don't read the settings
- * keys at all. One-off Vectorize Content and backfill callers omit the
- * overrides and read the settings keys directly.
- *
- * @param {object} params
- * @param {object[]} params.messages    - Chat messages to process (array of ST message objects)
- * @param {string}  [params.chatUUID]   - Override chat UUID
- * @param {object}   params.settings    - VectFox settings
- * @param {AbortSignal|null} [params.abortSignal]
- * @param {{ strategy?: string, batchSize?: number, totalChunks?: number }|null} [params.progressPlan]
- * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null }>}
- */
-/**
  * How many windows this run left unfinished — they were sent again and still
  * produced no events, so they are not marked extracted. They stay on the chat's
  * unfinished record until a later run gets them through.
@@ -174,7 +152,29 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
     }
 }
 
-export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined, isReadFromChatStart = true }) {
+/**
+ * Run EventBase over a chat: cut its messages into windows, send each window not extracted yet to
+ * the LLM, and store the events it finds.
+ *
+ * Windows are numbered from the chat's first message: window k holds messages k * step to
+ * k * step + size - 1, where step is size - overlap. A run from a later message keeps that
+ * numbering and starts at the window that holds the message, so an event's window is the same in
+ * every run, and a window read again replaces its events.
+ *
+ * Size and overlap come from settings.eventbase_window_size and eventbase_window_overlap. Auto-sync
+ * passes its own (windowSizeOverride and windowOverlapOverride, from
+ * settings.eventbase_autosync_window_turns), so its windows do not follow Vectorize Content's.
+ *
+ * @param {object} params
+ * @param {object[]} params.messages - The chat's messages from its first: message numbers count in this list
+ * @param {number} [params.startFromMessage] - The message the run starts at, from 1; 1 reads the whole chat
+ * @param {string} [params.chatUUID] - Override chat UUID
+ * @param {object} params.settings - VectFox settings
+ * @param {AbortSignal|null} [params.abortSignal]
+ * @param {{ strategy?: string, batchSize?: number, totalChunks?: number }|null} [params.progressPlan]
+ * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null }>}
+ */
+export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined, startFromMessage = 1 }) {
     const uuid = chatUUID || getChatUUID();
 
     // Resolve the write target. Precedence:
@@ -315,6 +315,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         log.lifecycle(`[EventBase] ${getUnfinishedWindowFingerprints(uuid, windowSize).size} unfinished window(s) on record for this chat`);
     }
 
+    // A run from a later message starts at the window that holds it. Its windows keep the chat's
+    // numbering. The record check above reads the whole chat, so the unfinished windows before
+    // that message stay on record.
+    if (startFromMessage > 1) windows = windows.filter(win => win.end >= startFromMessage - 1);
+
     // AutoSync start-marker gate. The marker says "everything before this
     // message index is considered covered by some prior extraction; auto-sync
     // should only process windows whose start >= marker." This prevents the
@@ -351,7 +356,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Each window keeps its place in this list, so a re-send pass still logs the right number.
     windows.forEach((win, index) => { win.index = index; });
 
-    log.lifecycle(`[EventBase] Ingestion: ${messages.length} messages → ${windows.length} windows (size=${windowSize}, overlap=${windowOverlap})`);
+    log.lifecycle(`[EventBase] Ingestion: ${messages.length} messages → ${windows.length} windows from message ${startFromMessage} (size=${windowSize}, overlap=${windowOverlap})`);
 
     const showProgressModal = !isAutoSync || settings.autosync_show_progress_modal === true;
     if (showProgressModal) {
@@ -430,12 +435,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         log.lifecycle(`[EventBase] Fast-forward: skipped ${fastForwardSkipped} already-extracted window(s), starting at window ${fastForwardSkipped}`);
     }
 
-    // A window this run extracts again replaces the events it holds from earlier extractions. A run
-    // that starts part way numbers its windows from its first message, not the chat's, so it cannot
-    // tell which stored window is the same one, and replaces nothing.
-    const windowReplacement = isReadFromChatStart
-        ? createWindowReplacement({ collectionId, settings, tipAtRunStart: getVectorizationTip(uuid) })
-        : null;
+    // A window this run extracts again replaces the events it holds from earlier extractions.
+    const windowReplacement = createWindowReplacement({ collectionId, settings, tipAtRunStart: getVectorizationTip(uuid) });
 
     // Auto-sync popup: shown once per ingestion call, and only when windows are left
     // to extract. Passing the quick-exit does not guarantee that — the start-marker
@@ -731,7 +732,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             for (const end of endsExtracted) {
                 setVectorizationTip(uuid, end + 1);
             }
-            if (allEvents.length > 0) await windowReplacement?.replaceEarlierEvents(allEvents);
+            if (allEvents.length > 0) await windowReplacement.replaceEarlierEvents(allEvents);
         }
 
         const batchEndedAt = performance.now();
@@ -793,7 +794,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     function _updateProgressAfterFinalize(extractResult) {
         const advancedWindowIdx = resendPassesDone > 0 ? windows.length : extractResult.batchLastIdx + 1;
         if (totalLegacyChunks > 0) {
-            const coveredMessages = Math.min(messages.length, (advancedWindowIdx * step) + windowOverlap);
+            // Counted from the chat's first message, as the planned chunks are.
+            const coveredMessages = Math.min(messages.length, (windows[0]?.start ?? 0) + (advancedWindowIdx * step) + windowOverlap);
             const processedLegacyChunks = _estimateProcessedLegacyChunks({
                 coveredMessages,
                 totalMessages: messages.length,
@@ -1070,7 +1072,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     // StoryArc links that went to events this run replaced now point at the events that replaced them.
-    await windowReplacement?.moveLinksOffReplacedEvents();
+    await windowReplacement.moveLinksOffReplacedEvents();
 
     // New events get their StoryArc links in the background, so this run ends now.
     if (settings?.story_arc_mode_enabled && insertedEventIds.length > 0 && !abortSignal?.aborted) {

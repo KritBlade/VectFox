@@ -1,6 +1,6 @@
 /**
- * Running EventBase over the open chat tells it whether the run reads the chat from its first message,
- * as only then can a window read again replace its events.
+ * Running EventBase over the open chat hands it the whole chat and the message to start at, so a run
+ * from a later message numbers its windows from the chat's first message.
  *
  * chat-vectorization.js's host modules and direct imports are stubbed as in
  * chunk-retrieval-setup-failure.test.js, and the EventBase run is a stub that records what it was asked.
@@ -79,15 +79,15 @@ describe('EventBase over the open chat', () => {
         );
     });
 
-    it('reads the chat from its first message by default', async () => {
+    it('starts at the chat\'s first message by default', async () => {
         await runEventBaseOnOpenChat({ vector_backend: 'qdrant' });
-        expect(mocks.runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ isReadFromChatStart: true });
+        expect(mocks.runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ startFromMessage: 1 });
         expect(mocks.runEventBaseIngestion.mock.calls[0][0].messages).toHaveLength(4);
     });
 
-    it('says a run from a later message does not read from the chat\'s first message', async () => {
+    it('hands a run from a later message the whole chat and that message', async () => {
         await runEventBaseOnOpenChat({ vector_backend: 'qdrant' }, null, { startFromMessage: 3 });
-        expect(mocks.runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ isReadFromChatStart: false });
-        expect(mocks.runEventBaseIngestion.mock.calls[0][0].messages).toHaveLength(2);
+        expect(mocks.runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ startFromMessage: 3 });
+        expect(mocks.runEventBaseIngestion.mock.calls[0][0].messages).toHaveLength(4);
     });
 });

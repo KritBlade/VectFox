@@ -1255,14 +1255,10 @@ export async function runEventBaseOnOpenChat(settings, abortSignal = null, {
     const context = getContext();
     if (!Array.isArray(context.chat)) return null;
 
-    const allMessages = context.chat.filter(m => m.mes && m.mes.trim().length > 0);
-    const messages = startFromMessage > 1
-        ? allMessages.slice(Math.min(startFromMessage - 1, allMessages.length))
-        : allMessages;
-
     const { runEventBaseIngestion } = await import('../eventbase/index.js');
     const result = await runEventBaseIngestion({
-        messages,
+        messages: context.chat.filter(m => m.mes && m.mes.trim().length > 0),
+        startFromMessage,
         chatUUID: getChatUUID(),
         settings,
         abortSignal,
@@ -1270,7 +1266,6 @@ export async function runEventBaseOnOpenChat(settings, abortSignal = null, {
         parallelWindows,
         progressPlan,
         skipTipFallback,
-        isReadFromChatStart: messages === allMessages,
     });
 
     if (chatId !== getCurrentChatId()) {

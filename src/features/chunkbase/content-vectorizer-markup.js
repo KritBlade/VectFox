@@ -152,7 +152,7 @@ function chatSource(type, view) {
         field([
             fieldLabel({ text: 'Start from message', forId: cvId(typeId, 'start_from') }),
             input({ id: cvId(typeId, 'start_from'), type: 'number', value: 1, min: 1, step: 1 }),
-            hint({ text: '1 reads the whole chat; 2000 starts at message 2000.' }),
+            hint({ text: '1 reads the whole chat. 2000 starts at the window that holds message 2000.' }),
         ]),
     ]);
 }
