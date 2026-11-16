@@ -753,7 +753,10 @@ async function startVectorization(typeId) {
             const isConfirmed = await confirmPopup([
                 { text: 'Read this chat again from the start?' },
                 { text: 'From message:', name: String(startFromMessage) },
-                { text: 'Its progress resets, and EventBase reads it again, paying for each window. The events it has stay, so some may repeat.' },
+                { text: 'Its progress resets, and EventBase reads it again, paying for each window.' },
+                { text: startFromMessage === 1
+                    ? 'Each window it reads again replaces the events it had, so they do not repeat.'
+                    : 'From a later message, its windows can differ from the ones it read before, so some events may repeat.' },
                 { text: 'Resume adds only the messages not read yet.' },
             ], { okButton: 'Read again', isDestructive: true });
             if (!isConfirmed) return;
@@ -863,7 +866,7 @@ async function runEventBaseBackfill(typeId, { source, startFromMessage, parallel
             if (resetCaches && chatUUID) await prepareForFreshExtraction(chatUUID);
             log.lifecycle(`[EventBase] Archive upload route — collection: ${collectionIdOverride}, messages: ${messages.length}`);
 
-            result = await runEventBaseIngestion({ messages, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride, skipTipFallback: resetCaches });
+            result = await runEventBaseIngestion({ messages, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride, skipTipFallback: resetCaches, isReadFromChatStart: skipped === 0 });
         } else {
             result = await runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches });
         }

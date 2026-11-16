@@ -30,7 +30,7 @@ import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, createWindowReplacement } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
@@ -174,7 +174,7 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
     }
 }
 
-export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined }) {
+export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined, isReadFromChatStart = true }) {
     const uuid = chatUUID || getChatUUID();
 
     // Resolve the write target. Precedence:
@@ -429,6 +429,13 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         windowsSkipped = fastForwardSkipped;
         log.lifecycle(`[EventBase] Fast-forward: skipped ${fastForwardSkipped} already-extracted window(s), starting at window ${fastForwardSkipped}`);
     }
+
+    // A window this run extracts again replaces the events it holds from earlier extractions. A run
+    // that starts part way numbers its windows from its first message, not the chat's, so it cannot
+    // tell which stored window is the same one, and replaces nothing.
+    const windowReplacement = isReadFromChatStart
+        ? createWindowReplacement({ collectionId, settings, tipAtRunStart: getVectorizationTip(uuid) })
+        : null;
 
     // Auto-sync popup: shown once per ingestion call, and only when windows are left
     // to extract. Passing the quick-exit does not guarantee that — the start-marker
@@ -724,6 +731,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             for (const end of endsExtracted) {
                 setVectorizationTip(uuid, end + 1);
             }
+            if (allEvents.length > 0) await windowReplacement?.replaceEarlierEvents(allEvents);
         }
 
         const batchEndedAt = performance.now();
@@ -1060,6 +1068,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         const { setLastUsedWindowSize } = await import('./eventbase-store.js');
         setLastUsedWindowSize(uuid, windowSize);
     }
+
+    // StoryArc links that went to events this run replaced now point at the events that replaced them.
+    await windowReplacement?.moveLinksOffReplacedEvents();
 
     // New events get their StoryArc links in the background, so this run ends now.
     if (settings?.story_arc_mode_enabled && insertedEventIds.length > 0 && !abortSignal?.aborted) {

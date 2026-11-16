@@ -1270,6 +1270,7 @@ export async function runEventBaseOnOpenChat(settings, abortSignal = null, {
         parallelWindows,
         progressPlan,
         skipTipFallback,
+        isReadFromChatStart: messages === allMessages,
     });
 
     if (chatId !== getCurrentChatId()) {

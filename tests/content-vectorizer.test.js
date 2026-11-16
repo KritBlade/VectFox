@@ -95,6 +95,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
 const { openContentVectorizer, backfillCurrentChatWithProgress, syncOpenChat } = await import('../src/features/chunkbase/content-vectorizer.js');
 const { vectorizeContent } = await import('../src/features/chunkbase/content-vectorization.js');
 const { runEventBaseOnOpenChat } = await import('../src/features/chunkbase/chat-vectorization.js');
+const { runEventBaseIngestion } = await import('../src/features/eventbase/index.js');
 const { confirmPopup, closePanelPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 
@@ -203,6 +204,29 @@ describe('a dropped file', () => {
         expect(reachedBody).toEqual([]);
     });
 
+    it('tells EventBase whether a chat file is read from its first message, as only then can a window read again replace its events', async () => {
+        const chatFile = [
+            { chat_metadata: { integrity: 'harbor-file' }, user_name: 'Rook', character_name: 'Harbor Keeper' },
+            { name: 'Harbor Keeper', is_user: false, mes: 'The gate is shut.' },
+            { name: 'Rook', is_user: true, mes: 'Open it.' },
+            { name: 'Harbor Keeper', is_user: false, mes: 'It opens.' },
+            { name: 'Rook', is_user: true, mes: 'Go in.' },
+        ].map(line => JSON.stringify(line)).join('\n');
+        openContentVectorizer('chat');
+        dropOn($id('vectfox_cv_chat_source_card'), fileOf('harbor.jsonl', chatFile));
+        await vi.waitFor(() => expect(page('chat').querySelector('[data-cv-region="file"]').textContent).toContain('harbor.jsonl'));
+
+        actionOn('chat', 'resume').click();
+        await vi.waitFor(() => expect(runEventBaseIngestion).toHaveBeenCalledTimes(1));
+        expect(runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ isReadFromChatStart: true });
+        await vi.waitFor(() => expect(actionOn('chat', 'resume').disabled).toBe(false));
+
+        change($id('vectfox_cv_chat_start_from'), '3');
+        actionOn('chat', 'resume').click();
+        await vi.waitFor(() => expect(runEventBaseIngestion).toHaveBeenCalledTimes(2));
+        expect(runEventBaseIngestion.mock.calls[1][0]).toMatchObject({ isReadFromChatStart: false });
+    });
+
     it('loads nothing on a page that takes no file, and still stops at the dialog', async () => {
         openContentVectorizer('url');
         dropOn($id('vectfox_cv_url_source_card'), fileOf('gull.json', '{"name":"Gull"}'));
@@ -266,6 +290,22 @@ describe('a chat\'s Vectorize', () => {
         await new Promise(resolve => setTimeout(resolve, 0));
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
         expect(host.dialogs).toHaveLength(1);
+    });
+
+    it('says a window read again replaces its events, and from a later message that some may repeat', async () => {
+        const popupTexts = call => confirmPopup.mock.calls[call][0].map(line => line.text);
+        host.priorWindows = true;
+        host.answer = false;
+        openContentVectorizer('chat');
+        actionOn('chat', 'vectorize').click();
+        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
+        expect(popupTexts(0)).toContain('Each window it reads again replaces the events it had, so they do not repeat.');
+
+        change($id('vectfox_cv_chat_start_from'), '41');
+        actionOn('chat', 'vectorize').click();
+        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(2));
+        expect(popupTexts(1)).toContain('From a later message, its windows can differ from the ones it read before, so some events may repeat.');
+        expect(popupTexts(1)).not.toContain('Each window it reads again replaces the events it had, so they do not repeat.');
     });
 
     it('reads it again on Read again, then closes, announcing the close once the run is over', async () => {

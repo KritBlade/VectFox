@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import { insertVectorItems, qdrantTarget } from '../vector-backend/index.js';
+import { insertVectorItems, deleteVectorItems, updateChunkMetadata, qdrantTarget } from '../vector-backend/index.js';
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
@@ -22,6 +22,7 @@ import {
     setCollectionAutoSync,
 } from '../collections/index.js';
 import { buildEmbedText } from './eventbase-schema.js';
+import { findReplacedEvents, linksMovedToReplacements, mayHoldEarlierEvents, replacementIdsOf, windowSpanOf } from './eventbase-window-replacement-core.js';
 import { log } from '../../sillytavern/log.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 
@@ -199,6 +200,27 @@ export function pruneOrphanedEventBaseChatMaps() {
     return pruneOrphanedChatMaps(liveUuids);
 }
 
+/** Reads a whole collection: a limit below its size would return an arbitrary part of it. */
+const WHOLE_COLLECTION_LIMIT = 50000;
+
+/**
+ * Every event a collection holds, as its stored metadata, with the point hash it is stored under
+ * as `_hash`. Without the Similharity plugin the Standard backend lists hashes only, so its events
+ * carry no metadata.
+ *
+ * @param {string} collectionId - Bare or registry-key form; passed straight to listChunks.
+ * @param {object} settings
+ * @returns {Promise<object[]>}
+ * @throws when the backend cannot list the collection
+ */
+async function _readStoredEvents(collectionId, settings) {
+    const { getBackend } = await import('../vector-backend/index.js');
+    const backendInstance = await getBackend(settings);
+    const result = await backendInstance.listChunks(collectionId, settings, { limit: WHOLE_COLLECTION_LIMIT });
+    const items = Array.isArray(result?.items) ? result.items : [];
+    return items.map(item => ({ ...item?.metadata, _hash: Number(item?.hash) }));
+}
+
 /**
  * Reads where a collection's events sit, from their stored source_window_end.
  *
@@ -207,13 +229,9 @@ export function pruneOrphanedEventBaseChatMaps() {
  * @returns {Promise<{ end: number, createdAt: number|undefined }[]>}
  */
 async function _readEventPositions(collectionId, settings) {
-    const { getBackend } = await import('../vector-backend/index.js');
-    const backendInstance = await getBackend(settings);
-    const result = await backendInstance.listChunks(collectionId, settings, { limit: 10000 });
-    const items = Array.isArray(result?.items) ? result.items : [];
-    return items
-        .filter(item => typeof item?.metadata?.source_window_end === 'number')
-        .map(item => ({ end: item.metadata.source_window_end, createdAt: item.metadata.created_at }));
+    return (await _readStoredEvents(collectionId, settings))
+        .filter(event => typeof event.source_window_end === 'number')
+        .map(event => ({ end: event.source_window_end, createdAt: event.created_at }));
 }
 
 /** The tip those positions prove: one past the highest message any event covers, 0 with none. */
@@ -227,9 +245,10 @@ function _laterEventTime(first, second) {
 }
 
 /**
- * Whether the events at the collection's end are older than events below a tip. Reset & Vectorize
- * keeps the existing events and re-extracts from the start, so a run stopped part way looks like
- * this, and its tip is the run's own progress. A stale tip does not: the collection's end is newest.
+ * Whether the events at the collection's end are older than events below a tip. Vectorize reads a
+ * chat again from the start, replacing each window's events as it reaches the window, so a run
+ * stopped part way leaves the windows past its tip with older events, and its tip is the run's own
+ * progress. A stale tip does not: the collection's end is newest.
  *
  * @param {{ end: number, createdAt: number|undefined }[]} positions
  * @param {number} tip
@@ -434,39 +453,85 @@ export async function insertEvents(events, settings, abortSignal = null, collect
 }
 
 // ---------------------------------------------------------------------------
-// Query (for retrieval)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// List (for Event Browser)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Delete
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Deduplication check
+// Window replacement: a window extracted again replaces its earlier events
 // ---------------------------------------------------------------------------
 
 /**
- * Check which event IDs already exist in the collection for the given source
- * message hash set. Returns a Set of existing event_id strings.
- * Used by the ingestion pipeline to skip already-processed windows.
+ * What one ingestion run uses to replace the events its windows hold from earlier extractions;
+ * eventbase-window-replacement-core.js decides which those are. The collection is read once per
+ * run, and only when a window may hold such events, so an ordinary turn reads nothing more.
  *
- * NOTE: This is a best-effort check — it queries by overlap in
- * source_message_hashes. If Qdrant returns relevant existing events we
- * compare their source_message_hashes to find exact-coverage matches.
+ * Neither method throws. A window whose earlier events could not be removed keeps both versions
+ * until it is extracted again, and a link left on a removed event is one no walk can follow.
  *
- * @param {number[]} sourceHashes   - Hashes of messages in the candidate window
- * @param {number[]} messageIds     - 0-based message indices in the window
- * @param {object}   settings
- * @param {string}   [chatUUID]
- * @returns {Promise<boolean>}  true if this exact window is fully covered
+ * @param {{collectionId: string, settings: object, tipAtRunStart: number|null|undefined}} run
+ * @returns {{replaceEarlierEvents: (newEvents: object[]) => Promise<void>, moveLinksOffReplacedEvents: () => Promise<void>}}
  */
-// ---------------------------------------------------------------------------
-// Window fingerprint cache (stored in extension_settings, keyed by chatUUID)
-// ---------------------------------------------------------------------------
+export function createWindowReplacement({ collectionId, settings, tipAtRunStart }) {
+    const runEvents = [];
+    let uncheckedEvents = [];
+    let storedEventsRead = null;
+    const replacementById = new Map();
+
+    return {
+        /**
+         * After a batch is stored: removes the earlier events of the windows these new events
+         * belong to. A window whose new extraction found no events is not among them, so it keeps
+         * its earlier events.
+         *
+         * @param {object[]} newEvents - The batch's stored events
+         */
+        async replaceEarlierEvents(newEvents) {
+            runEvents.push(...newEvents);
+            uncheckedEvents.push(...newEvents);
+            if (!storedEventsRead && !mayHoldEarlierEvents(runEvents, tipAtRunStart)) return;
+            storedEventsRead ??= _readStoredEvents(collectionId, settings).catch((err) => {
+                log.warn(`[EventBase] Could not read ${collectionId} for the events of earlier extractions, so windows extracted again keep both versions:`, err);
+                return null;
+            });
+            const storedEvents = await storedEventsRead;
+            const eventsToCheck = uncheckedEvents;
+            uncheckedEvents = [];
+            if (!storedEvents) return;
+
+            const replacedEvents = findReplacedEvents(storedEvents, eventsToCheck, new Set(runEvents.map(event => event.event_id)));
+            if (!replacedEvents.length) return;
+            try {
+                await deleteVectorItems(collectionId, replacedEvents.map(event => event._hash), settings);
+            } catch (err) {
+                log.warn(`[EventBase] Could not remove ${replacedEvents.length} event(s) of earlier extractions from ${collectionId}, so their windows keep both versions:`, err);
+                return;
+            }
+            for (const [replacedId, newId] of replacementIdsOf(replacedEvents, eventsToCheck)) replacementById.set(replacedId, newId);
+            log.lifecycle(`[EventBase] Replaced ${replacedEvents.length} event(s) of earlier extractions in ${new Set(replacedEvents.map(windowSpanOf)).size} window(s)`);
+        },
+
+        /**
+         * At the end of the run: points the StoryArc links that went to replaced events at the
+         * events that replaced them. Reads the collection again, since links change while a run goes on.
+         */
+        async moveLinksOffReplacedEvents() {
+            if (!replacementById.size) return;
+            let writes;
+            try {
+                writes = linksMovedToReplacements(await _readStoredEvents(collectionId, settings), replacementById);
+            } catch (err) {
+                log.warn(`[EventBase] Could not read ${collectionId} to move links off replaced events, so walks skip those links:`, err);
+                return;
+            }
+            let movedCount = 0;
+            for (const { event, links } of writes) {
+                try {
+                    await updateChunkMetadata(collectionId, event._hash, { story_links: links }, settings);
+                    movedCount++;
+                } catch (err) {
+                    log.warn(`[EventBase] Could not move the links of the event at message ${event.source_window_start} off replaced events:`, err);
+                }
+            }
+            if (writes.length) log.lifecycle(`[EventBase] Moved links off replaced events on ${movedCount} of ${writes.length} event(s)`);
+        },
+    };
+}
 
 // ---------------------------------------------------------------------------
 // AutoSync start-marker (per-chat) — see InternalProject/Vectfox/plans/executed/autosync-independent-window-and-last-n-injection.md §9
@@ -672,9 +737,9 @@ export function shouldUseTipFallback({ skipTipFallback, fastForwardSkipped, hasC
  * silently fast-forwards past everything — the "0 events, X skipped" surprise.
  * Without step 1 the local fingerprints linger as dead-but-harmless entries.
  *
- * Call this whenever a popup promises "re-extract from message 1" — Reset &
- * Vectorize, Window-size-change Proceed, etc. If a third trigger is ever added,
- * route it through this helper too.
+ * Call this whenever a popup promises to read the chat again from the start:
+ * Vectorize, and Read again on the window-size question. If a third trigger is
+ * ever added, route it through this helper too.
  *
  * @param {string} chatUUID
  * @returns {Promise<{ skipTipFallback: true }>}

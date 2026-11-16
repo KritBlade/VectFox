@@ -212,9 +212,10 @@ describe('a tip far behind the chat', () => {
     });
 });
 
-describe('a Reset & Vectorize stopped part way', () => {
-    // It keeps the existing events and re-extracts from the start, so older events still reach past
-    // its tip. Its tip is the run's own progress, and Resume has to carry on from there.
+describe('a Vectorize stopped part way', () => {
+    // It reads the chat again from the start, replacing each window's events as it reaches the window,
+    // so older events still reach past its tip. Its tip is the run's own progress, and Resume has to
+    // carry on from there.
     const olderEvents = eventsOfOneRun(2619);
 
     it('keeps its tip and window record', async () => {
