@@ -7,7 +7,8 @@
  * GUI-DNA (mvu-helper/devdoc/gui-dna.md): a top-bar shell holding one workbench
  * page, the book, its locks and the filters in a compact card above a split. The
  * start pane holds the categories and the pinned sections; the end pane the
- * entries, each with a tick box for the bulk bar and its own LoreBase toggle.
+ * entries, each with a tick box for the bulk bar, a button that shows the entry
+ * in a dialog of its own, and its own LoreBase toggle.
  * lorebase-selection-screen.js finds each control by its id in SELECTION_IDS and
  * each action by `data-lorebase-action`; a row and its tick box carry the
  * entry's uid, a category row its category, and a pin its section name. Every
@@ -28,11 +29,12 @@ import {
     select,
     selectOption,
     statusPill,
+    textarea,
 } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, navBrand, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { counted } from '../../shared/counted.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
-import { BADGES, KEY_CHOICES, SIZE_CHOICES, isEngineLike } from './lorebase-selection-core.js';
+import { BADGES, KEY_CHOICES, SIZE_CHOICES, isEngineLike, keyListOf } from './lorebase-selection-core.js';
 
 /** The ids lorebase-selection-screen.js finds the screen's controls by. */
 export const SELECTION_IDS = Object.freeze({
@@ -53,6 +55,7 @@ export const SELECTION_IDS = Object.freeze({
     entriesNotice: 'vectfox_lorebase_entries_notice',
     entriesFooter: 'vectfox_lorebase_entries_footer',
     summary: 'vectfox_lorebase_summary',
+    entryText: 'vectfox_lorebase_entry_text',
 });
 
 /** The newness filter's choices. */
@@ -75,6 +78,22 @@ export const BADGE_LABELS = Object.freeze({
 });
 
 const KEPT_LABELS = { constant: 'Constant', sticky: 'Sticky', cooldown: 'Cooldown' };
+
+// What each badge and each reason SillyTavern keeps an entry means, as the entry's dialog says it.
+const BADGE_NOTES = {
+    [BADGES.templateCode]: 'Template code: when Luna picks it, LoreBase sends it whole, never trimmed.',
+    [BADGES.mostlyCode]: 'Mostly code: template code fills at least half of it. When Luna picks it, LoreBase sends it whole.',
+    [BADGES.enginePrefix]: "Engine: its comment marks it as a game engine's entry, not lore.",
+    [BADGES.machineKey]: 'Code keys: every key reads as a code, not a word.',
+    [BADGES.keyless]: 'No keys: Luna picks by title, so it needs none.',
+    [BADGES.long]: "Long: Luna's review saves the most tokens on an entry this size.",
+    [BADGES.noTitle]: 'No title: Luna picks by title alone, so it is never picked.',
+};
+const KEPT_NOTES = {
+    constant: 'Constant: SillyTavern sends it on every reply, so LoreBase cannot decide it.',
+    sticky: 'Sticky: SillyTavern would lose its timer on an entry LoreBase sends, so LoreBase cannot decide it.',
+    cooldown: 'Cooldown: SillyTavern would lose its timer on an entry LoreBase sends, so LoreBase cannot decide it.',
+};
 
 // ── Shell ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -265,8 +284,9 @@ function entryPills(row) {
 }
 
 /**
- * One entry: its tick box, then its row (title, category, size and keys, its pills) with its LoreBase toggle. An entry
- * SillyTavern keeps cannot be turned on, only off when it was selected before it became one.
+ * One entry: its tick box, then its row (title, category, size and keys, its pills) with the button that shows the
+ * entry and its LoreBase toggle. An entry SillyTavern keeps cannot be turned on, only off when it was selected before
+ * it became one.
  * @param {import('./lorebase-selection-core.js').SelectionRow} row
  * @param {{isTicked: boolean}} view
  * @returns {string}
@@ -281,13 +301,16 @@ export function entryRowMarkup(row, { isTicked }) {
             { name: `${formatCount(row.tokens)} tokens, ${counted(row.keyCount, 'key')}` },
         ],
         pills: entryPills(row),
-        actions: [iconButton({
-            icon: 'fa-wand-magic-sparkles',
-            title: row.keptBySillyTavern ? 'SillyTavern keeps this entry' : 'LoreBase decides this entry',
-            isPressed: row.isSelected,
-            isDisabled: !canToggle,
-            data: action('toggle-entry', { 'lorebase-uid': row.uid }),
-        })],
+        actions: [
+            iconButton({ icon: 'fa-eye', title: 'Show this entry', data: action('show-entry', { 'lorebase-uid': row.uid }) }),
+            iconButton({
+                icon: 'fa-wand-magic-sparkles',
+                title: row.keptBySillyTavern ? 'SillyTavern keeps this entry' : 'LoreBase decides this entry',
+                isPressed: row.isSelected,
+                isDisabled: !canToggle,
+                data: action('toggle-entry', { 'lorebase-uid': row.uid }),
+            }),
+        ],
         data: { 'lorebase-uid': row.uid },
     });
     return `<div class="vfx-pick-row" data-lorebase-entry="${escape(row.uid)}">`
@@ -296,6 +319,42 @@ export function entryRowMarkup(row, { isTicked }) {
         + '</label>'
         + `<div class="vfx-pick-body">${body}</div>`
         + '</div>';
+}
+
+/**
+ * The entry's dialog, its lines (sillytavern/popup-core.js): its title, category, keys and size; then why SillyTavern
+ * keeps it or never sends it, what each badge means, and, for an engine-like entry LoreBase can decide, that bulk
+ * selection skips it.
+ * @param {import('./lorebase-selection-core.js').SelectionRow} row
+ * @param {{key?: string[], keysecondary?: string[]}} entry - The book's entry, as loadWorldInfo returns it
+ * @returns {object[]}
+ */
+export function entryDetailLines(row, entry) {
+    const keys = keyListOf(entry.key);
+    const secondaryKeys = keyListOf(entry.keysecondary);
+    return [
+        { icon: 'fa-file-lines', name: row.title },
+        row.category ? { text: 'Category:', name: row.category } : null,
+        keys.length ? { text: 'Keys:', name: keys.join(', ') } : null,
+        secondaryKeys.length ? { text: 'Secondary keys:', name: secondaryKeys.join(', ') } : null,
+        { text: 'Tokens:', name: formatCount(row.tokens) },
+        row.keptBySillyTavern ? { icon: 'fa-lock', text: KEPT_NOTES[row.keptBySillyTavern] } : null,
+        row.keptBySillyTavern && row.isSelected ? { icon: 'fa-lock', text: 'It was selected before, but SillyTavern still decides it.' } : null,
+        row.isDisabled ? { icon: 'fa-power-off', text: 'Disabled in SillyTavern: it is never sent, and Luna never picks it.' } : null,
+        ...row.badges.map(badge => ({ icon: BADGE_LABELS[badge].icon, text: BADGE_NOTES[badge] })),
+        isEngineLike(row) && !row.keptBySillyTavern
+            ? { icon: 'fa-circle-info', text: "Tick all matching and a category's toggle skip it: turn it on with its own toggle." }
+            : null,
+    ].filter(Boolean);
+}
+
+/**
+ * The entry's text in its dialog, a box the screen makes read-only.
+ * @param {{content?: string}} entry
+ * @returns {string}
+ */
+export function entryTextMarkup(entry) {
+    return textarea({ id: ids.entryText, value: String(entry.content ?? ''), rows: 16, title: 'Entry text' });
 }
 
 /** The entries pane when no entry matches the filters. */

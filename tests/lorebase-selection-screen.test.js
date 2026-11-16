@@ -4,14 +4,14 @@
  * LoreBase's selection screen (src/features/lorebase/lorebase-selection-screen.js, plan §5.2 of InternalProject/Vectfox/
  * plans/lorebook-semantic-overhaul-passage-index.md), driven as a user would while it is open: it opens on the chat's
  * book with the chat's books first; each row's toggle, a category's toggle and the bulk bar save the selection at
- * once; ticks follow the filters and shift-click; the locks and the pins save; opening a book keeps its uids for the
- * new marks and drops deleted ones from the selection.
+ * once; ticks follow the filters and shift-click; a row's eye button shows its entry and saves nothing; the locks and
+ * the pins save; opening a book keeps its uids for the new marks and drops deleted ones from the selection.
  */
 /* global document, MouseEvent -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import $ from 'jquery';
 
-const host = vi.hoisted(() => ({ books: {}, worldNames: [], globalBooks: [], context: null, chatId: 'chat-harbor', settings: { vectfox: {} } }));
+const host = vi.hoisted(() => ({ books: {}, worldNames: [], globalBooks: [], context: null, chatId: 'chat-harbor', settings: { vectfox: {} }, noticePopup: vi.fn() }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({
@@ -20,6 +20,7 @@ vi.mock('../src/sillytavern/popup.js', () => ({
         document.body.append(root);
         return new Promise(() => {});
     }),
+    noticePopup: host.noticePopup,
 }));
 vi.mock('../src/sillytavern/world-info.js', () => ({
     METADATA_KEY: 'world_info',
@@ -70,6 +71,7 @@ beforeEach(() => {
     host.chatId = 'chat-harbor';
     host.context = { characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png', data: { extensions: { world: 'Harbor Atlas' } } } }, characterId: '3', chatMetadata: {}, powerUserSettings: {} };
     host.settings.vectfox = {};
+    host.noticePopup.mockReset();
 });
 
 describe('opening the screen', () => {
@@ -145,6 +147,36 @@ describe('choosing entries', () => {
         actionButton('tick-all').click();
         actionButton('show-all-categories').click();
         expect(['0', '1', '2', '3', '4'].filter(uid => tickBox(uid).checked)).toEqual(['4']);
+    });
+});
+
+describe('showing an entry', () => {
+    it('shows any entry whole and read-only, saying why bulk selection skips an engine and why SillyTavern keeps one, and saves nothing', async () => {
+        await openScreen();
+        const before = structuredClone(record());
+        actionButton('show-entry', '[data-lorebase-uid="2"]').click();
+        await vi.waitFor(() => expect(host.noticePopup).toHaveBeenCalledTimes(1));
+        const [engineLines, { body, isWide }] = host.noticePopup.mock.calls[0];
+        expect(engineLines).toEqual([
+            { icon: 'fa-file-lines', name: 'Tide clock [POST]' },
+            { text: 'Category:', name: '[Harbor]' },
+            { text: 'Keys:', name: 'clock' },
+            { text: 'Tokens:', name: expect.stringMatching(/^\d+$/) },
+            { icon: 'fa-gears', text: "Engine: its comment marks it as a game engine's entry, not lore." },
+            { icon: 'fa-circle-info', text: "Tick all matching and a category's toggle skip it: turn it on with its own toggle." },
+        ]);
+        expect(body.value).toBe('Counts the tides.');
+        expect(body.readOnly).toBe(true);
+        expect(isWide).toBe(true);
+
+        const keptButton = actionButton('show-entry', '[data-lorebase-uid="3"]');
+        expect(keptButton.disabled).toBe(false);
+        keptButton.click();
+        await vi.waitFor(() => expect(host.noticePopup).toHaveBeenCalledTimes(2));
+        const [keptLines] = host.noticePopup.mock.calls[1];
+        expect(keptLines).toContainEqual({ icon: 'fa-lock', text: 'Constant: SillyTavern sends it on every reply, so LoreBase cannot decide it.' });
+        expect(keptLines.some(line => line.icon === 'fa-circle-info')).toBe(false);
+        expect(record()).toEqual(before);
     });
 });
 

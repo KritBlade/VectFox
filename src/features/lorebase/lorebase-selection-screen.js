@@ -1,12 +1,13 @@
 /**
  * LoreBase's selection screen (plan §5.2 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
- * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, locks the book to the open
- * chat or its character (D11), and pins section names (D10). Every control saves as it changes, as GUI-DNA asks.
+ * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
+ * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
+ * saves as it changes, as GUI-DNA asks.
  * Opening a book keeps the uids it holds, so an entry added later shows as new, and drops the uids of deleted entries
  * from its selection.
  */
 import { log } from '../../sillytavern/log.js';
-import { openPanelPopup } from '../../sillytavern/popup.js';
+import { noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection } from './lorebase-books.js';
@@ -16,8 +17,9 @@ import {
     selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
 } from './lorebase-selection-core.js';
 import {
-    NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup, entryRowMarkup,
-    lockNoticeMarkup, noLorebookMarkup, noMatchingEntriesMarkup, noTitleNoticeMarkup, pinsMarkup, selectionScreenMarkup, summaryText,
+    NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup, entryDetailLines,
+    entryRowMarkup, entryTextMarkup, lockNoticeMarkup, noLorebookMarkup, noMatchingEntriesMarkup, noTitleNoticeMarkup, pinsMarkup,
+    selectionScreenMarkup, summaryText,
 } from './lorebase-selection-markup.js';
 
 const PAGE_SIZE = 100;
@@ -111,6 +113,21 @@ function toggleEntry(root, session, uid) {
     renderSelectionSummary(root, session);
 }
 
+/** Show one entry of the book shown in a dialog over the screen: what it is, why it can or cannot be chosen, its text. */
+async function showEntry(session, uid) {
+    const row = session.rows.find(candidate => candidate.uid === uid);
+    const entry = Object.values(session.book.entries ?? {}).find(candidate => String(candidate.uid) === uid);
+    if (!row || !entry) {
+        log.warn(`LoreBase: the selection screen has no entry ${uid} in lorebook "${session.bookName}" to show`);
+        return;
+    }
+    const holder = document.createElement('div');
+    holder.innerHTML = entryTextMarkup(entry);
+    const text = holder.firstElementChild;
+    text.readOnly = true;
+    await noticePopup(entryDetailLines(row, entry), { body: text, isWide: true });
+}
+
 /** Read a book and show it: its entries, categories, pins, locks and footer. */
 async function showBook(root, session, bookName) {
     Object.assign(session, { bookName, book: null, rows: [], ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE });
@@ -161,6 +178,8 @@ function onAction(root, session, element, event) {
         saveSelection(root, session, selectionAfterCategory(selectedUidsOf(session), session.rows, category, state !== 'on'));
     } else if (name === 'toggle-entry') {
         toggleEntry(root, session, element.dataset.lorebaseUid);
+    } else if (name === 'show-entry') {
+        void showEntry(session, element.dataset.lorebaseUid);
     } else if (name === 'tick-all' || name === 'untick-all' || name === 'invert') {
         if (name === 'tick-all') session.ticked = tickAllMatching(session.ticked, matching());
         else if (name === 'invert') session.ticked = invertTicks(session.ticked, matching());

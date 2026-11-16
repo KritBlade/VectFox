@@ -36,7 +36,8 @@ const MOSTLY_CODE_SHARE = 0.5;
 export const SIZE_CHOICES = Object.freeze([0, 300, 1000, 3000]);
 export const KEY_CHOICES = Object.freeze({ any: 'any', withKeys: 'with', withoutKeys: 'without' });
 
-const keysOf = entry => (Array.isArray(entry.key) ? entry.key : []).map(key => String(key).trim()).filter(Boolean);
+/** A key list as SillyTavern stores it (`key`, `keysecondary`): each key trimmed, empty ones dropped. */
+export const keyListOf = list => (Array.isArray(list) ? list : []).map(key => String(key).trim()).filter(Boolean);
 
 /** A key that reads as a code, not a word, such as the barcode #0765792: no spaces, and at least half digits. */
 function isCodeKey(key) {
@@ -105,8 +106,8 @@ export function selectionRows(book, record) {
         const uid = String(entry.uid);
         const content = String(entry.content ?? '');
         const tokens = estimatedTokens(content);
-        const keys = keysOf(entry);
-        const secondaryKeys = (Array.isArray(entry.keysecondary) ? entry.keysecondary : []).map(String);
+        const keys = keyListOf(entry.key);
+        const secondaryKeys = keyListOf(entry.keysecondary);
         const title = entryTitle(entry);
         return {
             uid,
