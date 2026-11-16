@@ -32,7 +32,7 @@ import {
     truncateCodePoints,
 } from './eventbase-schema.js';
 import { cleanText } from '../text-cleaning/index.js';
-import { isCjkLanguageText } from './prompts-i18n.js';
+import { chineseLanguageNameFor, isCjkLanguageText, shouldGiveStoryLanguageNotice, STORY_LANGUAGE_NOTICE } from './prompts-i18n.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { log } from '../../sillytavern/log.js';
@@ -148,16 +148,16 @@ const STORY_LANGUAGE_FIELDS = ['summary', 'cause', 'result', 'concepts', 'open_t
 
 /**
  * The CJK language an excerpt is written in, for the LLM hint, even for a mixed-script excerpt; null when it is not
- * written in one (isCjkLanguageText).
+ * written in one (isCjkLanguageText). Chinese takes the name its prompt calls for (chineseLanguageNameFor).
  */
-function _inferLanguageHint(text) {
+function _inferLanguageHint(text, chineseName) {
     if (!isCjkLanguageText(text)) return null;
     const hangul = (text.match(/[\uAC00-\uD7AF]/g) || []).length;
     const hiragana = (text.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
     const cjk = (text.match(/[\u3000-\u9FFF\uF900-\uFAFF]/g) || []).length + hangul + hiragana;
     if (hangul > hiragana && hangul > cjk * 0.3) return '\uD55C\uAD6D\uC5B4 (Korean)';
     if (hiragana > 5) return '\u65E5\u672C\u8A9E (Japanese)';
-    return '\u4E2D\u6587 (Chinese)';
+    return chineseName;
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +333,7 @@ function _resolveWindowRealWorldDate(messages) {
  * @param {number} params.windowEnd   - 0-based end index (inclusive)
  * @param {object} params.settings    - VectFox settings
  * @param {number} [params.windowIndex] - Window index for error reporting
- * @param {{promptMode: string, isCjkStory: boolean, isWrittenInEnglish: boolean}} [params.storyLanguage] - From readStoryLanguage on the run's
+ * @param {{promptMode: string, isCjkStory: boolean, chineseScript: 'traditional'|'simplified'|null}} [params.storyLanguage] - From readStoryLanguage on the run's
  *        messages; a window on its own reads its own
  * @returns {Promise<object[]>} Array of full EventRecord objects (ingestion fields attached)
  */
@@ -378,18 +378,25 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
     const maxCount = settings.eventbase_max_events_per_window || 3;
 
     // The window's script is checked after the reply. The prompt follows the story's language, and in a CJK story a
-    // window written in CJK also names its language, which a non-CJK mode's prompt would not write. intl writes
-    // English whatever the story is in, so it names none.
+    // window written in CJK also names its language, which the others prompt would not write. A window of a story not
+    // written in CJK that holds CJK text is told so before the prompt and again after the excerpt
+    // (STORY_LANGUAGE_NOTICE).
     const excerptScript = _detectScript(excerptText);
-    const languageHint = storyLanguage.isCjkStory && !storyLanguage.isWrittenInEnglish ? _inferLanguageHint(excerptText) : null;
+    const languageHint = storyLanguage.isCjkStory ? _inferLanguageHint(excerptText, chineseLanguageNameFor(storyLanguage)) : null;
+    const shouldGiveNotice = shouldGiveStoryLanguageNotice(storyLanguage, excerptText);
     let basePrompt = buildExtractionPrompt(
         excerptText,
         maxCount,
         settings.eventbase_custom_prompt || '',
         storyLanguage.promptMode,
+        shouldGiveNotice ? STORY_LANGUAGE_NOTICE.afterExcerpt : '',
     );
     if (languageHint) {
         basePrompt = `DETECTED EXCERPT LANGUAGE: ${languageHint}. You MUST write ALL string fields in that language — no exceptions.\n\n${basePrompt}`;
+    }
+    if (shouldGiveNotice) {
+        basePrompt = `${STORY_LANGUAGE_NOTICE.beforePrompt}\n\n${basePrompt}`;
+        log.verbose(`[EventBase] Window ${windowIndex} ${msgRange}: holds Chinese, Japanese or Korean text in a story written in another language, so its prompt says so`);
     }
     const prompt = basePrompt;
     const provider = (settings.chat_provider || 'openrouter').toLowerCase();
@@ -473,18 +480,15 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
         // can tell "model omitted it" from "validator dropped it").
         log.trace(`[EventBase][scene_time] win=${windowIndex} item ${i}: raw.DateTime=${JSON.stringify(rawArray[i]?.DateTime)} raw.scene_time=${JSON.stringify(rawArray[i]?.scene_time)} | validated DateTime=${JSON.stringify(event.DateTime)} scene_time=${JSON.stringify(event.scene_time)} locations=${JSON.stringify(event.locations)}`);
 
-        // Post-parse language check, warn only: the event is kept, but a field written in another script than its
-        // prompt asks for reads poorly beside the rest and searches worse. intl asks for Latin letters whatever the
-        // window is in; every other mode is checked against the excerpt's own script.
-        const askedScript = storyLanguage.isWrittenInEnglish ? 'latin' : excerptScript;
-        if (askedScript !== 'empty' && askedScript !== 'mixed') {
+        // Post-parse language check, warn only: the event is kept, but a field written in another script than the
+        // excerpt reads poorly beside the rest and searches worse.
+        if (excerptScript !== 'empty' && excerptScript !== 'mixed') {
             const fieldsInAnotherScript = STORY_LANGUAGE_FIELDS.filter((field) => {
                 const fieldScript = _detectScript(Array.isArray(event[field]) ? event[field].join(' ') : event[field]);
-                return fieldScript !== 'empty' && fieldScript !== 'mixed' && fieldScript !== askedScript;
+                return fieldScript !== 'empty' && fieldScript !== 'mixed' && fieldScript !== excerptScript;
             });
             if (fieldsInAnotherScript.length) {
-                const askedScriptName = storyLanguage.isWrittenInEnglish ? 'Latin letters, which the intl prompt writes' : `the excerpt's script (${excerptScript})`;
-                log.warn(`[EventBase] Window ${windowIndex} ${msgRange}, item ${i}: ${fieldsInAnotherScript.join(', ')} not in ${askedScriptName} — kept`);
+                log.warn(`[EventBase] Window ${windowIndex} ${msgRange}, item ${i}: ${fieldsInAnotherScript.join(', ')} not in the excerpt's script (${excerptScript}) — kept`);
             }
         }
 

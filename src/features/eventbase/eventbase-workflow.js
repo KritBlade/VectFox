@@ -247,7 +247,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     if (!messages?.length) return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
 
-    // Every window of a run writes in the language read once from the story's latest messages, or English under intl.
+    // Every window of a run writes in the language read once from the story's latest messages.
     const storyLanguage = readStoryLanguage(messages, settings);
     log.lifecycle(`[EventBase] Story language: ${storyLanguage.isCjkStory ? 'CJK' : 'not CJK'}; the "${storyLanguage.promptMode}" extraction prompt (CJK tokenizer mode "${settings.cjk_tokenizer_mode || 'intl'}")`);
 

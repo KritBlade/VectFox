@@ -118,7 +118,7 @@ function extractionPromptCard() {
                 fieldLabel({ text: 'Prompt', forId: 'VectFox_eventbase_custom_prompt', hasHelp: true }),
                 textarea({ id: 'VectFox_eventbase_custom_prompt', rows: 12, isCode: true }),
                 hint({ text: '{{text}} marks where the chat excerpt goes, {{maxCount}} the event cap.' }),
-                detail({ text: 'Until you edit it, the box shows the built-in prompt for the CJK tokenizer on the Core page. Under Chinese, Japanese or Korean, a chat written in another language is read with the Others prompt instead, which writes in that chat\'s language. Reset to default goes back to it.' }),
+                detail({ text: 'Until you edit it, the box shows the built-in prompt for the CJK tokenizer on the Core page, and Reset to default goes back to it. Events are written in the chat\'s own language under every tokenizer: under Chinese, Japanese or Korean, a chat written in another language is read with the Others prompt instead. When a chat not written in Chinese, Japanese or Korean has text in one of them in a window, the model is told to keep the chat\'s language at the top of the prompt and again at {{storyLanguageNotice}}.' }),
             ], { isSpan: true })}
         </div>
     </section>`;

@@ -4,20 +4,22 @@
  * ============================================================================
  * Single source of truth for all localised prompt strings.
  *
- * The agentic planner and EventBase extraction pick their prompts from here
- * by the user's CJK Tokenizer Mode setting, which doubles as the language they
- * write in. intl writes English whatever the story is in. A Chinese, Japanese
- * or Korean mode reading a story written in another language gives it the
+ * The agentic planner and EventBase extraction pick their prompts from here.
+ * Under every CJK Tokenizer Mode they write in the story's own language: the
+ * mode only picks the tokenizer. A Chinese, Japanese or Korean mode reading a
+ * story written in that kind of language gives it the mode's own prompts;
+ * every other story, and every story under intl and others, takes the
  * "others" prompts, which write in the story's own language and name none
- * (storyLanguageOf).
+ * (storyLanguageOf). A window of a story not written in Chinese, Japanese or
+ * Korean that holds text in one of them is also told the story is not written
+ * in them (STORY_LANGUAGE_NOTICE).
  *
- * Supported modes (mirrors CJK_TOKENIZER_MODES in bm25-scorer.js):
- *   intl            → English / Latin           (English examples)
+ * Prompt variants, by mode (CJK_TOKENIZER_MODES in language-modes.js):
  *   jieba           → Simplified Chinese         (简体中文 examples)
  *   jieba_tw        → Traditional Chinese        (繁體中文 examples)
  *   tiny_segmenter  → Japanese                   (日本語 examples)
  *   korean          → Korean                     (한국어 examples)
- *   others          → Any other language          (English examples + language notice)
+ *   intl, others    → the story's own language   (English examples; writes in the excerpt's language)
  *
  * Every example's cast is made up and written in English in every language. The
  * language rules tell the LLM to keep a name as the chat writes it.
@@ -28,8 +30,6 @@
 // STORY LANGUAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The tokenizer mode whose prompts write English whatever language the story is in. */
-const ENGLISH_MODE = 'intl';
 /** The tokenizer modes whose prompts write a Chinese, Japanese or Korean story. */
 const CJK_LANGUAGE_MODES = new Set(['jieba', 'jieba_tw', 'tiny_segmenter', 'korean']);
 /** A text with this share of CJK letters or more is written in a CJK language. A whole Chinese chat measures 0.3 to 0.7. */
@@ -61,22 +61,99 @@ export function isCjkLanguageText(text) {
 }
 
 /**
- * The prompt variant a story's events and queries are written with, and whether they are written in English. intl
- * writes English whatever the story is in. A Chinese, Japanese or Korean mode writes its own language, unless the
- * story is written in another, as an English story read under Traditional Chinese is: that story takes the "others"
- * variant, which writes in the story's own language.
+ * Pairs of a common Chinese character only Traditional writes and the one Simplified writes in its place, which tell
+ * the two scripts apart (chineseScriptOf).
+ */
+const TRADITIONAL_SIMPLIFIED_PAIRS = [
+    '這这', '說说', '們们', '會会', '為为', '來来', '時时', '對对', '個个', '過过', '還还', '發发', '經经', '國国',
+    '見见', '長长', '門门', '問问', '間间', '與与', '東东', '車车', '讓让', '認认', '識识', '開开', '關关', '錢钱',
+    '樣样', '頭头', '話话', '現现', '從从', '點点', '學学', '實实', '體体', '無无', '當当', '動动', '進进', '聽听',
+    '覺觉', '氣气', '邊边', '給给', '嗎吗', '誰谁', '讀读', '寫写', '買买', '賣卖', '處处', '馬马', '魚鱼', '風风',
+    '飛飞', '電电', '聲声', '戰战', '傳传', '師师', '終终', '緊紧', '債债', '務务', '錯错', '隊队', '團团', '圖图',
+    '書书', '線线', '習习', '歲岁',
+];
+const TRADITIONAL_ONLY_LETTERS = new Set(TRADITIONAL_SIMPLIFIED_PAIRS.map(pair => pair[0]));
+const SIMPLIFIED_ONLY_LETTERS = new Set(TRADITIONAL_SIMPLIFIED_PAIRS.map(pair => pair[1]));
+
+/**
+ * The Chinese script a text is written in, by the characters only one of the two writes: 'traditional',
+ * 'simplified', or null when neither leads.
+ *
+ * @param {string} text
+ * @returns {'traditional'|'simplified'|null}
+ */
+function chineseScriptOf(text) {
+    let traditional = 0;
+    let simplified = 0;
+    for (const letter of String(text ?? '')) {
+        if (TRADITIONAL_ONLY_LETTERS.has(letter)) traditional++;
+        else if (SIMPLIFIED_ONLY_LETTERS.has(letter)) simplified++;
+    }
+    if (traditional === simplified) return null;
+    return traditional > simplified ? 'traditional' : 'simplified';
+}
+
+/**
+ * The prompt variant a story's events and queries are written with, which always writes the story's own language. A
+ * Chinese, Japanese or Korean mode gives a story written in that kind of language its own variant. Every other story,
+ * such as an English story read under Traditional Chinese, and every story under intl or others, takes the "others"
+ * variant, which writes in the story's own language and names none. A CJK story also gets the Chinese script it is
+ * written in, which the others variant names (chineseLanguageNameFor).
  *
  * @param {string} mode - The CJK Tokenizer Mode setting
  * @param {string} storyText - The story's latest messages, as Text Cleaning leaves them
- * @returns {{promptMode: string, isCjkStory: boolean, isWrittenInEnglish: boolean}}
+ * @returns {{promptMode: string, isCjkStory: boolean, chineseScript: 'traditional'|'simplified'|null}}
  */
 export function storyLanguageOf(mode, storyText) {
     const isCjkStory = isCjkLanguageText(storyText);
     return {
-        promptMode: CJK_LANGUAGE_MODES.has(mode) && !isCjkStory ? 'others' : mode,
+        promptMode: CJK_LANGUAGE_MODES.has(mode) && isCjkStory ? mode : 'others',
         isCjkStory,
-        isWrittenInEnglish: mode === ENGLISH_MODE,
+        chineseScript: isCjkStory ? chineseScriptOf(storyText) : null,
     };
+}
+
+/** How a window's DETECTED EXCERPT LANGUAGE line names Chinese. */
+const CHINESE_LANGUAGE_NAMES = Object.freeze({
+    traditional: '繁體中文 (Traditional Chinese)',
+    simplified: '简体中文 (Simplified Chinese)',
+    eitherScript: '中文 (Chinese)',
+});
+
+/**
+ * How a window's DETECTED EXCERPT LANGUAGE line names Chinese. A Chinese mode's own prompt fixes the script, so its line
+ * says only Chinese. The others prompt fixes none, so its line names the story's script when the story shows one: told
+ * only "Chinese", a model may write a Traditional story's window that holds English text in Simplified.
+ *
+ * @param {{promptMode: string, chineseScript: 'traditional'|'simplified'|null}} storyLanguage - From storyLanguageOf
+ * @returns {string}
+ */
+export function chineseLanguageNameFor(storyLanguage) {
+    if (storyLanguage.promptMode !== 'others') return CHINESE_LANGUAGE_NAMES.eitherScript;
+    return CHINESE_LANGUAGE_NAMES[storyLanguage.chineseScript] ?? CHINESE_LANGUAGE_NAMES.eitherScript;
+}
+
+/**
+ * What a window's extraction prompt says before the prompt and again after the excerpt when shouldGiveStoryLanguageNotice
+ * holds. A status panel, a note or a message the player typed in Chinese, Japanese or Korean otherwise pulls a window's
+ * events into that language, though the story is written in another. `afterExcerpt` fills the prompt's
+ * {{storyLanguageNotice}}.
+ */
+export const STORY_LANGUAGE_NOTICE = Object.freeze({
+    beforePrompt: 'STORY LANGUAGE: this story is not written in Chinese, Japanese or Korean. Write every field in the language its narration uses, even where the excerpt holds a block in Chinese, Japanese or Korean, such as a status panel, a note or a message the player typed.',
+    afterExcerpt: 'Write every field in the language the story\'s narration uses, not in Chinese, Japanese or Korean, even where the excerpt holds a block in one of them.',
+});
+
+/**
+ * Whether a window's extraction prompt gets STORY_LANGUAGE_NOTICE: its story is not written in Chinese, Japanese or
+ * Korean, and its excerpt holds a letter of one of them.
+ *
+ * @param {{isCjkStory: boolean}} storyLanguage - From storyLanguageOf
+ * @param {string} excerptText - The window's excerpt, as the prompt holds it
+ * @returns {boolean}
+ */
+export function shouldGiveStoryLanguageNotice(storyLanguage, excerptText) {
+    return !storyLanguage.isCjkStory && cjkShareOf(excerptText) > 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,56 +238,6 @@ const _PLANNER_FOOTER =
 `Return ONLY the JSON object. No commentary, no markdown fences, no preamble.`;
 
 // ── Per-language EXAMPLES blocks ─────────────────────────────────────────────
-
-const _PLANNER_EXAMPLES_INTL =
-`══ LANGUAGE RULE ═════════════════════════════════════════════════════
-Write ALL queries in English. Never mix languages.
-Proper nouns (names, places, items) keep their exact form from the chat.
-
-══ EXAMPLES ══════════════════════════════════════════════════════════
-
-Example 1 — Causal "why" chain (plot-driven, RPG/mystery/thriller):
-User: "Do you remember why we had to pay off Kai's debt?"
-{
-  "queries": [
-    "Kai debt loan note amount",
-    "debt collectors threats at his door",
-    "repayment negotiation middleman",
-    "Kai after the debt was cleared emotional reaction"
-  ],
-  "rationale": "Causal chain — different TIME slices: debt → collectors → negotiation → aftermath."
-}
-
-Example 2 — Slice-of-life / character state pattern (mixed-axis decomposition):
-User: "How has Yuki been adjusting to the dorm?"
-{
-  "queries": [
-    "Yuki dorm move-in first impression",
-    "Yuki mealtime conversations roommates",
-    "Yuki study routine late night habits",
-    "Yuki mood shifts recent weeks"
-  ],
-  "rationale": "Mixed axes — arrival event (TIME), social pattern (FACET), daily habit (GRANULARITY), emotional trajectory (FACET)."
-}
-
-Example 3 — A line said TO X, but about a relationship BETWEEN OTHERS (participant resolution):
-User: To Kai — "Your father is finally cleared, your sister never got on with your father, but you've found your sister again."
-(relative to Kai: your father = Marcus, your sister = Tessa)
-{
-  "queries": [
-    "Marcus cleared of the charge — how",
-    "Tessa and Marcus long-standing rift",
-    "Kai and Tessa reunion"
-  ],
-  "rationale": "Resolve participants: 'cleared' is about Marcus; 'rift' is Tessa↔Marcus (Kai not a party); only 'reunion' is Kai↔Tessa. Don't pin every query on Kai."
-}
-✗ WRONG — Kai bolted onto every fact (even ones he is not in):
-    "Kai's father cleared", "Kai and Marcus rift", "Kai and Tessa reunion"
-✓ RIGHT — query the real parties; Kai appears once (the reunion he is in):
-    "Marcus cleared of the charge — how", "Tessa and Marcus rift", "Kai and Tessa reunion"
-Note: in a line said TO X, most facts are BETWEEN OTHERS — X's name should appear in only a few (usually one) query.
-
-`;
 
 const _PLANNER_EXAMPLES_JIEBA_TW =
 `══ 語言規則 ══════════════════════════════════════════════════════════
@@ -414,10 +441,11 @@ User: Kai에게 — "네 아버지는 마침내 누명을 벗었어, 네 누나�
 
 `;
 
+// intl and others: the English examples show the pattern only, and the queries take the chat's own language. Neither
+// forbids the examples' language: told to avoid it, a model writes an English story in another language.
 const _PLANNER_EXAMPLES_OTHERS =
 `══ LANGUAGE RULE ═════════════════════════════════════════════════════
-Write ALL queries in the same language as the chat, and only in it. The
-examples below show the pattern only: never take their language.
+Write ALL queries in the same language as the chat, and only in it.
 Proper nouns (names, places, items) keep their exact form from the chat.
 
 ══ EXAMPLES (the pattern only — write yours in the chat's language) ══
@@ -465,24 +493,27 @@ Note: in a line said TO X, most facts are BETWEEN OTHERS — X's name should app
 
 `;
 
+/** The planner prompt that writes queries in the chat's own language and names none: intl's and others'. */
+const _PLANNER_PROMPT_IN_CHAT_LANGUAGE = _PLANNER_HEADER + _PLANNER_EXAMPLES_OTHERS + _PLANNER_FOOTER;
+
 const _PLANNER_PROMPTS = {
-    intl:           _PLANNER_HEADER + _PLANNER_EXAMPLES_INTL           + _PLANNER_FOOTER,
+    intl:           _PLANNER_PROMPT_IN_CHAT_LANGUAGE,
     jieba:          _PLANNER_HEADER + _PLANNER_EXAMPLES_JIEBA           + _PLANNER_FOOTER,
     jieba_tw:       _PLANNER_HEADER + _PLANNER_EXAMPLES_JIEBA_TW        + _PLANNER_FOOTER,
     tiny_segmenter: _PLANNER_HEADER + _PLANNER_EXAMPLES_TINY_SEGMENTER  + _PLANNER_FOOTER,
     korean:         _PLANNER_HEADER + _PLANNER_EXAMPLES_KOREAN          + _PLANNER_FOOTER,
-    others:         _PLANNER_HEADER + _PLANNER_EXAMPLES_OTHERS          + _PLANNER_FOOTER,
+    others:         _PLANNER_PROMPT_IN_CHAT_LANGUAGE,
 };
 
 /**
  * Returns the agentic planner system prompt for the given story language mode.
- * Falls back to the English (intl) prompt for unknown modes.
+ * An unknown mode gets the one that writes in the chat's own language.
  *
  * @param {string} [mode] - Value from CJK_TOKENIZER_MODES (e.g. 'jieba_tw')
  * @returns {string}
  */
 export function getAgenticPlannerPrompt(mode) {
-    return _PLANNER_PROMPTS[mode] ?? _PLANNER_PROMPTS.intl;
+    return _PLANNER_PROMPTS[mode] ?? _PLANNER_PROMPT_IN_CHAT_LANGUAGE;
 }
 
 
@@ -508,18 +539,6 @@ ABSOLUTE RULES (DO NOT BREAK)
 `;
 
 // ── Per-language LANGUAGE rule (Rule 1) ──────────────────────────────────────
-const _EXTRACTION_LANG_INTL =
-`1. LANGUAGE — MANDATORY:
-   - All string fields (summary, cause, result, characters, locations, factions, items, concepts, keywords, open_threads) MUST be in English.
-   - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
-   - CONCEPTS examples for this language (see full rules in OUTPUT SCHEMA below):
-       GOOD: "sacrifice", "trust", "obligation", "isolation", "redemption", "the cost of victory"
-       BAD:  "Aria" (character), "tavern" (location), "sword" (item),
-             "combat" (action), "leveling up" (mechanic)
-   - Violating this rule makes the output invalid.
-
-`;
-
 const _EXTRACTION_LANG_JIEBA =
 `1. LANGUAGE — MANDATORY:
    - All string fields (summary, cause, result, characters, locations, factions, items, concepts, keywords, open_threads) MUST be in Simplified Chinese (简体中文).
@@ -577,7 +596,6 @@ const _EXTRACTION_LANG_KOREAN =
 const _EXTRACTION_LANG_OTHERS =
 `1. LANGUAGE — MANDATORY:
    - All string fields MUST be in the same language as the excerpt.
-   - The examples in this prompt show the shape of each field only: never take their language.
    - If the excerpt mixes languages, write every field in the one most of the excerpt is written in, even where a block of it uses another.
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
    - CONCEPTS examples (the shape to follow — write yours in the excerpt's language):
@@ -733,12 +751,6 @@ Zero events (filler scene):
 `;
 
 // ── Per-language EXAMPLES (one localized example per variant) ────────────────
-const _EXTRACTION_EXAMPLES_INTL =
-`One event (English excerpt):
-[{"event_type":"relationship_change","importance":7,"summary":"Aria takes the blame for Leon's mistake in front of the commander, shielding him from punishment at personal cost. Leon is visibly shaken by her sacrifice and vows to repay her.","cause":"Leon froze during the mission briefing and Aria covered for him without hesitation.","result":"Leon feels indebted to Aria; their dynamic shifts from rivalry to fragile trust.","characters":["Aria","Leon","Commander Voss"],"locations":["Command Tent"],"factions":["Iron Company"],"DateTime":null,"scene_time":"","items":[],"concepts":["sacrifice","debt","trust"],"keywords":["blame","shield","punishment","mistake","sacrifice","debt","trust","rivalry","vow","repay","commander","mission briefing","froze","covered"],"open_threads":["Will Leon repay Aria?","How will Commander Voss react if he finds out?"],"should_persist":true}]
-
-`;
-
 const _EXTRACTION_EXAMPLES_JIEBA =
 `One event (Simplified Chinese excerpt):
 [{"event_type":"promise_or_oath","importance":9,"summary":"Aria 承诺帮 Leon 找回被盗的传家罗盘。","cause":"Leon 在房间中央哭着请求帮助。","result":"找回罗盘成为队伍的核心目标。","characters":["Aria","Leon"],"locations":["Harbor Inn 顶楼客房"],"factions":[],"DateTime":"2024-05-01T20:30:00Z","scene_time":"","items":["传家罗盘"],"concepts":["传承","承诺","亲情"],"keywords":["传家罗盘","寻找罗盘","承诺","哭泣","请求","失窃","核心目标","队伍任务","誓言","亲情"],"open_threads":["查明罗盘落在谁手里"],"should_persist":true}]
@@ -763,9 +775,9 @@ const _EXTRACTION_EXAMPLES_KOREAN =
 
 `;
 
-// "others" reuses the English example as a shape only — the LLM follows the
-// LANGUAGE rule from this variant's _EXTRACTION_LANG block, which names no
-// language, to write its own output in whatever language the excerpt uses.
+// intl and others show the English example as a shape only — the LLM follows the
+// LANGUAGE rule from their _EXTRACTION_LANG block, which names no language, to
+// write its own output in whatever language the excerpt uses.
 const _EXTRACTION_EXAMPLES_OTHERS =
 `One event (its shape only — write yours in the excerpt's language):
 [{"event_type":"relationship_change","importance":7,"summary":"Aria takes the blame for Leon's mistake in front of the commander, shielding him from punishment at personal cost. Leon is visibly shaken by her sacrifice and vows to repay her.","cause":"Leon froze during the mission briefing and Aria covered for him without hesitation.","result":"Leon feels indebted to Aria; their dynamic shifts from rivalry to fragile trust.","characters":["Aria","Leon","Commander Voss"],"locations":["Command Tent"],"factions":["Iron Company"],"DateTime":null,"scene_time":"","items":[],"concepts":["sacrifice","debt","trust"],"keywords":["blame","shield","punishment","mistake","sacrifice","debt","trust","rivalry","vow","repay","commander","mission briefing","froze","covered"],"open_threads":["Will Leon repay Aria?","How will Commander Voss react if he finds out?"],"should_persist":true}]
@@ -776,7 +788,8 @@ const _EXTRACTION_EXAMPLES_OTHERS =
 // The excerpt runs to thousands of characters, which leaves the "no prose, no code
 // fences" line in OUTPUT SCHEMA far behind by the time the model starts writing —
 // measured as a prose preamble on 4 of 15 gemini-3.5-flash runs. Restating it AFTER
-// the excerpt makes it the last thing read.
+// the excerpt makes it the last thing read. {{storyLanguageNotice}} is empty unless
+// the window gets STORY_LANGUAGE_NOTICE, whose second half it holds.
 const _EXTRACTION_FOOTER =
 `=========================
 EXCERPT
@@ -784,31 +797,34 @@ EXCERPT
 {{text}}
 
 =========================
-Return ONLY the JSON array now. Begin your reply with [ and end it with ].
+{{storyLanguageNotice}}Return ONLY the JSON array now. Begin your reply with [ and end it with ].
 No preamble, no explanation, no markdown, no code fences.`;
 
+/** The extraction prompt that writes in the excerpt's own language and names none: intl's and others'. */
+const _EXTRACTION_PROMPT_IN_EXCERPT_LANGUAGE = _EXTRACTION_TOP + _EXTRACTION_LANG_OTHERS + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_OTHERS + _EXTRACTION_FOOTER;
+
 const _EXTRACTION_PROMPTS = {
-    intl:           _EXTRACTION_TOP + _EXTRACTION_LANG_INTL           + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_INTL           + _EXTRACTION_FOOTER,
+    intl:           _EXTRACTION_PROMPT_IN_EXCERPT_LANGUAGE,
     jieba:          _EXTRACTION_TOP + _EXTRACTION_LANG_JIEBA          + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_JIEBA          + _EXTRACTION_FOOTER,
     jieba_tw:       _EXTRACTION_TOP + _EXTRACTION_LANG_JIEBA_TW       + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_JIEBA_TW       + _EXTRACTION_FOOTER,
     tiny_segmenter: _EXTRACTION_TOP + _EXTRACTION_LANG_TINY_SEGMENTER + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_TINY_SEGMENTER + _EXTRACTION_FOOTER,
     korean:         _EXTRACTION_TOP + _EXTRACTION_LANG_KOREAN         + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_KOREAN         + _EXTRACTION_FOOTER,
-    others:         _EXTRACTION_TOP + _EXTRACTION_LANG_OTHERS         + _EXTRACTION_RULES_BODY + _EXTRACTION_EXAMPLES_OTHERS         + _EXTRACTION_FOOTER,
+    others:         _EXTRACTION_PROMPT_IN_EXCERPT_LANGUAGE,
 };
 
 /**
  * Returns the EventBase extraction prompt template for the given story
- * language mode. The template still contains the {{text}} and {{maxCount}}
- * placeholders — buildExtractionPrompt() in eventbase-schema.js substitutes
- * those before sending to the LLM.
+ * language mode. The template still contains the {{text}}, {{maxCount}} and
+ * {{storyLanguageNotice}} placeholders — buildExtractionPrompt() in
+ * eventbase-schema.js substitutes those before sending to the LLM.
  *
- * Falls back to the English (intl) prompt for unknown modes.
+ * An unknown mode gets the one that writes in the excerpt's own language.
  *
  * @param {string} [mode] - Value from CJK_TOKENIZER_MODES (e.g. 'jieba_tw')
  * @returns {string}
  */
 export function getEventBaseExtractionPrompt(mode) {
-    return _EXTRACTION_PROMPTS[mode] ?? _EXTRACTION_PROMPTS.intl;
+    return _EXTRACTION_PROMPTS[mode] ?? _EXTRACTION_PROMPT_IN_EXCERPT_LANGUAGE;
 }
 
 

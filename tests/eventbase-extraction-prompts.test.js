@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { getEventBaseExtractionPrompt } from '../src/features/eventbase/prompts-i18n.js';
 
 const STORY_LANGUAGE_MODES = ['intl', 'jieba', 'jieba_tw', 'tiny_segmenter', 'korean', 'others'];
-const MODES_LISTING_A_BAD_NAME = ['intl', 'jieba', 'jieba_tw', 'tiny_segmenter', 'korean'];
+const MODES_LISTING_A_BAD_NAME = ['jieba', 'jieba_tw', 'tiny_segmenter', 'korean'];
 const SCHEMA_FIELDS = [
     'DateTime', 'cause', 'characters', 'concepts', 'event_type', 'factions', 'importance', 'items',
     'keywords', 'locations', 'open_threads', 'result', 'scene_time', 'should_persist', 'summary',
