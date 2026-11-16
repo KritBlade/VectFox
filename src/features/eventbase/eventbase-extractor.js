@@ -375,7 +375,7 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
         return [];
     }
 
-    const maxCount = settings.eventbase_max_events_per_window || 5;
+    const maxCount = settings.eventbase_max_events_per_window || 3;
 
     // The window's script is checked after the reply. The prompt follows the story's language, and in a CJK story a
     // window written in CJK also names its language, which a non-CJK mode's prompt would not write.
