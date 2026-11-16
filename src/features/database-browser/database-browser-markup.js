@@ -217,11 +217,12 @@ export function storyLinksRowMarkup(key, description = '') {
 
 /**
  * One collection in the list: its selection box, then its row (type icon, name, counts, pills and actions) and, for
- * an EventBase collection StoryArc links, its links row.
+ * an EventBase collection StoryArc links, its links row. A collection Compact collection can clean gets its button.
  *
  * @param {{key: string, name: string, id: string, type: string, chunkCount: number, isEnabled: boolean,
  *   isSelected: boolean, scope: string, backend: string, source: string, model: string, hasMultipleModels: boolean,
- *   activeHereLine: string, activationMode: string, hasStoryLinks: boolean, storyLinksDescription?: string}} view
+ *   activeHereLine: string, activationMode: string, canCompact: boolean, hasStoryLinks: boolean,
+ *   storyLinksDescription?: string}} view
  * @returns {string}
  */
 export function collectionEntryMarkup(view) {
@@ -242,6 +243,7 @@ export function collectionEntryMarkup(view) {
         iconButton({ icon: 'fa-eye', title: 'View chunks', data: data('view-chunks') }),
         iconButton({ icon: 'fa-file-export', title: 'Export as JSON', data: data('export-json') }),
         iconButton({ icon: 'fa-image', title: 'Export as PNG card', data: data('export-png') }),
+        view.canCompact ? iconButton({ icon: 'fa-compress', title: 'Compact collection', data: data('compact') }) : '',
         iconButton({ icon: 'fa-trash-can', title: 'Delete', isDanger: true, data: data('delete') }),
     ].filter(Boolean);
     const row = listRow({

@@ -5,10 +5,13 @@
 // chunkbase imports this feature dynamically: its generation interceptor runs EventBase retrieval and the
 // summarizer injection, and its content vectorizer runs ingestion. src/index.js hands
 // clearCachesForDeletedOrImportedCollection to collection deletion and import; src/app/ runs
-// ensureEventBaseIndexes and pruneOrphanedEventBaseChatMaps at startup.
+// ensureEventBaseIndexes and pruneOrphanedEventBaseChatMaps at startup. The Database Browser runs a
+// collection's StoryArc link actions and Compact collection here.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
+export { describeCompaction } from './eventbase-compaction-core.js';
+export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';
 export { testEventBaseConnection } from './eventbase-extractor.js';
 export { findEventBaseForkSource, forkEventBaseFromSource } from './eventbase-fork.js';
 export { packTimelineSortKey } from './eventbase-schema.js';

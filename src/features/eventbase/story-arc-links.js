@@ -6,7 +6,8 @@
  * chat's stored events, and each new event gets its links after it joins. One
  * decision needs only stored vectors and text, not other links, so decisions run
  * in parallel. Each is stored as it finishes, so a stopped pass keeps its work.
- * A collection's links can also be saved to a file, put back or deleted, with no LLM call.
+ * A collection's links can also be saved to a file, put back, deleted, or moved off the events
+ * Compact collection removes, with no LLM call.
  *
  * Pure logic lives in story-arc-links-core.js.
  * ============================================================================
@@ -416,6 +417,7 @@ export async function planStoryLinksDelete(collectionId, settings) {
 /** How the progress window and the log name each kind of links write. */
 const LINKS_IMPORT_WORDING = Object.freeze({ title: 'Importing StoryArc links', logName: 'Links import', doneWord: 'written', retry: 'Import the file again' });
 const LINKS_DELETE_WORDING = Object.freeze({ title: 'Deleting StoryArc links', logName: 'Links delete', doneWord: 'cleared', retry: 'Press Delete links again' });
+const LINKS_MOVE_WORDING = Object.freeze({ title: 'Moving StoryArc links', logName: 'Links move', doneWord: 'moved', retry: 'No event was removed. Press Compact collection again' });
 
 /**
  * Store each write's links on its event, a few at a time. Shows progress and a Stop
@@ -497,4 +499,17 @@ export function writeImportedStoryLinks(writes, collectionId, settings) {
  */
 export function deleteStoryLinks(writes, collectionId, settings) {
     return _storeLinksOnEvents(writes, collectionId, settings, LINKS_DELETE_WORDING);
+}
+
+/**
+ * Point the links that go to events Compact collection removes at the events that stay. It runs before any event
+ * goes, so a stopped or failed move removes nothing.
+ *
+ * @param {{event: object, links: object[]}[]} writes - The plan's linkMoves, from planCompaction
+ * @param {string} collectionId
+ * @param {object} settings
+ * @returns {Promise<{writtenCount: number, failedCount: number, isStopped: boolean}>}
+ */
+export function moveStoryLinks(writes, collectionId, settings) {
+    return _storeLinksOnEvents(writes, collectionId, settings, LINKS_MOVE_WORDING);
 }

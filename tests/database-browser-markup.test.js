@@ -48,6 +48,7 @@ const VIEW = {
     hasMultipleModels: false,
     activeHereLine: '',
     activationMode: 'auto',
+    canCompact: false,
     hasStoryLinks: false,
 };
 
@@ -127,6 +128,13 @@ describe('a collection in the list', () => {
         expect(pillsOf(entry)).toEqual(expect.arrayContaining(['Active here', 'Triggers']));
         expect(entry.textContent).toContain(line);
         expect(pillsOf(parse(collectionEntryMarkup({ ...VIEW, activationMode: 'conditions' })))).toContain('Conditions');
+    });
+
+    it('offers Compact collection, just before Delete, only to a collection it can clean', () => {
+        expect(actionsOf(parse(collectionEntryMarkup(VIEW)))).not.toContain('compact');
+        const compactable = parse(collectionEntryMarkup({ ...VIEW, canCompact: true }));
+        expect(actionsOf(compactable).slice(-2)).toEqual(['compact', 'delete']);
+        expect(compactable.querySelector('[data-collection-action="compact"]').title).toBe('Compact collection');
     });
 
     it('gets a StoryArc links row only when it holds links, reading until its count is in', () => {

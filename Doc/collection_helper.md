@@ -303,6 +303,15 @@ The switch shows on when any lock matches here, a chat lock or a character lock,
 
 Each call only touches the lock for the **current** chat/character. Other chats or characters that have this collection locked keep their entries intact — `removeCollectionLock` filters by id, doesn't wipe the list.
 
+## DB Browser — Compact collection
+
+A button on the row of each EventBase collection, of a chat or a chat file, when the collection and VectFox both use Qdrant (`canCompactCollection` in `database-browser.js`), since that backend lists every event with its window. It removes what a collection should not hold, after a confirmation that counts it, with no LLM call. A new kind of clean-up joins it as its own part of the plan (`planCompaction` in [`eventbase-compaction-core.js`](../src/features/eventbase/eventbase-compaction-core.js)), with its own line in `describeCompaction`.
+
+1. **What it removes.** Repeats: the events a window holds from extractions before its newest one. Each window keeps its newest extraction that records `created_at`, and an earlier event goes by the rule of a window extracted again (see "When a window is extracted again"): the same first and last message, a shared message, written before it. A window holding no event with `created_at` stays as it is, since an event_id's time can differ by a millisecond between the events of one extraction.
+2. **Links first.** `compactCollection` in `eventbase-compaction.js` moves the StoryArc links that pointed at a removed event to the first event of its window's newest extraction (`moveStoryLinks`), then removes the events. A stopped or failed move removes nothing, and pressing the button again finishes it. The removed events' own links go with them.
+
+**Test coverage**: `tests/eventbase-compaction-core.test.js`, `tests/eventbase-compaction.test.js`, and `tests/database-browser-compact.test.js` for the button.
+
 ## Auto-sync — the "Auto-sync this chat" switch
 
 ### The smart marker — what makes auto-sync correct

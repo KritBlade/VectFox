@@ -134,6 +134,18 @@ describe('linksMovedToReplacements', () => {
         ]);
     });
 
+    it('makes a moved link and one the event already had to that event, of the same type, into one', () => {
+        const linker = eventOf('already-linked', 10, { links: [
+            { event_id: 'old-a', type: 'continues', thread: 'The harbour debt' },
+            { event_id: 'new-a', type: 'continues', thread: '' },
+            { event_id: 'new-a', type: 'caused_by', thread: '' },
+        ] });
+        expect(linksMovedToReplacements([linker], replacementById)[0].links).toEqual([
+            { event_id: 'new-a', type: 'continues', thread: 'The harbour debt' },
+            { event_id: 'new-a', type: 'caused_by', thread: '' },
+        ]);
+    });
+
     it('leaves out events with no link to a replaced event, and the replaced events themselves', () => {
         const events = [
             eventOf('untouched', 8, { links: [{ event_id: 'kept', type: 'continues', thread: '' }] }),

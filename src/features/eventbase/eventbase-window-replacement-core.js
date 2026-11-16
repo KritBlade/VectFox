@@ -112,8 +112,9 @@ export function replacementIdsOf(replacedEvents, newEvents) {
 
 /**
  * The events whose StoryArc links change when the links to replaced events move to their
- * replacements. Two links that end up the same, as links to two earlier versions of one window
- * do, become one.
+ * replacements. Links that end up the same, to one event with one type, become the first of
+ * them: links to two earlier versions of one window, or a moved link and one the event already
+ * had to that event.
  *
  * @param {object[]} storedEvents - The collection's events, with their story_links
  * @param {Map<string, string>} replacementById - From replacementIdsOf
@@ -124,18 +125,15 @@ export function linksMovedToReplacements(storedEvents, replacementById) {
     for (const event of storedEvents) {
         const links = Array.isArray(event.story_links) ? event.story_links : [];
         if (replacementById.has(event.event_id) || !links.some(link => replacementById.has(link?.event_id))) continue;
-        const movedKeys = new Set();
+        const keptKeys = new Set();
         const newLinks = [];
         for (const link of links) {
             const target = replacementById.get(link?.event_id);
-            if (target === undefined) {
-                newLinks.push(link);
-                continue;
-            }
-            const key = `${target}|${link.type}`;
-            if (movedKeys.has(key)) continue;
-            movedKeys.add(key);
-            newLinks.push({ ...link, event_id: target });
+            const newLink = target === undefined ? link : { ...link, event_id: target };
+            const key = `${newLink?.event_id}|${newLink?.type}`;
+            if (keptKeys.has(key)) continue;
+            keptKeys.add(key);
+            newLinks.push(newLink);
         }
         writes.push({ event, links: newLinks });
     }

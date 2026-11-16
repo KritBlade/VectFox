@@ -50,9 +50,12 @@ import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
 import {
   STORY_LINKS_FILE_TYPE,
   buildCollectionLinksFile,
+  compactCollection,
   deleteStoryLinks,
+  describeCompaction,
   describeStoryLinkCoverage,
   describeStoryLinksImport,
+  planCollectionCompaction,
   planStoryLinksDelete,
   planStoryLinksImport,
   readCollectionLinkCoverage,
@@ -69,6 +72,7 @@ import { openChunkVisualizer } from "./chunk-visualizer.js";
 import { bindSizeInspector } from "./size-inspector.js";
 import { editCollectionSettings, renameCollection, switchCollectionModel } from "./collection-dialogs.js";
 import { formatBytes, utf8ByteLength } from "../../shared/byte-size.js";
+import { counted } from "../../shared/counted.js";
 import {
   BROWSER_PAGES,
   browserPageId,
@@ -663,6 +667,7 @@ function collectionRowView(collection, isActiveById) {
     activeHereLine: activeHereLine(collection, isActiveById),
     // The registry-key (backend:id) metadata the Collection Settings dialog writes
     activationMode: getCollectionActivationSummary(key).mode,
+    canCompact: canCompactCollection(collection),
     hasStoryLinks: hasStoryLinksRow(collection),
     storyLinksDescription: browserState.storyLinkDescriptions.get(key) ?? "",
   };
@@ -749,6 +754,19 @@ function hasStoryLinksRow(collection) {
     && settings.vector_backend === "qdrant"
     && collection.backend === "qdrant"
     && String(collection.id).startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE);
+}
+
+/**
+ * Whether Compact collection can clean a collection: one of EventBase events, from a chat or a chat file, in Qdrant,
+ * the backend VectFox uses now, which lists each event with its window.
+ * @param {object} collection Collection data
+ * @returns {boolean}
+ */
+function canCompactCollection(collection) {
+  const id = String(collection.id);
+  return browserState.settings?.vector_backend === "qdrant"
+    && collection.backend === "qdrant"
+    && (id.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE) || id.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT));
 }
 
 /**
@@ -913,6 +931,7 @@ async function runCollectionAction(action, key) {
     case "view-chunks": return viewCollectionChunks(collection);
     case "export-json": return exportCollectionJson(collection);
     case "export-png": return exportCollectionPng(collection);
+    case "compact": return compactOneCollection(key);
     case "delete": return deleteOneCollection(collection);
     case "export-links": return exportCollectionStoryLinks(collection);
     case "import-links": return importStoryLinksFromPicker(collection);
@@ -930,6 +949,48 @@ function toggleCollection(collection) {
   setCollectionEnabled(collectionKey(collection), collection.enabled);
   renderCollections();
   log.lifecycle(`VectFox Database Browser: ${collection.enabled ? "Resumed" : "Paused"} ${collectionKey(collection)}`);
+}
+
+/**
+ * Compacts one EventBase collection, after showing what it removes: the events a window holds from readings before its
+ * newest one. The row then shows the collection's new count.
+ * @param {string} key The collection whose Compact collection button was pressed
+ * @returns {Promise<void>}
+ */
+async function compactOneCollection(key) {
+  const collection = findCollectionByKey(key);
+  if (!collection) return;
+  try {
+    const plan = await planCollectionCompaction(collection.id, browserState.settings);
+    if (plan.repeats.length === 0) {
+      toastr.info("This collection has nothing to compact.", "VectFox");
+      return;
+    }
+
+    const isConfirmed = await confirmPopup([
+      { text: "Compact this collection?" },
+      { text: "Collection:", name: collection.name },
+      ...describeCompaction(plan).map((sentence) => ({ parts: [{ name: sentence }] })),
+      { text: "This makes no LLM call, and it cannot be undone. Export the collection first to keep a copy." },
+      { text: "Compact removes them. Cancel keeps them." },
+    ], { okButton: "Compact", isDestructive: true });
+    if (!isConfirmed) return;
+
+    const { removedCount } = await compactCollection(plan, collection.id, browserState.settings);
+    if (removedCount === 0) {
+      toastr.warning("Nothing was removed, as the StoryArc links did not all move. Press Compact collection again to finish.", "VectFox");
+      return;
+    }
+    collection.chunkCount = Math.max(0, collection.chunkCount - removedCount);
+    browserState.storyLinkCoverage.delete(key);
+    browserState.storyLinkDescriptions.delete(key);
+    renderCollections();
+    document.dispatchEvent(new CustomEvent("vectfox:collections-updated"));
+    toastr.success(`Removed ${counted(removedCount, "repeated event")} from ${collection.name}`, "VectFox");
+  } catch (error) {
+    log.error("VectFox: Compact collection failed", error);
+    toastr.error(`Compact collection failed: ${error.message}`, "VectFox");
+  }
 }
 
 /**
