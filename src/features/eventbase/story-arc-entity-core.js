@@ -8,9 +8,10 @@
  * their vectors never change, so a merge costs nothing and can be split again.
  * Spellings that differ only in case are one name, as an LLM writes a name in more
  * than one case. A name is found only where it stands as a word: a Latin-script name,
- * accented or not, where no Latin letter touches it, and a Chinese, Japanese, Thai, Lao,
- * Khmer or Burmese name where the runtime's word splitter starts and ends a word, so a
- * merged 家 is never found inside 家族, nor a merged Zoë inside Zoëlla.
+ * accented or not, where no Latin letter touches it, a Chinese, Japanese, Thai, Lao,
+ * Khmer or Burmese name where the runtime's word splitter starts and ends a word, and a
+ * Korean name where it starts a word with only particles after it, so a merged 家 is
+ * never found inside 家族, a merged Zoë inside Zoëlla, nor a merged 바다 inside 앞바다.
  *
  * Pure: no host imports.
  * ============================================================================
@@ -68,17 +69,46 @@ function wordEdgesOf(text) {
     return edges;
 }
 
+/** Korean, which writes spaces between words but joins particles to the end of a name. */
+const HANGUL = /\p{Script=Hangul}/u;
+const HANGUL_RUN = /^\p{Script=Hangul}*/u;
+/**
+ * What can follow a Korean name inside its word, alone or one after another as in 바다에서는:
+ * case, topic and other particles, the vocative, the honorifics 님 and 씨, the plural 들, and
+ * the copula's common forms. Anything else joined to the name makes it part of another word.
+ */
+const KOREAN_PARTICLES = [
+    '이', '가', '께서', '은', '는', '을', '를', '의',
+    '에', '에서', '에게', '에게서', '한테', '한테서', '께', '로', '으로', '로서', '으로서', '로써', '으로써',
+    '와', '과', '랑', '이랑', '하고',
+    '도', '만', '까지', '부터', '조차', '마저', '밖에', '뿐', '처럼', '보다', '같이', '만큼', '대로',
+    '나', '이나', '든', '이든', '든지', '이든지',
+    '아', '야', '여', '이여', '님', '씨', '들',
+    '이다', '다', '이야', '예요', '이에요', '입니다', '였다', '이었다',
+];
+const KOREAN_PARTICLES_ONLY = new RegExp(`^(?:${[...KOREAN_PARTICLES].sort((a, b) => b.length - a.length).join('|')})*$`, 'u');
+
 /**
  * Whether a name found at `start` stands as a word. A name in an unspaced script, such
  * as Chinese or Thai, must start and end a word, so 家 inside 家族 does not count. A
- * Latin name's pattern already keeps to whole words, and a name in another script counts
- * wherever it is found: Korean, Arabic and Hebrew join particles and articles to the
- * word, and Greek and Russian change a name's ending.
+ * Korean name must start a word, with only particles after it in that word, so 바다가
+ * counts and 앞바다 and 바다표범 do not; a one-syllable name can still be read inside a
+ * word that looks like it with a particle, as 나 in 나이. A Latin name's pattern already
+ * keeps to whole words, and a name in another script counts wherever it is found: Arabic
+ * and Hebrew join articles and conjunctions to the front of a word, and Greek and Russian
+ * change a name's ending.
  */
 function standsAsWord(text, start, name) {
-    if (!UNSPACED_SCRIPT.test(name)) return true;
-    const edges = wordEdgesOf(text);
-    return edges.has(start) && edges.has(start + name.length);
+    if (UNSPACED_SCRIPT.test(name)) {
+        const edges = wordEdgesOf(text);
+        return edges.has(start) && edges.has(start + name.length);
+    }
+    if (HANGUL.test(name)) {
+        const isWordStart = !HANGUL.test(text[start - 1] ?? '');
+        const restOfWord = text.slice(start + name.length).match(HANGUL_RUN)[0];
+        return isWordStart && KOREAN_PARTICLES_ONLY.test(restOfWord);
+    }
+    return true;
 }
 
 /** Whether a text holds a name as a word (standsAsWord): a Latin name only as a whole word, in any case. */

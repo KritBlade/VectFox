@@ -9,11 +9,12 @@
  *   - merging carries a source's own other names, and splitting undoes it,
  *   - a name's spellings that differ only in case are one name, in the list, the hidden names, a merge and the search,
  *   - a Chinese, Japanese, Thai, Lao, Khmer or Burmese name counts only where it stands as a word, so a merged 家 never rewrites or counts 家族,
- *   - a Latin-script name, accented or not, counts only as a whole word, so a merged Zoë never rewrites Zoëlla.
+ *   - a Latin-script name, accented or not, counts only as a whole word, so a merged Zoë never rewrites Zoëlla,
+ *   - a Korean name counts only where it starts a word with only particles after it, so a merged 바다 never rewrites 앞바다.
  *
  * A name in a script written without spaces is found where the runtime's word splitter
- * starts and ends a word, and a Korean one wherever it is. The tests of those paths use
- * plain words in place of names, which stay English.
+ * starts and ends a word, and a Korean one where it starts a word followed only by
+ * particles. The tests of those paths use plain words in place of names, which stay English.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -110,8 +111,17 @@ describe('buildEntityNameWriter', () => {
         expect(buildEntityNameWriter({ River: ['မြစ်'] })('မြစ်ကမ်း မြစ်ကြီး')).toBe('မြစ်ကမ်း Riverကြီး');
     });
 
-    it('takes a Korean name wherever it is, as its particles join the word', () => {
-        expect(buildEntityNameWriter({ Sky: ['바다'] })('바다가 왔다')).toBe('Sky가 왔다');
+    it('takes a Korean name where it starts a word, with only particles after it in that word', () => {
+        const writeName = buildEntityNameWriter({ Sea: ['바다'], Tree: ['나무'], Heaven: ['하늘'] });
+        // the sea is seen, offshore, a seal, in the sea | trees, a pine, a woodcutter, a tree. | to heaven, sky blue
+        expect(writeName('바다가 보인다 앞바다 바다표범 바다에서는')).toBe('Sea가 보인다 앞바다 바다표범 Sea에서는');
+        expect(writeName('나무들이 소나무 나무꾼 나무.')).toBe('Tree들이 소나무 나무꾼 Tree.');
+        expect(writeName('하늘님께 하늘색')).toBe('Heaven님께 하늘색');
+    });
+
+    it('still reads a one-syllable Korean name inside a word that looks like it with a particle', () => {
+        // I too, a country, age: 나이 reads as 나 with the particle 이
+        expect(buildEntityNameWriter({ Self: ['나'] })('나도 나라 나이')).toBe('Self도 나라 Self이');
     });
 });
 
@@ -187,6 +197,11 @@ describe('entitySearchText', () => {
 describe('entityNamesInMessage', () => {
     it('names the other names a message uses', () => {
         expect(entityNamesInMessage('Rosie and Tom', { Rose: ['Rosie', 'Rosa'] })).toEqual([{ name: 'Rosie', keptName: 'Rose' }]);
+    });
+
+    it('names a Korean other name only where the message starts a word with it', () => {
+        expect(entityNamesInMessage('앞바다에 갔다', { Sea: ['바다'] })).toEqual([]);
+        expect(entityNamesInMessage('바다에 갔다', { Sea: ['바다'] })).toEqual([{ name: '바다', keptName: 'Sea' }]);
     });
 
     it('names an accented other name only where the message uses it as a whole word', () => {
