@@ -333,7 +333,7 @@ It's the useful half of a rolling summary — *"always remind the AI what just h
 A small planner LLM reads your recent chat, then emits 1–6 follow-up Qdrant queries each targeting a different angle of what you asked about. They run in parallel alongside the normal search, which keeps every result it found, and the events they find outside its results add up to 5 seats. Falls back cleanly to the standard flow on any failure, and does not run while StoryArc mode is on.
 
 - **Provider/model inheritance** — leave Provider on **Same as EventBase model** and Model blank in the AgentMode tab, and the planner uses the Core → **EventBase model**. Type a cheaper model (e.g. Haiku 4.5, GPT-4o-mini) in Model to cut planner cost.
-- **Language-matching prompt** — planner emits queries in the chat language (Chinese, Japanese, Korean, Latin-script, English), preserving proper nouns. No cross-language pollution.
+- **Language-matching prompt** — planner emits queries in the chat language (Chinese, Japanese, Korean, Latin-script, English), preserving proper nouns. No cross-language pollution. With **Intl.Segmenter (English / Latin)** as the tokenizer, queries are always in English, as that mode's events are.
 - **Tuning** — Chat turns read (1–10), Searches per reply (1–6), and a Planner timeout and Search timeout (1–60 s each). Its debug log is switched on in the Action tab.
 - **Real cost** — about $0.0004 per turn on GPT-6 Luna, about 2 seconds of planning, and up to 5 more events in the prompt. Disabled by default — opt in when long-form recall matters.
 
@@ -547,7 +547,7 @@ You need 2 profiles: one for embedding, and one for the model that writes events
 5. **EventBase model.** Set **Provider** to **SillyTavern profile**, pick a chat profile in **Profile**, and press **Test connection**. This model writes the events when you vectorize.
    - Any profile SillyTavern can chat on works. VectFox sends its own prompts, so the profile's preset is not used.
    - **Recommended models:** for a cheap and fast extraction, `openai/gpt-4o-mini` or `google/gemini-3.1-flash-lite`. If you want better extraction and don't mind paying more, `x-ai/grok-4.3` is stronger. Model IDs change over time, so check the exact ID on OpenRouter before a long run. An old ID such as `x-ai/grok-4.1-fast` can come back as a 404.
-6. **Keywords.** Pick your story's language in **CJK tokenizer**. Pick it before you vectorize, and stick with it (see the FAQ). If you pick Chinese, Japanese or Korean, a chat written in another language still gets its events in its own language.
+6. **Keywords.** Pick your story's language in **CJK tokenizer**. Pick it before you vectorize, and stick with it (see the FAQ). If you pick Chinese, Japanese or Korean, a chat written in another language still gets its events in its own language. If you pick **Intl.Segmenter (English / Latin)**, events are always written in English, whatever language the chat is in.
 7. Most other settings work fine on default. Feel free to tweak.
 8. **Vectorize your chat once.** Open your chat, go to the **Action** page, press **Vectorize content**, pick **Chat**, then press **Vectorize**. You **HAVE** to do this to build your first DB.
 9. **Keep it in sync.** Turn on **Auto-sync this chat** on the **AutoSync** page if you want it automatic. **Turns** sets how many turns go into each run. Or press **Sync chat** on the **Action** page to catch up by hand.

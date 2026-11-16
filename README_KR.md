@@ -328,7 +328,7 @@ open_threads:  [Gauntlet of Shar 준비]
 작은 플래너 LLM이 최근 대화를 읽고, 사용자의 질문의 서로 다른 각도를 노린 1–6개의 후속 Qdrant 쿼리를 출력합니다. 쿼리는 일반 검색과 동시에 병렬로 실행되고, 일반 검색의 결과는 모두 남으며, 그 밖에서 찾은 이벤트가 최대 5자리까지 추가됩니다. 어떤 실패에서도 표준 흐름으로 깔끔히 폴백하며, StoryArc 모드가 켜져 있는 동안에는 실행되지 않습니다.
 
 - **프로바이더/모델 상속** — AgentMode 탭에서 Provider를 **Same as EventBase model**로 두고 Model을 비워두면, 플래너는 Core → **EventBase model**을 사용합니다. 플래너 비용을 줄이려면 Model에 더 저렴한 모델(예: Haiku 4.5, GPT-4o-mini)을 입력하세요.
-- **언어 매칭 프롬프트** — 플래너는 대화 언어(중국어, 일본어, 한국어, 라틴 문자, 영어)로 쿼리를 출력하고 고유명사는 원형을 유지합니다. 언어 간 오염이 없습니다.
+- **언어 매칭 프롬프트** — 플래너는 대화 언어(중국어, 일본어, 한국어, 라틴 문자, 영어)로 쿼리를 출력하고 고유명사는 원형을 유지합니다. 언어 간 오염이 없습니다. 토크나이저가 **Intl.Segmenter (English / Latin)**이면 그 모드의 이벤트처럼 쿼리도 항상 영어입니다.
 - **조정 항목** — Chat turns read(1–10), Searches per reply(1–6), Planner timeout과 Search timeout(각각 1–60초). 디버그 로그는 Action 탭에서 켭니다.
 - **실제 비용** — GPT-6 Luna 기준 턴당 약 $0.0004, 계획에 약 2초, 프롬프트는 최대 5개 이벤트만큼 늘어납니다. 기본값 꺼짐 — 장편 회상이 필요할 때 켜십시오.
 
@@ -527,7 +527,7 @@ VectFox는 SillyTavern 연결 프로필(connection profile)로 작동합니다. 
 5. **EventBase model.** **Provider**를 **SillyTavern profile**로 두고, **Profile**에서 채팅 프로필을 고른 뒤 **Test connection**을 누릅니다. 벡터화할 때 이 모델이 이벤트를 씁니다.
    - SillyTavern으로 채팅할 수 있는 프로필이면 무엇이든 됩니다. VectFox는 자체 프롬프트를 보내므로 프로필의 프리셋은 쓰이지 않습니다.
    - **추천 모델:** 싸고 빠른 추출에는 `openai/gpt-4o-mini` 또는 `google/gemini-3.1-flash-lite`. 돈을 더 내더라도 더 나은 추출을 원한다면 `x-ai/grok-4.3`이 더 강력합니다. 모델 ID는 시간이 지나며 바뀌므로, 긴 실행 전에 OpenRouter에서 정확한 ID를 확인하세요. `x-ai/grok-4.1-fast` 같은 오래된 ID는 404가 돌아올 수 있습니다.
-6. **Keywords.** **CJK tokenizer**에서 스토리의 언어를 고릅니다. 벡터화하기 전에 고르고, 그 뒤로는 바꾸지 마세요(FAQ 참조). 중국어, 일본어, 한국어를 골랐더라도 다른 언어로 쓰인 채팅의 이벤트는 그 채팅의 언어로 쓰입니다.
+6. **Keywords.** **CJK tokenizer**에서 스토리의 언어를 고릅니다. 벡터화하기 전에 고르고, 그 뒤로는 바꾸지 마세요(FAQ 참조). 중국어, 일본어, 한국어를 골랐더라도 다른 언어로 쓰인 채팅의 이벤트는 그 채팅의 언어로 쓰입니다. **Intl.Segmenter (English / Latin)**를 고르면 채팅이 어떤 언어로 쓰였든 이벤트는 항상 영어로 쓰입니다.
 7. 나머지 대부분의 설정은 기본값으로 괜찮습니다. 필요하면 자유롭게 조정하세요.
 8. **채팅을 한 번 벡터화하기.** 채팅을 열고 **Action** 페이지에서 **Vectorize content**를 누르고 **Chat**을 고른 뒤 **Vectorize**를 누릅니다. 첫 DB를 만들려면 이 단계가 **꼭** 필요합니다.
 9. **동기화 유지.** 자동으로 하려면 **AutoSync** 페이지에서 **Auto-sync this chat**을 켭니다. **Turns**는 한 번 실행에 들어가는 턴 수를 정합니다. 직접 따라잡고 싶다면 **Action** 페이지에서 **Sync chat**을 누르세요.

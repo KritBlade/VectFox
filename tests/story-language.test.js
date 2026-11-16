@@ -5,9 +5,13 @@
  * Guards that:
  *   - a story whose letters are mostly not CJK is not a CJK story, so a Chinese, Japanese or Korean mode reads it
  *     with the "others" prompts, while a CJK story keeps the mode's own, and other modes keep theirs,
+ *   - intl writes English whatever the story is in,
  *   - the "others" prompts' language rules name no language: they write in the story's own,
  *   - the language is read from the latest 200 messages, without system messages, after the planner's cleaning,
- *   - a window's extraction prompt follows the story's language, and names a CJK language only in a CJK story.
+ *   - a window's extraction prompt follows the story's language, and names a CJK language only in a CJK story and
+ *     never under intl,
+ *   - the language check names the fields in another script than the prompt asks for: Latin letters under intl,
+ *     the window's own script under the other modes.
  *
  * The stories are made up: plain English and Chinese lines about a made-up cast.
  */
@@ -57,22 +61,26 @@ const message = (mes, extra = {}) => ({ name: 'Narrator', mes, ...extra });
 describe('storyLanguageOf', () => {
     it('reads an English story under a CJK mode with the others prompts', () => {
         for (const mode of ['jieba', 'jieba_tw', 'tiny_segmenter', 'korean']) {
-            expect(storyLanguageOf(mode, ENGLISH)).toEqual({ promptMode: 'others', isCjkStory: false });
+            expect(storyLanguageOf(mode, ENGLISH)).toEqual({ promptMode: 'others', isCjkStory: false, isWrittenInEnglish: false });
         }
     });
 
     it('keeps a CJK mode\'s own prompts for a CJK story, names written in Latin letters and all', () => {
-        expect(storyLanguageOf('jieba_tw', CHINESE)).toEqual({ promptMode: 'jieba_tw', isCjkStory: true });
+        expect(storyLanguageOf('jieba_tw', CHINESE)).toEqual({ promptMode: 'jieba_tw', isCjkStory: true, isWrittenInEnglish: false });
     });
 
     it('reads an English story with a little Chinese in it as English', () => {
-        expect(storyLanguageOf('jieba_tw', `${ENGLISH.repeat(8)} 繼續按照建議。`)).toEqual({ promptMode: 'others', isCjkStory: false });
+        expect(storyLanguageOf('jieba_tw', `${ENGLISH.repeat(8)} 繼續按照建議。`)).toEqual({ promptMode: 'others', isCjkStory: false, isWrittenInEnglish: false });
     });
 
-    it('leaves other modes as they are', () => {
-        expect(storyLanguageOf('intl', ENGLISH)).toEqual({ promptMode: 'intl', isCjkStory: false });
-        expect(storyLanguageOf('intl', CHINESE)).toEqual({ promptMode: 'intl', isCjkStory: true });
-        expect(storyLanguageOf('others', ENGLISH)).toEqual({ promptMode: 'others', isCjkStory: false });
+    it('writes English under intl, whatever the story is in', () => {
+        expect(storyLanguageOf('intl', ENGLISH)).toEqual({ promptMode: 'intl', isCjkStory: false, isWrittenInEnglish: true });
+        expect(storyLanguageOf('intl', CHINESE)).toEqual({ promptMode: 'intl', isCjkStory: true, isWrittenInEnglish: true });
+    });
+
+    it('leaves the others mode as it is', () => {
+        expect(storyLanguageOf('others', ENGLISH)).toEqual({ promptMode: 'others', isCjkStory: false, isWrittenInEnglish: false });
+        expect(storyLanguageOf('others', CHINESE)).toEqual({ promptMode: 'others', isCjkStory: true, isWrittenInEnglish: false });
     });
 });
 
@@ -105,7 +113,7 @@ describe('readStoryLanguage', () => {
     it('leaves out system messages and the model\'s thinking', () => {
         const thinking = `<think>${ENGLISH.repeat(20)}</think>`;
         const messages = [message(`${thinking}${CHINESE}`), message(ENGLISH.repeat(20), { is_system: true }), message(CHINESE)];
-        expect(readStoryLanguage(messages, settings)).toEqual({ promptMode: 'jieba_tw', isCjkStory: true });
+        expect(readStoryLanguage(messages, settings)).toEqual({ promptMode: 'jieba_tw', isCjkStory: true, isWrittenInEnglish: false });
     });
 });
 
@@ -120,23 +128,36 @@ describe('extractEvents in a story\'s language', () => {
     });
 
     it('writes an English story\'s window with the others prompt and names no language, even a window mostly in Chinese', async () => {
-        await extract([message(CHINESE), message(CHINESE)], { promptMode: 'others', isCjkStory: false });
+        await extract([message(CHINESE), message(CHINESE)], storyLanguageOf('jieba_tw', ENGLISH));
         expect(sent.prompts[0]).toContain('All string fields MUST be in the same language as the excerpt.');
         expect(sent.prompts[0]).not.toContain('Traditional Chinese');
         expect(sent.prompts[0]).not.toContain('DETECTED EXCERPT LANGUAGE');
     });
 
     it('writes a Chinese story\'s window with the mode\'s prompt, naming the window\'s CJK language', async () => {
-        await extract([message(CHINESE), message(CHINESE)], { promptMode: 'jieba_tw', isCjkStory: true });
+        await extract([message(CHINESE), message(CHINESE)], storyLanguageOf('jieba_tw', CHINESE));
         expect(sent.prompts[0]).toContain('Traditional Chinese (繁體中文)');
         expect(sent.prompts[0]).toContain('DETECTED EXCERPT LANGUAGE: 中文 (Chinese)');
     });
 
+    it('writes a Chinese story\'s window in English under intl, naming no other language', async () => {
+        await extract([message(CHINESE), message(CHINESE)], storyLanguageOf('intl', CHINESE));
+        expect(sent.prompts[0]).toContain('MUST be in English.');
+        expect(sent.prompts[0]).not.toContain('DETECTED EXCERPT LANGUAGE');
+    });
+
     it('keeps an event with fields in another script than the window, and names those fields in a warning', async () => {
         sent.reply = JSON.stringify([{ event_type: 'discovery', importance: 6, summary: 'Rose finds the harbour map.', cause: '她想找到地圖', result: 'The guild loses the map.', concepts: ['信任', '秘密'] }]);
-        const events = await extract([message(ENGLISH), message(ENGLISH)], { promptMode: 'others', isCjkStory: false });
+        const events = await extract([message(ENGLISH), message(ENGLISH)], storyLanguageOf('jieba_tw', ENGLISH));
         expect(events).toHaveLength(1);
-        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('cause, concepts not in the excerpt\'s script (latin) — kept'));
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('item 0: cause, concepts not in the excerpt\'s script (latin) — kept'));
+    });
+
+    it('checks a Chinese window\'s fields against Latin letters under intl, naming only the ones not in English', async () => {
+        sent.reply = JSON.stringify([{ event_type: 'discovery', importance: 6, summary: 'Rose finds the harbour map.', cause: '她想找到地圖', result: 'The guild loses the map.', concepts: ['trust', 'secrets'] }]);
+        const events = await extract([message(CHINESE), message(CHINESE)], storyLanguageOf('intl', CHINESE));
+        expect(events).toHaveLength(1);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('item 0: cause not in Latin letters, which the intl prompt writes — kept'));
     });
 
     it('reads a window\'s own language when no story language is given', async () => {

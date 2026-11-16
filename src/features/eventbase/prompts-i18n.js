@@ -5,10 +5,11 @@
  * Single source of truth for all localised prompt strings.
  *
  * The agentic planner and EventBase extraction pick their prompts from here
- * by the user's CJK Tokenizer Mode setting, which doubles as the story
- * language, unless a Chinese, Japanese or Korean mode reads a story written in
- * another language: that story takes the "others" prompts, which write in the
- * story's own language and name none (storyLanguageOf).
+ * by the user's CJK Tokenizer Mode setting, which doubles as the language they
+ * write in. intl writes English whatever the story is in. A Chinese, Japanese
+ * or Korean mode reading a story written in another language gives it the
+ * "others" prompts, which write in the story's own language and name none
+ * (storyLanguageOf).
  *
  * Supported modes (mirrors CJK_TOKENIZER_MODES in bm25-scorer.js):
  *   intl            → English / Latin           (English examples)
@@ -27,6 +28,8 @@
 // STORY LANGUAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** The tokenizer mode whose prompts write English whatever language the story is in. */
+const ENGLISH_MODE = 'intl';
 /** The tokenizer modes whose prompts write a Chinese, Japanese or Korean story. */
 const CJK_LANGUAGE_MODES = new Set(['jieba', 'jieba_tw', 'tiny_segmenter', 'korean']);
 /** A text with this share of CJK letters or more is written in a CJK language. A whole Chinese chat measures 0.3 to 0.7. */
@@ -58,17 +61,22 @@ export function isCjkLanguageText(text) {
 }
 
 /**
- * The prompt variant a story's events and queries are written with: the mode's own, unless the mode writes a CJK
- * language and the story is written in another, as an English story read under Traditional Chinese is. That story
- * takes the "others" variant, which writes in the story's own language.
+ * The prompt variant a story's events and queries are written with, and whether they are written in English. intl
+ * writes English whatever the story is in. A Chinese, Japanese or Korean mode writes its own language, unless the
+ * story is written in another, as an English story read under Traditional Chinese is: that story takes the "others"
+ * variant, which writes in the story's own language.
  *
  * @param {string} mode - The CJK Tokenizer Mode setting
  * @param {string} storyText - The story's latest messages, as Text Cleaning leaves them
- * @returns {{promptMode: string, isCjkStory: boolean}}
+ * @returns {{promptMode: string, isCjkStory: boolean, isWrittenInEnglish: boolean}}
  */
 export function storyLanguageOf(mode, storyText) {
     const isCjkStory = isCjkLanguageText(storyText);
-    return { promptMode: CJK_LANGUAGE_MODES.has(mode) && !isCjkStory ? 'others' : mode, isCjkStory };
+    return {
+        promptMode: CJK_LANGUAGE_MODES.has(mode) && !isCjkStory ? 'others' : mode,
+        isCjkStory,
+        isWrittenInEnglish: mode === ENGLISH_MODE,
+    };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

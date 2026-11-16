@@ -329,7 +329,7 @@ open_threads:  [Gauntlet of Shar 的準備]
 一個小型規劃師 LLM 會讀你最近的聊天紀錄，然後輸出 1–6 個後續 Qdrant 查詢，每個查詢都瞄準你問題的不同角度。它們與正常搜尋同時平行執行，正常搜尋的結果全部保留，而它們在結果之外找到的事件最多再加入 5 個席位。任何失敗都會乾淨地回退到標準流程，StoryArc 模式開啟時不會執行。
 
 - **提供者/模型繼承** —— 在 AgentMode 頁籤把 Provider 留在 **Same as EventBase model**、Model 留空，規劃師就會使用 Core → **EventBase model**。想節省規劃師成本，可以在 Model 填入更便宜的模型（例如 Haiku 4.5、GPT-4o-mini）。
-- **語言匹配的提示詞** —— 規劃師會以聊天語言輸出查詢（中文、日文、韓文、拉丁語系、英文皆可），同時保留專有名詞原始形式。不會跨語言污染。
+- **語言匹配的提示詞** —— 規劃師會以聊天語言輸出查詢（中文、日文、韓文、拉丁語系、英文皆可），同時保留專有名詞原始形式。不會跨語言污染。若分詞器是 **Intl.Segmenter (English / Latin)**，查詢一律用英文，跟那個模式的事件一樣。
 - **可調整項目** —— Chat turns read（1–10）、Searches per reply（1–6）、Planner timeout 與 Search timeout（各 1–60 秒）。除錯日誌在 Action 頁籤開啟。
 - **實際成本** —— 以 GPT-6 Luna 約每輪 $0.0004，規劃約 2 秒，提示詞最多多 5 個事件。預設關閉——需要長篇回憶能力時再開啟。
 
@@ -528,7 +528,7 @@ VectFox 使用 SillyTavern 的連線設定檔（connection profile）運作。�
 5. **EventBase model。** 把 **Provider** 設為 **SillyTavern profile**，在 **Profile** 選一個聊天用的設定檔，然後按 **Test connection**。向量化時，由這個模型寫出事件。
    - 任何 SillyTavern 能用來聊天的設定檔都可以。VectFox 送出的是自己的提示詞，所以設定檔的預設（preset）不會被使用。
    - **推薦模型：** 想要便宜又快速的萃取，用 `openai/gpt-4o-mini` 或 `google/gemini-3.1-flash-lite`。如果想要更好的萃取品質，也不介意多付一點，`x-ai/grok-4.3` 更強。模型 ID 會隨時間改變，所以長時間向量化之前，先在 OpenRouter 確認確切的 ID。像 `x-ai/grok-4.1-fast` 這種舊 ID 可能會回傳 404。
-6. **Keywords。** 在 **CJK tokenizer** 選你故事使用的語言。要在向量化之前選好，之後就不要改（見 FAQ）。即使你選了中文、日文或韓文，用其他語言寫的聊天，事件仍會用那個聊天的語言寫成。
+6. **Keywords。** 在 **CJK tokenizer** 選你故事使用的語言。要在向量化之前選好，之後就不要改（見 FAQ）。即使你選了中文、日文或韓文，用其他語言寫的聊天，事件仍會用那個聊天的語言寫成。如果選了 **Intl.Segmenter (English / Latin)**，不管聊天用什麼語言寫，事件一律用英文寫成。
 7. 其他大多數設定維持預設值即可，也可以依需求調整。
 8. **先把聊天向量化一次。** 打開你的聊天，進入 **Action** 頁面，按 **Vectorize content**，選 **Chat**，再按 **Vectorize**。你**必須**做這一步，才會建立你的第一個 DB。
 9. **保持同步。** 想要自動的話，在 **AutoSync** 頁面開啟 **Auto-sync this chat**。**Turns** 決定每次執行包含幾個回合。或者在 **Action** 頁面按 **Sync chat** 手動補上。

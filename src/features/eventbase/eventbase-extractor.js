@@ -141,7 +141,7 @@ function _detectScript(text) {
 }
 
 /**
- * The fields an event writes in the story's language, which the language check reads. Keywords are left out: they
+ * The fields an event writes in its prompt's language, which the language check reads. Keywords are left out: they
  * hold names, which keep the script the chat writes them in.
  */
 const STORY_LANGUAGE_FIELDS = ['summary', 'cause', 'result', 'concepts', 'open_threads'];
@@ -333,7 +333,7 @@ function _resolveWindowRealWorldDate(messages) {
  * @param {number} params.windowEnd   - 0-based end index (inclusive)
  * @param {object} params.settings    - VectFox settings
  * @param {number} [params.windowIndex] - Window index for error reporting
- * @param {{promptMode: string, isCjkStory: boolean}} [params.storyLanguage] - From readStoryLanguage on the run's
+ * @param {{promptMode: string, isCjkStory: boolean, isWrittenInEnglish: boolean}} [params.storyLanguage] - From readStoryLanguage on the run's
  *        messages; a window on its own reads its own
  * @returns {Promise<object[]>} Array of full EventRecord objects (ingestion fields attached)
  */
@@ -378,9 +378,10 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
     const maxCount = settings.eventbase_max_events_per_window || 3;
 
     // The window's script is checked after the reply. The prompt follows the story's language, and in a CJK story a
-    // window written in CJK also names its language, which a non-CJK mode's prompt would not write.
+    // window written in CJK also names its language, which a non-CJK mode's prompt would not write. intl writes
+    // English whatever the story is in, so it names none.
     const excerptScript = _detectScript(excerptText);
-    const languageHint = storyLanguage.isCjkStory ? _inferLanguageHint(excerptText) : null;
+    const languageHint = storyLanguage.isCjkStory && !storyLanguage.isWrittenInEnglish ? _inferLanguageHint(excerptText) : null;
     let basePrompt = buildExtractionPrompt(
         excerptText,
         maxCount,
@@ -472,15 +473,18 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
         // can tell "model omitted it" from "validator dropped it").
         log.trace(`[EventBase][scene_time] win=${windowIndex} item ${i}: raw.DateTime=${JSON.stringify(rawArray[i]?.DateTime)} raw.scene_time=${JSON.stringify(rawArray[i]?.scene_time)} | validated DateTime=${JSON.stringify(event.DateTime)} scene_time=${JSON.stringify(event.scene_time)} locations=${JSON.stringify(event.locations)}`);
 
-        // Post-parse language check, warn only: the event is kept, but a field written in another script than the
-        // excerpt reads poorly beside the rest and searches worse.
-        if (excerptScript !== 'empty' && excerptScript !== 'mixed') {
+        // Post-parse language check, warn only: the event is kept, but a field written in another script than its
+        // prompt asks for reads poorly beside the rest and searches worse. intl asks for Latin letters whatever the
+        // window is in; every other mode is checked against the excerpt's own script.
+        const askedScript = storyLanguage.isWrittenInEnglish ? 'latin' : excerptScript;
+        if (askedScript !== 'empty' && askedScript !== 'mixed') {
             const fieldsInAnotherScript = STORY_LANGUAGE_FIELDS.filter((field) => {
                 const fieldScript = _detectScript(Array.isArray(event[field]) ? event[field].join(' ') : event[field]);
-                return fieldScript !== 'empty' && fieldScript !== 'mixed' && fieldScript !== excerptScript;
+                return fieldScript !== 'empty' && fieldScript !== 'mixed' && fieldScript !== askedScript;
             });
             if (fieldsInAnotherScript.length) {
-                log.warn(`[EventBase] Window ${windowIndex} ${msgRange}, item ${i}: ${fieldsInAnotherScript.join(', ')} not in the excerpt's script (${excerptScript}) — kept`);
+                const askedScriptName = storyLanguage.isWrittenInEnglish ? 'Latin letters, which the intl prompt writes' : `the excerpt's script (${excerptScript})`;
+                log.warn(`[EventBase] Window ${windowIndex} ${msgRange}, item ${i}: ${fieldsInAnotherScript.join(', ')} not in ${askedScriptName} — kept`);
             }
         }
 

@@ -3,9 +3,10 @@
  * STORY LANGUAGE
  * ============================================================================
  * The language a story is written in, which its events and Agent Mode's searches
- * follow: read once from the story's latest messages, so a window or a reply in
- * another language follows the story rather than its own few lines. The choice of
- * prompt it leads to lives in prompts-i18n.js (storyLanguageOf).
+ * follow under every mode but intl, which writes English: read once from the
+ * story's latest messages, so a window or a reply in another language follows the
+ * story rather than its own few lines. The choice of prompt it leads to lives in
+ * prompts-i18n.js (storyLanguageOf).
  * ============================================================================
  */
 
@@ -21,7 +22,7 @@ const STORY_LANGUAGE_SAMPLE_MESSAGES = 200;
  *
  * @param {object[]} messages - Chat messages, each with `mes`
  * @param {object} settings
- * @returns {{promptMode: string, isCjkStory: boolean}}
+ * @returns {{promptMode: string, isCjkStory: boolean, isWrittenInEnglish: boolean}}
  */
 export function readStoryLanguage(messages, settings) {
     const sample = messages

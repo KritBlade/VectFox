@@ -247,9 +247,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     if (!messages?.length) return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
 
-    // Every window of a run writes in the story's language, read once from its latest messages.
+    // Every window of a run writes in the language read once from the story's latest messages, or English under intl.
     const storyLanguage = readStoryLanguage(messages, settings);
-    log.lifecycle(`[EventBase] Story language: ${storyLanguage.isCjkStory ? 'CJK' : 'not CJK'}, so the "${storyLanguage.promptMode}" extraction prompt (CJK tokenizer mode "${settings.cjk_tokenizer_mode || 'intl'}")`);
+    log.lifecycle(`[EventBase] Story language: ${storyLanguage.isCjkStory ? 'CJK' : 'not CJK'}; the "${storyLanguage.promptMode}" extraction prompt (CJK tokenizer mode "${settings.cjk_tokenizer_mode || 'intl'}")`);
 
     // If the fingerprint cache says windows were extracted but Qdrant has no data
     // (e.g. collection was deleted externally), reset the cache so we start fresh.
