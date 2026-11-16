@@ -7,7 +7,9 @@
  * { kept name: [other names] }. It applies when StoryArc reads: stored events and
  * their vectors never change, so a merge costs nothing and can be split again.
  * Spellings that differ only in case are one name, as an LLM writes a name in more
- * than one case.
+ * than one case. A name is found only where it stands as a word: a Latin name between
+ * non-letters, and a Chinese or Japanese name where the runtime's word splitter starts
+ * and ends a word, so a merged 家 is never found inside 家族.
  *
  * Pure: no host imports.
  * ============================================================================
@@ -42,9 +44,43 @@ const asPattern = (name) => {
 };
 const isSameName = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** Whether a text holds a name: a Latin name only as a whole word, in any case. */
+/** Chinese and Japanese script, written with no spaces between words. */
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+const wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+/** The word edges of texts already split, as a turn reads one text for several names. Emptied when full. */
+const wordEdgesByText = new Map();
+const WORD_EDGE_TEXT_LIMIT = 5000;
+
+/** Where the words of a text start and end, by the runtime's word splitter, which knows Chinese and Japanese words. */
+function wordEdgesOf(text) {
+    const known = wordEdgesByText.get(text);
+    if (known) return known;
+    const edges = new Set([text.length]);
+    for (const { index } of wordSegmenter.segment(text)) edges.add(index);
+    if (wordEdgesByText.size >= WORD_EDGE_TEXT_LIMIT) wordEdgesByText.clear();
+    wordEdgesByText.set(text, edges);
+    return edges;
+}
+
+/**
+ * Whether a name found at `start` stands as a word. A Chinese or Japanese name must
+ * start and end a word, so 家 inside 家族 does not count. A Latin name's pattern already
+ * keeps to whole words, and a name in another script, such as Korean, whose particles
+ * join the word, counts wherever it is found.
+ */
+function standsAsWord(text, start, name) {
+    if (!UNSPACED_SCRIPT.test(name)) return true;
+    const edges = wordEdgesOf(text);
+    return edges.has(start) && edges.has(start + name.length);
+}
+
+/** Whether a text holds a name as a word (standsAsWord): a Latin name only as a whole word, in any case. */
 function holdsName(text, name) {
-    return isLatinName(name) ? new RegExp(asPattern(name), 'i').test(text) : text.includes(name);
+    if (isLatinName(name)) return new RegExp(asPattern(name), 'i').test(text);
+    for (let start = text.indexOf(name); start >= 0; start = text.indexOf(name, start + 1)) {
+        if (standsAsWord(text, start, name)) return true;
+    }
+    return false;
 }
 
 /** The kept name of every other name, keyed in lower case. */
@@ -86,8 +122,8 @@ export function entityNamesLeftAlone(merges, storedEvents) {
 }
 
 /**
- * A function that writes every other name as its kept name. The longest name wins
- * where names overlap.
+ * A function that writes every other name as its kept name, where the name stands as a
+ * word (standsAsWord). The longest name wins where names overlap.
  *
  * @param {Record<string, string[]>} merges
  * @param {object[]} [storedEvents] - Their `characters` tags say which longer names are other people (entityNamesLeftAlone)
@@ -100,7 +136,10 @@ export function buildEntityNameWriter(merges, storedEvents = []) {
         .sort((a, b) => b.length - a.length)
         .map(asPattern);
     const pattern = new RegExp(alternatives.join('|'), 'gi');
-    return text => text.replace(pattern, match => keptByOther.get(match.toLowerCase()) ?? match);
+    return text => text.replace(pattern, (match, start) => {
+        const keptName = keptByOther.get(match.toLowerCase());
+        return keptName && standsAsWord(text, start, match) ? keptName : match;
+    });
 }
 
 /**

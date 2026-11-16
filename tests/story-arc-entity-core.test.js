@@ -7,10 +7,12 @@
  *   - the search asks for the other names of anyone the question names, except the rare ones,
  *   - the entity list counts a merged entity once and never loses one that no tag names,
  *   - merging carries a source's own other names, and splitting undoes it,
- *   - a name's spellings that differ only in case are one name, in the list, the hidden names, a merge and the search.
+ *   - a name's spellings that differ only in case are one name, in the list, the hidden names, a merge and the search,
+ *   - a Chinese or Japanese name counts only where it stands as a word, so a merged 家 never rewrites or counts 家族.
  *
- * A name in CJK script takes its own path, matching as a substring and not as a whole
- * word. The tests of that path use plain words in place of names, which stay English.
+ * A Chinese or Japanese name is found where the runtime's word splitter starts and ends a
+ * word, and a Korean one wherever it is. The tests of those paths use plain words in place
+ * of names, which stay English.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -78,6 +80,19 @@ describe('buildEntityNameWriter', () => {
         const writeName = buildEntityNameWriter({ Valley: ['河谷'] }, events);
         expect(writeName('河谷村.大宅')).toBe('Valley村.大宅');
     });
+
+    it('takes a Chinese or Japanese name only where it stands as a word, never inside a longer word', () => {
+        const writeName = buildEntityNameWriter({ 雪: ['家', '我'] });
+        expect(writeName('家族 大家 自家料理 他回到家了')).toBe('家族 大家 自家料理 他回到雪了');
+        expect(writeName('我們 自我介紹 注意到我沒有')).toBe('我們 自我介紹 注意到雪沒有');
+        expect(writeName('家族の写真 母は家に帰った')).toBe('家族の写真 母は雪に帰った');
+        const writeKanaName = buildEntityNameWriter({ Sky: ['ソラ'], Bloom: ['さくら'] });
+        expect(writeKanaName('ソラマメを食べた ソラが来た さくらんぼ さくらが咲いた')).toBe('ソラマメを食べた Skyが来た さくらんぼ Bloomが咲いた');
+    });
+
+    it('takes a Korean name wherever it is, as its particles join the word', () => {
+        expect(buildEntityNameWriter({ Sky: ['바다'] })('바다가 왔다')).toBe('Sky가 왔다');
+    });
 });
 
 describe('entityNamesLeftAlone', () => {
@@ -141,11 +156,22 @@ describe('entitySearchText', () => {
         expect(entitySearchText({ queryText: 'How did rose win?', subject: '', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did rose win? Rosa');
         expect(entitySearchText({ queryText: 'How did Rosalind win?', subject: '', merges: { Rose: ['Rosa'] }, storedEvents })).toBe('How did Rosalind win?');
     });
+
+    it('finds a Chinese name in the question only where it stands as a word', () => {
+        const storedEvents = [...eventsHolding('雪', 5), ...eventsHolding('家', 5)];
+        expect(entitySearchText({ queryText: '家族的事情', subject: '', merges: { 雪: ['家'] }, storedEvents })).toBe('家族的事情');
+        expect(entitySearchText({ queryText: '他回到家了', subject: '', merges: { 雪: ['家'] }, storedEvents })).toBe('他回到家了 雪');
+    });
 });
 
 describe('entityNamesInMessage', () => {
     it('names the other names a message uses', () => {
         expect(entityNamesInMessage('Rosie and Tom', { Rose: ['Rosie', 'Rosa'] })).toEqual([{ name: 'Rosie', keptName: 'Rose' }]);
+    });
+
+    it('names a Chinese other name only where the message uses it as a word', () => {
+        expect(entityNamesInMessage('大家好，我們走吧', { 雪: ['家', '我'] })).toEqual([]);
+        expect(entityNamesInMessage('我說', { 雪: ['家', '我'] })).toEqual([{ name: '我', keptName: '雪' }]);
     });
 });
 
@@ -171,6 +197,15 @@ describe('listEntities', () => {
             { name: 'Rose', otherNames: ['Rosa'], eventCount: 3 },
             { name: 'Tom', otherNames: [], eventCount: 2 },
         ]);
+    });
+
+    it('counts a merged Chinese name only in events whose text uses it as a word', () => {
+        const chineseEvents = [
+            { text: '雪 走了', characters: ['雪'] },
+            { text: '他回到家了', characters: ['家'] },
+            { text: '家族 的 事', characters: ['Tom'] },
+        ];
+        expect(listEntities(chineseEvents, { 雪: ['家'] }, 'people')[0]).toEqual({ name: '雪', otherNames: ['家'], eventCount: 2 });
     });
 
     it('keeps a merged entity no tag names, so it can be split again', () => {
