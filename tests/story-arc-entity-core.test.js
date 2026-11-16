@@ -8,11 +8,12 @@
  *   - the entity list counts a merged entity once and never loses one that no tag names,
  *   - merging carries a source's own other names, and splitting undoes it,
  *   - a name's spellings that differ only in case are one name, in the list, the hidden names, a merge and the search,
- *   - a Chinese or Japanese name counts only where it stands as a word, so a merged 家 never rewrites or counts 家族.
+ *   - a Chinese, Japanese, Thai, Lao, Khmer or Burmese name counts only where it stands as a word, so a merged 家 never rewrites or counts 家族,
+ *   - a Latin-script name, accented or not, counts only as a whole word, so a merged Zoë never rewrites Zoëlla.
  *
- * A Chinese or Japanese name is found where the runtime's word splitter starts and ends a
- * word, and a Korean one wherever it is. The tests of those paths use plain words in place
- * of names, which stay English.
+ * A name in a script written without spaces is found where the runtime's word splitter
+ * starts and ends a word, and a Korean one wherever it is. The tests of those paths use
+ * plain words in place of names, which stay English.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -45,6 +46,17 @@ describe('buildEntityNameWriter', () => {
     it('takes a Latin name only as a whole word, in any case', () => {
         const writeName = buildEntityNameWriter({ Rose: ['Dorin'] });
         expect(writeName('DORIN and Dorinda, Dorin的劍')).toBe('Rose and Dorinda, Rose的劍');
+    });
+
+    it('takes an accented Latin name only as a whole word, in any case', () => {
+        const writeName = buildEntityNameWriter({ Rose: ['Zoë'] });
+        expect(writeName('Zoëlla, ZOË, 見Zoë and Zoë的劍')).toBe('Zoëlla, Rose, 見Rose and Rose的劍');
+    });
+
+    it('counts an accent mark written apart from its letter as part of the word', () => {
+        const writeName = buildEntityNameWriter({ Rose: ['Zoe', 'Lou'] });
+        expect(writeName('Zoë and Zoe')).toBe('Zoë and Rose');
+        expect(writeName('AndréLou and Lou')).toBe('AndréLou and Rose');
     });
 
     it('prefers the longest name where names overlap', () => {
@@ -88,6 +100,14 @@ describe('buildEntityNameWriter', () => {
         expect(writeName('家族の写真 母は家に帰った')).toBe('家族の写真 母は雪に帰った');
         const writeKanaName = buildEntityNameWriter({ Sky: ['ソラ'], Bloom: ['さくら'] });
         expect(writeKanaName('ソラマメを食べた ソラが来た さくらんぼ さくらが咲いた')).toBe('ソラマメを食べた Skyが来た さくらんぼ Bloomが咲いた');
+    });
+
+    it('takes a Thai, Lao, Khmer or Burmese name only where it stands as a word, never inside a longer word', () => {
+        // river, mother goes to market | parents, mother goes | star, beautiful flower | riverbank, big river
+        expect(buildEntityNameWriter({ Mother: ['แม่'] })('แม่น้ำ แม่ไปตลาด')).toBe('แม่น้ำ Motherไปตลาด');
+        expect(buildEntityNameWriter({ Mother: ['ແມ່'] })('ພໍ່ແມ່ ແມ່ໄປ')).toBe('ພໍ່ແມ່ Motherໄປ');
+        expect(buildEntityNameWriter({ Flower: ['ផ្កា'] })('ផ្កាយ ផ្កាស្អាត')).toBe('ផ្កាយ Flowerស្អាត');
+        expect(buildEntityNameWriter({ River: ['မြစ်'] })('မြစ်ကမ်း မြစ်ကြီး')).toBe('မြစ်ကမ်း Riverကြီး');
     });
 
     it('takes a Korean name wherever it is, as its particles join the word', () => {
@@ -167,6 +187,10 @@ describe('entitySearchText', () => {
 describe('entityNamesInMessage', () => {
     it('names the other names a message uses', () => {
         expect(entityNamesInMessage('Rosie and Tom', { Rose: ['Rosie', 'Rosa'] })).toEqual([{ name: 'Rosie', keptName: 'Rose' }]);
+    });
+
+    it('names an accented other name only where the message uses it as a whole word', () => {
+        expect(entityNamesInMessage('Zoëy and Zoëlla met Renée', { Rose: ['Zoë', 'Renée'] })).toEqual([{ name: 'Renée', keptName: 'Rose' }]);
     });
 
     it('names a Chinese other name only where the message uses it as a word', () => {

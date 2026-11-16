@@ -7,9 +7,10 @@
  * { kept name: [other names] }. It applies when StoryArc reads: stored events and
  * their vectors never change, so a merge costs nothing and can be split again.
  * Spellings that differ only in case are one name, as an LLM writes a name in more
- * than one case. A name is found only where it stands as a word: a Latin name between
- * non-letters, and a Chinese or Japanese name where the runtime's word splitter starts
- * and ends a word, so a merged 家 is never found inside 家族.
+ * than one case. A name is found only where it stands as a word: a Latin-script name,
+ * accented or not, where no Latin letter touches it, and a Chinese, Japanese, Thai, Lao,
+ * Khmer or Burmese name where the runtime's word splitter starts and ends a word, so a
+ * merged 家 is never found inside 家族, nor a merged Zoë inside Zoëlla.
  *
  * Pure: no host imports.
  * ============================================================================
@@ -37,21 +38,26 @@ const OWN_ENTITY_MIN_EVENTS = 3;
 /** What separates the parts of a full name, such as a given name and a family name. */
 const NAME_PART_SEPARATORS = /[·・．.\s]+/;
 
-const isLatinName = (name) => /^[\x20-\x7e]+$/.test(name);
+/** A name in Latin script, accented letters such as ë and é included, with any digits, punctuation and spaces. */
+const isLatinName = (name) => /^[\p{Script=Latin}\p{M}\p{N}\p{P}\p{S}\p{Zs}]+$/u.test(name);
+/** A Latin name matches only where no Latin letter or accent mark touches it, so Zoë is not found in Zoëlla, but is in Zoë的劍. */
 const asPattern = (name) => {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return isLatinName(name) ? `(?<![A-Za-z])${escaped}(?![A-Za-z])` : escaped;
+    return isLatinName(name) ? `(?<![\\p{Script=Latin}\\p{M}])${escaped}(?![\\p{Script=Latin}\\p{M}])` : escaped;
 };
 const isSameName = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** Chinese and Japanese script, written with no spaces between words. */
-const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+/**
+ * Scripts written with no spaces between words, whose words the runtime's word splitter
+ * knows from its dictionaries: Chinese, Japanese, Thai, Lao, Khmer and Burmese.
+ */
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 const wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
 /** The word edges of texts already split, as a turn reads one text for several names. Emptied when full. */
 const wordEdgesByText = new Map();
 const WORD_EDGE_TEXT_LIMIT = 5000;
 
-/** Where the words of a text start and end, by the runtime's word splitter, which knows Chinese and Japanese words. */
+/** Where the words of a text start and end, by the runtime's word splitter, which knows the words of the unspaced scripts. */
 function wordEdgesOf(text) {
     const known = wordEdgesByText.get(text);
     if (known) return known;
@@ -63,10 +69,11 @@ function wordEdgesOf(text) {
 }
 
 /**
- * Whether a name found at `start` stands as a word. A Chinese or Japanese name must
- * start and end a word, so 家 inside 家族 does not count. A Latin name's pattern already
- * keeps to whole words, and a name in another script, such as Korean, whose particles
- * join the word, counts wherever it is found.
+ * Whether a name found at `start` stands as a word. A name in an unspaced script, such
+ * as Chinese or Thai, must start and end a word, so 家 inside 家族 does not count. A
+ * Latin name's pattern already keeps to whole words, and a name in another script counts
+ * wherever it is found: Korean, Arabic and Hebrew join particles and articles to the
+ * word, and Greek and Russian change a name's ending.
  */
 function standsAsWord(text, start, name) {
     if (!UNSPACED_SCRIPT.test(name)) return true;
@@ -76,7 +83,7 @@ function standsAsWord(text, start, name) {
 
 /** Whether a text holds a name as a word (standsAsWord): a Latin name only as a whole word, in any case. */
 function holdsName(text, name) {
-    if (isLatinName(name)) return new RegExp(asPattern(name), 'i').test(text);
+    if (isLatinName(name)) return new RegExp(asPattern(name), 'iu').test(text);
     for (let start = text.indexOf(name); start >= 0; start = text.indexOf(name, start + 1)) {
         if (standsAsWord(text, start, name)) return true;
     }
@@ -135,7 +142,7 @@ export function buildEntityNameWriter(merges, storedEvents = []) {
     const alternatives = [...new Set([...keptByOther.keys(), ...entityNamesLeftAlone(merges, storedEvents)])]
         .sort((a, b) => b.length - a.length)
         .map(asPattern);
-    const pattern = new RegExp(alternatives.join('|'), 'gi');
+    const pattern = new RegExp(alternatives.join('|'), 'giu');
     return text => text.replace(pattern, (match, start) => {
         const keptName = keptByOther.get(match.toLowerCase());
         return keptName && standsAsWord(text, start, match) ? keptName : match;
