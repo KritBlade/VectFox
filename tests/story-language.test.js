@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sent = vi.hoisted(() => ({ prompts: [] }));
+const sent = vi.hoisted(() => ({ prompts: [], reply: '[]' }));
 
 vi.mock('../src/features/llm-provider/index.js', async () => {
     const parser = await vi.importActual('../src/features/llm-provider/llm-provider-call.js');
@@ -24,7 +24,7 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
         resolveModelParameterStyle: () => ({}),
         postChatCompletion: vi.fn(async ({ messages }) => {
             sent.prompts.push(messages[0].content);
-            return { content: '[]', finishReason: 'stop' };
+            return { content: sent.reply, finishReason: 'stop' };
         }),
     };
 });
@@ -48,6 +48,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 const { getAgenticPlannerPrompt, getEventBaseExtractionPrompt, storyLanguageOf } = await import('../src/features/eventbase/prompts-i18n.js');
 const { readStoryLanguage } = await import('../src/features/eventbase/story-language.js');
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
+const { log } = await import('../src/sillytavern/log.js');
 
 const ENGLISH = 'Rose finds the harbour map in the old tower, and Tom swears to keep it from the guild.';
 const CHINESE = 'Rose 在舊塔裡找到了港口地圖，Tom 發誓不讓公會拿到它。';
@@ -83,6 +84,8 @@ describe('the others prompts', () => {
         const plannerRule = between(getAgenticPlannerPrompt('others'), 'LANGUAGE RULE', 'Example 1');
         expect(extractionRule).toContain('the same language as the excerpt');
         expect(plannerRule).toContain('the same language as the chat');
+        expect(extractionRule).toContain('write every field in the one most of the excerpt is written in');
+        expect(extractionRule).not.toContain('each field\'s source');
         for (const rule of [extractionRule, plannerRule]) {
             expect(rule).not.toMatch(/English|Chinese|Japanese|Korean/);
         }
@@ -112,6 +115,8 @@ describe('extractEvents in a story\'s language', () => {
 
     beforeEach(() => {
         sent.prompts.length = 0;
+        sent.reply = '[]';
+        vi.mocked(log.warn).mockClear();
     });
 
     it('writes an English story\'s window with the others prompt and names no language, even a window mostly in Chinese', async () => {
@@ -125,6 +130,13 @@ describe('extractEvents in a story\'s language', () => {
         await extract([message(CHINESE), message(CHINESE)], { promptMode: 'jieba_tw', isCjkStory: true });
         expect(sent.prompts[0]).toContain('Traditional Chinese (繁體中文)');
         expect(sent.prompts[0]).toContain('DETECTED EXCERPT LANGUAGE: 中文 (Chinese)');
+    });
+
+    it('keeps an event with fields in another script than the window, and names those fields in a warning', async () => {
+        sent.reply = JSON.stringify([{ event_type: 'discovery', importance: 6, summary: 'Rose finds the harbour map.', cause: '她想找到地圖', result: 'The guild loses the map.', concepts: ['信任', '秘密'] }]);
+        const events = await extract([message(ENGLISH), message(ENGLISH)], { promptMode: 'others', isCjkStory: false });
+        expect(events).toHaveLength(1);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('cause, concepts not in the excerpt\'s script (latin) — kept'));
     });
 
     it('reads a window\'s own language when no story language is given', async () => {

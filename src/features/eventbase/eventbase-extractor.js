@@ -141,6 +141,12 @@ function _detectScript(text) {
 }
 
 /**
+ * The fields an event writes in the story's language, which the language check reads. Keywords are left out: they
+ * hold names, which keep the script the chat writes them in.
+ */
+const STORY_LANGUAGE_FIELDS = ['summary', 'cause', 'result', 'concepts', 'open_threads'];
+
+/**
  * The CJK language an excerpt is written in, for the LLM hint, even for a mixed-script excerpt; null when it is not
  * written in one (isCjkLanguageText).
  */
@@ -466,13 +472,15 @@ export async function extractEvents({ messages, windowStart, windowEnd, settings
         // can tell "model omitted it" from "validator dropped it").
         log.trace(`[EventBase][scene_time] win=${windowIndex} item ${i}: raw.DateTime=${JSON.stringify(rawArray[i]?.DateTime)} raw.scene_time=${JSON.stringify(rawArray[i]?.scene_time)} | validated DateTime=${JSON.stringify(event.DateTime)} scene_time=${JSON.stringify(event.scene_time)} locations=${JSON.stringify(event.locations)}`);
 
-        // Post-parse language sanity check (warn only — retained for visibility,
-        // does not drop the event; retrieval quality may suffer if the summary
-        // language doesn't match the collection's tokenizer mode)
-        const summaryScript = _detectScript(event.summary);
-        if (excerptScript !== 'empty' && excerptScript !== 'mixed' && summaryScript !== 'empty' && summaryScript !== 'mixed') {
-            if (excerptScript !== summaryScript) {
-                log.warn(`[EventBase] Window ${windowIndex} ${msgRange}, item ${i}: language mismatch (excerpt=${excerptScript}, summary=${summaryScript}) — kept`);
+        // Post-parse language check, warn only: the event is kept, but a field written in another script than the
+        // excerpt reads poorly beside the rest and searches worse.
+        if (excerptScript !== 'empty' && excerptScript !== 'mixed') {
+            const fieldsInAnotherScript = STORY_LANGUAGE_FIELDS.filter((field) => {
+                const fieldScript = _detectScript(Array.isArray(event[field]) ? event[field].join(' ') : event[field]);
+                return fieldScript !== 'empty' && fieldScript !== 'mixed' && fieldScript !== excerptScript;
+            });
+            if (fieldsInAnotherScript.length) {
+                log.warn(`[EventBase] Window ${windowIndex} ${msgRange}, item ${i}: ${fieldsInAnotherScript.join(', ')} not in the excerpt's script (${excerptScript}) — kept`);
             }
         }
 

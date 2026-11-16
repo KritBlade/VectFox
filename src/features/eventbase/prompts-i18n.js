@@ -570,7 +570,7 @@ const _EXTRACTION_LANG_OTHERS =
 `1. LANGUAGE — MANDATORY:
    - All string fields MUST be in the same language as the excerpt.
    - The examples in this prompt show the shape of each field only: never take their language.
-   - If the excerpt mixes languages, follow the language most of each field's source content is in.
+   - If the excerpt mixes languages, write every field in the one most of the excerpt is written in, even where a block of it uses another.
    - Proper nouns: preserve exact form from the excerpt — DO NOT translate, romanize, or transliterate names.
    - CONCEPTS examples (the shape to follow — write yours in the excerpt's language):
        GOOD (abstract themes that recur): "sacrifice", "trust", "obligation",
