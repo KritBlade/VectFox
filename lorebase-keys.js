@@ -2,7 +2,8 @@
  * LoreBase's keys: the keys VectFox's LoreBase has its model write for each lorebook entry the user turns on, kept in
  * Qdrant (plan D15 and D17 of lorebook-semantic-overhaul-passage-index.md). One collection with no vectors holds a
  * point per entry: the SillyTavern user who owns the book (the indexed tenant), the book's name, the entry's uid and
- * its keys. Each user reads, writes and deletes only their own points, as two users may hold books of the same name.
+ * its keys, an empty list when the model found nothing in the entry to key. Each user reads, writes and deletes only
+ * their own points, as two users may hold books of the same name.
  */
 
 import crypto from 'node:crypto';
@@ -39,7 +40,8 @@ function assertName(value, what) {
 }
 
 /**
- * The entries of a write, checked: each with a uid and a list of keys, every key a short string.
+ * The entries of a write, checked: each with a uid and a list of up to 200 keys, every key a short string; an empty
+ * list is an entry the model found nothing in to key.
  * @param {unknown} entries
  * @returns {Array<{uid: string, keys: string[]}>}
  * @throws {RangeError} When the write holds anything else
@@ -52,9 +54,9 @@ function checkedEntries(entries) {
         const uid = String(entry?.uid ?? '');
         assertName(uid, 'An entry\'s uid');
         const keys = entry?.keys;
-        if (!Array.isArray(keys) || !keys.length || keys.length > MOST_KEYS_PER_ENTRY
+        if (!Array.isArray(keys) || keys.length > MOST_KEYS_PER_ENTRY
             || keys.some(key => typeof key !== 'string' || !key.trim() || key.length > LONGEST_KEY)) {
-            throw new RangeError(`Entry ${uid}'s keys must be 1 to ${MOST_KEYS_PER_ENTRY} strings of up to ${LONGEST_KEY} characters.`);
+            throw new RangeError(`Entry ${uid}'s keys must be 0 to ${MOST_KEYS_PER_ENTRY} strings of up to ${LONGEST_KEY} characters.`);
         }
         return { uid, keys };
     });

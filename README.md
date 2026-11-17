@@ -472,7 +472,7 @@ VectFox's LoreBase has its model write keys for each lorebook entry the user tur
 
 #### `POST /lorebase/keys/write`
 
-Writes the keys of some of a book's entries, replacing any they had.
+Writes the keys of some of a book's entries, replacing any they had. An entry holds 0 to 200 keys of up to 300 characters each: an empty list is an entry LoreBase's model found nothing in to key, kept so it is not asked again.
 
 **Request Body:**
 ```json
@@ -490,7 +490,7 @@ Writes the keys of some of a book's entries, replacing any they had.
 
 **Request Body:** `{ "books": ["Harbor book"] }`
 
-**Response:** `{ "books": { "Harbor book": { "3": ["lighthouse", "keeper"] } } }`, every named book present, `{}` when none of its entries has keys.
+**Response:** `{ "books": { "Harbor book": { "3": ["lighthouse", "keeper"], "5": [] } } }`, every named book present, `{}` when none of its entries has keys written; an entry written with an empty list reads back as `[]`.
 
 ### Delete Keys
 

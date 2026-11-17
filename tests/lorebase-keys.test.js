@@ -90,12 +90,20 @@ test("a delete counts the requesting user's points, then deletes them by the sam
     await assert.rejects(deleteLoreKeys(qdrantBackend, ''), RangeError);
 });
 
+test('an entry the model found nothing in to key is written with an empty list of keys', async () => {
+    const requests = stubQdrant([LOREBASE_KEYS_COLLECTION]);
+    assert.equal(await writeLoreKeys(qdrantBackend, 'tester', 'Harbor book', [{ uid: 5, keys: [] }]), 1);
+    const upsert = requests.find(request => request.endpoint === `/collections/${LOREBASE_KEYS_COLLECTION}/points?wait=true`);
+    assert.deepEqual(upsert.body.points[0].payload.keys, []);
+});
+
 test('a malformed write is refused before Qdrant is asked', async () => {
     const requests = stubQdrant([LOREBASE_KEYS_COLLECTION]);
     await assert.rejects(writeLoreKeys(qdrantBackend, 'tester', '', [{ uid: 1, keys: ['a'] }]), RangeError);
     await assert.rejects(writeLoreKeys(qdrantBackend, 'tester', 'Harbor book', []), RangeError);
-    await assert.rejects(writeLoreKeys(qdrantBackend, 'tester', 'Harbor book', [{ uid: 1, keys: [] }]), RangeError);
     await assert.rejects(writeLoreKeys(qdrantBackend, 'tester', 'Harbor book', [{ uid: 1, keys: [42] }]), RangeError);
+    await assert.rejects(writeLoreKeys(qdrantBackend, 'tester', 'Harbor book', [{ uid: 1, keys: ['  '] }]), RangeError);
+    await assert.rejects(writeLoreKeys(qdrantBackend, 'tester', 'Harbor book', [{ uid: 1 }]), RangeError);
     await assert.rejects(readLoreKeys(qdrantBackend, 'tester', 'Harbor book'), RangeError);
     assert.equal(requests.length, 0);
 });
