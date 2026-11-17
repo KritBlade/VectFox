@@ -115,7 +115,7 @@ function renderCategories(root, session) {
 function renderSummaryText(root, session) {
     const counts = { ready: 0, writing: 0, failed: 0, missing: 0 };
     for (const row of session.rows) {
-        if (row.isSelected && !row.keptBySillyTavern) counts[keyStateOf(session.bookName, row.uid).status] += 1;
+        if (row.isSelected && !row.undecidableReason) counts[keyStateOf(session.bookName, row.uid).status] += 1;
     }
     const keyLine = session.keyReadProblem
         ? `The keys could not be read: ${session.keyReadProblem}`
@@ -188,7 +188,7 @@ function saveSelection(root, session, selectedUids) {
  */
 function toggleEntry(root, session, uid) {
     const row = session.rows.find(candidate => candidate.uid === uid);
-    if (!row || (row.keptBySillyTavern && !row.isSelected)) return;
+    if (!row || (row.undecidableReason && !row.isSelected)) return;
     if (!row.isSelected && isTurningOnBlocked()) return;
     const before = new Set(selectedUidsOf(session));
     row.isSelected = !row.isSelected;

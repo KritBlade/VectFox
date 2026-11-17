@@ -35,8 +35,10 @@ describe("the screen's rows", () => {
         const rows = rowsOf({ selectedUids: ['1', '5'] });
         expect(uids(rows)).toEqual(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
         expect(byUid(rows, '0')).toMatchObject({ title: 'Lighthouse of Vell', category: '[Harbor]', tokens: estimatedTokens(LONG_TEXT), keyCount: 1, isSelected: false });
-        expect(byUid(rows, '1')).toMatchObject({ isSelected: true, keptBySillyTavern: null, isDisabled: false });
-        expect(rows.map(row => row.keptBySillyTavern).slice(5, 8)).toEqual(['constant', 'sticky', 'cooldown']);
+        expect(byUid(rows, '1')).toMatchObject({ isSelected: true, undecidableReason: null, isDisabled: false });
+        expect(rows.map(row => row.undecidableReason).slice(5, 8)).toEqual(['constant', 'sticky', 'cooldown']);
+        const [empty, blank] = selectionRows({ entries: { 9: { uid: 9, comment: 'Buoy Line' }, 10: { uid: 10, comment: 'Salt Flats', content: '  ' } } }, null);
+        expect([empty.undecidableReason, blank.undecidableReason]).toEqual(['empty', 'empty']);
         expect(byUid(rows, '8').isDisabled).toBe(true);
         expect(byUid(rows, '4')).toMatchObject({ title: 'entry 4', category: '' });
     });

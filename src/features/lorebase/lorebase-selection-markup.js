@@ -81,9 +81,9 @@ export const BADGE_LABELS = Object.freeze({
     [BADGES.noTitle]: { text: 'No title', icon: 'fa-heading' },
 });
 
-const KEPT_LABELS = { constant: 'Constant', sticky: 'Sticky', cooldown: 'Cooldown' };
+const UNDECIDABLE_LABELS = { constant: 'Constant', sticky: 'Sticky', cooldown: 'Cooldown', empty: 'Empty' };
 
-// What each badge and each reason SillyTavern keeps an entry means, as the entry's dialog says it.
+// What each badge and each reason LoreBase cannot decide an entry means, as the entry's dialog says it.
 const BADGE_NOTES = {
     [BADGES.templateCode]: 'Template code: when Luna picks it, LoreBase sends it whole, never trimmed.',
     [BADGES.mostlyCode]: 'Mostly code: template code fills at least half of it. When Luna picks it, LoreBase sends it whole.',
@@ -93,10 +93,11 @@ const BADGE_NOTES = {
     [BADGES.long]: "Long: Luna's review saves the most tokens on an entry this size.",
     [BADGES.noTitle]: 'No title: Luna picks by title alone, so it is never picked.',
 };
-const KEPT_NOTES = {
+const UNDECIDABLE_NOTES = {
     constant: 'Constant: SillyTavern sends it on every reply, so LoreBase cannot decide it.',
     sticky: 'Sticky: SillyTavern would lose its timer on an entry LoreBase sends, so LoreBase cannot decide it.',
     cooldown: 'Cooldown: SillyTavern would lose its timer on an entry LoreBase sends, so LoreBase cannot decide it.',
+    empty: 'Empty: it has no text, so LoreBase has nothing to key, pick or send, and cannot decide it.',
 };
 
 // ── Shell ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -278,7 +279,7 @@ export function pinsMarkup(sections) {
 
 function entryPills(row) {
     const pills = [];
-    if (row.keptBySillyTavern) pills.push(statusPill({ text: KEPT_LABELS[row.keptBySillyTavern], status: 'warning', icon: 'fa-lock' }));
+    if (row.undecidableReason) pills.push(statusPill({ text: UNDECIDABLE_LABELS[row.undecidableReason], status: 'warning', icon: 'fa-lock' }));
     if (row.isDisabled) pills.push(statusPill({ text: 'Disabled', icon: 'fa-power-off' }));
     if (row.isNew) pills.push(statusPill({ text: 'New', status: 'accent', icon: 'fa-star' }));
     const engineLike = isEngineLike(row);
@@ -299,15 +300,15 @@ const KEY_FAILURE_CHARACTERS = 200;
 
 /**
  * One entry: its tick box, then its row (title, category, size and keys, the keys LoreBase's model wrote for it when
- * selected, its pills) with the button that shows the entry and its LoreBase toggle. An entry SillyTavern keeps cannot
- * be turned on, only off when it was selected before it became one.
+ * selected, its pills) with the button that shows the entry and its LoreBase toggle. An entry LoreBase cannot decide
+ * (SillyTavern keeps it, or it is empty) cannot be turned on, only off when it was selected before it became one.
  * @param {import('./lorebase-selection-core.js').SelectionRow} row
  * @param {{isTicked: boolean, keyState?: {status: string, keys?: string[], detail?: string}|null}} view - keyState is
  *   from lorebase-keys.js's keyStateOf, for a selected entry only
  * @returns {string}
  */
 export function entryRowMarkup(row, { isTicked, keyState = null }) {
-    const canToggle = !row.keptBySillyTavern || row.isSelected;
+    const canToggle = !row.undecidableReason || row.isSelected;
     const keyPill = KEY_STATE_PILLS[keyState?.status];
     const body = listRow({
         icon: 'fa-file-lines',
@@ -322,7 +323,7 @@ export function entryRowMarkup(row, { isTicked, keyState = null }) {
         actions: [
             iconButton({ icon: 'fa-eye', title: 'Show this entry', data: action('show-entry', { 'lorebase-uid': row.uid }) }),
             // An entry LoreBase decides has keys to edit; not while its keys are being written.
-            row.isSelected && !row.keptBySillyTavern ? iconButton({
+            row.isSelected && !row.undecidableReason ? iconButton({
                 icon: 'fa-pen',
                 title: 'Edit LoreBase keys',
                 isDisabled: keyState?.status === 'writing',
@@ -330,7 +331,7 @@ export function entryRowMarkup(row, { isTicked, keyState = null }) {
             }) : '',
             iconButton({
                 icon: 'fa-wand-magic-sparkles',
-                title: row.keptBySillyTavern ? 'SillyTavern keeps this entry' : 'LoreBase decides this entry',
+                title: row.undecidableReason ? 'LoreBase cannot decide this entry' : 'LoreBase decides this entry',
                 isPressed: row.isSelected,
                 isDisabled: !canToggle,
                 data: action('toggle-entry', { 'lorebase-uid': row.uid }),
@@ -340,15 +341,15 @@ export function entryRowMarkup(row, { isTicked, keyState = null }) {
     });
     return `<div class="vfx-pick-row" data-lorebase-entry="${escape(row.uid)}">`
         + '<label class="vfx-pick-check" title="Tick">'
-        + `<input type="checkbox" class="vfx-check" aria-label="Tick ${escape(row.title)}"${isTicked ? ' checked' : ''}${row.keptBySillyTavern ? ' disabled' : ''} data-lorebase-tick="${escape(row.uid)}">`
+        + `<input type="checkbox" class="vfx-check" aria-label="Tick ${escape(row.title)}"${isTicked ? ' checked' : ''}${row.undecidableReason ? ' disabled' : ''} data-lorebase-tick="${escape(row.uid)}">`
         + '</label>'
         + `<div class="vfx-pick-body">${body}</div>`
         + '</div>';
 }
 
 /**
- * The entry's dialog, its lines (sillytavern/popup-core.js): its title, category, keys and size; then why SillyTavern
- * keeps it or never sends it, what each badge means, and, for an engine-like entry LoreBase can decide, that bulk
+ * The entry's dialog, its lines (sillytavern/popup-core.js): its title, category, keys and size; then why LoreBase
+ * cannot decide it or SillyTavern never sends it, what each badge means, and, for an engine-like entry LoreBase can decide, that bulk
  * selection skips it.
  * @param {import('./lorebase-selection-core.js').SelectionRow} row
  * @param {{key?: string[], keysecondary?: string[]}} entry - The book's entry, as loadWorldInfo returns it
@@ -363,11 +364,11 @@ export function entryDetailLines(row, entry) {
         keys.length ? { text: 'Keys:', name: keys.join(', ') } : null,
         secondaryKeys.length ? { text: 'Secondary keys:', name: secondaryKeys.join(', ') } : null,
         { text: 'Tokens:', name: formatCount(row.tokens) },
-        row.keptBySillyTavern ? { icon: 'fa-lock', text: KEPT_NOTES[row.keptBySillyTavern] } : null,
-        row.keptBySillyTavern && row.isSelected ? { icon: 'fa-lock', text: 'It was selected before, but SillyTavern still decides it.' } : null,
+        row.undecidableReason ? { icon: 'fa-lock', text: UNDECIDABLE_NOTES[row.undecidableReason] } : null,
+        row.undecidableReason && row.isSelected ? { icon: 'fa-lock', text: 'It was selected before, but SillyTavern still decides it.' } : null,
         row.isDisabled ? { icon: 'fa-power-off', text: 'Disabled in SillyTavern: it is never sent, and Luna never picks it.' } : null,
         ...row.badges.map(badge => ({ icon: BADGE_LABELS[badge].icon, text: BADGE_NOTES[badge] })),
-        isEngineLike(row) && !row.keptBySillyTavern
+        isEngineLike(row) && !row.undecidableReason
             ? { icon: 'fa-circle-info', text: "Tick all matching and a category's toggle skip it: turn it on with its own toggle." }
             : null,
     ].filter(Boolean);

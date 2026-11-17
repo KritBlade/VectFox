@@ -45,18 +45,24 @@ describe('the books taking part', () => {
 describe('the entries LoreBase decides', () => {
     const book = {
         entries: {
-            0: { uid: 0, comment: 'Lighthouse of Vell' },
-            1: { uid: 1, comment: 'Tidewardens' },
-            2: { uid: 2, comment: 'Old Pier', disable: true },
-            3: { uid: 3, comment: 'Harbor Bell', constant: true },
-            4: { uid: 4, comment: 'Storm Watch', sticky: 2 },
-            5: { uid: 5, comment: 'Fog Season', cooldown: 3 },
-            6: { uid: 6, comment: 'Net Market', sticky: 0, cooldown: null },
+            0: { uid: 0, comment: 'Lighthouse of Vell', content: 'Orrin keeps the lamp.' },
+            1: { uid: 1, comment: 'Tidewardens', content: 'They read the bells.' },
+            2: { uid: 2, comment: 'Old Pier', content: 'Rotten boards.', disable: true },
+            3: { uid: 3, comment: 'Harbor Bell', content: 'The bell.', constant: true },
+            4: { uid: 4, comment: 'Storm Watch', content: 'A watch.', sticky: 2 },
+            5: { uid: 5, comment: 'Fog Season', content: 'Fog in spring.', cooldown: 3 },
+            6: { uid: 6, comment: 'Net Market', content: 'Nets for sale.', sticky: 0, cooldown: null },
+            7: { uid: 7, comment: 'Buoy Line' },
+            8: { uid: 8, comment: 'Salt Flats', content: ' \n ' },
         },
     };
 
     it("keeps the selected entries in the book's order, and leaves SillyTavern its disabled, constant, sticky and cooldown ones", () => {
         expect(decidedEntries(book, { selectedUids: ['6', '0', '2', '3', '4', '5'] }).map(entry => entry.uid)).toEqual([0, 6]);
+    });
+
+    it('never decides a selected entry with no text, which has nothing to key, pick or send', () => {
+        expect(decidedEntries(book, { selectedUids: ['7', '1', '8'] }).map(entry => entry.uid)).toEqual([1]);
     });
 
     it('decides nothing in a book with no selection, or one SillyTavern could not load', () => {

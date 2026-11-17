@@ -227,6 +227,16 @@ describe('every key at once', () => {
         expect(host.ask).not.toHaveBeenCalled();
     });
 
+    it('never counts or keys a selected entry with no text', async () => {
+        const { extension_settings } = await import('../src/sillytavern/settings.js');
+        const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
+        extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['0', '1'] } };
+        loadWorldInfo.mockImplementation(async () => ({ entries: { 0: entry(0, 'Lighthouse'), 1: { uid: 1, comment: 'Buoy Line', content: '' } } }));
+        const pending = await keysModule.selectedEntriesWithoutKeys();
+        expect(pending.books.map(book => book.entries.map(each => each.uid))).toEqual([[0]]);
+        expect(pending.count).toBe(1);
+    });
+
     it('Generate all keys writes the selected entries with no keys in every book with a selection, and counts what it did', async () => {
         const loadWorldInfo = await selectBooks();
         expect(await keysModule.writeKeysOfSelections(QDRANT)).toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 1 });

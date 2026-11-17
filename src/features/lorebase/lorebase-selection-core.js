@@ -1,7 +1,7 @@
 /**
  * LoreBase's selection screen, the pure rules (plan §5.2 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md): each entry of a book as a row, with its badges and, for an entry
- * SillyTavern keeps its own, why; the books the screen offers; the categories the comment prefixes make; the filters;
+ * LoreBase cannot decide (SillyTavern keeps it its own, or it is empty), why; the books the screen offers; the categories the comment prefixes make; the filters;
  * the ticks the bulk bar acts on; what the bar and a category's toggle select; the entries new since the book was last
  * opened; the footer's count and title tokens; and the section names a book can pin. Pure: no SillyTavern, no DOM.
  */
@@ -65,11 +65,15 @@ function badgesOf(entry, { content, tokens, keys }) {
     return badges;
 }
 
-/** Why SillyTavern keeps an entry its own, so it cannot be selected (§5.2), or null. */
-function keptBySillyTavernOf(entry) {
+/**
+ * Why LoreBase cannot decide an entry, so it cannot be selected (§5.2), or null: SillyTavern keeps it its own
+ * (constant, sticky, cooldown), or it has no text to key, pick or send (empty).
+ */
+function undecidableReasonOf(entry) {
     if (entry.constant) return 'constant';
     if (Number(entry.sticky) > 0) return 'sticky';
     if (Number(entry.cooldown) > 0) return 'cooldown';
+    if (!String(entry.content ?? '').trim()) return 'empty';
     return null;
 }
 
@@ -86,7 +90,7 @@ export function isEngineLike(row) {
  * @property {number} tokens - The entry's size
  * @property {number} keyCount
  * @property {string[]} badges - From BADGES
- * @property {string|null} keptBySillyTavern - 'constant', 'sticky' or 'cooldown' when it cannot be selected
+ * @property {string|null} undecidableReason - 'constant', 'sticky', 'cooldown' or 'empty' when it cannot be selected
  * @property {boolean} isDisabled - SillyTavern never sends it while it is disabled
  * @property {boolean} isNew - Added since the book was last opened on the screen
  * @property {boolean} isSelected
@@ -117,7 +121,7 @@ export function selectionRows(book, record) {
             tokens,
             keyCount: keys.length,
             badges: badgesOf(entry, { content, tokens, keys }),
-            keptBySillyTavern: keptBySillyTavernOf(entry),
+            undecidableReason: undecidableReasonOf(entry),
             isDisabled: Boolean(entry.disable),
             isNew: seen !== null && !seen.has(uid),
             isSelected: selected.has(uid),
@@ -186,7 +190,7 @@ export function filterRows(rows, { text = '', category = null, minimumTokens = 0
         && words.every(word => row.searchText.includes(word)));
 }
 
-const canBeOn = row => !row.keptBySillyTavern;
+const canBeOn = row => !row.undecidableReason;
 const canBeTickedInBulk = row => canBeOn(row) && !isEngineLike(row);
 
 /**
@@ -202,7 +206,7 @@ export function tickAllMatching(ticked, matchingRows) {
 
 /**
  * The ticks after "Invert": the tick of each row the filters let through flips, drawn on the screen yet or not, but an
- * engine-like row or one SillyTavern keeps is never ticked by it. Ticks on rows the filters hide stay.
+ * engine-like row or one LoreBase cannot decide is never ticked by it. Ticks on rows the filters hide stay.
  * @param {Set<string>} ticked
  * @param {SelectionRow[]} matchingRows
  * @returns {Set<string>}
@@ -218,7 +222,7 @@ export function invertTicks(ticked, matchingRows) {
 
 /**
  * The ticks after a shift-click: every row the filters let through, from the last row clicked to this one, takes this
- * row's new tick, but a row SillyTavern keeps, which is never ticked.
+ * row's new tick, but a row LoreBase cannot decide, which is never ticked.
  * @param {Set<string>} ticked
  * @param {SelectionRow[]} matchingRows
  * @param {string} anchorUid - The row clicked before
@@ -244,7 +248,7 @@ export function tickRange(ticked, matchingRows, anchorUid, uid, isTicked) {
 
 /**
  * The selection after the bulk bar turns LoreBase on or off for the ticked rows. It never turns on an entry
- * SillyTavern keeps.
+ * LoreBase cannot decide.
  * @param {string[]} selectedUids
  * @param {SelectionRow[]} rows
  * @param {Set<string>} ticked
