@@ -12,7 +12,7 @@
 import { SECRET_KEYS } from '../../sillytavern/secrets.js';
 import { textgen_types, textgenerationwebui_settings } from '../../sillytavern/connection-settings.js';
 import {
-    connectionProfileEmbeddingKeyField,
+    connectionProfileKeyIdField,
     connectionProfileEmbeddingProvider,
     connectionProfileServerUrl,
     connectionProfileStoresKey,
@@ -245,7 +245,7 @@ export function resolveProviderApiUrl(settings, source = settings?.embedding_pro
  * It waits for the Similharity probe first, so the plugin check never reads a probe that has not settled.
  *
  * @param {object} settings - VectFox settings
- * @returns {Promise<object>} apiUrl, and the key field connectionProfileEmbeddingKeyField gives
+ * @returns {Promise<object>} apiUrl, and the key field connectionProfileKeyIdField gives
  * @throws {Error} With `code: 'invalid_model_config'`, from resolveProviderApiUrl
  */
 export async function embeddingProfileRequestFields(settings) {
@@ -253,5 +253,5 @@ export async function embeddingProfileRequestFields(settings) {
     await checkPluginAvailable();
     const apiUrl = resolveProviderApiUrl(settings);
     const profile = findConnectionProfile(String(settings.embedding_connection_profile_id ?? '').trim());
-    return { apiUrl, ...connectionProfileEmbeddingKeyField(profile) };
+    return { apiUrl, ...connectionProfileKeyIdField(profile) };
 }

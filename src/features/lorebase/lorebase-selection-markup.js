@@ -169,6 +169,7 @@ function bulkBar() {
     ]) + controlRow([
         statusPill({ name: '0 ticked', data: { 'lorebase-ticked-count': '' } }),
         controlRow([bulkButton('turn-on', 'Turn on', 'fa-toggle-on'), bulkButton('turn-off', 'Turn off', 'fa-toggle-off')]),
+        bulkButton('write-keys', 'Write keys again', 'fa-key'),
     ]);
 }
 
@@ -283,24 +284,37 @@ function entryPills(row) {
     return pills;
 }
 
+// A selected entry's keys (D17), while they are written, after they fail, or before any are written.
+const KEY_STATE_PILLS = {
+    writing: { text: 'Writing keys', status: 'accent', icon: 'fa-pen-nib' },
+    failed: { text: 'Keys failed', status: 'danger', icon: 'fa-triangle-exclamation' },
+    missing: { text: 'No keys yet', status: 'warning', icon: 'fa-key' },
+};
+// Room for a failure's own text on the row.
+const KEY_FAILURE_CHARACTERS = 200;
+
 /**
- * One entry: its tick box, then its row (title, category, size and keys, its pills) with the button that shows the
- * entry and its LoreBase toggle. An entry SillyTavern keeps cannot be turned on, only off when it was selected before
- * it became one.
+ * One entry: its tick box, then its row (title, category, size and keys, the keys LoreBase's model wrote for it when
+ * selected, its pills) with the button that shows the entry and its LoreBase toggle. An entry SillyTavern keeps cannot
+ * be turned on, only off when it was selected before it became one.
  * @param {import('./lorebase-selection-core.js').SelectionRow} row
- * @param {{isTicked: boolean}} view
+ * @param {{isTicked: boolean, keyState?: {status: string, keys?: string[], detail?: string}|null}} view - keyState is
+ *   from lorebase-keys.js's keyStateOf, for a selected entry only
  * @returns {string}
  */
-export function entryRowMarkup(row, { isTicked }) {
+export function entryRowMarkup(row, { isTicked, keyState = null }) {
     const canToggle = !row.keptBySillyTavern || row.isSelected;
+    const keyPill = KEY_STATE_PILLS[keyState?.status];
     const body = listRow({
         icon: 'fa-file-lines',
         name: row.title,
         sub: [
             row.category ? { name: row.category } : null,
             { name: `${formatCount(row.tokens)} tokens, ${counted(row.keyCount, 'key')}` },
+            keyState?.status === 'ready' ? { text: 'LoreBase keys', name: keyState.keys.join(', ') } : null,
+            keyState?.status === 'failed' ? { text: 'Keys failed', name: String(keyState.detail ?? '').slice(0, KEY_FAILURE_CHARACTERS) } : null,
         ],
-        pills: entryPills(row),
+        pills: keyPill ? [...entryPills(row), statusPill(keyPill)] : entryPills(row),
         actions: [
             iconButton({ icon: 'fa-eye', title: 'Show this entry', data: action('show-entry', { 'lorebase-uid': row.uid }) }),
             iconButton({
@@ -387,5 +401,22 @@ export function entriesFooterMarkup({ shownCount, matchCount, hasMore }) {
  */
 export function summaryText({ entryCount, titleTokens }) {
     if (!entryCount) return 'LoreBase decides no entry of this book: SillyTavern\'s keys decide them all.';
-    return `Luna reads ${counted(entryCount, 'title')} from this book, about ${formatCount(titleTokens)} tokens on every pick.`;
+    return `The pick reads ${counted(entryCount, 'title')} and their keys from this book, about ${formatCount(titleTokens)} tokens on every pick.`;
+}
+
+/**
+ * Where the selected entries' keys stand (D17): how many are written, being written, failed or not written yet; '' when
+ * none is selected. An entry sends nothing until its keys are written.
+ * @param {{ready: number, writing: number, failed: number, missing: number}} counts
+ * @returns {string}
+ */
+export function keySummaryText({ ready, writing, failed, missing }) {
+    if (!ready && !writing && !failed && !missing) return '';
+    const parts = [`${formatCount(ready)} written`];
+    if (writing) parts.push(`${formatCount(writing)} being written`);
+    if (failed) parts.push(`${formatCount(failed)} failed`);
+    if (missing) parts.push(`${formatCount(missing)} not written yet`);
+    const waiting = writing + failed + missing;
+    const wait = waiting === 1 ? 'sends nothing until its keys are written' : 'send nothing until their keys are written';
+    return `Keys: ${parts.join(', ')}.${waiting ? ` ${counted(waiting, 'selected entry', 'selected entries')} ${wait}.` : ''}`;
 }

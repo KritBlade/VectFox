@@ -2,8 +2,8 @@
  * LoreBase's switch, on the WorldInfo page (plan §5.9 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md). Off by default; while off, LoreBase picks nothing and leaves every
  * World Info scan to SillyTavern, so every entry fires by its keys, and the selections, pins and locks are kept.
- * LoreBase acts only while VectFox is on, its switch is on, and SillyTavern's Vector Storage has its World Info search
- * off: that search force-activates lorebook entries by similarity, a selected entry whole whatever Luna picks, and
+ * LoreBase acts only while VectFox is on, its switch is on, the vector backend is Qdrant (D15), and SillyTavern's
+ * Vector Storage has its World Info search off: that search force-activates lorebook entries by similarity, a selected entry whole whatever Luna picks, and
  * LoreBase cannot take those back (lorebase-vector-storage.js asks the user which of the two to keep).
  */
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
@@ -23,12 +23,21 @@ export function isLoreBaseSwitchedOn(settings = extension_settings.vectfox) {
 }
 
 /**
- * Whether LoreBase acts now: VectFox and LoreBase on, and Vector Storage's World Info search off.
+ * Whether LoreBase can run on the chosen vector backend: only Qdrant, which keeps its keys (D15).
+ * @param {object} [settings] - VectFox settings, the live ones by default
+ * @returns {boolean}
+ */
+export function isLoreBaseBackend(settings = extension_settings.vectfox) {
+    return settings?.vector_backend === 'qdrant';
+}
+
+/**
+ * Whether LoreBase acts now: VectFox and LoreBase on, on Qdrant, and Vector Storage's World Info search off.
  * @param {object} [settings] - VectFox settings, the live ones by default
  * @returns {boolean}
  */
 export function isLoreBaseActive(settings = extension_settings.vectfox) {
-    return isVectFoxEnabled(settings) && isLoreBaseSwitchedOn(settings) && !isVectorStorageWorldInfoOn();
+    return isVectFoxEnabled(settings) && isLoreBaseSwitchedOn(settings) && isLoreBaseBackend(settings) && !isVectorStorageWorldInfoOn();
 }
 
 /**

@@ -209,7 +209,8 @@ const defaultSettings = {
     lorebase_provider: CONNECTION_PROFILE_PROVIDER,
     lorebase_model: 'openai/gpt-6-luna',    // the model the route trials ran; read only on OpenRouter or vLLM
     lorebase_connection_profile_id: '',     // read only while lorebase_provider is 'connection_profile'
-    lorebase_accuracy: 'default',           // 'default' reviews at low reasoning effort, 'high' at the model's default
+    lorebase_accuracy: 'default',           // 'default' reviews at low reasoning effort, 'high' at the model's default, 'fast' asks Jev (plan D16)
+    lorebase_jev_connection_profile_id: '', // Jev's SillyTavern profile, read only on 'fast'
     lorebase_enabled: false,                // LoreBase's switch on the WorldInfo page: off until the user turns it on
 
     // Keyword Extraction

@@ -24,6 +24,9 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
         sendConnectionTest: (...args) => sendConnectionTestMock(...args),
     };
 });
+// LoreBase's calls, which this file does not send, read their answers through these.
+vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
+vi.mock('../src/features/text-cleaning/index.js', () => ({ stripReasoningBlocks: text => text }));
 
 const { describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig, testLoreBaseConnection } = await import('../src/features/lorebase/lorebase-connection.js');
 

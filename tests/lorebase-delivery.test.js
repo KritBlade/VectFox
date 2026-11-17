@@ -80,6 +80,7 @@ beforeEach(() => {
     host.settings.vectfox = {
         enabled: true,
         lorebase_enabled: true,
+        vector_backend: 'qdrant',
         lorebase_books: {
             'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] },
             'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },

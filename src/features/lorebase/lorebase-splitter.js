@@ -42,7 +42,7 @@ const LONG_LINE_TOKENS = 120;
 export const DEFAULT_WINDOW_TOKENS = 300;
 
 /** Round half to even, as Python's round does, so sizes match the benchmark's. */
-function roundHalfEven(value) {
+export function roundHalfEven(value) {
     const floor = Math.floor(value);
     const fraction = value - floor;
     if (fraction > 0.5) return floor + 1;

@@ -2,7 +2,8 @@
 // whether the Connection Manager is on, the profiles a Profile dropdown offers and when that list changes, a profile by
 // ID, whether SillyTavern can send a request on it and of which kind, the request itself through SillyTavern's
 // ConnectionManagerRequestService, and its reply as text; for embedding, the provider a profile's API is, the server URL
-// it names and the ID of its key. The only file that touches that service or a profile's key ID or URL (connection plan
+// it names and the ID of its key; for LoreBase's Fast and cheap choice, the fields of a decisions request to Jev on an
+// OpenRouter or Custom profile. The only file that touches that service or a profile's key ID or URL (connection plan
 // §6, credential invariant 4). SillyTavern's server, or Similharity on it, resolves the key from the ID; no key value
 // ever reaches VectFox.
 //
@@ -133,14 +134,37 @@ export function connectionProfileServerUrl(profile) {
 }
 
 /**
- * The key field of an embedding request on a llama.cpp, KoboldCPP or Custom profile: the ID of the key the profile
- * stores, which Similharity reads on SillyTavern's server. Empty with no stored key, and Similharity then sends none.
+ * The key field of a request Similharity sends on a profile (an embedding on a llama.cpp, KoboldCPP or Custom profile,
+ * or a decisions request to Jev): the ID of the key the profile stores, which Similharity reads on SillyTavern's
+ * server. Empty with no stored key, and Similharity then sends none.
  *
  * @param {object} profile
  * @returns {{secret_id?: string}}
  */
-export function connectionProfileEmbeddingKeyField(profile) {
+export function connectionProfileKeyIdField(profile) {
     return connectionProfileStoresKey(profile) ? { secret_id: String(profile['secret-id']) } : {};
+}
+
+// The profiles Jev runs on: SillyTavern's Chat Completion sources whose key Similharity sends only where SillyTavern
+// does, OpenRouter's to OpenRouter and Custom's to the profile's own URL.
+const DECISIONS_SOURCES = new Set(['openrouter', 'custom']);
+
+/**
+ * The fields of a decisions request to Jev on a profile, for LoreBase's Fast and cheap choice: its source, its URL for
+ * a Custom source, its model and the ID of its key. null on a profile of another API.
+ *
+ * @param {object} profile
+ * @returns {{source: string, model: string, apiUrl?: string, secret_id?: string}|null}
+ */
+export function connectionProfileDecisionsFields(profile) {
+    const source = connectionProfileEmbeddingProvider(profile);
+    if (!DECISIONS_SOURCES.has(source)) return null;
+    return {
+        source,
+        model: String(profile?.model ?? '').trim(),
+        ...(source === 'custom' ? { apiUrl: connectionProfileServerUrl(profile) } : {}),
+        ...connectionProfileKeyIdField(profile),
+    };
 }
 
 /**

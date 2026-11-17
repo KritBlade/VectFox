@@ -1,9 +1,10 @@
 /**
  * LoreBase's switch and SillyTavern's Vector Storage (src/features/lorebase/lorebase-switch.js and
  * lorebase-vector-storage.js, plan §5.9 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
- * LoreBase acts only while VectFox and its switch are on and Vector Storage's World Info search is off; turning
- * LoreBase on asks to turn that search off, and LoreBase stays off when the user keeps it; a reply that finds the search
- * on again asks which of the two to turn off, and closing the question leaves LoreBase sitting out.
+ * LoreBase acts only while VectFox and its switch are on, on Qdrant (D15), and Vector Storage's World Info search is
+ * off; turning LoreBase on off Qdrant says it needs Qdrant and stays off, turning it on asks to turn that search off,
+ * LoreBase stays off when the user keeps it, and once on the selected entries' missing keys are written (D17); a reply
+ * that finds the search on again asks which of the two to turn off, and closing the question leaves LoreBase sitting out.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +12,8 @@ const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn:
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { verbose: vi.fn(), warn: vi.fn() } }));
-vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(), choicePopup: vi.fn() }));
+vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(), choicePopup: vi.fn(), noticePopup: vi.fn() }));
+vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({ writeKeysOfSelections: vi.fn() }));
 vi.mock('../src/sillytavern/vector-storage.js', () => ({
     isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn,
     turnOffVectorStorageWorldInfo: vi.fn(async () => {
@@ -22,7 +24,8 @@ vi.mock('../src/sillytavern/vector-storage.js', () => ({
 
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 const { log } = await import('../src/sillytavern/log.js');
-const { choicePopup, confirmPopup } = await import('../src/sillytavern/popup.js');
+const { choicePopup, confirmPopup, noticePopup } = await import('../src/sillytavern/popup.js');
+const { writeKeysOfSelections } = await import('../src/features/lorebase/lorebase-keys.js');
 const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
 const { isLoreBaseActive, isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } = await import('../src/features/lorebase/lorebase-switch.js');
 const { settleVectorStorageConflict, turnLoreBaseOn } = await import('../src/features/lorebase/lorebase-vector-storage.js');
@@ -35,19 +38,20 @@ const HARBOR_RECORD = { selectedUids: ['0'], pinnedSections: [], lockedToChatIds
 beforeEach(() => {
     vi.clearAllMocks();
     globalThis.toastr = { warning: vi.fn() };
-    host.settings.vectfox = { lorebase_books: { 'Harbor Atlas': HARBOR_RECORD } };
+    host.settings.vectfox = { vector_backend: 'qdrant', lorebase_books: { 'Harbor Atlas': HARBOR_RECORD } };
     host.isWorldInfoSearchOn = false;
     host.canTurnOff = true;
 });
 
 describe('when LoreBase acts', () => {
-    it("acts only while VectFox and LoreBase are on and Vector Storage's World Info search is off", () => {
+    it("acts only while VectFox and LoreBase are on, on Qdrant, and Vector Storage's World Info search is off", () => {
         expect(isLoreBaseSwitchedOn()).toBe(false);
         expect(isLoreBaseActive()).toBe(false);
 
         host.settings.vectfox.lorebase_enabled = true;
         expect(isLoreBaseActive()).toBe(true);
-        expect(isLoreBaseActive({ enabled: false, lorebase_enabled: true })).toBe(false);
+        expect(isLoreBaseActive({ enabled: false, lorebase_enabled: true, vector_backend: 'qdrant' })).toBe(false);
+        expect(isLoreBaseActive({ lorebase_enabled: true, vector_backend: 'standard' })).toBe(false);
 
         host.isWorldInfoSearchOn = true;
         expect(isLoreBaseActive()).toBe(false);
@@ -55,12 +59,21 @@ describe('when LoreBase acts', () => {
 });
 
 describe('turning LoreBase on and off', () => {
-    it("turns on with no question while Vector Storage's World Info search is off", async () => {
+    it("turns on with no question while Vector Storage's World Info search is off, and writes the missing keys", async () => {
         expect(await turnLoreBaseOn()).toBe(true);
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
         expect(saveSettingsDebounced).toHaveBeenCalled();
         expect(showsSwitch).toHaveBeenCalledWith(true);
+        expect(writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox);
+    });
+
+    it('stays off on the Standard backend, and says LoreBase needs Qdrant', async () => {
+        host.settings.vectfox.vector_backend = 'standard';
+        expect(await turnLoreBaseOn()).toBe(false);
+        expect(noticePopup.mock.calls[0][0][0].text).toContain('LoreBase needs Qdrant');
+        expect(isLoreBaseSwitchedOn()).toBe(false);
+        expect(writeKeysOfSelections).not.toHaveBeenCalled();
     });
 
     it('asks to turn that search off first, and turns it off and LoreBase on when the user agrees', async () => {
@@ -98,7 +111,7 @@ describe('turning LoreBase on and off', () => {
     it('turns off keeping the selections, pins and locks, and tells whoever shows the switch', () => {
         host.settings.vectfox.lorebase_enabled = true;
         turnLoreBaseOff();
-        expect(host.settings.vectfox).toEqual({ lorebase_books: { 'Harbor Atlas': HARBOR_RECORD }, lorebase_enabled: false });
+        expect(host.settings.vectfox).toEqual({ vector_backend: 'qdrant', lorebase_books: { 'Harbor Atlas': HARBOR_RECORD }, lorebase_enabled: false });
         expect(showsSwitch).toHaveBeenCalledWith(false);
     });
 });

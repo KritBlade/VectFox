@@ -5,7 +5,8 @@
  * VectFox's generation interceptor asks it for a reply's lore beside its retrieval, after SillyTavern's slash commands
  * and never on a dry run, so a send that is only commands runs no pick (#29). The books taking part are those
  * SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its chat or character
- * through a rename; Luna picks among the entries selected in them, then reviews each pick, all at once, and once the
+ * through a rename; Luna picks among the entries selected in them that have keys (D17, lorebase-keys.js), then reviews
+ * each pick, all at once, and once the
  * retrieval is done too the picks are held for the World Info scan that follows (lorebase-delivery.js). A turn whose
  * pick or review fails goes on without that lore, with a toast (D14). Each reply's outcome goes to the tester
  * (lorebase-tester.js), with what that scan reads.
@@ -15,13 +16,14 @@ import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
-import { parseJsonArrayFromLlm, postChatCompletion } from '../llm-provider/index.js';
-import { stripReasoningBlocks } from '../text-cleaning/index.js';
 import { getLoreBook, isLoreBookLocked, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
-import { describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
+import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
+import { askJev, resolveJevConnection } from './lorebase-jev.js';
+import { loreForReplyByJev } from './lorebase-jev-core.js';
 import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
-import { CALL_TIMEOUT_MS, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
+import { readBookKeys } from './lorebase-keys.js';
+import { FAST_AND_CHEAP, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
 import { isLoreBaseActive } from './lorebase-switch.js';
@@ -75,8 +77,9 @@ export function initializeLoreBase() {
 
 /**
  * The books taking part in this reply (D11): those SillyTavern loads that the user locked to this chat or character,
- * each with the entries LoreBase decides in it.
- * @returns {Promise<Array<{bookName: string, entries: object[], pinnedSections: string[]}>>}
+ * each with the entries LoreBase decides in it that have keys (D17), and those keys by uid.
+ * @returns {Promise<Array<{bookName: string, entries: object[], pinnedSections: string[], keysByUid: Record<string, string[]>}>>}
+ * @throws {Error} When the keys cannot be read
  */
 async function booksTakingPart() {
     const where = lockTarget();
@@ -87,33 +90,17 @@ async function booksTakingPart() {
         const entries = decidedEntries(await loadWorldInfo(bookName), record);
         if (entries.length) books.push({ bookName, entries, pinnedSections: record.pinnedSections });
     }
-    return books;
-}
-
-/** One call on LoreBase's connection, its answer's entries read as the trials read them. */
-function askOn(connection) {
-    return async (messages, { maxTokens, reasoningEffort, identKeys }) => {
-        const { content, cutReason } = await postChatCompletion({
-            messages,
-            model: connection.model,
-            provider: connection.provider,
-            vllmUrl: connection.vllmUrl || '',
-            connectionProfileId: connection.connectionProfileId || '',
-            connectionProfilePage: connection.connectionProfilePage || '',
-            maxTokens,
-            timeoutMs: CALL_TIMEOUT_MS,
-            contextLabel: LOREBASE,
-            authBranch: false,
-            // LoreBase's own toast reports a failed call, with what the reply goes on without.
-            shouldNotifyProviderFailure: false,
-            // No temperature: LoreBase's connection never sends one, as the trials sent none.
-            ...connection.parameterStyle,
-            reasoningEffort,
-        });
-        if (cutReason) log.warn(`LoreBase: the provider cut an answer short (${cutReason}); reading what arrived`);
-        // A thinking model can write its reasoning before the JSON, and what it reasoned is not the answer.
-        return parseJsonArrayFromLlm(stripReasoningBlocks(content), { label: LOREBASE, identKeys });
-    };
+    if (!books.length) return books;
+    const keys = await readBookKeys(books.map(book => book.bookName));
+    const keyed = [];
+    for (const book of books) {
+        const keysByUid = keys[book.bookName] ?? {};
+        const entries = book.entries.filter(entry => keysByUid[String(entry.uid)]);
+        const unkeyed = book.entries.length - entries.length;
+        if (unkeyed) log.verbose(`LoreBase: ${unkeyed} selected entries of lorebook "${book.bookName}" have no keys yet, so they send nothing`);
+        if (entries.length) keyed.push({ ...book, entries, keysByUid });
+    }
+    return keyed;
 }
 
 function showLeftOutLoreToast(message) {
@@ -144,6 +131,28 @@ function reportReplyLore(lore, seconds) {
 }
 
 /**
+ * A reply's lore on the dropdown's choice: Jev's picks on Fast and cheap (D16), else Luna's pick and reviews. null, with
+ * the setup notice, when the choice's connection cannot run.
+ * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
+ */
+async function askForReplyLore(settings, scene, books) {
+    if (settings.lorebase_accuracy === FAST_AND_CHEAP) {
+        const jev = resolveJevConnection(settings);
+        if (!jev.ok) {
+            notifySetupIncomplete(LOREBASE, jev.problem);
+            return null;
+        }
+        return loreForReplyByJev({ scene, books, ask: (state, questions) => askJev(jev.fields, state, questions) });
+    }
+    const connection = resolveLoreBaseLlmConfig(settings);
+    if (!connection.ok) {
+        notifySetupIncomplete(LOREBASE, describeLoreBaseConnectionProblem(connection.reason, connection.problem));
+        return null;
+    }
+    return loreForReply({ scene, books, reviewEffort: reviewEffort(settings.lorebase_accuracy), ask: askOnLoreBase(connection) });
+}
+
+/**
  * This reply's lore, or null when LoreBase has nothing to do: LoreBase not acting (isLoreBaseActive), a generation
  * that is not a reply (D8), no selected entry in the books taking part, or no user message for the reply to answer.
  * Never throws: a failure is logged and shown, and the reply goes on without the lore it could not get.
@@ -161,15 +170,9 @@ export async function prepareLoreForReply(type, settings) {
             log.verbose('LoreBase: the chat holds no user message for the reply to answer, so nothing is picked');
             return null;
         }
-        const connection = resolveLoreBaseLlmConfig(settings);
-        if (!connection.ok) {
-            notifySetupIncomplete(LOREBASE, describeLoreBaseConnectionProblem(connection.reason, connection.problem));
-            return null;
-        }
         const startedAt = performance.now();
-        const lore = await loreForReply({
-            scene: sceneText(messages), books, reviewEffort: reviewEffort(settings.lorebase_accuracy), ask: askOn(connection),
-        });
+        const lore = await askForReplyLore(settings, sceneText(messages), books);
+        if (!lore) return null;
         const seconds = (performance.now() - startedAt) / 1000;
         reportReplyLore(lore, seconds);
         recordReplyReport({ lore, books, type, accuracy: settings.lorebase_accuracy, seconds });

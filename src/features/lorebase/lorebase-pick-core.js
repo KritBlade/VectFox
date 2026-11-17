@@ -1,8 +1,9 @@
 /**
  * LoreBase's pick (plan §5.6 and D6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
- * GPT-6 Luna reads the scene and the titles of the selected entries, and picks the entries the next reply needs. The
- * prompt is the route trials' toc_focus word for word (InternalProject/Vectfox/tools/lorebase-benchmark/
- * route_trials.py); tests/lorebase-pick-and-review.test.js holds it to the trials' own rendering. Pure: no
+ * GPT-6 Luna reads the scene and the titles of the selected entries, each followed by the keys LoreBase's model wrote
+ * for it (D17), and picks the entries the next reply needs. The prompt is the route trials' toc_focus word for word
+ * (InternalProject/Vectfox/tools/lorebase-benchmark/route_trials.py), its lines T20's luna_keys lines
+ * (segment_trials.py); tests/lorebase-pick-and-review.test.js holds it to the trials' own rendering. Pure: no
  * SillyTavern, no network.
  */
 import { chatHead } from './lorebase-scene-core.js';
@@ -32,27 +33,39 @@ const PICK_INSTRUCTIONS = [
 
 /**
  * The table of contents the pick reads: every selected entry of the books taking part this turn, numbered across
- * books in book order.
- * @param {Array<{bookName: string, entries: Array<{uid: number, comment?: string}>}>} books - In book order, each with
- *   its selected entries in the book's own order
- * @returns {Array<{number: number, bookName: string, uid: number, title: string}>}
+ * books in book order, each with its keys.
+ * @param {Array<{bookName: string, entries: Array<{uid: number, comment?: string}>, keysByUid?: Record<string, string[]>}>} books -
+ *   In book order, each with its selected entries in the book's own order and their keys by uid
+ * @returns {Array<{number: number, bookName: string, uid: number, title: string, keys: string[]}>}
  */
 export function tableOfContents(books) {
     const contents = [];
-    for (const { bookName, entries } of books) {
-        for (const entry of entries) contents.push({ number: contents.length + 1, bookName, uid: entry.uid, title: entryTitle(entry) });
+    for (const { bookName, entries, keysByUid = {} } of books) {
+        for (const entry of entries) {
+            contents.push({ number: contents.length + 1, bookName, uid: entry.uid, title: entryTitle(entry), keys: keysByUid[String(entry.uid)] ?? [] });
+        }
     }
     return contents;
 }
 
 /**
- * The pick's messages for a turn: the scene, then one line per entry of the table of contents, its number and title.
+ * One line of the table of contents: its title, then its keys in brackets, as T20's luna_keys arm wrote it.
+ * @param {{title: string, keys?: string[]}} item
+ * @returns {string}
+ */
+export function contentsLine({ title, keys = [] }) {
+    return keys.length ? `${title} (${keys.join(', ')})` : title;
+}
+
+/**
+ * The pick's messages for a turn: the scene, then one line per entry of the table of contents, its number, title and
+ * keys.
  * @param {string} scene - From sceneText
- * @param {Array<{number: number, title: string}>} contents - From tableOfContents
+ * @param {Array<{number: number, title: string, keys?: string[]}>} contents - From tableOfContents
  * @returns {Array<{role: string, content: string}>}
  */
 export function pickMessages(scene, contents) {
-    const lines = contents.map(item => `${item.number}. ${item.title}`).join('\n');
+    const lines = contents.map(item => `${item.number}. ${contentsLine(item)}`).join('\n');
     const prompt = `${chatHead(scene)}The lorebook's table of contents, one entry per line: its number and title.\n\n${lines}\n\n${PICK_INSTRUCTIONS}`;
     return [{ role: 'system', content: PICK_SYSTEM_PROMPT }, { role: 'user', content: prompt }];
 }

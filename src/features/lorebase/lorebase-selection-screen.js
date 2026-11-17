@@ -2,24 +2,28 @@
  * LoreBase's selection screen (plan §5.2 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
  * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
- * saves as it changes, as GUI-DNA asks.
+ * saves as it changes, as GUI-DNA asks. Turning entries on has LoreBase's model write their keys (D17), which each
+ * selected row shows as they are written, and Write keys again writes the ticked entries' keys anew; when keys cannot
+ * be written (no Qdrant, no model), turning entries on says why and selects nothing.
  * Opening a book keeps the uids it holds, so an entry added later shows as new, and drops the uids of deleted entries
  * from its selection.
  */
 import { log } from '../../sillytavern/log.js';
 import { noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { extension_settings } from '../../sillytavern/settings.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
+import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, writeKeys } from './lorebase-keys.js';
 import {
     bookChoices, categoryList, entrySectionNames, filterRows, invertTicks, liveSelection, pinnableSections, selectionAfterBulk,
     selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
 } from './lorebase-selection-core.js';
 import {
     NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup, entryDetailLines,
-    entryRowMarkup, entryTextMarkup, lockNoticeMarkup, noLorebookMarkup, noMatchingEntriesMarkup, noTitleNoticeMarkup, pinsMarkup,
-    selectionScreenMarkup, summaryText,
+    entryRowMarkup, entryTextMarkup, keySummaryText, lockNoticeMarkup, noLorebookMarkup, noMatchingEntriesMarkup, noTitleNoticeMarkup,
+    pinsMarkup, selectionScreenMarkup, summaryText,
 } from './lorebase-selection-markup.js';
 
 const PAGE_SIZE = 100;
@@ -29,6 +33,35 @@ const byId = (root, id) => root.querySelector(`#${id}`);
 const entryElementOf = (root, uid) => [...root.querySelectorAll('[data-lorebase-entry]')].find(element => element.dataset.lorebaseEntry === uid);
 const recordsOf = names => Object.fromEntries(names.map(name => [name, getLoreBook(name)]).filter(([, record]) => record));
 const selectedUidsOf = session => session.rows.filter(row => row.isSelected).map(row => row.uid);
+// A selected row's keys, as the key store knows them; an unselected row shows none.
+const keyStateFor = (session, row) => (row.isSelected ? keyStateOf(session.bookName, row.uid) : null);
+const keyStateText = state => (state ? JSON.stringify(state) : '');
+
+/** A row's markup, noting the key state it shows so a later change to it redraws the row. */
+function rowMarkup(session, row) {
+    const keyState = keyStateFor(session, row);
+    session.shownKeyStates.set(row.uid, keyStateText(keyState));
+    return entryRowMarkup(row, { isTicked: session.ticked.has(row.uid), keyState });
+}
+
+/** The entries of the book shown with these uids, as loadWorldInfo returned them. */
+function bookEntriesOf(session, uids) {
+    return Object.values(session.book?.entries ?? {}).filter(entry => uids.has(String(entry.uid)));
+}
+
+/**
+ * Whether keys cannot be written now (D15, D17); when they cannot, a notice says why, under `heading`, and the caller
+ * does nothing.
+ * @param {string} heading
+ * @returns {boolean}
+ */
+function isKeyWritingBlocked(heading) {
+    const problem = keyWritingProblem(extension_settings.vectfox);
+    if (problem) void noticePopup([{ icon: 'fa-key', text: heading }, { text: problem }]);
+    return Boolean(problem);
+}
+
+const TURN_ON_HEADING = 'LoreBase writes keys for each entry it decides, so no entry can be turned on yet.';
 
 function currentChoices() {
     const names = [...world_names];
@@ -50,7 +83,7 @@ function matchingRows(root, session) {
 function renderCounts(root, session) {
     const tickedCount = session.ticked.size;
     root.querySelector('[data-lorebase-ticked-count]').textContent = `${tickedCount} ticked`;
-    for (const name of ['turn-on', 'turn-off']) root.querySelector(`[data-lorebase-action="${name}"]`).disabled = tickedCount === 0;
+    for (const name of ['turn-on', 'turn-off', 'write-keys']) root.querySelector(`[data-lorebase-action="${name}"]`).disabled = tickedCount === 0;
     root.querySelector('[data-lorebase-selected-count]').textContent = `${selectedUidsOf(session).length} selected`;
 }
 
@@ -58,7 +91,7 @@ function renderEntries(root, session) {
     const matching = matchingRows(root, session);
     const shown = matching.slice(0, session.shownLimit);
     byId(root, ids.entries).innerHTML = shown.length
-        ? shown.map(row => entryRowMarkup(row, { isTicked: session.ticked.has(row.uid) })).join('')
+        ? shown.map(row => rowMarkup(session, row)).join('')
         : noMatchingEntriesMarkup();
     byId(root, ids.entriesNotice).innerHTML = shown.some(row => row.badges.includes(BADGES.noTitle)) ? noTitleNoticeMarkup() : '';
     byId(root, ids.entriesFooter).innerHTML = entriesFooterMarkup({ shownCount: shown.length, matchCount: matching.length, hasMore: matching.length > shown.length });
@@ -69,11 +102,45 @@ function renderCategories(root, session) {
     byId(root, ids.categories).innerHTML = categoryRowsMarkup(categoryList(session.rows), { shownCategory: session.shownCategory, entryCount: session.rows.length });
 }
 
+/** The footer's summary: what the pick reads from the book, and where the selected entries' keys stand. */
+function renderSummaryText(root, session) {
+    const counts = { ready: 0, writing: 0, failed: 0, missing: 0 };
+    for (const row of session.rows) {
+        if (row.isSelected && !row.keptBySillyTavern) counts[keyStateOf(session.bookName, row.uid).status] += 1;
+    }
+    const keyLine = session.keyReadProblem ? `The keys could not be read: ${session.keyReadProblem}` : keySummaryText(counts);
+    const keysOf = uid => {
+        const state = keyStateOf(session.bookName, uid);
+        return state.status === 'ready' ? state.keys : [];
+    };
+    byId(root, ids.summary).textContent = [summaryText(selectionFooter(session.book, getLoreBook(session.bookName), keysOf)), keyLine].filter(Boolean).join(' ');
+}
+
 function renderSelectionSummary(root, session) {
     const record = getLoreBook(session.bookName);
     byId(root, ids.pins).innerHTML = pinsMarkup(pinnableSections(session.book, record, session.sectionNamesOf));
-    byId(root, ids.summary).textContent = summaryText(selectionFooter(session.book, record));
+    renderSummaryText(root, session);
     byId(root, ids.book).innerHTML = bookOptions(currentChoices(), session.bookName).join('');
+}
+
+/** Write the keys of the entries a selection change turned on, in the background (D17). */
+function writeTurnedOnKeys(session, before) {
+    const turnedOn = new Set(session.rows.filter(row => row.isSelected && !before.has(row.uid)).map(row => row.uid));
+    if (turnedOn.size) void writeKeys(session.bookName, bookEntriesOf(session, turnedOn), extension_settings.vectfox);
+}
+
+/** Redraw the rows shown whose keys changed, keeping the keyboard where it was, and the summary. */
+function renderKeyStates(root, session) {
+    const focused = document.activeElement;
+    const focusedUid = focused?.closest?.('[data-lorebase-entry]')?.dataset.lorebaseEntry;
+    const focusedAction = focused?.dataset?.lorebaseAction;
+    for (const element of root.querySelectorAll('[data-lorebase-entry]')) {
+        const row = session.rows.find(candidate => candidate.uid === element.dataset.lorebaseEntry);
+        if (!row || session.shownKeyStates.get(row.uid) === keyStateText(keyStateFor(session, row))) continue;
+        element.outerHTML = rowMarkup(session, row);
+        if (row.uid === focusedUid && focusedAction) entryElementOf(root, row.uid)?.querySelector(`[data-lorebase-action="${focusedAction}"]`)?.focus();
+    }
+    renderSummaryText(root, session);
 }
 
 function renderLocks(root, session) {
@@ -87,30 +154,53 @@ function renderLocks(root, session) {
     byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterAvatar) });
 }
 
-/** Save a new selection for the book shown, and redraw what it changes. */
+/**
+ * Save a new selection for the book shown, and redraw what it changes. One that turns entries on first checks keys can
+ * be written, and saves nothing when they cannot; then their keys are written.
+ */
 function saveSelection(root, session, selectedUids) {
+    const before = new Set(selectedUidsOf(session));
+    if (selectedUids.some(uid => !before.has(String(uid))) && isKeyWritingBlocked(TURN_ON_HEADING)) return;
     setLoreBookSelection(session.bookName, selectedUids);
-    const selected = new Set(selectedUids);
+    const selected = new Set(selectedUids.map(String));
     for (const row of session.rows) row.isSelected = selected.has(row.uid);
     renderCategories(root, session);
     renderEntries(root, session);
     renderSelectionSummary(root, session);
+    writeTurnedOnKeys(session, before);
 }
 
-/** Turn one entry on or off, redrawing only its row so the keyboard stays on its toggle. */
+/**
+ * Turn one entry on or off, redrawing only its row so the keyboard stays on its toggle. Turning it on first checks
+ * keys can be written, then writes them.
+ */
 function toggleEntry(root, session, uid) {
     const row = session.rows.find(candidate => candidate.uid === uid);
     if (!row || (row.keptBySillyTavern && !row.isSelected)) return;
+    if (!row.isSelected && isKeyWritingBlocked(TURN_ON_HEADING)) return;
+    const before = new Set(selectedUidsOf(session));
     row.isSelected = !row.isSelected;
     setLoreBookSelection(session.bookName, selectedUidsOf(session));
     const element = entryElementOf(root, uid);
     if (element) {
-        element.outerHTML = entryRowMarkup(row, { isTicked: session.ticked.has(uid) });
+        element.outerHTML = rowMarkup(session, row);
         entryElementOf(root, uid)?.querySelector('[data-lorebase-action="toggle-entry"]')?.focus();
     }
     renderCategories(root, session);
     renderCounts(root, session);
     renderSelectionSummary(root, session);
+    writeTurnedOnKeys(session, before);
+}
+
+/** Write the keys of the ticked entries that are turned on anew (D17). */
+function writeTickedKeysAgain(session) {
+    const uids = new Set(session.rows.filter(row => row.isSelected && session.ticked.has(row.uid)).map(row => row.uid));
+    if (!uids.size) {
+        void noticePopup([{ icon: 'fa-key', text: 'None of the ticked entries is turned on. LoreBase writes keys only for entries it decides.' }]);
+        return;
+    }
+    if (isKeyWritingBlocked('LoreBase cannot write keys yet.')) return;
+    void writeKeys(session.bookName, bookEntriesOf(session, uids), extension_settings.vectfox, { isAgain: true });
 }
 
 /** Show one entry of the book shown in a dialog over the screen: what it is, why it can or cannot be chosen, its text. */
@@ -130,7 +220,7 @@ async function showEntry(session, uid) {
 
 /** Read a book and show it: its entries, categories, pins, locks and footer. */
 async function showBook(root, session, bookName) {
-    Object.assign(session, { bookName, book: null, rows: [], ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE });
+    Object.assign(session, { bookName, book: null, rows: [], ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE, keyReadProblem: '' });
     let book;
     try {
         book = await loadWorldInfo(bookName);
@@ -145,6 +235,13 @@ async function showBook(root, session, bookName) {
         byId(root, ids.entries).innerHTML = bookFailedMarkup('SillyTavern found no lorebook by that name');
         return;
     }
+    try {
+        await readBookKeys([bookName]);
+    } catch (error) {
+        log.warn(`LoreBase: the selection screen could not read the keys of lorebook "${bookName}":`, error);
+        session.keyReadProblem = String(error?.message || error);
+    }
+    if (session.bookName !== bookName) return;
     // The record as it stood says which entries are new; then it keeps the uids the book holds now.
     const record = getLoreBook(bookName);
     session.book = book;
@@ -187,6 +284,8 @@ function onAction(root, session, element, event) {
         renderEntries(root, session);
     } else if (name === 'turn-on' || name === 'turn-off') {
         saveSelection(root, session, selectionAfterBulk(selectedUidsOf(session), session.rows, session.ticked, name === 'turn-on'));
+    } else if (name === 'write-keys') {
+        writeTickedKeysAgain(session);
     } else if (name === 'show-more') {
         session.shownLimit += PAGE_SIZE;
         renderEntries(root, session);
@@ -256,12 +355,19 @@ export async function openLoreBaseSelection({ bookName = '' } = {}) {
     const template = document.createElement('template');
     template.innerHTML = selectionScreenMarkup({ choices, bookName: first });
     const root = template.content.firstElementChild;
-    const session = { bookName: first, book: null, rows: [], ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE, searchTimer: null, sectionNamesOf: entrySectionNames };
+    const session = {
+        bookName: first, book: null, rows: [], ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE, searchTimer: null,
+        sectionNamesOf: entrySectionNames, shownKeyStates: new Map(), keyReadProblem: '',
+    };
     bindGeneBehaviours(root);
     bindScreen(root, session);
+    const stopKeyUpdates = onKeyStateChange(bookName => {
+        if (bookName === session.bookName && session.book) renderKeyStates(root, session);
+    });
     const closed = openPanelPopup(root, { canClose: () => true });
     if (first) void showBook(root, session, first);
     else byId(root, ids.entries).innerHTML = noLorebookMarkup();
     await closed;
+    stopKeyUpdates();
     clearTimeout(session.searchTimer);
 }

@@ -20,6 +20,12 @@ const host = vi.hoisted(() => ({
     settings: { vectfox: {} },
     connection: null,
     isWorldInfoSearchOn: false,
+    // Every entry has keys but these ("book/uid"), and a read of the keys fails with this error when one is set.
+    unkeyedUids: new Set(),
+    keysReadError: null,
+    // Fast and cheap: Jev's connection, and its answer.
+    jevConnection: null,
+    jevAnswer: null,
 }));
 
 vi.mock('../src/sillytavern/chat.js', () => ({
@@ -71,7 +77,9 @@ vi.mock('../src/features/text-cleaning/index.js', () => ({
     stripGameSystemBlocks: text => text,
     stripReasoningBlocks: vi.fn(text => text.replace(/<think>[\s\S]*?<\/think>/g, '')),
 }));
-vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
+vi.mock('../src/features/lorebase/lorebase-connection.js', async () => ({
+    // The real call, so the requests and the answer's reading are what LoreBase sends and reads.
+    askOnLoreBase: (await vi.importActual('../src/features/lorebase/lorebase-connection.js')).askOnLoreBase,
     resolveLoreBaseLlmConfig: () => host.connection,
     describeLoreBaseConnectionProblem: (reason, problem) => `${problem} Until then the entries selected for LoreBase stay out of replies.`,
 }));
@@ -82,6 +90,18 @@ vi.mock('../src/sillytavern/vector-storage.js', () => ({
 }));
 vi.mock('../src/features/lorebase/lorebase-tester.js', () => ({
     initializeLoreBaseTester: vi.fn(), keepReplyScan: vi.fn(), recordReplyReport: vi.fn(),
+}));
+vi.mock('../src/features/lorebase/lorebase-jev.js', () => ({
+    resolveJevConnection: () => host.jevConnection,
+    askJev: vi.fn(async () => host.jevAnswer),
+}));
+vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
+    readBookKeys: vi.fn(async bookNames => {
+        if (host.keysReadError) throw host.keysReadError;
+        return Object.fromEntries(bookNames.map(bookName => [bookName, Object.fromEntries(Object.values(host.books[bookName]?.entries ?? {})
+            .filter(entry => !host.unkeyedUids.has(`${bookName}/${entry.uid}`))
+            .map(entry => [String(entry.uid), [`keys of ${entry.comment}`]]))]));
+    }),
 }));
 
 const { eventSource } = await import('../src/sillytavern/events.js');
@@ -94,6 +114,7 @@ const { stripReasoningBlocks } = await import('../src/features/text-cleaning/ind
 const { choicePopup } = await import('../src/sillytavern/popup.js');
 const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
 const { initializeLoreBaseTester, keepReplyScan, recordReplyReport } = await import('../src/features/lorebase/lorebase-tester.js');
+const { askJev } = await import('../src/features/lorebase/lorebase-jev.js');
 const { initializeLoreBase, prepareLoreBesideRetrieval, prepareLoreForReply } = await import('../src/features/lorebase/lorebase-reply.js');
 
 initializeLoreBase();
@@ -102,8 +123,8 @@ host.handlers.app_ready();
 const testerStartUps = initializeLoreBaseTester.mock.calls.length;
 const afterCommands = (type, options, isDryRun = false) => host.handlers.generation_after_commands(type, options, isDryRun);
 
-const LIGHTHOUSE = { uid: 0, comment: 'Lighthouse of Vell', content: 'The lighthouse stands on the north cliff of Vell.' };
-const TIDEWARDENS = { uid: 1, comment: 'Tidewardens', content: 'The tidewardens read the harbor bells.' };
+const LIGHTHOUSE = { uid: 0, comment: 'Lighthouse of Vell', content: '[Cliff]\nThe lighthouse stands on the north cliff of Vell.\n[Lamp]\nIts lamp burns through every storm.' };
+const TIDEWARDENS = { uid: 1, comment: 'Tidewardens', content: '[Duties]\nThe tidewardens read the harbor bells.\n[Ranks]\nA warden rises by the bells they read.' };
 const LAMP_RULES = { uid: 7, comment: 'Lamp Rules', content: 'The lamp is never left dark.' };
 const ON_PROFILE = {
     ok: true, provider: 'connection_profile', model: 'openai/gpt-6-luna', connectionProfileId: 'p-harbor', connectionProfilePage: 'WorldInfo',
@@ -131,11 +152,16 @@ beforeEach(() => {
     host.books = { 'Harbor Atlas': { entries: { 0: LIGHTHOUSE, 1: TIDEWARDENS } }, 'Keeper Notes': { entries: { 7: LAMP_RULES } }, 'Voyage Log': { entries: {} } };
     host.settings.vectfox = {
         lorebase_enabled: true,
+        vector_backend: 'qdrant',
         lorebase_books: { 'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] } },
     };
-    settings = { enabled: true, lorebase_enabled: true, lorebase_accuracy: 'default' };
+    settings = { enabled: true, lorebase_enabled: true, vector_backend: 'qdrant', lorebase_accuracy: 'default' };
     host.connection = ON_PROFILE;
     host.isWorldInfoSearchOn = false;
+    host.unkeyedUids = new Set();
+    host.keysReadError = null;
+    host.jevConnection = { ok: true, fields: { source: 'openrouter', model: 'typesafe/jev-1.14', secret_id: 'or-jev' } };
+    host.jevAnswer = { yes: { e1: 0.64, e2: 0.2 }, inputTokens: 40, usd: 0.00002 };
     // A fresh generation record for each test: a plain reply.
     afterCommands('normal', {});
 });
@@ -205,6 +231,29 @@ describe("LoreBase's switch and Vector Storage's World Info search (§5.9)", () 
     });
 });
 
+describe('Fast and cheap (D16)', () => {
+    it('asks Jev once about every keyed entry, asks Luna nothing, and sends its picks above 0.25 whole', async () => {
+        const lore = await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' });
+
+        expect(postChatCompletion).not.toHaveBeenCalled();
+        expect(askJev).toHaveBeenCalledTimes(1);
+        const [fields, state, questions] = askJev.mock.calls[0];
+        expect(fields).toEqual(host.jevConnection.fields);
+        expect(state).toBe("The chat so far. The last message is the user's; the next reply answers it.\n\nKeeper Orrin: The lamp is lit.\n\nWren: Who keeps it tonight?");
+        expect(questions.e1.instructions).toBe('Does the next reply need the lorebook entry "Lighthouse of Vell" (about: keys of Lighthouse of Vell)?');
+        expect(Object.keys(questions)).toEqual(['e1', 'e2']);
+        expect(lore.picks.map(pick => [pick.title, pick.yes])).toEqual([['Lighthouse of Vell', 0.64]]);
+        expect(lore.reviewedPicks.map(({ title, uses, sentParts }) => ({ title, uses, sentParts }))).toEqual([{ title: 'Lighthouse of Vell', uses: 'whole', sentParts: [1, 2] }]);
+    });
+
+    it('says where to choose Jev\'s profile when none can run, and sends no selected entry', async () => {
+        host.jevConnection = { ok: false, problem: 'Fast and cheap has no profile for Jev. Choose it under Jev profile in the LoreBase model card on the WorldInfo page.' };
+        expect(await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' })).toBeNull();
+        expect(askJev).not.toHaveBeenCalled();
+        expect(notifySetupIncomplete).toHaveBeenCalledWith('LoreBase', host.jevConnection.problem);
+    });
+});
+
 describe('the books taking part (D11)', () => {
     it("reads only the books SillyTavern loads that are locked to this chat or character, each with its selected entries", async () => {
         host.charLore = [{ name: 'keeper-orrin', extraBooks: ['Tide Tables'] }];
@@ -220,8 +269,30 @@ describe('the books taking part (D11)', () => {
         postChatCompletion.mockResolvedValue(pickOf());
         await prepareLoreForReply('normal', settings);
 
-        expect(userContent(0)).toContain("number and title.\n\n1. Tidewardens\n2. Lamp Rules\n\nPick the entries");
+        expect(userContent(0)).toContain("number and title.\n\n1. Tidewardens (keys of Tidewardens)\n2. Lamp Rules (keys of Lamp Rules)\n\nPick the entries");
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas', 'Keeper Notes']);
+    });
+
+    it('leaves out a selected entry whose keys are not written yet, so it sends nothing (D17)', async () => {
+        host.unkeyedUids = new Set(['Harbor Atlas/0']);
+        postChatCompletion.mockResolvedValue(pickOf());
+        await prepareLoreForReply('normal', settings);
+
+        expect(userContent(0)).toContain('number and title.\n\n1. Tidewardens (keys of Tidewardens)\n\nPick the entries');
+    });
+
+    it('runs no pick when no selected entry has keys', async () => {
+        host.unkeyedUids = new Set(['Harbor Atlas/0', 'Harbor Atlas/1']);
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(postChatCompletion).not.toHaveBeenCalled();
+    });
+
+    it('goes on without the selected entries when their keys cannot be read, with the toast a failed pick shows', async () => {
+        host.keysReadError = new Error("Similharity could not read LoreBase's keys (HTTP 500): Qdrant is not set up");
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(postChatCompletion).not.toHaveBeenCalled();
+        expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('none of the entries selected for LoreBase go in');
+        expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('Qdrant is not set up');
     });
 
     it('keeps a book locked to a character through a rename, which gives the character a new avatar file name', async () => {
@@ -288,7 +359,7 @@ describe("the calls on LoreBase's connection", () => {
         expect(reviewRequest).toMatchObject({ ...sent, maxTokens: 10000, reasoningEffort: null });
         for (const request of [pickRequest, reviewRequest]) expect(request).not.toHaveProperty('temperature');
         expect(userContent(1)).toContain('Entry 1: Tidewardens\nYour reason: it is asked after You wanted: who keeps it');
-        expect(lore.reviewedPicks).toMatchObject([{ bookName: 'Harbor Atlas', uid: 1, uses: 'most', sentParts: [1] }]);
+        expect(lore.reviewedPicks).toMatchObject([{ bookName: 'Harbor Atlas', uid: 1, uses: 'most', sentParts: [1, 2] }]);
     });
 
     it('reads the answer, not the reasoning a thinking model writes before it', async () => {
@@ -425,7 +496,10 @@ describe('the tester (§5.10)', () => {
         expect(recordReplyReport).toHaveBeenCalledTimes(1);
         const [{ lore, books, type, accuracy, seconds }] = recordReplyReport.mock.calls[0];
         expect(lore.picks.map(pick => pick.title)).toEqual(['Tidewardens']);
-        expect(books).toEqual([{ bookName: 'Harbor Atlas', entries: [LIGHTHOUSE, TIDEWARDENS], pinnedSections: [] }]);
+        expect(books).toEqual([{
+            bookName: 'Harbor Atlas', entries: [LIGHTHOUSE, TIDEWARDENS], pinnedSections: [],
+            keysByUid: { 0: ['keys of Lighthouse of Vell'], 1: ['keys of Tidewardens'] },
+        }]);
         expect([type, accuracy]).toEqual(['swipe', 'default']);
         expect(seconds).toBeGreaterThanOrEqual(0);
         expect(keepReplyScan).toHaveBeenCalledWith(lore, { chat: replyChat, maxContext: 8000, type: 'swipe' });

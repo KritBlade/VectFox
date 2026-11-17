@@ -1,13 +1,14 @@
 /**
  * LoreBase on a reply, the pure rules (src/features/lorebase/lorebase-reply-core.js, plan §5.6, §5.8 and D8 of
  * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): which generations get a pick, the books
- * taking part and the entries LoreBase decides in them, the pick and one review per pick sent at once as the route
- * trials sent them, what a failed call leaves out (D14), and the toast that says so.
+ * taking part and the entries LoreBase decides in them, the pick with each entry's keys and one review per pick of more
+ * than one part sent at once as the route trials sent them, a one-part or template-code pick sent whole with no review
+ * (T20), what a failed call leaves out (D14), and the toast that says so.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { pickMessages, tableOfContents } from '../src/features/lorebase/lorebase-pick-core.js';
 import {
-    activeBookNames, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort,
+    SENT_WHOLE_UNREVIEWED, activeBookNames, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort,
 } from '../src/features/lorebase/lorebase-reply-core.js';
 import { reviewMessages } from '../src/features/lorebase/lorebase-review-core.js';
 import { entryPassages } from '../src/features/lorebase/lorebase-splitter.js';
@@ -75,8 +76,8 @@ describe("the review's reasoning effort", () => {
 describe("a reply's pick and reviews", () => {
     const scene = 'Wren: Who keeps the lamp at Vell tonight?';
     const lighthouse = { uid: 0, comment: 'Lighthouse of Vell', content: '[Overview]\nThe lighthouse stands on the north cliff of Vell.\n[Keepers]\nKeeper Orrin tends the lamp each night.\n[History]\nIt was raised after the long storm.' };
-    const tidewardens = { uid: 1, comment: 'Tidewardens', content: 'The tidewardens read the harbor bells.' };
-    const fogSeason = { uid: 4, comment: 'Fog Season', content: 'Fog closes the strait for a month each spring.' };
+    const tidewardens = { uid: 1, comment: 'Tidewardens', content: '[Duties]\nThe tidewardens read the harbor bells.\n[Ranks]\nA warden rises by the bells they read.' };
+    const fogSeason = { uid: 4, comment: 'Fog Season', content: '[Season]\nFog closes the strait for a month each spring.\n[Crossings]\nFerries wait at the pier until it lifts.' };
     const harborAtlas = { bookName: 'Harbor Atlas', entries: [lighthouse, tidewardens], pinnedSections: [] };
     const wrenJournal = { bookName: 'Wren Journal', entries: [fogSeason], pinnedSections: [] };
     const pickItem = (number, why = `why ${number}`) => ({ number, basis: 'named in the chat', certain: true, why, needs: `needs ${number}` });
@@ -108,7 +109,7 @@ describe("a reply's pick and reviews", () => {
         expect(lore.contentCount).toBe(3);
         expect(lore.picks.map(pick => pick.title)).toEqual(['Fog Season', 'Lighthouse of Vell']);
         expect(lore.reviewedPicks.map(({ bookName, uid, uses, sentParts }) => ({ bookName, uid, uses, sentParts }))).toEqual([
-            { bookName: 'Wren Journal', uid: 4, uses: 'some', sentParts: [1] },
+            { bookName: 'Wren Journal', uid: 4, uses: 'some', sentParts: [1, 2] },
             { bookName: 'Harbor Atlas', uid: 0, uses: 'some', sentParts: [1, 2] },
         ]);
         expect(lore.failures).toEqual([]);
@@ -133,6 +134,32 @@ describe("a reply's pick and reviews", () => {
             { title: 'Tidewardens', sentParts: [] },
         ]);
         expect(lore.failures).toEqual([]);
+    });
+
+    it('sends a one-part pick and one with template code whole, with no review, as T20 sent them', async () => {
+        const ferryTolls = { uid: 5, comment: 'Ferry Tolls', content: 'The ferry costs two copper bits a head.' };
+        const tideTable = { uid: 6, comment: 'Tide Table', content: '[High]\n<% if (tide) { %>The tide is high.<% } %>\n[Low]\nThe flats show at low tide.' };
+        const book = { bookName: 'Harbor Atlas', entries: [ferryTolls, tideTable, tidewardens], pinnedSections: [] };
+        const ask = vi.fn(async (_messages, request) => (isPick(request) ? [pickItem(1), pickItem(2), pickItem(3)] : [{ entry: 1, uses: 'most', leave_out: [2] }]));
+        const lore = await loreForReply({ scene, books: [book], reviewEffort: 'low', ask });
+
+        expect(entryPassages(ferryTolls).passages).toHaveLength(1);
+        expect(entryPassages(tideTable).passages.length).toBeGreaterThan(1);
+        // The pick, and one review: Tidewardens'.
+        expect(ask).toHaveBeenCalledTimes(2);
+        expect(ask.mock.calls[1][0][1].content).toContain('Entry 1: Tidewardens');
+        expect(lore.reviewedPicks.map(({ title, uses, sentParts, seconds }) => ({ title, uses, sentParts, seconds }))).toEqual([
+            { title: 'Ferry Tolls', uses: SENT_WHOLE_UNREVIEWED, sentParts: [1], seconds: null },
+            { title: 'Tide Table', uses: SENT_WHOLE_UNREVIEWED, sentParts: entryPassages(tideTable).passages.map((_, index) => index + 1), seconds: null },
+            { title: 'Tidewardens', uses: 'most', sentParts: [1], seconds: expect.any(Number) },
+        ]);
+    });
+
+    it("shows each entry's keys after its title in the pick", async () => {
+        const keyed = { ...harborAtlas, keysByUid: { 0: ['lighthouse', 'Keeper Orrin'], 1: ['tidewardens', 'harbor bells'] } };
+        const ask = vi.fn(async () => []);
+        await loreForReply({ scene, books: [keyed], reviewEffort: 'low', ask });
+        expect(ask.mock.calls[0][0][1].content).toContain('1. Lighthouse of Vell (lighthouse, Keeper Orrin)\n2. Tidewardens (tidewardens, harbor bells)\n');
     });
 
     it('asks no review when the pick names none', async () => {
@@ -172,7 +199,7 @@ describe("a reply's pick and reviews", () => {
             return [{ entry: 1, uses: 'most', leave_out: [] }];
         });
         const lore = await loreForReply({ scene, books: [harborAtlas], reviewEffort: 'low', ask });
-        expect(lore.reviewedPicks.map(({ title, sentParts }) => ({ title, sentParts }))).toEqual([{ title: 'Tidewardens', sentParts: [1] }]);
+        expect(lore.reviewedPicks.map(({ title, sentParts }) => ({ title, sentParts }))).toEqual([{ title: 'Tidewardens', sentParts: [1, 2] }]);
         expect(lore.failures).toEqual([{
             step: 'review', bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', detail: 'LoreBase: OpenRouter HTTP 429: Too Many Requests', error,
             seconds: expect.any(Number),

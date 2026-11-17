@@ -9,7 +9,8 @@
  * Agent Mode and Auto-Reformat on Same as EventBase model name the EventBase model's profile; embedding never stores the
  * profile option itself, opens on it for a new install's Custom type with no profile, choosing a profile stores its ID
  * and type, and its readout is drawn again once the Similharity probe settles; each Test connection runs its feature's
- * test on the panel's settings and reports the answer.
+ * test on the panel's settings and reports the answer; LoreBase's Jev profile row shows only on Fast and cheap, offers
+ * only OpenRouter and Custom profiles, saves the choice and says what keeps it from running.
  */
 /* global document, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -25,7 +26,8 @@ const host = vi.hoisted(() => ({
     resolvedEmbedding: null,
     probe: null,
     backend: null,
-    tests: { eventbase: null, agent: null, reformat: null, storyarc: null, lorebase: null },
+    tests: { eventbase: null, agent: null, reformat: null, storyarc: null, lorebase: null, jev: null },
+    jevProblem: null,
 }));
 
 vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
@@ -42,7 +44,12 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     testEventBaseConnection: (...args) => host.tests.eventbase(...args),
     testStoryArcConnection: (...args) => host.tests.storyarc(...args),
 }));
-vi.mock('../src/features/lorebase/index.js', () => ({ testLoreBaseConnection: (...args) => host.tests.lorebase(...args) }));
+vi.mock('../src/features/lorebase/index.js', () => ({
+    testLoreBaseConnection: (...args) => host.tests.lorebase(...args),
+    testJevConnection: (...args) => host.tests.jev(...args),
+    JEV_PROFILE_SETTING: 'lorebase_jev_connection_profile_id',
+    resolveJevConnection: () => (host.jevProblem ? { ok: false, problem: host.jevProblem } : { ok: true, fields: {} }),
+}));
 vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: vi.fn(async () => host.backend) }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: () => host.probe }));
 vi.mock('../src/features/embedding/index.js', async () => {
@@ -117,6 +124,7 @@ beforeEach(() => {
     host.resolvedEmbedding = null;
     host.probe = Promise.resolve(true);
     host.backend = null;
+    host.jevProblem = null;
     for (const name of Object.keys(host.tests)) host.tests[name] = vi.fn(async () => ({ content: 'OK', cutReason: null }));
     host.context = {
         extensionSettings: { disabledExtensions: [], connectionManager: { profiles: profileFixtures() } },
@@ -279,6 +287,40 @@ describe('a chat consumer\'s Provider dropdown', () => {
     });
 });
 
+describe("LoreBase's Jev profile (Fast and cheap, D16)", () => {
+    const JEV_ROWS = 'VectFox_lorebase_jev_connection_profile_rows';
+    const JEV_SELECT = 'VectFox_lorebase_jev_connection_profile';
+
+    it('shows only on Fast and cheap, offers the OpenRouter and Custom profiles, and saves the choice', () => {
+        const settings = mount({ ...baseSettings(), lorebase_accuracy: 'default', lorebase_jev_connection_profile_id: '' });
+        expect(isShown(element(JEV_ROWS))).toBe(false);
+        expect(isShown(element('VectFox_lorebase_jev_test'))).toBe(false);
+
+        choose('VectFox_lorebase_accuracy', 'fast');
+        expect(isShown(element(JEV_ROWS))).toBe(true);
+        expect(isShown(element('VectFox_lorebase_jev_test'))).toBe(true);
+        expect(optionsOf(JEV_SELECT).filter(option => !option.isDisabled).map(option => option.value)).toEqual(['p-harbor', 'p-lantern']);
+
+        choose(JEV_SELECT, 'p-lantern');
+        expect(settings.lorebase_jev_connection_profile_id).toBe('p-lantern');
+        expect(host.saveSettingsDebounced).toHaveBeenCalled();
+
+        choose('VectFox_lorebase_accuracy', 'high');
+        expect(isShown(element(JEV_ROWS))).toBe(false);
+    });
+
+    it('reads out what keeps the chosen profile from running, and runs Jev\'s own Test connection', async () => {
+        host.jevProblem = "Jev's profile \"Lantern\" names no model.";
+        const settings = mount({ ...baseSettings(), lorebase_accuracy: 'fast', lorebase_jev_connection_profile_id: 'p-lantern' });
+        expect(linesOf('VectFox_lorebase_jev_connection_profile_readout')).toEqual(["Jev's profile \"Lantern\" names no model."]);
+
+        element('VectFox_lorebase_jev_test_connection').click();
+        await settle();
+        expect(host.tests.jev).toHaveBeenCalledWith(settings);
+        expect(toastr.success).toHaveBeenCalledWith('OK', 'Jev: the connection works', expect.any(Object));
+    });
+});
+
 describe('embedding\'s Provider dropdown', () => {
     it('stores nothing for the SillyTavern profile option itself, and lists only Ollama, llama.cpp, KoboldCPP and Custom profiles', () => {
         const settings = mount(baseSettings());
@@ -378,7 +420,7 @@ describe('Test connection', () => {
         host.tests.agent = vi.fn(async () => { throw new Error('Agent Mode is on, but it has no model.'); });
         host.tests.reformat = vi.fn(async () => ({ content: 'OK', cutReason: 'length' }));
 
-        for (const prefix of ['VectFox_summarize', 'VectFox_agentic', 'VectFox_reformat', 'VectFox_story_arc_link', 'VectFox_lorebase']) {
+        for (const prefix of ['VectFox_summarize', 'VectFox_agentic', 'VectFox_reformat', 'VectFox_story_arc_link', 'VectFox_lorebase', 'VectFox_lorebase_jev']) {
             element(`${prefix}_test_connection`).click();
         }
         await settle();

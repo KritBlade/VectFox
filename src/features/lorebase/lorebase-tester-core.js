@@ -18,6 +18,7 @@ import { entryTitle } from './lorebase-splitter.js';
  * @property {boolean|null} certain - Whether Luna said the reply will certainly draw on it
  * @property {string} why - Luna's one sentence on why the reply needs it
  * @property {string} needs - What Luna wanted from it
+ * @property {number|null} yes - On Fast and cheap, Jev's chance of yes for it (D16); null for Luna's picks
  * @property {string} wholeText - The entry as SillyTavern sends it whole
  * @property {{uses: string, seconds: number, parts: Array<{text: string, isSent: boolean}>, sentText: string}|null}
  *   review - What its review kept, and the text the pick sends: '' when it keeps no part; null when the review failed
@@ -64,7 +65,10 @@ export function replyReport({ lore, books, seconds }) {
             sentText: delivery ? (delivery.isWhole ? wholeText : withoutDecoratorLines(delivery.text)) : '',
         } : null;
         const { bookName, uid, title, basis, certain, why, needs } = pick;
-        return { bookName, uid, title, basis, certain, why, needs, wholeText, review, failure: failureOf.get(key)?.detail ?? null, isInPrompt: null };
+        return {
+            bookName, uid, title, basis, certain, why, needs, yes: Number.isFinite(pick.yes) ? pick.yes : null, wholeText, review,
+            failure: failureOf.get(key)?.detail ?? null, isInPrompt: null,
+        };
     });
     const picked = new Set(picks.map(pick => scanKey(pick.bookName, pick.uid)));
     const skipped = books.flatMap(({ bookName, entries }) => entries

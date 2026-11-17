@@ -32,6 +32,16 @@ export function getLoreBook(bookName) {
     return extension_settings.vectfox[BOOKS_KEY]?.[bookName] ?? null;
 }
 
+/**
+ * The names of the books with entries selected for LoreBase, as their records hold them.
+ * @returns {string[]}
+ */
+export function selectedLoreBookNames() {
+    return Object.entries(extension_settings.vectfox[BOOKS_KEY] ?? {})
+        .filter(([, record]) => record?.selectedUids?.length)
+        .map(([bookName]) => bookName);
+}
+
 function recordFor(bookName) {
     const books = allBooks();
     books[bookName] ??= emptyRecord();

@@ -6,7 +6,8 @@
  * §1, §3): what each saves, the SillyTavern profile option with the Profile dropdown
  * and readout it shows, the rows a profile supplies hidden while one is chosen, the
  * profile Agent Mode and Auto-Reformat take from the EventBase model, and each card's
- * Test connection. The Profile dropdowns repaint when a profile is made, saved or
+ * Test connection; and LoreBase's Fast and cheap row, Jev's profile, shown on that
+ * choice only. The Profile dropdowns repaint when a profile is made, saved or
  * deleted in SillyTavern, and embedding's readout once the Similharity probe settles.
  * ============================================================================
  */
@@ -23,11 +24,16 @@ import { testAutoReformatConnection } from '../chunkbase/index.js';
 import { embeddingProfileKind, resolveEmbeddingProfile } from '../embedding/index.js';
 import { testAgentModeConnection, testEventBaseConnection, testStoryArcConnection } from '../eventbase/index.js';
 import { describeChatConnectionProfile, resolveInheritedConnection } from '../llm-provider/index.js';
-import { testLoreBaseConnection } from '../lorebase/index.js';
+import { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection, testLoreBaseConnection } from '../lorebase/index.js';
 import { getBackend } from '../vector-backend/index.js';
 import { CHAT_CONSUMER_CONNECTIONS, chatProfileReadoutLines, embeddingProfileReadoutLines, ownProviderOf, profileSelectOptions } from './connection-rows-core.js';
 
 const EMBEDDING_PREFIX = 'VectFox_embedding';
+const JEV_PREFIX = 'VectFox_lorebase_jev';
+const ACCURACY_SELECT_ID = 'VectFox_lorebase_accuracy';
+const FAST_AND_CHEAP_CHOICE = 'fast';
+// The profiles Jev runs on: OpenRouter and Custom, whose key Similharity sends only where SillyTavern does.
+const isJevProfileSource = provider => provider === 'openrouter' || provider === 'custom';
 
 /** What embedding's Test connection embeds: a fixed line, so a test never carries chat text. */
 const EMBEDDING_TEST_TEXT = 'This is a connection test from VectFox.';
@@ -169,6 +175,25 @@ function refreshEmbedding(choice, settings, isManagerAvailable) {
     }));
 }
 
+/**
+ * Show Jev's profile row while LoreBase's dropdown is on Fast and cheap (plan D16), offering the OpenRouter and Custom
+ * profiles, with what keeps the chosen one from running.
+ * @param {object} settings
+ * @param {boolean} isManagerAvailable
+ * @param {string} accuracy - The dropdown's choice: the saved one, or the one just picked, which another listener saves
+ */
+function refreshJevRow(settings, isManagerAvailable, accuracy) {
+    const ids = connectionProfileRowIds(JEV_PREFIX);
+    const isFastAndCheap = accuracy === FAST_AND_CHEAP_CHOICE;
+    setShown(byId(ids.rows), isFastAndCheap);
+    setShown(byId('VectFox_lorebase_jev_test'), isFastAndCheap);
+    if (!isFastAndCheap) return;
+    const profiles = profilesFor(isManagerAvailable, choice => isJevProfileSource(choice.embeddingProvider));
+    paintProfileSelect(byId(ids.select), { profiles, selectedId: textOf(settings[JEV_PROFILE_SETTING]), isManagerAvailable });
+    const connection = resolveJevConnection(settings);
+    paintReadout(byId(ids.readout), connection.ok ? [] : [{ status: 'warning', name: connection.problem }]);
+}
+
 /** Embedding's Test connection: the fixed line embedded as a query is, on the active backend. */
 async function testEmbeddingConnection(settings) {
     const backend = await getBackend(settings);
@@ -197,7 +222,7 @@ async function runConnectionTest(button, feature, test) {
 }
 
 /**
- * Wire the six Provider dropdowns, their profile rows and their Test connection buttons.
+ * Wire the six Provider dropdowns, their profile rows and their Test connection buttons, and Jev's profile row.
  *
  * @param {object} settings - The settings panel's settings object
  * @param {{onEmbeddingProviderChange: () => void}} hooks - Runs after embedding's provider or profile is saved
@@ -255,12 +280,30 @@ export function wireConnectionRows(settings, { onEmbeddingProviderChange }) {
         runConnectionTest(this, 'Embedding', () => testEmbeddingConnection(settings));
     });
 
+    const jevIds = connectionProfileRowIds(JEV_PREFIX);
+    let shownAccuracy = textOf(settings.lorebase_accuracy);
+    const refreshJev = () => refreshJevRow(settings, isConnectionManagerAvailable(), shownAccuracy);
+    $(`#${jevIds.select}`).on('change', function () {
+        settings[JEV_PROFILE_SETTING] = String($(this).val());
+        save(settings);
+        refreshJev();
+    });
+    $(`#${jevIds.testButton}`).on('click', function () {
+        runConnectionTest(this, 'Jev', () => testJevConnection(settings));
+    });
+    $(`#${ACCURACY_SELECT_ID}`).on('change', function () {
+        shownAccuracy = String($(this).val());
+        refreshJev();
+    });
+
     onConnectionProfilesChanged(() => {
         refreshChatConsumers();
         refreshEmbeddingRows();
+        refreshJev();
     });
     refreshChatConsumers();
     refreshEmbeddingRows();
+    refreshJev();
     // A llama.cpp, KoboldCPP or Custom profile's readout reads the Similharity probe, which may not have settled when
     // the panel is drawn at startup, so the readout is drawn again once it has.
     checkPluginAvailable().then(refreshEmbeddingRows, error => {

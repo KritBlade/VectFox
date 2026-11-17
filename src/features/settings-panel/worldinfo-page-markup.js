@@ -37,11 +37,16 @@ function loreBaseBooksCard() {
     </section>`;
 }
 
-// LoreBase's own model (plan §5.6), and its Accuracy: the review at low reasoning effort, or at the model's default (D6).
+// LoreBase's own model (plan §5.6), and its Accuracy: the review at low reasoning effort or at the model's default (D6),
+// or Fast and cheap, Jev on a profile of its own (D16), whose row shows only on that choice.
 function loreBaseModelCard() {
     const accuracy = select({
         id: 'VectFox_lorebase_accuracy',
-        options: [selectOption({ value: 'default', text: 'Default Accuracy' }), selectOption({ value: 'high', text: 'High Accuracy' })],
+        options: [
+            selectOption({ value: 'default', text: 'Default Accuracy' }),
+            selectOption({ value: 'high', text: 'High Accuracy' }),
+            selectOption({ value: 'fast', text: 'Fast and cheap (Jev)' }),
+        ],
     });
     return `<section id="VectFox_lorebase_model_card" class="vfx-card">
         ${cardHeader({ icon: 'fa-plug', title: 'LoreBase model', description: 'The model that picks the selected entries a reply needs, and trims each one.' })}
@@ -56,10 +61,12 @@ function loreBaseModelCard() {
             ${field([
                 fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
                 accuracy,
-                hint({ text: 'Default Accuracy answers a few seconds sooner; High Accuracy leaves out less lore.' }),
-                detail({ text: 'Each picked entry is reviewed at low reasoning effort on Default Accuracy, and at the model\'s own effort on High Accuracy.' }),
+                hint({ text: 'Default Accuracy is quicker, High leaves out less, and Fast and cheap is quickest of all.' }),
+                detail({ text: 'Each picked entry of more than one part is reviewed at low reasoning effort on Default Accuracy, and at the model\'s own effort on High Accuracy. Fast and cheap asks Jev, a decisions model, instead: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole, so the reply reads more lore. The model above still writes each entry\'s keys when it is turned on.' }),
             ], { isSpan: true })}
             ${testConnectionButton('VectFox_lorebase', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' })}
+            ${connectionProfileRows('VectFox_lorebase_jev', { hintText: 'An OpenRouter or Custom profile whose model is Jev. Its key stays in SillyTavern.' })}
+            <div id="VectFox_lorebase_jev_test" class="vfx-span" style="display:none;">${testConnectionButton('VectFox_lorebase_jev', { hintText: 'Asks Jev one made-up question, never your chat.' })}</div>
         </div>
     </section>`;
 }
@@ -181,6 +188,8 @@ const USES_PILLS = {
     most: { text: 'Uses most', status: 'success' },
     some: { text: 'Uses some', status: 'accent' },
     none: { text: 'Uses none', status: 'neutral' },
+    // One part or template code: sent whole, with no review (T20's one_part_whole).
+    whole: { text: 'Sent whole, not reviewed', status: 'neutral' },
 };
 
 function pickPills(pick) {
@@ -208,12 +217,14 @@ function pickRecord(pick, index, report) {
     if (pick.review) {
         const keptCount = pick.review.parts.filter(part => part.isSent).length;
         const tokens = counts ? `, ${formatCount(counts.sent)} of ${formatCount(counts.whole)} tokens` : '';
-        sends = { text: 'Sends', name: `${formatCount(keptCount)} of ${formatCount(pick.review.parts.length)} parts${tokens}, reviewed in ${formatSeconds(pick.review.seconds)}` };
+        const review = pick.review.seconds === null ? 'not reviewed' : `reviewed in ${formatSeconds(pick.review.seconds)}`;
+        sends = { text: 'Sends', name: `${formatCount(keptCount)} of ${formatCount(pick.review.parts.length)} parts${tokens}, ${review}` };
     }
     return recordCard({
         icon: 'fa-book', name: pick.title, pills: pickPills(pick),
         body: resultList({ lines: [
             { text: 'Book', name: pick.bookName },
+            { text: 'Jev rated it', name: Number.isFinite(pick.yes) ? pick.yes.toFixed(2) : null },
             { text: 'Basis', name: pick.basis },
             { text: 'Why', name: pick.why },
             { text: 'Wants', name: pick.needs },

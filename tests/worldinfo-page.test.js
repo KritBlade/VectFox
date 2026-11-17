@@ -16,6 +16,8 @@ const { loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, worldI
 const WIRED_IDS = [
     'VectFox_lorebase_enabled', 'VectFox_lorebase_off_notice', 'VectFox_lorebase_books_card', 'VectFox_lorebase_books',
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
+    'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
+    'VectFox_lorebase_jev_test', 'VectFox_lorebase_jev_test_connection',
     'VectFox_lorebase_tester_card', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
 ];
 // The old vector search's controls, deleted with it.
@@ -27,6 +29,13 @@ const OLD_SEARCH_IDS = [
 describe('WorldInfo page markup', () => {
     beforeEach(() => {
         document.body.innerHTML = `<div id="VectFox_settings">${worldInfoPageMarkup()}</div>`;
+    });
+
+    it('offers Default Accuracy, High Accuracy and Fast and cheap, and hides Jev\'s profile row until it is chosen (D16)', () => {
+        expect([...document.getElementById('VectFox_lorebase_accuracy').options].map(option => [option.value, option.textContent]))
+            .toEqual([['default', 'Default Accuracy'], ['high', 'High Accuracy'], ['fast', 'Fast and cheap (Jev)']]);
+        expect(document.getElementById('VectFox_lorebase_jev_connection_profile_rows').style.display).toBe('none');
+        expect(document.getElementById('VectFox_lorebase_jev_test').style.display).toBe('none');
     });
 
     it('gives every wired control its own id, once', () => {
@@ -183,6 +192,27 @@ describe("the tester's report (§5.10)", () => {
         ]);
         expect(parts.querySelector('.vfx-collapse')).not.toBeNull();
         expect(document.querySelector('[data-lorebase-skipped] .vfx-collapse')).not.toBeNull();
+    });
+
+    it('shows a one-part pick as sent whole with no review (T20), with no review time', () => {
+        const ferry = {
+            ...lighthouse, title: 'Ferry Tolls',
+            review: { uses: 'whole', seconds: null, parts: [{ text: 'The ferry costs two copper bits.', isSent: true }], sentText: 'The ferry costs two copper bits.' },
+        };
+        const { records } = drawn({ ...measured, picks: [ferry], failures: [], tokens: { ...measured.tokens, picks: [{ sent: 9, whole: 9 }] } });
+        expect(records[0].pills).toEqual(['Certain', 'Sent whole, not reviewed']);
+        expect(records[0].lines.at(-1)).toBe('Sends: 1 of 1 parts, 9 of 9 tokens, not reviewed');
+    });
+
+    it("shows Jev's rating on a Fast and cheap pick, which has no reasons of Luna's (D16)", () => {
+        const jevPick = {
+            bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', basis: undefined, certain: undefined, why: undefined, needs: undefined, yes: 0.64,
+            wholeText: 'The lighthouse stands on the north cliff.', failure: null, isInPrompt: true,
+            review: { uses: 'whole', seconds: null, parts: [{ text: 'The lighthouse stands on the north cliff.', isSent: true }], sentText: 'The lighthouse stands on the north cliff.' },
+        };
+        const { records } = drawn({ ...measured, accuracy: 'fast', picks: [jevPick], failures: [], tokens: { ...measured.tokens, picks: [{ sent: 9, whole: 9 }] } });
+        expect(records[0].pills).toEqual(['Sent whole, not reviewed']);
+        expect(records[0].lines).toEqual(['Book: Harbor Atlas', 'Jev rated it: 0.64', 'Sends: 1 of 1 parts, 9 of 9 tokens, not reviewed']);
     });
 
     it("marks a pick SillyTavern's World Info budget cut, and names each entry's book when the reply read several", () => {

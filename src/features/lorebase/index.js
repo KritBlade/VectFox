@@ -18,6 +18,7 @@
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { chatBookLocks } from './lorebase-chat-books.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
+export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval } from './lorebase-reply.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';

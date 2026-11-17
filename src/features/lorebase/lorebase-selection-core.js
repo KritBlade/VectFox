@@ -5,6 +5,7 @@
  * the ticks the bulk bar acts on; what the bar and a category's toggle select; the entries new since the book was last
  * opened; the footer's count and title tokens; and the section names a book can pin. Pure: no SillyTavern, no DOM.
  */
+import { contentsLine } from './lorebase-pick-core.js';
 import { decidedEntries } from './lorebase-reply-core.js';
 import { hasTemplateCode } from './lorebase-review-core.js';
 import { INTRO_SECTION, entryCategory, entryTitle, estimatedTokens, splitEntry } from './lorebase-splitter.js';
@@ -300,15 +301,17 @@ export function seenUidsOf(book) {
 }
 
 /**
- * The footer: how many entries the pick reads from this book, and about how many tokens their lines add to the
- * table of contents of every pick.
+ * The footer: how many entries the pick reads from this book, and about how many tokens their lines, each a title and
+ * its keys, add to the table of contents of every pick.
  * @param {{entries?: object}|null} book
  * @param {{selectedUids: string[]}|null} record
+ * @param {(uid: string) => string[]} [keysOf] - An entry's keys, none when not written
  * @returns {{entryCount: number, titleTokens: number}}
  */
-export function selectionFooter(book, record) {
+export function selectionFooter(book, record, keysOf = () => []) {
     const entries = decidedEntries(book, record);
-    const titleTokens = entries.reduce((total, entry, index) => total + estimatedTokens(`${index + 1}. ${entryTitle(entry)}`), 0);
+    const titleTokens = entries.reduce((total, entry, index) => total
+        + estimatedTokens(`${index + 1}. ${contentsLine({ title: entryTitle(entry), keys: keysOf(String(entry.uid)) })}`), 0);
     return { entryCount: entries.length, titleTokens };
 }
 

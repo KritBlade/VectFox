@@ -1,0 +1,45 @@
+/**
+ * The keys LoreBase's model writes for each entry turned on (plan D17 and §5.6 of InternalProject/Vectfox/plans/
+ * lorebook-semantic-overhaul-passage-index.md) are asked with T20's prompt word for word, for as many keys as T20 asked,
+ * and read as T20 read them. The fixture holds made-up entries and the prompts segment_trials.py itself renders from
+ * them; InternalProject/Vectfox/tools/lorebase-benchmark/export_trial_prompts.py writes it.
+ */
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { keyCount, keysMessages, readKeys } from '../src/features/lorebase/lorebase-keys-core.js';
+
+const fixture = JSON.parse(readFileSync(new URL('./fixtures/lorebase-trial-prompts.json', import.meta.url), 'utf8'));
+const entriesByUid = new Map([...fixture.entries, fixture.keys.longEntry].map(entry => [entry.uid, entry]));
+
+describe("T20's keys prompt, word for word", () => {
+    it('asks for each made-up entry as segment_trials.py renders it, its count included', () => {
+        expect(fixture.keys.entries.length).toBe(5);
+        for (const { uid, count, prompt } of fixture.keys.entries) {
+            const entry = entriesByUid.get(uid);
+            expect(keyCount(entry)).toBe(count);
+            expect(keysMessages(entry)).toEqual([
+                { role: 'system', content: fixture.keys.system },
+                { role: 'user', content: prompt },
+            ]);
+        }
+    });
+
+    it('asks a long entry for one key every 150 tokens, and a short one for 6', () => {
+        expect(fixture.keys.entries.find(item => item.uid === 9).count).toBe(8);
+        expect(keyCount({ content: 'A short entry.' })).toBe(6);
+        expect(keyCount({})).toBe(6);
+    });
+});
+
+describe('reading the keys', () => {
+    it('keeps the strings of keys, trimmed, each once, up to the count', () => {
+        expect(readKeys([{ keys: [' lighthouse ', 'keeper', 'lighthouse', '', 7, 'harbor', 'tide'] }], 3)).toEqual(['lighthouse', 'keeper', 'harbor']);
+    });
+
+    it('reads an answer with no keys as none, so it is asked again', () => {
+        expect(readKeys([{ keys: [] }], 6)).toBeNull();
+        expect(readKeys([{ keys: ['  '] }], 6)).toBeNull();
+        expect(readKeys([{ names: ['harbor'] }], 6)).toBeNull();
+        expect(readKeys([], 6)).toBeNull();
+    });
+});

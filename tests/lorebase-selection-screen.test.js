@@ -5,13 +5,19 @@
  * plans/lorebook-semantic-overhaul-passage-index.md), driven as a user would while it is open: it opens on the chat's
  * book with the chat's books first; each row's toggle, a category's toggle and the bulk bar save the selection at
  * once; ticks follow the filters and shift-click; a row's eye button shows its entry and saves nothing; the locks and
- * the pins save; opening a book keeps its uids for the new marks and drops deleted ones from the selection.
+ * the pins save; opening a book keeps its uids for the new marks and drops deleted ones from the selection; turning
+ * entries on writes their keys, each selected row shows where its keys stand, Write keys again writes the ticked
+ * entries' keys anew, and when keys cannot be written turning entries on says why and selects nothing (D17).
  */
 /* global document, MouseEvent -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import $ from 'jquery';
 
-const host = vi.hoisted(() => ({ books: {}, worldNames: [], globalBooks: [], context: null, chatId: 'chat-harbor', settings: { vectfox: {} }, noticePopup: vi.fn() }));
+const host = vi.hoisted(() => ({
+    books: {}, worldNames: [], globalBooks: [], context: null, chatId: 'chat-harbor', settings: { vectfox: {} }, noticePopup: vi.fn(),
+    // The key store: each entry's state by "book/uid", why keys cannot be written, its listeners and the writes asked.
+    keyStates: new Map(), keyProblem: null, keyListeners: new Set(), keyWrites: [],
+}));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({
@@ -32,6 +38,18 @@ vi.mock('../src/sillytavern/world-info.js', () => ({
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => host.context, getCurrentChatId: () => host.chatId }));
 vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: () => 'keeper-orrin' }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
+    keyStateOf: (bookName, uid) => host.keyStates.get(`${bookName}/${uid}`) ?? { status: 'missing' },
+    keyWritingProblem: () => host.keyProblem,
+    onKeyStateChange: listener => {
+        host.keyListeners.add(listener);
+        return () => host.keyListeners.delete(listener);
+    },
+    readBookKeys: async () => ({}),
+    writeKeys: async (bookName, entries, settings, options) => {
+        host.keyWrites.push({ bookName, uids: entries.map(entry => String(entry.uid)), isAgain: Boolean(options?.isAgain) });
+    },
+}));
 
 const { openLoreBaseSelection } = await import('../src/features/lorebase/lorebase-selection-screen.js');
 
@@ -72,6 +90,10 @@ beforeEach(() => {
     host.context = { characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png', data: { extensions: { world: 'Harbor Atlas' } } } }, characterId: '3', chatMetadata: {}, powerUserSettings: {} };
     host.settings.vectfox = {};
     host.noticePopup.mockReset();
+    host.keyStates = new Map();
+    host.keyProblem = null;
+    host.keyListeners.clear();
+    host.keyWrites = [];
 });
 
 describe('opening the screen', () => {
@@ -95,6 +117,68 @@ describe('opening the screen', () => {
     });
 });
 
+describe('keys (D17)', () => {
+    const rowText = uid => document.querySelector(`[data-lorebase-entry="${uid}"]`).textContent;
+    const tellKeyListeners = bookName => host.keyListeners.forEach(listener => listener(bookName));
+
+    it('writes the keys of an entry turned on, and its row shows them once they are written', async () => {
+        await openScreen();
+        entryToggle('1').click();
+        expect(host.keyWrites).toEqual([{ bookName: 'Harbor Atlas', uids: ['1'], isAgain: false }]);
+        expect(rowText('1')).toContain('No keys yet');
+
+        host.keyStates.set('Harbor Atlas/1', { status: 'writing' });
+        tellKeyListeners('Harbor Atlas');
+        expect(rowText('1')).toContain('Writing keys');
+
+        host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens', 'harbor bells'] });
+        tellKeyListeners('Harbor Atlas');
+        expect(rowText('1')).toContain('LoreBase keys: tidewardens, harbor bells');
+        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys: 1 written.');
+    });
+
+    it('writes the keys of the entries the bulk bar and a category turn on, and none of those already on', async () => {
+        await openScreen();
+        entryToggle('0').click();
+        actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
+        expect(host.keyWrites.map(write => write.uids)).toEqual([['0'], ['1']]);
+        tickBox('4').click();
+        actionButton('turn-on').click();
+        expect(host.keyWrites.at(-1)).toEqual({ bookName: 'Harbor Atlas', uids: ['4'], isAgain: false });
+    });
+
+    it("shows a failed entry's reason on its row", async () => {
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+        host.keyStates.set('Harbor Atlas/1', { status: 'failed', detail: 'its answer held no keys' });
+        await openScreen();
+        expect(rowText('1')).toContain('Keys failed');
+        expect(rowText('1')).toContain('its answer held no keys');
+        expect($id('vectfox_lorebase_summary').textContent).toContain('1 failed');
+    });
+
+    it('writes the ticked entries that are on anew with Write keys again, and only those', async () => {
+        await openScreen();
+        entryToggle('0').click();
+        entryToggle('1').click();
+        tickBox('1').click();
+        tickBox('4').click();
+        actionButton('write-keys').click();
+        expect(host.keyWrites.at(-1)).toEqual({ bookName: 'Harbor Atlas', uids: ['1'], isAgain: true });
+    });
+
+    it('says why and selects nothing when keys cannot be written', async () => {
+        host.keyProblem = 'LoreBase keeps the keys its model writes for each entry in Qdrant. Choose Qdrant as the vector backend first.';
+        await openScreen();
+        entryToggle('1').click();
+        tickBox('4').click();
+        actionButton('turn-on').click();
+        expect(record()?.selectedUids ?? []).toEqual([]);
+        expect(host.keyWrites).toEqual([]);
+        expect(host.noticePopup).toHaveBeenCalledTimes(2);
+        expect(host.noticePopup.mock.calls[0][0][1].text).toContain('Choose Qdrant');
+    });
+});
+
 describe('choosing entries', () => {
     it("saves a row's toggle at once and counts what the pick reads, and never turns on an entry SillyTavern keeps", async () => {
         await openScreen();
@@ -102,7 +186,8 @@ describe('choosing entries', () => {
         expect(record().selectedUids).toEqual(['1']);
         expect(entryToggle('1').getAttribute('aria-pressed')).toBe('true');
         expect(document.querySelector('[data-lorebase-selected-count]').textContent).toBe('1 selected');
-        expect($id('vectfox_lorebase_summary').textContent).toMatch(/^Luna reads 1 title from this book, about \d+ tokens on every pick\.$/);
+        expect($id('vectfox_lorebase_summary').textContent).toMatch(
+            /^The pick reads 1 title and their keys from this book, about \d+ tokens on every pick\. Keys: 0 written, 1 not written yet\. 1 selected entry sends nothing until its keys are written\.$/);
         expect(entryToggle('3').disabled).toBe(true);
         expect(tickBox('3').disabled).toBe(true);
     });

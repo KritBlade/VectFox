@@ -5,7 +5,7 @@
  * the tester (§5.10), and the toast for a turn that left lore out (D14). Pure: no SillyTavern, no network.
  */
 import { pickMessages, readPicks, tableOfContents } from './lorebase-pick-core.js';
-import { partsToSend, readReview, reviewMessages } from './lorebase-review-core.js';
+import { hasTemplateCode, partsToSend, readReview, reviewMessages } from './lorebase-review-core.js';
 import { entryPassages } from './lorebase-splitter.js';
 
 // Replies (D8): normal sends, swipes, regenerates and continues, and a quiet generation only when it is quiet-to-loud.
@@ -14,12 +14,14 @@ const REPLY_GENERATION_TYPES = new Set(['normal', 'swipe', 'regenerate', 'contin
 const QUIET_GENERATION_TYPE = 'quiet';
 
 // The trials' requests (route_trials.py): room for each answer, and room for a thinking model to reason before it.
-const THINKING_TOKEN_ALLOWANCE = 8000;
+export const THINKING_TOKEN_ALLOWANCE = 8000;
 const PICK_MAX_TOKENS = 1500 + THINKING_TOKEN_ALLOWANCE;
 const REVIEW_MAX_TOKENS = 2000 + THINKING_TOKEN_ALLOWANCE;
 // The pick runs at low reasoning effort on either Accuracy setting (D6).
 const PICK_REASONING_EFFORT = 'low';
 const HIGH_ACCURACY = 'high';
+/** The lorebase_accuracy value of the Fast and cheap choice: Jev in place of Luna's pick and reviews (D16). */
+export const FAST_AND_CHEAP = 'fast';
 
 /** A call that has not answered by then fails (§5.8). The trials' slowest pick took 4.8 seconds, their slowest review 9.3. */
 export const CALL_TIMEOUT_MS = 30000;
@@ -98,7 +100,7 @@ export function reviewEffort(accuracy) {
  * @param {unknown} error
  * @returns {string}
  */
-function failureDetail(error) {
+export function callFailureDetail(error) {
     if (error?.name === 'TimeoutError') return `it did not answer within ${CALL_TIMEOUT_MS / 1000} seconds`;
     if (error?.kind === 'parse') return UNREADABLE_ANSWER;
     return String(error?.message || error).replace(/\s+/g, ' ').trim();
@@ -106,10 +108,28 @@ function failureDetail(error) {
 
 const secondsSince = startedAt => (performance.now() - startedAt) / 1000;
 
+/** A pick sent whole with no review: its `uses`, which the tester shows as not reviewed. */
+export const SENT_WHOLE_UNREVIEWED = 'whole';
+
+/**
+ * Whether a pick goes whole with no review (T20's luna_keys+one_part_whole): the review could only keep or drop it
+ * whole, as it is one part, or has template code, which is sent whole (D9).
+ * @param {{content?: string}} entry
+ * @param {object[]} passages - The entry's parts, from entryPassages
+ * @returns {boolean}
+ */
+export function isSentWholeUnreviewed(entry, passages) {
+    return passages.length === 1 || hasTemplateCode(entry.content);
+}
+
 async function reviewPick(pick, { scene, books, effort, ask }) {
     const book = books.find(candidate => candidate.bookName === pick.bookName);
     const entry = book.entries.find(candidate => candidate.uid === pick.uid);
     const { frame, passages } = entryPassages(entry);
+    if (isSentWholeUnreviewed(entry, passages)) {
+        const sentParts = passages.map((_, index) => index + 1);
+        return { reviewedPick: { bookName: pick.bookName, uid: pick.uid, title: pick.title, uses: SENT_WHOLE_UNREVIEWED, frame, passages, sentParts, seconds: null } };
+    }
     const failure = { step: 'review', bookName: pick.bookName, uid: pick.uid, title: pick.title };
     const startedAt = performance.now();
     try {
@@ -120,7 +140,7 @@ async function reviewPick(pick, { scene, books, effort, ask }) {
         const sentParts = partsToSend(passages, review, book.pinnedSections);
         return { reviewedPick: { bookName: pick.bookName, uid: pick.uid, title: pick.title, uses: review.uses, frame, passages, sentParts, seconds } };
     } catch (error) {
-        return { failure: { ...failure, detail: failureDetail(error), error, seconds: secondsSince(startedAt) } };
+        return { failure: { ...failure, detail: callFailureDetail(error), error, seconds: secondsSince(startedAt) } };
     }
 }
 
@@ -131,20 +151,22 @@ async function reviewPick(pick, { scene, books, effort, ask }) {
  * @property {number} unreadItemCount - Items of the pick's answer that named no entry of the table
  * @property {number} pickSeconds - How long the pick took to answer, or to fail
  * @property {Array<{bookName: string, uid: number, title: string, uses: string, frame: object|null, passages: object[],
- *   sentParts: number[], seconds: number}>} reviewedPicks - Each pick whose review was read, with the numbers of the
- *   parts it sends: none when the review says the reply uses none of the entry; and how long its review took
+ *   sentParts: number[], seconds: number|null}>} reviewedPicks - Each pick whose review was read, with the numbers of
+ *   the parts it sends: none when the review says the reply uses none of the entry; and how long its review took; and
+ *   each pick sent whole with no review (isSentWholeUnreviewed), its uses SENT_WHOLE_UNREVIEWED and its seconds null
  * @property {Array<{step: string, bookName?: string, uid?: number, title?: string, detail: string, error?: unknown,
  *   seconds?: number}>} failures - The failed pick, or each failed review with its entry and how long it took; `error`
  *   is what the call threw, and an answer that could not be read has none
  */
 
 /**
- * The lore for one reply: the pick over the table of contents of the books taking part, then one review per pick, all
- * sent at once. A failed pick leaves every selected entry out, and a failed review leaves out only its own entry (D14).
+ * The lore for one reply: the pick over the table of contents of the books taking part, then one review per pick of
+ * more than one part, all sent at once, a one-part pick or one with template code sent whole with no review. A failed
+ * pick leaves every selected entry out, and a failed review leaves out only its own entry (D14).
  * @param {object} turn
  * @param {string} turn.scene - From sceneText
- * @param {Array<{bookName: string, entries: object[], pinnedSections: string[]}>} turn.books - The books taking part,
- *   in book order, each with the entries LoreBase decides in it (decidedEntries)
+ * @param {Array<{bookName: string, entries: object[], pinnedSections: string[], keysByUid?: Record<string, string[]>}>} turn.books -
+ *   The books taking part, in book order, each with the entries LoreBase decides in it (decidedEntries) and their keys
  * @param {string|null} turn.reviewEffort - From reviewEffort
  * @param {(messages: Array<{role: string, content: string}>, request: {maxTokens: number, reasoningEffort: string|null,
  *   identKeys: string[]}) => Promise<unknown[]>} turn.ask - Sends one call and returns its answer's entries, as
@@ -161,7 +183,7 @@ export async function loreForReply({ scene, books, reviewEffort: effort, ask }) 
     } catch (error) {
         return {
             contentCount: contents.length, picks: [], unreadItemCount: 0, pickSeconds: secondsSince(pickStartedAt),
-            reviewedPicks: [], failures: [{ step: 'pick', detail: failureDetail(error), error }],
+            reviewedPicks: [], failures: [{ step: 'pick', detail: callFailureDetail(error), error }],
         };
     }
     const pickSeconds = secondsSince(pickStartedAt);

@@ -44,7 +44,7 @@ describe("a reply's report", () => {
         const report = replyReport({ lore, books, seconds: 33.2 });
         expect(report.picks).toEqual([
             {
-                bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', basis: 'named in the chat', certain: true, why: 'why 1', needs: 'needs 1',
+                bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', basis: 'named in the chat', certain: true, why: 'why 1', needs: 'needs 1', yes: null,
                 wholeText: lighthouse.content,
                 review: {
                     uses: 'some', seconds: 3.1,
@@ -54,13 +54,13 @@ describe("a reply's report", () => {
                 failure: null, isInPrompt: null,
             },
             {
-                bookName: 'Harbor Atlas', uid: 1, title: 'Tidewardens', basis: 'named in the chat', certain: false, why: 'why 2', needs: 'needs 2',
+                bookName: 'Harbor Atlas', uid: 1, title: 'Tidewardens', basis: 'named in the chat', certain: false, why: 'why 2', needs: 'needs 2', yes: null,
                 wholeText: 'The tidewardens read the harbor bells.',
                 review: { uses: 'most', seconds: 1.2, parts: [{ text: 'The tidewardens read the harbor bells.', isSent: true }], sentText: 'The tidewardens read the harbor bells.' },
                 failure: null, isInPrompt: null,
             },
             {
-                bookName: 'Wren Journal', uid: 4, title: 'Fog Season', basis: 'named in the chat', certain: true, why: 'why 4', needs: 'needs 4',
+                bookName: 'Wren Journal', uid: 4, title: 'Fog Season', basis: 'named in the chat', certain: true, why: 'why 4', needs: 'needs 4', yes: null,
                 wholeText: fogSeason.content, review: null, failure: 'it did not answer within 30 seconds', isInPrompt: null,
             },
         ]);

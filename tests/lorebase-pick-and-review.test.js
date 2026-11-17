@@ -24,6 +24,15 @@ describe("the trials' prompts, word for word", () => {
         ]);
     });
 
+    it("asks the pick with each entry's keys after its title as T20's luna_keys arm asked (segment_trials.py)", () => {
+        const keysByUid = fixture.madeUpKeys;
+        const keyed = tableOfContents([{ bookName: fixture.bookName, entries: fixture.entries, keysByUid }]);
+        expect(pickMessages(scene, keyed)).toEqual([
+            { role: 'system', content: fixture.keyedPick.system },
+            { role: 'user', content: fixture.keyedPick.prompt },
+        ]);
+    });
+
     it('asks the review of one picked entry what route_trials.py asked', () => {
         const { number, why, needs } = fixture.reviewedPick;
         const { passages } = entryPassages(fixture.entries[number - 1]);
@@ -35,14 +44,14 @@ describe("the trials' prompts, word for word", () => {
 });
 
 describe('the table of contents', () => {
-    it('numbers the selected entries across books in book order, each by its title', () => {
+    it('numbers the selected entries across books in book order, each by its title with its keys', () => {
         expect(tableOfContents([
-            { bookName: 'Harbor Lore', entries: [{ uid: 4, comment: '[Harbor] Keeper Orrin' }, { uid: 9, comment: 'Ferry Tolls' }] },
+            { bookName: 'Harbor Lore', entries: [{ uid: 4, comment: '[Harbor] Keeper Orrin' }, { uid: 9, comment: 'Ferry Tolls' }], keysByUid: { 4: ['Orrin', 'lighthouse'] } },
             { bookName: 'Hill Lore', entries: [{ uid: 0, comment: 'Places: Windmill Hill' }] },
         ])).toEqual([
-            { number: 1, bookName: 'Harbor Lore', uid: 4, title: 'Keeper Orrin' },
-            { number: 2, bookName: 'Harbor Lore', uid: 9, title: 'Ferry Tolls' },
-            { number: 3, bookName: 'Hill Lore', uid: 0, title: 'Windmill Hill' },
+            { number: 1, bookName: 'Harbor Lore', uid: 4, title: 'Keeper Orrin', keys: ['Orrin', 'lighthouse'] },
+            { number: 2, bookName: 'Harbor Lore', uid: 9, title: 'Ferry Tolls', keys: [] },
+            { number: 3, bookName: 'Hill Lore', uid: 0, title: 'Windmill Hill', keys: [] },
         ]);
     });
 });
@@ -55,7 +64,7 @@ describe('reading the pick', () => {
         const { picks, unreadItemCount } = readPicks(items, contents);
         expect(picks.map(pick => pick.number)).toEqual([9, 3, 1, 2, 4, 5]);
         expect(picks[0]).toEqual({
-            number: 9, bookName: 'Harbor Lore', uid: 8, title: 'Entry 8', basis: 'named in the chat', why: 'The user asks.', needs: 'who', certain: true,
+            number: 9, bookName: 'Harbor Lore', uid: 8, title: 'Entry 8', keys: [], basis: 'named in the chat', why: 'The user asks.', needs: 'who', certain: true,
         });
         expect(picks[1].certain).toBe(false);
         expect(unreadItemCount).toBe(0);
@@ -63,7 +72,7 @@ describe('reading the pick', () => {
 
     it('counts the items that name no entry of the table, which the trials skipped', () => {
         const { picks, unreadItemCount } = readPicks([{ number: 0 }, { number: 10 }, { number: '2' }, { number: 2.5 }, { why: 'no number' }, null, { number: 2 }], contents);
-        expect(picks).toEqual([{ number: 2, bookName: 'Harbor Lore', uid: 1, title: 'Entry 1', basis: '', why: '', needs: '', certain: null }]);
+        expect(picks).toEqual([{ number: 2, bookName: 'Harbor Lore', uid: 1, title: 'Entry 1', keys: [], basis: '', why: '', needs: '', certain: null }]);
         expect(unreadItemCount).toBe(6);
     });
 
