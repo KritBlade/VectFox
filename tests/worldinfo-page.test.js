@@ -11,10 +11,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const { loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
+const { KEY_CALLS_AT_ONCE_MAX } = await import('../src/features/lorebase/lorebase-keys-core.js');
 
 // The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
     'VectFox_lorebase_enabled', 'VectFox_lorebase_off_notice', 'VectFox_lorebase_books_card', 'VectFox_lorebase_books',
+    'VectFox_lorebase_key_calls_at_once', 'VectFox_lorebase_generate_keys', 'VectFox_lorebase_delete_keys', 'VectFox_lorebase_keys_status',
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
     'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_role_picks', 'VectFox_lorebase_role_keys',
@@ -67,6 +69,16 @@ describe('WorldInfo page markup', () => {
         expect([toggle.type, toggle.checked]).toEqual(['checkbox', false]);
         expect(body.textContent).toContain('Use LoreBase');
         expect(document.getElementById('VectFox_lorebase_off_notice').compareDocumentPosition(document.getElementById('VectFox_lorebase_books')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('offers Entries at once beside the key buttons: a slider and its number box from 1 to the most the keys allow', () => {
+        const box = document.getElementById('VectFox_lorebase_key_calls_at_once');
+        const slider = document.querySelector('.vfx-range[data-vfx-slider-for="VectFox_lorebase_key_calls_at_once"]');
+        expect([box.type, box.min, box.max, box.step]).toEqual(['number', '1', String(KEY_CALLS_AT_ONCE_MAX), '1']);
+        expect([slider.min, slider.max]).toEqual(['1', String(KEY_CALLS_AT_ONCE_MAX)]);
+        expect(document.querySelector('label[for="VectFox_lorebase_key_calls_at_once"]').textContent).toBe('Entries at once');
+        const field = box.closest('.vfx-field');
+        expect(field.nextElementSibling.querySelector('#VectFox_lorebase_delete_keys')).not.toBeNull();
     });
 
     it("keeps none of the old vector search's controls", () => {

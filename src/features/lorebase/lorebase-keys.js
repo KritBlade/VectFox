@@ -1,27 +1,29 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D15, D17 and §5.2 of InternalProject/
  * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes,
- * each SillyTavern user's own. Turning an entry on, turning LoreBase on, Generate all keys and Regenerate keys write
- * them, a few calls at a time; the user can also edit one entry's keys, or have the model write them again to read
- * first, and Delete all keys deletes every one; nothing rewrites them on its own. Turning LoreBase on and Generate all
- * keys write under VectFox's progress panel, whose Stop drops the entries not yet sent. An entry takes part in a reply only once its keys exist, and while they are written or
- * after they fail, the selection screen says so for its row.
+ * each SillyTavern user's own. Turning an entry on while LoreBase is on, turning LoreBase on, Generate all keys and
+ * Regenerate keys write them, as many calls at once as the WorldInfo page's Entries at once (1 to 8); the user can also
+ * edit one entry's keys, or have the model write them again to read first, and Delete all keys deletes every one;
+ * nothing rewrites them on its own. Turning LoreBase on and Generate all keys write under VectFox's progress panel,
+ * whose Stop drops the entries not yet sent. An entry takes part in a reply only once its keys exist, and while they
+ * are written or after they fail, the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
+import { extension_settings } from '../../sillytavern/settings.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { getLoreBook, selectedLoreBookNames } from './lorebase-books.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
-import { KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCount, keysMessages, readKeys } from './lorebase-keys-core.js';
+import {
+    KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCallsAtOnceOf, keyCount, keysMessages, readKeys,
+} from './lorebase-keys-core.js';
 import { decidedEntries } from './lorebase-reply-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 
 const KEYS_ROUTE = '/api/plugins/similharity/lorebase/keys';
-// As many key calls at once as T20 ran (PARALLEL_CALLS in lorebase_benchmark.py).
-const KEY_CALLS_AT_ONCE = 6;
 const QDRANT_BACKEND = 'qdrant';
 const UNREADABLE_ANSWER = 'its answer held no keys';
 
@@ -159,8 +161,9 @@ async function writeOne({ bookName, entry, ask, failures, onEntryDone }) {
     onEntryDone?.(failure);
 }
 
+/** Send queued entries while fewer than Entries at once are running; read each time, so a change applies as calls end. */
 function runQueue() {
-    while (runningCalls < KEY_CALLS_AT_ONCE && queue.length) {
+    while (runningCalls < keyCallsAtOnceOf(extension_settings.vectfox?.lorebase_key_calls_at_once) && queue.length) {
         const job = queue.shift();
         runningCalls += 1;
         void writeOne(job).finally(() => {
@@ -197,7 +200,7 @@ function showKeyFailures(bookName, failures) {
 }
 
 /**
- * Write the keys of a book's entries, a few calls at a time: those with none, or every one given when `isRegenerating`.
+ * Write the keys of a book's entries, Entries at once calls at a time: those with none, or every one given when `isRegenerating`.
  * A bulk run passes its `run`, whose stop drops the entries not yet sent, and `onEntryDone`, called with null or the
  * failure as each entry is done.
  * Entries already being written are left to that writing. Never throws: a failed entry is marked failed, logged, and

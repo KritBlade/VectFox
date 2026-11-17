@@ -18,6 +18,20 @@ export const KEYS_MAX_TOKENS = 3000 + THINKING_TOKEN_ALLOWANCE;
 export const KEYS_ASKS = 3;
 /** The reasoning effort keys are written at: the model's default, as T20 sent none. */
 export const KEYS_REASONING_EFFORT = null;
+/** Entries keyed at once, from the WorldInfo page's Entries at once: by default as many as T20 ran, and at most. */
+export const KEY_CALLS_AT_ONCE_DEFAULT = 6;
+export const KEY_CALLS_AT_ONCE_MAX = 8;
+
+/**
+ * The entries LoreBase keys at once, from its saved Entries at once: a whole number from 1 to the most, or the default for
+ * a setting that holds no number.
+ * @param {unknown} value
+ * @returns {number}
+ */
+export function keyCallsAtOnceOf(value) {
+    const count = Number.parseInt(value, 10);
+    return Number.isFinite(count) ? Math.min(KEY_CALLS_AT_ONCE_MAX, Math.max(1, count)) : KEY_CALLS_AT_ONCE_DEFAULT;
+}
 
 const KEYS_SYSTEM_PROMPT = 'You write the keys of lorebook entries for a roleplay app, which picks the entries each reply needs by their '
     + 'titles and keys. Return JSON only.';

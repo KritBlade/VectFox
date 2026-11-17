@@ -42,7 +42,7 @@ import { runNetworkStartup } from './app/network-startup.js';
 // VectFox modules - UI
 import { mountSettingsPanel, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
-import { initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
+import { KEY_CALLS_AT_ONCE_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
@@ -212,6 +212,7 @@ const defaultSettings = {
     lorebase_accuracy: 'default',           // 'default' reviews at low reasoning effort, 'high' at the model's default, 'fast' asks Jev (plan D16)
     lorebase_jev_connection_profile_id: '', // Jev's SillyTavern profile, read only on 'fast'
     lorebase_enabled: false,                // LoreBase's switch on the WorldInfo page: off until the user turns it on
+    lorebase_key_calls_at_once: KEY_CALLS_AT_ONCE_DEFAULT, // Entries at once on the WorldInfo page: entries keyed at once, 1 to 8
 
     // Keyword Extraction
     custom_stopwords: '',               // Custom stopwords (comma-separated)

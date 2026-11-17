@@ -21,6 +21,7 @@ export { chatBookLocks } from './lorebase-chat-books.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
 export { deleteAllKeys, keyWritingProblem, onKeyRunChange, writeKeysOfSelections } from './lorebase-keys.js';
+export { KEY_CALLS_AT_ONCE_DEFAULT, keyCallsAtOnceOf } from './lorebase-keys-core.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';

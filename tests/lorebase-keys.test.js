@@ -131,6 +131,29 @@ describe('writing keys', () => {
         expect(most).toBe(6);
     });
 
+    it('runs as many key calls at once as Entries at once says, held to 8', async () => {
+        const { extension_settings } = await import('../src/sillytavern/settings.js');
+        let running = 0;
+        let most = 0;
+        host.ask = vi.fn(async () => {
+            running += 1;
+            most = Math.max(most, running);
+            await new Promise(resolve => setTimeout(resolve, 5));
+            running -= 1;
+            return answerWith(['harbor']);
+        });
+        const entries = Array.from({ length: 12 }, (_, uid) => entry(uid, `Pier ${uid}`));
+        extension_settings.vectfox.lorebase_key_calls_at_once = 2;
+        await keysModule.writeKeys(BOOK, entries, QDRANT);
+        expect(most).toBe(2);
+
+        most = 0;
+        extension_settings.vectfox.lorebase_key_calls_at_once = 40;
+        await keysModule.writeKeys('Desert Atlas', entries, QDRANT);
+        expect(most).toBe(8);
+        delete extension_settings.vectfox.lorebase_key_calls_at_once;
+    });
+
     it('tells its listeners when an entry starts being written and when it is done', async () => {
         const seen = [];
         keysModule.onKeyStateChange(bookName => seen.push(`${bookName}: ${keysModule.keyStateOf(bookName, '0').status}`));

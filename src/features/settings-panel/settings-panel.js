@@ -24,6 +24,7 @@ import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
+import { keyCallsAtOnceOf } from '../lorebase/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
@@ -1430,6 +1431,8 @@ function bindSettingsEvents(settings, callbacks) {
     bindLoreBaseTester(settings);
     refreshLoreBaseTester();
     eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseTester);
+    // LoreBase's Entries at once: how many entries' keys are written at once, read by each call as it starts.
+    bindNumberSetting(settings, { id: 'VectFox_lorebase_key_calls_at_once', key: 'lorebase_key_calls_at_once', initial: keyCallsAtOnceOf(settings.lorebase_key_calls_at_once), isInteger: true });
 
     // LoreBase model (WorldInfo page). Its Provider and Profile dropdowns are wired with every consumer's (connection-rows.js).
     $('#VectFox_lorebase_model')

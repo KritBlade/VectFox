@@ -16,13 +16,14 @@ import {
     button, controlRow, detail, emptyState, field, fieldLabel, groupTitle, hint, iconButton, listRow, notice, recordCard, resultList,
     select, selectOption, stack, statusPill,
 } from '../../shared/gui-dna/gui-dna-core.js';
-import { buttonWithId, cardHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 
 const formatCount = count => Number(count).toLocaleString('en-US');
 const formatSeconds = seconds => `${Number(seconds).toFixed(1)} s`;
 
 // LoreBase's switch (plan §5.9), off until the user turns it on, and its books (§5.2): the list loreBaseBooksMarkup
-// draws for the open chat, the selection screen's door, and the keys of every selected entry at once (D17): Generate
+// draws for the open chat, the selection screen's door, and the keys of every selected entry at once (D17): Entries at
+// once, how many entries' keys are written at once (1 to 8, KEY_CALLS_AT_ONCE_MAX in lorebase-keys-core.js), Generate
 // all keys writes the missing ones, Delete all keys deletes them all, its status line saying how it went. While the
 // switch is off, lorebase-books-card.js disables Generate all keys, since turning LoreBase on asks to write them, and
 // shows the notice saying what to do first.
@@ -35,6 +36,11 @@ function loreBaseBooksCard() {
             <div id="VectFox_lorebase_books" aria-live="polite"></div>
             ${controlRow([button({ text: 'Choose entries', icon: 'fa-list-check', kind: 'primary', data: { 'lorebase-choose': '' } })])}
             ${hint({ text: "Choose any lorebook's entries for LoreBase, and lock the book to this chat or character." })}
+            ${field([
+                fieldLabel({ text: 'Entries at once', forId: 'VectFox_lorebase_key_calls_at_once' }),
+                sliderNumber({ id: 'VectFox_lorebase_key_calls_at_once', min: 1, max: 8, step: 1, title: 'Entries' }),
+                hint({ text: "How many entries' keys are written at once. More is faster but risks rate limits." }),
+            ])}
             ${controlRow([
                 buttonWithId({ id: 'VectFox_lorebase_generate_keys', text: 'Generate all keys', icon: 'fa-key' }),
                 buttonWithId({ id: 'VectFox_lorebase_delete_keys', text: 'Delete all keys', icon: 'fa-trash' }),

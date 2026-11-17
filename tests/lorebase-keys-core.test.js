@@ -6,7 +6,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { editedKeys, keyCount, keysMessages, readKeys } from '../src/features/lorebase/lorebase-keys-core.js';
+import {
+    KEY_CALLS_AT_ONCE_DEFAULT, KEY_CALLS_AT_ONCE_MAX, editedKeys, keyCallsAtOnceOf, keyCount, keysMessages, readKeys,
+} from '../src/features/lorebase/lorebase-keys-core.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/lorebase-trial-prompts.json', import.meta.url), 'utf8'));
 const entriesByUid = new Map([...fixture.entries, fixture.keys.longEntry].map(entry => [entry.uid, entry]));
@@ -41,6 +43,17 @@ describe('reading the keys', () => {
         expect(readKeys([{ keys: ['  '] }], 6)).toBeNull();
         expect(readKeys([{ names: ['harbor'] }], 6)).toBeNull();
         expect(readKeys([], 6)).toBeNull();
+    });
+});
+
+describe('Entries at once', () => {
+    it('keys 6 entries at once by default, as T20 ran, and at most 8', () => {
+        expect([KEY_CALLS_AT_ONCE_DEFAULT, KEY_CALLS_AT_ONCE_MAX]).toEqual([6, 8]);
+    });
+
+    it('holds a saved value to a whole number from 1 to 8, and takes the default for one that holds no number', () => {
+        expect([3, '5', 0, -2, 9, 40, 2.7].map(keyCallsAtOnceOf)).toEqual([3, 5, 1, 1, 8, 8, 2]);
+        expect([undefined, null, '', 'many'].map(keyCallsAtOnceOf)).toEqual([6, 6, 6, 6]);
     });
 });
 
