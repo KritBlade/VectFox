@@ -335,32 +335,36 @@ describe('closing the screen (D17)', () => {
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: true });
         const [lines, buttons] = host.confirmPopup.mock.calls[0];
         expect(lines[1]).toEqual({ text: 'Selected entries with no keys:', name: '2' });
-        expect(buttons).toEqual({ okButton: 'Write keys', cancelButton: 'Not now' });
+        expect(buttons).toEqual({ okButton: 'Write keys', cancelButton: 'Turn LoreBase off' });
         expect(host.writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo);
+        expect(host.settings.vectfox.lorebase_enabled).toBe(true);
     });
 
-    it('writes nothing on Not now, and says how many are missing', async () => {
+    it('writes nothing on Turn LoreBase off, turns it off, and says how many are missing', async () => {
         host.pending = missingTwo;
         host.confirmPopup.mockResolvedValueOnce(false);
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
         expect(host.writeKeysOfSelections).not.toHaveBeenCalled();
+        expect(host.settings.vectfox.lorebase_enabled).toBe(false);
     });
 
     it('asks nothing when every selected entry has keys, and nothing at all while LoreBase is off', async () => {
         host.pending = { books: [], count: 0, decidedCount: 5, unreadBooks: 0 };
         expect(await closeAndAnswer()).toEqual({ missingCount: 0, decidedCount: 5, isWriting: false });
+        expect(host.settings.vectfox.lorebase_enabled).toBe(true);
         host.settings.vectfox.lorebase_enabled = false;
         expect(await closeAndAnswer()).toBeNull();
         expect(host.confirmPopup).not.toHaveBeenCalled();
         expect(host.selectedEntriesWithoutKeys).toHaveBeenCalledTimes(1);
     });
 
-    it("says why when LoreBase's model cannot write the missing keys yet, and asks nothing", async () => {
+    it("says why when LoreBase's model cannot write the missing keys yet, asks nothing, and turns LoreBase off", async () => {
         host.pending = missingTwo;
         host.keyProblem = 'Choose a model for LoreBase first.';
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
         expect(host.confirmPopup).not.toHaveBeenCalled();
         expect(host.noticePopup.mock.calls[0][0].at(-1)).toEqual({ name: 'Choose a model for LoreBase first.' });
+        expect(host.settings.vectfox.lorebase_enabled).toBe(false);
     });
 });
 

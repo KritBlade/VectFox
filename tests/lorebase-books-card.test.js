@@ -202,7 +202,7 @@ describe('the LoreBase books card', () => {
         expect(chatBookLocks).toHaveBeenCalledTimes(2);
     });
 
-    it("says where the selection's keys stand once the screen closes: all written, or how many have none", async () => {
+    it("says where the selection's keys stand once the screen closes: all written, or how many have none, which turned LoreBase off", async () => {
         const status = () => document.getElementById('VectFox_lorebase_keys_status');
         const closeWith = async chosen => {
             opener('Harbor Atlas').click();
@@ -215,11 +215,11 @@ describe('the LoreBase books card', () => {
         await vi.waitFor(() => expect(status().textContent).toBe('All 313 selected entries have keys.'));
         await closeWith({ missingCount: 12, decidedCount: 313, isWriting: false });
         await vi.waitFor(() => expect(status().textContent).toBe(
-            '12 selected entries have no keys, so they send nothing yet. Generate all keys writes them.'));
+            '12 selected entries have no keys, so Use LoreBase is off. Turn it on to write them.'));
         // A run the screen's question started writes its own lines, and LoreBase off says nothing.
         await closeWith({ missingCount: 12, decidedCount: 313, isWriting: true });
         await closeWith(null);
-        expect(status().textContent).toBe('12 selected entries have no keys, so they send nothing yet. Generate all keys writes them.');
+        expect(status().textContent).toBe('12 selected entries have no keys, so Use LoreBase is off. Turn it on to write them.');
     });
 
     it("opens the screen on the chat's first book from the card's own button", () => {

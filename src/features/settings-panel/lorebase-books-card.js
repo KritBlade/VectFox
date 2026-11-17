@@ -163,15 +163,15 @@ export function bindLoreBaseBooksCard(settings) {
 }
 
 /**
- * Where the selection's keys stand once the selection screen closed while LoreBase is on: all written, or how many have
- * none after the user said Not now. A run started on the screen's question writes its own lines (showKeyRun).
+ * Where the selection's keys stand once the selection screen closed while LoreBase was on: all written, or how many have
+ * none, which turned LoreBase off. A run started on the screen's question writes its own lines (showKeyRun).
  * @param {{missingCount: number, decidedCount: number, isWriting: boolean}|null} chosen - From openLoreBaseSelection
  */
 function showChosenKeys(chosen) {
     if (!chosen || chosen.isWriting || !chosen.decidedCount) return;
     if (chosen.missingCount) {
-        showKeysStatus(`${counted(chosen.missingCount, 'selected entry has', 'selected entries have')} no keys, so `
-            + `${chosen.missingCount === 1 ? 'it sends' : 'they send'} nothing yet. Generate all keys writes them.`);
+        showKeysStatus(`${counted(chosen.missingCount, 'selected entry has', 'selected entries have')} no keys, so Use LoreBase `
+            + 'is off. Turn it on to write them.');
     } else {
         showKeysStatus(chosen.decidedCount === 1 ? 'The selected entry has its keys.' : `All ${counted(chosen.decidedCount, 'selected entry', 'selected entries')} have keys.`);
     }
