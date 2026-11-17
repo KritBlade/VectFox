@@ -11,7 +11,7 @@
 
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
-import { controlRow, detail, field, fieldLabel, grid, hint, input, notice, select, selectOption, textarea } from '../../shared/gui-dna/gui-dna-core.js';
+import { controlRow, detail, field, fieldLabel, grid, hint, input, notice, select, selectOption } from '../../shared/gui-dna/gui-dna-core.js';
 import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { clearKeyButton, keyInput } from './api-key-markup.js';
 
@@ -56,7 +56,7 @@ function vectorBackendCard() {
                     ${field([fieldLabel({ text: 'Cluster URL', forId: 'VectFox_qdrant_url' }), input({ id: 'VectFox_qdrant_url', placeholder: 'https://xxx.cloud.qdrant.io' }), hint({ text: 'Your cluster\'s URL, from the Qdrant Cloud console.' })])}
                     ${field([fieldLabel({ text: 'API key', forId: 'VectFox_qdrant_api_key' }), keyInput({ id: 'VectFox_qdrant_api_key', placeholder: 'Your Qdrant Cloud API key' }), hint({ text: 'Kept in SillyTavern\'s secret store, where Similharity reads it on the server.' })])}
                 </div>
-                ${switchRow({ id: 'VectFox_qdrant_multitenancy', title: 'One shared collection', description: 'Every chat in one collection, kept apart by filters. Off: one per chat, card or document.', isSpan: true })}
+                ${switchRow({ id: 'VectFox_qdrant_multitenancy', title: 'One shared collection', description: 'Every chat in one collection, kept apart by filters. Off: one per chat.', isSpan: true })}
             </div>
         </div>
     </section>`;
@@ -130,6 +130,12 @@ function embeddingCard() {
                 hintMarkup: hint({ text: 'Most embedding calls per interval. 0: no limit. Local providers are never limited.' }),
             })}
             ${switchRow({ id: 'VectFox_vector_group_embedding_call', title: 'Group embedding calls', description: 'One request per batch, cheaper. Off: one per text, so a stuck text stalls only itself.' })}
+            ${field([
+                fieldLabel({ text: 'Insert batch size', forId: 'VectFox_insert_batch_size', hasHelp: true }),
+                sliderNumber({ id: 'VectFox_insert_batch_size', min: 10, max: 100, step: 10, title: 'Batch size' }),
+                hint({ text: 'Texts per embedding request. Local servers always send one.' }),
+                detail({ text: 'It counts only while Group embedding calls is on or a rate limit is set. Events come in small batches, so it barely touches them.' }),
+            ])}
             ${switchRow({ id: 'VectFox_vector_hedge_enabled', title: 'Hedge slow calls', description: 'A call silent for 15 s is sent again, and the first answer wins. OpenRouter and vLLM only.' })}
         </div>
     </section>`;
@@ -137,7 +143,7 @@ function embeddingCard() {
 
 function eventModelCard() {
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-file-lines', title: 'EventBase model', description: 'The LLM that writes EventBase events, which Agent Mode and Auto-Reformat can inherit.' })}
+        ${cardHeader({ icon: 'fa-file-lines', title: 'EventBase model', description: 'The LLM that writes EventBase events, which Agent Mode can inherit.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'Provider', forId: 'VectFox_summarize_provider' }),
@@ -199,10 +205,10 @@ function retrievalCard({ retrievalTimeout }) {
             ${field([
                 fieldLabel({ text: 'Dedup window gap', forId: 'VectFox_eventbase_dedup_window_gap', hasHelp: true }),
                 input({ id: 'VectFox_eventbase_dedup_window_gap', type: 'number', min: 0, max: 200, step: 1 }),
-                hint({ text: 'EventBase: alike events closer than this many messages count as one. 0: off.' }),
+                hint({ text: 'Alike events closer than this many messages count as one. 0: off.' }),
                 detail({ text: 'Alike means the same type and the same cast. 1 merges only duplicates from one window, and 10, the default, merges alike events within 9 messages of each other.' }),
             ])}
-            ${field([fieldLabel({ text: 'Anchor boost', forId: 'VectFox_eventbase_anchor_boost' }), sliderNumber({ id: 'VectFox_eventbase_anchor_boost', min: 0, max: 0.5, step: 0.05, title: 'Anchor boost' }), hint({ text: 'EventBase: score added to an event whose keyword is in your last message.' })])}
+            ${field([fieldLabel({ text: 'Anchor boost', forId: 'VectFox_eventbase_anchor_boost' }), sliderNumber({ id: 'VectFox_eventbase_anchor_boost', min: 0, max: 0.5, step: 0.05, title: 'Anchor boost' }), hint({ text: 'Score added to an event whose keyword is in your last message.' })])}
             ${field([
                 fieldLabel({ text: 'Retrieval timeout (ms)', forId: 'VectFox_retrieval_timeout_ms', hasHelp: true }),
                 input({ id: 'VectFox_retrieval_timeout_ms', type: 'number', min: minMs, max: maxMs, step: 1000 }),
@@ -231,7 +237,7 @@ function injectionCard() {
                 fieldLabel({ text: 'Position', forId: 'VectFox_injection_position', hasHelp: true }),
                 select({ id: 'VectFox_injection_position', options: positions }),
                 hint({ text: 'In chat keeps the prompt above the chat cacheable. The other two do not.' }),
-                detail({ text: 'Every VectFox block goes here: memory and summarizer, except chunks whose collection or chunk sets its own. Their text changes each turn, so near the top of the prompt they stop the provider\'s prompt cache from reusing anything after them.' }),
+                detail({ text: 'Every VectFox block goes here: memory and summarizer. Their text changes each turn, so near the top of the prompt they stop the provider\'s prompt cache from reusing anything after them.' }),
             ])}
             <div id="VectFox_injection_depth_row" class="vfx-field"${HIDDEN}>
                 ${fieldLabel({ text: 'Depth', forId: 'VectFox_injection_depth' })}
@@ -258,7 +264,7 @@ function keywordScoringCard() {
                 ${field([
                     fieldLabel({ text: 'Method', forId: 'VectFox_keyword_scoring_method', hasHelp: true }),
                     select({ id: 'VectFox_keyword_scoring_method', options: methods }),
-                    hint({ text: 'ChunkBase content only. Hybrid widens the vector candidates, then fuses both scores.' }),
+                    hint({ text: 'The Database Browser\'s search only. Hybrid also widens the vector candidates.' }),
                     detail({ text: 'Chat memory always re-ranks with BM25. Neither method scans every stored text: both score only what the vector search found.' }),
                 ], { isSpan: true })}
             </div>
@@ -267,6 +273,15 @@ function keywordScoringCard() {
                 ${field([fieldLabel({ text: 'BM25 k1', forId: 'VectFox_bm25_k1' }), input({ id: 'VectFox_bm25_k1', type: 'number', min: 0.5, max: 3, step: 0.1 }), hint({ text: 'How soon a repeated word stops adding score. 1.2 to 2.0 is typical.' })])}
                 ${field([fieldLabel({ text: 'BM25 b', forId: 'VectFox_bm25_b' }), input({ id: 'VectFox_bm25_b', type: 'number', min: 0, max: 1, step: 0.05 }), hint({ text: 'How much a long text is held back. 0.75 is typical.' })])}
                 ${switchRow({ id: 'VectFox_bm25_use_corpus_idf', title: 'Collection-wide word rarity', description: 'Rates each word by its rarity in the whole collection. Turn off if it slows you down.', isSpan: true })}
+            </div>
+            <div id="VectFox_hybrid_keyword_budget_wrapper" class="vfx-field vfx-span"${HIDDEN}>
+                ${fieldLabel({ text: 'Query keyword budget', forId: 'VectFox_hybrid_keyword_level' })}
+                ${select({ id: 'VectFox_hybrid_keyword_level', options: [
+                    selectOption({ value: 'minimal', text: '30' }),
+                    selectOption({ value: 'balance', text: '50' }),
+                    selectOption({ value: 'maximum', text: '70' }),
+                ] })}
+                ${hint({ text: 'The most keywords taken from your query for keyword scoring, CJK words first.' })}
             </div>
             <div id="VectFox_hybrid_params" class="vfx-grid vfx-span">
                 ${field([
@@ -290,18 +305,13 @@ function keywordScoringCard() {
 
 function keywordsCard({ languageModes }) {
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-tags', title: 'Keywords', description: 'How text splits into words for BM25, and which words are left out.' })}
+        ${cardHeader({ icon: 'fa-tags', title: 'Keywords', description: 'How text splits into words for BM25.' })}
         <div class="vfx-card-body vfx-grid">
             ${field([
                 fieldLabel({ text: 'CJK tokenizer', forId: 'VectFox_cjk_tokenizer_mode', hasHelp: true }),
                 select({ id: 'VectFox_cjk_tokenizer_mode', options: languageModes.map(({ value, label }) => selectOption({ value, text: label })) }),
                 hint({ text: 'The default suits Chinese, Korean and Latin scripts. Jieba loads only when picked.' }),
                 detail({ text: 'The default uses the browser\'s own word splitter, with nothing to download. Traditional Chinese downloads a dictionary of 2 to 5 MB once. Japanese text with kana uses TinySegmenter.' }),
-            ])}
-            ${field([
-                fieldLabel({ text: 'Custom stopwords', forId: 'VectFox_custom_stopwords' }),
-                textarea({ id: 'VectFox_custom_stopwords', rows: 2 }),
-                hint({ text: 'Words left out of keywords, comma-separated. Macros such as {{char}} work.' }),
             ])}
         </div>
     </section>`;

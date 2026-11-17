@@ -33,7 +33,7 @@ export const DIAGNOSTICS_ROOT_ID = 'vectfox_diagnostics';
 export const DIAGNOSTICS_PAGES = Object.freeze([
     { name: 'checks', icon: 'fa-stethoscope', title: 'Checks', subtitle: 'Checks every part of the setup and lists what passes, warns or fails.' },
     { name: 'health', icon: 'fa-heart-pulse', title: 'Backend health', subtitle: 'The vector backend\'s live counts, latency and errors since VectFox loaded.' },
-    { name: 'query', icon: 'fa-magnifying-glass', title: 'Query Tester', subtitle: 'What each retrieval would inject for a message. Nothing is sent.' },
+    { name: 'query', icon: 'fa-magnifying-glass', title: 'Query Tester', subtitle: 'What EventBase would inject for a message. Nothing is sent.' },
 ]);
 
 export const DIAGNOSTICS_IDS = Object.freeze({
@@ -195,13 +195,8 @@ export function healthMarkup(view) {
 
 // ── Query Tester ────────────────────────────────────────────────────────────────────────────────────
 
-/** The retrievals the Query Tester runs, in the order it shows them. */
-export const QUERY_RETRIEVALS = Object.freeze([
-    { kind: 'eventbase', title: 'EventBase', icon: 'fa-timeline' },
-    { kind: 'chunkbase', title: 'ChunkBase', icon: 'fa-cubes' },
-]);
-
-const queryOutputId = kind => `vectfox_diag_query_output_${kind}`;
+/** The Query Tester's output box. */
+const QUERY_OUTPUT_ID = 'vectfox_diag_query_output_eventbase';
 
 function queryPage() {
     const message = card({
@@ -210,7 +205,7 @@ function queryPage() {
         description: 'Uses your settings and locked collections; the chat is untouched.',
         body: stack([
             field([fieldLabel({ text: 'Message', forId: DIAGNOSTICS_IDS.queryMessage }), textarea({ id: DIAGNOSTICS_IDS.queryMessage, rows: 3 })]),
-            `<div class="vfx-control-row">${button({ text: 'Run retrievals', icon: 'fa-play', kind: 'primary', data: action('query') })}</div>`,
+            `<div class="vfx-control-row">${button({ text: 'Run retrieval', icon: 'fa-play', kind: 'primary', data: action('query') })}</div>`,
             `<p class="vfx-hint" ${part('query-state')}></p>`,
         ]),
     });
@@ -218,25 +213,22 @@ function queryPage() {
 }
 
 /**
- * What each retrieval would inject, or why it has nothing.
+ * What EventBase's retrieval would inject, or why it has nothing.
  *
- * @param {Record<string, {count: string, text: string, reason: string}>} outcomes - by kind (queryOutcome)
+ * @param {{count: string, text: string, reason: string}} outcome - queryOutcome's
  * @param {{storyArc?: object}} eventBase - The EventBase result, for its StoryArc rule
  * @returns {string}
  */
-export function queryResultsMarkup(outcomes, eventBase) {
-    return QUERY_RETRIEVALS.map(({ kind, title, icon }) => {
-        const outcome = outcomes[kind];
-        const pill = statusPill({ name: outcome.count || 'Nothing found', status: outcome.count ? 'success' : 'neutral' });
-        const note = kind === 'eventbase' ? storyArcNote(eventBase?.storyArc) : '';
-        const body = outcome.text
-            ? stack([
-                note ? `<p class="vfx-hint">${escapeHtml(note)}</p>` : '',
-                textarea({ id: queryOutputId(kind), value: outcome.text, rows: 8, isCode: true, title: `${title} injection` }),
-            ])
-            : emptyState({ icon: 'fa-circle-info', text: outcome.reason });
-        return `<section class="vfx-card">${cardHeader({ icon, title, actions: pill, isCollapsible: false })}<div class="vfx-card-body">${body}</div></section>`;
-    }).join('');
+export function queryResultsMarkup(outcome, eventBase) {
+    const pill = statusPill({ name: outcome.count || 'Nothing found', status: outcome.count ? 'success' : 'neutral' });
+    const note = storyArcNote(eventBase?.storyArc);
+    const body = outcome.text
+        ? stack([
+            note ? `<p class="vfx-hint">${escapeHtml(note)}</p>` : '',
+            textarea({ id: QUERY_OUTPUT_ID, value: outcome.text, rows: 8, isCode: true, title: 'EventBase injection' }),
+        ])
+        : emptyState({ icon: 'fa-circle-info', text: outcome.reason });
+    return `<section class="vfx-card">${cardHeader({ icon: 'fa-timeline', title: 'EventBase', actions: pill, isCollapsible: false })}<div class="vfx-card-body">${body}</div></section>`;
 }
 
 /**

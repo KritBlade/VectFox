@@ -40,7 +40,7 @@
 
 import { discoverExistingCollections } from '../features/collections/index.js';
 import { pruneOrphanedEventBaseChatMaps } from '../features/eventbase/index.js';
-import { deleteOldLorebookCollections } from '../features/lorebase/index.js';
+import { deleteRetiredCollections } from './retired-collections.js';
 import { checkPluginAvailable, PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../shared/similharity-plugin.js';
 import { retry } from '../shared/retry.js';
 import { log } from '../sillytavern/log.js';
@@ -138,9 +138,10 @@ export function runNetworkStartup(startupSettings) {
                 } catch (pruneError) {
                     log.warn('VectFox: Orphan-sweep of per-chat EventBase settings failed (non-fatal):', pruneError?.message || pruneError);
                 }
-                // The old vectorized lorebook collections LoreBase replaced go, with a notice naming their books. It
-                // needs the registry discovery just filled, and waits for SillyTavern to load; it logs its own errors.
-                deleteOldLorebookCollections(startupSettings);
+                // The collections VectFox no longer reads go, under one notice: the old vectorized lorebooks LoreBase
+                // replaced, and those Vectorize Content made from sources it no longer reads. It needs the registry
+                // discovery just filled, and waits for SillyTavern to load; it logs its own errors.
+                deleteRetiredCollections(startupSettings);
             } catch (error) {
                 log.error('VectFox: Collection discovery failed after retries:', error.message);
                 toastr.warning(

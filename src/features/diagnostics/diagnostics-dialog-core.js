@@ -1,6 +1,6 @@
 /**
  * Diagnostics' rules for its dialog (diagnostics-dialog.js), with no host imports: the checks a run shows and how
- * they count, the report Copy report writes, and what each of the Query Tester's retrievals says.
+ * they count, the report Copy report writes, and what the Query Tester's retrieval says.
  */
 
 /** The check categories in the order they show, with their icons. */
@@ -135,35 +135,18 @@ export function diagnosticsReportText({ results, filter, settingLines, generated
 export const storedValue = value => (value === undefined || value === null || value === '' ? 'not set' : String(value));
 
 /**
- * What one of the Query Tester's retrievals shows: the text it would inject with a count, or why it has none.
+ * What the Query Tester's EventBase retrieval shows: the text it would inject with a count, or why it has none.
  *
- * @param {'eventbase'|'chunkbase'} kind
  * @param {object|null} result - The retrieval's dry run
  * @param {{eventBaseThreshold: number}} settings
  * @returns {{count: string, text: string, reason: string}} count and text when it found something, else reason
  */
-export function queryOutcome(kind, result, { eventBaseThreshold }) {
-    if (result?.injectionText) {
-        const counted = {
-            eventbase: `${result.eventCount ?? '?'} events`,
-            chunkbase: `${result.chunkCount ?? '?'} chunks`,
-        }[kind];
-        return { count: counted, text: result.injectionText, reason: '' };
-    }
-    return { count: '', text: '', reason: noResultReason(kind, result, eventBaseThreshold) };
-}
-
-function noResultReason(kind, result, eventBaseThreshold) {
-    if (kind === 'eventbase') {
-        const searched = (result?.lockedCollectionsCount ?? 0) + (result?.archiveCollectionsCount ?? 0);
-        if (searched === 0) return 'No EventBase collection is locked to this chat.';
-        const lower = eventBaseThreshold > 0 ? ', or lower the Similarity threshold on the ChatHistory page' : '';
-        return `Searched ${searched} collection(s) and no event matched. Try a more specific message${lower}.`;
-    }
-    if (result?.noCollections) return 'No ChunkBase collection is enabled.';
-    if (result?.noActive) return 'No collection passed its activation filters.';
-    if (result?.allDuplicates) return 'Every chunk found is already in the chat.';
-    return 'No chunk matched the message.';
+export function queryOutcome(result, { eventBaseThreshold }) {
+    if (result?.injectionText) return { count: `${result.eventCount ?? '?'} events`, text: result.injectionText, reason: '' };
+    const searched = (result?.lockedCollectionsCount ?? 0) + (result?.archiveCollectionsCount ?? 0);
+    if (searched === 0) return { count: '', text: '', reason: 'No EventBase collection is locked to this chat.' };
+    const lower = eventBaseThreshold > 0 ? ', or lower the Similarity threshold on the ChatHistory page' : '';
+    return { count: '', text: '', reason: `Searched ${searched} collection(s) and no event matched. Try a more specific message${lower}.` };
 }
 
 /** StoryArc's rule for an EventBase result, as the Query Tester notes it; '' when StoryArc did not route it. */

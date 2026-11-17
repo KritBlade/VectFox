@@ -2,20 +2,17 @@
  * ============================================================================
  * CHUNK VISUALIZER
  * ============================================================================
- * A collection's chunks, read and edited in their own dialog over the Database
+ * A collection's events, read and edited in their own dialog over the Database
  * Browser (chunk-visualizer-markup.js draws it, chunk-visualizer-core.js holds
- * its rules). It loads the chunks from Similharity and lists them by the search,
- * filter and order chosen; a chunk opens in a form that one Save writes,
- * embedding the text again first when it changed. Leaving a chunk or closing
- * with unsaved edits asks first. Ticked chunks are enabled, disabled or deleted
- * together. The backend payload holds a chunk's fields; its summaries live in
- * VectFox's settings and each is a vector of its own pointing at the chunk. A
- * Qdrant collection made with another CJK tokenizer than VectFox is set to takes
- * no new vector, so there a chunk's text and new summaries are locked.
+ * its rules). It loads them from Similharity and lists them by the search,
+ * filter and order chosen; one opens in a form that one Save writes, embedding
+ * the text again first when it changed. Leaving one or closing with unsaved
+ * edits asks first. Ticked ones are deleted together. The backend payload holds
+ * every field. A Qdrant collection made with another CJK tokenizer than VectFox
+ * is set to takes no new vector, so there the text is locked.
  * ============================================================================
  */
 
-import { deleteChunkMetadata, getChunkMetadata, saveChunkMetadata } from '../collections/index.js';
 import { deleteVectorItems, describeEmbeddingFailure, insertVectorItems, qdrantTarget, textWithoutKeywordSuffix, updateChunkMetadata } from '../vector-backend/index.js';
 import { eventPointHash, packTimelineSortKey } from '../eventbase/index.js';
 import { languageModeLabel } from '../keyword-search/index.js';
@@ -30,11 +27,7 @@ import {
     collectionRecordLines,
     eventFields,
     formChanges,
-    isEventBaseCollection,
-    linkTargetLabel,
-    linkTargetOptions,
     messageLine,
-    partLabel,
     saveProblem,
     savedChunkFields,
     textPreview,
@@ -49,16 +42,12 @@ import {
     chunksFailedMarkup,
     chunksLoadingMarkup,
     collectionRecordMarkup,
-    keywordRowsMarkup,
-    linkRowsMarkup,
     listFooterMarkup,
     noChunkOpenMarkup,
     noChunksMarkup,
     noMatchingChunksMarkup,
-    summaryRowsMarkup,
     tokenizerLockMarkup,
 } from './chunk-visualizer-markup.js';
-import { IN_CHAT_POSITION, sanitizeXmlTag } from './collection-settings-core.js';
 import { counted } from '../../shared/counted.js';
 
 /** The list's order and filter, and how many chunks a load asks for (0 for all), kept from one opening to the next. */
@@ -81,7 +70,6 @@ export async function openChunkVisualizer(collection, settings) {
     const session = {
         collection,
         settings,
-        isEventBase: isEventBaseCollection(collection.id),
         chunks: [],
         totalCount: null,
         query: '',
@@ -99,7 +87,6 @@ export async function openChunkVisualizer(collection, settings) {
     template.innerHTML = chunkVisualizerMarkup({
         collectionName: collection.name || collection.id,
         collectionType: collection.type,
-        isEventBase: session.isEventBase,
         fetchLimit: listChoices.fetchLimit,
     });
     const root = template.content.firstElementChild;
@@ -157,11 +144,11 @@ function loadedChunk(item, position) {
         key: String(position),
         hash: item.hash,
         index: item.index !== undefined && item.index !== null && item.index >= 0 ? item.index : position,
-        // The text as written: Qdrant storage appends the keywords, which the form shows as keyword rows.
+        // The text as written: Qdrant storage appends the keywords, which the row counts.
         text: textWithoutKeywordSuffix(String(item.text || item.metadata?.text || '')),
         metadata: { ...(item.metadata || {}) },
     };
-    chunk.fields = savedChunkFields(chunk, getChunkMetadata(chunk.hash) || {});
+    chunk.fields = savedChunkFields(chunk);
     chunk.timelineValue = timelineValueOf(chunk);
     return chunk;
 }
@@ -240,10 +227,8 @@ function rowView(chunk, session) {
         key: chunk.key,
         title: chunk.fields.name || textPreview(chunk.fields.text) || 'No text',
         message: messageLine(chunk),
-        part: partLabel(chunk),
         characterCount: chunk.fields.text.length,
         keywordCount: chunk.fields.keywords.length,
-        isEnabled: chunk.fields.enabled,
         isOpen: chunk.key === session.openKey,
         isTicked: session.tickedKeys.has(chunk.key),
     };
@@ -282,10 +267,7 @@ function markOpenRow(root, session) {
 function paintBulkBar(root, session) {
     const tickedCount = session.tickedKeys.size;
     root.querySelector('[data-chunk-bulk-count]').textContent = `${tickedCount} selected`;
-    for (const name of ['bulk-enable', 'bulk-disable', 'bulk-delete']) {
-        const bulkButton = root.querySelector(`[data-chunk-action="${name}"]`);
-        if (bulkButton) bulkButton.disabled = tickedCount === 0 || session.isBusy;
-    }
+    root.querySelector('[data-chunk-action="bulk-delete"]').disabled = tickedCount === 0 || session.isBusy;
     const selectAll = root.querySelector(`#${ids.selectAll}`);
     const matchingCount = session.matchingKeys.length;
     selectAll.checked = matchingCount > 0 && tickedCount === matchingCount;
@@ -305,24 +287,13 @@ function renderPane(root, session) {
         markOpenRow(root, session);
         return;
     }
-    session.draft = {
-        keywords: chunk.fields.keywords.map(keyword => ({ text: keyword.text })),
-        chunkLinks: chunk.fields.chunkLinks.map(link => ({ ...link })),
-        summaries: [...chunk.fields.summaries],
-    };
     pane.innerHTML = chunkFormMarkup({
         number: Number(chunk.key) + 1,
         hash: chunk.hash,
-        isEventBase: session.isEventBase,
         message: messageLine(chunk),
-        part: partLabel(chunk),
         fields: chunk.fields,
         event: eventFields(chunk),
-        links: linkViews(session),
-        linkTargets: linkTargetOptions(session.chunks, chunk.hash),
     });
-    const enabledSwitch = pane.querySelector(`#${ids.enabled}`);
-    if (enabledSwitch) enabledSwitch.checked = chunk.fields.enabled;
     pane.querySelector('.vfx-card-body').scrollTop = 0;
     markOpenRow(root, session);
     paintTokenizerLock(root, session);
@@ -330,8 +301,8 @@ function renderPane(root, session) {
 }
 
 /**
- * In a collection whose new vectors Similharity refuses, the open chunk's text and the box for a new summary are
- * locked, under a warning that names both CJK tokenizers.
+ * In a collection whose new vectors Similharity refuses, the open chunk's text is locked, under a warning that names
+ * both CJK tokenizers.
  */
 function paintTokenizerLock(root, session) {
     const slot = root.querySelector('[data-chunk-tokenizer-notice]');
@@ -340,35 +311,16 @@ function paintTokenizerLock(root, session) {
     slot.innerHTML = lock ? tokenizerLockMarkup({ madeWith: languageModeLabel(lock.madeWith), setTo: languageModeLabel(lock.setTo) }) : '';
     slot.hidden = !lock;
     root.querySelector(`#${ids.text}`).readOnly = Boolean(lock);
-    root.querySelector(`#${ids.summaryNew}`).disabled = Boolean(lock);
-    root.querySelector('[data-chunk-action="add-summary"]').disabled = Boolean(lock);
-    // Only a chunk collection's form has keyword controls: an EventBase event's keywords are not edited here.
-    for (const control of [root.querySelector(`#${ids.keywordNew}`), root.querySelector('[data-chunk-action="add-keyword"]')]) {
-        if (control) control.disabled = Boolean(lock);
-    }
 }
 
-const linkViews = session => session.draft.chunkLinks.map(link => ({ ...linkTargetLabel(session.chunks, link.targetHash), mode: link.mode }));
-
-function readForm(root, session) {
+function readForm(root) {
     const value = id => root.querySelector(`#${id}`)?.value ?? '';
-    return {
-        name: value(ids.name),
-        text: value(ids.text),
-        enabled: session.isEventBase ? undefined : root.querySelector(`#${ids.enabled}`).checked,
-        context: value(ids.context),
-        xmlTag: value(ids.xmlTag),
-        positionText: value(ids.position),
-        depthText: value(ids.depth),
-        keywords: session.isEventBase ? undefined : session.draft.keywords,
-        chunkLinks: session.isEventBase ? undefined : session.draft.chunkLinks,
-        summaries: session.draft.summaries,
-    };
+    return { name: value(ids.name), text: value(ids.text) };
 }
 
 function changesOf(root, session) {
     const chunk = openChunkOf(session);
-    return chunk && session.draft ? formChanges(chunk.fields, readForm(root, session)) : null;
+    return chunk ? formChanges(chunk.fields, readForm(root)) : null;
 }
 
 /** Save and Delete as the form allows, and the lines that say what the form holds. */
@@ -416,87 +368,7 @@ async function openChunk(root, session, key) {
     if (getComputedStyle(root.querySelector(`#${ids.split}`)).flexDirection === 'column') pane.scrollIntoView({ block: 'start' });
 }
 
-function repaintDraftList(root, session, hook) {
-    const list = root.querySelector(`[data-${hook}]`);
-    if (hook === 'chunk-keywords') list.innerHTML = keywordRowsMarkup(session.draft.keywords);
-    if (hook === 'chunk-links') list.innerHTML = linkRowsMarkup(linkViews(session));
-    if (hook === 'chunk-summaries') list.innerHTML = summaryRowsMarkup(session.draft.summaries);
-    refreshFormState(root, session);
-}
-
-function addKeyword(root, session) {
-    const box = root.querySelector(`#${ids.keywordNew}`);
-    const text = box.value.trim();
-    if (!text) return;
-    if (!session.draft.keywords.some(keyword => keyword.text === text)) {
-        session.draft.keywords.push({ text });
-        repaintDraftList(root, session, 'chunk-keywords');
-    }
-    box.value = '';
-    box.focus();
-}
-
-function addLink(root, session) {
-    const targetHash = root.querySelector(`#${ids.linkTarget}`)?.value;
-    if (!targetHash || session.draft.chunkLinks.some(link => String(link.targetHash) === targetHash)) return;
-    session.draft.chunkLinks.push({ targetHash, mode: root.querySelector(`#${ids.linkMode}`).value === 'soft' ? 'soft' : 'force' });
-    repaintDraftList(root, session, 'chunk-links');
-}
-
-function addSummary(root, session) {
-    const box = root.querySelector(`#${ids.summaryNew}`);
-    const text = box.value.trim();
-    if (!text) return;
-    if (!session.draft.summaries.includes(text)) {
-        session.draft.summaries.push(text);
-        repaintDraftList(root, session, 'chunk-summaries');
-    }
-    box.value = '';
-}
-
 // ── Saving ────────────────────────────────────────────────────────────────────────────────────────────
-
-/** A summary as its own vector, pointing at its chunk. */
-const summaryItem = (text, parentHash) => ({
-    text,
-    hash: getStringHash(text),
-    index: 0,
-    keywords: [],
-    metadata: { isSummary: true, parentHash, contentType: 'summary' },
-});
-
-/**
- * The chunk's fields with the form's changes, as a chunk stored again carries them. A chunk saved before the payload
- * carried its fields has them in the settings; summaries stay there.
- */
-function storedMetadataWith(chunk, changes) {
-    const { summaries: storedSummaries, updatedAt, ...storedFields } = getChunkMetadata(String(chunk.hash)) || {};
-    const metadata = { ...storedFields, ...chunk.metadata, ...changes.payload };
-    for (const field of ['hash', 'text', 'summaries']) delete metadata[field];
-    return metadata;
-}
-
-/** The summaries added and removed: each one's vector in the collection, their words in the settings. */
-async function writeSummaryChanges(session, chunk, changes) {
-    const { collection, settings } = session;
-    if (changes.removedSummaries.length) await deleteVectorItems(collection.id, changes.removedSummaries.map(getStringHash), settings);
-    if (changes.addedSummaries.length) await insertVectorItems(collection.id, changes.addedSummaries.map(summary => summaryItem(summary, chunk.hash)), settings);
-    if (changes.addedSummaries.length || changes.removedSummaries.length) {
-        saveChunkMetadata(String(chunk.hash), { ...(getChunkMetadata(String(chunk.hash)) || {}), summaries: changes.summaries });
-    }
-}
-
-/**
- * Write a chunk whose text is unchanged: its payload fields, then the summaries added and removed.
- */
-async function writeChunkChanges(session, chunk, changes) {
-    const { collection, settings } = session;
-    if (Object.keys(changes.payload).length) {
-        await updateChunkMetadata(collection.id, chunk.hash, changes.payload, settings);
-        chunk.metadata = { ...chunk.metadata, ...changes.payload };
-    }
-    await writeSummaryChanges(session, chunk, changes);
-}
 
 /**
  * Store one chunk's vector. A failure is an embedding failure, read for the person who pressed Save: whether saving
@@ -511,43 +383,36 @@ async function insertChunkVector(session, item) {
 }
 
 /**
- * Store a Qdrant chunk again after its keywords changed: Qdrant storage appends them to the text it stores, and builds
- * the sparse vector its keyword search reads from that text, so new keywords count there only once the chunk is stored
- * again. The text is the same, so the chunk keeps its hash and the new point replaces the old one, at one embedding.
- */
-async function storeChunkAgain(session, chunk, changes) {
-    const metadata = storedMetadataWith(chunk, changes);
-    await insertChunkVector(session, { hash: chunk.hash, text: chunk.text, index: chunk.index, metadata });
-    chunk.metadata = metadata;
-    await writeSummaryChanges(session, chunk, changes);
-}
-
-/**
  * The ID a chunk with this text is stored under: an EventBase event keeps the one EventBase gives it from its event ID,
  * so its new text replaces it in place and a later read of its window replaces it again, never adding a second copy;
- * a chunk's ID comes from its text.
+ * anything without an event ID takes its ID from its text.
  */
-function storedHashFor(session, metadata, text) {
-    const eventId = session.isEventBase ? metadata.event_id : null;
+function storedHashFor(metadata, text) {
+    const eventId = metadata.event_id;
     return typeof eventId === 'string' && eventId !== '' ? eventPointHash(eventId) : getStringHash(text);
+}
+
+/** Write a chunk whose text is unchanged: the payload fields the form changed. */
+async function writeChunkChanges(session, chunk, changes) {
+    if (!Object.keys(changes.payload).length) return;
+    await updateChunkMetadata(session.collection.id, chunk.hash, changes.payload, session.settings);
+    chunk.metadata = { ...chunk.metadata, ...changes.payload };
 }
 
 /**
  * Write a chunk whose text changed: the text embedded under the ID storedHashFor gives, with every field it keeps and
- * the form's changes; then a copy under another ID goes, and its summaries point at the new one. The new text goes in
- * first, so a failed embedding leaves the stored chunk as it was, and a later failure leaves both, never neither.
+ * the form's changes; then a copy under another ID goes. The new text goes in first, so a failed embedding leaves the
+ * stored chunk as it was, and a later failure leaves both, never neither.
  */
 async function reembedChunk(session, chunk, changes) {
     const { collection, settings } = session;
     const oldHash = chunk.hash;
-    const metadata = storedMetadataWith(chunk, changes);
-    const newHash = storedHashFor(session, metadata, changes.text);
-    const storedSummaries = getChunkMetadata(String(oldHash))?.summaries || [];
+    const metadata = { ...chunk.metadata, ...changes.payload };
+    for (const field of ['hash', 'text']) delete metadata[field];
+    const newHash = storedHashFor(metadata, changes.text);
 
     await insertChunkVector(session, { hash: newHash, text: changes.text, index: chunk.index, metadata });
     Object.assign(chunk, { hash: newHash, text: changes.text, metadata });
-    deleteChunkMetadata(String(oldHash));
-    if (changes.summaries.length) saveChunkMetadata(String(newHash), { summaries: changes.summaries });
 
     if (String(newHash) !== String(oldHash)) {
         try {
@@ -555,13 +420,6 @@ async function reembedChunk(session, chunk, changes) {
         } catch (error) {
             throw new Error(`the new text is saved, but the old copy is still in the collection: ${error.message}`, { cause: error });
         }
-    }
-    try {
-        const oldSummaries = [...new Set([...storedSummaries, ...changes.removedSummaries, ...changes.summaries])];
-        if (oldSummaries.length) await deleteVectorItems(collection.id, oldSummaries.map(getStringHash), settings);
-        if (changes.summaries.length) await insertVectorItems(collection.id, changes.summaries.map(summary => summaryItem(summary, newHash)), settings);
-    } catch (error) {
-        throw new Error(`the new text is saved, but its summaries still point at the old chunk: ${error.message}`, { cause: error });
     }
 }
 
@@ -579,12 +437,10 @@ async function saveOpenChunk(root, session) {
     setBusy(root, session, true);
     let isSaved = false;
     try {
-        const isKeywordChangeOnQdrant = changes.payload.keywords !== undefined && session.collection.backend === 'qdrant';
         if (changes.text !== null) await reembedChunk(session, chunk, changes);
-        else if (isKeywordChangeOnQdrant) await storeChunkAgain(session, chunk, changes);
         else await writeChunkChanges(session, chunk, changes);
         isSaved = true;
-        const how = changes.text !== null ? ', embedded again' : (isKeywordChangeOnQdrant ? ', stored again for its keywords' : '');
+        const how = changes.text !== null ? ', embedded again' : '';
         log.lifecycle(`VectFox Chunk Visualizer: saved chunk ${chunk.hash} of ${session.collection.id}${how}`);
     } catch (error) {
         log.error('VectFox Chunk Visualizer: a chunk could not be saved:', error);
@@ -596,7 +452,7 @@ async function saveOpenChunk(root, session) {
         }
     } finally {
         // What is saved now, as far as the save got; the form keeps any edit it did not write.
-        chunk.fields = savedChunkFields(chunk, getChunkMetadata(String(chunk.hash)) || {});
+        chunk.fields = savedChunkFields(chunk);
         chunk.timelineValue = timelineValueOf(chunk);
         setBusy(root, session, false);
     }
@@ -607,12 +463,10 @@ async function saveOpenChunk(root, session) {
 
 // ── Deleting and bulk actions ─────────────────────────────────────────────────────────────────────────
 
-/** Delete chunks and their summaries' vectors, and forget their settings. */
+/** Delete chunks' vectors. */
 async function deleteChunks(session, chunks) {
-    const hashes = chunks.flatMap(chunk => [chunk.hash, ...chunk.fields.summaries.map(getStringHash)]);
-    await deleteVectorItems(session.collection.id, hashes, session.settings);
+    await deleteVectorItems(session.collection.id, chunks.map(chunk => chunk.hash), session.settings);
     const deletedKeys = new Set(chunks.map(chunk => chunk.key));
-    for (const chunk of chunks) deleteChunkMetadata(String(chunk.hash));
     session.chunks = session.chunks.filter(chunk => !deletedKeys.has(chunk.key));
     for (const key of deletedKeys) session.tickedKeys.delete(key);
     if (deletedKeys.has(session.openKey)) session.openKey = null;
@@ -625,7 +479,7 @@ async function deleteOpenChunk(root, session) {
     const isConfirmed = await confirmPopup([
         { text: 'Delete this chunk?' },
         { text: 'Chunk:', name: chunkLabel(chunk) },
-        { text: 'Lost: its text, its vector, its settings and its summaries. It cannot be undone.' },
+        { text: 'Lost: its text and its vector. It cannot be undone.' },
         { text: 'Delete removes it. Cancel keeps it.' },
     ], { okButton: 'Delete', isDestructive: true });
     if (!isConfirmed) return;
@@ -639,7 +493,7 @@ async function bulkDelete(root, session) {
     const isConfirmed = await confirmPopup([
         { text: `Delete ${counted(targets.length, 'chunk')}?` },
         { text: 'Chunks:', name: targets.length > 3 ? `${named}; and ${targets.length - 3} more` : named },
-        { text: 'Lost: their text, vectors, settings and summaries. It cannot be undone.' },
+        { text: 'Lost: their text and vectors. It cannot be undone.' },
         { text: 'Delete removes them. Cancel keeps them.' },
     ], { okButton: 'Delete', isDestructive: true });
     if (!isConfirmed) return;
@@ -662,61 +516,18 @@ async function runDeletion(root, session, chunks) {
     if (!openChunkOf(session)) renderPane(root, session);
 }
 
-async function bulkSetEnabled(root, session, isEnabled) {
-    const targets = session.chunks.filter(chunk => session.tickedKeys.has(chunk.key) && chunk.fields.enabled !== isEnabled);
-    if (session.isBusy) return;
-    const open = openChunkOf(session);
-    const enabledSwitch = root.querySelector(`#${ids.enabled}`);
-    // The open chunk's switch follows when the user has not moved it.
-    const shouldMoveSwitch = Boolean(open && enabledSwitch && enabledSwitch.checked === open.fields.enabled);
-    setBusy(root, session, true);
-    let doneCount = 0;
-    try {
-        for (const chunk of targets) {
-            await updateChunkMetadata(session.collection.id, chunk.hash, { enabled: isEnabled }, session.settings);
-            chunk.metadata = { ...chunk.metadata, enabled: isEnabled };
-            chunk.fields = { ...chunk.fields, enabled: isEnabled };
-            doneCount++;
-        }
-        log.lifecycle(`VectFox Chunk Visualizer: ${isEnabled ? 'enabled' : 'disabled'} ${counted(doneCount, 'chunk')} of ${session.collection.id}`);
-    } catch (error) {
-        log.error('VectFox Chunk Visualizer: a bulk switch stopped:', error);
-        toastr.error(`${doneCount} of ${counted(targets.length, 'chunk')} ${isEnabled ? 'enabled' : 'disabled'}; the rest were not: ${error.message}`, 'VectFox');
-    } finally {
-        if (shouldMoveSwitch && open && enabledSwitch.isConnected) enabledSwitch.checked = open.fields.enabled;
-        setBusy(root, session, false);
-    }
-    renderList(root, session);
-}
-
 // ── Events ────────────────────────────────────────────────────────────────────────────────────────────
 
 function runAction(root, session, button) {
-    const { chunkAction: name } = button.dataset;
-    const draftIndex = key => Number(button.dataset[key]);
-    switch (name) {
+    switch (button.dataset.chunkAction) {
         case 'open': return openChunk(root, session, button.dataset.chunkKey);
         case 'reload': return reloadChunks(root, session);
         case 'show-more':
             session.shownLimit += LIST_PAGE_SIZE;
             return renderList(root, session);
-        case 'bulk-enable': return bulkSetEnabled(root, session, true);
-        case 'bulk-disable': return bulkSetEnabled(root, session, false);
         case 'bulk-delete': return bulkDelete(root, session);
         case 'save': return saveOpenChunk(root, session);
         case 'delete': return deleteOpenChunk(root, session);
-        case 'add-keyword': return addKeyword(root, session);
-        case 'remove-keyword':
-            session.draft.keywords.splice(draftIndex('keywordIndex'), 1);
-            return repaintDraftList(root, session, 'chunk-keywords');
-        case 'add-link': return addLink(root, session);
-        case 'remove-link':
-            session.draft.chunkLinks.splice(draftIndex('linkIndex'), 1);
-            return repaintDraftList(root, session, 'chunk-links');
-        case 'add-summary': return addSummary(root, session);
-        case 'remove-summary':
-            session.draft.summaries.splice(draftIndex('summaryIndex'), 1);
-            return repaintDraftList(root, session, 'chunk-summaries');
         default: return undefined;
     }
 }
@@ -778,21 +589,7 @@ function bindVisualizer(root, session) {
             else session.tickedKeys.delete(target.dataset.chunkTick);
             return paintBulkBar(root, session);
         }
-        if (target.id === ids.xmlTag) target.value = sanitizeXmlTag(target.value);
-        if (target.id === ids.position) {
-            root.querySelector(`#${ids.depthField}`).hidden = Number.parseInt(target.value, 10) !== IN_CHAT_POSITION;
-        }
         if (target.closest(`#${ids.pane}`)) refreshFormState(root, session);
         return undefined;
-    });
-
-    // Enter in a box that adds to a list adds, as its Add button does.
-    root.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter') return;
-        const adders = { [ids.keywordNew]: addKeyword, [ids.summaryNew]: addSummary };
-        const add = adders[event.target.id];
-        if (!add || (event.target.tagName === 'TEXTAREA' && event.shiftKey)) return;
-        event.preventDefault();
-        add(root, session);
     });
 }

@@ -1,9 +1,9 @@
 /**
- * The Test connection of the EventBase model and Auto-Reformat, and the message every chat consumer's test sends
+ * The EventBase model's Test connection, and the message every chat consumer's test sends
  * (src/features/llm-provider/connection-test.js, connection plan §1): a test sends one fixed line and never chat text,
- * with room for a model that thinks; the EventBase model and Auto-Reformat send it through their own call for the
- * chosen provider, so their checks and messages are the ones a run gives; and the shared sender raises no toast of its
- * own. The provider's reply is made up: postChatCompletion is the one part replaced.
+ * with room for a model that thinks; the EventBase model sends it through its own call for the chosen provider, so its
+ * checks and messages are the ones a run gives; and the shared sender raises no toast of its own and passes on a cut
+ * the provider made. The provider's reply is made up: postChatCompletion is the one part replaced.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +27,6 @@ vi.mock('../src/sillytavern/log.js', () => ({ log: new Proxy({}, { get: () => ()
 
 const { CONNECTION_TEST_MAX_TOKENS, CONNECTION_TEST_PROMPT, CONNECTION_TEST_TIMEOUT_MS, sendConnectionTest } = await import('../src/features/llm-provider/connection-test.js');
 const { testEventBaseConnection } = await import('../src/features/eventbase/eventbase-extractor.js');
-const { runAutoReformatConnectionTest } = await import('../src/features/chunkbase/reformat-extractor.js');
 
 const TEST_MESSAGES = [{ role: 'user', content: CONNECTION_TEST_PROMPT }];
 
@@ -56,6 +55,13 @@ describe('the connection test message', () => {
             reasoningEffort: 'none',
         }]);
     });
+
+    it('passes on a cut the provider made, for the button to report', async () => {
+        provider.reply = { content: 'OK', finishReason: 'length', cutReason: 'length', usage: null, data: {} };
+        await expect(sendConnectionTest({ provider: 'openrouter', model: 'harbor-chat', ok: true }, { contextLabel: 'StoryArc' }))
+            .resolves.toEqual({ content: 'OK', cutReason: 'length' });
+        expect(provider.calls).toHaveLength(1);
+    });
 });
 
 describe('the EventBase model\'s Test connection', () => {
@@ -80,26 +86,6 @@ describe('the EventBase model\'s Test connection', () => {
             .rejects.toThrow('EventBase: No model configured. Set the Model in Core → EventBase model.');
         await expect(testEventBaseConnection({ chat_provider: 'cohere' }))
             .rejects.toThrow('EventBase: provider "cohere" is not one VectFox knows. Choose one in Core → EventBase model.');
-        expect(provider.calls).toEqual([]);
-    });
-});
-
-describe('Auto-Reformat\'s Test connection', () => {
-    it('sends the test message once through the chosen provider\'s own call, Same as EventBase model resolved, and keeps a cut', async () => {
-        provider.reply = { content: 'OK', finishReason: 'length', cutReason: 'length', usage: null, data: {} };
-        const settings = { reformat_provider: '', chat_provider: 'openrouter', chat_model: 'harbor-chat', reformat_timeout_ms: 90000 };
-        await expect(runAutoReformatConnectionTest(settings)).resolves.toEqual({ content: 'OK', cutReason: 'length' });
-        expect(provider.calls).toHaveLength(1);
-        expect(provider.calls[0]).toMatchObject({
-            messages: TEST_MESSAGES, provider: 'openrouter', model: 'harbor-chat', maxTokens: CONNECTION_TEST_MAX_TOKENS,
-            timeoutMs: CONNECTION_TEST_TIMEOUT_MS, contextLabel: 'Auto-Reformat', shouldNotifyProviderFailure: false,
-        });
-        expect(settings.reformat_timeout_ms).toBe(90000);
-    });
-
-    it('stops with the run\'s own message on an unknown provider, and sends nothing', async () => {
-        await expect(runAutoReformatConnectionTest({ reformat_provider: 'cohere' }))
-            .rejects.toThrow('Auto-Reformat: provider "cohere" is not one VectFox knows. Choose one in ChunkBase → Auto-Reformat.');
         expect(provider.calls).toEqual([]);
     });
 });

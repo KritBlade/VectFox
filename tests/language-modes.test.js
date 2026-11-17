@@ -21,7 +21,6 @@ import {
 import {
     STOP_WORDS_BY_LOCALE,
     isStopWord,
-    buildStopSet,
 } from '../src/features/keyword-search/stop-words.js';
 
 import { LATIN_TOKEN_RE, NON_WORD_RE, localeForSpan, getSegmenter, CJK_CHAR_RE } from '../src/features/keyword-search/script-segmentation.js';
@@ -65,8 +64,7 @@ describe('isStopWord — cross-language isolation', () => {
 
     it('Korean stopword not filtered under [en, ja]', () => {
         // Use a token from KOREAN_STOP_WORDS that is not in EN or JA.
-        const koSet = buildStopSet(['ko']);
-        const koOnly = [...koSet].find(w => {
+        const koOnly = STOP_WORDS_BY_LOCALE.ko.find(w => {
             return !isStopWord(w, ['en']) && !isStopWord(w, ['ja']);
         });
         expect(koOnly).toBeDefined();
@@ -110,11 +108,13 @@ describe('Set memoization', () => {
         expect(isStopWord('the', ['en'])).toBe(true);
     });
 
-    it('buildStopSet for same locale twice produces equivalent sets', () => {
-        const s1 = buildStopSet(['ja']);
-        const s2 = buildStopSet(['ja']);
-        expect(s1.size).toBe(s2.size);
-        expect(s1.has('から')).toBe(s2.has('から'));
+    it('isStopWord reads every word of a locale\'s list, the same on each call', () => {
+        const japanese = STOP_WORDS_BY_LOCALE.ja;
+        const firstReading = japanese.map(word => isStopWord(word, ['ja']));
+        const secondReading = japanese.map(word => isStopWord(word, ['ja']));
+        expect(firstReading.every(Boolean)).toBe(true);
+        expect(secondReading).toEqual(firstReading);
+        expect(isStopWord('から', ['ja'])).toBe(true);
     });
 });
 

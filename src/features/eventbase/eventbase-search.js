@@ -3,10 +3,11 @@
  * EVENTBASE SEARCH
  * ============================================================================
  * How every EventBase search queries an event collection: with EventBase's own
- * keyword scoring and similarity threshold, never ChunkBase's. Standard applies
- * the threshold inside its query. Qdrant's query keeps every score, so the events
- * it returns below the threshold are dropped here, by the same similarity the
- * re-rank's cosine weight reads.
+ * keyword scoring and similarity threshold. Standard applies the threshold inside
+ * its query. Qdrant's query keeps every score, so the events it returns below the
+ * threshold are dropped here, by the same similarity the re-rank's cosine weight
+ * reads. A summary point the Database Browser once added beside an event is no
+ * event, and every search skips it.
  * ============================================================================
  */
 
@@ -16,7 +17,7 @@ import { log } from '../../sillytavern/log.js';
 
 /**
  * The settings an EventBase search runs with: EventBase's keyword scoring and
- * similarity threshold in place of ChunkBase's.
+ * similarity threshold.
  *
  * @param {object} settings - VectFox settings
  * @param {number} [threshold] - The similarity threshold, the ChatHistory page's when absent
@@ -48,6 +49,18 @@ function shouldApplyThresholdAfterSearch(collectionId, settings) {
 }
 
 /**
+ * Whether a hit is a summary the Database Browser's Summaries section once stored beside an event, as a text of its
+ * own pointing at the event. The section retired with ChunkBase, which alone swapped such a hit for its event, so a
+ * summary point left in a collection is skipped rather than sent as an event.
+ *
+ * @param {object} hit - A hit's metadata
+ * @returns {boolean}
+ */
+export function isSummaryPoint(hit) {
+    return hit?.isSummary === true || hit?.contentType === 'summary';
+}
+
+/**
  * Search one event collection.
  *
  * @param {string} collectionId - Registry key or bare ID
@@ -62,9 +75,13 @@ function shouldApplyThresholdAfterSearch(collectionId, settings) {
 export async function searchEventCollection(collectionId, queryText, topK, settings, { queryVector = null, threshold } = {}) {
     const searchSettings = eventSearchSettings(settings, threshold);
     const result = await queryCollection(collectionId, queryText, topK, searchSettings, queryVector);
+    const hits = (result.hashes || [])
+        .map((hash, i) => ({ hash, hit: result.metadata?.[i] || {} }))
+        .filter(({ hit }) => !isSummaryPoint(hit));
     const floor = searchSettings.score_threshold;
-    if (!(floor > 0) || !shouldApplyThresholdAfterSearch(collectionId, settings)) return result;
-    const hits = (result.hashes || []).map((hash, i) => ({ hash, hit: result.metadata?.[i] || {} }));
+    if (!(floor > 0) || !shouldApplyThresholdAfterSearch(collectionId, settings)) {
+        return { hashes: hits.map(({ hash }) => hash), metadata: hits.map(({ hit }) => hit) };
+    }
     const kept = hits.filter(({ hit }) => eventSimilarityOf(hit) >= floor);
     if (kept.length < hits.length) {
         log.verbose(`[EventBase] Similarity threshold ${floor} dropped ${hits.length - kept.length} of ${hits.length} events (${collectionId})`);

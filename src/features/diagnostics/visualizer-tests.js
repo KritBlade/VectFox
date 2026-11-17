@@ -3,7 +3,7 @@
  * VectFox DIAGNOSTICS - VISUALIZER TESTS
  * ============================================================================
  * Unit tests for chunk visualizer operations across all backends
- * Tests: delete, edit/re-vectorize, summary vectors, metadata operations
+ * Tests: insert, delete, edit/re-vectorize, backend responsiveness
  *
  * @author Kritblade
  * ============================================================================
@@ -15,11 +15,6 @@ import {
     insertVectorItems,
     getSavedHashes,
 } from '../vector-backend/index.js';
-import {
-    getChunkMetadata,
-    saveChunkMetadata,
-    deleteChunkMetadata,
-} from '../collections/index.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
 import { cleanupTestCollection } from './production-tests.js';
 
@@ -116,81 +111,6 @@ export function checkHashGeneration() {
     } catch (error) {
         return {
             name: 'Hash Generation',
-            status: 'fail',
-            message: `Error: ${error.message}`,
-            category: 'visualizer'
-        };
-    }
-}
-
-/**
- * Check: Metadata read/write operations
- */
-export function checkMetadataOperations() {
-    const testHash = `test_meta_${Date.now()}`;
-
-    try {
-        // Test save (uses new keyword format with multiplier weights)
-        const testData = {
-            enabled: true,
-            importance: 150,
-            keywords: [
-                { text: 'test', weight: 1.0 },
-                { text: 'visualizer', weight: 1.5 }
-            ],
-            testTimestamp: Date.now()
-        };
-
-        saveChunkMetadata(testHash, testData);
-
-        // Test read
-        const retrieved = getChunkMetadata(testHash);
-
-        if (!retrieved) {
-            // Cleanup attempt
-            deleteChunkMetadata(testHash);
-            return {
-                name: 'Metadata Operations',
-                status: 'fail',
-                message: 'Failed to retrieve saved metadata',
-                category: 'visualizer'
-            };
-        }
-
-        if (retrieved.importance !== 150) {
-            deleteChunkMetadata(testHash);
-            return {
-                name: 'Metadata Operations',
-                status: 'fail',
-                message: 'Retrieved metadata does not match saved data',
-                category: 'visualizer'
-            };
-        }
-
-        // Test delete
-        deleteChunkMetadata(testHash);
-        const afterDelete = getChunkMetadata(testHash);
-
-        if (afterDelete && Object.keys(afterDelete).length > 0) {
-            return {
-                name: 'Metadata Operations',
-                status: 'warning',
-                message: 'Metadata delete may not have fully cleaned up',
-                category: 'visualizer'
-            };
-        }
-
-        return {
-            name: 'Metadata Operations',
-            status: 'pass',
-            message: 'Save, read, and delete all working',
-            category: 'visualizer'
-        };
-    } catch (error) {
-        // Cleanup attempt
-        try { deleteChunkMetadata(testHash); } catch (cleanupError) { log.warn('VectFox diagnostics: test metadata cleanup failed:', cleanupError); }
-        return {
-            name: 'Metadata Operations',
             status: 'fail',
             message: `Error: ${error.message}`,
             category: 'visualizer'
@@ -332,7 +252,7 @@ export async function checkVectorDelete(settings) {
 
 /**
  * Check: Re-vectorization workflow (edit text)
- * Tests: delete old → insert new → migrate metadata
+ * Tests: delete old → insert new
  */
 export async function checkReVectorization(settings) {
     if (!settings || !settings.embedding_provider) {
@@ -351,34 +271,18 @@ export async function checkReVectorization(settings) {
     const editedHash = getStringHash(editedText);
 
     try {
-        // Step 1: Insert original vector with metadata
+        // Step 1: Insert the original vector
         await insertVectorItems(testCollectionId, [{
             hash: originalHash,
             text: originalText
         }], settings);
 
-        saveChunkMetadata(String(originalHash), {
-            importance: 175,
-            keywords: [
-                { text: 'test', weight: 1.0 },
-                { text: 'original', weight: 1.5 }
-            ],
-            testMarker: 'revec_test'
-        });
-
-        // Step 2: Simulate re-vectorization (delete old, insert new, migrate meta)
+        // Step 2: Re-vectorize: delete the old, insert the new
         await deleteVectorItems(testCollectionId, [originalHash], settings);
         await insertVectorItems(testCollectionId, [{
             hash: editedHash,
             text: editedText
         }], settings);
-
-        // Migrate metadata
-        const oldMeta = getChunkMetadata(String(originalHash)) || {};
-        if (Object.keys(oldMeta).length > 0) {
-            saveChunkMetadata(String(editedHash), oldMeta);
-        }
-        deleteChunkMetadata(String(originalHash));
 
         // Verify results
         const hashes = await getSavedHashes(testCollectionId, settings);
@@ -387,12 +291,7 @@ export async function checkReVectorization(settings) {
         const hasOriginal = hashStrings.includes(String(originalHash));
         const hasEdited = hashStrings.includes(String(editedHash));
 
-        // Check metadata migration BEFORE cleanup
-        const migratedMeta = getChunkMetadata(String(editedHash));
-        const metadataOk = migratedMeta && migratedMeta.importance === 175;
-
         // Cleanup - full collection cleanup
-        deleteChunkMetadata(String(editedHash));
         await cleanupTestCollection(testCollectionId, settings);
 
         if (hasOriginal) {
@@ -413,204 +312,20 @@ export async function checkReVectorization(settings) {
             };
         }
 
-        if (!metadataOk) {
-            return {
-                name: 'Re-Vectorization',
-                status: 'warning',
-                message: 'Vectors updated but metadata migration may have issues',
-                category: 'visualizer'
-            };
-        }
-
         return {
             name: 'Re-Vectorization',
             status: 'pass',
-            message: 'Full workflow working: delete → insert → migrate metadata',
+            message: 'Full workflow working: delete → insert',
             category: 'visualizer'
         };
     } catch (error) {
-        // Cleanup attempts
-        deleteChunkMetadata(String(originalHash));
-        deleteChunkMetadata(String(editedHash));
+        // Cleanup attempt
         try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
 
         return {
             name: 'Re-Vectorization',
             status: 'fail',
             message: `Workflow failed: ${error.message}`,
-            category: 'visualizer'
-        };
-    }
-}
-
-/**
- * Check: Summary vector creation (dual-vector)
- */
-export async function checkSummaryVectorCreate(settings) {
-    if (!settings || !settings.embedding_provider) {
-        return {
-            name: 'Summary Vector Create',
-            status: 'skipped',
-            message: 'No settings/source configured',
-            category: 'visualizer'
-        };
-    }
-
-    const testCollectionId = getTestCollectionId();
-    const parentText = `Parent chunk for summary test ${Date.now()}`;
-    const summaryText = `Summary of the parent chunk ${Date.now()}`;
-    const parentHash = getStringHash(parentText);
-    const summaryHash = getStringHash(summaryText);
-
-    try {
-        // Insert parent chunk
-        await insertVectorItems(testCollectionId, [{
-            hash: parentHash,
-            text: parentText
-        }], settings);
-
-        // Insert summary vector with parent link
-        await insertVectorItems(testCollectionId, [{
-            hash: summaryHash,
-            text: summaryText
-        }], settings);
-
-        saveChunkMetadata(String(summaryHash), {
-            isSummaryVector: true,
-            parentHash: String(parentHash),
-            summaryText: summaryText
-        });
-
-        // Verify both exist
-        const hashes = await getSavedHashes(testCollectionId, settings);
-        const hashStrings = hashes.map(h => String(h));
-        const hasParent = hashStrings.includes(String(parentHash));
-        const hasSummary = hashStrings.includes(String(summaryHash));
-
-        // Check metadata BEFORE cleanup
-        const summaryMeta = getChunkMetadata(String(summaryHash));
-        const metadataOk = summaryMeta && summaryMeta.isSummaryVector && String(summaryMeta.parentHash) === String(parentHash);
-
-        // Cleanup - full collection cleanup
-        deleteChunkMetadata(String(summaryHash));
-        await cleanupTestCollection(testCollectionId, settings);
-
-        if (!hasParent || !hasSummary) {
-            return {
-                name: 'Summary Vector Create',
-                status: 'fail',
-                message: `Missing vectors - parent: ${hasParent}, summary: ${hasSummary}`,
-                category: 'visualizer'
-            };
-        }
-
-        if (!metadataOk) {
-            return {
-                name: 'Summary Vector Create',
-                status: 'warning',
-                message: 'Vectors created but metadata linkage may be incorrect',
-                category: 'visualizer'
-            };
-        }
-
-        return {
-            name: 'Summary Vector Create',
-            status: 'pass',
-            message: 'Dual-vector summary created with proper parent linkage',
-            category: 'visualizer'
-        };
-    } catch (error) {
-        // Cleanup
-        deleteChunkMetadata(String(summaryHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
-
-        return {
-            name: 'Summary Vector Create',
-            status: 'fail',
-            message: `Failed: ${error.message}`,
-            category: 'visualizer'
-        };
-    }
-}
-
-/**
- * Check: Summary vector deletion
- */
-export async function checkSummaryVectorDelete(settings) {
-    if (!settings || !settings.embedding_provider) {
-        return {
-            name: 'Summary Vector Delete',
-            status: 'skipped',
-            message: 'No settings/source configured',
-            category: 'visualizer'
-        };
-    }
-
-    const testCollectionId = getTestCollectionId();
-    const parentText = `Parent for summary delete test ${Date.now()}`;
-    const summaryText = `Summary to delete ${Date.now()}`;
-    const parentHash = getStringHash(parentText);
-    const summaryHash = getStringHash(summaryText);
-
-    try {
-        // Setup: insert parent and summary
-        await insertVectorItems(testCollectionId, [
-            { hash: parentHash, text: parentText },
-            { hash: summaryHash, text: summaryText }
-        ], settings);
-
-        saveChunkMetadata(String(summaryHash), {
-            isSummaryVector: true,
-            parentHash: String(parentHash)
-        });
-
-        // Delete only the summary
-        await deleteVectorItems(testCollectionId, [summaryHash], settings);
-        deleteChunkMetadata(String(summaryHash));
-
-        // Verify parent still exists, summary is gone
-        const hashes = await getSavedHashes(testCollectionId, settings);
-        // Convert to strings for comparison (hashes may be numbers or strings)
-        const hashStrings = hashes.map(h => String(h));
-        const hasParent = hashStrings.includes(String(parentHash));
-        const hasSummary = hashStrings.includes(String(summaryHash));
-
-        // Cleanup - full collection cleanup
-        await cleanupTestCollection(testCollectionId, settings);
-
-        if (!hasParent) {
-            return {
-                name: 'Summary Vector Delete',
-                status: 'fail',
-                message: 'Parent chunk was accidentally deleted',
-                category: 'visualizer'
-            };
-        }
-
-        if (hasSummary) {
-            return {
-                name: 'Summary Vector Delete',
-                status: 'fail',
-                message: 'Summary vector still exists after delete',
-                category: 'visualizer'
-            };
-        }
-
-        return {
-            name: 'Summary Vector Delete',
-            status: 'pass',
-            message: 'Summary deleted while parent preserved',
-            category: 'visualizer'
-        };
-    } catch (error) {
-        // Cleanup
-        deleteChunkMetadata(String(summaryHash));
-        try { await cleanupTestCollection(testCollectionId, settings); } catch (cleanupError) { log.warn('VectFox diagnostics: test collection cleanup failed:', cleanupError); }
-
-        return {
-            name: 'Summary Vector Delete',
-            status: 'fail',
-            message: `Failed: ${error.message}`,
             category: 'visualizer'
         };
     }
@@ -709,15 +424,12 @@ export async function runVisualizerTests(settings, includeSlowTests = false) {
     // Fast checks (no API calls)
     results.push(checkVisualizerSettings(settings));
     results.push(checkHashGeneration());
-    results.push(checkMetadataOperations());
 
     // Slow checks (make API calls to backend)
     if (includeSlowTests) {
         results.push(await checkVectorInsert(settings));
         results.push(await checkVectorDelete(settings));
         results.push(await checkReVectorization(settings));
-        results.push(await checkSummaryVectorCreate(settings));
-        results.push(await checkSummaryVectorDelete(settings));
         results.push(await checkBackendResponsiveness(settings));
     }
 

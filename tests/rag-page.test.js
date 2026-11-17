@@ -3,7 +3,7 @@
  *
  * The settings panel's RAG page on GUI-DNA (src/features/settings-panel/rag-page-markup.js): both controls keep the
  * id settings-panel.js wires them by, an empty XML tag box reads as no tag, which is what it sends, and the page is
- * drawn from GUI-DNA alone, pointing to where a collection or a chunk sets its own wrapper.
+ * drawn from GUI-DNA alone, its wrapper the only one, as no collection or chunk sets its own.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -30,10 +30,11 @@ describe('RAG page markup', () => {
         expect(document.body.textContent).toContain('Empty sends them unwrapped.');
     });
 
-    it('draws only GUI-DNA classes and no inline style, and names where a collection or chunk sets its own', () => {
+    it('draws only GUI-DNA classes and no inline style, and points to no wrapper of a collection or chunk', () => {
         const classes = [...document.querySelectorAll('[class]')].flatMap(element => [...element.classList]);
         expect(classes.filter(name => !name.startsWith('vfx-') && !name.startsWith('fa-') && !name.startsWith('is-'))).toEqual([]);
         expect(document.querySelector('[style]')).toBeNull();
-        expect(document.querySelector('.vfx-notice').textContent).toContain('Database Browser → Collection Settings, or Chunk Visualizer');
+        expect(document.querySelector('.vfx-notice')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/chunk|Collection Settings/i);
     });
 });

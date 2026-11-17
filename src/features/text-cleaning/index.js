@@ -5,7 +5,6 @@
 // re-export. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export {
     chooseCleaningPreset,
-    cleanContentOrNull,
     cleaningPresetChoices,
     cleanText,
     getCleaningSettings,

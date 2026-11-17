@@ -35,7 +35,7 @@ export const ACTION_PAGE_ELEMENT_ID = Object.freeze({
  * saves. sillytavern/log.js reads the domains; a setting of its own goes with the request it changes.
  */
 export const DEBUG_SWITCHES = Object.freeze([
-    { id: 'VectFox_injection_debug_logging', domain: 'injection', title: 'Injection', description: 'Each turn\'s injected chunks and events: score, collection, text and placement.' },
+    { id: 'VectFox_injection_debug_logging', domain: 'injection', title: 'Injection', description: 'Each turn\'s injected events: score, collection, text and placement.' },
     { id: 'VectFox_debug_domain_raw_llm', domain: 'raw_llm', title: 'Raw LLM reply', description: 'Each EventBase window\'s excerpt, raw reply and parse. Very noisy.' },
     { id: 'VectFox_agentic_debug', domain: 'agent', title: 'Agent Mode', description: 'The planner\'s context, searches and timing, and each search\'s hits.' },
     { id: 'VectFox_eventbase_debug_qdrant_backend', setting: 'eventbase_debug_qdrant_backend', title: 'Qdrant backend', description: 'Similharity logs Qdrant\'s keyword and fusion detail in the server console.' },
@@ -73,12 +73,12 @@ function masterSwitchCard() {
 
 function memoryCard() {
     return `<section class="vfx-card">
-        ${cardHeader({ icon: 'fa-database', title: 'Memory', description: 'Put content into memory, keep this chat in step, and see what is stored.' })}
+        ${cardHeader({ icon: 'fa-database', title: 'Memory', description: 'Put chats into memory, keep this chat in step, and see what is stored.' })}
         <div class="vfx-card-body">
             <div class="vfx-action-grid">
-                ${actionCard({ icon: 'fa-circle-plus', title: 'Vectorize Content', description: 'Store a chat, character card, web or wiki page, document or YouTube transcript.', button: { id: ID.vectorizeContent, text: 'Vectorize content', icon: 'fa-plus' }, isPrimary: true })}
+                ${actionCard({ icon: 'fa-circle-plus', title: 'Vectorize Content', description: 'Store a chat\'s events: the open chat, or a chat file.', button: { id: ID.vectorizeContent, text: 'Vectorize content', icon: 'fa-plus' }, isPrimary: true })}
                 ${actionCard({ icon: 'fa-rotate', title: 'Sync chat', description: 'Reads the messages EventBase has not read in this chat yet, after you confirm.', button: { id: ID.syncChat, text: 'Sync chat', icon: 'fa-rotate' } })}
-                ${actionCard({ icon: 'fa-folder-open', title: 'Database Browser', description: 'Every stored collection, with its chunks and events, locks, names and exports.', button: { id: ID.databaseBrowser, text: 'Open browser', icon: 'fa-folder-open' } })}
+                ${actionCard({ icon: 'fa-folder-open', title: 'Database Browser', description: 'Every stored collection, with its events, locks, names and exports.', button: { id: ID.databaseBrowser, text: 'Open browser', icon: 'fa-folder-open' } })}
                 ${actionCard({ icon: 'fa-eraser', title: 'Text Cleaning', description: 'The patterns that strip markup and noise from messages before VectFox reads them.', button: { id: ID.textCleaning, text: 'Edit patterns', icon: 'fa-pen' } })}
                 ${actionCard({ icon: 'fa-chart-line', title: 'Progress', description: 'Shows the progress panel of a vectorization again after you hid it.', button: { id: ID.reopenProgress, text: 'Show progress', icon: 'fa-eye' } })}
             </div>
@@ -93,7 +93,7 @@ function checksCard() {
             <div class="vfx-action-grid">
                 ${actionCard({ icon: 'fa-stethoscope', title: 'Diagnostics', description: 'Checks every part of the setup and lists what passes, warns or fails.', button: { id: ID.openChecks, text: 'Open Checks', icon: 'fa-stethoscope' } })}
                 ${actionCard({ icon: 'fa-heart-pulse', title: 'Backend health', description: 'Live counts of the vector backend\'s queries, inserts and errors, and its latency.', button: { id: ID.openBackendHealth, text: 'Open Backend health', icon: 'fa-gauge' } })}
-                ${actionCard({ icon: 'fa-magnifying-glass', title: 'Query Tester', description: 'Type a message and see what each retrieval would inject for it. Nothing is sent.', button: { id: ID.openQueryTester, text: 'Test a query', icon: 'fa-vial' } })}
+                ${actionCard({ icon: 'fa-magnifying-glass', title: 'Query Tester', description: 'Type a message and see what EventBase would inject for it. Nothing is sent.', button: { id: ID.openQueryTester, text: 'Test a query', icon: 'fa-vial' } })}
                 ${actionCard({ icon: 'fa-eye', title: 'Summarizer preview', description: 'The summarizer block this turn would inject, shown and not injected.', button: { id: ID.previewSummarizer, text: 'Preview block', icon: 'fa-eye' } })}
             </div>
         </div>

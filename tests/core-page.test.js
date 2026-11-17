@@ -3,8 +3,9 @@
  *
  * The settings panel's Core page on GUI-DNA (src/features/settings-panel/core-page-markup.js) and the number boxes on
  * it (number-setting.js): every control keeps the id settings-panel.js wires it by, the rows the wiring shows and hides
- * start hidden, a slider sits beside each short-range number box, and a number box saves a typed value held to its
- * limits, saves nothing while half-typed, and shows the saved value once left.
+ * start hidden, a slider sits beside each short-range number box, the insert batch size sits in the Embedding card and
+ * the query keyword budget in the Keyword scoring card, and a number box saves a typed value held to its limits, saves
+ * nothing while half-typed, and shows the saved value once left.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -33,7 +34,7 @@ const WIRED_IDS = [
     'VectFox_vllm_alt_endpoint_row', 'VectFox_vllm_alt_endpoint_url',
     'VectFox_vllm_model', 'VectFox_vllm_api_key', 'VectFox_vllm_api_key_clear', 'VectFox_openrouter_model', 'VectFox_openrouter_model_choose',
     'VectFox_openrouter_model_list', 'VectFox_openrouter_apikey', 'VectFox_openrouter_apikey_clear', 'VectFox_rate_limit_calls', 'VectFox_rate_limit_interval',
-    'VectFox_vector_group_embedding_call', 'VectFox_vector_hedge_enabled', 'VectFox_summarize_provider', 'VectFox_summarize_settings',
+    'VectFox_vector_group_embedding_call', 'VectFox_insert_batch_size', 'VectFox_vector_hedge_enabled', 'VectFox_summarize_provider', 'VectFox_summarize_settings',
     'VectFox_summarize_openrouter_row', 'VectFox_summarize_openrouter_apikey', 'VectFox_summarize_openrouter_apikey_clear', 'VectFox_summarize_vllm_url_row',
     'VectFox_summarize_vllm_url', 'VectFox_summarize_vllm_apikey', 'VectFox_summarize_vllm_apikey_clear', 'VectFox_summarize_model',
     'VectFox_summarize_model_choose', 'VectFox_summarize_model_list', 'VectFox_generation_rate_limit_calls', 'VectFox_generation_rate_limit_interval',
@@ -42,10 +43,13 @@ const WIRED_IDS = [
     'VectFox_retrieval_timeout_ms', 'VectFox_eventbase_native_rerank_wrapper', 'VectFox_eventbase_native_rerank', 'VectFox_retrieval_popup_on_start',
     'VectFox_retrieval_popup_on_result', 'VectFox_injection_position', 'VectFox_injection_depth_row', 'VectFox_injection_depth',
     'VectFox_keyword_method_section', 'VectFox_keyword_scoring_method', 'VectFox_native_hybrid_info', 'VectFox_bm25_params', 'VectFox_bm25_k1',
-    'VectFox_bm25_b', 'VectFox_bm25_use_corpus_idf', 'VectFox_hybrid_params', 'VectFox_hybrid_fusion_method', 'VectFox_hybrid_weights',
-    'VectFox_hybrid_vector_weight', 'VectFox_hybrid_text_weight', 'VectFox_hybrid_rrf_settings', 'VectFox_hybrid_rrf_k', 'VectFox_cjk_tokenizer_mode',
-    'VectFox_custom_stopwords',
+    'VectFox_bm25_b', 'VectFox_bm25_use_corpus_idf', 'VectFox_hybrid_keyword_budget_wrapper', 'VectFox_hybrid_keyword_level', 'VectFox_hybrid_params',
+    'VectFox_hybrid_fusion_method', 'VectFox_hybrid_weights', 'VectFox_hybrid_vector_weight', 'VectFox_hybrid_text_weight', 'VectFox_hybrid_rrf_settings',
+    'VectFox_hybrid_rrf_k', 'VectFox_cjk_tokenizer_mode',
 ];
+
+/** The title of the card a control sits in. */
+const cardTitleOf = id => document.getElementById(id).closest('.vfx-card').querySelector('.vfx-card-title').textContent;
 
 describe('Core page markup', () => {
     beforeEach(() => {
@@ -61,17 +65,30 @@ describe('Core page markup', () => {
     it('starts every row the wiring shows on demand hidden', () => {
         const startsHidden = ['VectFox_qdrant_plugin_notice', 'VectFox_qdrant_plugin_error', 'VectFox_qdrant_settings', 'VectFox_qdrant_cloud_settings',
             'VectFox_summarize_settings', 'VectFox_summarize_openrouter_row', 'VectFox_summarize_vllm_url_row', 'VectFox_openrouter_model_list',
-            'VectFox_summarize_model_list', 'VectFox_injection_depth_row', 'VectFox_native_hybrid_info', 'VectFox_hybrid_weights',
-            'VectFox_ollama_alt_endpoint_row', 'VectFox_vllm_alt_endpoint_row'];
+            'VectFox_summarize_model_list', 'VectFox_injection_depth_row', 'VectFox_native_hybrid_info', 'VectFox_hybrid_keyword_budget_wrapper',
+            'VectFox_hybrid_weights', 'VectFox_ollama_alt_endpoint_row', 'VectFox_vllm_alt_endpoint_row'];
         for (const id of startsHidden) expect(document.getElementById(id).style.display, id).toBe('none');
         const providers = [...document.querySelectorAll('#VectFox_provider_settings > [data-provider]')];
         expect(providers.map(block => block.dataset.provider)).toEqual(['ollama', 'vllm', 'openrouter']);
         expect(providers.every(block => block.style.display === 'none')).toBe(true);
     });
 
+    it('puts the insert batch size in the Embedding card, and the query keyword budget in Keyword scoring, each with its label and hint', () => {
+        expect(cardTitleOf('VectFox_insert_batch_size')).toBe('Embedding');
+        expect(cardTitleOf('VectFox_hybrid_keyword_level')).toBe('Keyword scoring');
+        const budget = document.getElementById('VectFox_hybrid_keyword_budget_wrapper');
+        expect(budget.querySelector('label[for="VectFox_hybrid_keyword_level"]')).not.toBeNull();
+        expect(budget.querySelector('.vfx-hint')).not.toBeNull();
+        expect([...budget.querySelectorAll('#VectFox_hybrid_keyword_level option')].map(option => option.value)).toEqual(['minimal', 'balance', 'maximum']);
+        const batchSize = document.getElementById('VectFox_insert_batch_size').closest('.vfx-field');
+        expect(batchSize.querySelector('label[for="VectFox_insert_batch_size"]')).not.toBeNull();
+        expect(batchSize.querySelector('.vfx-hint')).not.toBeNull();
+    });
+
     it('pairs a slider with each short-range number box, on the same limits', () => {
         const ranges = [...document.querySelectorAll('.vfx-range[data-vfx-slider-for]')];
-        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_query_depth', 'VectFox_eventbase_anchor_boost', 'VectFox_hybrid_vector_weight', 'VectFox_hybrid_text_weight']);
+        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_insert_batch_size', 'VectFox_query_depth', 'VectFox_eventbase_anchor_boost',
+            'VectFox_hybrid_vector_weight', 'VectFox_hybrid_text_weight']);
         for (const range of ranges) {
             const box = document.getElementById(range.dataset.vfxSliderFor);
             expect(box.type).toBe('number');

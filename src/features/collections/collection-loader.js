@@ -25,10 +25,8 @@ import { log } from '../../sillytavern/log.js';
 import {
     parseCollectionId,
     parseRegistryKey,
-    COLLECTION_PREFIXES,
     buildRegistryKey,
     sanitizeHandleId,
-    sanitizeNameSegment,
 } from '../../shared/collection-ids.js';
 import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from '../../shared/similharity-plugin.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
@@ -479,9 +477,6 @@ function getCollectionDisplayName(collectionId, registryKey, metadata) {
             return `💬 Chat #${chatId.substring(0, 8)}`;
         }
 
-        case 'file':
-            return `📄 File: ${metadata.rawId}`;
-
         case 'lorebook':
             return `📚 Lorebook: ${metadata.rawId}`;
 
@@ -901,25 +896,6 @@ async function discoverViaFallback(settings) {
         }
     }
 
-    // 3. Probe for character-based collections
-    for (const char of characters) {
-        if (!char.name) continue;
-
-        const sanitizedName = sanitizeNameSegment(char.name, 30);
-
-        // VECTFOX character collection format
-        const charCollectionId = `${COLLECTION_PREFIXES.VECTFOX_CHARACTER}${sanitizedName}`;
-        if (!probed.has(charCollectionId)) {
-            probed.add(charCollectionId);
-            const result = await probeCollection(charCollectionId, settings);
-            if (result.exists) {
-                registerCollection(charCollectionId);
-                discovered.push(charCollectionId);
-                log.verbose(`VectFox: Discovered character collection: ${charCollectionId} (${result.count} chunks)`);
-            }
-        }
-    }
-
     // Note: Without filesystem access, we can't discover collections with unknown IDs
     // The registry is our primary source of truth for non-current-chat collections
 
@@ -1112,13 +1088,39 @@ export async function loadAllCollections(settings, autoDiscover = true) {
     if (collections.length === 0 && registry.length > 0) {
         log.trace(`⚠️ VectFox: ${registry.length} collections in registry but all are empty!`);
         log.trace(`   💡 Collections need to have vectorized chunks to appear in Database Browser`);
-        log.trace(`   💡 Try vectorizing your chat or content first`);
+        log.trace(`   💡 Try vectorizing your chat first`);
     } else if (collections.length === 0 && registry.length === 0) {
         log.trace(`ℹ️ VectFox: No collections registered yet`);
-        log.trace(`   💡 Collections are created when you vectorize chat messages or documents`);
+        log.trace(`   💡 Collections are created when you vectorize a chat`);
     }
 
     return collections;
+}
+
+/**
+ * Delete a collection where the last discovery found it, as the Database Browser does: on its backend and in every
+ * index discovery listed. A failure is logged under the caller's label.
+ *
+ * @param {{registryKey: string, collectionId: string, backend?: string|null}} collection
+ * @param {object} settings - VectFox settings
+ * @param {string} label - The feature the log names
+ * @returns {Promise<boolean>} Whether it is fully gone
+ */
+export async function deleteCollectionWhereDiscovered({ registryKey, collectionId, backend = null }, settings, label) {
+    const found = discoveredIndexesOf(registryKey);
+    const collectionSettings = {
+        ...settings,
+        vector_backend: found?.backend ?? backend ?? settings.vector_backend,
+        _discoveredSources: found?.sources ?? [],
+    };
+    try {
+        const result = await deleteCollection(collectionId, collectionSettings, registryKey);
+        if (!result.success) log.warn(`${label}: the collection ${collectionId} was only partly deleted:`, result.errors);
+        return result.success;
+    } catch (error) {
+        log.warn(`${label}: the collection ${collectionId} could not be deleted:`, error);
+        return false;
+    }
 }
 
 /**
@@ -1133,14 +1135,3 @@ export function discoveredIndexesOf(registryKey) {
     return cached ? { backend: cached.backend, sources: cached.sources || [] } : null;
 }
 
-/**
- * Returns true if the collection has 0 chunks according to the plugin discovery cache.
- * Used by retrieval to skip empty collections without querying them.
- * @param {string} registryKey - e.g. "vectra:vf_document_story1_..."
- * @returns {boolean}
- */
-export function isCollectionEmpty(registryKey) {
-    if (!pluginCollectionData) return false;
-    const cached = pluginCollectionData[registryKey];
-    return cached !== undefined && !cached.chunkCount;
-}

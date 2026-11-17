@@ -104,7 +104,7 @@ const OLD_RECORDS = { tip: 224, savedTip: 224, isWindowRemembered: true };
 describe('importing a collection resets its chat records', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [], chunk_metadata: {} };
+        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [] };
         setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
         purgeVectorIndex.mockResolvedValue(true);
         insertVectorItems.mockResolvedValue(undefined);
@@ -185,7 +185,7 @@ describe('importing a collection keeps its name', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [], chunk_metadata: {} };
+        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [] };
         purgeVectorIndex.mockResolvedValue(true);
         insertVectorItems.mockResolvedValue(undefined);
     });
@@ -208,7 +208,7 @@ describe('importing a collection keeps its name', () => {
 
 describe('deleting a collection', () => {
     it('still forgets the chat records', async () => {
-        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [], chunk_metadata: {} };
+        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [] };
         setDeletedOrImportedCollectionCleanup(clearCachesForDeletedOrImportedCollection);
         purgeVectorIndex.mockResolvedValue(true);
         seedOldRecords(CHAT_UUID);

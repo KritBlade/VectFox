@@ -9,149 +9,18 @@
  */
 
 import {
-    VALID_GENERATION_TYPES,
-    validateConditionRule,
     isCollectionEnabled,
     getCollectionRegistry,
 } from '../collections/index.js';
-import { CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT } from '../../shared/constants.js';
-
-const CHAT_NOT_APPLICABLE_MESSAGE = 'Not applicable (EventBase mode — chat is not stored as a chunk collection)';
 
 /**
- * Check: ChunkBase's similarity threshold (`score_threshold`). It fails outside 0 to 1 and warns below 0.1, where
- * chunks come back however unrelated, or above 0.8, where none may; both name the page the setting is on and its
- * default.
+ * Check: Query depth, the messages each turn searches with
  */
-export function checkChunkBaseSimilarityThreshold(settings) {
-    const threshold = settings.score_threshold;
-    const where = `on the ChunkBase page, under Retrieval (default ${CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT})`;
-    const result = (status, message) => ({ name: 'ChunkBase Similarity Threshold', status, message });
-
-    if (threshold < 0 || threshold > 1) return result('fail', `${threshold} is outside 0 to 1. Set it ${where}.`);
-    if (threshold < 0.1) return result('warning', `${threshold} keeps chunks however unrelated. Raise it ${where}.`);
-    if (threshold > 0.8) return result('warning', `${threshold} may drop every chunk. Lower it ${where}.`);
-    return result('pass', `${threshold}`);
-}
-
-/**
- * Check: Insert and query counts
- */
-export function checkInsertQueryCounts(settings) {
-    const insert = settings.insert;
+export function checkQueryDepth(settings) {
     const query = settings.query;
-
-    if (insert < 1 || query < 1) {
-        return {
-            name: 'Insert/Query Counts',
-            status: 'fail',
-            message: `Invalid counts (insert: ${insert}, query: ${query}). Must be >= 1`
-        };
-    }
-
-    if (insert > 20 || query > 20) {
-        return {
-            name: 'Insert/Query Counts',
-            status: 'warning',
-            message: `High counts (insert: ${insert}, query: ${query}). May use too much context`
-        };
-    }
-
-    return {
-        name: 'Insert/Query Counts',
-        status: 'pass',
-        message: `Insert: ${insert}, Query: ${query}`
-    };
-}
-
-/**
- * Check: Current chat has vectors
- */
-export async function checkChatVectors() {
-    return {
-        name: 'Chat Vectors',
-        status: 'pass',
-        message: CHAT_NOT_APPLICABLE_MESSAGE
-    };
-}
-
-/**
- * Check: Collection ID format and UUID availability
- */
-export function checkCollectionIdFormat() {
-    return {
-        name: 'Collection ID Format',
-        status: 'pass',
-        message: CHAT_NOT_APPLICABLE_MESSAGE,
-        category: 'configuration'
-    };
-}
-
-/**
- * Check: Conditional activation module is available
- */
-export function checkConditionalActivationModule() {
-    try {
-        if (!VALID_GENERATION_TYPES || VALID_GENERATION_TYPES.length === 0) {
-            return {
-                name: 'Conditional Activation',
-                status: 'fail',
-                message: 'VALID_GENERATION_TYPES not loaded correctly',
-                category: 'configuration'
-            };
-        }
-
-        if (typeof validateConditionRule !== 'function') {
-            return {
-                name: 'Conditional Activation',
-                status: 'fail',
-                message: 'Validation functions not available',
-                category: 'configuration'
-            };
-        }
-
-        return {
-            name: 'Conditional Activation',
-            status: 'pass',
-            message: `Module loaded (${VALID_GENERATION_TYPES.length} gen types)`,
-            category: 'configuration'
-        };
-    } catch (error) {
-        return {
-            name: 'Conditional Activation',
-            status: 'fail',
-            message: `Module error: ${error.message}`,
-            category: 'configuration'
-        };
-    }
-}
-
-/**
- * Check: Hash collision rate in current chat
- * This is INFORMATIONAL - collisions are intentional semantic deduplication.
- * High collision rate (>10%) may indicate repetitive conversations or chunking misconfiguration.
- */
-export async function checkHashCollisionRate() {
-    return {
-        name: 'Hash Collision Rate',
-        status: 'pass',
-        message: CHAT_NOT_APPLICABLE_MESSAGE,
-        category: 'configuration'
-    };
-}
-
-/**
- * Check: Chat Metadata Integrity
- * Verifies the chat has a valid UUID for vector collection identification.
- * Missing or malformed UUIDs can cause collection mismatches.
- */
-export function checkChatMetadataIntegrity() {
-    return {
-        name: 'Chat Metadata Integrity',
-        status: 'pass',
-        message: CHAT_NOT_APPLICABLE_MESSAGE,
-        category: 'configuration'
-    };
+    if (query < 1) return { name: 'Query Depth', status: 'fail', message: `Invalid query depth (${query}). Must be >= 1` };
+    if (query > 20) return { name: 'Query Depth', status: 'warning', message: `High query depth (${query}). The search text may dilute` };
+    return { name: 'Query Depth', status: 'pass', message: `Query: ${query}` };
 }
 
 /**
@@ -198,64 +67,15 @@ export async function checkCollectionRegistryStatus(settings) {
 
 /**
  * Check: Prompt Context Configuration
- * Summarizes prompt context settings (global, collection, chunk levels).
+ * Summarizes the RAG page's context and XML tag, which wrap the memory blocks.
  */
-export async function checkPromptContextConfig(settings) {
-    try {
-        const { getCollectionMeta } = await import('../collections/index.js');
-        const registry = getCollectionRegistry();
-
-        // Check global settings
-        const hasGlobalContext = !!(settings.rag_context && settings.rag_context.trim());
-        const hasGlobalXmlTag = !!(settings.rag_xml_tag && settings.rag_xml_tag.trim());
-
-        // Count collections with context
-        let collectionsWithContext = 0;
-        let collectionsWithXmlTag = 0;
-
-        for (const registryKey of registry) {
-            let collectionId = registryKey;
-            if (registryKey.includes(':')) {
-                collectionId = registryKey.substring(registryKey.indexOf(':') + 1);
-            }
-
-            const meta = getCollectionMeta(collectionId);
-            if (meta?.context && meta.context.trim()) collectionsWithContext++;
-            if (meta?.xmlTag && meta.xmlTag.trim()) collectionsWithXmlTag++;
-        }
-
-        // Build status message
-        const parts = [];
-        if (hasGlobalContext || hasGlobalXmlTag) {
-            parts.push(`Global: ${hasGlobalContext ? 'context' : ''}${hasGlobalContext && hasGlobalXmlTag ? '+' : ''}${hasGlobalXmlTag ? 'xml' : ''}`);
-        }
-        if (collectionsWithContext > 0 || collectionsWithXmlTag > 0) {
-            parts.push(`${collectionsWithContext} collection(s) with context`);
-        }
-
-        if (parts.length === 0) {
-            return {
-                name: 'Prompt Context',
-                status: 'pass',
-                message: 'No prompt context configured (chunks inject as plain text)',
-                category: 'configuration'
-            };
-        }
-
-        return {
-            name: 'Prompt Context',
-            status: 'pass',
-            message: parts.join(' | '),
-            category: 'configuration'
-        };
-    } catch (error) {
-        return {
-            name: 'Prompt Context',
-            status: 'warning',
-            message: `Could not check: ${error.message}`,
-            category: 'configuration'
-        };
-    }
+export function checkPromptContextConfig(settings) {
+    const hasContext = Boolean(settings.rag_context?.trim());
+    const hasXmlTag = Boolean(settings.rag_xml_tag?.trim());
+    const message = hasContext || hasXmlTag
+        ? `RAG page: ${[hasContext ? 'context' : '', hasXmlTag ? 'XML tag' : ''].filter(Boolean).join(' and ')}`
+        : 'No prompt context configured (memory injects as plain text)';
+    return { name: 'Prompt Context', status: 'pass', message, category: 'configuration' };
 }
 
 /**

@@ -1,21 +1,18 @@
 /**
  * The Chunk Visualizer's rules (src/features/database-browser/chunk-visualizer-core.js): what a chunk holds as its form
- * shows it, which chunks the list shows and in what order, and what the form changes against what is saved, including
- * the old visualizer's faults (a depth of 0 saved as 2, a keyword's 1x boost read back as 1.5x).
+ * and its row show it, which chunks the list shows and in what order, how a chunk is named, the collection's Qdrant
+ * record and the tokenizer lock it sets, and what the form changes against what is saved.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
+    CHUNK_FILTERS,
     chunkLabel,
     collectionRecordLines,
     eventFields,
     formChanges,
-    isEventBaseCollection,
-    linkTargetLabel,
-    linkTargetOptions,
     messageLine,
     normalizeKeywords,
-    partLabel,
     saveProblem,
     savedChunkFields,
     textPreview,
@@ -29,33 +26,16 @@ const loaded = (key, text, metadata = {}, extra = {}) => {
 };
 
 // A form left as it was opened, as chunk-visualizer.js reads it.
-const untouchedForm = fields => ({
-    name: fields.name,
-    text: fields.text,
-    enabled: fields.enabled,
-    context: fields.context,
-    xmlTag: fields.xmlTag,
-    positionText: fields.position === null ? '' : String(fields.position),
-    depthText: fields.depth === null ? '2' : String(fields.depth),
-    keywords: fields.keywords.map(keyword => ({ text: keyword.text })),
-    chunkLinks: fields.chunkLinks.map(link => ({ ...link })),
-    summaries: [...fields.summaries],
-});
+const untouchedForm = fields => ({ name: fields.name, text: fields.text });
 
 describe('what a chunk holds', () => {
-    it('reads the backend payload first, then the settings a chunk saved before the payload carried its fields', () => {
-        const chunk = { text: 'The tide came in.', metadata: { name: '', context: 'Harbor', enabled: false, keywords: [] } };
-        const fields = savedChunkFields(chunk, { name: '  Old name ', context: 'Ignored', keywords: ['tide'], summaries: ['A tide'] });
-        expect(fields).toMatchObject({ name: 'Old name', context: 'Harbor', enabled: false, keywords: [{ text: 'tide' }], summaries: ['A tide'] });
-        expect(savedChunkFields({ text: '', metadata: {} }, { enabled: false }).enabled).toBe(false);
-        expect(savedChunkFields({ text: '', metadata: {} }).enabled).toBe(true);
-    });
-
-    it('keeps a depth only for the in-chat position, 0 included', () => {
-        expect(savedChunkFields({ metadata: { position: 1, depth: 0 } })).toMatchObject({ position: 1, depth: 0 });
-        expect(savedChunkFields({ metadata: { position: 1 } })).toMatchObject({ position: 1, depth: 2 });
-        expect(savedChunkFields({ metadata: { position: 2, depth: 7 } })).toMatchObject({ position: 2, depth: null });
-        expect(savedChunkFields({ metadata: {} })).toMatchObject({ position: null, depth: null });
+    it('reads its text, its name and its keywords from the backend payload, and nothing else', () => {
+        const chunk = {
+            text: 'The tide came in.',
+            metadata: { name: '  Harbor tide ', keywords: [{ text: 'tide', weight: 1.5 }], enabled: false, context: 'Harbor', xmlTag: 'scene', position: 1, depth: 0 },
+        };
+        expect(savedChunkFields(chunk)).toEqual({ text: 'The tide came in.', name: 'Harbor tide', keywords: [{ text: 'tide' }] });
+        expect(savedChunkFields({ metadata: {} })).toEqual({ text: '', name: '', keywords: [] });
     });
 
     it('reads a keyword stored as a word or as an object as its word, a stored weight dropped', () => {
@@ -68,16 +48,12 @@ describe('what a chunk holds', () => {
         expect(eventFields({ metadata: { event_type: 'decision', importance: 7, concepts: ['trust'], open_threads: ['the map'], real_world_date: '2026-11-05T09:30:12.345Z' } }))
             .toEqual({ type: 'decision', importance: 7, concepts: ['trust'], items: [], openThreads: ['the map'], sentAt: '2026-11-05 09:30 UTC' });
         expect(eventFields({ metadata: {} }).importance).toBeNull();
-        expect(isEventBaseCollection('vf_eventbase_qdrant_harbor')).toBe(true);
-        expect(isEventBaseCollection('vf_lorebook_harbor')).toBe(false);
     });
 
     it('names where a chunk came from: one message, or a window of messages and the event in it', () => {
         expect(messageLine({ index: 12, metadata: {} })).toEqual({ text: 'Message', name: '12' });
         expect(messageLine({ metadata: { source_window_start: 40, source_window_end: 44, window_event_order: 2 } }))
             .toEqual({ text: 'Messages', name: '40 to 44, event 3' });
-        expect(partLabel({ metadata: { chunkIndex: 1, totalChunks: 3 } })).toBe('2 of 3');
-        expect(partLabel({ metadata: {} })).toBe('');
         expect(textPreview('  The   tide\ncame  in.  ', 8)).toBe('The tide…');
     });
 });
@@ -85,20 +61,19 @@ describe('what a chunk holds', () => {
 describe('the list', () => {
     const chunks = [
         loaded('0', 'Short.', { keywords: [{ text: 'mast', weight: 1.5 }] }),
-        loaded('1', 'A much longer chunk about the harbor.', { enabled: false }),
+        loaded('1', 'A much longer chunk about the harbor.'),
         loaded('2', 'Middle length text.', { name: 'Harbor gate' }),
     ];
     const keysOf = list => list.map(chunk => chunk.key);
 
-    it('finds the search in the text, the name or a keyword, and filters', () => {
+    it('finds the search in the text, the name or a keyword, and filters to the chunks with keywords', () => {
         expect(keysOf(visibleChunks(chunks, { query: 'HARBOR' }))).toEqual(['1', '2']);
         expect(keysOf(visibleChunks(chunks, { query: 'mast' }))).toEqual(['0']);
-        expect(keysOf(visibleChunks(chunks, { filter: 'disabled' }))).toEqual(['1']);
-        expect(keysOf(visibleChunks(chunks, { filter: 'enabled' }))).toEqual(['0', '2']);
         expect(keysOf(visibleChunks(chunks, { filter: 'keywords' }))).toEqual(['0']);
+        expect(CHUNK_FILTERS.map(filter => filter.value)).toEqual(['all', 'keywords']);
     });
 
-    it('orders by the chat\'s history, by length, by keywords, or named and tagged first', () => {
+    it('orders by the chat\'s history, by length, by keywords, or named first', () => {
         expect(keysOf(visibleChunks(chunks, { sort: 'index-reversed' }))).toEqual(['2', '1', '0']);
         expect(keysOf(visibleChunks(chunks, { sort: 'length-desc' }))).toEqual(['1', '2', '0']);
         expect(keysOf(visibleChunks(chunks, { sort: 'length-asc' }))).toEqual(['0', '2', '1']);
@@ -107,23 +82,21 @@ describe('the list', () => {
         expect(keysOf(visibleChunks(chunks, { sort: 'unknown' }))).toEqual(['0', '1', '2']);
     });
 
-    // In an EventBase collection every chunk has keywords; a named one once sank below those with more.
-    it('puts a chunk given a name or an XML tag first, however many keywords the others have', () => {
+    // In an EventBase collection every chunk has keywords, so a named chunk must not sink below those with more.
+    it('puts a named chunk first, however many keywords the others have', () => {
         const manyKeywords = ['dock', 'rope', 'sail'].map(text => ({ text, weight: 1.5 }));
         const ranked = [
             loaded('0', 'First.', { keywords: manyKeywords }),
-            loaded('1', 'Second.', { keywords: manyKeywords.slice(0, 1), xmlTag: 'scene' }),
+            loaded('1', 'Second.', { keywords: manyKeywords.slice(0, 1) }),
             loaded('2', 'Third.', { keywords: manyKeywords }),
             loaded('3', 'Fourth.', { name: 'Harbor gate' }),
         ];
-        expect(keysOf(visibleChunks(ranked, { sort: 'customized' }))).toEqual(['1', '3', '0', '2']);
+        expect(keysOf(visibleChunks(ranked, { sort: 'customized' }))).toEqual(['3', '0', '1', '2']);
     });
 
-    it('offers every other chunk as a link target, and names a target that is not loaded by its ID', () => {
-        expect(linkTargetOptions(chunks, '1000').map(option => option.value)).toEqual(['1001', '1002']);
+    it('names a chunk by its message and its name, or the start of its text', () => {
         expect(chunkLabel(chunks[2])).toBe('Message 2: Harbor gate');
-        expect(linkTargetLabel(chunks, 1002)).toEqual({ label: 'Message 2: Harbor gate', isLoaded: true });
-        expect(linkTargetLabel(chunks, '77')).toEqual({ label: 'ID 77', isLoaded: false });
+        expect(chunkLabel(chunks[1])).toBe('Message 1: A much longer chunk about the harbor.');
     });
 
     it('reads the collection\'s own Qdrant record, naming its CJK tokenizer as the setting does', () => {
@@ -146,32 +119,18 @@ describe('the list', () => {
 });
 
 describe('what the form changes', () => {
-    const fields = savedChunkFields(
-        { text: 'The tide came in.', metadata: { name: 'Tide', position: 1, depth: 0, keywords: [{ text: 'tide', weight: 1 }], chunkLinks: [{ targetHash: 1002, mode: 'soft' }] } },
-        { summaries: ['High water'] },
-    );
+    const fields = savedChunkFields({ text: 'The tide came in.', metadata: { name: 'Tide', keywords: [{ text: 'tide', weight: 1 }] } });
+    const NO_CHANGE = { payload: {}, text: null, textProblem: '', hasChanges: false };
 
-    it('changes nothing for a form left as it was, a keyword stored with a weight and a depth of 0 included', () => {
-        expect(formChanges(fields, untouchedForm(fields))).toMatchObject({ payload: {}, text: null, hasChanges: false });
+    it('changes nothing for a form left as it was, or for a field the form leaves out', () => {
+        expect(formChanges(fields, untouchedForm(fields))).toEqual(NO_CHANGE);
+        expect(formChanges(fields, {})).toEqual(NO_CHANGE);
     });
 
-    it('writes each changed field as the backend keeps it', () => {
-        const changes = formChanges(fields, {
-            ...untouchedForm(fields),
-            name: '  ',
-            enabled: false,
-            xmlTag: 'my notes!',
-            positionText: '2',
-            keywords: [{ text: 'tide' }, { text: 'flood' }],
-            chunkLinks: [{ targetHash: '1002', mode: 'soft' }],
-        });
-        expect(changes.payload).toEqual({ name: null, enabled: false, xmlTag: 'mynotes', position: 2, depth: null, keywords: [{ text: 'tide' }, { text: 'flood' }] });
-        expect(changes.hasChanges).toBe(true);
-    });
-
-    it('saves an in-chat depth of 0 as 0', () => {
-        const atTwo = savedChunkFields({ text: 'x', metadata: { position: 1, depth: 2 } });
-        expect(formChanges(atTwo, { ...untouchedForm(atTwo), depthText: '0' }).payload).toEqual({ position: 1, depth: 0 });
+    it('writes a changed name as the backend keeps it, trimmed, and an emptied one as none', () => {
+        expect(formChanges(fields, { ...untouchedForm(fields), name: '  High tide ' })).toEqual({ ...NO_CHANGE, payload: { name: 'High tide' }, hasChanges: true });
+        expect(formChanges(fields, { ...untouchedForm(fields), name: '  ' }).payload).toEqual({ name: null });
+        expect(formChanges(fields, { ...untouchedForm(fields), name: ' Tide ' }).hasChanges).toBe(false);
     });
 
     it('embeds again only for a text that changed past spaces at its ends, and never an empty one', () => {
@@ -181,31 +140,15 @@ describe('what the form changes', () => {
         expect(emptied).toMatchObject({ text: null, textProblem: 'A chunk needs text.' });
     });
 
-    it('names the summaries added and removed', () => {
-        const changes = formChanges(fields, { ...untouchedForm(fields), summaries: ['Low water'] });
-        expect(changes).toMatchObject({ addedSummaries: ['Low water'], removedSummaries: ['High water'], summaries: ['Low water'], hasChanges: true });
-    });
-
-    it('saves no new vector in a locked collection, and says why', () => {
+    it('saves no changed text in a locked collection, and says why, but saves a new name there', () => {
         const lock = { madeWith: 'intl', setTo: 'jieba_tw' };
         const renamed = formChanges(fields, { ...untouchedForm(fields), name: 'Flood' });
         const retexted = formChanges(fields, { ...untouchedForm(fields), text: 'The tide went out.' });
-        const summarized = formChanges(fields, { ...untouchedForm(fields), summaries: ['High water', 'Low water'] });
-        const unsummarized = formChanges(fields, { ...untouchedForm(fields), summaries: [] });
         const emptied = formChanges(fields, { ...untouchedForm(fields), text: '' });
-        const rekeyed = formChanges(fields, { ...untouchedForm(fields), keywords: [{ text: 'tide' }, { text: 'flood' }] });
         expect(saveProblem(renamed, lock)).toBeNull();
-        expect(saveProblem(unsummarized, lock)).toBeNull();
-        expect(saveProblem(retexted, lock)).toBe('A changed text, a keyword change or a new summary can\'t be saved here: see above.');
-        expect(saveProblem(summarized, lock)).toBe('A changed text, a keyword change or a new summary can\'t be saved here: see above.');
-        expect(saveProblem(rekeyed, lock)).toBe('A changed text, a keyword change or a new summary can\'t be saved here: see above.');
-        expect(saveProblem(rekeyed, null)).toBeNull();
+        expect(saveProblem(retexted, lock)).toBe('A changed text can\'t be saved here: see above.');
         expect(saveProblem(retexted, null)).toBeNull();
         expect(saveProblem(emptied, null)).toBe('A chunk needs text.');
-    });
-
-    it('leaves a field the form does not show unchanged, as an EventBase chunk\'s switch, keywords and links', () => {
-        const form = { ...untouchedForm(fields), enabled: undefined, keywords: undefined, chunkLinks: undefined };
-        expect(formChanges(fields, form).hasChanges).toBe(false);
+        expect(saveProblem(emptied, lock)).toBe('A chunk needs text.');
     });
 });

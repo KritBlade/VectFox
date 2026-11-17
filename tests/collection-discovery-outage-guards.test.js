@@ -6,7 +6,7 @@
  *   success:true and qdrantScanned:false → discovery pruned every qdrant
  *   registry entry as "stale" → the next DB-browser refresh fed the shrunken
  *   list to cleanupOrphanedMeta → the qdrant collections' metadata (chat and
- *   character LOCKS, triggers, scope, names) was deleted and persisted. The
+ *   character LOCKS, scope, names) was deleted and persisted. The
  *   collection reappeared on the next healthy scan, but its lock did not.
  *
  * Three guards, one contract: absence is only proof of deletion when the
@@ -170,7 +170,7 @@ describe('discoverViaPlugin × the shared Qdrant collection', () => {
 describe('cleanupOrphanedMeta outage refusal', () => {
     it('refuses to delete anything when discovery returned zero collections', () => {
         extension_settings.vectfox.collections = {
-            [QDRANT_KEY]: { lockedToChatIds: ['chat-1'], triggers: ['dragon'] },
+            [QDRANT_KEY]: { lockedToChatIds: ['chat-1'] },
             [VECTRA_KEY]: { lockedToCharacterIds: ['2'] },
         };
 
@@ -188,17 +188,17 @@ describe('cleanupOrphanedMeta outage refusal', () => {
     it('still prunes a real orphan when survivors exist, and names it in the log', () => {
         extension_settings.vectfox.collections = {
             [QDRANT_KEY]: { lockedToChatIds: ['chat-1'] },
-            'standard:vf_document_gone_123': { name: 'deleted doc' },
+            'standard:vf_eventbase_gone_123': { name: 'deleted chat' },
         };
 
         const result = cleanupOrphanedMeta([QDRANT_KEY]);
 
         expect(result.refused).toBe(false);
         expect(result.removed).toBe(1);
-        expect(result.orphanedIds).toEqual(['standard:vf_document_gone_123']);
+        expect(result.orphanedIds).toEqual(['standard:vf_eventbase_gone_123']);
         expect(extension_settings.vectfox.collections[QDRANT_KEY]).toBeDefined();
-        expect(extension_settings.vectfox.collections['standard:vf_document_gone_123']).toBeUndefined();
-        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('standard:vf_document_gone_123'));
+        expect(extension_settings.vectfox.collections['standard:vf_eventbase_gone_123']).toBeUndefined();
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('standard:vf_eventbase_gone_123'));
     });
 
     it('no-ops cleanly when nothing is orphaned', () => {

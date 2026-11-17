@@ -26,9 +26,6 @@ export const SUMMARIZER_PROMPT_TAG = `${EXTENSION_PROMPT_TAG}_summarizer`;
 // PERFORMANCE & RATE LIMITING
 // =============================================================================
 
-/** LRU cache size for hash computations */
-export const HASH_CACHE_SIZE = 10000;
-
 /** Maximum items to fetch when listing vectors (for hash comparison) */
 export const VECTOR_LIST_LIMIT = 10000;
 
@@ -89,21 +86,13 @@ export const AGENTIC_MAX_TOKENS_DEFAULT = 2000;
 export const AGENTIC_MAX_TOKENS_MIN = 256;
 export const AGENTIC_MAX_TOKENS_MAX = 32000;
 
-/**
- * Default ChunkBase similarity threshold, `score_threshold` (ChunkBase page, Retrieval): chunks scoring below it are
- * dropped. Shared by the settings defaults in index.js, the slider's binding in
- * src/features/settings-panel/settings-panel.js and Diagnostics' "ChunkBase Similarity Threshold" check, which names
- * it. EventBase keeps its own, `eventbase_score_threshold`.
- */
-export const CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT = 0.25;
-
 // =============================================================================
 // CHAT PROVIDERS
 // =============================================================================
 
 /**
  * The provider value of a chat consumer that runs on a SillyTavern connection profile, beside 'openrouter' and 'vllm':
- * EventBase extraction, Agent Mode, Auto-Reformat and StoryArc store it, and keyword boost reads it.
+ * EventBase extraction, Agent Mode, StoryArc and LoreBase store it.
  */
 export const CONNECTION_PROFILE_PROVIDER = 'connection_profile';
 
@@ -127,16 +116,6 @@ export const RETRY_MAX_DELAY_MS = 8000;
 
 /** Backoff multiplier for exponential retry */
 export const RETRY_BACKOFF_MULTIPLIER = 2;
-
-// =============================================================================
-// CHUNKING DEFAULTS
-// =============================================================================
-
-/** Default chunk size in characters */
-export const DEFAULT_CHUNK_SIZE = 500;
-
-/** Default overlap between chunks in characters */
-export const DEFAULT_CHUNK_OVERLAP = 50;
 
 // =============================================================================
 // UI DEFAULTS

@@ -38,11 +38,16 @@ vi.mock('../src/sillytavern/settings.js', () => ({
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: host.confirmPopup, noticePopup: host.noticePopup }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: host.logError, warn: () => {}, lifecycle: () => {} } }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { reopen: host.reopenProgress } }));
-vi.mock('../src/features/chunkbase/index.js', () => ({ clearInterceptorPrompts: host.clearInterceptorPrompts, openContentVectorizer: host.openContentVectorizer, syncOpenChat: host.syncOpenChat }));
 vi.mock('../src/features/collections/index.js', () => ({ cleanupCorruptedCollections: host.cleanupCorruptedCollections, deleteVectorsFolder: host.deleteVectorsFolder }));
 vi.mock('../src/features/database-browser/index.js', () => ({ openDatabaseBrowser: host.openDatabaseBrowser }));
 vi.mock('../src/features/diagnostics/index.js', () => ({ openDiagnostics: host.openDiagnostics, refreshHealthPill: host.refreshHealthPill }));
-vi.mock('../src/features/eventbase/index.js', () => ({ buildSummarizerInjection: host.buildSummarizerInjection, refreshWorldInfoEntryDepthCache: host.refreshWorldInfoEntryDepthCache }));
+vi.mock('../src/features/eventbase/index.js', () => ({
+    buildSummarizerInjection: host.buildSummarizerInjection,
+    clearInterceptorPrompts: host.clearInterceptorPrompts,
+    openContentVectorizer: host.openContentVectorizer,
+    refreshWorldInfoEntryDepthCache: host.refreshWorldInfoEntryDepthCache,
+    syncOpenChat: host.syncOpenChat,
+}));
 vi.mock('../src/features/text-cleaning/index.js', () => ({ openTextCleaningDialog: host.openTextCleaningDialog }));
 
 const { ACTION_PAGE_ELEMENT_ID: ID, DEBUG_SWITCHES, actionPageMarkup, masterSwitchPillsMarkup } = await import('../src/features/settings-panel/action-page-markup.js');

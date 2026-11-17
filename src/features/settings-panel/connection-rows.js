@@ -2,10 +2,10 @@
  * ============================================================================
  * CONNECTION ROWS
  * ============================================================================
- * The Provider dropdowns of the five LLM consumers and of embedding (connection plan
+ * The Provider dropdowns of the four LLM consumers and of embedding (connection plan
  * §1, §3): what each saves, the SillyTavern profile option with the Profile dropdown
  * and readout it shows, the rows a profile supplies hidden while one is chosen, the
- * profile Agent Mode and Auto-Reformat take from the EventBase model, and each card's
+ * profile Agent Mode takes from the EventBase model, and each card's
  * Test connection; and what LoreBase's Accuracy leaves each model to do, with Jev's
  * profile group shown on Fast and cheap only. The Profile dropdowns repaint when a profile is made, saved or
  * deleted in SillyTavern, and embedding's readout once the Similharity probe settles.
@@ -20,7 +20,6 @@ import { connectionProfileRowIds } from '../../shared/connection-profile-rows-ma
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { resultList, selectOption } from '../../shared/gui-dna/gui-dna-core.js';
 import { setShown } from '../../shared/gui-dna/gene-behaviours.js';
-import { testAutoReformatConnection } from '../chunkbase/index.js';
 import { embeddingProfileKind, resolveEmbeddingProfile } from '../embedding/index.js';
 import { testAgentModeConnection, testEventBaseConnection, testStoryArcConnection } from '../eventbase/index.js';
 import { describeChatConnectionProfile, resolveInheritedConnection } from '../llm-provider/index.js';
@@ -46,7 +45,7 @@ const textOf = value => String(value ?? '').trim();
 const connectionOf = prefix => CHAT_CONSUMER_CONNECTIONS.find(connection => connection.prefix === prefix);
 
 /**
- * The five LLM consumers: their connection settings (connection-rows-core.js), their Test connection, and `manualRows`,
+ * The four LLM consumers: their connection settings (connection-rows-core.js), their Test connection, and `manualRows`,
  * each row a choice shows, given the consumer's view.
  */
 const CHAT_CONSUMERS = [
@@ -65,14 +64,6 @@ const CHAT_CONSUMERS = [
             [byId('VectFox_agentic_vllm_row'), view.ownProvider === 'vllm'],
             [fieldOf('VectFox_agentic_model'), !view.isOnProfile],
             [byId('VectFox_agentic_provider_hint'), !view.isOnProfile],
-        ],
-    },
-    {
-        ...connectionOf('VectFox_reformat'), test: testAutoReformatConnection,
-        manualRows: view => [
-            [byId('VectFox_reformat_vllm_row'), view.ownProvider === 'vllm'],
-            [fieldOf('VectFox_reformat_model'), !view.isOnProfile],
-            [byId('VectFox_reformat_provider_hint'), !view.isOnProfile],
         ],
     },
     {
@@ -226,7 +217,7 @@ async function runConnectionTest(button, feature, test) {
 }
 
 /**
- * Wire the six Provider dropdowns, their profile rows and their Test connection buttons, and the rows LoreBase's
+ * Wire the five Provider dropdowns, their profile rows and their Test connection buttons, and the rows LoreBase's
  * Accuracy shows, Jev's profile group among them.
  *
  * @param {object} settings - The settings panel's settings object

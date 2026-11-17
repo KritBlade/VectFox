@@ -1,7 +1,7 @@
 /**
  * What a backend stores for a chunk (src/features/vector-backend/stored-chunk.js): the keyword suffix Qdrant storage
- * appends to its text, and the payload, which keeps the fields a chunk carries in its metadata. A chunk the Chunk
- * Visualizer stored again, or an import brought in, once lost its keywords, importance and summary parent there.
+ * appends to its text, and the payload, which keeps every field a chunk carries in its metadata, as when the Chunk
+ * Visualizer stores an event again or an import brings one in.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -32,9 +32,9 @@ describe('the payload a backend stores with a chunk', () => {
         const item = {
             hash: 1,
             text: 'The gate stood open.',
-            metadata: { name: 'Gate', keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, isSummaryChunk: true, parentHash: 42 },
+            metadata: { name: 'Gate', keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, event_type: 'discovery', window_event_order: 2 },
         };
-        expect(chunkPayload(item)).toEqual({ name: 'Gate', keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, isSummaryChunk: true, parentHash: 42 });
+        expect(chunkPayload(item)).toEqual({ name: 'Gate', keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, event_type: 'discovery', window_event_order: 2 });
     });
 
     it('takes the item\'s own fields first', () => {

@@ -6,8 +6,8 @@
  * option shows (connection plan §1): the Profile dropdown, which the settings
  * panel's wiring paints from SillyTavern's profiles, and the readout under it; the
  * readout of the profile a consumer takes from the EventBase model; and a card's
- * Test connection button. The Core, AgentMode, ChunkBase, StoryArc and WorldInfo
- * pages draw them, each with its own id prefix, so all six read alike. Pure:
+ * Test connection button. The Core, AgentMode, StoryArc and WorldInfo pages draw
+ * them, each with its own id prefix, so all five read alike. Pure:
  * builds strings.
  * ============================================================================
  */

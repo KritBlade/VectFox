@@ -248,15 +248,3 @@ export function isStopWord(token, localeKeys) {
     for (const k of localeKeys) { const s = _setFor(k); if (s && s.has(token)) return true; }
     return false;
 }
-
-/**
- * Build a mutable union Set from a list of locale keys.
- * Used by getCombinedStopwords (called once per settings change, not in the hot path).
- * @param {string[]} localeKeys
- * @returns {Set<string>}
- */
-export function buildStopSet(localeKeys) {
-    const result = new Set();
-    for (const k of localeKeys) { const s = _setFor(k); if (s) for (const w of s) result.add(w); }
-    return result;
-}

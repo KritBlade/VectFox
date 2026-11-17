@@ -4,12 +4,11 @@
  * ============================================================================
  * The Chunk Visualizer on GUI-DNA (mvu-helper/devdoc/gui-dna.md): a top-bar shell
  * holding one workbench page, its list controls in a compact card above a split.
- * The list pane holds the chunks, each with a tick box, and the bar that acts on
+ * The list pane holds the chunks, each with a tick box, and the bar that deletes
  * the ticked ones; the chunk pane holds the open chunk's form, which one Save
  * writes. chunk-visualizer.js finds each control by its id in VISUALIZER_IDS and
  * each action by `data-chunk-action`; a row and its tick box carry
- * `data-chunk-key`, and a keyword, link or summary row its index. Every value is
- * escaped by the builders. Pure: builds strings.
+ * `data-chunk-key`. Every value is escaped by the builders. Pure: builds strings.
  * ============================================================================
  */
 
@@ -19,7 +18,6 @@ import {
     emptyState,
     field,
     fieldLabel,
-    grid,
     groupTitle,
     hint,
     iconButton,
@@ -33,10 +31,9 @@ import {
     statusPill,
     textarea,
 } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader, navBrand, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { cardHeader, navBrand, pageHeader } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
-import { CHUNK_FILTERS, CHUNK_SORTS, LINK_MODES } from './chunk-visualizer-core.js';
-import { INJECTION_POSITIONS, IN_CHAT_POSITION } from './collection-settings-core.js';
+import { CHUNK_FILTERS, CHUNK_SORTS } from './chunk-visualizer-core.js';
 import { collectionTypeIcon } from './database-browser-markup.js';
 import { counted } from '../../shared/counted.js';
 
@@ -55,16 +52,6 @@ export const VISUALIZER_IDS = Object.freeze({
     pane: 'vectfox_chunk_pane',
     name: 'vectfox_chunk_name',
     text: 'vectfox_chunk_text',
-    enabled: 'vectfox_chunk_enabled',
-    context: 'vectfox_chunk_context',
-    xmlTag: 'vectfox_chunk_xml_tag',
-    position: 'vectfox_chunk_position',
-    depthField: 'vectfox_chunk_depth_field',
-    depth: 'vectfox_chunk_depth',
-    keywordNew: 'vectfox_chunk_keyword_new',
-    linkTarget: 'vectfox_chunk_link_target',
-    linkMode: 'vectfox_chunk_link_mode',
-    summaryNew: 'vectfox_chunk_summary_new',
 });
 
 const ids = VISUALIZER_IDS;
@@ -88,14 +75,11 @@ function controlsCard() {
     </section>`;
 }
 
-function bulkBar(isEventBase) {
-    const bulkButton = (name, text, icon, kind = 'secondary') => button({ text, icon, kind, isDisabled: true, data: action(name) });
+function bulkBar() {
     return controlRow([
         `<label class="vfx-check-item"><input type="checkbox" id="${ids.selectAll}" class="vfx-check"><span>Select all matching</span></label>`,
         statusPill({ name: '0 selected', data: { 'chunk-bulk-count': '' } }),
-        isEventBase ? '' : bulkButton('bulk-enable', 'Enable', 'fa-toggle-on'),
-        isEventBase ? '' : bulkButton('bulk-disable', 'Disable', 'fa-toggle-off'),
-        bulkButton('bulk-delete', 'Delete', 'fa-trash-can', 'danger'),
+        button({ text: 'Delete', icon: 'fa-trash-can', kind: 'danger', isDisabled: true, data: action('bulk-delete') }),
     ]);
 }
 
@@ -110,11 +94,11 @@ function loadField(fetchLimit) {
     ]);
 }
 
-function listPane(isEventBase, fetchLimit) {
+function listPane(fetchLimit) {
     return `<section class="vfx-card is-pane">
-        ${cardHeader({ icon: 'fa-layer-group', title: 'Chunks', description: 'Tick chunks to act on several at once.', isCollapsible: false })}
+        ${cardHeader({ icon: 'fa-layer-group', title: 'Chunks', description: 'Tick chunks to delete several at once.', isCollapsible: false })}
         <div class="vfx-card-body vfx-stack">
-            ${bulkBar(isEventBase)}
+            ${bulkBar()}
             <div id="${ids.list}" class="vfx-list">${emptyState({ icon: 'fa-spinner', text: 'Loading chunks…' })}</div>
             <div id="${ids.listFooter}"></div>
             ${loadField(fetchLimit)}
@@ -138,10 +122,10 @@ const SPLIT_DIVIDER = '<div class="vfx-split-divider" role="separator" tabindex=
 /**
  * The whole visualizer: the top bar, the page header, the list controls, then the split of the list and the chunk.
  *
- * @param {{collectionName: string, collectionType: string, isEventBase: boolean, fetchLimit: number}} view
+ * @param {{collectionName: string, collectionType: string, fetchLimit: number}} view
  * @returns {string}
  */
-export function chunkVisualizerMarkup({ collectionName, collectionType, isEventBase, fetchLimit }) {
+export function chunkVisualizerMarkup({ collectionName, collectionType, fetchLimit }) {
     const status = statusPill({ name: '', data: { 'chunk-count': '' } });
     return `<div id="${ids.root}" class="vfx-ui vfx-shell is-topbar">`
         + `<nav class="vfx-nav"><div class="vfx-nav-inner">${navBrand('Chunk Visualizer')}</div></nav>`
@@ -149,7 +133,7 @@ export function chunkVisualizerMarkup({ collectionName, collectionType, isEventB
         + pageHeader({ icon: collectionTypeIcon(collectionType), eyebrow: 'Database Browser / Chunks', title: collectionName, subtitle: 'Every chunk this collection holds. Open one to read or edit it.', status })
         + controlsCard()
         + `<div id="${ids.split}" class="vfx-split">`
-        + listPane(isEventBase, fetchLimit)
+        + listPane(fetchLimit)
         + SPLIT_DIVIDER
         + `<section id="${ids.pane}" class="vfx-card is-pane">${noChunkOpenMarkup()}</section>`
         + '</div></div></main></div>';
@@ -159,21 +143,20 @@ export function chunkVisualizerMarkup({ collectionName, collectionType, isEventB
 
 /**
  * One chunk in the list: its tick box, then its row (name or the start of its text, where it came from, its size, and
- * its keyword and Disabled pills), marked while it is the open one.
+ * its keyword pill), marked while it is the open one.
  *
- * @param {{key: string, title: string, message: {text: string, name: string}, part: string, characterCount: number,
- *   keywordCount: number, isEnabled: boolean, isOpen: boolean, isTicked: boolean}} view
+ * @param {{key: string, title: string, message: {text: string, name: string}, characterCount: number,
+ *   keywordCount: number, isOpen: boolean, isTicked: boolean}} view
  * @returns {string}
  */
 export function chunkRowMarkup(view) {
     const row = listRow({
         icon: 'fa-file-lines',
         name: view.title,
-        sub: [view.message, view.part ? { text: 'Part', name: view.part } : null],
+        sub: [view.message],
         pills: [
             statusPill({ name: `${formatCount(view.characterCount)} ${view.characterCount === 1 ? 'character' : 'characters'}` }),
             view.keywordCount ? statusPill({ name: counted(view.keywordCount, 'keyword'), status: 'accent', icon: 'fa-tag' }) : '',
-            view.isEnabled ? '' : statusPill({ text: 'Disabled', status: 'warning', icon: 'fa-power-off' }),
         ].filter(Boolean),
         actions: [iconButton({ icon: 'fa-pen-to-square', title: 'Open', data: action('open', { 'chunk-key': view.key }) })],
         data: { 'chunk-key': view.key },
@@ -237,133 +220,6 @@ export function collectionRecordMarkup(lines) {
 
 // ── Chunk form ────────────────────────────────────────────────────────────────────────────────────────
 
-function positionOptions(position) {
-    const selected = position === null ? '' : String(position);
-    return INJECTION_POSITIONS.map(({ value, label }) => selectOption({
-        value,
-        text: value === '' ? 'Collection default' : label,
-        isSelected: value === selected,
-    }));
-}
-
-function promptFields(fields) {
-    const isInChat = fields.position === IN_CHAT_POSITION;
-    return [
-        groupTitle({ icon: 'fa-quote-left', text: 'Prompt' }),
-        grid([
-            field([
-                fieldLabel({ text: 'Context', forId: ids.context }),
-                textarea({ id: ids.context, value: fields.context, rows: 2 }),
-                hint({ text: 'Shown before this chunk. {{user}} and {{char}} work here.' }),
-            ], { isSpan: true }),
-            field([
-                fieldLabel({ text: 'XML tag', forId: ids.xmlTag }),
-                input({ id: ids.xmlTag, value: fields.xmlTag, placeholder: 'memories' }),
-                hint({ text: 'Wraps this chunk alone. Letters, digits, _ and - only.' }),
-            ]),
-            field([
-                fieldLabel({ text: 'Position', forId: ids.position }),
-                select({ id: ids.position, options: positionOptions(fields.position) }),
-                hint({ text: 'Where this chunk goes in the prompt.' }),
-            ]),
-            `<div id="${ids.depthField}"${isInChat ? '' : ' hidden'}>${field([
-                fieldLabel({ text: 'Depth', forId: ids.depth }),
-                input({ id: ids.depth, type: 'number', value: fields.depth ?? 2, min: 0, max: 50, step: 1 }),
-                hint({ text: 'How many messages from the end of the chat.' }),
-            ])}</div>`,
-        ]),
-    ];
-}
-
-/**
- * A chunk's keywords: each one's word and its remove button.
- *
- * @param {{text: string}[]} keywords
- * @returns {string}
- */
-export function keywordRowsMarkup(keywords) {
-    if (!keywords.length) return emptyState({ icon: 'fa-tag', text: 'No keywords yet.' });
-    return keywords.map((keyword, index) => listRow({
-        icon: 'fa-tag',
-        name: keyword.text,
-        actions: [
-            iconButton({ icon: 'fa-xmark', title: `Remove ${keyword.text}`, data: action('remove-keyword', { 'keyword-index': index }) }),
-        ],
-    })).join('');
-}
-
-function keywordFields(keywords) {
-    return [
-        groupTitle({ icon: 'fa-tags', text: 'Keywords' }),
-        hint({ text: 'When the chat holds one of these words, this chunk scores 100%.' }),
-        `<div class="vfx-list" data-chunk-keywords>${keywordRowsMarkup(keywords)}</div>`,
-        controlRow([
-            input({ id: ids.keywordNew, placeholder: 'New keyword', title: 'New keyword' }),
-            button({ text: 'Add', icon: 'fa-plus', data: action('add-keyword') }),
-        ]),
-    ];
-}
-
-/**
- * A chunk's links: each target, how it comes along, and its remove button.
- *
- * @param {{label: string, isLoaded: boolean, mode: string}[]} links
- * @returns {string}
- */
-export function linkRowsMarkup(links) {
-    if (!links.length) return emptyState({ icon: 'fa-link', text: 'No links yet.' });
-    return links.map((link, index) => listRow({
-        icon: 'fa-link',
-        name: link.label,
-        sub: link.isLoaded ? null : { text: 'Not among the loaded chunks' },
-        pills: [statusPill({ text: LINK_MODES.find(mode => mode.value === link.mode)?.label ?? 'Force', status: link.mode === 'soft' ? 'neutral' : 'accent' })],
-        actions: [iconButton({ icon: 'fa-xmark', title: 'Remove this link', data: action('remove-link', { 'link-index': index }) })],
-    })).join('');
-}
-
-function linkFields(links, linkTargets) {
-    const addRow = linkTargets.length
-        ? controlRow([
-            select({ id: ids.linkTarget, title: 'Chunk to link', options: linkTargets.map(({ value, label }) => selectOption({ value, name: label })) }),
-            select({ id: ids.linkMode, title: 'How it comes along', options: LINK_MODES.map(({ value, label, description }) => selectOption({ value, text: `${label}: ${description}` })) }),
-            button({ text: 'Add', icon: 'fa-plus', data: action('add-link') }),
-        ])
-        : hint({ text: 'No other chunk is loaded to link to.' });
-    return [
-        groupTitle({ icon: 'fa-link', text: 'Linked chunks' }),
-        hint({ text: 'When this chunk is found, Force brings the linked one along; Soft scores it higher.' }),
-        `<div class="vfx-list" data-chunk-links>${linkRowsMarkup(links)}</div>`,
-        addRow,
-    ];
-}
-
-/**
- * A chunk's summaries: each one's words and its remove button.
- *
- * @param {string[]} summaries
- * @returns {string}
- */
-export function summaryRowsMarkup(summaries) {
-    if (!summaries.length) return emptyState({ icon: 'fa-align-left', text: 'No summaries yet.' });
-    return summaries.map((summary, index) => listRow({
-        icon: 'fa-align-left',
-        name: summary,
-        actions: [iconButton({ icon: 'fa-xmark', title: 'Remove this summary', data: action('remove-summary', { 'summary-index': index }) })],
-    })).join('');
-}
-
-function summaryFields(summaries) {
-    return [
-        groupTitle({ icon: 'fa-align-left', text: 'Summaries' }),
-        hint({ text: 'Extra texts a search can find this chunk by, each embedded on its own.' }),
-        `<div class="vfx-list" data-chunk-summaries>${summaryRowsMarkup(summaries)}</div>`,
-        field([
-            textarea({ id: ids.summaryNew, rows: 2, title: 'New summary' }),
-            controlRow([button({ text: 'Add', icon: 'fa-plus', data: action('add-summary') })]),
-        ]),
-    ];
-}
-
 function eventFieldsMarkup(event) {
     return [
         groupTitle({ icon: 'fa-bolt', text: 'Event' }),
@@ -393,27 +249,23 @@ export function tokenizerLockMarkup({ madeWith, setTo }) {
         { name: ` ${madeWith}, ` },
         { text: 'and VectFox is set to' },
         { name: ` ${setTo}. ` },
-        { text: 'A changed text, a keyword change or a new summary can\'t be saved here; the other fields can.' },
+        { text: 'A changed text can\'t be saved here; the name can.' },
     ] });
 }
 
 /**
- * The open chunk's form: the place of tokenizerLockMarkup; where it came from, its name and text, for an EventBase
- * chunk its event, else its switch; where it goes in the prompt; for any but an EventBase chunk its keywords and links;
- * its summaries; then Delete and Save. The form shows what is saved; chunk-visualizer.js keeps the edits on it until
- * Save.
+ * The open chunk's form: the place of tokenizerLockMarkup; where it came from, its name and text, and its event; then
+ * Delete and Save. The form shows what is saved; chunk-visualizer.js keeps the edits on it until Save.
  *
- * @param {{number: number, hash: string|number, isEventBase: boolean, message: {text: string, name: string},
- *   part: string, fields: ReturnType<import('./chunk-visualizer-core.js').savedChunkFields>,
- *   event: ReturnType<import('./chunk-visualizer-core.js').eventFields>,
- *   links: {label: string, isLoaded: boolean, mode: string}[], linkTargets: {value: string, label: string}[]}} view
+ * @param {{number: number, hash: string|number, message: {text: string, name: string},
+ *   fields: ReturnType<import('./chunk-visualizer-core.js').savedChunkFields>,
+ *   event: ReturnType<import('./chunk-visualizer-core.js').eventFields>}} view
  * @returns {string}
  */
 export function chunkFormMarkup(view) {
     const { fields, event } = view;
     const origin = controlRow([
         linePill(view.message),
-        view.part ? linePill({ text: 'Part', name: view.part }) : '',
         event.sentAt ? linePill({ text: 'Sent', name: event.sentAt }, { icon: 'fa-clock' }) : '',
         linePill({ text: 'ID', name: String(view.hash) }),
     ].filter(Boolean));
@@ -431,11 +283,7 @@ export function chunkFormMarkup(view) {
             dynamicHint('', 'chunk-text-count'),
             hint({ text: 'Saving a changed text embeds it again.' }),
         ]),
-        ...(view.isEventBase ? eventFieldsMarkup(event) : [switchRow({ id: ids.enabled, title: 'Enabled', description: 'Off: retrieval skips this chunk.' })]),
-        ...promptFields(fields),
-        ...(view.isEventBase ? [] : keywordFields(fields.keywords)),
-        ...(view.isEventBase ? [] : linkFields(view.links, view.linkTargets)),
-        ...summaryFields(fields.summaries),
+        ...eventFieldsMarkup(event),
         controlRow([
             dynamicHint('No changes.', 'chunk-save-state'),
             button({ text: 'Delete', icon: 'fa-trash-can', kind: 'danger', data: action('delete') }),

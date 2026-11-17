@@ -200,19 +200,17 @@ test.beforeAll(async ({ browser }) => {
     // previous (possibly interrupted) runs.
     //
     // Match pattern: case-insensitive `playwright_test` substring on EITHER
-    // the collectionId or the registryKey. This is broader than the previous
-    // `__vf_playwright_test_` check and catches:
-    //   • IDs without the leading double-underscore (`vf_playwright_test_…`)
+    // the collectionId or the registryKey. It catches:
+    //   • IDs with or without the leading double-underscore
+    //     (`__vf_playwright_test_…`, `playwright_test_…`)
     //   • Registry-key-only orphans whose collectionId has been stripped
-    //   • Any future test naming convention as long as it includes the
+    //   • Any test naming convention as long as it includes the
     //     unambiguous `playwright_test` marker
     // The marker is unique enough that a real user collection would never
     // contain it accidentally.
     const cleanupReport = await sharedPage.evaluate(async () => {
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { getCollectionListing, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
+        const { deleteCollectionWhereDiscovered, getCollectionListing } = await import(base + 'src/features/collections/collection-loader.js');
         const { extension_settings } = await import('/scripts/extensions.js');
         const { saveSettingsDebounced } = await import('/script.js');
         const vf = extension_settings?.vectfox;
@@ -225,28 +223,25 @@ test.beforeAll(async ({ browser }) => {
         for (const e of listing) {
             const cid = e.collectionId || '';
             const rk  = e.registryKey  || '';
-            if (isTestMarker(cid) || isTestMarker(rk)) leftover.push({ cid, rk });
+            if (isTestMarker(cid) || isTestMarker(rk)) leftover.push({ cid, rk, backend: e.backend || null });
         }
 
-        // Full cleanup for leftover test data only (vectors + meta + registry).
+        // Full cleanup for leftover test data only. deleteCollectionWhereDiscovered deletes each one as the
+        // Database Browser does: its vectors on the backend and in every index discovery found it in, then its
+        // registry entry and metadata under both key forms (registry key and bare ID). It logs a failure itself.
         // Real user collections are never touched.
-        for (const { cid, rk } of leftover) {
-            try { await deleteContentCollection(cid); } catch (cleanupError) { console.warn('[e2e cleanup] deleteContentCollection failed:', cleanupError); }
-            try { deleteCollectionMeta(rk); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollectionMeta failed:', cleanupError); }
-            try { unregisterCollection(rk); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
-            // Defensive: also try the bare-ID form in case a pre-B4-fix run
-            // left a duplicate entry behind.
-            try { unregisterCollection(cid); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
+        for (const entry of leftover) {
+            entry.isDeleted = await deleteCollectionWhereDiscovered(
+                { registryKey: entry.rk, collectionId: entry.cid, backend: entry.backend }, vf, 'e2e cleanup');
         }
 
         // ─── chat_lock_index orphan sweep ────────────────────────────────
         //
         // The registry pass above catches collections still in
-        // `vf.collection_registry`. The per-chat reverse map
+        // `vf.vectfox_collection_registry`. The per-chat reverse map
         // `vf.chat_lock_index[chatId] = [registryKey, …]` is kept separately:
-        // a test collection locked to a chat (vectorizeContent with
-        // scope='chat' locks it, as does setCollectionLock) can leave its
-        // entry there after its registry entry is gone.
+        // a test collection locked to a chat (setCollectionLock) can leave
+        // its entry there after its registry entry is gone.
         //
         // Functionally harmless (lookups go forward via meta.lockedToChatIds,
         // not reverse) but it grows unbounded. Sweeping it here keeps one
@@ -282,8 +277,9 @@ test.beforeAll(async ({ browser }) => {
     });
 
     if (cleanupReport.leftover.length) {
-        console.log(`[setup] Removed ${cleanupReport.leftover.length} leftover test collection(s):`);
-        cleanupReport.leftover.forEach(e => console.log(`  ${e.cid}`));
+        const deletedCount = cleanupReport.leftover.filter(e => e.isDeleted).length;
+        console.log(`[setup] Deleted ${deletedCount} of ${cleanupReport.leftover.length} leftover test collection(s):`);
+        cleanupReport.leftover.forEach(e => console.log(`  ${e.cid}${e.isDeleted ? '' : ' (not fully deleted: VectFox logs why in the browser console)'}`));
     } else {
         console.log('[setup] Nothing to clean up ✓');
     }
@@ -810,48 +806,50 @@ test('TEST 003 — E2E qdrant: locked EventBase returns results', async () => {
 // ═══════════════════════════════════════════════════════════════════
 // TEST 004 — DB Browser: listing + delete (qdrant)
 // ═══════════════════════════════════════════════════════════════════
-// Self-contained: vectorizes its own qdrant document of 3 paragraphs (one
-// chunk each), verifies listChunks surfaces text + sourceName, deletes one
-// chunk, verifies it's gone, then cleans up.
+// Self-contained: inserts 3 one-paragraph chunks, each carrying a sourceName
+// in its metadata, into its own qdrant collection, verifies listChunks
+// surfaces text + sourceName, deletes one chunk, verifies it's gone, then
+// cleans up.
 test('TEST 004 — DB Browser: listing + delete (qdrant)', async () => {
     await skipIfQdrantUnavailable();
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 004 [DBBrowser]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { insertVectorItems } = await import(base + 'src/features/vector-backend/vector-api.js');
+        const { registerCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
+        const { getStringHash } = await import('/scripts/utils.js');
 
         const vf = extension_settings?.vectfox;
         if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
         if (!(vf.qdrant_url || vf.qdrant_host)) { console.warn(`${TEST} [SKIP] Qdrant not configured`); return; }
 
-        // The 'paragraph' strategy makes one chunk of each paragraph.
+        const settings = { ...vf, vector_backend: 'qdrant' };
+        const ts = Date.now();
+        // collectionId contains __vf_playwright_test_ so beforeAll cleanup catches orphans
+        const collectionId = `vf_eventbase_qdrant_playwright___vf_playwright_test_004__${ts}`;
+        const registryKey  = `qdrant:${collectionId}`;
+        const sourceName   = '__vf_playwright_test_004__';
+
+        // One chunk per paragraph, hashed by its text.
         const documentParagraphs = [
             'Glasswing moths inhabit the cloud forests of the southern continent. Their transparent wings refract sunlight into faint rainbows. Alchemists collect their wing dust as a primary ingredient for invisibility potions.',
             'The Sunken Library of Ralthar rests beneath the Cerulean Bay. Sealed in glass domes by the last archmage of the Eighth Council, its scrolls remain dry and legible after four centuries underwater. Only triton scholars hold the keys.',
             'Bronzewing falcons are bred by the high desert tribes for long-distance message delivery. They navigate by magnetic field alone and can fly nine hundred miles without rest. Each bird is bonded to a single rider through a ritual of shared blood.',
         ];
+        const testItems = documentParagraphs.map((text, index) => ({ hash: getStringHash(text), text, index, metadata: { sourceName } }));
 
-        console.log(`${TEST} Vectorizing test document (3 paragraphs) with Qdrant backend...`);
-        let vectorizeResult;
+        console.log(`${TEST} Inserting ${testItems.length} test chunks into ${collectionId} with Qdrant backend...`);
         try {
-            vectorizeResult = await vectorizeContent({
-                contentType: 'document',
-                source: { type: 'paste', content: documentParagraphs.join('\n\n'), name: '__vf_playwright_test_004__' },
-                settings: { ...vf, vector_backend: 'qdrant', strategy: 'paragraph', scope: 'chat' },
-            });
-        } catch (err) { console.error(`${TEST} [FAIL] vectorizeContent threw: ${err.message}`); return; }
-
-        if (!vectorizeResult?.success || !vectorizeResult.collectionId) {
-            console.error(`${TEST} [FAIL] Vectorization failed`); return;
+            await insertVectorItems(collectionId, testItems, settings);
+        } catch (err) {
+            console.error(`${TEST} [FAIL] insertVectorItems threw: ${err.message}`);
+            try { await deleteCollection(collectionId, settings, registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollection failed:', cleanupError); }
+            return;
         }
-
-        const collectionId = vectorizeResult.collectionId;
-        const registryKey  = `qdrant:${collectionId}`;
-        console.log(`${TEST} Vectorized ${vectorizeResult.chunkCount} chunks → ${registryKey}`);
+        registerCollection(registryKey);
+        console.log(`${TEST} Inserted ${testItems.length} chunks → ${registryKey}`);
 
         try {
             // Per Doc/collection_helper.md (canonical-API rule): use
@@ -895,16 +893,13 @@ test('TEST 004 — DB Browser: listing + delete (qdrant)', async () => {
             console.log(`${TEST} [PASS] Source name visible, text present, delete removed the chunk`);
         } finally {
             try {
-                await deleteContentCollection(collectionId);
+                // Vectors, the registry entry and the metadata, under both key forms.
+                await deleteCollection(collectionId, settings, registryKey);
                 // TEST-ONLY: nuke vectra-side-effect folder (B4).
                 try {
                     const stdBackend = await getBackend({ ...vf, vector_backend: 'standard' });
                     await stdBackend._purgeCollectionFolderForTestCleanup(collectionId, vf);
                 } catch (e) { console.warn(`${TEST} [WARN] folder-cleanup helper failed: ${e.message}`); }
-                deleteCollectionMeta(registryKey);
-                unregisterCollection(registryKey);
-                // Also remove the BARE-ID duplicate registry entry (B4).
-                unregisterCollection(collectionId);
                 console.log(`${TEST} Cleanup: test collection removed ✓`);
             } catch (cleanupErr) {
                 console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
@@ -1218,39 +1213,40 @@ test('TEST 008 — DB Browser standard + plugin: listing + delete', async () => 
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 008 [DBBrowserStd]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { insertVectorItems } = await import(base + 'src/features/vector-backend/vector-api.js');
+        const { registerCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
+        const { getStringHash } = await import('/scripts/utils.js');
 
         const vf = extension_settings?.vectfox;
         if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
 
-        // The 'paragraph' strategy makes one chunk of each paragraph.
+        const settings = { ...vf, vector_backend: 'standard' };
+        const ts = Date.now();
+        // collectionId contains __vf_playwright_test_ so beforeAll cleanup catches orphans
+        const collectionId = `vf_eventbase_standard_playwright___vf_playwright_test_008__${ts}`;
+        const registryKey  = `vectra:${collectionId}`;
+        const sourceName   = '__vf_playwright_test_008__';
+
+        // One chunk per paragraph, hashed by its text.
         const documentParagraphs = [
             'Ashfern spores germinate only after exposure to volcanic ash. The resulting plant produces a deep-blue dye prized by the southern weavers. A single mature ashfern yields enough spore-pods for one full bolt of cloth.',
             'The Mirror Citadel of Vorn was carved from a single obsidian seam in the Coldroot Mountains. Its walls reflect approaching armies tenfold, an illusion that has broken three sieges without a single arrow loosed.',
             'Tideglass eels migrate along the Vermilion Reef every spring. Their translucent bodies become visible only at twilight. Fishermen of the coastal hamlets carve flutes from their bones — said to summon mist on still nights.',
         ];
+        const testItems = documentParagraphs.map((text, index) => ({ hash: getStringHash(text), text, index, metadata: { sourceName } }));
 
-        console.log(`${TEST} Vectorizing test document (3 paragraphs) with Standard backend...`);
-        let vectorizeResult;
+        console.log(`${TEST} Inserting ${testItems.length} test chunks into ${collectionId} with Standard backend...`);
         try {
-            vectorizeResult = await vectorizeContent({
-                contentType: 'document',
-                source: { type: 'paste', content: documentParagraphs.join('\n\n'), name: '__vf_playwright_test_008__' },
-                settings: { ...vf, vector_backend: 'standard', strategy: 'paragraph', scope: 'chat' },
-            });
-        } catch (err) { console.error(`${TEST} [FAIL] vectorizeContent threw: ${err.message}`); return; }
-
-        if (!vectorizeResult?.success || !vectorizeResult.collectionId) {
-            console.error(`${TEST} [FAIL] Vectorization failed`); return;
+            await insertVectorItems(collectionId, testItems, settings);
+        } catch (err) {
+            console.error(`${TEST} [FAIL] insertVectorItems threw: ${err.message}`);
+            try { await deleteCollection(collectionId, settings, registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollection failed:', cleanupError); }
+            return;
         }
-
-        const collectionId = vectorizeResult.collectionId;
-        const registryKey  = `vectra:${collectionId}`;
-        console.log(`${TEST} Vectorized ${vectorizeResult.chunkCount} chunks → ${registryKey}`);
+        registerCollection(registryKey);
+        console.log(`${TEST} Inserted ${testItems.length} chunks → ${registryKey}`);
 
         try {
             // Use the backend manager so we get the shared, properly-initialized
@@ -1298,14 +1294,13 @@ test('TEST 008 — DB Browser standard + plugin: listing + delete', async () => 
             console.log(`${TEST} [PASS] Standard: source name visible, text present, delete removed the chunk`);
         } finally {
             try {
-                await deleteContentCollection(collectionId);
+                // Vectors, the registry entry and the metadata, under both key forms.
+                await deleteCollection(collectionId, settings, registryKey);
                 // TEST-ONLY: also nuke the parent on-disk folder.
                 try {
                     const stdBackend = await getBackend({ ...vf, vector_backend: 'standard' });
                     await stdBackend._purgeCollectionFolderForTestCleanup(collectionId, vf);
                 } catch (e) { console.warn(`${TEST} [WARN] folder-cleanup helper failed: ${e.message}`); }
-                deleteCollectionMeta(registryKey);
-                unregisterCollection(registryKey);
                 console.log(`${TEST} Cleanup: test collection removed ✓`);
             } catch (cleanupErr) {
                 console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
@@ -1321,13 +1316,13 @@ test('TEST 008 — DB Browser standard + plugin: listing + delete', async () => 
 //
 // This test verifies graceful degradation: when the Similharity plugin
 // is unavailable, the standard backend must still support the basic
-// vectorize → list → delete cycle through ST's native /api/vector/*.
+// insert → list → delete cycle through ST's native /api/vector/*.
 // The top comment in src/features/vector-backend/standard.js mandates this contract.
 //
 // We can't uninstall the plugin from a test, so we simulate it by
 // forcing `pluginAvailable = false` on the SHARED cached backend
-// instance from getBackend(). This must be done BEFORE vectorize, so
-// insert ALSO routes through the native API — otherwise data lands at
+// instance from getBackend(). This must be done BEFORE the insert, so
+// it ALSO routes through the native API — otherwise data lands at
 // vectors/{source}/{collectionId}/{model}/ (plugin path) while our list
 // and delete look at vectors/{source}/{collectionId}/ (native path),
 // and the delete silently no-ops because it can't find the data. That
@@ -1339,7 +1334,7 @@ test('TEST 008 — DB Browser standard + plugin: listing + delete', async () => 
 // poisoned by our override.
 //
 // Expectations:
-//   - vectorize via native /api/vector/insert succeeds
+//   - insert via native /api/vector/insert succeeds
 //   - listChunks returns N items where N matches what insert wrote
 //   - Each item has `hash` populated; text === '' and metadata === {}
 //     are degraded-but-expected
@@ -1351,21 +1346,30 @@ test('TEST 009 — DB Browser standard, no plugin: graceful degradation', async 
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 009 [DBBrowserStdNoPlugin]';
         const base = '/scripts/extensions/third-party/VectFox/';
-        const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { insertVectorItems } = await import(base + 'src/features/vector-backend/vector-api.js');
+        const { registerCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
+        const { getStringHash } = await import('/scripts/utils.js');
 
         const vf = extension_settings?.vectfox;
         if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
 
-        // The 'paragraph' strategy makes one chunk of each paragraph.
+        const settings = { ...vf, vector_backend: 'standard' };
+        const ts = Date.now();
+        // collectionId contains __vf_playwright_test_ so beforeAll cleanup catches orphans
+        const collectionId = `vf_eventbase_standard_playwright___vf_playwright_test_009__${ts}`;
+        const registryKey  = `vectra:${collectionId}`;
+        const sourceName   = '__vf_playwright_test_009__';
+
+        // One chunk per paragraph, hashed by its text. The native insert stores only
+        // hash, text and index, so the sourceName in each item's metadata is not kept.
         const documentParagraphs = [
             'Coppervine trellises grow on abandoned watchtowers along the eastern marshes. Their copper-rich sap conducts magical signals over short distances, and apprentice mages use them to practice resonance work without dedicated crystals.',
             'Silt Singers are reclusive mer-folk who emerge from the estuary mud at low tide. They communicate through low-frequency hums that travel further through wet earth than air. Coastal villagers leave salt offerings on the tideline in exchange for storm warnings.',
             'Wraithcap mushrooms grow in graveyards and old battlefields. Their pale fruiting bodies fade in and out of visibility on a regular cycle, said to track the breathing of whatever lies buried beneath. Necromancers harvest them by touch alone.',
         ];
+        const testItems = documentParagraphs.map((text, index) => ({ hash: getStringHash(text), text, index, metadata: { sourceName } }));
 
         // ───────────────────────────────────────────────────────────────
         //  Boundary rules for this test:
@@ -1383,37 +1387,26 @@ test('TEST 009 — DB Browser standard, no plugin: graceful degradation', async 
         //    session.
         //
         //  Why mutate the SHARED instance (not a fresh `new StandardBackend()`):
-        //  vectorizeContent calls getBackend() internally, which returns the
+        //  insertVectorItems calls getBackend() internally, which returns the
         //  cached singleton. If we only flip pluginAvailable on a fresh
-        //  instance, vectorize uses the cached one (pluginAvailable=true) →
+        //  instance, the insert uses the cached one (pluginAvailable=true) →
         //  data lands at vectors/{source}/{cid}/{model}/, but our list+delete
         //  via the fresh instance look at vectors/{source}/{cid}/ → delete
         //  silently no-ops. That's a mismatched-mode test, not the real
         //  no-plugin scenario.
         // ───────────────────────────────────────────────────────────────
-        const backend = await getBackend({ ...vf, vector_backend: 'standard' });
+        const backend = await getBackend(settings);
         const originalPluginAvailable = backend.pluginAvailable;
         backend.pluginAvailable = false;
         console.log(`${TEST} Forced pluginAvailable=false on the shared StandardBackend (was ${originalPluginAvailable}) — exercising native end-to-end`);
 
-        let vectorizeResult;
-        let collectionId, registryKey;
         try {
+            console.log(`${TEST} Inserting ${testItems.length} test chunks into ${collectionId} via the native path...`);
             try {
-                vectorizeResult = await vectorizeContent({
-                    contentType: 'document',
-                    source: { type: 'paste', content: documentParagraphs.join('\n\n'), name: '__vf_playwright_test_009__' },
-                    settings: { ...vf, vector_backend: 'standard', strategy: 'paragraph', scope: 'chat' },
-                });
-            } catch (err) { console.error(`${TEST} [FAIL] vectorizeContent threw: ${err.message}`); return; }
-
-            if (!vectorizeResult?.success || !vectorizeResult.collectionId) {
-                console.error(`${TEST} [FAIL] Vectorization failed`); return;
-            }
-
-            collectionId = vectorizeResult.collectionId;
-            registryKey  = `vectra:${collectionId}`;
-            console.log(`${TEST} Vectorized ${vectorizeResult.chunkCount} chunks via native path → ${registryKey}`);
+                await insertVectorItems(collectionId, testItems, settings);
+            } catch (err) { console.error(`${TEST} [FAIL] insertVectorItems threw: ${err.message}`); return; }
+            registerCollection(registryKey);
+            console.log(`${TEST} Inserted ${testItems.length} chunks via native path → ${registryKey}`);
 
             let listResult;
             try { listResult = await backend.listChunks(collectionId, vf, { limit: 10 }); }
@@ -1460,26 +1453,24 @@ test('TEST 009 — DB Browser standard, no plugin: graceful degradation', async 
             console.log(`${TEST} [PASS] Standard (no plugin) end-to-end: insert + list + delete via native path`);
         } finally {
             // Restore plugin availability on the SHARED backend instance BEFORE cleanup
-            // so deleteContentCollection / unregisterCollection don't take native paths
+            // so deleteCollection doesn't take native paths
             // and leak state to any subsequent test or to the running ST session.
             backend.pluginAvailable = originalPluginAvailable;
             console.log(`${TEST} Restored backend.pluginAvailable=${originalPluginAvailable}`);
 
-            if (collectionId) {
+            // Runs after a failed insert too: an insert that threw can still have stored some chunks.
+            try {
+                // Vectors, the registry entry and the metadata, under both key forms.
+                await deleteCollection(collectionId, settings, registryKey);
+                // TEST-ONLY: nuke the parent on-disk folder. `backend` here is the
+                // SHARED StandardBackend instance — pluginAvailable just got restored
+                // above so the helper takes the plugin purge path normally.
                 try {
-                    await deleteContentCollection(collectionId);
-                    // TEST-ONLY: nuke the parent on-disk folder. `backend` here is the
-                    // SHARED StandardBackend instance — pluginAvailable just got restored
-                    // above so the helper takes the plugin purge path normally.
-                    try {
-                        await backend._purgeCollectionFolderForTestCleanup(collectionId, vf);
-                    } catch (e) { console.warn(`${TEST} [WARN] folder-cleanup helper failed: ${e.message}`); }
-                    deleteCollectionMeta(registryKey);
-                    unregisterCollection(registryKey);
-                    console.log(`${TEST} Cleanup: test collection removed ✓`);
-                } catch (cleanupErr) {
-                    console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
-                }
+                    await backend._purgeCollectionFolderForTestCleanup(collectionId, vf);
+                } catch (e) { console.warn(`${TEST} [WARN] folder-cleanup helper failed: ${e.message}`); }
+                console.log(`${TEST} Cleanup: test collection removed ✓`);
+            } catch (cleanupErr) {
+                console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
             }
         }
     });
@@ -1492,15 +1483,14 @@ test('TEST 009 — DB Browser standard, no plugin: graceful degradation', async 
 // ═══════════════════════════════════════════════════════════════════
 //
 // Why this test exists:
-//   `importCollection` and `importCollectionSilent` both need to remap the
-//   backend segment in the collection ID when the export's backend differs
-//   from the user's current target backend. Without that, importing a
-//   qdrant export into standard would create a vectra folder named
-//   `vf_*_qdrant_*` — polluting storage and confusing every parser that
-//   reads the backend from the ID.
+//   `importCollection` needs to remap the backend segment in the collection
+//   ID when the export's backend differs from the user's current target
+//   backend. Without that, importing a qdrant export into standard would
+//   create a vectra folder named `vf_*_qdrant_*` — polluting storage and
+//   confusing every parser that reads the backend from the ID.
 //
 //   The remap logic lives in `src/shared/collection-ids.js::remapCollectionIdToBackend`;
-//   both import functions must call it.
+//   importCollection calls it.
 //
 // What this test proves:
 //   - Pure helper checks first (remap both directions + detection round-trip)
@@ -1520,9 +1510,7 @@ test('TEST 012 — Cross-backend import: qdrant ↔ standard rename', async () =
         const base = '/scripts/extensions/third-party/VectFox/';
         const { importCollection } = await import(base + 'src/features/collections/collection-export.js');
         const { remapCollectionIdToBackend, getBackendFromCollectionId } = await import(base + 'src/shared/collection-ids.js');
-        const { deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
-        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
@@ -1598,16 +1586,13 @@ test('TEST 012 — Cross-backend import: qdrant ↔ standard rename', async () =
         } finally {
             if (p1ResultId) {
                 try {
-                    await deleteContentCollection(p1ResultId);
+                    // Vectors, the registry entry and the metadata, under both key forms (the BARE-ID duplicate, B4).
+                    await deleteCollection(p1ResultId, { ...vf, vector_backend: 'standard' }, `vectra:${p1ResultId}`);
                     // TEST-ONLY: nuke parent folder in vectra (Phase 1 imports as standard)
                     try {
                         const stdBackend = await getBackend({ ...vf, vector_backend: 'standard' });
                         await stdBackend._purgeCollectionFolderForTestCleanup(p1ResultId, vf);
                     } catch (e) { console.warn(`${TEST} [WARN] Phase 1 folder-cleanup helper failed: ${e.message}`); }
-                    deleteCollectionMeta(`vectra:${p1ResultId}`);
-                    unregisterCollection(`vectra:${p1ResultId}`);
-                    // Also remove the BARE-ID duplicate registry entry (B4).
-                    unregisterCollection(p1ResultId);
                     console.log(`${TEST} Phase 1 cleanup ✓`);
                 } catch (cleanupErr) {
                     console.warn(`${TEST} [WARN] Phase 1 cleanup failed: ${cleanupErr.message}`);
@@ -1659,17 +1644,14 @@ test('TEST 012 — Cross-backend import: qdrant ↔ standard rename', async () =
         } finally {
             if (p2ResultId) {
                 try {
-                    await deleteContentCollection(p2ResultId);
+                    // Vectors, the registry entry and the metadata, under both key forms (the BARE-ID duplicate, B4).
+                    await deleteCollection(p2ResultId, { ...vf, vector_backend: 'qdrant' }, `qdrant:${p2ResultId}`);
                     // TEST-ONLY: nuke vectra-side-effect folder (Phase 2 result is qdrant
                     // but plugin's insert path leaves a vectra placeholder — B4).
                     try {
                         const stdBackend = await getBackend({ ...vf, vector_backend: 'standard' });
                         await stdBackend._purgeCollectionFolderForTestCleanup(p2ResultId, vf);
                     } catch (e) { console.warn(`${TEST} [WARN] Phase 2 folder-cleanup helper failed: ${e.message}`); }
-                    deleteCollectionMeta(`qdrant:${p2ResultId}`);
-                    unregisterCollection(`qdrant:${p2ResultId}`);
-                    // Also remove the BARE-ID duplicate registry entry (B4).
-                    unregisterCollection(p2ResultId);
                     console.log(`${TEST} Phase 2 cleanup ✓`);
                 } catch (cleanupErr) {
                     console.warn(`${TEST} [WARN] Phase 2 cleanup failed: ${cleanupErr.message}`);
@@ -2210,18 +2192,23 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
 //  bolting on a qdrant-only Phase 4 with synthetic point inserts, this test
 //  asserts the three branches that work everywhere and lets the actual
 //  max+1 arithmetic — a trivial one-line reducer — stand on its own. The
-//  high-risk parts (branch selection, the chatLength fallback in the
-//  try/catch, re-stamp overwrite) are what real regressions hit.
+//  high-risk parts (branch selection, the chatLength fallback, re-stamp
+//  overwrite) are what real regressions hit.
 //
 //  Phases:
 //    1. Branch A — empty chatUUID returns 0 sentinel, no write.
 //    2. Branch B — fresh UUID with no registered EventBase collection.
 //       Marker should equal getContext().chat.length and persist.
 //    3. Branch C — synthetic vf_eventbase_<…>_<uuid> registered, no chunks
-//       on disk. listChunks returns empty / throws → caught → fallback to
-//       chatLength.
+//       on disk. stampAutoSyncMarker reads events only from the chat's write
+//       target (resolveEventBaseWriteTarget: the UUID, the current backend's
+//       registry label, and a lock or ownership). The synthetic registration
+//       is normally not one; when it is (a superadmin on Qdrant), its
+//       listChunks returns nothing or throws, caught. Either way the marker
+//       falls back to chatLength.
 //    4. Re-stamp idempotency — second call overwrites the persisted value.
-//    5. Cleanup — unregister the synthetic collection, clear the marker.
+//    5. Floor override — { floor: 'chatLength' } stamps chat length directly.
+//    Cleanup — clear the markers, delete the synthetic collection.
 
 test('TEST 016 — stampAutoSyncMarker smart placement (production-function smoke)', async () => {
     const logs = await runTestInPage(async () => {
@@ -2233,9 +2220,7 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             clearAutoSyncMarker,
             findEventBaseCollectionsForChat,
         } = await import(base + 'src/features/eventbase/eventbase-store.js');
-        const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
+        const { registerCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
@@ -2286,7 +2271,7 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             console.log(`${TEST} Phase 2 ✓ Branch B: marker=${markerB} (chatLength=${chatLengthB}) persisted via getAutoSyncMarker`);
 
             // ═══ Phase 3 — Branch C: synthetic candidate, no data → fallback ═══
-            console.log(`${TEST} Phase 3: Branch C — registering synthetic ${syntheticRegistryKey}; listChunks will return empty (or throw, caught) → marker should fall back to chat length`);
+            console.log(`${TEST} Phase 3: Branch C — registering synthetic ${syntheticRegistryKey} with no events → marker should fall back to chat length`);
             registerCollection(syntheticRegistryKey);
 
             // Sanity: confirm the synthetic registration is actually visible
@@ -2302,10 +2287,10 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             const chatLengthC = ctx?.chat?.length ?? 0;
             const markerC = await stampAutoSyncMarker(uuidBranchC, settings);
             if (markerC !== chatLengthC) {
-                console.error(`${TEST} [FAIL] Phase 3: marker=${markerC}, expected chatLength=${chatLengthC} (listChunks returned no metadata, should have fallen back). Branch C try/catch fallback may be broken.`);
+                console.error(`${TEST} [FAIL] Phase 3: marker=${markerC}, expected chatLength=${chatLengthC} (the candidate holds no source_window_end, so the marker should have fallen back). Branch C fallback may be broken.`);
                 return;
             }
-            console.log(`${TEST} Phase 3 ✓ Branch C: marker=${markerC} (chatLength=${chatLengthC}) — try/catch fallback held; candidate present but no readable source_window_end`);
+            console.log(`${TEST} Phase 3 ✓ Branch C: marker=${markerC} (chatLength=${chatLengthC}) — fallback held; candidate present but no readable source_window_end`);
 
             // ═══ Phase 4 — Re-stamp idempotency ═══
             console.log(`${TEST} Phase 4: re-stamping Branch B UUID overwrites the persisted value cleanly`);
@@ -2348,19 +2333,16 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             }
             console.log(`${TEST} Phase 5 ✓ floor override stamps chatLength (${chatLenNow}), overwriting sentinel -777`);
 
-            console.log(`${TEST} [PASS] stampAutoSyncMarker smart placement holds — Branch A early-exit, Branch B no-candidate falls to chatLength, Branch C empty-candidate falls to chatLength via try/catch, re-stamp overwrites, floor override forces chatLength. Branch D (max(source_window_end)+1) is not asserted by this test because env-1/2 standard-backend inserts strip metadata; the one-line reducer is trivial.`);
+            console.log(`${TEST} [PASS] stampAutoSyncMarker smart placement holds — Branch A early-exit, Branch B no-candidate falls to chatLength, Branch C empty-candidate falls to chatLength, re-stamp overwrites, floor override forces chatLength. Branch D (max(source_window_end)+1) is not asserted by this test because env-1/2 standard-backend inserts strip metadata; the one-line reducer is trivial.`);
         } finally {
-            // Cleanup — markers, on-disk artifacts, meta, and registry.
-            // ORDER MATTERS: deleteContentCollection FIRST so the vectra
-            // directory (auto-created by stampAutoSyncMarker's listChunks
-            // probe in Phase 3 — see "ghost 0-chunk entries" caveat in
-            // eventbase-store.js) is removed BEFORE we unregister. Otherwise
-            // the directory survives on disk and loadAllCollections will
-            // re-discover it on the next ST page load, leaving a ghost
-            // `vf_eventbase_…playwright_test_016__empty_candidate` entry
-            // visible to live retrieval (caught during a 2026-05-24 live
-            // test). Same teardown shape that beforeAll uses for leftover
-            // cleanup.
+            // Cleanup — the markers, then the synthetic collection. deleteCollection
+            // purges its vectors before it unregisters it and deletes its metadata
+            // (registry key and bare ID), so anything a backend call left on disk
+            // for it is gone before the registration: a folder left behind would be
+            // re-discovered by loadAllCollections on the next ST page load as a ghost
+            // `vf_eventbase_…playwright_test_016__empty_candidate` entry visible to
+            // live retrieval. Deleting a collection with nothing on disk is harmless,
+            // so it runs unconditionally, as the beforeAll cleanup deletes leftovers.
             try {
                 clearAutoSyncMarker(uuidBranchB);
                 clearAutoSyncMarker(uuidBranchC);
@@ -2368,14 +2350,7 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
                     getAutoSyncMarker(uuidBranchC) !== undefined) {
                     console.warn(`${TEST} [WARN] clearAutoSyncMarker left stale values: B=${getAutoSyncMarker(uuidBranchB)} C=${getAutoSyncMarker(uuidBranchC)}`);
                 }
-                // Phase 3 creates an on-disk artifact via listChunks probe.
-                // Phases 1/2/4 don't, but calling delete on a non-existent
-                // collection is a no-op — safer to call unconditionally.
-                try { await deleteContentCollection(syntheticCollectionId); } catch (cleanupError) { console.warn('[e2e cleanup] deleteContentCollection failed:', cleanupError); }
-                try { deleteCollectionMeta(syntheticRegistryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollectionMeta failed:', cleanupError); }
-                try { deleteCollectionMeta(syntheticCollectionId); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollectionMeta failed:', cleanupError); }
-                try { unregisterCollection(syntheticRegistryKey); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
-                try { unregisterCollection(syntheticCollectionId); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
+                try { await deleteCollection(syntheticCollectionId, settings, syntheticRegistryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollection failed:', cleanupError); }
                 console.log(`${TEST} Cleanup ✓ markers cleared, disk artifacts deleted, meta removed, synthetic registration unregistered`);
             } catch (cleanupErr) {
                 console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
@@ -2386,67 +2361,119 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  TEST 017 — Pause button (enabled=false) blocks activation
+//  TEST 017 — Pause button (enabled=false) keeps a locked EventBase out of retrieval
 // ═══════════════════════════════════════════════════════════════════
 //
-//  `isCollectionEnabled` / `setCollectionEnabled` are the pause button, the
-//  first gate of `shouldCollectionActivate`. Even when a collection is locked
-//  to the current chat (the second gate), `enabled=false` MUST block
-//  activation.
+//  `isCollectionEnabled` / `setCollectionEnabled` are the pause button.
+//  EventBase retrieval searches a live collection only when it is not paused
+//  and is locked to the current chat (`isCollectionEnabled`, then
+//  `isCollectionActiveForContextAnyKey`, in eventbase-workflow.js). A paused
+//  collection stays out even with its lock in place, and pausing never
+//  touches the lock.
 //
-//  This test runs in every environment because it's pure metadata —
-//  no backend insert, no chunk listing, no LLM call.
+//  Self-contained on the standard backend, as TEST 007 is: inserts one
+//  synthetic event into its own EventBase, locks it to the current chat and
+//  runs the EventBase dry-run retrieval with a query made of the event's own
+//  words. The dry run's `lockedCollectionsCount` counts every live
+//  collection the retrieval searched, those other collections locked to this
+//  chat included, so the phases compare counts.
 //
 //  Phases:
-//    1. Default state: a fresh registered collection (no `enabled` meta
-//       written) reports `isCollectionEnabled === true`.
-//    2. Baseline: with a chat lock pinned, `shouldCollectionActivate`
-//       returns true (the lock alone activates it).
+//    1. Default state: the fresh collection, never paused, reports
+//       `isCollectionEnabled === true`.
+//    2. Baseline: locked → the retrieval counts it.
 //    3. Pause: `setCollectionEnabled(key, false)` ⇒ `isCollectionEnabled`
-//       flips to false AND `shouldCollectionActivate` returns false even
-//       though the lock is still in place. The pause gate comes first.
-//    4. Re-enable: `setCollectionEnabled(key, true)` restores activation —
-//       lock state was never touched by the pause path.
+//       flips to false, the lock is still in place, the count drops by one,
+//       and the event's sentinel is not in the injection.
+//    4. Resume: `setCollectionEnabled(key, true)` ⇒ the count is back to the
+//       baseline — the pause cycle lost no lock.
 
-test('TEST 017 — Pause button (enabled=false) blocks activation even when locked', async () => {
+test('TEST 017 — Pause button (enabled=false) keeps a locked EventBase out of retrieval', async () => {
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 017 [PauseButton]';
         const base = '/scripts/extensions/third-party/VectFox/';
+        const { insertEvents } = await import(base + 'src/features/eventbase/eventbase-store.js');
+        const { runEventBaseRetrieval } = await import(base + 'src/features/eventbase/eventbase-workflow.js');
         const {
             isCollectionEnabled,
             setCollectionEnabled,
             setCollectionLock,
-            removeCollectionLock,
+            clearCollectionLock,
             isCollectionLockedToChat,
-            shouldCollectionActivate,
-            deleteCollectionMeta,
         } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
+        const { deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
+        const vf = extension_settings?.vectfox;
+        if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
+
         const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
-        const settings = extension_settings?.vectfox || {};
         const currentChatId = ctx?.chatId ? String(ctx.chatId) : null;
-        const currentCharacterId = ctx?.characterId != null ? String(ctx.characterId) : null;
         if (!currentChatId) {
             console.error(`${TEST} [FAIL] No active chat — open a chat first`);
             return;
         }
 
-        // Synthetic lorebook ID — character-scoped under the new parseCollectionId
-        // mapping, but the test pins activation via an explicit chat lock so scope
-        // doesn't affect the result. The `playwright_test` marker drives cleanup
-        // both at top-of-file beforeAll and at the end of this test.
-        const collectionId  = `vf_lorebook_${(settings.vector_backend || 'standard').toLowerCase()}_playwright_test_017_pause_button_${Date.now()}`;
-        const registryKey   = buildRegistryKey(collectionId, settings);
-        const searchContext = { currentChatId, currentCharacterId };
+        // Derive persona handle for collection ID — see TEST 013 for rationale.
+        const personaHandle = (ctx?.name1 || 'user')
+            .normalize('NFC')
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}]+/gu, '_')
+            .replace(/^_|_$/g, '')
+            .substring(0, 30) || 'user';
+
+        // Sentinel only this test's event carries: no other collection can put it in the injection.
+        const SENTINEL = 'TIDEMARK_QUILL_P4X7';
+
+        const settings = { ...vf, vector_backend: 'standard' };
+        const ts = Date.now();
+        // collectionId contains __vf_playwright_test_ so beforeAll cleanup catches orphans
+        const collectionId = `vf_eventbase_standard_${personaHandle}___vf_playwright_test_017__${ts}`;
+        const registryKey  = `vectra:${collectionId}`;
+        const testEvents = [{
+            event_type: 'discovery',
+            importance: 8,
+            summary: `Cartographers of the Hollowmere Basin recover the ${SENTINEL}, a brass quill that redraws flooded roads on any map it touches`,
+            DateTime: '2027-10-21T06:20:00Z',
+            cause: 'Survey of the receding floodplain',
+            result: 'Quill sealed in the guild archive',
+            characters: ['Surveyor Oriel', 'Archivist Benn'],
+            locations: ['Hollowmere Basin'],
+            factions: ['Cartographers Guild'],
+            items: [SENTINEL],
+            concepts: ['cartography', 'flood', 'artifact'],
+            keywords: ['tidemark', 'quill', 'hollowmere', 'cartographer'],
+            open_threads: ['Who forged the quill?'],
+            should_persist: true,
+            chat_uuid: currentChatId,
+            event_id: `test_event_017_001_${ts}`,
+            source_window_start: 0,
+            source_window_end: 5,
+            source_message_hashes: [17701, 17702],
+            schema_version: 1,
+        }];
+
+        // A query made of the synthetic event's own words — same rationale as TEST 003.
+        const chat = ctx.chat ?? [];
+        const testQuery = `${SENTINEL} hollowmere basin cartographers brass quill flooded roads`;
+        const retrieve = async (phase) => {
+            try { return await runEventBaseRetrieval({ chat, settings: vf, dryRun: true, testMessage: testQuery }); }
+            catch (err) { console.error(`${TEST} [FAIL] ${phase}: runEventBaseRetrieval threw: ${err.message}`); return null; }
+        };
+
+        console.log(`${TEST} Inserting 1 synthetic event into ${collectionId}...`);
+        try {
+            await insertEvents(testEvents, settings, null, collectionId);
+        } catch (err) {
+            console.error(`${TEST} [FAIL] insertEvents threw: ${err.message}`);
+            try { await deleteCollection(collectionId, settings, registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollection failed:', cleanupError); }
+            return;
+        }
 
         try {
-            registerCollection(registryKey);
-
-            // ═══ Phase 1 — default enabled when no meta.enabled written ═══
-            console.log(`${TEST} Phase 1: fresh registration with no enabled-meta written → isCollectionEnabled should default to true`);
+            // ═══ Phase 1 — a collection never paused is enabled ═══
+            console.log(`${TEST} Phase 1: fresh collection, never paused → isCollectionEnabled should default to true`);
             const defaultEnabled = isCollectionEnabled(registryKey);
             if (defaultEnabled !== true) {
                 console.error(`${TEST} [FAIL] Phase 1: isCollectionEnabled defaulted to ${defaultEnabled}, expected true. Default-true contract broken.`);
@@ -2454,22 +2481,28 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
             }
             console.log(`${TEST} Phase 1 ✓ default enabled=true`);
 
-            // ═══ Phase 2 — baseline: lock pinned, activation should return true ═══
-            console.log(`${TEST} Phase 2: pinning chat lock for chatId=${currentChatId} → shouldCollectionActivate must return true (the lock alone activates it)`);
+            // ═══ Phase 2 — baseline: locked, the retrieval searches it ═══
+            console.log(`${TEST} Phase 2: pinning chat lock for chatId=${currentChatId} → the dry-run retrieval must count the collection`);
             setCollectionLock(registryKey, currentChatId);
             if (!isCollectionLockedToChat(registryKey, currentChatId)) {
                 console.error(`${TEST} [FAIL] Phase 2: setCollectionLock didn't take — isCollectionLockedToChat reads false. Baseline can't be established.`);
                 return;
             }
-            const activeBaseline = await shouldCollectionActivate(registryKey, searchContext);
-            if (activeBaseline !== true) {
-                console.error(`${TEST} [FAIL] Phase 2: shouldCollectionActivate returned ${activeBaseline} with lock pinned — expected true. The lock gate may be broken.`);
+            const baseline = await retrieve('Phase 2');
+            if (!baseline) return;
+            const baselineCount = baseline.lockedCollectionsCount ?? 0;
+            if (baselineCount < 1) {
+                console.error(`${TEST} [FAIL] Phase 2: lockedCollectionsCount=${baselineCount} with the lock pinned — the retrieval did not search the locked collection. The lock gate may be broken.`);
                 return;
             }
-            console.log(`${TEST} Phase 2 ✓ baseline active with lock`);
+            if (!(baseline.injectionText || '').includes(SENTINEL)) {
+                // Not a failure: another collection locked to this chat can outrank the event (see TEST 007).
+                console.warn(`${TEST} [WARN] Phase 2: sentinel not in the injection (events=${baseline.eventCount ?? 0}) — other locked collections may have outranked it`);
+            }
+            console.log(`${TEST} Phase 2 ✓ baseline: lockedCollectionsCount=${baselineCount}, events=${baseline.eventCount ?? 0}`);
 
-            // ═══ Phase 3 — pause: enabled=false must override lock ═══
-            console.log(`${TEST} Phase 3: setCollectionEnabled(false) → isCollectionEnabled flips false AND shouldCollectionActivate returns false despite the lock`);
+            // ═══ Phase 3 — pause: the lock stays, the retrieval skips the collection ═══
+            console.log(`${TEST} Phase 3: setCollectionEnabled(false) → isCollectionEnabled flips false AND the retrieval skips the collection despite the lock`);
             setCollectionEnabled(registryKey, false);
             const enabledAfterPause = isCollectionEnabled(registryKey);
             if (enabledAfterPause !== false) {
@@ -2481,217 +2514,47 @@ test('TEST 017 — Pause button (enabled=false) blocks activation even when lock
                 console.error(`${TEST} [FAIL] Phase 3: pause path silently removed the chat lock — setCollectionEnabled should only flip enabled meta, never touch locks.`);
                 return;
             }
-            const activeAfterPause = await shouldCollectionActivate(registryKey, searchContext);
-            if (activeAfterPause !== false) {
-                console.error(`${TEST} [FAIL] Phase 3: shouldCollectionActivate returned ${activeAfterPause} after pause — the pause gate (enabled=false) must block a chat-locked collection. Activation gate chain is broken.`);
+            const paused = await retrieve('Phase 3');
+            if (!paused) return;
+            const pausedCount = paused.lockedCollectionsCount ?? 0;
+            if (pausedCount !== baselineCount - 1) {
+                console.error(`${TEST} [FAIL] Phase 3: lockedCollectionsCount=${pausedCount} after pause, expected ${baselineCount - 1} — the pause (enabled=false) must keep a chat-locked collection out of retrieval.`);
                 return;
             }
-            console.log(`${TEST} Phase 3 ✓ pause overrides lock: enabled=false → activation=false even with lock still in place`);
+            if ((paused.injectionText || '').includes(SENTINEL)) {
+                console.error(`${TEST} [FAIL] Phase 3: the paused collection's sentinel "${SENTINEL}" is in the injection — a paused collection was searched.`);
+                return;
+            }
+            console.log(`${TEST} Phase 3 ✓ pause overrides lock: lockedCollectionsCount ${baselineCount} → ${pausedCount}, sentinel absent, lock still in place`);
 
-            // ═══ Phase 4 — re-enable restores activation ═══
-            console.log(`${TEST} Phase 4: setCollectionEnabled(true) → activation restored cleanly`);
+            // ═══ Phase 4 — resume: the retrieval searches it again ═══
+            console.log(`${TEST} Phase 4: setCollectionEnabled(true) → the retrieval counts the collection again`);
             setCollectionEnabled(registryKey, true);
             const enabledAfterResume = isCollectionEnabled(registryKey);
             if (enabledAfterResume !== true) {
                 console.error(`${TEST} [FAIL] Phase 4: isCollectionEnabled reads ${enabledAfterResume} after setCollectionEnabled(true).`);
                 return;
             }
-            const activeAfterResume = await shouldCollectionActivate(registryKey, searchContext);
-            if (activeAfterResume !== true) {
-                console.error(`${TEST} [FAIL] Phase 4: shouldCollectionActivate returned ${activeAfterResume} after resume — re-enabling should let the lock activate it again. Lock state may have been silently lost during the pause cycle.`);
+            const resumed = await retrieve('Phase 4');
+            if (!resumed) return;
+            const resumedCount = resumed.lockedCollectionsCount ?? 0;
+            if (resumedCount !== baselineCount) {
+                console.error(`${TEST} [FAIL] Phase 4: lockedCollectionsCount=${resumedCount} after resume, expected ${baselineCount} — re-enabling should let the lock bring the collection back. Lock state may have been silently lost during the pause cycle.`);
                 return;
             }
-            console.log(`${TEST} Phase 4 ✓ resume restores activation`);
+            console.log(`${TEST} Phase 4 ✓ resume restores the collection to retrieval (lockedCollectionsCount=${resumedCount})`);
 
-            console.log(`${TEST} [PASS] Pause button (enabled=false) correctly overrides chat lock — the pause gate blocks a locked collection, lock state survives the pause cycle, default isCollectionEnabled is true`);
+            console.log(`${TEST} [PASS] Pause button (enabled=false) keeps a chat-locked EventBase out of retrieval — lock state survives the pause cycle, default isCollectionEnabled is true`);
         } finally {
+            // ── Cleanup: the lock, then deleteCollection (vectors, registry entry and meta under both key forms), then the on-disk folder ──
             try {
-                try { removeCollectionLock(registryKey, currentChatId); } catch (cleanupError) { console.warn('[e2e cleanup] removeCollectionLock failed:', cleanupError); }
-                try { deleteCollectionMeta(registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollectionMeta failed:', cleanupError); }
-                try { unregisterCollection(registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
-                try { unregisterCollection(collectionId); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
-                console.log(`${TEST} Cleanup ✓ lock removed, meta deleted, registration unregistered`);
-            } catch (cleanupErr) {
-                console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
-            }
-        }
-    });
-    assertPassed(logs);
-});
-
-// ═══════════════════════════════════════════════════════════════════
-//  TEST 018 — shouldCollectionActivate gate chain
-// ═══════════════════════════════════════════════════════════════════
-//
-//  Activation is a chain of gates; every gate that applies must pass
-//  (src/features/collections/collection-metadata.js → shouldCollectionActivate):
-//
-//    1. Pause button (enabled=false)   → never active   (covered by TEST 017)
-//    2. Lock to this chat or character → required; unlocked is never active
-//    3. Activation Triggers, if set    → a keyword must match this turn
-//    4. Advanced Conditions, if set    → the rules must also pass this turn
-//    5. Locked, nothing else set       → active every turn
-//
-//  Triggers and conditions only narrow a locked collection; neither can
-//  switch one on. tests/collection-activation-gate.test.js pins the same
-//  chain with a mocked conditions engine; this test runs the deployed module
-//  in a real SillyTavern with real condition rules.
-//
-//  Pure-metadata test, runs in every environment. One synthetic collection,
-//  locked (in the phases that lock it) to a synthetic character ID. Phases:
-//    1. Gate 2 — unlocked stays inactive: bare, with a matching trigger, and
-//       with a passing condition.
-//    2. Gate 3 — locked with a trigger: active when the trigger matches,
-//       inactive when the messages miss it.
-//    3. Gate 4 — locked with a matching trigger and a pattern condition:
-//       active when the condition passes too, inactive when it fails.
-//    4. Gate 5 — locked with nothing else set: active for the locked
-//       character, inactive for another character.
-//
-//  Each call also prints a `[VECTFOX Activation Filter] Collection X: …`
-//  trace line naming the gate that decided (✗ NOT_LOCKED, ✓ TRIGGERS_MATCHED,
-//  ✗ TRIGGERS_UNMATCHED, ✓ CONDITIONS_PASS, ✗ CONDITIONS_FAIL, ✓ ACTIVE); the
-//  test gates on the boolean return.
-
-test('TEST 018 — shouldCollectionActivate gate chain (lock required; triggers and conditions narrow)', async () => {
-    const logs = await runTestInPage(async () => {
-        const TEST = 'TEST 018 [GateChain]';
-        const base = '/scripts/extensions/third-party/VectFox/';
-        const {
-            setCollectionMeta,
-            deleteCollectionMeta,
-            setCollectionCharacterLock,
-            isCollectionLockedToCharacter,
-            shouldCollectionActivate,
-        } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { registerCollection, unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { buildRegistryKey } = await import(base + 'src/shared/collection-ids.js');
-        const { extension_settings } = await import('/scripts/extensions.js');
-
-        const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
-        const settings = extension_settings?.vectfox || {};
-        const currentChatId = ctx?.chatId ? String(ctx.chatId) : null;
-        if (!currentChatId) {
-            console.error(`${TEST} [FAIL] No active chat — open a chat first`);
-            return;
-        }
-        // Use a synthetic character ID — the locked phases only need the lock
-        // value to match the context's currentCharacterId. Decoupling from the
-        // real character keeps them deterministic regardless of which
-        // character the chat is paired with (or even none — group chats).
-        const syntheticCharacterId = '__vf_pw_test_018_character__';
-
-        // One synthetic collection, meta reset between phases.
-        const collectionId = `vf_lorebook_${(settings.vector_backend || 'standard').toLowerCase()}_playwright_test_018_gate_chain_${Date.now()}`;
-        const registryKey  = buildRegistryKey(collectionId, settings);
-
-        // Unique tokens the phases plant in recentMessages, the triggers and the
-        // pattern condition. The playwright_test part of collectionId matches the
-        // beforeAll cleanup pattern.
-        const TRIGGER_TOKEN = 'PW_TEST_018_TRIGGER_TOKEN_e3f1';
-        const CONDITION_TOKEN = 'PW_TEST_018_CONDITION_TOKEN_7b2c';
-
-        // Reset meta to a baseline empty state between phases so the
-        // previous phase's triggers/conditions/locks don't leak. Each
-        // phase then sets only what it needs. The character lock lives in
-        // the meta entry, so deleting the entry clears it too.
-        const resetMeta = () => {
-            try { deleteCollectionMeta(registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollectionMeta failed:', cleanupError); }
-        };
-
-        // Locks the collection to the synthetic character; false when the lock did not take.
-        const lockToCharacter = () => {
-            setCollectionCharacterLock(registryKey, syntheticCharacterId);
-            return isCollectionLockedToCharacter(registryKey, syntheticCharacterId);
-        };
-        const triggerMeta = {
-            triggers: [TRIGGER_TOKEN.toLowerCase()],   // lowercased — checkTriggers lowercases search text
-            triggerMatchMode: 'any',
-            triggerCaseSensitive: false,
-            triggerScanDepth: 5,
-        };
-        const contextWith = (recentMessages) => ({ currentChatId, currentCharacterId: syntheticCharacterId, recentMessages });
-        const triggerMessage = `some message containing ${TRIGGER_TOKEN} embedded inline`;
-        const plainMessage = 'nothing trigger-like here';
-
-        try {
-            registerCollection(registryKey);
-
-            // ═══ Phase 1 — Gate 2: an unlocked collection never activates ═══
-            console.log(`${TEST} Phase 1: Gate 2 — unlocked stays inactive (bare, with a matching trigger, with a passing condition)`);
-            resetMeta();
-            const bareUnlocked = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
-            resetMeta();
-            setCollectionMeta(registryKey, triggerMeta);
-            const triggerUnlocked = await shouldCollectionActivate(registryKey, contextWith([triggerMessage]));
-            resetMeta();
-            setCollectionMeta(registryKey, {
-                conditions: { enabled: true, logic: 'AND', rules: [{ type: 'randomChance', settings: { probability: 100 } }] },
-            });
-            const conditionUnlocked = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
-            if (bareUnlocked !== false || triggerUnlocked !== false || conditionUnlocked !== false) {
-                console.error(`${TEST} [FAIL] Phase 1: an unlocked collection activated (bare=${bareUnlocked}, matching trigger=${triggerUnlocked}, passing condition=${conditionUnlocked}). The lock gate is not enforced.`);
-                return;
-            }
-            console.log(`${TEST} Phase 1 ✓ unlocked → inactive, even with a matching trigger or a passing condition`);
-
-            // ═══ Phase 2 — Gate 3: a trigger narrows a locked collection ═══
-            console.log(`${TEST} Phase 2: Gate 3 — locked with a trigger: active when it matches, inactive when the messages miss it`);
-            resetMeta();
-            setCollectionMeta(registryKey, triggerMeta);
-            if (!lockToCharacter()) {
-                console.error(`${TEST} [FAIL] Phase 2 pre-condition: setCollectionCharacterLock didn't take.`);
-                return;
-            }
-            const triggerMatched = await shouldCollectionActivate(registryKey, contextWith([triggerMessage]));
-            const triggerMissed = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
-            if (triggerMatched !== true || triggerMissed !== false) {
-                console.error(`${TEST} [FAIL] Phase 2: locked + trigger should be active on a match and inactive on a miss, got match=${triggerMatched}, miss=${triggerMissed}. The trigger gate is broken.`);
-                return;
-            }
-            console.log(`${TEST} Phase 2 ✓ locked + trigger match → active; locked + trigger miss → inactive`);
-
-            // ═══ Phase 3 — Gate 4: a condition narrows further; both must pass ═══
-            console.log(`${TEST} Phase 3: Gate 4 — locked, trigger matching, plus a pattern condition: active only when the condition passes too`);
-            resetMeta();
-            setCollectionMeta(registryKey, {
-                ...triggerMeta,
-                conditions: { enabled: true, logic: 'AND', rules: [{ type: 'pattern', settings: { patterns: [CONDITION_TOKEN] } }] },
-            });
-            if (!lockToCharacter()) {
-                console.error(`${TEST} [FAIL] Phase 3 pre-condition: setCollectionCharacterLock didn't take.`);
-                return;
-            }
-            const conditionPassed = await shouldCollectionActivate(registryKey, contextWith([`${triggerMessage} next to ${CONDITION_TOKEN}`]));
-            const conditionFailed = await shouldCollectionActivate(registryKey, contextWith([triggerMessage]));
-            if (conditionPassed !== true || conditionFailed !== false) {
-                console.error(`${TEST} [FAIL] Phase 3: locked + trigger match should be active only when the condition passes too, got condition pass=${conditionPassed}, condition fail=${conditionFailed}. The condition gate is broken.`);
-                return;
-            }
-            console.log(`${TEST} Phase 3 ✓ trigger and condition pass → active; trigger passes, condition fails → inactive`);
-
-            // ═══ Phase 4 — Gate 5: a lock alone keeps the collection active ═══
-            console.log(`${TEST} Phase 4: Gate 5 — locked with nothing else set: active for the locked character, inactive for another`);
-            resetMeta();
-            if (!lockToCharacter()) {
-                console.error(`${TEST} [FAIL] Phase 4 pre-condition: setCollectionCharacterLock didn't take.`);
-                return;
-            }
-            const lockedCharacter = await shouldCollectionActivate(registryKey, contextWith([plainMessage]));
-            const otherCharacter = await shouldCollectionActivate(registryKey, { ...contextWith([plainMessage]), currentCharacterId: 'wrong_character_xyz' });
-            if (lockedCharacter !== true || otherCharacter !== false) {
-                console.error(`${TEST} [FAIL] Phase 4: a character lock alone should activate for that character only, got locked character=${lockedCharacter}, other character=${otherCharacter}. Lock match is leaking.`);
-                return;
-            }
-            console.log(`${TEST} Phase 4 ✓ lock alone → active; another character → inactive`);
-
-            console.log(`${TEST} [PASS] Gate chain intact — the lock is required, a trigger and a condition each narrow a locked collection and must both pass, and a lock alone keeps it active.`);
-        } finally {
-            try {
-                resetMeta();
-                try { unregisterCollection(registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
-                try { unregisterCollection(collectionId); } catch (cleanupError) { console.warn('[e2e cleanup] unregisterCollection failed:', cleanupError); }
-                console.log(`${TEST} Cleanup ✓ meta cleared, registration unregistered`);
+                clearCollectionLock(registryKey);
+                await deleteCollection(collectionId, settings, registryKey);
+                try {
+                    const stdBackend = await getBackend(settings);
+                    await stdBackend._purgeCollectionFolderForTestCleanup(collectionId, vf);
+                } catch (e) { console.warn(`${TEST} [WARN] folder-cleanup helper failed: ${e.message}`); }
+                console.log(`${TEST} Cleanup ✓ lock removed, collection deleted`);
             } catch (cleanupErr) {
                 console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
             }
@@ -2715,11 +2578,13 @@ test('TEST 018 — shouldCollectionActivate gate chain (lock required; triggers 
 //  after a vectorization completes).
 //
 //  Smoke test rather than a comprehensive proof: builds one synthetic
-//  own-persona document collection, locks it to the current chat, enables
-//  autoSync, then calls the refresh function multiple times back-to-back
-//  and asserts that the test collection's lock state, autoSync flag,
-//  enabled flag, AND the chat_lock_index reverse map are byte-identical
-//  before and after.
+//  own-persona EventBase collection (registered, no events), locks it to
+//  the current chat, enables autoSync, then calls the refresh function
+//  multiple times back-to-back and asserts that the test collection's lock
+//  state, autoSync flag, enabled flag, AND the chat_lock_index reverse map
+//  (every collection locked to this chat) are byte-identical before and
+//  after. Its ID carries no chat UUID, so the refresh never takes it for
+//  this chat's write target and no backend call reaches it.
 //
 //  Pure metadata + DOM read/write, runs in every environment. Phases:
 //    1. refreshAutoSyncCheckbox(settings) — lock + autoSync + chat_lock_index unchanged.
@@ -2766,7 +2631,7 @@ test('TEST 019 — AutoSync refresh smoke: the refresh path does not mutate lock
         const ts = Date.now();
         // Handle embedded in the ID itself so the legacy substring fallback
         // also recognizes ownership even if creatorHandle meta drifts.
-        const collectionId  = `vf_document_${backend}_${personaHandle}_playwright_test_019_refresh_smoke_${ts}`;
+        const collectionId  = `vf_eventbase_${backend}_${personaHandle}_playwright_test_019_refresh_smoke_${ts}`;
         const registryKey   = buildRegistryKey(collectionId, settings);
 
         // Snapshot of fields refreshes MUST NOT touch. JSON.stringify gives
@@ -2793,10 +2658,10 @@ test('TEST 019 — AutoSync refresh smoke: the refresh path does not mutate lock
 
         try {
             registerCollection(registryKey);
+            // The scope EventBase ingestion stamps on the collection it writes.
             setCollectionMeta(registryKey, {
                 creatorHandle: personaHandle,
-                sourceName: 'PW Test 019 Document',
-                contentType: 'document',
+                scope: 'chat',
             });
             setCollectionLock(registryKey, currentChatId);
             setCollectionAutoSync(registryKey, true);
@@ -2859,328 +2724,6 @@ test('TEST 019 — AutoSync refresh smoke: the refresh path does not mutate lock
             } catch (cleanupErr) {
                 console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
             }
-        }
-    });
-    assertPassed(logs);
-});
-
-
-// ═══════════════════════════════════════════════════════════════════
-// TEST 020 / 021 — per-chunk override is BACKEND-FIRST (survives ext_settings wipe)
-// ═══════════════════════════════════════════════════════════════════
-//
-// Validates the read-source refactor (InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md):
-// per-chunk user overrides (context/xmlTag/keywords/...) are served
-// from the vector backend payload, NOT from extension_settings. This is the one
-// behavior the rest of the suite never checked — it asserts result COUNTS and the
-// chunk TEXT in injectionText, but never that a per-chunk OVERRIDE flows from the
-// backend, and never that it survives losing the ext_settings copy.
-//
-// Flow (per backend):
-//   1. vectorize a one-paragraph document (gives a real collection + chunk).
-//   2. updateChunkMetadata(hash, {context, xmlTag}) → writes the override to the
-//      BACKEND ONLY (this API does not touch ext_settings).
-//   3. queryCollection → confirm the backend SERVES the override via retrieval.
-//   4. seed an ext_settings entry, then deleteChunkMetadata → wipe it (simulates a
-//      reinstall / profile reset / second machine).
-//   5. queryCollection again → the override MUST still come back from the backend.
-//      If it vanishes, backend-first is broken (data only lived in ext_settings).
-//
-// The merge-precedence rules (backend wins over ext_settings, enabled:false
-// survives, 0 is valid, etc.) are covered by tests/chunk-metadata-read-source.test.js.
-// This pair proves the data-layer half end-to-end against a live backend.
-async function overrideBackendFirstBody({ BACKEND, LABEL }) {
-    const TEST = `${LABEL} [BackendFirst:${BACKEND}]`;
-    const base = '/scripts/extensions/third-party/VectFox/';
-    const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
-    const { deleteCollectionMeta, getChunkMetadata, saveChunkMetadata, deleteChunkMetadata } = await import(base + 'src/features/collections/collection-metadata.js');
-    const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-    const { updateChunkMetadata } = await import(base + 'src/features/vector-backend/vector-api.js');
-    const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
-    const { extension_settings } = await import('/scripts/extensions.js');
-
-    const vf = extension_settings?.vectfox;
-    if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
-
-    const settings = { ...vf, vector_backend: BACKEND };
-    const ts = Date.now();
-    const CTX = `VF_CTX_${ts}`;
-    const TAG = `vfmem${ts}`;
-    const documentText = `The Glimmerwisp Conclave ${ts} convenes beneath the Hollow Aqueduct to debate the tideglass accords. Only sworn lanternkeepers may attend.`;
-
-    let collectionId = null;
-    let registryKey = null;
-    try {
-        let res;
-        try {
-            res = await vectorizeContent({
-                contentType: 'document',
-                source: { type: 'paste', content: documentText, name: `__vf_playwright_test_020_${BACKEND}__` },
-                settings: { ...settings, strategy: 'paragraph', scope: 'chat' },
-            });
-        } catch (err) { console.error(`${TEST} [FAIL] vectorizeContent threw: ${err.message}`); return; }
-        if (!res?.success || !res.collectionId) { console.error(`${TEST} [FAIL] Vectorization failed`); return; }
-        collectionId = res.collectionId;
-        registryKey = `${BACKEND === 'qdrant' ? 'qdrant' : 'vectra'}:${collectionId}`;
-        console.log(`${TEST} Vectorized ${res.chunkCount} chunk(s) → ${registryKey}`);
-
-        const backend = await getBackend(settings);
-
-        // Resolve the chunk's hash via listChunks (plugin path on both backends).
-        let listResult;
-        try { listResult = await backend.listChunks(collectionId, settings, { limit: 10 }); }
-        catch (err) { console.error(`${TEST} [FAIL] listChunks threw: ${err.message}`); return; }
-        const items = listResult?.items ?? [];
-        if (!items.length) { console.error(`${TEST} [FAIL] listChunks returned 0 items`); return; }
-        const hash = items[0].hash;
-        console.log(`${TEST} Target chunk hash=${hash}`);
-
-        // (1) Write the override to the BACKEND ONLY.
-        try { await updateChunkMetadata(collectionId, hash, { context: CTX, xmlTag: TAG }, settings); }
-        catch (err) { console.error(`${TEST} [FAIL] updateChunkMetadata threw: ${err.message}`); return; }
-
-        const fetchOurChunk = async () => {
-            const q = await backend.queryCollection(collectionId, `glimmerwisp conclave hollow aqueduct tideglass ${ts}`, 10, settings);
-            const rows = q?.metadata ?? [];
-            return rows.find(m => String(m.hash) === String(hash)) || null;
-        };
-
-        // (2) Backend serves the override via retrieval.
-        let row = await fetchOurChunk();
-        if (!row) { console.error(`${TEST} [FAIL] Query did not return our chunk after override write`); return; }
-        if (row.context !== CTX || row.xmlTag !== TAG) {
-            console.error(`${TEST} [FAIL] Backend did not return the override — context="${row.context}", xmlTag="${row.xmlTag}" (expected "${CTX}"/"${TAG}")`);
-            return;
-        }
-        console.log(`${TEST} ✓ Backend serves override via retrieval (context + xmlTag present)`);
-
-        // (3) Simulate the legacy dual-write state, then WIPE ext_settings.
-        saveChunkMetadata(String(hash), { context: 'EXT_DECOY', xmlTag: 'extdecoy' });
-        deleteChunkMetadata(String(hash));
-        if (getChunkMetadata(String(hash)) !== null) { console.error(`${TEST} [FAIL] ext_settings entry not cleared`); return; }
-        console.log(`${TEST} ext_settings entry wiped (simulating reinstall) ✓`);
-
-        // (4) Backend-first: override must STILL come back from the backend.
-        row = await fetchOurChunk();
-        if (!row) { console.error(`${TEST} [FAIL] Query did not return our chunk after ext_settings wipe`); return; }
-        if (row.context !== CTX || row.xmlTag !== TAG) {
-            console.error(`${TEST} [FAIL] Override LOST after ext_settings wipe — context="${row.context}", xmlTag="${row.xmlTag}". Backend-first is NOT working (data only lived in ext_settings).`);
-            return;
-        }
-        console.log(`${TEST} [PASS] ${BACKEND}: per-chunk override is backend-first — survived ext_settings deletion`);
-    } finally {
-        try {
-            if (collectionId) {
-                await deleteContentCollection(collectionId);
-                try {
-                    const stdBackend = await getBackend({ ...vf, vector_backend: 'standard' });
-                    await stdBackend._purgeCollectionFolderForTestCleanup(collectionId, vf);
-                } catch (e) { console.warn(`${TEST} [WARN] folder-cleanup helper failed: ${e.message}`); }
-                if (registryKey) { deleteCollectionMeta(registryKey); unregisterCollection(registryKey); }
-                unregisterCollection(collectionId);
-                console.log(`${TEST} Cleanup ✓`);
-            }
-        } catch (cleanupErr) { console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`); }
-    }
-}
-
-test('TEST 020 — Qdrant: per-chunk override is backend-first (survives ext_settings wipe)', async () => {
-    await skipIfQdrantUnavailable();
-    const logs = await runTestInPage(overrideBackendFirstBody, { BACKEND: 'qdrant', LABEL: 'TEST 020' });
-    assertPassed(logs);
-});
-
-test('TEST 021 — Standard+plugin: per-chunk override is backend-first (survives ext_settings wipe)', async () => {
-    await skipIfNoPlugin();
-    const logs = await runTestInPage(overrideBackendFirstBody, { BACKEND: 'standard', LABEL: 'TEST 021' });
-    assertPassed(logs);
-});
-
-
-// ═══════════════════════════════════════════════════════════════════
-// TEST 022 — Injection path: per-chunk wrapping (R4) + force links (R3),
-//            read backend-first, observed in the actual rearrangeChat dry-run output
-// ═══════════════════════════════════════════════════════════════════
-//
-// TEST 020/021 prove the DATA layer (backend stores+serves the override). This one
-// proves the INJECTION layer: that a per-chunk override actually changes what gets
-// injected, via the real chat-chunk pipeline rearrangeChat() → buildNestedInjectionText().
-//
-// Why a 'document' collection: rearrangeChat queries ChunkBase collections via
-// gatherCollectionsToQuery, which EXCLUDES vf_lorebook_/vf_eventbase_/vf_archiveevent_.
-// A 'document' (vf_document_) collection is a non-excluded ChunkBase collection, so it
-// flows through the links (R3) → wrapping (R4) stages and the dry-run returns the
-// formatted injectionText.
-//
-// Phases:
-//   1. R4 — set {context, xmlTag} on the backend → injectionText wraps the chunk.
-//   2. backend-first — wipe ext_settings → wrapping persists (came from the backend).
-//   3. R3 force link — A force-links to an off-query chunk B → B is pulled into the injection.
-//
-// Standard+plugin only: the injection readers (R3/R4) are backend-agnostic — they read
-// chunk.metadata regardless of backend — and TEST 020/021 already cover that both backends
-// serve the payload. So one backend exercises the reader logic fully.
-//
-// Not covered here: position/depth (R5) placement — buildNestedInjectionText doesn't encode
-// position/depth (applied later by injectChunksIntoPrompt, non-dry-run only); R5's resolution
-// logic is covered by the vitest cascade test.
-test('TEST 022 — Standard+plugin: context/xmlTag wrapping + force link through retrieval (backend-first)', async () => {
-    await skipIfNoPlugin();
-    const logs = await runTestInPage(async () => {
-        const TEST = 'TEST 022 [InjectionWrap]';
-        const base = '/scripts/extensions/third-party/VectFox/';
-        const { vectorizeContent, deleteContentCollection } = await import(base + 'src/features/chunkbase/content-vectorization.js');
-        const { rearrangeChat } = await import(base + 'src/features/chunkbase/chat-vectorization.js');
-        const { updateChunkMetadata, queryCollection, insertVectorItems } = await import(base + 'src/features/vector-backend/vector-api.js');
-        const { getChunkMetadata, saveChunkMetadata, deleteChunkMetadata, deleteCollectionMeta, shouldCollectionActivate, setCollectionLock, clearCollectionLock, setCollectionEnabled } = await import(base + 'src/features/collections/collection-metadata.js');
-        const { unregisterCollection } = await import(base + 'src/features/collections/collection-loader.js');
-        const { getBackend } = await import(base + 'src/features/vector-backend/backend-registry.js');
-        const { extension_settings } = await import('/scripts/extensions.js');
-        const { getStringHash } = await import('/scripts/utils.js');
-
-        const vf = extension_settings?.vectfox;
-        if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
-
-        const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
-        const currentChatId = ctx.chatId ? String(ctx.chatId) : null;
-        if (!currentChatId) { console.warn(`${TEST} [WARN] No active chat — open a chat first`); return; }
-        const context = { currentChatId, currentCharacterId: ctx.characterId != null ? String(ctx.characterId) : null };
-        const chat = ctx.chat ?? [];
-
-        const ts = Date.now();
-        const SENTINEL = `Glimmerwhisp_${ts}`;
-        const CTX = `VF_PROMPT_CTX_${ts}`;
-        const TAG = `vfmem${ts}`;
-        const docText = `The ${SENTINEL} resonates beneath the Hollow Aqueduct, where lanternkeepers guard the tideglass accords against the drifting mist.`;
-        const testMessage = `${SENTINEL} hollow aqueduct lanternkeepers tideglass mist`;
-
-        // threshold 0 + generous topK so our single chunk always passes the similarity gate.
-        const rcSettings = { ...vf, vector_backend: 'standard', score_threshold: 0, top_k: 20 };
-
-        let collectionId = null;
-        let registryKey = null;
-        try {
-            let res;
-            try {
-                res = await vectorizeContent({
-                    contentType: 'document',
-                    source: { type: 'paste', content: docText, name: `__vf_playwright_test_022__${ts}` },
-                    settings: { ...vf, vector_backend: 'standard', scope: 'chat' },
-                });
-            } catch (err) { console.error(`${TEST} [FAIL] vectorizeContent threw: ${err.message}`); return; }
-            if (!res?.success || !res.collectionId) { console.error(`${TEST} [FAIL] Vectorization failed`); return; }
-            collectionId = res.collectionId;
-            registryKey = `vectra:${collectionId}`;
-            console.log(`${TEST} Vectorized ${res.chunkCount} chunk(s) → ${registryKey}`);
-
-            // Make sure the collection is enabled AND active for this chat so rearrangeChat queries it.
-            try { setCollectionEnabled(registryKey, true); } catch (enableError) { console.warn(`${TEST} [WARN] setCollectionEnabled failed:`, enableError); }
-            if (!(await shouldCollectionActivate(registryKey, context))) {
-                setCollectionLock(registryKey, currentChatId);
-                if (!(await shouldCollectionActivate(registryKey, context))) {
-                    console.error(`${TEST} [FAIL] Document collection not active for chat — cannot exercise rearrangeChat`); return;
-                }
-            }
-
-            const backend = await getBackend({ ...vf, vector_backend: 'standard' });
-            const list = await backend.listChunks(collectionId, vf, { limit: 20 });
-            const items = list?.items ?? [];
-            const target = items.find(i => (i.text || '').includes(SENTINEL)) || items[0];
-            if (!target) { console.error(`${TEST} [FAIL] listChunks returned no chunk`); return; }
-            const hash = target.hash;
-            console.log(`${TEST} Target chunk hash=${hash}`);
-
-            const dryInject = async () => {
-                const r = await rearrangeChat(chat, rcSettings, 'normal', { dryRun: true, testMessage });
-                return (r && r.injectionText) || '';
-            };
-
-            // Diagnostics: which query path will rearrangeChat take?
-            console.log(`${TEST} [DIAG] keyword_scoring_method=${rcSettings.keyword_scoring_method}, hybrid_native_prefer=${rcSettings.hybrid_native_prefer}, bm25_use_corpus_idf=${rcSettings.bm25_use_corpus_idf}`);
-
-            // ── Phase 1: write the override to the backend ──
-            await updateChunkMetadata(collectionId, hash, { context: CTX, xmlTag: TAG }, rcSettings);
-
-            // Phase 1a — does the BACKEND itself serve the override? (mirrors TEST 021)
-            {
-                const direct = await backend.queryCollection(collectionId, testMessage, 20, rcSettings);
-                const drow = (direct?.metadata ?? []).find(m => String(m.hash) === String(hash));
-                console.log(`${TEST} [DIAG] backend.queryCollection: found=${!!drow}, context=${JSON.stringify(drow?.context)}, xmlTag=${JSON.stringify(drow?.xmlTag)}`);
-                if (!drow || drow.context !== CTX || drow.xmlTag !== TAG) {
-                    console.error(`${TEST} [FAIL] Phase 1a: backend.queryCollection did NOT return the override — persistence/query issue at the backend layer (context=${JSON.stringify(drow?.context)}).`);
-                    return;
-                }
-                console.log(`${TEST} Phase 1a ✓ backend serves override directly`);
-            }
-
-            // Phase 1b — does the core queryCollection path (BM25/hybrid) preserve it?
-            {
-                const core = await queryCollection(registryKey, testMessage, 20, rcSettings);
-                const crow = (core?.metadata ?? []).find(m => String(m.hash) === String(hash));
-                console.log(`${TEST} [DIAG] core queryCollection: found=${!!crow}, context=${JSON.stringify(crow?.context)}, xmlTag=${JSON.stringify(crow?.xmlTag)}`);
-                if (!crow || crow.context !== CTX || crow.xmlTag !== TAG) {
-                    console.error(`${TEST} [FAIL] Phase 1b: core queryCollection (BM25/hybrid re-rank) DROPPED the override — context=${JSON.stringify(crow?.context)}. This is where it's lost.`);
-                    return;
-                }
-                console.log(`${TEST} Phase 1b ✓ core query path preserves override`);
-            }
-
-            // Phase 1c — does the actual injection wrap the chunk?
-            let inj = await dryInject();
-            // DIAG: inspect the chunk mid-pipeline (window.VectFox_LastSearch is set after the
-            // links stage, before dedup). Tells us if metadata.context survived into the pipeline.
-            {
-                const ls = (window.VectFox_LastSearch?.chunks) || [];
-                const lc = ls.find(c => String(c.hash) === String(hash)) || ls[0];
-                console.log(`${TEST} [DIAG] LastSearch chunk: found=${!!lc}, metadata.context=${JSON.stringify(lc?.metadata?.context)}, metadata.xmlTag=${JSON.stringify(lc?.metadata?.xmlTag)}, metaKeys=${lc?.metadata ? Object.keys(lc.metadata).join(',') : 'n/a'}`);
-            }
-            const wrapped = inj.includes(`<${TAG}>`) && inj.includes(`</${TAG}>`) && inj.includes(CTX) && inj.includes(SENTINEL);
-            if (!wrapped) {
-                console.error(`${TEST} [FAIL] Phase 1c: injection not wrapped despite query returning the override — hasTag=${inj.includes(`<${TAG}>`)}, hasCtx=${inj.includes(CTX)}, hasSentinel=${inj.includes(SENTINEL)}. Preview: ${inj.slice(0, 300)}`);
-                return;
-            }
-            console.log(`${TEST} Phase 1c ✓ R4 wrapping applied in injection (context + <${TAG}> present)`);
-
-            // ── Phase 2: backend-first — wipe ext_settings, wrapping must persist ──
-            saveChunkMetadata(String(hash), { context: 'EXT_DECOY', xmlTag: 'extdecoy' });
-            deleteChunkMetadata(String(hash));
-            if (getChunkMetadata(String(hash)) !== null) { console.error(`${TEST} [FAIL] ext_settings entry not cleared`); return; }
-            inj = await dryInject();
-            if (!(inj.includes(`<${TAG}>`) && inj.includes(CTX))) {
-                console.error(`${TEST} [FAIL] Phase 2: wrapping LOST after ext_settings wipe — backend-first not working in the injection path. Preview: ${inj.slice(0, 300)}`);
-                return;
-            }
-            console.log(`${TEST} Phase 2 ✓ backend-first: wrapping survived ext_settings wipe`);
-
-            // ── Phase 3: R3 FORCE link — chunk A force-links to a chunk B that does NOT match
-            //    the query; B must still be pulled into the injection ("target MUST appear"). ──
-            const SENTINEL_B = `Forcelinked_${ts}`;
-            const textB = `The ${SENTINEL_B} vault stays sealed until the conclave convenes — deliberately unrelated to the query terms.`;
-            const hashB = getStringHash(textB);
-            await insertVectorItems(collectionId, [{ hash: hashB, text: textB, index: 1 }], rcSettings);
-            await updateChunkMetadata(collectionId, hash, { chunkLinks: [{ targetHash: String(hashB), mode: 'force' }] }, rcSettings);
-            inj = await dryInject();
-            if (!inj.includes(SENTINEL_B)) {
-                console.error(`${TEST} [FAIL] Phase 3: force-linked target B (hash=${hashB}) was NOT pulled into the injection — force links don't fetch missing targets. Preview: ${inj.slice(0, 400)}`);
-                return;
-            }
-            console.log(`${TEST} Phase 3 ✓ R3 force link pulled in the off-query target chunk`);
-
-            console.log(`${TEST} [PASS] Injection path: R4 wrapping + backend-first + R3 force link all driven by the backend payload`);
-        } finally {
-            try {
-                if (collectionId) {
-                    try { clearCollectionLock(registryKey); } catch (cleanupError) { console.warn('[e2e cleanup] clearCollectionLock failed:', cleanupError); }
-                    await deleteContentCollection(collectionId);
-                    try {
-                        const stdBackend = await getBackend({ ...vf, vector_backend: 'standard' });
-                        await stdBackend._purgeCollectionFolderForTestCleanup(collectionId, vf);
-                    } catch (e) { console.warn(`${TEST} [WARN] folder-cleanup helper failed: ${e.message}`); }
-                    if (registryKey) { deleteCollectionMeta(registryKey); unregisterCollection(registryKey); }
-                    unregisterCollection(collectionId);
-                    console.log(`${TEST} Cleanup ✓`);
-                }
-            } catch (cleanupErr) { console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`); }
         }
     });
     assertPassed(logs);
@@ -3356,104 +2899,6 @@ test('TEST 024 — EventBase LLM extraction: real provider round-trip (postChatC
 
         events.slice(0, 5).forEach((e, i) => console.log(`  event[${i}] type="${e.event_type}" imp=${e.importance} summary="${(e.summary || '').slice(0, 60)}"`));
         console.log(`${TEST} [PASS] real ${provider} extraction via postChatCompletion → ${events.length} valid event(s)`);
-    });
-    assertPassed(logs);
-});
-
-
-test('TEST 025 — Auto-Reformat: real provider splits multi-entity section', async () => {
-    const logs = await runTestInPage(async () => {
-        const TEST = 'TEST 025 [Reformat]';
-        const base = '/scripts/extensions/third-party/VectFox/';
-        const { reformatDocument } = await import(base + 'src/features/chunkbase/reformat-extractor.js');
-        const { extension_settings } = await import('/scripts/extensions.js');
-
-        const vf = extension_settings?.vectfox;
-        if (!vf) { console.error(`${TEST} [FAIL] VectFox settings not found`); return; }
-
-        // Same inherit chain as extraction: reformat_* → chat_* (Core → LLM Summarization).
-        const provider = (vf.reformat_provider || vf.chat_provider || 'openrouter').toLowerCase();
-        const model = (vf.reformat_model || vf.chat_model || '').trim();
-        if (!model) { console.warn(`${TEST} [SKIP] no reformat_model/chat_model configured — cannot exercise Auto-Reformat`); return; }
-        if (provider === 'vllm' && !(vf.reformat_vllm_url || vf.chat_vllm_url || '').trim()) { console.warn(`${TEST} [SKIP] provider=vllm but no vLLM URL configured`); return; }
-
-        // The exact bug Auto-Reformat targets: two distinct named entities under ONE
-        // heading — mechanical chunking would collapse them into one diluted chunk.
-        const doc = [
-            '## Northern Watch Roster',
-            '',
-            '**Kaelen Frost** — A veteran ranger of the Northern Watch. He wields a yew longbow and tracks quarry by scent-memory, a rare gift among the Watch.',
-            '',
-            '**Mira Solveig** — Quartermaster of the Northern Watch. She keeps the ledgers and the armory, distrusts outsiders, but never forgets a debt.',
-        ].join('\n');
-
-        console.log(`${TEST} Reformatting a 2-entity section via real ${provider}/${model}...`);
-        let result;
-        try {
-            result = await reformatDocument({ text: doc, contentType: 'document', settings: vf });
-        } catch (err) {
-            console.error(`${TEST} [FAIL] reformatDocument threw (${provider}/${model}): ${err.message}`);
-            return;
-        }
-
-        const chunks = result?.chunks || [];
-        if (result?.warnings?.length) console.warn(`${TEST} warnings: ${result.warnings.join(' | ')}`);
-        if (chunks.length === 0) { console.error(`${TEST} [FAIL] Auto-Reformat produced 0 chunks — postChatCompletion/parse path may be broken`); return; }
-
-        // Core value: the two entities got their OWN records, not one merged blob.
-        if (chunks.length < 2) { console.error(`${TEST} [FAIL] expected ≥2 records (one per named entity), got ${chunks.length} — split did not happen`); return; }
-
-        const badShape = chunks.find(c => !c.entry_type || !c.name || !c.body);
-        if (badShape) { console.error(`${TEST} [FAIL] record missing entry_type/name/body: ${JSON.stringify(badShape).slice(0, 200)}`); return; }
-
-        chunks.slice(0, 6).forEach((c, i) => console.log(`  record[${i}] type="${c.entry_type}" name="${c.name}" grounded=${c._nameGrounded !== false} body="${(c.body || '').slice(0, 50)}..."`));
-
-        // Soft signal: both source names should surface somewhere (verbatim-fact rule).
-        const blob = chunks.map(c => `${c.name} ${c.body}`).join(' ').toLowerCase();
-        const foundKaelen = blob.includes('kaelen');
-        const foundMira = blob.includes('mira');
-        if (!foundKaelen || !foundMira) {
-            console.warn(`${TEST} [WARN] one source name missing from output (kaelen=${foundKaelen}, mira=${foundMira}) — model paraphrased; split still succeeded`);
-        }
-
-        console.log(`${TEST} [PASS] real ${provider} Auto-Reformat via postChatCompletion → ${chunks.length} well-formed record(s), multi-entity split confirmed`);
-    });
-    assertPassed(logs);
-});
-
-
-test('TEST 026 — Acronym glossary: deployed-module grounding smoke (no LLM)', async () => {
-    const logs = await runTestInPage(async () => {
-        const TEST = 'TEST 026 [Glossary]';
-        const base = '/scripts/extensions/third-party/VectFox/';
-        const { extractGlossary, injectGlossary } = await import(base + 'src/features/chunkbase/glossary-extractor.js');
-
-        // A document that defines an acronym once, then uses it bare elsewhere.
-        const source = [
-            'The Federal Hero Oversight Bureau (FHOB) licenses every sanctioned cape in the republic.',
-            '',
-            'Threat assessments are filed to the FHOB within an hour of any incident.',
-        ].join('\n');
-
-        const glossary = extractGlossary(source);
-        const fhob = glossary.find(g => g.acronym === 'FHOB');
-        if (!fhob) { console.error(`${TEST} [FAIL] extractGlossary did not detect "Federal Hero Oversight Bureau (FHOB)" — found: ${JSON.stringify(glossary)}`); return; }
-        if (!/Federal Hero Oversight Bureau/i.test(fhob.fullName || '')) { console.error(`${TEST} [FAIL] FHOB fullName wrong: "${fhob.fullName}"`); return; }
-        console.log(`  detected ${glossary.length} acronym(s): ${glossary.map(g => g.acronym).join(', ')}`);
-
-        // A chunk that uses the bare acronym without its definition must get grounded.
-        const chunks = [{ text: 'Threat assessments are filed to the FHOB within an hour of any incident.', metadata: {} }];
-        const out = injectGlossary(chunks, glossary);
-        if (!Array.isArray(out) || out.length !== 1) { console.error(`${TEST} [FAIL] injectGlossary returned malformed output`); return; }
-        if (!/Federal Hero Oversight Bureau/i.test(out[0].text)) {
-            console.error(`${TEST} [FAIL] definition NOT prepended to the bare-acronym chunk: "${out[0].text.slice(0, 120)}"`);
-            return;
-        }
-        // Non-mutating contract: original input chunk untouched.
-        if (/Federal Hero Oversight Bureau/i.test(chunks[0].text)) { console.error(`${TEST} [FAIL] injectGlossary mutated the input chunk`); return; }
-
-        console.log(`  grounded chunk preview: "${out[0].text.slice(0, 90)}..."`);
-        console.log(`${TEST} [PASS] deployed glossary module grounds a bare acronym (definition prepended, input untouched)`);
     });
     assertPassed(logs);
 });

@@ -28,13 +28,7 @@ import {
 } from './infrastructure-checks.js';
 
 import {
-    checkChunkBaseSimilarityThreshold,
-    checkInsertQueryCounts,
-    checkChatVectors,
-    checkConditionalActivationModule,
-    checkCollectionIdFormat,
-    checkHashCollisionRate,
-    checkChatMetadataIntegrity,
+    checkQueryDepth,
     checkCollectionRegistryStatus,
     checkPromptContextConfig,
     checkPNGExportCapability
@@ -43,19 +37,12 @@ import {
 import {
     testEmbeddingGeneration,
     testVectorStorage,
-    testVectorRetrieval,
-    testVectorDimensions,
-    testChunkServerSync,
-    testDuplicateHashes,
     testPluginEmbeddingGeneration,
     testReciprocalRankFusion,
     testWeightedCombination,
-    testKeywordExtraction,
     sweepLeftoverTestCollections,
     isDiagnosticCollection
 } from './production-tests.js';
-
-import { testConditionalActivation } from './activation-tests.js';
 
 import { runVisualizerTests } from './visualizer-tests.js';
 import { cleanupTestCollections } from '../collections/index.js';
@@ -126,27 +113,13 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
 
 
     // ========== CONFIGURATION CHECKS ==========
-    categories.configuration.push(checkChunkBaseSimilarityThreshold(settings));
-    categories.configuration.push(checkInsertQueryCounts(settings));
-    categories.configuration.push(await checkChatVectors(settings));
-
-    // Conditional activation checks
-    categories.configuration.push(checkConditionalActivationModule());
-
-    // Collection ID format check (UUID-based multitenancy)
-    categories.configuration.push(checkCollectionIdFormat());
-
-    // Hash collision rate (informational - collisions are intentional deduplication)
-    categories.configuration.push(await checkHashCollisionRate(settings));
-
-    // Chat metadata integrity (UUID-based collection tracking)
-    categories.configuration.push(checkChatMetadataIntegrity());
+    categories.configuration.push(checkQueryDepth(settings));
 
     // Collection registry status (verifies collections are discoverable)
     categories.configuration.push(await checkCollectionRegistryStatus(settings));
 
     // Prompt context configuration
-    categories.configuration.push(await checkPromptContextConfig(settings));
+    categories.configuration.push(checkPromptContextConfig(settings));
 
     // PNG export capability
     categories.configuration.push(checkPNGExportCapability());
@@ -160,23 +133,12 @@ export async function runDiagnostics(settings, includeProductionTests = false) {
     if (includeProductionTests) {
         categories.production.push(await testEmbeddingGeneration(settings));
         categories.production.push(await testVectorStorage(settings));
-        categories.production.push(await testVectorRetrieval(settings));
-        categories.production.push(await testVectorDimensions(settings));
-        categories.production.push(await testChunkServerSync(settings));
-        categories.production.push(await testDuplicateHashes(settings));
         // Plugin-specific embedding generation test (Qdrant)
         categories.production.push(await testPluginEmbeddingGeneration(settings));
         
         // Hybrid search tests
         categories.production.push(await testReciprocalRankFusion(settings));
         categories.production.push(await testWeightedCombination(settings));
-        
-        // Keyword system tests
-        categories.production.push(await testKeywordExtraction(settings));
-        
-        // Conditional activation returns an array of individual test results
-        const activationResults = await testConditionalActivation();
-        categories.production.push(...activationResults);
     }
 
     // Always run last: delete any diagnostic collection still left (`vf_test_*`,

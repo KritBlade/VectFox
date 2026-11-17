@@ -1,9 +1,8 @@
 /**
- * EventBase extraction, Auto-Reformat and the pre-run check on a SillyTavern connection profile (connection plan §1, §4,
- * §6): each sends its call on the profile it resolves, from the page that chooses it; the check that gates a Vectorize
- * Content run checks the profile instead of a model; and a provider VectFox does not know stops the run, where it once
- * ran on OpenRouter unasked. Only the network call is replaced: the profile resolution and its check are the real ones,
- * on a stubbed SillyTavern.
+ * EventBase extraction and the pre-run check on a SillyTavern connection profile (connection plan §1, §4, §6):
+ * extraction sends each window on the profile chosen on the Core page; the check that gates a Vectorize Content run
+ * checks the profile instead of a model; and a provider VectFox does not know stops the run and calls nothing. Only the
+ * network call is replaced: the profile resolution and its check are the real ones, on a stubbed SillyTavern.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,9 +19,8 @@ vi.mock('../src/features/llm-provider/llm-provider-call.js', async () => ({
     postChatCompletion: (...args) => calls.post(...args),
 }));
 
-const { LlmCallError, validateLLMConfig } = await import('../src/features/llm-provider/index.js');
+const { validateLLMConfig } = await import('../src/features/llm-provider/index.js');
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
-const { reformatDocument } = await import('../src/features/chunkbase/reformat-extractor.js');
 
 const PROFILE = { id: 'profile-harbor', name: 'Harbor', api: 'custom', model: 'harbor-model', 'secret-id': 'secret-1' };
 
@@ -51,29 +49,6 @@ describe('EventBase extraction on a profile', () => {
     it('stops the run on a provider VectFox does not know, and calls nothing', async () => {
         await expect(extractEvents({ ...WINDOW, settings: { chat_provider: 'claude', chat_model: 'm' } }))
             .rejects.toMatchObject({ code: 'invalid_model_config', message: expect.stringContaining('provider "claude" is not one VectFox knows') });
-        expect(calls.post).not.toHaveBeenCalled();
-    });
-});
-
-describe('Auto-Reformat on a profile', () => {
-    const text = '# Harbor\nThe harbor master keeps the ledger.';
-    const reformat = settings => reformatDocument({ text, contentType: 'document', settings });
-
-    it('runs Same as EventBase model on the EventBase model\'s profile, chosen on the Core page', async () => {
-        calls.post.mockRejectedValue(new LlmCallError('stop here', { kind: 'model_config' }));
-        await expect(reformat({ ...onProfile, reformat_provider: '' })).rejects.toMatchObject({ code: 'invalid_model_config' });
-        expect(calls.post.mock.calls[0][0]).toMatchObject({ provider: 'connection_profile', connectionProfileId: 'profile-harbor', connectionProfilePage: 'Core', contextLabel: 'Auto-Reformat' });
-    });
-
-    it('runs on its own profile, chosen on the ChunkBase page', async () => {
-        calls.post.mockRejectedValue(new LlmCallError('stop here', { kind: 'model_config' }));
-        await expect(reformat({ chat_provider: 'openrouter', reformat_provider: 'connection_profile', reformat_connection_profile_id: 'profile-own' }))
-            .rejects.toMatchObject({ code: 'invalid_model_config' });
-        expect(calls.post.mock.calls[0][0]).toMatchObject({ connectionProfileId: 'profile-own', connectionProfilePage: 'ChunkBase' });
-    });
-
-    it('stops on a provider VectFox does not know, and calls nothing', async () => {
-        await expect(reformat({ reformat_provider: 'claude' })).rejects.toMatchObject({ code: 'invalid_model_config' });
         expect(calls.post).not.toHaveBeenCalled();
     });
 });

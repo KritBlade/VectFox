@@ -405,8 +405,6 @@ export async function insertEvents(events, settings, abortSignal = null, collect
             // own defaults (importance=100).
             importance: event.importance,
             keywords: event.keywords || [],
-            isSummaryChunk: false,
-            parentHash: null,
             metadata: {
                 ...eventWithoutSummary,
                 eventbase: true,        // marker for filter queries

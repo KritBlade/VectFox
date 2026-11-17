@@ -2,7 +2,7 @@
  * ============================================================================
  * CONNECTION ROWS, PURE RULES
  * ============================================================================
- * The five LLM consumers' connection settings, what a Profile dropdown offers and what
+ * The four LLM consumers' connection settings, what a Profile dropdown offers and what
  * a profile readout says (connection plan §1, §3), from facts connection-rows.js
  * gathers. Pure: no host imports.
  * ============================================================================
@@ -11,9 +11,9 @@
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 
 /**
- * The five LLM consumers' connection settings: the setting each Provider dropdown and Profile dropdown saves, the
+ * The four LLM consumers' connection settings: the setting each Provider dropdown and Profile dropdown saves, the
  * feature and page messages name, and `blankProvider`, what an unset provider means; '' is Same as EventBase model for
- * the two that `inheritsEventBase`. The manual-connection notice reads this list, so a consumer added here is named
+ * Agent Mode, which `inheritsEventBase`. The manual-connection notice reads this list, so a consumer added here is named
  * there while it runs on manual OpenRouter or vLLM.
  */
 export const CHAT_CONSUMER_CONNECTIONS = Object.freeze([
@@ -24,10 +24,6 @@ export const CHAT_CONSUMER_CONNECTIONS = Object.freeze([
     {
         prefix: 'VectFox_agentic', providerSelectId: 'VectFox_agentic_provider', providerKey: 'agent_provider',
         profileKey: 'agent_connection_profile_id', feature: 'Agent Mode', page: 'AgentMode', blankProvider: '', inheritsEventBase: true,
-    },
-    {
-        prefix: 'VectFox_reformat', providerSelectId: 'VectFox_reformat_provider', providerKey: 'reformat_provider',
-        profileKey: 'reformat_connection_profile_id', feature: 'Auto-Reformat', page: 'ChunkBase', blankProvider: '', inheritsEventBase: true,
     },
     {
         prefix: 'VectFox_story_arc_link', providerSelectId: 'VectFox_story_arc_link_provider', providerKey: 'story_arc_link_provider',
@@ -80,7 +76,7 @@ export function profileSelectOptions({ profiles, selectedId, isManagerAvailable 
 /**
  * The readout of a chat consumer's profile: why it cannot be used, or its SillyTavern API, its model and, when it
  * stores no key, that none is sent. `inheritedFrom` names the EventBase model's profile on the first line, for Agent
- * Mode and Auto-Reformat on Same as EventBase model.
+ * Mode on Same as EventBase model.
  *
  * @param {{problem: string, name?: string, api?: string, model?: string, storesKey?: boolean}} description - From describeChatConnectionProfile
  * @param {{isInherited?: boolean}} [options]

@@ -23,7 +23,6 @@ import {
   sanitizeHandleId,
   getCollectionListing,
   cleanupOrphanedMeta,
-  getCollectionActivationSummary,
   setCollectionEnabled,
   isCollectionLockedToChat,
   getCollectionLockCount,
@@ -96,7 +95,7 @@ import {
 
 const DEFAULT_FILTERS = Object.freeze({
   scope: "all", // 'all', 'character', 'chat': collections locked to at least one of these
-  collectionType: "all", // 'all', 'chat', 'lorebook', 'character', 'document', 'web'
+  collectionType: "all", // 'all', 'chat'
   status: "all", // 'all', 'enabled', 'disabled'
   searchQuery: "",
   onlyActiveForChat: false, // only collections active for the current chat (the Active here pill)
@@ -254,7 +253,6 @@ function bindBrowserEvents(root) {
     tickAllShown(this.checked);
   });
   $root.on("click", "#vectfox_reset_registry", () => void resyncRegistry());
-  $root.on("click", "#vectfox_browser_clear_reformat_originals", () => void clearReformatOriginals());
 
   // Search page
   $root.on("click", "#vectfox_search_btn", () => void performSearch());
@@ -318,36 +316,6 @@ async function resyncRegistry() {
   } catch (error) {
     log.error("VectFox: Failed to resync", error);
     toastr.error(`Failed to resync: ${error.message}`, "VectFox");
-  }
-}
-
-/**
- * Clears the source text Auto-Reformat keeps for review (reformat-store.js), after asking. Only that copy goes: the
- * accepted chunks and their run stay, so nothing vectorized changes.
- */
-async function clearReformatOriginals() {
-  try {
-    const { listReformatCacheEntries, clearAllReformatOriginals } = await import("../chunkbase/index.js");
-    const entries = listReformatCacheEntries();
-    const totalBytes = entries.reduce((sum, entry) => sum + entry.originalTextBytes, 0);
-    if (totalBytes === 0) {
-      toastr.info("No Auto-Reformat originals are kept, so there is nothing to clear.", "VectFox");
-      return;
-    }
-
-    const isConfirmed = await confirmPopup([
-      { text: "Clear the Auto-Reformat originals?" },
-      { text: "Kept now:", name: `${entries.length} sources, about ${formatBytes(totalBytes)}` },
-      { text: "Lost: each source's text as it was before Auto-Reformat. The reformatted chunks stay, so nothing vectorized changes." },
-      { text: "Clear deletes them. Cancel keeps them." },
-    ], { okButton: "Clear", isDestructive: true });
-    if (!isConfirmed) return;
-
-    const cleared = clearAllReformatOriginals();
-    toastr.success(`Cleared the original text of ${cleared} Auto-Reformat source${cleared === 1 ? "" : "s"}.`, "VectFox");
-  } catch (err) {
-    log.error("VectFox: Failed to clear Auto-Reformat originals", err);
-    toastr.error(`Failed to clear Auto-Reformat originals: ${err.message}`, "VectFox");
   }
 }
 
@@ -489,8 +457,9 @@ const _PERSONA_SCOPED_PREFIXES = [
 
 /**
  * Hides the VectFox collections the current persona does not own. Every VectFox
- * content type (eventbase, archived events, lorebook, character, document) is
- * persona-scoped; a collection without a VectFox prefix is always kept.
+ * prefix is persona-scoped: events, archived events and lorebooks, and the
+ * character and document ones for a collection start-up could not delete. A
+ * collection without a VectFox prefix is always kept.
  *
  * Ownership comes from getCollectionListing: the `creatorHandle` stamped onto
  * collection metadata at registerCollection time (exact equality, collision-proof
@@ -582,10 +551,6 @@ async function refreshCollections(withScan = false) {
 // The collection types each Type filter keeps.
 const TYPE_FILTER_TYPES = Object.freeze({
   chat: ["chat"],
-  lorebook: ["lorebook"],
-  character: ["character", "persona"],
-  document: ["file", "doc", "paste", "select", "current"],
-  web: ["url", "wiki", "youtube"],
 });
 
 /**
@@ -667,8 +632,6 @@ function collectionRowView(collection, isActiveById) {
     model: hasMultipleModels ? (collection.model || "(default)") : "",
     hasMultipleModels,
     activeHereLine: activeHereLine(collection, isActiveById),
-    // The registry-key (backend:id) metadata the Collection Settings dialog writes
-    activationMode: getCollectionActivationSummary(key).mode,
     canCompact: canCompactCollection(collection),
     hasStoryLinks: hasStoryLinksRow(collection),
     storyLinksDescription: browserState.storyLinkDescriptions.get(key) ?? "",
@@ -677,7 +640,7 @@ function collectionRowView(collection, isActiveById) {
 
 /**
  * Which lock makes a collection active in the current chat, in words, or "" when none does. It names the lock that
- * actually matched, not the one its scope implies: shouldCollectionActivate() takes a chat lock OR a character lock
+ * actually matched, not the one its scope implies: isCollectionActiveForContext() takes a chat lock OR a character lock
  * whatever the scope, so a chat-scoped collection can be active here through a character lock. Locks elsewhere show in
  * Collection Settings.
  * @param {object} collection

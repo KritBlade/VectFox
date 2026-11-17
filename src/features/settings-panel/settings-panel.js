@@ -19,10 +19,9 @@ import {
     getCustomApiKey,
     fetchQdrantApiKeyPresence,
 } from '../../shared/api-keys.js';
-import { openContentVectorizer } from '../chunkbase/index.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
-import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
+import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
 import { keyCallsAtOnceOf } from '../lorebase/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
@@ -31,7 +30,6 @@ import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
 import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
 import { agentModePageMarkup } from './agentmode-page-markup.js';
 import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
-import { chunkBasePageMarkup } from './chunkbase-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
 import { chatHistoryPageMarkup } from './chathistory-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
@@ -50,7 +48,6 @@ import {
     LANGUAGE_MODES,
 } from '../keyword-search/index.js';
 import {
-    CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT,
     RETRIEVAL_TIMEOUT_DEFAULT_MS,
     RETRIEVAL_TIMEOUT_MIN_MS,
     RETRIEVAL_TIMEOUT_MAX_MS,
@@ -74,7 +71,6 @@ function panelMarkup() {
             languageModes: LANGUAGE_MODES,
             retrievalTimeout: { minMs: RETRIEVAL_TIMEOUT_MIN_MS, maxMs: RETRIEVAL_TIMEOUT_MAX_MS, defaultMs: RETRIEVAL_TIMEOUT_DEFAULT_MS },
         })),
-        panelPageMarkup('chunkbase', chunkBasePageMarkup()),
         panelPageMarkup('rag', ragPageMarkup()),
         panelPageMarkup('worldinfo', worldInfoPageMarkup()),
         panelPageMarkup('autosync', autoSyncPageMarkup()),
@@ -412,7 +408,7 @@ function bindSettingsEvents(settings, callbacks) {
                     // Remember the intent across the redirect so a finished
                     // vectorization resumes the enable the user actually asked for.
                     _autoSyncEnableAwaitingVectorizeForChat = chatId;
-                    openContentVectorizer('chat');
+                    openContentVectorizer();
                     return;
                 }
                 // Collection exists (partial or fully-vectorized).
@@ -454,7 +450,7 @@ function bindSettingsEvents(settings, callbacks) {
                             // Run the backfill now with the progress panel. Resolves at
                             // extraction completion; the marker then lands at the
                             // freshly-advanced tip (smart placement below).
-                            const { backfillCurrentChatWithProgress } = await import('../chunkbase/index.js');
+                            const { backfillCurrentChatWithProgress } = await import('../eventbase/index.js');
                             await backfillCurrentChatWithProgress();
                         } else if (choice === 'keep-up') {
                             // Keep up from here — skip the backlog (floor the marker at "now").
@@ -858,40 +854,6 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
 
-    // ─── Auto-Reformat (Document/URL/Wiki LLM restructuring) ───────────────
-    // Same as EventBase model, and a blank model or URL, use the EventBase model's (Core page), as on
-    // the AgentMode page (resolveInheritedConnection). No key fields: it uses the shared OpenRouter and vLLM key slots.
-    // Its Provider and profile rows: connection-rows.js.
-    $('#VectFox_reformat_model')
-        .val(settings.reformat_model || '')
-        .on('input change', function() {
-            settings.reformat_model = String($(this).val()).trim();
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    $('#VectFox_reformat_vllm_url')
-        .val(settings.reformat_vllm_url || '')
-        .on('change', function() {
-            settings.reformat_vllm_url = String($(this).val()).trim();
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    bindNumberSetting(settings, { id: 'VectFox_reformat_batch_chars', key: 'reformat_batch_chars', initial: settings.reformat_batch_chars ?? 6000, isInteger: true });
-    bindNumberSetting(settings, { id: 'VectFox_reformat_max_body_chars', key: 'reformat_max_body_chars', initial: settings.reformat_max_body_chars ?? 2000, isInteger: true });
-    bindNumberSetting(settings, { id: 'VectFox_reformat_name_fuzzy_threshold', key: 'reformat_name_fuzzy_threshold', initial: settings.reformat_name_fuzzy_threshold ?? 0.8 });
-    bindNumberSetting(settings, { id: 'VectFox_reformat_concurrency', key: 'reformat_concurrency', initial: settings.reformat_concurrency ?? 2, isInteger: true });
-    bindNumberSetting(settings, { id: 'VectFox_reformat_timeout_ms', key: 'reformat_timeout_ms', initial: settings.reformat_timeout_ms ?? 90000, isInteger: true });
-
-    $('#VectFox_reformat_custom_prompt')
-        .val(settings.reformat_custom_prompt || '')
-        .on('change', function() {
-            settings.reformat_custom_prompt = String($(this).val());
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
     // Helper: update visibility of native-hybrid-dependent UI elements
     function updateNativeHybridUI() {
         const backend       = settings.vector_backend || 'standard';
@@ -913,7 +875,7 @@ function bindSettingsEvents(settings, callbacks) {
         // controls would just confuse Qdrant users.
         $('#VectFox_hybrid_params').toggle(isHybridMode);
 
-        // Query keyword budget (ChunkBase page): read by client-side BM25, so A1 and A2
+        // Query keyword budget (Core page, Keyword scoring): read by client-side BM25, so A1 and A2
         $('#VectFox_hybrid_keyword_budget_wrapper').toggle(!nativeActive);
 
         // Native rerank checkbox: Qdrant only
@@ -1140,9 +1102,6 @@ function bindSettingsEvents(settings, callbacks) {
         }
     });
 
-    // Similarity threshold (ChunkBase page). Event searches use EventBase's own (eventbase-search.js).
-    bindNumberSetting(settings, { id: 'VectFox_score_threshold', key: 'score_threshold', initial: settings.score_threshold ?? CHUNKBASE_SIMILARITY_THRESHOLD_DEFAULT });
-
     // "Skip Already-Visible Events" (legacy key name: deduplication_depth).
     // Default 0 = filter disabled. See settings comment in index.js — the assumption
     // that the LLM sees the last N messages in raw form is usually wrong (~3-6 in
@@ -1229,9 +1188,6 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Query depth (how many recent messages to include in search query)
     bindNumberSetting(settings, { id: 'VectFox_query_depth', key: 'query', initial: settings.query || 2, isInteger: true });
-
-    // Results per collection (ChunkBase page): the chunk pipeline's top-K
-    bindNumberSetting(settings, { id: 'VectFox_topk', key: 'top_k', initial: (settings.top_k ?? settings.insert) || 3, isInteger: true });
 
     // Auto-sync window (AutoSync page), in turns. A new size re-stamps the chat's auto-sync
     // marker, so auto-sync starts from the current tip instead of re-extracting the chat.
@@ -1447,15 +1403,6 @@ function bindSettingsEvents(settings, callbacks) {
         .val(settings.lorebase_accuracy)
         .on('change', function() {
             settings.lorebase_accuracy = String($(this).val());
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
-
-    // Custom stopwords
-    $('#VectFox_custom_stopwords')
-        .val(settings.custom_stopwords || '')
-        .on('input', function() {
-            settings.custom_stopwords = $(this).val();
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
@@ -1690,7 +1637,7 @@ function bindSettingsEvents(settings, callbacks) {
     };
 
     // window_size / window_overlap are bound in the Vectorize Content panel
-    // (src/features/chunkbase/content-vectorizer.js).
+    // (src/features/eventbase/content-vectorizer.js).
     bindNumberSetting(settings, { id: 'VectFox_eventbase_min_importance_store', key: 'eventbase_min_importance_store', initial: settings.eventbase_min_importance_store ?? 3, isInteger: true });
     bindNumberSetting(settings, { id: 'VectFox_eventbase_max_events_per_window', key: 'eventbase_max_events_per_window', initial: settings.eventbase_max_events_per_window ?? 3, isInteger: true });
     bindNumberSetting(settings, { id: 'VectFox_eventbase_temperature', key: 'eventbase_temperature', initial: settings.eventbase_temperature ?? 0.2 });
@@ -2023,15 +1970,6 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Insert batch size: items per embedding request (vector-api.js insertVectorItems)
     bindNumberSetting(settings, { id: 'VectFox_insert_batch_size', key: 'insert_batch_size', initial: settings.insert_batch_size || 50, isInteger: true });
-
-    // Acronym glossary injection (Documents) — see src/features/chunkbase/glossary-extractor.js
-    $('#VectFox_document_glossary_injection')
-        .prop('checked', settings.document_glossary_injection !== false)
-        .on('change', function() {
-            settings.document_glossary_injection = $(this).prop('checked');
-            Object.assign(extension_settings.vectfox, settings);
-            saveSettingsDebounced();
-        });
 
     // Minimum chat length before injection starts
     bindNumberSetting(settings, { id: 'VectFox_min_chat_length', key: 'min_chat_length', initial: settings.min_chat_length ?? 0, isInteger: true });

@@ -3,13 +3,11 @@
  * CHUNK VISUALIZER, CORE
  * ============================================================================
  * The Chunk Visualizer's rules as plain values, for chunk-visualizer.js to wire
- * and chunk-visualizer-markup.js to draw: what a chunk holds, which chunks the
- * list shows and in what order, how a row reads, and what the chunk's form
- * changes against what is saved. Pure: no host, no page.
+ * and chunk-visualizer-markup.js to draw: what an event holds, which events the
+ * list shows and in what order, how a row reads, and what the form changes
+ * against what is saved. Pure: no host, no page.
  * ============================================================================
  */
-
-import { parseInjection, sanitizeXmlTag } from './collection-settings-core.js';
 
 /** How many rows the list shows at first, and how many more each "Show more" adds. */
 export const LIST_PAGE_SIZE = 50;
@@ -24,36 +22,16 @@ export const CHUNK_SORTS = Object.freeze([
     { value: 'length-desc', label: 'Longest first' },
     { value: 'length-asc', label: 'Shortest first' },
     { value: 'keywords', label: 'Most keywords' },
-    { value: 'customized', label: 'Named or tagged first' },
+    { value: 'customized', label: 'Named first' },
 ]);
 
 /** The filters the list offers. */
 export const CHUNK_FILTERS = Object.freeze([
     { value: 'all', label: 'All chunks' },
-    { value: 'enabled', label: 'Enabled' },
-    { value: 'disabled', label: 'Disabled' },
     { value: 'keywords', label: 'With keywords' },
 ]);
 
-/** How a link pulls its target in. */
-export const LINK_MODES = Object.freeze([
-    { value: 'force', label: 'Force', description: 'Always comes along' },
-    { value: 'soft', label: 'Soft', description: 'Scores higher' },
-]);
-
 const asList = value => (Array.isArray(value) ? value.map(String) : []);
-
-/**
- * EventBase stores extracted events, and its retrieval ranks them by importance and recency: it reads no chunk's
- * on/off switch, keywords or links.
- *
- * @param {string} collectionId
- * @returns {boolean}
- */
-export function isEventBaseCollection(collectionId) {
-    const id = String(collectionId || '').toLowerCase();
-    return id.startsWith('vf_eventbase_') || id.includes('_eventbase_');
-}
 
 /**
  * Keywords as `{text}`, from a bare word, as EventBase stores them, or an object with a `text` field.
@@ -70,49 +48,19 @@ export function normalizeKeywords(keywords) {
     }).filter(Boolean);
 }
 
-function normalizeLinks(links) {
-    if (!Array.isArray(links)) return [];
-    return links
-        .filter(link => link && link.targetHash !== undefined && link.targetHash !== null && link.targetHash !== '')
-        .map(link => ({ targetHash: link.targetHash, mode: link.mode === 'soft' ? 'soft' : 'force' }));
-}
-
-/** A saved position and depth as the form reads them back: a depth only for the in-chat position. */
-function savedInjection(position, depth) {
-    const asText = value => (value === undefined || value === null ? '' : String(value));
-    return parseInjection(asText(position), asText(depth));
-}
-
 /**
- * What a chunk holds, as its form shows it. The backend payload comes first; a chunk saved before the payload carried
- * these fields has them in VectFox's settings (`stored`, its getChunkMetadata), and an empty text field there counts as
- * none. Summaries live only in the settings.
+ * What a chunk holds, as its form and its row show it, from the backend payload.
  *
  * @param {{text?: string, keywords?: unknown, metadata?: object}} chunk
- * @param {object} [stored]
- * @returns {{text: string, name: string, enabled: boolean, context: string, xmlTag: string, position: number|null,
- *   depth: number|null, keywords: {text: string}[], chunkLinks: {targetHash: string|number, mode: string}[],
- *   summaries: string[]}}
+ * @returns {{text: string, name: string, keywords: {text: string}[]}}
  */
-export function savedChunkFields(chunk, stored = {}) {
+export function savedChunkFields(chunk) {
     const payload = chunk.metadata || {};
-    const pick = (first, second) => (first !== undefined && first !== null ? first : second);
-    const pickText = (first, second) => (first !== undefined && first !== null && first !== '' ? first : second);
-    const keywords = Array.isArray(payload.keywords) && payload.keywords.length > 0
-        ? payload.keywords
-        : (stored.keywords !== undefined ? stored.keywords : chunk.keywords);
-    const injection = savedInjection(pick(payload.position, stored.position), pick(payload.depth, stored.depth));
+    const keywords = Array.isArray(payload.keywords) && payload.keywords.length > 0 ? payload.keywords : chunk.keywords;
     return {
         text: String(chunk.text ?? ''),
-        name: String(pickText(payload.name, stored.name) ?? '').trim(),
-        enabled: pick(payload.enabled, stored.enabled) !== false,
-        context: String(pickText(payload.context, stored.context) ?? ''),
-        xmlTag: String(pickText(payload.xmlTag, stored.xmlTag) ?? ''),
-        position: injection.position,
-        depth: injection.depth,
+        name: String(payload.name ?? '').trim(),
         keywords: normalizeKeywords(keywords),
-        chunkLinks: normalizeLinks(payload.chunkLinks || stored.chunkLinks),
-        summaries: asList(stored.summaries),
     };
 }
 
@@ -159,19 +107,6 @@ export function messageLine(chunk) {
 }
 
 /**
- * Which part of a split message a chunk is, or '' for a whole one.
- *
- * @param {{metadata?: object}} chunk
- * @returns {string} "2 of 3"
- */
-export function partLabel(chunk) {
-    const payload = chunk.metadata || {};
-    const total = Number(payload.totalChunks ?? 1);
-    if (!(total > 1)) return '';
-    return `${Number(payload.chunkIndex ?? 0) + 1} of ${total}`;
-}
-
-/**
  * The start of a text on one line, for a chunk with no name.
  *
  * @param {string} text
@@ -185,7 +120,7 @@ export function textPreview(text, length = PREVIEW_LENGTH) {
 
 const lengthOf = chunk => chunk.fields.text.length;
 const keywordCountOf = chunk => chunk.fields.keywords.length;
-const isNamedOrTagged = chunk => Boolean(chunk.fields.name || chunk.fields.xmlTag);
+const isNamed = chunk => Boolean(chunk.fields.name);
 const byMessage = (first, second) => first.timelineValue - second.timelineValue;
 const SORTERS = {
     index: byMessage,
@@ -193,13 +128,11 @@ const SORTERS = {
     'length-desc': (first, second) => lengthOf(second) - lengthOf(first),
     'length-asc': (first, second) => lengthOf(first) - lengthOf(second),
     keywords: (first, second) => keywordCountOf(second) - keywordCountOf(first),
-    // A chunk given a name or an XML tag first, each group in message order.
-    customized: (first, second) => (Number(isNamedOrTagged(second)) - Number(isNamedOrTagged(first))) || byMessage(first, second),
+    // A chunk given a name first, each group in message order.
+    customized: (first, second) => (Number(isNamed(second)) - Number(isNamed(first))) || byMessage(first, second),
 };
 
 const FILTER_TESTS = {
-    enabled: chunk => chunk.fields.enabled,
-    disabled: chunk => !chunk.fields.enabled,
     keywords: chunk => chunk.fields.keywords.length > 0,
 };
 
@@ -207,7 +140,7 @@ const FILTER_TESTS = {
  * The chunks the list shows, in its order: those whose text, name or a keyword holds the search, that pass the filter.
  * Each chunk carries its saved `fields` and its `timelineValue`, its place in the chat's history.
  *
- * @template {{fields: {text: string, name: string, enabled: boolean, keywords: {text: string}[]}, timelineValue: number}} T
+ * @template {{fields: {text: string, name: string, keywords: {text: string}[]}, timelineValue: number}} T
  * @param {T[]} chunks
  * @param {{query?: string, filter?: string, sort?: string}} [view]
  * @returns {T[]}
@@ -222,71 +155,22 @@ export function visibleChunks(chunks, { query = '', filter = 'all', sort = 'inde
     return chunks.filter(chunk => holdsNeedle(chunk) && passes(chunk)).sort(SORTERS[sort] ?? SORTERS.index);
 }
 
-const sameKeywords = (first, second) => first.length === second.length
-    && first.every((keyword, index) => keyword.text === second[index].text);
-const sameLinks = (first, second) => first.length === second.length
-    && first.every((link, index) => String(link.targetHash) === String(second[index].targetHash) && link.mode === second[index].mode);
-
 /**
- * What the chunk's form changes against what is saved. `payload` holds the backend fields that differ, as Save writes
- * them; `text` is the new text when it differs past spaces at its ends, which Save embeds again; the summaries added
- * and removed are compared by their words. A field the form leaves out (`undefined`, such as an EventBase chunk's
- * switch) is unchanged. Empty text is no change, and says so in `textProblem`.
+ * What the form changes against what is saved. `payload` holds the backend fields that differ, as Save writes them;
+ * `text` is the new text when it differs past spaces at its ends, which Save embeds again. Empty text is no change, and
+ * says so in `textProblem`.
  *
  * @param {ReturnType<typeof savedChunkFields>} saved
- * @param {{name?: string, text?: string, enabled?: boolean, context?: string, xmlTag?: string, positionText?: string,
- *   depthText?: string, keywords?: {text: string}[], chunkLinks?: {targetHash: string|number, mode: string}[],
- *   summaries?: string[]}} form
- * @returns {{payload: object, text: string|null, textProblem: string, summaries: string[], addedSummaries: string[],
- *   removedSummaries: string[], hasChanges: boolean}}
+ * @param {{name?: string, text?: string}} form
+ * @returns {{payload: object, text: string|null, textProblem: string, hasChanges: boolean}}
  */
 export function formChanges(saved, form) {
     const payload = {};
-    const isGiven = value => value !== undefined;
-    if (isGiven(form.name) && form.name.trim() !== saved.name) payload.name = form.name.trim() || null;
-    if (isGiven(form.enabled) && form.enabled !== saved.enabled) payload.enabled = form.enabled;
-    if (isGiven(form.context) && form.context !== saved.context) payload.context = form.context;
-    if (isGiven(form.xmlTag) && sanitizeXmlTag(form.xmlTag) !== saved.xmlTag) payload.xmlTag = sanitizeXmlTag(form.xmlTag);
-    if (isGiven(form.positionText)) {
-        const injection = parseInjection(form.positionText, form.depthText ?? '');
-        if (injection.position !== saved.position || injection.depth !== saved.depth) Object.assign(payload, injection);
-    }
-    if (isGiven(form.keywords)) {
-        const keywords = form.keywords.map(keyword => ({ text: keyword.text }));
-        if (!sameKeywords(keywords, saved.keywords)) payload.keywords = keywords;
-    }
-    if (isGiven(form.chunkLinks) && !sameLinks(form.chunkLinks, saved.chunkLinks)) payload.chunkLinks = form.chunkLinks;
-
-    const typedText = isGiven(form.text) ? form.text.trim() : saved.text.trim();
+    if (form.name !== undefined && form.name.trim() !== saved.name) payload.name = form.name.trim() || null;
+    const typedText = form.text !== undefined ? form.text.trim() : saved.text.trim();
     const textProblem = typedText ? '' : 'A chunk needs text.';
     const text = typedText && typedText !== saved.text.trim() ? typedText : null;
-
-    const summaries = isGiven(form.summaries) ? form.summaries : saved.summaries;
-    const addedSummaries = summaries.filter(summary => !saved.summaries.includes(summary));
-    const removedSummaries = saved.summaries.filter(summary => !summaries.includes(summary));
-
-    return {
-        payload,
-        text,
-        textProblem,
-        summaries,
-        addedSummaries,
-        removedSummaries,
-        hasChanges: Object.keys(payload).length > 0 || text !== null || addedSummaries.length > 0 || removedSummaries.length > 0,
-    };
-}
-
-/**
- * The chunks a link can point at: every other loaded chunk, by its message and name.
- *
- * @param {{hash: string|number, fields: {name: string, text: string}, index?: number, metadata?: object}[]} chunks
- * @param {string|number} ownHash
- * @returns {{value: string, label: string}[]}
- */
-export function linkTargetOptions(chunks, ownHash) {
-    return chunks
-        .filter(chunk => String(chunk.hash) !== String(ownHash))
-        .map(chunk => ({ value: String(chunk.hash), label: chunkLabel(chunk) }));
+    return { payload, text, textProblem, hasChanges: Object.keys(payload).length > 0 || text !== null };
 }
 
 /**
@@ -298,18 +182,6 @@ export function linkTargetOptions(chunks, ownHash) {
 export function chunkLabel(chunk) {
     const message = messageLine(chunk);
     return `${message.text} ${message.name}: ${chunk.fields.name || textPreview(chunk.fields.text, 40)}`;
-}
-
-/**
- * A link's target for its row: the loaded chunk it points at, or its ID when that chunk is not loaded.
- *
- * @param {{hash: string|number}[]} chunks
- * @param {string|number} targetHash
- * @returns {{label: string, isLoaded: boolean}}
- */
-export function linkTargetLabel(chunks, targetHash) {
-    const target = chunks.find(chunk => String(chunk.hash) === String(targetHash));
-    return target ? { label: chunkLabel(target), isLoaded: true } : { label: `ID ${targetHash}`, isLoaded: false };
 }
 
 /**
@@ -346,15 +218,14 @@ export function tokenizerLockOf(record, currentMode) {
 
 /**
  * Why the form cannot be saved, or null when it can: a chunk needs text, and a locked collection takes no new vector,
- * so neither a changed text, a keyword change, which stores a Qdrant chunk again, nor a new summary.
+ * so no changed text.
  *
- * @param {{textProblem: string|null, text: string|null, payload?: object, addedSummaries: string[]}} changes - From formChanges
+ * @param {{textProblem: string|null, text: string|null}} changes - From formChanges
  * @param {object|null} tokenizerLock - From tokenizerLockOf
  * @returns {string|null}
  */
 export function saveProblem(changes, tokenizerLock) {
     if (changes.textProblem) return changes.textProblem;
-    const needsNewVector = changes.text !== null || changes.payload?.keywords !== undefined || changes.addedSummaries.length > 0;
-    if (tokenizerLock && needsNewVector) return 'A changed text, a keyword change or a new summary can\'t be saved here: see above.';
+    if (tokenizerLock && changes.text !== null) return 'A changed text can\'t be saved here: see above.';
     return null;
 }

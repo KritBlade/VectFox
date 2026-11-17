@@ -1,6 +1,5 @@
 // features/collections — collections and what VectFox knows about them: the registry and loader, per-collection
-// metadata (enabled state, chat and character locks, triggers, conditions, auto-sync), the activation rules and
-// chunk links, and JSON and PNG export and import.
+// metadata (enabled state, chat and character locks, auto-sync), and JSON and PNG export and import.
 //
 // The widest surface of any feature: every feature that lists, locks, activates or exports a collection reads it
 // here. setDeletedOrImportedCollectionCleanup lets src/index.js hand EventBase's cache cleanup to collection
@@ -23,12 +22,11 @@ export {
     cleanupTestCollections,
     clearCollectionRegistry,
     deleteCollection,
+    deleteCollectionWhereDiscovered,
     deleteVectorsFolder,
     discoverExistingCollections,
-    discoveredIndexesOf,
     getCollectionListing,
     getCollectionRegistry,
-    isCollectionEmpty,
     loadAllCollections,
     registerCollection,
     sanitizeHandleId,
@@ -37,19 +35,12 @@ export {
 } from './collection-loader.js';
 export {
     cleanupOrphanedMeta,
-    deleteChunkMetadata,
-    filterActiveCollections,
-    getAllChunkMetadata,
     getChatLockedCollections,
-    getChunkMetadata,
-    getCollectionActivationSummary,
     getCollectionCharacterLockCount,
     getCollectionCharacterLocks,
-    getCollectionConditions,
     getCollectionLockCount,
     getCollectionLocks,
     getCollectionMeta,
-    getCollectionTriggers,
     isCollectionActiveForContext,
     isCollectionActiveForContextAnyKey,
     isCollectionAutoSyncEnabled,
@@ -59,19 +50,11 @@ export {
     migrateOldEnabledKeys,
     removeCollectionCharacterLock,
     removeCollectionLock,
-    saveChunkMetadata,
     setCollectionAutoSync,
     setCollectionCharacterLock,
-    setCollectionConditions,
     setCollectionEnabled,
     setCollectionLock,
     setCollectionMeta,
 } from './collection-metadata.js';
-export {
-    VALID_GENERATION_TYPES,
-    buildSearchContext,
-    evaluateConditionRule,
-    processChunkLinks,
-    validateConditionRule,
-} from './conditional-activation.js';
 export { convertToPNG, downloadPNG, embedDataInPNG, extractDataFromPNG, readPNGFile } from './png-export.js';
+export { deleteRetiredContentCollections } from './retired-content-collections.js';

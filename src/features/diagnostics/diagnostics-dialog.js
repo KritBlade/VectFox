@@ -5,7 +5,7 @@
  * Diagnostics' dialog (diagnostics-dialog-markup.js draws it): Checks, Backend health and Query Tester, each opened
  * from its own button on the panel's Action page. Checks runs the diagnostics, Production tests only when switched on,
  * catching what the console says meanwhile, and copies a report; Backend health probes the backend every 5 seconds
- * while it shows; Query Tester dry-runs EventBase's and ChunkBase's retrievals. Its handlers are delegated on its root.
+ * while it shows; Query Tester dry-runs EventBase's retrieval. Its handlers are delegated on its root.
  *
  * @author Kritblade
  * ============================================================================
@@ -22,7 +22,6 @@ import { dialogResults, diagnosticsReportText, queryOutcome, storedValue } from 
 import {
     DIAGNOSTICS_IDS,
     DIAGNOSTICS_PAGES,
-    QUERY_RETRIEVALS,
     checkResultsMarkup,
     diagnosticsMarkup,
     diagnosticsPageId,
@@ -199,7 +198,6 @@ function reportSettingLines(settings) {
     if (settings.vector_backend === 'qdrant') lines.push(['Qdrant URL', storedValue(settings.qdrant_mode === 'cloud' ? settings.qdrant_cloud_url : settings.qdrant_url)]);
     lines.push(
         ['Query depth', storedValue(settings.query)],
-        ['ChunkBase similarity threshold', storedValue(settings.score_threshold)],
         ['EventBase similarity threshold', storedValue(settings.eventbase_score_threshold)],
     );
     return lines;
@@ -262,19 +260,17 @@ async function runQuery() {
     }
     dialog.isQuerying = true;
     for (const button of actionButtons('query')) button.disabled = true;
-    setText('query-state', 'Running the retrievals…');
+    setText('query-state', 'Running the retrieval…');
     try {
         const run = await runQueryTest(message);
         if (!dialog) return;
-        const results = { eventbase: run.eventBase, chunkbase: run.chunkBase };
-        const outcomes = Object.fromEntries(QUERY_RETRIEVALS.map(({ kind }) => [kind, queryOutcome(kind, results[kind], run)]));
-        partOf('query-results').innerHTML = queryResultsMarkup(outcomes, run.eventBase);
+        partOf('query-results').innerHTML = queryResultsMarkup(queryOutcome(run.eventBase, run), run.eventBase);
         for (const output of partOf('query-results').querySelectorAll('textarea')) output.readOnly = true;
         setText('query-state', '');
     } catch (error) {
         log.error('VectFox Query Tester: retrieval failed:', error);
         toastr.error(`Retrieval failed: ${error.message}`, 'VectFox');
-        setText('query-state', 'The retrievals failed; the console has more.');
+        setText('query-state', 'The retrieval failed; the console has more.');
     } finally {
         if (dialog) {
             dialog.isQuerying = false;

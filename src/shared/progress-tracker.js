@@ -178,7 +178,7 @@ export class ProgressTracker {
     }
 
     /**
-     * Update what the run found or made: the chunks a source cut into, or the events EventBase found (foundLabel).
+     * Update what the run found or made: the chunks a collection holds, or the events EventBase found (foundLabel).
      * @param {number} totalChunks
      */
     updateChunks(totalChunks) {

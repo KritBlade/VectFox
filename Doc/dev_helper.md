@@ -1,82 +1,23 @@
 # Dev Helper
 
-## 1) Pipeline Architecture — Strict Path Separation
+## 1) Pipeline Architecture — EventBase Only
 
-EventBase is the **exclusive** retrieval path for chat content: chat history (live and uploaded archive `.jsonl`) always goes through EventBase ingestion + retrieval. There is no chunk path for chat.
+EventBase is the **only** retrieval path. Chat history, live and uploaded archive `.jsonl`, goes through EventBase ingestion (`runEventBaseIngestion` in `eventbase-workflow.js`) into `vf_eventbase_*` and `vf_archiveevent_*` collections, and the reply step (`runEventBaseReplyStep` in `eventbase-reply.js`) searches them through EventBase retrieval (`eventbase-workflow.js` → `eventbase-retrieval.js`). Nothing else is vectorized or searched.
 
-### Two pipelines, strict ownership
+Lorebooks are not in it. LoreBase (`src/features/lorebase/`), while its switch on the WorldInfo page is on, picks the entries a reply needs and sends them through SillyTavern's own World Info scan, inside one `<VectLorebook>` block for each place in the prompt they take; it stores no vectors, and never runs beside the World Info search of SillyTavern's Vector Storage. Its tester (`lorebase-tester.js`) keeps a report of each reply in page memory, for the WorldInfo page's tester card.
 
-| Pipeline                      | Content scope                                                                                        | Owned collections                                  | Code entry point                                     |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| **EventBase pipeline**        | Chat history only (live chat + archive`.jsonl`)                                                      | `vf_eventbase_*`, `vf_archiveevent_*`              | `eventbase-workflow.js` → `eventbase-retrieval.js`   |
-| **Standard (Chunk) pipeline** | Other non-chat content — Character Cards, URLs / web pages, custom documents, wiki pages, YouTube transcripts | `vf_character_*`, `vf_document_*`, user collections | `chat-vectorization.js` → `queryAndMergeCollections` |
+### Collections deleted at start
 
-The pipelines never see each other's content. There is no overlap in collection prefixes or content types.
+Two kinds of collection that nothing searches are deleted once collection discovery has filled the registry and SillyTavern has loaded. `deleteRetiredCollections` in `src/app/retired-collections.js`, which network start-up runs, deletes both and shows one notice with both parts' lines. A collection that could not be deleted is tried again at the next start.
 
-Lorebooks are in neither. LoreBase (`src/features/lorebase/`), while its switch on the WorldInfo page is on, picks the entries a reply needs and sends them through SillyTavern's own World Info scan, inside one `<VectLorebook>` block for each place in the prompt they take; it stores no vectors, and never runs beside the World Info search of SillyTavern's Vector Storage. Its tester (`lorebase-tester.js`) keeps a report of each reply in page memory, for the WorldInfo page's tester card. The `vf_lorebook_*` collections vectorized before LoreBase are deleted at start, once collection discovery has run (`lorebase-old-collections.js`): each one's chat and character locks move to the record of its book, which its ID names, and one notice names the books, says nothing needs vectorizing again, and gives the steps to have LoreBase decide a book's entries, the lock among them. Nothing searches them meanwhile.
+- **Old lorebook collections** (`vf_lorebook_*`, vectorized before LoreBase; `lorebase-old-collections.js`): each one's chat and character locks move to the record of its book, which its ID names, and the notice names the books, says nothing needs vectorizing again, and gives the steps to have LoreBase decide a book's entries, the lock among them.
+- **Collections of sources Vectorize Content does not read** (`retired-content-collections.js`): `vf_character_*`, `vf_document_*`, and any other collection whose stored `contentType` names a character card, a document, a web page, a wiki or YouTube (`retiredContentKindOf` in `retired-content-collections-core.js`). The notice counts them, and `validateImportData` refuses an export of one.
 
-### Key isolation rule (`src/features/chunkbase/chat-vectorization.js` → `gatherCollectionsToQuery`)
+### Archive Chat History
 
-- `vf_eventbase_*` → **always** skipped by the standard pipeline (EventBase pipeline owns them exclusively)
-- `vf_archiveevent_*` → **always** skipped by the standard pipeline (EventBase pipeline owns them exclusively)
-- `vf_lorebook_*` → **always** skipped by the standard pipeline (old vectorized lorebooks, which nothing searches)
-- There is no chat chunk collection type, so nothing else needs excluding.
-
-### Archive Chat History — Two content paths
-
-| Path              | Content Type in UI      | Collection prefix        | Storage format                               | Retrieval                     |
-| ----------------- | ----------------------- | ------------------------ | -------------------------------------------- | ----------------------------- |
-| **A — EventBase** | `Chat → Upload` tab     | `vf_archiveevent_*`      | Event-shaped (same schema as live EventBase) | Phase A (EventBase re-ranker) |
-| **B — Chunk**     | `Document` content type | `vf_document_*`          | Chunk-shaped                                 | Phase B (standard pipeline)   |
-
-Archive event collections are **not** auto-locked to any chat after ingestion. To retrieve from one in a chat, switch on "Active for this chat" in its Collection Settings, or lock it with Manage locks.
-
-### Why this matters
-
-Querying an EventBase collection through the standard pipeline as well would retrieve it twice per generation — once as structured events (with dedup depth) and once as raw chunks — and inject duplicate content. The strict split rules that out.
+A chat file chosen as Vectorize Content's Source is extracted like the live chat, into a `vf_archiveevent_*` collection: event-shaped, with the same schema as live EventBase, and searched beside the live collection by the same re-ranker. Archive event collections are **not** auto-locked to any chat after ingestion. To retrieve from one in a chat, switch on "Active for this chat" in its Collection Settings, or lock it with Manage locks.
 
 ---
-
-## 2) Extraction Level Location
-
-Extraction levels are defined in: `src/features/keyword-search/keyword-extraction.js`
-
-Exact export name:
-`EXTRACTION_LEVELS`
-
-```javascript
-export const EXTRACTION_LEVELS = {
-    off: {
-        label: 'Off',
-        description: 'No auto-extraction',
-        enabled: false,
-    },
-    minimal: {
-        label: 'Minimal',
-        description: 'First 1500 chars, max 5 keywords',
-        enabled: true,
-        headerSize: 1500,
-        minFrequency: 1,
-        maxKeywords: 5,
-    },
-    balanced: {
-        label: 'Balanced',
-        description: 'First 5000 chars, max 12 keywords',
-        enabled: true,
-        headerSize: 5000,
-        minFrequency: 1,
-        maxKeywords: 12,
-    },
-    aggressive: {
-        label: 'Aggressive',
-        description: 'Full text scan, max 15 keywords',
-        enabled: true,
-        headerSize: null, // null = full text
-        minFrequency: 1,
-        maxKeywords: 15,
-    },
-};
-```
 
 ## 4) EventBase Window Dedup — Fingerprint Cache
 
@@ -112,10 +53,10 @@ Settings are grouped by which path consumes them:
 
 | Setting                                                                                  | UI tab                      | EventBase relevant? | What it actually does                                                                                |
 | ---------------------------------------------------------------------------------------- | --------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Insert batch size** (default 50)                                                       | ChunkBase → Ingestion       | **No**              | Max chunks per insert request for API embedding sources (see §6); local Transformers / Ollama / llama.cpp / KoboldCpp always send 1 chunk per request, and with Group embedding calls off and no rate limit every chunk is its own request. EventBase inserts tiny batches (2–10 events per window) so this has no meaningful effect on EventBase. |
-| **Skip visible events** (`deduplication_depth`, default 0 = off)                                                    | Core                        | **Yes**             | Used in`eventbase-retrieval.js` as `settings.deduplication_depth`. Filters out retrieved events whose source window falls within the last N messages of the current chat — avoids injecting content already visible in context. 0 = disabled. Also used by chunk-path retrieval in `chat-vectorization.js`. |
-| **Keyword scoring card** (Method, BM25 k1/b, Fusion, RRF K) | Core → Keyword scoring | **A1/A2 only**      | These are Vectra (Standard backend) controls. On Qdrant, hybrid is always A3 server-side native — k1/b/RRF K are managed by Qdrant's`modifier: idf` and the `fusion: rrf` API, and these UI knobs have no effect. EventBase callers inject `ebSettings` with `keyword_scoring_method` overridden from `eventbase_keyword_scoring_method` (internal, defaults `'bm25'`, not in UI). See §11 for the full matrix. |
-| **Query keyword budget** (`hybrid_keyword_level`)                                        | ChunkBase → Retrieval       | **No**              | Read only by`scoreResults()` (A1) and `hybridSearch()` (A2). A3 doesn't use it — the sparse-vector encoder tokenizes the full query and Qdrant handles IDF weighting. EventBase has its own importance/persist/recency re-ranker that dominates the final order anyway. |
+| **Insert batch size** (`insert_batch_size`, default 50)                                  | Core → Embedding            | **Yes**, barely     | Max texts per insert request for API embedding sources (see §6), for every `insertVectorItems` caller: EventBase ingestion, Chunk Visualizer saves and collection imports. Local Transformers / Ollama / llama.cpp / KoboldCpp always send 1 text per request, and with Group embedding calls off and no rate limit every text is its own request. EventBase inserts small batches (2–10 events per window), so it rarely splits one. |
+| **Skip visible events** (`deduplication_depth`, default 0 = off)                                                    | Core                        | **Yes**             | Used in`eventbase-retrieval.js` as `settings.deduplication_depth`. Filters out retrieved events whose source window falls within the last N messages of the current chat — avoids injecting content already visible in context. 0 = disabled. |
+| **Keyword scoring card** (Method, BM25 k1/b, Fusion, RRF K) | Core → Keyword scoring | **A1/A2 only**      | These are Vectra (Standard backend) controls. On Qdrant, hybrid is always A3 server-side native — k1/b/RRF K are managed by Qdrant's`modifier: idf` and the `fusion: rrf` API, and these UI knobs have no effect. Method (`keyword_scoring_method`) picks A1 or A2 for the Database Browser's search only: EventBase callers inject `ebSettings` with `keyword_scoring_method` overridden from `eventbase_keyword_scoring_method` (internal, defaults `'bm25'`, not in UI). See §11 for the full matrix. |
+| **Query keyword budget** (`hybrid_keyword_level`)                                        | Core → Keyword scoring      | **Yes**, on Standard | Read only by`scoreResults()` (A1) and `hybridSearch()` (A2), so it caps the query keywords EventBase's search scores on the Standard backend. A3 doesn't use it — the sparse-vector encoder tokenizes the full query and Qdrant handles IDF weighting. |
 
 ---
 
@@ -153,7 +94,7 @@ Three private helpers inside `runEventBaseIngestion` hold the logic — no separ
 | Helper | Role |
 |---|---|
 | `_runOneExtractBatch(slice, batchFirstIdx)` | The per-window extract logic (Promise.allSettled on 8 LLM calls), as a function the coordinator calls as a black box. Returns `{ allEvents, hashesToMark, endsExtracted, batchResults, ... }`. |
-| `_insertWithRetry(events, batchFirstIdx)` | Wraps `insertEvents` with up to 3 attempts and exponential-ish backoff (500ms / 1000ms). On exhaustion throws `EventBaseFatalError` with `code: 'insert_failed_max_retries'` carrying Qdrant's error text. UI catch in `src/features/chunkbase/content-vectorizer.js::runEventBaseBackfill` surfaces it via `noticePopup`. |
+| `_insertWithRetry(events, batchFirstIdx)` | Wraps `insertEvents` with up to 3 attempts and exponential-ish backoff (500ms / 1000ms). On exhaustion throws `EventBaseFatalError` with `code: 'insert_failed_max_retries'` carrying Qdrant's error text. UI catch in `src/features/eventbase/content-vectorizer.js::runEventBaseBackfill` surfaces it via `noticePopup`. |
 | `_finalizeBatch(extractResult)` | Calls `_insertWithRetry`, then `markWindowExtracted` + `setVectorizationTip` in that order, then tally + progress updates. The state-mutation order is the "no corrupted state" invariant — we never mark a window as covered before its events are durable in Qdrant. |
 
 ### The coordinator (state machine)
@@ -194,19 +135,19 @@ Pressing Stop mid-pipeline waits for the in-flight insert to complete before exi
 
 ### Compatibility with other code paths
 
-The coordinator lives entirely inside `runEventBaseIngestion`. All 3 production callers (auto-sync via `synchronizeChat`, manual backfill via `runEventBaseOnOpenChat`, archive file upload) hit the same helper and get the pipelined behavior — they pass different flags (`isAutoSync`, `suppressAutoSyncPopup`, `parallelWindows`, `collectionIdOverride`). None of those flags interact with the extract/insert ordering. The chunk-base pipeline (character / document / URL / wiki / YouTube via `vectorizeContent`) does not use it — it has no extract phase to overlap (chunking is synchronous and instant, and the entire chunk list is inserted in one call).
+The coordinator lives entirely inside `runEventBaseIngestion`. All 3 production callers (auto-sync via `synchronizeChat`, manual backfill via `runEventBaseOnOpenChat`, archive file upload) hit the same helper and get the pipelined behavior — they pass different flags (`isAutoSync`, `suppressAutoSyncPopup`, `parallelWindows`, `collectionIdOverride`). None of those flags interact with the extract/insert ordering.
 
 ### Key files
 
 - `src/features/eventbase/eventbase-workflow.js` — the coordinator + helpers
-- `src/features/chunkbase/content-vectorizer.js::_runEventBaseBackfill` — catch branch for the `insert_failed_max_retries` popup
+- `src/features/eventbase/content-vectorizer.js::runEventBaseBackfill` — catch branch for the `insert_failed_max_retries` popup
 - `InternalProject/Vectfox/plans/executed/eventbase-extract-insert-pipeline.md` — design, edge-case table, acceptance criteria
 
 ---
 
 ## 6.8) Embedding-Call Resilience — Group / Hedge / Pipelined
 
-Three related features sit inside `insertVectorItems` ([`src/features/vector-backend/vector-api.js`](../src/features/vector-backend/vector-api.js)) and the EventBase coordinator ([`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js)). All three affect every embedding caller — EventBase ingestion AND chunk-based document vectorization in [`src/features/chunkbase/content-vectorization.js`](../src/features/chunkbase/content-vectorization.js). UI lives on the **Core page → Embedding card** (Group + Hedge) and the **ChatHistory page** (Wait for each batch).
+Three related features sit inside `insertVectorItems` ([`src/features/vector-backend/vector-api.js`](../src/features/vector-backend/vector-api.js)) and the EventBase coordinator ([`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js)). Group and Hedge affect every caller of `insertVectorItems`: EventBase ingestion, Chunk Visualizer saves and collection imports. Wait for each batch affects EventBase ingestion only, since it switches the coordinator. UI lives on the **Core page → Embedding card** (Group + Hedge) and the **ChatHistory page** (Wait for each batch).
 
 ### Defaults
 
@@ -238,8 +179,7 @@ Gated to skip `localGpuSources` (Ollama / transformers / llama.cpp / KoboldCpp) 
 
 | Operation | Hedges? | Path |
 |---|---|---|
-| Manual **Vectorize Content** (chat → EventBase) | ✅ | `src/features/chunkbase/content-vectorizer.js` → `runEventBaseIngestion` → `insertEvents` → `insertVectorItems` |
-| Manual **Vectorize Content** (chunks: docs / URLs / wiki) | ✅ | `content-vectorization.js` → `insertVectorItems` |
+| Manual **Vectorize Content** (chat → EventBase) | ✅ | `src/features/eventbase/content-vectorizer.js` → `runEventBaseIngestion` → `insertEvents` → `insertVectorItems` |
 | **Auto-Sync** | ✅ | `synchronizeChat` → `runEventBaseIngestion({ isAutoSync: true })` → `insertEvents` → `insertVectorItems` |
 | **Retrieval / per-turn search** | ❌ | `queryCollection` → `getQueryVector` (embeds the query once, one retry on failure) → every route and fallback reuses that vector. No hedge wrapper anywhere on this path. |
 | **Agent Mode** | ❌ | `agentic-retrieval.js` only calls `queryCollection` / `retrieveEvents` — it never inserts, so it never reaches the hedge. |
@@ -253,11 +193,11 @@ Note that **auto-sync is not a separate path** — it's the same `runEventBaseIn
 3. **A stalled search fails soft; a stalled ingest fails expensive.** If a retrieval embed genuinely hangs, the cost is one turn with degraded/no memory injection — annoying but self-correcting on the next message. A hung ingest wastes minutes of a long batch run and can leave the user staring at a frozen progress bar. Hedge's value is highest exactly where the blast radius is largest.
 4. **Idempotency only holds for writes.** Hedge's "fire a duplicate, race-first-wins, discard the loser" trick is safe because a duplicate **write** is a no-op (hash-deterministic Qdrant upsert overwrites the same point with identical data). A duplicate **query** isn't harmful, but it also buys nothing — you'd just pay for two embeds to shave time off a path that's already fast (see #2). Agent Mode compounds this: it already fans out 1–4 parallel queries, so adding per-query hedging would multiply planner-stage API cost for no latency win on an already-parallel, already-fast stage.
 
-**Read-path timeout.** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. Every per-turn retrieval runs through `runBoundedRetrieval()` ([`src/features/vector-backend/bounded-retrieval.js`](../src/features/vector-backend/bounded-retrieval.js)): in `rearrangeChat()` ([`src/features/chunkbase/chat-vectorization.js`](../src/features/chunkbase/chat-vectorization.js)), which the generation interceptor `vectfox_rearrangeChat` in `src/index.js` (the manifest's `generate_interceptor`) runs beside LoreBase's pick and reviews, the EventBase retrieval (`runEventBaseRetrieval`), the summarizer injection and the chunk retrieval (`queryAndMergeCollections` → `queryCollection`: chunks, documents). LoreBase's pick and reviews are not bounded by it: each of their calls has its own 30-second limit (`CALL_TIMEOUT_MS` in [`src/features/lorebase/lorebase-reply-core.js`](../src/features/lorebase/lorebase-reply-core.js)), and their picks are held for SillyTavern's World Info scan once both halves are done (`prepareLoreBesideRetrieval` in [`src/features/lorebase/lorebase-reply.js`](../src/features/lorebase/lorebase-reply.js)). The budget is the `retrieval_timeout_ms` setting (Core page → Retrieval), read through `resolveRetrievalTimeoutMs()` ([src/shared/retrieval-budget.js](../src/shared/retrieval-budget.js)); its default, `RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000` ([src/shared/constants.js](../src/shared/constants.js)), matches the write-side hedge threshold for one consistent "too slow" number. EventBase adds the Agent Mode budget on top (`resolveEventBaseRetrievalTimeoutMs()`).
+**Read-path timeout.** The read path is hardened with a plain per-turn timeout rather than the hedge race — the hedge machinery (4 attempts over 60s, hedge-fatal escape, Continue-to-resume) is tuned for long write batches and would be overkill for a one-shot read. Every per-turn retrieval runs through `runBoundedRetrieval()` ([`src/features/vector-backend/bounded-retrieval.js`](../src/features/vector-backend/bounded-retrieval.js)): in `runEventBaseReplyStep()` ([`src/features/eventbase/eventbase-reply.js`](../src/features/eventbase/eventbase-reply.js)), which the generation interceptor `vectfox_rearrangeChat` in `src/index.js` (the manifest's `generate_interceptor`) runs beside LoreBase's pick and reviews, the EventBase retrieval (`runEventBaseRetrieval`) and the summarizer injection. LoreBase's pick and reviews are not bounded by it: each of their calls has its own 30-second limit (`CALL_TIMEOUT_MS` in [`src/features/lorebase/lorebase-reply-core.js`](../src/features/lorebase/lorebase-reply-core.js)), and their picks are held for SillyTavern's World Info scan once both halves are done (`prepareLoreBesideRetrieval` in [`src/features/lorebase/lorebase-reply.js`](../src/features/lorebase/lorebase-reply.js)). The budget is the `retrieval_timeout_ms` setting (Core page → Retrieval), read through `resolveRetrievalTimeoutMs()` ([src/shared/retrieval-budget.js](../src/shared/retrieval-budget.js)); its default, `RETRIEVAL_TIMEOUT_DEFAULT_MS = 15000` ([src/shared/constants.js](../src/shared/constants.js)), matches the write-side hedge threshold for one consistent "too slow" number. EventBase adds the Agent Mode budget on top (`resolveEventBaseRetrievalTimeoutMs()`).
 
-It's a **soft** timeout (Promise.race): on expiry the turn proceeds and the message sends WITHOUT that memory source — `runBoundedRetrieval` catches the timeout or error, logs it, toasts the user, and returns the caller's fallback (the chunk path's is `[]`, so downstream injects nothing). The orphaned `fetch` keeps running until ST's server-side timeout reaps it — there is no client `AbortSignal` on the read fetches, so this is a "stop waiting", not a "cancel the request". A stall is not retried: a stalled retrieval fails soft (one turn without memory, self-corrects next message), so a single bounded attempt is the right tradeoff. A query embedding that FAILS (e.g. a provider 429 "The engine is currently overloaded") is different — it fails fast, so `getQueryVector` ([src/features/vector-backend/vector-api.js](../src/features/vector-backend/vector-api.js)) retries it once, then fails the query. That is the only retry on the read path: the query is embedded once and every route and fallback reuses that vector, so a fallback never re-embeds.
+It's a **soft** timeout (Promise.race): on expiry the turn proceeds and the message sends WITHOUT that memory source — `runBoundedRetrieval` catches the timeout or error, logs it, toasts the user, and returns the caller's fallback instead of throwing; the reply step passes none, and it emptied its blocks before the search, so the turn injects nothing from that source. The orphaned `fetch` keeps running until ST's server-side timeout reaps it — there is no client `AbortSignal` on the read fetches, so this is a "stop waiting", not a "cancel the request". A stall is not retried: a stalled retrieval fails soft (one turn without memory, self-corrects next message), so a single bounded attempt is the right tradeoff. A query embedding that FAILS (e.g. a provider 429 "The engine is currently overloaded") is different — it fails fast, so `getQueryVector` ([src/features/vector-backend/vector-api.js](../src/features/vector-backend/vector-api.js)) retries it once, then fails the query. That is the only retry on the read path: the query is embedded once and every route and fallback reuses that vector, so a fallback never re-embeds.
 
-Agent Mode is covered by the same `rearrangeChat` outer bound (its fan-out `queryCollection` calls run inside that hook), and additionally bounds its planner LLM call separately via `AbortSignal.timeout(agentic_retrieval_timeout_ms)` ([agentic-retrieval.js](../src/features/eventbase/agentic-retrieval.js)) — that one IS a hard cancel because it's a fresh fetch the agent code owns directly.
+Agent Mode is covered by the reply step's EventBase bound (its fan-out `queryCollection` calls run inside it), and additionally bounds its planner LLM call separately via `AbortSignal.timeout(agentic_retrieval_timeout_ms)` ([agentic-retrieval.js](../src/features/eventbase/agentic-retrieval.js)) — that one IS a hard cancel because it's a fresh fetch the agent code owns directly.
 
 **Independence from Group setting.** Hedge wraps whatever payload is on the wire — 1 item or 50 items. With Group=ON, one hedge fire rescues the entire batch. With Group=OFF, hedge fires per-item independently. Both work; Group=ON has higher ROI per hedge fire.
 
@@ -331,7 +271,7 @@ Do **not** call `hybridSearch()` directly from `eventbase-retrieval.js` or `even
 
 ## 8) Retrieval Paths — A1 / A2 / A3 Comparison
 
-Three retrieval paths exist. The path is chosen automatically inside `queryCollection()` based on (a) backend and (b) `keyword_scoring_method`. EventBase, ChunkBase, and the Query Tester all flow through this same dispatch.
+Three retrieval paths exist. The path is chosen automatically inside `queryCollection()` based on (a) backend and (b) `keyword_scoring_method`. EventBase and the Query Tester flow through this dispatch, and the Database Browser's search through `queryMultipleCollections()`, which mirrors it.
 
 |                                                                                   | **A1 — BM25 re-rank**                                                                                | **A2 — Client-side hybrid**                                                                          | **A3 — Qdrant native** ⭐                                                                            |
 | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -390,7 +330,7 @@ Every `vectorScore` is 0 here. Both A1 and A2 still work, but they degrade diffe
 
 - **Semantic queries (no keyword overlap):** A1 scores everything 0 — results fall back to arbitrary ordering. A2 uses ST's `vectorRank` as a fallback signal via RRF, preserving ST's internal semantic ordering even without scores. A2 degrades more gracefully here.
 - **Keyword queries (BM25 matches exist):** Both paths rank primarily by BM25. A2 adds `vectorRank` as a secondary tie-breaker for results with equal BM25 scores. The ×0.60 penalty is applied uniformly to all results and does not change their relative order — it only affects absolute score values.
-- **Score threshold sensitivity:** The ×0.60 penalty lowers all A2 absolute scores, and the chunk pipeline applies ChunkBase's `score_threshold` (default 0.25) to them, so A2 may filter out chunks that A1 would keep. Events are not affected: `eventbase_score_threshold` reads similarity only, never these fused scores.
+- **Score threshold sensitivity:** The ×0.60 penalty lowers all A2 absolute scores, and the Database Browser's search applies its threshold to them (`queryMultipleCollections`), so A2 may filter out results that A1 would keep. The events a reply retrieves are not affected: `eventbase_score_threshold` reads similarity only, never these fused scores.
 
 #### Recommendation (consolidated)
 
@@ -448,7 +388,7 @@ EventBase overrides `keyword_scoring_method` with `eventbase_keyword_scoring_met
 
 | Setting                                                                     | Default                   | Affects                                                        | Notes                                                                                                |
 | --------------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `keyword_scoring_method` (`bm25` \                                          | `hybrid`)                 | `hybrid`                                                       | ChunkBase A1/A2 selector on Standard backend                                                         |
+| `keyword_scoring_method` (`bm25` / `hybrid`)                                | `hybrid`                  | The Database Browser's search: A1/A2 selector on Standard backend | Not read by EventBase, which uses `eventbase_keyword_scoring_method`.                                |
 | `eventbase_keyword_scoring_method`                                          | `bm25`                    | EventBase A1/A2 selector on Standard backend                   | Internal key, not exposed in UI. Override via`extension_settings.vectfox` in console.                |
 | `hybrid_native_prefer`                                                      | `true`                    | A3 vs A1/A2 on Qdrant                                          | Hidden — not in UI. JSON-only. Flip to`false` to force client-side path on Qdrant for A/B testing.   |
 | `bm25_k1`, `bm25_b`                                                         | 1.5 / 0.75                | A1 and A2 (client-side BM25 internals)                         | BM25+ TF saturation and length normalization. A3 uses Qdrant's internal defaults (these knobs don't reach the server). |
@@ -461,12 +401,11 @@ EventBase overrides `keyword_scoring_method` with `eventbase_keyword_scoring_met
 | `deduplication_depth`                                                       | 0 (disabled)              | All three paths                                                | EventBase context-window dedup: suppress events whose source window falls within the last N messages. Same JS path post-retrieval. |
 | `eventbase_retrieval_top_k`                                                 | 10                        | All three paths                                                | Final number of events injected, plus up to 5 that Agent Mode adds; a StoryArc block keeps its own count. Internal overfetch is`top_k × 2 × 2 = 40` for A1 (`getOverfetchAmount` in bm25-scorer.js). |
 | `eventbase_retrieval_min_importance`                                        | 1                         | All three paths                                                | Drops events below this importance threshold after retrieval.                                        |
-| `eventbase_score_threshold`                                                 | 0                         | All three paths                                                | ChatHistory page → EventBase retrieval → Similarity threshold, used by every event search in place of ChunkBase's `score_threshold` (`eventbase-search.js`). Standard applies it inside its query; on Qdrant VectFox drops the hits below it. The new-event link pass searches with 0. |
+| `eventbase_score_threshold`                                                 | 0                         | All three paths                                                | ChatHistory page → EventBase retrieval → Similarity threshold, used by every event search (`eventSearchSettings` in `eventbase-search.js`). Standard applies it inside its query; on Qdrant VectFox drops the hits below it. The new-event link pass searches with 0. |
 | `eventbase_rerank_w_cosine` / `_w_importance` / `_w_persist` / `_w_recency` | 0.55 / 0.20 / 0.15 / 0.10 | All three paths (formula coefficients)                         | A3 with`eventbase_native_rerank=true` applies them server-side via Qdrant formula; A1/A2 apply them in JS in `eventbase-retrieval.js`. |
 | `eventbase_native_rerank`                                                   | `true`                    | A3 only                                                        | Pushes the 4-weight formula into the same Qdrant`/points/query` call. Requires Qdrant ≥ 1.13. Set `false` to fall back to JS post-processing. |
 | `eventbase_compare_rerank`                                                  | `false`                   | A3 only                                                        | When ON alongside`eventbase_native_rerank`, runs the JS formula path in parallel for every query and logs `overlap@K` + Spearman ρ. Pure observability, doesn't change the injected events. |
 | `eventbase_compare_rerank_verbose`                                          | `false`                   | A3 only                                                        | When both compare settings are ON, emits per-event score rows. Very noisy — development only.        |
-| `keyword_extraction_level`                                                  | `balanced`                | ChunkBase vectorization and chat retrieval                     | The level picks each chunk's keywords, which A3 indexes in the chunk's sparse vector, and the query keywords `rearrangeChat` matches exactly against them after any search, setting a matched chunk's score to 1.0. A keyword is a word: it carries no weight. |
 
 ### Native Formula Rerank (A3 + Qdrant ≥ 1.13)
 
@@ -555,7 +494,7 @@ Stop-word filtering is **driven by the CJK tokenizer dropdown**, not a single gl
 
 ### Scope boundary ⚠️
 
-This applies to **retrieval/tokenization only**. Activation **Triggers and Advanced Conditions** are language-neutral as well — see [§12](#12-trigger--condition-activation--language-neutral). Dense/vector search has always been language-neutral (embeddings are external).
+This applies to **retrieval/tokenization only**. Dense/vector search has always been language-neutral (embeddings are external).
 
 **Note:** `src/features/keyword-search/query-keyword-extractor.js` is the only query keyword extractor: sparse query vectors are computed client-side and sent to the server as `sparseQueryVector`.
 
@@ -584,24 +523,26 @@ chatFile: SillyTavern.getContext().chatId,
 
 ## 11) Keyword scoring — GUI Placement Matrix
 
-Backend determines path; on Qdrant there is only one hybrid path (A3). On Standard, the user picks A1 vs A2.
+Backend determines path; on Qdrant there is only one hybrid path (A3). On Standard, a setting picks A1 or A2 for each caller.
 
-- **ChunkBase** owns non-chat content only: Character Cards, URLs / web pages, custom documents, wiki pages, YouTube transcripts. Uses `keyword_scoring_method`.
-- **EventBase** owns chat content only: Current Chat history and uploaded Archive Chat history (`.jsonl`). Uses `eventbase_keyword_scoring_method` (internal, not in UI, defaults `'bm25'`).
+- **EventBase** searches chat content: the current chat and uploaded archive chats. It uses `eventbase_keyword_scoring_method` (internal, not in UI, defaults `'bm25'`).
+- **The Database Browser's search** uses `keyword_scoring_method`, the Method on Core → Keyword scoring. It passes the settings as they are (`queryMultipleCollections` in `database-browser.js`).
 
-Both paths call `queryCollection()` but EventBase callers (`eventbase-retrieval.js`, `eventbase-workflow.js`, `eventbase-store.js`) always inject an `ebSettings` shim:
+Every event search builds its settings with `eventSearchSettings()` ([src/features/eventbase/eventbase-search.js](../src/features/eventbase/eventbase-search.js)), which `eventbase-retrieval.js`, `agentic-retrieval.js`, `story-arc-retrieval.js` and `story-arc-links.js` reach directly or through `searchEventCollection()`:
 
 ```js
-const ebSettings = { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25' };
+export function eventSearchSettings(settings, threshold = settings.eventbase_score_threshold ?? 0) {
+    return { ...settings, keyword_scoring_method: settings.eventbase_keyword_scoring_method || 'bm25', score_threshold: threshold };
+}
 ```
 
-This ensures ChunkBase's `keyword_scoring_method` never leaks into EventBase queries.
+So the Method never reaches an EventBase query.
 
 ### Settings × routing case
 
 | Setting                        | Storage key                        | Applies to                   | **A1** — Standard + BM25                               | **A2** — Standard + Hybrid                             | **A3** — Qdrant native sparse + RRF                                                          |
 | ------------------------------ | ---------------------------------- | ---------------------------- | ------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| Method (Keyword scoring)       | `keyword_scoring_method`           | **ChunkBase only**           | ✅ selects A1 path                                     | ✅ selects A2 path                                     | ❌ ignored — A3 is the only Qdrant path                                                      |
+| Method (Keyword scoring)       | `keyword_scoring_method`           | **Database Browser search**  | ✅ selects A1 path                                     | ✅ selects A2 path                                     | ❌ ignored — A3 is the only Qdrant path                                                      |
 | EventBase Scoring Method       | `eventbase_keyword_scoring_method` | **EventBase only**           | ✅ selects A1 path (Standard)                          | ✅ selects A2 path (Standard)                          | ❌ ignored on Qdrant                                                                         |
 | BM25 k1                        | `bm25_k1`                          | Standard only                | ✅ used                                                | ✅ used                                                | ❌ Qdrant`modifier: idf` internal                                                            |
 | BM25 b                         | `bm25_b`                           | Standard only                | ✅ used                                                | ✅ used                                                | ❌ Qdrant`modifier: idf` internal                                                            |
@@ -615,17 +556,17 @@ This ensures ChunkBase's `keyword_scoring_method` never leaks into EventBase que
 
 1. **Qdrant has exactly one hybrid path — A3**, with no UI to pick another. A3 runs entirely server-side via Qdrant's `/points/query` endpoint with `prefetch: [dense, sparse]` and `fusion: "rrf"`.
 2. **A3 uses globally-accurate IDF.** Qdrant's `modifier: "idf"` computes IDF over the true full corpus (every indexed document), not the ANN-bounded subset. This eliminates the BM25 IDF bias that A1 and A2 carry.
-3. **Path routing is content-type-scoped.** ChunkBase's `keyword_scoring_method` does not affect EventBase. Changing Method to "Hybrid" on the Core page switches only ChunkBase queries.
+3. **Path routing is caller-scoped.** `keyword_scoring_method` does not affect EventBase. Changing Method to "Hybrid" on the Core page switches only the Database Browser's search; EventBase on Standard stays on A1.
 4. **Sparse vectors are tokenizer-locked.** The CJK tokenizer mode at upsert is baked into a sentinel metadata point on each Qdrant collection. Querying after a mode change shows a modal asking the user to revert or re-vectorize.
 5. **A1/A2 quality on Standard depends on the Similharity plugin.** With the plugin installed (the common case), Standard backend gets real `vectorScore` values back, so A2 fuses dense + BM25 like a "lite A3". Without the plugin, ST's native `/api/vector/query` strips scores → A2 falls back to rank-based fusion. The path selection doesn't change, but the fusion quality does. See §15 (plugin dependency policy) and §8 ("vectorScore depends on whether Similharity is installed") for the full split.
 
 ### GUI hide/show rules
 
-| Backend                       | Visible in Core                                                                                      | Visible in ChunkBase   |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------- |
-| **Qdrant** (A3 — only option) | Native-active notice + CJK tokenizer dropdown (Keywords card). **Fusion and RRF K are hidden**: Qdrant ignores them. | *(no hybrid controls)* |
-| **Standard + BM25** (A1)      | Method, BM25 k1, BM25 b                                                                              | Query keyword budget   |
-| **Standard + Hybrid** (A2)    | Method, BM25 k1, BM25 b, Fusion, RRF K                                                               | Query keyword budget   |
+| Backend                       | Visible on Core → Keyword scoring                                                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Qdrant** (A3 — only option) | The native-active notice. Method, BM25 k1/b, Collection-wide word rarity, Query keyword budget, Fusion and RRF K are hidden: Qdrant ignores them. |
+| **Standard + BM25** (A1)      | Method, BM25 k1, BM25 b, Collection-wide word rarity, Query keyword budget                                                          |
+| **Standard + Hybrid** (A2)    | The same, plus Fusion and RRF K (Vector and Text weight in place of RRF K when Fusion is Weighted)                                  |
 
 Notes:
 
@@ -655,25 +596,7 @@ A3 leverages **all four** of Qdrant's relevant server-side features:
 - A3 server entrypoint: `hybridQueryNative()` at [similharity/qdrant-backend.js](../../similharity/qdrant-backend.js).
 - Sparse encoder: [src/features/vector-backend/sparse-vector-encoder.js](../src/features/vector-backend/sparse-vector-encoder.js).
 - Tokenizer lock + mismatch modal: [src/features/vector-backend/tokenizer-lock.js](../src/features/vector-backend/tokenizer-lock.js).
-- EventBase invocation: direct `queryCollection` calls in [src/features/eventbase/eventbase-retrieval.js](../src/features/eventbase/eventbase-retrieval.js), [src/features/eventbase/eventbase-workflow.js](../src/features/eventbase/eventbase-workflow.js).
-
----
-
-## 12) Trigger / Condition Activation — Language-Neutral
-
-Activation Triggers and Advanced Conditions (in a collection's Collection Settings) are **language-neutral**. They work for CJK (Chinese / Japanese / Korean) stories the same as for English.
-
-### Why it works for any language
-
-**Triggers** and the text-matching conditions (`pattern` / `speaker` / `characterPresent` / `lorebookActive`) match against recent messages with JavaScript `String.includes()` — see `checkTriggers()` in `src/features/collections/collection-metadata.js` and `evaluatePatternCondition()` in `src/features/collections/conditional-activation.js`. Substring matching is inherently language-neutral: `"還債".includes("還債")` is `true` regardless of script or whitespace. There is no tokenization or word-boundary assumption in the plain-string path.
-
-**Numeric / structural conditions** — Message Count, Swipe Count, Time of Day, Generation Type, Group Chat, Random Chance — never inspect text and are trivially language-independent.
-
-**Manual always-on** — the lock switch ("Active for this chat" or "Active for this character") and Manage locks have no language dependency.
-
-### One caveat: user-supplied regex
-
-A trigger or `pattern` value wrapped in `/.../` is run as a real `RegExp`. If *you* type an ASCII word-boundary (`\b`) in that regex, it will not fire between CJK characters — that is a property of the regex you wrote, not of VectFox. For CJK, prefer plain substrings, or use Unicode word boundaries with the `u` flag (e.g. `/\p{L}+/u`).
+- EventBase invocation: `eventSearchSettings()` and `searchEventCollection()` in [src/features/eventbase/eventbase-search.js](../src/features/eventbase/eventbase-search.js), and the per-collection `backend.queryCollection` calls in [src/features/eventbase/eventbase-retrieval.js](../src/features/eventbase/eventbase-retrieval.js).
 
 ---
 
@@ -889,7 +812,7 @@ Marker key: ✅ runs, ⏭️ soft-skips, — n/a.
 | **000**    | Every VectFox file loads from the deployed copy                                                      | ✅                       | ✅                                | ✅                                |
 | **002**    | Qdrant EventBase                                                                                     | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **003**    | E2E qdrant: a locked EventBase collection returns results                                            | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
-| **004**    | DB Browser qdrant (a document collection)                                                            | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
+| **004**    | DB Browser qdrant (an EventBase collection)                                                          | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
 | **006**    | Standard EventBase + parseEmbedText                                                                  | ✅                       | ✅ (plugin enhances)              | ✅ (plugin enhances)              |
 | **007**    | E2E standard: a locked EventBase collection returns results                                          | ✅                       | ✅ (plugin enhances)              | ✅ (plugin enhances)              |
 | **008**    | DB Browser standard + **plugin**                                                                     | ⏭️ no plugin            | ✅                                | ✅                                |
@@ -899,25 +822,19 @@ Marker key: ✅ runs, ⏭️ soft-skips, — n/a.
 | **014**    | Auto-sync backfill: fingerprint cache prevents duplicate windows                                     | ✅                       | ✅                                | ✅                                |
 | **015**    | Auto-sync window-size change: start marker filters obsolete windows                                  | ✅                       | ✅                                | ✅                                |
 | **016**    | `stampAutoSyncMarker` smart placement (Branch A early-exit, B no-candidate, C empty-candidate, re-stamp overwrites) | ✅                       | ✅                                | ✅                                |
-| **017**    | Pause button (`enabled=false`) blocks activation even when locked — the pause gate comes before the lock gate  | ✅                       | ✅                                | ✅                                |
-| **018**    | `shouldCollectionActivate` gate chain: lock required / trigger narrows / trigger and condition both pass / lock alone | ✅                       | ✅                                | ✅                                |
+| **017**    | Pause button (`enabled=false`) keeps a locked EventBase collection out of retrieval, and Resume brings it back with its lock | ✅                       | ✅                                | ✅                                |
 | **019**    | AutoSync refresh smoke: the refresh path is a pure UI mirror (locks/autoSync/enabled unchanged after 3× idempotent calls) | ✅                       | ✅                                | ✅                                |
-| **020**    | Qdrant: per-chunk override is backend-first (survives ext_settings wipe)                             | ⏭️ no plugin            | ⏭️ no qdrant config              | ✅                                |
-| **021**    | Standard+plugin: per-chunk override is backend-first (survives ext_settings wipe)                   | ⏭️ no plugin            | ✅                                | ✅                                |
-| **022**    | Standard+plugin: context/xmlTag wrapping + force link through retrieval (backend-first)              | ⏭️ no plugin            | ✅                                | ✅                                |
 | **023**    | Auto-sync settle/commit lag: swipes on the active turn never extract                                 | ✅                       | ✅                                | ✅                                |
 | **024**    | EventBase LLM extraction: real provider round-trip (soft-skips without a chat model)                 | ✅                       | ✅                                | ✅                                |
-| **025**    | Auto-Reformat: real provider splits a multi-entity section (soft-skips without a model)              | ✅                       | ✅                                | ✅                                |
-| **026**    | Acronym glossary: deployed-module grounding smoke (no LLM)                                           | ✅                       | ✅                                | ✅                                |
-| **Totals** |                                                                                                      | **14 passed, 9 skipped**  | **17 passed, 6 skipped**         | **23 passed, 0 skipped**          |
+| **Totals** |                                                                                                      | **11 passed, 6 skipped**  | **12 passed, 5 skipped**         | **17 passed, 0 skipped**          |
 
 ### Skip logic that drives the matrix
 
 | Helper                      | Used by                    | Skip condition                                                                                       |
 | --------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `skipIfQdrantUnavailable()` | TEST 002-004, 012-013, 020 | (a) Plugin probe fails, **or** (b) `qdrant_url`/`qdrant_host` not set in `extension_settings.vectfox`, **or** (c) qdrant config is set but qdrant is unreachable (emits a **WARNING** in the skip reason). |
-| `skipIfNoPlugin()`          | TEST 008, 021, 022         | Plugin probe fails.                                                                                  |
-| (none)                      | TEST 000, 006-007, 009, 014-019, 023-026 | These run in every environment. Split by what they exercise: **000** = every VectFox file loads from the deployed copy; **023** = settle/commit lag; **024/025** = real LLM round trips, which log `[SKIP]` when no model is configured; **026** = glossary grounding smoke; **006-007** = real backend round-trips (standard backend embedding + chat retrieval); **009** = forces `pluginAvailable=false` to exercise no-plugin native path; **014-016** = pure-function auto-sync contracts (fingerprint cache, start marker, `stampAutoSyncMarker`); **017-019** = pure in-memory collection-metadata contracts (pause button overrides lock, gate chain, refresh-path purity). 014-019 don't need the plugin nor any backend — they operate directly on `extension_settings.vectfox` state and the registry. See [collection_helper.md → Auto-sync](collection_helper.md) for the 014/015/016 contract, and the same doc's "Pause/Resume" + "Manual vs auto-sync paths" sections for the 017/019 contract. |
+| `skipIfQdrantUnavailable()` | TEST 002-004, 012-013      | (a) Plugin probe fails, **or** (b) `qdrant_url`/`qdrant_host` not set in `extension_settings.vectfox`, **or** (c) qdrant config is set but qdrant is unreachable (emits a **WARNING** in the skip reason). |
+| `skipIfNoPlugin()`          | TEST 008                   | Plugin probe fails.                                                                                  |
+| (none)                      | TEST 000, 006-007, 009, 014-017, 019, 023-024 | These run in every environment. Split by what they exercise: **000** = every VectFox file loads from the deployed copy; **023** = settle/commit lag; **024** = a real LLM round trip, which logs `[SKIP]` when no model is configured; **006-007** = real backend round-trips (standard backend embedding + chat retrieval); **009** = forces `pluginAvailable=false` to exercise no-plugin native path; **014-016** = pure-function auto-sync contracts (fingerprint cache, start marker, `stampAutoSyncMarker`); **017** = a Standard-backend round trip: a paused collection's event stays out of EventBase's injection though it is locked, and Resume keeps the lock; **019** = an in-memory contract: the refresh path leaves locks, auto-sync and the pause switch as they were. 014-016 and 019 don't need the plugin nor any backend — they operate directly on `extension_settings.vectfox` state and the registry. See [collection_helper.md → Auto-sync](collection_helper.md) for the 014/015/016 contract, and the same doc's "Pause/Resume" + "Manual vs auto-sync paths" sections for the 017/019 contract. |
 
 **The unreachable-qdrant case** (config present but server down) is a soft skip with a WARNING-flavored reason, NOT a hard failure. The reasoning:
 
@@ -941,51 +858,3 @@ If qdrant **is** actually broken (down for the wrong reason) and the user **does
 - Spec-level `test.skip(condition, reason)` in [tests/Eventbase-test.spec.js](../tests/Eventbase-test.spec.js) — uses helpers `skipIfQdrantUnavailable()` and `skipIfNoPlugin()`. Marks the test ⏭️ in the Playwright report.
 - In-eval defensive checks emit `[SKIP]` log lines that `assertPassed()` treats as soft-pass (no `[FAIL]`, no `[PASS]` required). Belt-and-suspenders for any case where the spec-level check doesn't fire.
 - Plugin probe is cached per-page so the suite doesn't hit `/api/plugins/similharity/probe` more than once.
-
----
-
-## 16) Known Pending Cleanups
-
-### 16.1 ChunkBase phase early-gate — broaden vs current  (mainly performance issue, spending 20ms unnecessarily)
-
-**Status**: Deferred; no code change.
-
-`rearrangeChat` ([src/features/chunkbase/chat-vectorization.js:946](../src/features/chunkbase/chat-vectorization.js#L946)) runs **EventBase Phase A** then unconditionally falls through to **ChunkBase Phase B**. (It also early-returns above Phase A entirely when `isVectFoxEnabled(settings)` is false — that master-switch gate is orthogonal to the Phase B early-gate discussed here.) Phase B has two existing gates:
-
-1. **Early (cheap)** at [line 1041-1046](../src/features/chunkbase/chat-vectorization.js#L1041): `gatherCollectionsToQuery(settings).length > 0` — passes if *any* chunk collection (not an event, archived-event or lorebook collection) has `enabled=true`. No lock/scope/activation check.
-2. **Post-activation (expensive)** at [line 1070](../src/features/chunkbase/chat-vectorization.js#L1070): `filterActiveCollections` runs the full `shouldCollectionActivate` gate chain (pause → lock → triggers → conditions).
-
-EventBase-only users (the typical case) hit gate 1 and short-circuit — debug log `[VECTFOX ChunkBase] No enabled ChunkBase collections ...` fires once per generation to confirm.
-
-**What was considered**: tightening the early gate so it requires not just "enabled" but "enabled AND has some activation mechanism that could match the current context" — would avoid the keyword-extraction work at [line 1055-1059](../src/features/chunkbase/chat-vectorization.js#L1055-L1059) when a user has enabled chunk collections that aren't locked to the current chat or character.
-
-**Why deferred**: activation requires a lock (gate 2 of `shouldCollectionActivate`), so a cheap `enabled AND (chat-locked OR character-locked)` pre-check matches every activation path. The saving is about 20ms per generation — not worth doing in isolation; revisit if/when we touch Phase B for another reason.
-
-**Caller count**: 1 — `rearrangeChat` is the only place running the EventBase→ChunkBase ordered workflow ([src/index.js:449](../src/index.js#L449) — `vectfox_rearrangeChat` is its sole caller via ST's `generate_interceptor`). No util-extraction is needed if/when we change the gate.
-
-**Search tag in code**: none yet. When acted on, target [src/features/chunkbase/chat-vectorization.js:1042](../src/features/chunkbase/chat-vectorization.js#L1042) (the `if (!collectionsToQuery.length)` block).
-
----
-
-### 16.4 Purge redundant `vectfox_chunk_meta_*` keys from `extension_settings` — pending
-
-**Status**: Pending — run it once the backend-first reads have served real traffic for a few months (they went live 2026-06-01).
-**Depends on**: Phase B of `InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md` having run in real use for a while.
-
-**Background**: per-chunk metadata (`name`, `context`, `xmlTag`, `position`, `depth`, `keywords`, `links`, `enabled`) lives in the vector backend (Vectra-via-plugin / Qdrant), the durable, portable source of truth. `extension_settings['vectfox_chunk_meta_*']` holds copies from the dual write, which Phase B of the read-source fix stopped; every reader is backend-first and keeps those copies only as a read fallback.
-
-**What this cleanup is**: once Phase B has been live long enough that we're confident no reader still falls back to `extension_settings` for the targeted fields, write a one-shot purge that removes the now-orphaned `vectfox_chunk_meta_*` keys from `settings.json`.
-
-**Why it waits**:
-
-- Phase A/B keep the ext_settings **read fallback** specifically to protect any chunk whose backend payload lacks a field — chiefly chunks text-edited under the old R8 path, whose annotations live only in ext_settings (see `InternalProject/Vectfox/plans/executed/chunk-metadata-read-source-fix.md` §4.6/§5). Purging immediately would remove that safety net before we've validated the backend-first paths in real usage.
-- No reconciliation pass was run (intentional — dual-write means the backend already mirrors ext_settings for everything except R8 text-edited chunks). Give the backend-first paths a few months of real traffic before pulling the fallback.
-
-**No backfill (user decision).** We do **not** backfill the R8 orphan set before purging. Losing those chunks' annotations does not break anything — fields degrade to defaults and the chunk text is preserved. The user accepts the loss of post-import annotations on text-edited chunks (re-annotatable). So this purge can run after the soak as a straight delete, no backfill stage.
-
-**When implementing**:
-
-- Iterate `extension_settings.vectfox`, match the `vectfox_chunk_meta_` prefix (see `getAllChunkMetadata()` in [src/features/collections/collection-metadata.js:373](../src/features/collections/collection-metadata.js#L373)), delete those keys, `saveSettingsDebounced()`.
-- Gate it: only purge fields that Phase B confirmed are backend-authoritative. If any field is still client-only (e.g. `summaries`, or some genuinely local UI state), preserve those keys/sub-fields.
-- Per `CLAUDE.md`, this is migration logic — **confirm with the user before adding it**, and consider a one-time guarded run (versioned flag) rather than something that fires on every load.
-- Tripwire: a user who downgrades to a pre-Phase-B build after the purge would lose their per-chunk overrides from the UI's perspective *only if* that old build read ext_settings-first — which it did. The backend still has the data; the old build just wouldn't show/use it. Acceptable, but note it in the purge's release notes.

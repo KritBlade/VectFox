@@ -20,7 +20,6 @@ vi.mock('../src/features/collections/index.js', () => ({
     loadAllCollections: async () => host.collections.map(collection => ({ ...collection })),
     getCollectionListing: () => [],
     cleanupOrphanedMeta: () => ({ removed: 0 }),
-    getCollectionActivationSummary: () => ({ mode: 'auto' }),
     sanitizeHandleId: name => String(name ?? '').toLowerCase(),
 }));
 vi.mock('../src/features/eventbase/index.js', async () => ({

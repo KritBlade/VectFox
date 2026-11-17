@@ -95,7 +95,7 @@ describe('remapCollectionIdToHandle', () => {
 
     it('does not corrupt the char/uuid tail when remapping', () => {
         // char name itself contains underscores — only the handle segment must change
-        const out = remapCollectionIdToHandle('vf_character_qdrant_wanderer_my_long_char_name_999', 'rabbit');
-        expect(out).toBe('vf_character_qdrant_rabbit_my_long_char_name_999');
+        const out = remapCollectionIdToHandle('vf_eventbase_qdrant_wanderer_my_long_char_name_999', 'rabbit');
+        expect(out).toBe('vf_eventbase_qdrant_rabbit_my_long_char_name_999');
     });
 });

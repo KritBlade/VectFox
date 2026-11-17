@@ -77,16 +77,11 @@ describe('the runner', () => {
         ];
         vi.doMock('../src/features/diagnostics/infrastructure-checks.js', () => Object.fromEntries(infrastructureNames.map(name => [name, recorded(name)])));
         vi.doMock('../src/features/diagnostics/configuration-checks.js', () => Object.fromEntries([
-            'checkChunkBaseSimilarityThreshold', 'checkInsertQueryCounts', 'checkChatVectors', 'checkConditionalActivationModule',
-            'checkCollectionIdFormat', 'checkHashCollisionRate', 'checkChatMetadataIntegrity', 'checkCollectionRegistryStatus',
-            'checkPromptContextConfig', 'checkPNGExportCapability',
+            'checkQueryDepth', 'checkCollectionRegistryStatus', 'checkPromptContextConfig', 'checkPNGExportCapability',
         ].map(name => [name, recorded(name)])));
         vi.doMock('../src/features/diagnostics/production-tests.js', () => Object.fromEntries([
-            'testEmbeddingGeneration', 'testVectorStorage', 'testVectorRetrieval', 'testVectorDimensions', 'testChunkServerSync',
-            'testDuplicateHashes', 'testPluginEmbeddingGeneration', 'testReciprocalRankFusion', 'testWeightedCombination',
-            'testKeywordExtraction', 'sweepLeftoverTestCollections',
+            'testEmbeddingGeneration', 'testVectorStorage', 'testPluginEmbeddingGeneration', 'testReciprocalRankFusion', 'testWeightedCombination', 'sweepLeftoverTestCollections',
         ].map(name => [name, recorded(name)]).concat([['isDiagnosticCollection', () => false]])));
-        vi.doMock('../src/features/diagnostics/activation-tests.js', () => ({ testConditionalActivation: vi.fn(async () => []) }));
         vi.doMock('../src/features/diagnostics/visualizer-tests.js', () => ({ runVisualizerTests: vi.fn(async () => []) }));
         vi.doMock('../src/features/collections/index.js', () => ({ cleanupTestCollections: vi.fn(() => 0) }));
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));

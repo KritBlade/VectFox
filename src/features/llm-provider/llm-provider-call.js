@@ -3,7 +3,7 @@
  * LLM PROVIDER CALL (shared)
  * ============================================================================
  * The chat-completions plumbing that VectFox's LLM features share
- * (eventbase-extractor.js, agentic-retrieval.js, reformat-extractor.js), on two
+ * (eventbase-extractor.js, agentic-retrieval.js, lorebase-connection.js), on two
  * paths. Manual OpenRouter and vLLM: build the request body → POST through ST's
  * proxy → classify the response (auth / model-config / connection / generic).
  * A SillyTavern connection profile: check the profile → send through ST's
@@ -248,7 +248,7 @@ export function resolveModelParameterStyle(settings = {}) {
  * @param {boolean}  [opts.authBranch=true]  give 401/403 a dedicated 'auth' error
  * @param {boolean}  [opts.shouldNotifyProviderFailure=true] let this shared call raise the
  *        de-duped toast for provider failures (unreachable endpoint, upstream rejection).
- *        Pass false when the CALLER owns its own error surfacing, as Auto-Reformat does.
+ *        Pass false when the CALLER owns its own error surfacing, as LoreBase and Test connection do.
  * @param {boolean}  [opts.sendTemperature=true] false = don't send `temperature` at all
  *        (reasoning models accept only their own default). From resolveModelParameterStyle.
  * @param {string}   [opts.tokenLimitParameter='max_tokens'] body key for the output-token
@@ -590,7 +590,7 @@ function _throwForReplyWithoutText({
  * for the top-level record array); falls back to an empty array for a legit
  * "nothing found" response.
  *
- * EventBase and Auto-Reformat both read their records with it, each naming the
+ * EventBase and LoreBase both read their records with it, each naming the
  * keys that mark a real record. Throws LlmCallError{kind:'parse'} on unrecoverable
  * output; the caller maps it to its own extraction error.
  *

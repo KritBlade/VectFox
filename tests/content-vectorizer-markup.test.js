@@ -1,15 +1,27 @@
 /**
  * @vitest-environment jsdom
  *
- * Vectorize Content's markup (src/features/chunkbase/content-vectorizer-markup.js): a rail of the content types in two
- * groups and a page for each, side by side with ids of their own, each with the cards its type uses.
+ * Vectorize Content's markup (src/features/eventbase/content-vectorizer-markup.js): a rail holding the Chat row under
+ * From SillyTavern and the Chat page, its controls with ids of their own, its cards in order (Source, Windows with
+ * EventBase's window sliders, Options with Text cleaning alone, Vectorize), a Source card that offers a chat file when
+ * no chat is open, and the parts the wiring paints.
  */
 /* global document -- this file runs under the jsdom environment */
 
 import { describe, expect, it } from 'vitest';
-import { contentVectorizerMarkup, cvId, loadedSourceMarkup, reformatMarkup, wikiPluginMarkup } from '../src/features/chunkbase/content-vectorizer-markup.js';
+import {
+    CHAT_TYPE_ID,
+    VECTORIZER_ROOT_ID,
+    contentVectorizerMarkup,
+    currentChatMarkup,
+    cvId,
+    cvPageId,
+    cvTabId,
+    loadedSourceMarkup,
+} from '../src/features/eventbase/content-vectorizer-markup.js';
 
-const VIEW = { chat: { messageCount: 2400, characterName: 'Harbor Keeper', chatId: 'abc-123' }, characterName: 'Harbor Keeper', cleaningPresets: [{ id: 'light', name: 'Light', description: 'Strips markup.' }], cleaningPreset: 'light' };
+const CHAT = { messageCount: 2400, characterName: 'Harbor Keeper', chatId: 'abc-123' };
+const VIEW = { chat: CHAT, cleaningPresets: [{ id: 'light', name: 'Light', description: 'Strips markup.' }, { id: 'custom', name: 'Custom', description: 'Your own patterns.' }], cleaningPreset: 'light' };
 
 function parse(markup) {
     const template = document.createElement('template');
@@ -17,48 +29,78 @@ function parse(markup) {
     return template.content;
 }
 
-const dialog = parse(contentVectorizerMarkup({ activeTypeId: 'character', view: VIEW }));
-const has = (typeId, name) => Boolean(dialog.querySelector(`#${cvId(typeId, name)}`));
+const dialog = parse(contentVectorizerMarkup({ view: VIEW }));
+const control = name => dialog.querySelector(`#${cvId(CHAT_TYPE_ID, name)}`);
+const part = (root, name) => root.querySelector(`[data-cv-part="${name}"]`);
 
 describe('the dialog', () => {
-    it('lists the six types in two groups, with no lorebook, and shows only the active page', () => {
-        expect([...dialog.querySelectorAll('.vfx-nav-group')].map(group => group.textContent)).toEqual(['From SillyTavern', 'From outside']);
-        expect([...dialog.querySelectorAll('.vfx-nav-item')].map(item => item.id.replace('vectfox_cv_tab_', '')))
-            .toEqual(['chat', 'character', 'document', 'url', 'wiki', 'youtube']);
-        expect([...dialog.querySelectorAll('.vfx-page')].filter(page => page.style.display !== 'none').map(page => page.dataset.cvType)).toEqual(['character']);
-        expect(dialog.querySelector('.vfx-nav-item.is-active').id).toBe('vectfox_cv_tab_character');
+    it('shows the Chat row alone under From SillyTavern, active, beside the Chat page', () => {
+        expect(dialog.firstElementChild.id).toBe(VECTORIZER_ROOT_ID);
+        expect([...dialog.querySelectorAll('.vfx-nav-group')].map(group => group.textContent)).toEqual(['From SillyTavern']);
+        expect([...dialog.querySelectorAll('.vfx-nav-item')].map(item => item.id)).toEqual([cvTabId(CHAT_TYPE_ID)]);
+        expect(dialog.querySelector('.vfx-nav-item.is-active').id).toBe('vectfox_cv_tab_chat');
+        expect([...dialog.querySelectorAll('.vfx-page')].map(page => [page.id, page.dataset.cvType])).toEqual([[cvPageId(CHAT_TYPE_ID), 'chat']]);
     });
 
-    it('gives every control an id of its own across the pages', () => {
+    it('gives every control an id of its own, and every label a control', () => {
         const ids = [...dialog.querySelectorAll('[id]')].map(element => element.id);
         expect(new Set(ids).size).toBe(ids.length);
         for (const label of dialog.querySelectorAll('label[for]')) expect(dialog.querySelector(`#${label.htmlFor}`)).not.toBeNull();
     });
 
-    it('gives each type its cards: a chat its windows and Resume, and no page a disabled-entries switch', () => {
-        expect(has('chat', 'window_size') && has('chat', 'parallel_windows') && has('chat', 'start_from')).toBe(true);
-        expect(has('chat', 'strategy')).toBe(false);
-        expect(dialog.querySelector(`#vectfox_cv_page_chat [data-cv-action="resume"]`)).not.toBeNull();
-        expect(dialog.querySelector(`#vectfox_cv_page_chat [data-cv-action="preview"]`)).toBeNull();
+    it('draws the Source, Windows, Options and Vectorize cards in order, with no ChunkBase control', () => {
+        expect([...dialog.querySelectorAll('.vfx-card')].map(card => card.id))
+            .toEqual(['source_card', 'windows_card', 'options_card', 'run_card'].map(name => cvId(CHAT_TYPE_ID, name)));
+        expect([...dialog.querySelectorAll('.vfx-card-title')].map(title => title.textContent)).toEqual(['Source', 'Windows', 'Options', 'Vectorize']);
+        expect([...control('windows_card').querySelectorAll('input[type="number"]')].map(box => box.id))
+            .toEqual(['parallel_windows', 'window_size', 'window_overlap'].map(name => cvId(CHAT_TYPE_ID, name)));
+        expect(control('start_from')).not.toBeNull();
+        expect(control('strategy')).toBeNull();
+        expect(dialog.querySelector('[data-cv-action="preview"]')).toBeNull();
         expect(dialog.querySelector('[id$="_include_disabled"]')).toBeNull();
-        expect(dialog.querySelectorAll('[data-cv-field]')).toHaveLength(8);
-        expect(['document', 'url', 'wiki'].every(typeId => has(typeId, 'reformat_card'))).toBe(true);
-        expect(['chat', 'character', 'youtube'].some(typeId => has(typeId, 'reformat_card'))).toBe(false);
-        expect(dialog.querySelector('#vectfox_cv_page_chat').textContent).toContain('Messages: 2,400');
+        expect(dialog.querySelectorAll('[data-cv-field]')).toHaveLength(0);
+        expect(control('reformat_card')).toBeNull();
+    });
+
+    it('holds Text cleaning alone in the Options card, its chosen preset shown with its description', () => {
+        const options = control('options_card');
+        expect([...options.querySelectorAll('select, input, textarea')].map(element => element.id)).toEqual([cvId(CHAT_TYPE_ID, 'cleaning_preset')]);
+        expect(control('cleaning_preset').value).toBe('light');
+        expect(options.querySelector('[data-cv-hint="cleaning-note"]').textContent).toBe('Strips markup.');
+        expect(options.querySelector('[data-cv-action="manage-cleaning"]')).not.toBeNull();
+    });
+
+    it('reads the open chat by default, with Resume and Vectorize, and Stop hidden until a run starts', () => {
+        expect(control('source_choice').value).toBe('this');
+        expect(part(dialog, 'this').hidden).toBe(false);
+        expect(part(dialog, 'file').hidden).toBe(true);
+        expect(part(dialog, 'this').textContent).toContain('Messages: 2,400');
+        expect(['resume', 'vectorize'].every(name => dialog.querySelector(`[data-cv-action="${name}"]`))).toBe(true);
+        expect(part(dialog, 'stop').hidden).toBe(true);
+    });
+
+    it('offers a chat file when no chat is open, naming the files it takes', () => {
+        const noChat = parse(contentVectorizerMarkup({ view: { ...VIEW, chat: null } }));
+        expect(noChat.querySelector(`#${cvId(CHAT_TYPE_ID, 'source_choice')}`).value).toBe('file');
+        expect(part(noChat, 'this').hidden).toBe(true);
+        expect(part(noChat, 'this').textContent).toContain('No chat is open.');
+        expect(part(noChat, 'file').hidden).toBe(false);
+        expect(part(noChat, 'file').querySelector('[data-cv-action="choose-file"]')).not.toBeNull();
+        expect(part(noChat, 'file').querySelector('.vfx-code').textContent).toBe('.txt .jsonl .json');
     });
 });
 
 describe('painted parts', () => {
-    it('says a wiki\'s plugin is ready, or links to it when missing', () => {
-        expect(parse(wikiPluginMarkup({ isAvailable: true, wikiName: 'Fandom', pluginUrl: 'u' })).textContent).toContain('Fandom scraper ready');
-        const missing = parse(wikiPluginMarkup({ isAvailable: false, wikiName: 'Fandom', pluginUrl: 'https://example.com/plugin' }));
-        expect(missing.querySelector('a').href).toBe('https://example.com/plugin');
+    it('shows the open chat\'s messages, character and ID', () => {
+        const chat = parse(currentChatMarkup(CHAT));
+        expect(chat.textContent).toContain('Messages: 2,400');
+        expect(chat.textContent).toContain('Character: Harbor Keeper');
+        expect(chat.querySelector('.vfx-code').textContent).toBe('abc-123');
     });
 
-    it('shows a loaded source\'s pills or why it failed, and Auto-Reformat\'s states', () => {
-        expect(parse(loadedSourceMarkup({ state: 'done', lines: [{ text: 'Pages', name: '3' }] })).textContent).toBe('Pages: 3');
-        expect(parse(loadedSourceMarkup({ state: 'failed', reason: 'Forbidden' })).textContent).toContain('Forbidden');
-        expect(parse(reformatMarkup({ state: 'accepted', entryCount: 12 })).querySelector('[data-cv-action="reformat-discard"]')).not.toBeNull();
-        expect(parse(reformatMarkup({ state: 'idle' })).querySelector('[data-cv-action="reformat"]')).not.toBeNull();
+    it('shows a loaded chat file\'s pills, the file being read, or why it failed', () => {
+        expect(parse(loadedSourceMarkup({ state: 'done', lines: [{ text: 'Messages', name: '3' }] })).textContent).toBe('Messages: 3');
+        expect(parse(loadedSourceMarkup({ state: 'busy', busyText: 'Reading harbor.jsonl…' })).textContent).toBe('Reading harbor.jsonl…');
+        expect(parse(loadedSourceMarkup({ state: 'failed', reason: 'It holds no messages.' })).textContent).toContain('It holds no messages.');
     });
 });

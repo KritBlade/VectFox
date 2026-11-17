@@ -47,7 +47,6 @@ const VIEW = {
     model: '',
     hasMultipleModels: false,
     activeHereLine: '',
-    activationMode: 'auto',
     canCompact: false,
     hasStoryLinks: false,
 };
@@ -122,12 +121,11 @@ describe('a collection in the list', () => {
         expect(pillsOf(entry)).toContain('bge-m3');
     });
 
-    it('says which lock makes it active here, and names its activation mode', () => {
+    it('says which lock makes it active here', () => {
         const line = 'Locked to this chat';
-        const entry = parse(collectionEntryMarkup({ ...VIEW, activeHereLine: line, activationMode: 'triggers' }));
-        expect(pillsOf(entry)).toEqual(expect.arrayContaining(['Active here', 'Triggers']));
+        const entry = parse(collectionEntryMarkup({ ...VIEW, activeHereLine: line }));
+        expect(pillsOf(entry)).toEqual(['Chat', 'Active here']);
         expect(entry.textContent).toContain(line);
-        expect(pillsOf(parse(collectionEntryMarkup({ ...VIEW, activationMode: 'conditions' })))).toContain('Conditions');
     });
 
     it('offers Compact collection, just before Delete, only to a collection it can clean', () => {

@@ -2,42 +2,36 @@
 // and injection, AgentMode retrieval, forking an EventBase onto a branch, and the summarizer injection. The settings
 // panel runs the Test connection of the EventBase model, Agent Mode's planner and StoryArc's link model here.
 //
-// chunkbase imports this feature dynamically: its generation interceptor runs EventBase retrieval and the
-// summarizer injection, and its content vectorizer runs ingestion. src/index.js hands
-// clearCachesForDeletedOrImportedCollection to collection deletion and import; src/app/ runs
-// ensureEventBaseIndexes and pruneOrphanedEventBaseChatMaps at startup. The Database Browser runs a
-// collection's StoryArc link actions and Compact collection here.
+// src/index.js runs the reply step (runEventBaseReplyStep) from the manifest's generation interceptor and auto-sync
+// (synchronizeChat) on chat events, and hands clearCachesForDeletedOrImportedCollection to collection deletion and
+// import; src/app/ runs ensureEventBaseIndexes and pruneOrphanedEventBaseChatMaps at startup. The settings panel opens
+// Vectorize Content and runs Sync chat and the auto-sync catch-up. The Database Browser runs a collection's StoryArc
+// link actions and Compact collection here.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
+export { backfillCurrentChatWithProgress, openContentVectorizer, syncOpenChat } from './content-vectorizer.js';
 export { describeCompaction } from './eventbase-compaction-core.js';
 export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';
+export { synchronizeChat } from './eventbase-chat-sync.js';
 export { testEventBaseConnection } from './eventbase-extractor.js';
 export { findEventBaseForkSource, forkEventBaseFromSource } from './eventbase-fork.js';
+export { clearInterceptorPrompts, runEventBaseReplyStep } from './eventbase-reply.js';
 export { packTimelineSortKey } from './eventbase-schema.js';
 export {
     FAR_BEHIND_WINDOW_COUNT,
-    checkWindowSizeChanged,
     clearAutoSyncMarker,
     clearCachesForDeletedOrImportedCollection,
     countWindowsBehind,
     ensureEventBaseIndexes,
     eventPointHash,
-    findEventBaseCollectionsForChat,
     getVectorizationTip,
-    pauseAutoSyncForChat,
-    prepareForFreshExtraction,
     pruneOrphanedEventBaseChatMaps,
-    resolveEventBaseWriteTarget,
-    setLastUsedWindowSize,
     stampAutoSyncMarker,
 } from './eventbase-store.js';
 export {
-    countUnfinishedWindows,
     getAutoSyncWindowSize,
     getChatAutoSyncStatus,
-    notifyUnfinishedWindows,
-    runEventBaseIngestion,
     runEventBaseRetrieval,
 } from './eventbase-workflow.js';
 export { getEventBaseExtractionPrompt } from './prompts-i18n.js';
@@ -56,8 +50,6 @@ export {
 export { storyArcPageMarkup } from './story-arc-page-markup.js';
 export { hideStoryArcPage, showStoryArcPage, wireStoryArcPage } from './story-arc-page.js';
 export {
-    applyGhosting,
     buildSummarizerInjection,
     refreshWorldInfoEntryDepthCache,
-    runSummarizerInjection,
 } from './summarizer-injection.js';

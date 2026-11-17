@@ -42,7 +42,7 @@ export const BROWSER_ROOT_ID = 'vectfox_database_browser';
 /** The browser's pages, in nav order. */
 export const BROWSER_PAGES = Object.freeze([
     { name: 'collections', icon: 'fa-folder-open', title: 'Collections', subtitle: 'Your collections: what each holds, where it is stored and when it is used.' },
-    { name: 'search', icon: 'fa-magnifying-glass', title: 'Search', subtitle: 'Searches every collection by meaning, the way retrieval does.' },
+    { name: 'search', icon: 'fa-magnifying-glass', title: 'Search', subtitle: 'Searches every collection by meaning and words, as Core → Keyword scoring sets.' },
     { name: 'size', icon: 'fa-weight-hanging', title: 'Size Inspector', subtitle: 'Finds entries large enough to bloat the prompt.' },
 ]);
 
@@ -64,17 +64,7 @@ const SIMILHARITY_INSTALL_URL = 'https://github.com/KritBlade/VectFox/tree/Simil
 // The icon for each collection type; a type not listed gets a cube (collectionTypeIcon).
 const TYPE_ICONS = Object.freeze({
     chat: 'fa-message',
-    file: 'fa-file-lines',
-    doc: 'fa-file-lines',
-    paste: 'fa-file-lines',
-    select: 'fa-file-lines',
-    current: 'fa-file-lines',
     lorebook: 'fa-book-open',
-    character: 'fa-user',
-    persona: 'fa-user',
-    url: 'fa-globe',
-    wiki: 'fa-globe',
-    youtube: 'fa-globe',
 });
 
 /**
@@ -88,11 +78,6 @@ export function collectionTypeIcon(type) {
 }
 
 const SCOPE_PILL_TEXT = Object.freeze({ character: 'Character', chat: 'Chat' });
-
-const ACTIVATION_PILLS = Object.freeze({
-    triggers: { text: 'Triggers', icon: 'fa-key' },
-    conditions: { text: 'Conditions', icon: 'fa-filter' },
-});
 
 function browserPage(name, content) {
     const page = BROWSER_PAGES.find(each => each.name === name);
@@ -123,10 +108,6 @@ function filtersCard() {
                 select({ id: 'vectfox_browser_type', options: [
                     selectOption({ value: 'all', text: 'All types', isSelected: true }),
                     selectOption({ value: 'chat', text: 'Chats' }),
-                    selectOption({ value: 'lorebook', text: 'Lorebooks' }),
-                    selectOption({ value: 'character', text: 'Characters' }),
-                    selectOption({ value: 'document', text: 'Documents' }),
-                    selectOption({ value: 'web', text: 'Web pages' }),
                 ] }),
             ])}
             ${field([
@@ -184,10 +165,9 @@ function collectionsPage() {
         + filtersCard()
         + collectionsCard()
         + dangerZone({
-            title: 'Registry and Auto-Reformat originals',
+            title: 'Registry',
             buttons: [
                 { id: 'vectfox_reset_registry', icon: 'fa-arrows-rotate', text: 'Resync registry', tooltip: 'Clears the list of collections VectFox keeps, then scans the backends again.' },
-                { id: 'vectfox_browser_clear_reformat_originals', icon: 'fa-broom', text: 'Clear originals', tooltip: 'Deletes the source text Auto-Reformat kept for review. The chunks stay.' },
             ],
         }));
 }
@@ -221,17 +201,15 @@ export function storyLinksRowMarkup(key, description = '') {
  *
  * @param {{key: string, name: string, id: string, type: string, chunkCount: number, isEnabled: boolean,
  *   isSelected: boolean, scope: string, backend: string, source: string, model: string, hasMultipleModels: boolean,
- *   activeHereLine: string, activationMode: string, canCompact: boolean, hasStoryLinks: boolean,
+ *   activeHereLine: string, canCompact: boolean, hasStoryLinks: boolean,
  *   storyLinksDescription?: string}} view
  * @returns {string}
  */
 export function collectionEntryMarkup(view) {
     const data = action => ({ 'collection-action': action, 'collection-key': view.key });
-    const activation = ACTIVATION_PILLS[view.activationMode];
     const pills = [
         SCOPE_PILL_TEXT[view.scope] ? statusPill({ text: SCOPE_PILL_TEXT[view.scope] }) : '',
         view.hasMultipleModels ? statusPill({ name: view.model, status: 'accent', icon: 'fa-code-branch' }) : '',
-        activation ? statusPill({ text: activation.text, status: 'accent', icon: activation.icon }) : '',
         view.activeHereLine ? statusPill({ text: 'Active here', status: 'success', icon: 'fa-lock' }) : '',
         view.isEnabled ? '' : statusPill({ text: 'Paused', status: 'warning', icon: 'fa-pause' }),
     ].filter(Boolean);

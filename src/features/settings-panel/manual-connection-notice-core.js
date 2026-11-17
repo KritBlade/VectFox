@@ -17,7 +17,7 @@ const EMBEDDING = 'Embedding';
 
 /**
  * Every Provider dropdown on manual OpenRouter or vLLM: each LLM consumer whose own dropdown holds one, then embedding.
- * Agent Mode and Auto-Reformat on Same as EventBase model are not named, since they move with the EventBase model.
+ * Agent Mode on Same as EventBase model is not named, since it moves with the EventBase model.
  *
  * @param {object} settings - VectFox settings
  * @returns {Array<{feature: string, page: string, provider: string}>} provider as its dropdown names it

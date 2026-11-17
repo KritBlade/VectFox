@@ -24,8 +24,6 @@ import { insertVectorItems, purgeVectorIndex, encodeSparseVector, qdrantTarget, 
 import {
     getCollectionMeta,
     setCollectionMeta,
-    getChunkMetadata,
-    saveChunkMetadata,
     clearCollectionLock,
     getEffectiveScope,
 } from './collection-metadata.js';
@@ -33,6 +31,7 @@ import {
     clearStateOfDeletedOrImportedCollection,
     registerCollection,
 } from './collection-loader.js';
+import { retiredContentKindOf } from './retired-content-collections-core.js';
 import { buildRegistryKey, normalizeBackendForId, remapCollectionIdToBackend, remapCollectionIdToHandle, sanitizeHandleId } from '../../shared/collection-ids.js';
 import { getModelFromSettings, refuseSillyTavernEmbeddingRoute } from '../embedding/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
@@ -164,17 +163,13 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
     try {
         // Step 1: Get collection metadata
         progressTracker.updateProgress(1, 'Loading metadata...');
-        // Metadata (display name, triggers, conditions, …) lives under the
+        // Metadata (display name, StoryArc's lists, …) lives under the
         // registry-key form; callers pass the bare ID.
         const collectionMeta = getCollectionMeta(buildRegistryKey(collectionId, exportSettings));
 
         // Step 2: Get all chunks WITH vectors
         progressTracker.updateProgress(2, 'Loading chunks and vectors...');
-        const chunks = (await fetchPortableChunks(collectionId, exportSettings)).map(chunk => {
-            // Get per-chunk metadata from VectFox settings
-            const chunkMeta = getChunkMetadata(chunk.hash);
-            return chunkMeta ? { ...chunk, chunkMeta } : chunk;
-        });
+        const chunks = await fetchPortableChunks(collectionId, exportSettings);
 
         progressTracker.updateChunks(chunks.length);
 
@@ -219,27 +214,6 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
 
             // Settings that affect behavior
             settings: {
-                // Activation
-                alwaysActive: collectionMeta.alwaysActive || false,
-                triggers: collectionMeta.triggers || [],
-                triggerMatchMode: collectionMeta.triggerMatchMode || 'any',
-                triggerCaseSensitive: collectionMeta.triggerCaseSensitive || false,
-                triggerScanDepth: collectionMeta.triggerScanDepth || 5,
-                conditions: collectionMeta.conditions || { enabled: false, logic: 'AND', rules: [] },
-
-                // Temporal decay
-                temporalDecay: collectionMeta.temporalDecay || {
-                    enabled: false,
-                    mode: 'exponential',
-                    halfLife: 50,
-                    linearRate: 0.01,
-                    minRelevance: 0.3,
-                },
-
-                // Prompt context
-                context: collectionMeta.context || '',
-                xmlTag: collectionMeta.xmlTag || '',
-
                 // StoryArc's merged entity names, and the names its Entity tab hides
                 storyEntityMerges: collectionMeta.storyEntityMerges || {},
                 storyEntityHiddenNames: collectionMeta.storyEntityHiddenNames || [],
@@ -342,6 +316,8 @@ export function validateImportData(data, currentSettings = {}) {
     for (const col of collections) {
         if (!col.collection?.id) {
             errors.push('Collection missing ID');
+        } else if (retiredContentKindOf(col.collection.id, col.collection.contentType)) {
+            errors.push(`${col.collection.id}: Vectorize Content no longer reads character cards, documents, web pages, wikis or YouTube, so VectFox does not import their collections.`);
         }
         if (!col.chunks || !Array.isArray(col.chunks)) {
             errors.push(`Collection ${col.collection?.id || 'unknown'} has no chunks array`);
@@ -549,26 +525,11 @@ export async function importCollection(exportData, settings, options = {}) {
         throw new Error('No valid chunks to import (all chunks missing text)');
     }
 
-    // ─── H-3 mitigations ──────────────────────────────────────────────────
+    // ─── H-3 mitigation ───────────────────────────────────────────────────
     // Reject imports that carry payloads which would cause passive harm
-    // post-import (regex ReDoS at every chat scan; NaN/Infinity vectors that
-    // produce NaN similarity scores and silently break retrieval).
+    // post-import: NaN/Infinity vectors produce NaN similarity scores and
+    // silently break retrieval.
     //
-    // Length cap on triggers: catastrophic-backtracking patterns can be
-    // shorter than typical legitimate triggers — capping at 300 chars draws
-    // a generous line without restricting normal use. Shape heuristics
-    // intentionally NOT applied (e.g. `(.+)+` is a valid regex when the
-    // user actually means it).
-    const MAX_TRIGGER_LEN = 300;
-    const importedTriggers = exportData?.settings?.triggers;
-    if (Array.isArray(importedTriggers)) {
-        for (const t of importedTriggers) {
-            if (typeof t === 'string' && t.length > MAX_TRIGGER_LEN) {
-                throw new Error(`Trigger exceeds ${MAX_TRIGGER_LEN} char limit (got ${t.length}): "${t.slice(0, 80)}…"`);
-            }
-        }
-    }
-
     // Vector validation: any non-finite component (NaN, ±Infinity) would
     // pollute similarity calculations downstream. Reject the whole import
     // if any vector contains one — better than silently storing broken
@@ -721,29 +682,12 @@ export async function importCollection(exportData, settings, options = {}) {
         // Merge with exported settings
         if (exportData.settings) {
             Object.assign(importedMeta, {
-                alwaysActive: exportData.settings.alwaysActive,
-                triggers: exportData.settings.triggers,
-                triggerMatchMode: exportData.settings.triggerMatchMode,
-                triggerCaseSensitive: exportData.settings.triggerCaseSensitive,
-                triggerScanDepth: exportData.settings.triggerScanDepth,
-                conditions: exportData.settings.conditions,
-                temporalDecay: exportData.settings.temporalDecay,
-                context: exportData.settings.context || '',
-                xmlTag: exportData.settings.xmlTag || '',
                 storyEntityMerges: exportData.settings.storyEntityMerges || {},
                 storyEntityHiddenNames: exportData.settings.storyEntityHiddenNames || [],
             });
         }
 
         setCollectionMeta(registryKey, importedMeta);
-
-        // Per-chunk metadata
-        for (const chunk of validChunks) {
-            if (chunk.chunkMeta) {
-                const newHash = getStringHash(chunk.text);
-                saveChunkMetadata(newHash, chunk.chunkMeta);
-            }
-        }
 
         // Register collection with backend prefix so parseRegistryKey resolves the right backend
         registerCollection(registryKey);
@@ -799,15 +743,6 @@ export async function importCollection(exportData, settings, options = {}) {
 function detectContentType(collectionId) {
     if (collectionId.includes('_chat_') || collectionId.includes('_eventbase_')) {
         return 'chat';
-    }
-    if (collectionId.includes('_lorebook_')) {
-        return 'lorebook';
-    }
-    if (collectionId.includes('_document_')) {
-        return 'document';
-    }
-    if (collectionId.includes('_character_')) {
-        return 'character';
     }
     return 'unknown';
 }

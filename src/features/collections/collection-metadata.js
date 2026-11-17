@@ -30,103 +30,20 @@ const defaultCollectionMeta = {
     tags: [],
     color: null,
     createdAt: null,
-    lastUsed: null,
-    queryCount: 0,
     // StoryArc's merged entity names, { kept name: [other names] } (eventbase/story-arc-entity-core.js).
     storyEntityMerges: {},
     // Kept names StoryArc's Entity tab keeps off its list; StoryArc still reads them (eventbase/story-arc-entities.js).
     storyEntityHiddenNames: [],
-
-    // =========================================================================
-    // ACTIVATION TRIGGERS
-    // =========================================================================
-    // Keywords that narrow a locked collection to turns whose recent messages
-    // contain one (or all, in 'all' mode). They cannot activate an unlocked
-    // collection; shouldCollectionActivate() holds the full gate chain.
-    triggers: [],                  // Trigger keywords: plain text, or /pattern/flags for a regex
-    triggerMatchMode: 'any',       // 'any' = OR logic, 'all' = AND logic
-    triggerCaseSensitive: false,   // Case sensitivity for trigger matching
-    triggerScanDepth: 5,           // How many recent messages to scan for triggers
-
-    // =========================================================================
-    // ADVANCED CONDITIONS
-    // =========================================================================
-    // Rules that narrow a locked collection further. When triggers are also
-    // set, the triggers and the conditions must both pass on the same turn.
-    conditions: {
-        enabled: false,
-        logic: 'AND', // 'AND' = all rules must pass, 'OR' = any rule passes
-        rules: [],    // Array of condition rules
-    },
-
-    // =========================================================================
-    // PROMPT CONTEXT (Per-Collection)
-    // =========================================================================
-    // Wraps all chunks from this collection with context/guidance for the AI.
-    // Supports {{user}} and {{char}} variables.
-    // Example: "Things {{char}} remembers about {{user}}:"
-    context: '',      // Natural language context shown before this collection's chunks
-    xmlTag: '',       // XML tag to wrap this collection's chunks (e.g., "memories")
 };
 
 /**
- * Returns a deep copy of the defaults. Each collection gets its own triggers,
- * tags and conditions, so editing one collection's metadata in place never
- * reaches another collection or the defaults themselves.
+ * Returns a deep copy of the defaults. Each collection gets its own tags and
+ * StoryArc lists, so editing one collection's metadata in place never reaches
+ * another collection or the defaults themselves.
  */
 function createDefaultCollectionMeta() {
     return structuredClone(defaultCollectionMeta);
 }
-
-/**
- * ============================================================================
- * CONDITION TYPES
- * ============================================================================
- *
- * COLLECTION & CHUNK CONDITIONS (11 types):
- * Can be used at both collection-level and chunk-level.
- * Collection-level: Determines if a collection should be queried
- * Chunk-level: Determines if a specific chunk should be included
- *
- * - pattern:          Advanced regex/pattern matching (replaces keyword)
- * - speaker:          Match by who spoke last
- * - characterPresent: Check if specific character(s) spoke recently
- * - messageCount:     Conversation length pacing (eq, gte, lte, between)
- * - isGroupChat:      Group vs 1-on-1 chat
- * - generationType:   Normal, swipe, continue, regenerate, impersonate
- * - lorebookActive:   Specific lorebook entries are triggered
- * - swipeCount:       Number of swipes on last message
- * - timeOfDay:        Real-world time window (supports midnight crossing)
- * - randomChance:     Probabilistic activation (0-100%)
- *
- * CHUNK-ONLY FEATURES:
- * Only make sense at chunk-level, not collection-level.
- *
- * - chunkLinks:       Force/soft links to other chunks ({ targetHash, mode: 'force'|'soft' })
- *                     - hard: Target chunk MUST appear if source appears
- *                     - soft: Target chunk gets score boost if source appears
- *                     Each chunk defines its own links independently.
- *                     For two-way linking, add links on both chunks.
- * - scoreThreshold:   Per-chunk minimum similarity score override
- * - recency:          Filter by message age (messagesAgo)
- * - frequency:        Limit activations (maxActivations, cooldownMessages)
- *
- * See: conditional-activation.js for full implementation.
- * ============================================================================
- */
-
-/**
- * Condition rule structure (for reference):
- * {
- *     type: 'keyword',           // Condition type
- *     negate: false,             // Invert the result
- *     settings: {                // Type-specific settings
- *         values: ['combat'],
- *         matchMode: 'contains', // contains, exact, startsWith, endsWith
- *         caseSensitive: false,
- *     }
- * }
- */
 
 /**
  * Ensures the collections object exists in extension_settings
@@ -159,10 +76,10 @@ function ensureCollectionsObject() {
  *   1. Stored `meta.scope` if it's a valid value ('chat' or 'character').
  *   2. Parsed from the collection ID structure (via `parseCollectionId`):
  *      - `vf_eventbase_*` / `vf_archiveevent_*` → 'chat'
- *      - `vf_character_*` / `vf_lorebook_*` / `vf_document_*` → 'character'
- *   3. Default 'character' (matches `content-vectorization.js` insert default).
- *      Only reached for unparseable IDs (parser returns 'unknown' sentinel)
- *      and legacy stored values like the retired 'global'.
+ *      - `vf_lorebook_*` → 'character'
+ *   3. Default 'character', the wider scope. Only reached for unparseable IDs
+ *      (parser returns 'unknown' sentinel) and legacy stored values like the
+ *      retired 'global'.
  *
  * @param {string} collectionIdOrRegistryKey - bare ID or "backend:id"
  * @param {object} [meta] - already-loaded meta (avoids re-reading from storage)
@@ -179,9 +96,7 @@ export function getEffectiveScope(collectionIdOrRegistryKey, meta = null) {
     const parsedScope = parseCollectionId(bareId).scope;
     if (parsedScope === 'chat' || parsedScope === 'character') return parsedScope;
 
-    // 3. Default — matches the content-vectorization insert default so a
-    //    user creating then immediately locking lands on 'character' (the
-    //    safer / wider-scope option).
+    // 3. Default: the wider scope.
     return 'character';
 }
 
@@ -309,90 +224,6 @@ export function isCollectionAutoSyncEnabled(collectionId) {
 }
 
 // ============================================================================
-// CHUNK METADATA (per-chunk settings, stored separately)
-// ============================================================================
-// Chunk metadata is stored per-hash and can include:
-// - conditions: { ... }     - Conditional activation rules
-// - chunkLinks: []          - Soft/hard links to other chunks ({ targetHash, mode })
-// - disabled: boolean       - Exclude from results
-// - isSummary: boolean      - Dual-vector summary chunk
-// - parentHash: string      - Parent chunk for summaries
-// - context: string         - Prompt context text (supports {{user}}/{{char}})
-// - xmlTag: string          - XML tag to wrap this chunk
-// ============================================================================
-
-/**
- * Gets metadata for a specific chunk
- * @param {string} hash Chunk hash
- * @returns {object|null} Chunk metadata or null if not found
- */
-export function getChunkMetadata(hash) {
-    if (!extension_settings.vectfox) {
-        return null;
-    }
-
-    const key = `vectfox_chunk_meta_${hash}`;
-    return extension_settings.vectfox[key] || null;
-}
-
-/**
- * Saves metadata for a specific chunk
- * @param {string} hash Chunk hash
- * @param {object} metadata Chunk metadata
- */
-export function saveChunkMetadata(hash, metadata) {
-    if (!extension_settings.vectfox) {
-        extension_settings.vectfox = {};
-    }
-
-    const key = `vectfox_chunk_meta_${hash}`;
-    extension_settings.vectfox[key] = {
-        ...metadata,
-        updatedAt: Date.now(),
-    };
-
-    saveSettingsDebounced();
-}
-
-/**
- * Deletes metadata for a specific chunk
- * @param {string} hash Chunk hash
- */
-export function deleteChunkMetadata(hash) {
-    if (!extension_settings.vectfox) {
-        return;
-    }
-
-    const key = `vectfox_chunk_meta_${hash}`;
-    if (extension_settings.vectfox[key]) {
-        delete extension_settings.vectfox[key];
-        saveSettingsDebounced();
-    }
-}
-
-/**
- * Gets all chunk metadata entries
- * @returns {object} Map of hash -> metadata
- */
-export function getAllChunkMetadata() {
-    if (!extension_settings.vectfox) {
-        return {};
-    }
-
-    const result = {};
-    const prefix = 'vectfox_chunk_meta_';
-
-    for (const key in extension_settings.vectfox) {
-        if (key.startsWith(prefix)) {
-            const hash = key.replace(prefix, '');
-            result[hash] = extension_settings.vectfox[key];
-        }
-    }
-
-    return result;
-}
-
-// ============================================================================
 // MIGRATION & CLEANUP
 // ============================================================================
 
@@ -463,11 +294,11 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
     // Mass-wipe refusal. An empty survivor list with metadata still stored means
     // discovery found NOTHING — which in practice is an outage (plugin down,
     // Qdrant unreachable), not the user having deleted every collection at once.
-    // Metadata holds the chat/character locks and triggers; deleting it here is
-    // irreversible, while a stale entry costs nothing and self-corrects on the
-    // next successful discovery. Refuse and say so.
+    // Metadata holds the chat/character locks; deleting it here is irreversible,
+    // while a stale entry costs nothing and self-corrects on the next successful
+    // discovery. Refuse and say so.
     if (actualCollectionIds.length === 0 && orphaned.length > 0) {
-        log.warn(`VectFox: cleanupOrphanedMeta refused — discovery returned ZERO collections while ${orphaned.length} metadata entr${orphaned.length === 1 ? 'y is' : 'ies are'} stored. This looks like a backend outage, not a real mass deletion; keeping all metadata (locks, triggers) intact.`);
+        log.warn(`VectFox: cleanupOrphanedMeta refused — discovery returned ZERO collections while ${orphaned.length} metadata entr${orphaned.length === 1 ? 'y is' : 'ies are'} stored. This looks like a backend outage, not a real mass deletion; keeping all metadata (locks) intact.`);
         return { removed: 0, orphanedIds: [], refused: true };
     }
 
@@ -478,7 +309,7 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
 
     if (orphaned.length > 0) {
         saveSettingsDebounced();
-        // warn, not lifecycle: this deletes locks/triggers with the collection.
+        // warn, not lifecycle: this deletes locks with the collection.
         // When a wipe is ever wrong (see the refusal above), this line is the
         // only trace of WHAT was lost — name the entries.
         log.warn(`VectFox: Cleaned up ${orphaned.length} orphaned metadata entries: ${orphaned.join(', ')}`);
@@ -795,283 +626,3 @@ export function ensureCollectionMeta(collectionId, initialData = {}) {
         log.lifecycle(`VectFox: Created metadata for new collection ${collectionId}`);
     }
 }
-
-// ============================================================================
-// ACTIVATION TRIGGERS
-// ============================================================================
-
-/**
- * Checks if any activation triggers match the recent messages
- * @param {string[]} triggers Array of trigger keywords
- * @param {object} context Search context containing recentMessages
- * @param {object} options Matching options
- * @returns {boolean} Whether triggers matched
- */
-function checkTriggers(triggers, context, options = {}) {
-    if (!triggers || triggers.length === 0) {
-        return false;
-    }
-
-    const {
-        matchMode = 'any',
-        caseSensitive = false,
-        scanDepth = 5,
-    } = options;
-
-    // Get recent message text to scan
-    const recentMessages = context.recentMessages || [];
-    const messagesToScan = recentMessages.slice(0, scanDepth);
-    const searchText = messagesToScan.join('\n');
-
-    if (!searchText) {
-        return false;
-    }
-
-    const textToSearch = caseSensitive ? searchText : searchText.toLowerCase();
-
-    // Check each trigger
-    const results = triggers.map(trigger => {
-        const triggerText = caseSensitive ? trigger : trigger.toLowerCase();
-
-        // Support regex triggers (wrapped in /.../)
-        if (trigger.startsWith('/') && trigger.lastIndexOf('/') > 0) {
-            try {
-                const lastSlash = trigger.lastIndexOf('/');
-                const pattern = trigger.slice(1, lastSlash);
-                const flags = trigger.slice(lastSlash + 1) || (caseSensitive ? '' : 'i');
-                const regex = new RegExp(pattern, flags);
-                return regex.test(searchText);
-            } catch (e) {
-                log.warn(`VectFox: Invalid trigger regex: ${trigger}`, e);
-                return false;
-            }
-        }
-
-        // Plain text matching
-        return textToSearch.includes(triggerText);
-    });
-
-    // Apply match mode
-    if (matchMode === 'all') {
-        return results.every(r => r);
-    }
-    return results.some(r => r); // 'any' mode (default)
-}
-
-// ============================================================================
-// ADVANCED CONDITIONS
-// ============================================================================
-
-// Import condition evaluator (lazy loaded to avoid circular deps)
-let evaluateConditionRule = null;
-
-/**
- * Lazily loads the condition evaluator
- */
-async function getConditionEvaluator() {
-    if (!evaluateConditionRule) {
-        const module = await import('./conditional-activation.js');
-        evaluateConditionRule = module.evaluateConditionRule;
-    }
-    return evaluateConditionRule;
-}
-
-/**
- * Evaluates advanced conditions for a collection
- * @param {object} meta Collection metadata
- * @param {object} context Search context
- * @param {string} collectionId Collection identifier (for logging)
- * @returns {Promise<boolean>} Whether conditions pass
- */
-async function evaluateAdvancedConditions(meta, context, collectionId) {
-    if (!meta.conditions || !meta.conditions.enabled) {
-        return true; // No conditions = pass
-    }
-
-    const rules = meta.conditions.rules || [];
-    if (rules.length === 0) {
-        return true; // Enabled but no rules = pass
-    }
-
-    const evaluate = await getConditionEvaluator();
-
-    const results = rules.map(rule => {
-        const result = evaluate(rule, context);
-        log.trace(`VectFox: Collection ${collectionId} condition ${rule.type}: ${result}`);
-        return result;
-    });
-
-    const logic = meta.conditions.logic || 'AND';
-    return logic === 'AND' ? results.every(r => r) : results.some(r => r);
-}
-
-/**
- * Checks whether a collection should be queried this turn.
- *
- * ACTIVATION IS A CHAIN OF GATES, NOT A LIST OF ALTERNATIVES. Every gate that
- * applies must pass:
- *
- * 1. Pause button (enabled=false)              → never activate
- * 2. Lock (chat or character) — THE MASTER SWITCH → required; unlocked never activates
- * 3. Activation Triggers, when configured      → keyword must match this turn
- * 4. Advanced Conditions, when configured      → rules must pass this turn
- * 5. Locked with no trigger and no condition   → always active
- *
- * The lock is what turns a collection on at all; triggers and conditions only
- * NARROW an already-on collection. A collection with trigger keywords but no
- * lock is inert by design — the user has described what should activate it but
- * has not switched it on.
- *
- * @param {string} collectionId Collection identifier
- * @param {object} context Search context (from buildSearchContext) — must carry
- *   recentMessages for trigger matching, plus currentChatId / currentCharacterId
- * @returns {Promise<boolean>} Whether the collection should be queried
- */
-export async function shouldCollectionActivate(collectionId, context) {
-    const meta = getCollectionMeta(collectionId);
-    const currentChatId = context?.currentChatId;
-    const currentCharacterId = context?.currentCharacterId;
-
-    // Gate 1: Pause button — global disable, blocks everything.
-    if (meta.enabled === false) {
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ DISABLED`);
-        return false;
-    }
-
-    // Gate 2: Lock — the master switch. Nothing downstream can activate a
-    // collection the user has not switched on for this chat or character.
-    const lockedToChat = !!(currentChatId && isCollectionLockedToChat(collectionId, currentChatId));
-    const lockedToCharacter = !!(currentCharacterId && isCollectionLockedToCharacter(collectionId, currentCharacterId));
-    if (!lockedToChat && !lockedToCharacter) {
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ NOT_LOCKED (master switch off for chat=${currentChatId}, character=${currentCharacterId})`);
-        return false;
-    }
-
-    const hasTriggers = meta.triggers && meta.triggers.length > 0;
-    const hasConditions = meta.conditions?.enabled && meta.conditions?.rules?.length > 0;
-
-    log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: locked (chat=${lockedToChat}, character=${lockedToCharacter}), hasTriggers=${hasTriggers}, hasConditions=${hasConditions}`);
-
-    // Gate 3: Activation Triggers narrow the locked collection to matching turns.
-    if (hasTriggers) {
-        const triggersMatch = checkTriggers(meta.triggers, context, {
-            matchMode: meta.triggerMatchMode || 'any',
-            caseSensitive: meta.triggerCaseSensitive || false,
-            scanDepth: meta.triggerScanDepth || 5,
-        });
-        if (!triggersMatch) {
-            log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ TRIGGERS_UNMATCHED (${meta.triggers.join(', ')})`);
-            return false;
-        }
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ TRIGGERS_MATCHED`);
-    }
-
-    // Gate 4: Advanced Conditions narrow further. Both must hold when both are
-    // configured — they are successive filters, not alternatives.
-    if (hasConditions) {
-        const conditionsPass = await evaluateAdvancedConditions(meta, context, collectionId);
-        if (!conditionsPass) {
-            log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✗ CONDITIONS_FAIL`);
-            return false;
-        }
-        log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ CONDITIONS_PASS`);
-    }
-
-    // Gate 5: Locked and every configured filter passed.
-    log.trace(`[VECTFOX Activation Filter] Collection ${collectionId}: ✓ ACTIVE`);
-    return true;
-}
-
-/**
- * Filters a list of collection IDs to only those that should activate
- * @param {string[]} collectionIds Array of collection IDs to check
- * @param {object} context Search context (from buildSearchContext)
- * @returns {Promise<string[]>} Collection IDs that should be queried
- */
-export async function filterActiveCollections(collectionIds, context) {
-    const results = await Promise.all(
-        collectionIds.map(async (id) => ({
-            id,
-            active: await shouldCollectionActivate(id, context)
-        }))
-    );
-
-    const activeIds = results.filter(r => r.active).map(r => r.id);
-
-    if (log.enabled('trace')) {
-        log.trace(`[VECTFOX Activation Filter] Summary: ${collectionIds.length} collections → ${activeIds.length} active`);
-        if (activeIds.length > 0) {
-            log.trace(`[VECTFOX Activation Filter] Active collections:`, activeIds);
-        }
-    }
-
-    return activeIds;
-}
-
-// ============================================================================
-// ACTIVATION TRIGGER HELPERS
-// ============================================================================
-
-/**
- * Gets activation triggers for a collection
- * @param {string} collectionId Collection identifier
- * @returns {object} { triggers, matchMode, caseSensitive, scanDepth }
- */
-export function getCollectionTriggers(collectionId) {
-    const meta = getCollectionMeta(collectionId);
-    return {
-        triggers: meta.triggers || [],
-        matchMode: meta.triggerMatchMode || 'any',
-        caseSensitive: meta.triggerCaseSensitive || false,
-        scanDepth: meta.triggerScanDepth || 5,
-    };
-}
-
-/**
- * Gets a summary of a collection's activation settings
- * @param {string} collectionId Collection identifier
- * @returns {object} Summary of activation state
- */
-export function getCollectionActivationSummary(collectionId) {
-    const meta = getCollectionMeta(collectionId);
-    const triggers = meta.triggers || [];
-    const hasConditions = meta.conditions?.enabled && meta.conditions?.rules?.length > 0;
-
-    let mode = 'auto'; // No triggers and no enabled conditions: active whenever locked
-    if (triggers.length > 0) {
-        mode = 'triggers';
-    } else if (hasConditions) {
-        mode = 'conditions';
-    }
-
-    return {
-        mode,
-        triggerCount: triggers.length,
-        conditionCount: meta.conditions?.rules?.length || 0,
-        conditionsEnabled: hasConditions,
-    };
-}
-
-// ============================================================================
-// ADVANCED CONDITIONS HELPERS
-// ============================================================================
-
-/**
- * Sets conditions for a collection
- * @param {string} collectionId Collection identifier
- * @param {object} conditions Conditions object { enabled, logic, rules }
- */
-export function setCollectionConditions(collectionId, conditions) {
-    setCollectionMeta(collectionId, { conditions });
-}
-
-/**
- * Gets conditions for a collection
- * @param {string} collectionId Collection identifier
- * @returns {object} Conditions object
- */
-export function getCollectionConditions(collectionId) {
-    const meta = getCollectionMeta(collectionId);
-    return meta.conditions || { enabled: false, logic: 'AND', rules: [] };
-}
-

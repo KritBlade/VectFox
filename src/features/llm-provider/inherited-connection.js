@@ -3,7 +3,7 @@
  * INHERITED CONNECTION
  * ============================================================================
  * The connection of an LLM consumer that has its own Provider, Model and Base
- * URL boxes and can run on the EventBase model's: Agent Mode and Auto-Reformat.
+ * URL boxes and can run on the EventBase model's: Agent Mode.
  * Pure: reads settings, returns values.
  * ============================================================================
  */

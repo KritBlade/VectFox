@@ -2,9 +2,9 @@
  * @vitest-environment jsdom
  *
  * The Chunk Visualizer's markup (src/features/database-browser/chunk-visualizer-markup.js): the shell is a workbench
- * page whose split holds the list and the chunk; a row says where its chunk came from and marks the open one; an
- * EventBase chunk's form shows its event and leaves out the switch, keywords and links its retrieval never reads, but
- * keeps where it goes in the prompt; every value is escaped.
+ * page whose split holds the list and the chunk, and whose bulk bar only deletes; a row says where its chunk came from
+ * and marks the open one; a chunk's form holds its name and its text beside the event EventBase wrote; every value is
+ * escaped.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -16,8 +16,6 @@ import {
     chunkRowMarkup,
     chunkVisualizerMarkup,
     collectionRecordMarkup,
-    keywordRowsMarkup,
-    linkRowsMarkup,
     listFooterMarkup,
     tokenizerLockMarkup,
 } from '../src/features/database-browser/chunk-visualizer-markup.js';
@@ -30,24 +28,14 @@ function parse(html) {
 
 const pillsOf = root => [...root.querySelectorAll('.vfx-pill')].map(pill => pill.textContent);
 
-const formView = ({ isEventBase = false, metadata = {}, stored = {} } = {}) => {
+const formView = (metadata = {}) => {
     const chunk = { text: '<b>The tide</b> came in.', index: 4, metadata };
-    return {
-        number: 5,
-        hash: 1004,
-        isEventBase,
-        message: { text: 'Message', name: '4' },
-        part: '',
-        fields: savedChunkFields(chunk, stored),
-        event: eventFields(chunk),
-        links: [{ label: 'Message 2: Harbor gate', isLoaded: true, mode: 'soft' }],
-        linkTargets: [{ value: '1002', label: 'Message 2: Harbor gate' }],
-    };
+    return { number: 5, hash: 1004, message: { text: 'Message', name: '4' }, fields: savedChunkFields(chunk), event: eventFields(chunk) };
 };
 
 describe('the shell', () => {
     it('holds the list and the chunk in a split with a divider a keyboard can move', () => {
-        const shell = parse(chunkVisualizerMarkup({ collectionName: '<i>Harbor</i>', collectionType: 'lorebook', isEventBase: false, fetchLimit: 500 }));
+        const shell = parse(chunkVisualizerMarkup({ collectionName: '<i>Harbor</i>', collectionType: 'chat', fetchLimit: 500 }));
         expect(shell.querySelector('.vfx-page-title').textContent).toBe('<i>Harbor</i>');
         const split = shell.querySelector(`#${ids.split}.vfx-split`);
         expect([...split.children].map(child => child.className)).toEqual(['vfx-card is-pane', 'vfx-split-divider', 'vfx-card is-pane']);
@@ -55,23 +43,25 @@ describe('the shell', () => {
         expect([divider.getAttribute('role'), divider.getAttribute('tabindex')]).toEqual(['separator', '0']);
         expect(shell.querySelector(`#${ids.fetchLimit}`).value).toBe('500');
         expect(shell.querySelector('.vfx-split .vfx-collapse')).toBeNull();
-        expect(shell.querySelectorAll('[data-chunk-action^="bulk-"]').length).toBe(3);
     });
 
-    it('offers no bulk switch for an EventBase collection, whose retrieval reads none', () => {
-        const shell = parse(chunkVisualizerMarkup({ collectionName: 'Events', collectionType: 'chat', isEventBase: true, fetchLimit: 0 }));
-        expect([...shell.querySelectorAll('[data-chunk-action^="bulk-"]')].map(button => button.dataset.chunkAction)).toEqual(['bulk-delete']);
+    it('offers Delete alone in the bulk bar, starting disabled', () => {
+        const shell = parse(chunkVisualizerMarkup({ collectionName: 'Events', collectionType: 'chat', fetchLimit: 0 }));
+        const bulk = [...shell.querySelectorAll('[data-chunk-action^="bulk-"]')];
+        expect(bulk.map(button => button.dataset.chunkAction)).toEqual(['bulk-delete']);
+        expect(bulk[0].disabled).toBe(true);
     });
 });
 
 describe('a row', () => {
-    const view = { key: '3', title: '<b>Gate</b>', message: { text: 'Messages', name: '40 to 44, event 3' }, part: '2 of 3', characterCount: 1234, keywordCount: 2, isEnabled: false, isOpen: true, isTicked: true };
+    const view = { key: '3', title: '<b>Gate</b>', message: { text: 'Messages', name: '40 to 44, event 3' }, characterCount: 1234, keywordCount: 2, isOpen: true, isTicked: true };
 
-    it('says where its chunk came from, how big it is, and its keywords and Disabled pills', () => {
+    it('says where its chunk came from, how big it is, and how many keywords it has', () => {
         const row = parse(chunkRowMarkup(view));
         expect(row.querySelector('.vfx-row-name').textContent).toBe('<b>Gate</b>');
-        expect([...row.querySelectorAll('.vfx-row-sub')].map(line => line.textContent)).toEqual(['Messages: 40 to 44, event 3', 'Part: 2 of 3']);
-        expect(pillsOf(row)).toEqual(['1,234 characters', '2 keywords', 'Disabled']);
+        expect([...row.querySelectorAll('.vfx-row-sub')].map(line => line.textContent)).toEqual(['Messages: 40 to 44, event 3']);
+        expect(pillsOf(row)).toEqual(['1,234 characters', '2 keywords']);
+        expect(pillsOf(parse(chunkRowMarkup({ ...view, keywordCount: 0 })))).toEqual(['1,234 characters']);
     });
 
     it('marks the open chunk and its tick', () => {
@@ -91,44 +81,31 @@ describe('a row', () => {
 });
 
 describe('the chunk form', () => {
-    it('holds the switch, keywords, links and summaries for a chunk collection, each value escaped', () => {
-        const form = parse(chunkFormMarkup(formView({
-            metadata: { name: 'Tide', keywords: [{ text: '<b>mast</b>', weight: 2 }] },
-            stored: { summaries: ['High <i>water</i>'] },
-        })));
-        expect(form.querySelector('.vfx-card-title').textContent).toBe('Tide');
+    it('holds the chunk\'s name and its text, where it came from, and Save, each value escaped', () => {
+        const form = parse(chunkFormMarkup(formView({ name: 'Tide <i>high</i>' })));
+        expect(form.querySelector('.vfx-card-title').textContent).toBe('Tide <i>high</i>');
         // Each pill names its value: the DNA's pill shows a word or a value, so each is drawn as one value.
         expect(pillsOf(form.querySelector('.vfx-control-row'))).toEqual(['Message: 4', 'ID: 1004']);
+        expect(form.querySelector(`#${ids.name}`).value).toBe('Tide <i>high</i>');
         expect(form.querySelector(`#${ids.text}`).value).toBe('<b>The tide</b> came in.');
-        expect(form.querySelector(`#${ids.enabled}`)).not.toBeNull();
         expect(form.querySelector('b, i:not(.fa-solid):not(.fa-brands)')).toBeNull();
-        expect(form.querySelector('[data-chunk-keywords]').textContent).toContain('<b>mast</b>');
-        expect(form.querySelector('[data-chunk-keywords] input')).toBeNull();
-        expect(form.querySelector('[data-chunk-links]').textContent).toContain('Message 2: Harbor gate');
-        expect(form.querySelector('[data-chunk-summaries]').textContent).toContain('High <i>water</i>');
+        expect([...form.querySelectorAll('input, select, textarea')].map(control => control.id)).toEqual([ids.name, ids.text]);
         expect(form.querySelector('[data-chunk-action="save"]').disabled).toBe(true);
     });
 
-    it('shows an EventBase event and where it goes in the prompt, without the switch, keywords and links', () => {
-        const form = parse(chunkFormMarkup(formView({ isEventBase: true, metadata: { event_type: 'decision', importance: 7, xmlTag: 'events' } })));
-        expect(form.querySelector(`#${ids.enabled}`)).toBeNull();
-        expect(form.querySelector('[data-chunk-keywords]')).toBeNull();
-        expect(form.querySelector('[data-chunk-links]')).toBeNull();
-        expect(form.querySelector(`#${ids.xmlTag}`).value).toBe('events');
-        expect(form.querySelector(`#${ids.position}`)).not.toBeNull();
-        expect(form.querySelector('.vfx-result').textContent).toContain('Importance: 7 of 10');
-        expect(form.querySelector('[data-chunk-summaries]')).not.toBeNull();
+    it('shows the event EventBase wrote, and when its message was sent', () => {
+        const form = parse(chunkFormMarkup(formView({
+            event_type: 'decision', importance: 7, concepts: ['trust'], open_threads: ['the <b>map</b>'], real_world_date: '2026-11-05T09:30:12.345Z',
+        })));
+        expect([...form.querySelectorAll('.vfx-result-line')].map(line => line.textContent)).toEqual([
+            'Type: decision', 'Importance: 7 of 10', 'Concepts: trust', 'Open thread: the <b>map</b>',
+        ]);
+        expect(form.querySelector('.vfx-result b')).toBeNull();
+        expect(pillsOf(form.querySelector('.vfx-control-row'))).toEqual(['Message: 4', 'Sent: 2026-11-05 09:30 UTC', 'ID: 1004']);
     });
 
-    it('shows the depth only for the in-chat position, and names a chunk with no name by its number', () => {
-        const inChat = parse(chunkFormMarkup(formView({ metadata: { position: 1, depth: 0 } })));
-        expect(inChat.querySelector(`#${ids.depthField}`).hidden).toBe(false);
-        expect(inChat.querySelector(`#${ids.depth}`).value).toBe('0');
-        expect(inChat.querySelector(`#${ids.position}`).value).toBe('1');
-        expect(inChat.querySelector('.vfx-card-title').textContent).toBe('Chunk 5');
-        const byDefault = parse(chunkFormMarkup(formView()));
-        expect(byDefault.querySelector(`#${ids.depthField}`).hidden).toBe(true);
-        expect(byDefault.querySelector(`#${ids.position} option:checked`).textContent).toBe('Collection default');
+    it('names a chunk with no name by its number', () => {
+        expect(parse(chunkFormMarkup(formView())).querySelector('.vfx-card-title').textContent).toBe('Chunk 5');
     });
 
     it('shows the collection\'s Qdrant record as pills that name each value', () => {
@@ -140,12 +117,7 @@ describe('the chunk form', () => {
         const notice = parse(tokenizerLockMarkup({ madeWith: 'Intl.Segmenter (English / Latin)', setTo: 'Traditional Chinese (Jieba WASM)' }));
         expect(notice.querySelector('.vfx-notice.is-warning')).not.toBeNull();
         expect(notice.textContent.replace(/\s+/g, ' ').trim()).toBe('This collection was made with the CJK tokenizer Intl.Segmenter (English / Latin), '
-            + 'and VectFox is set to Traditional Chinese (Jieba WASM). A changed text, a keyword change or a new summary can\'t be saved here; the other fields can.');
+            + 'and VectFox is set to Traditional Chinese (Jieba WASM). A changed text can\'t be saved here; the name can.');
         expect(parse(chunkFormMarkup(formView())).querySelector('[data-chunk-tokenizer-notice]').hidden).toBe(true);
-    });
-
-    it('lists no keyword or link with a line saying so', () => {
-        expect(parse(keywordRowsMarkup([])).textContent).toContain('No keywords yet.');
-        expect(parse(linkRowsMarkup([{ label: 'ID 77', isLoaded: false, mode: 'force' }])).textContent).toContain('Not among the loaded chunks');
     });
 });

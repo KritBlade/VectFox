@@ -465,7 +465,7 @@ export async function insertVectorItems(collectionId, items, settings, onProgres
         // stuck item retries in isolation while the rest finish normally. Checked, each
         // batch of up to insert_batch_size items is ONE POST — fewer HTTP calls, but ONE
         // stuck item hangs the WHOLE batch. The setting applies to every caller of
-        // insertVectorItems: EventBase ingestion and content/document vectorization alike.
+        // insertVectorItems: EventBase ingestion, Chunk Visualizer saves and collection imports alike.
         const groupEmbeddingCall = settings?.vector_group_embedding_call === true;
         const shouldParallelSplit = (
             !groupEmbeddingCall

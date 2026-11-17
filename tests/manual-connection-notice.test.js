@@ -26,7 +26,7 @@ const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js')
 /** An install from before profiles: what it saved for each Provider dropdown. */
 const installBeforeProfiles = () => ({
     enabled: true, vector_backend: 'qdrant',
-    chat_provider: 'openrouter', agent_provider: '', reformat_provider: '', story_arc_link_provider: 'openrouter',
+    chat_provider: 'openrouter', agent_provider: '', story_arc_link_provider: 'openrouter',
     embedding_provider: 'transformers', has_shown_manual_connection_retirement_notice: false,
 });
 
@@ -48,7 +48,7 @@ describe('the dropdowns the notice names', () => {
 
     it('reads an unset EventBase model as OpenRouter, names vLLM and embedding, and skips profiles and other providers', () => {
         expect(manualConnections({
-            chat_provider: '', agent_provider: 'vllm', reformat_provider: 'connection_profile', story_arc_link_provider: 'connection_profile',
+            chat_provider: '', agent_provider: 'vllm', story_arc_link_provider: 'connection_profile',
             embedding_provider: 'vllm',
         })).toEqual([
             { feature: 'EventBase', page: 'Core', provider: 'OpenRouter' },

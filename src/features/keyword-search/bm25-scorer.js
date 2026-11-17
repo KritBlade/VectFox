@@ -65,14 +65,6 @@ function setCjkTokenizerMode(mode) {
 }
 
 /**
- * Get current tokenizer mode.
- * @returns {string}
- */
-function getCjkTokenizerMode() {
-    return cjkTokenizerMode;
-}
-
-/**
  * Lazily load Jieba WASM tokenizer from CDN.
  * This is only called when mode is explicitly set to jieba.
  * @returns {Promise<boolean>}
@@ -947,7 +939,6 @@ export {
     extractCJKTokens,
     CJK_TOKENIZER_MODES,
     setCjkTokenizerMode,
-    getCjkTokenizerMode,
     ensureJiebaTokenizerLoaded,
     ensureJiebaTwLoaded,
 };

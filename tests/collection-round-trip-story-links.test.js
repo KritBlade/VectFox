@@ -105,7 +105,7 @@ describe('a Database Browser export and import of a linked collection', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
-        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [], chunk_metadata: {} };
+        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [] };
         vi.stubGlobal('fetch', fakePluginFetch);
         purgeVectorIndex.mockImplementation(async () => {
             storedItems = [];

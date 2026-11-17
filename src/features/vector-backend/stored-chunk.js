@@ -8,7 +8,7 @@
 const KEYWORD_SUFFIX = / \[KEYWORDS: [^\]]*\]$/;
 
 /**
- * Each keyword's text, whether it is stored as a word (EventBase) or as an object with a `text` field (ChunkBase).
+ * Each keyword's text, whether it is stored as a word (EventBase) or as an object with a `text` field (older chunks).
  *
  * @param {unknown} keywords
  * @returns {string[]}
@@ -44,11 +44,11 @@ export function textWithKeywordSuffix(text, keywords) {
 }
 
 /**
- * The payload a backend stores with a chunk: its metadata, with the fields VectFox keeps on every chunk (keywords,
- * importance, the summary flag and its parent) taken from the item, or from its metadata when the item does not carry
- * them, as when the Chunk Visualizer stores a chunk again or an import brings one in.
+ * The payload a backend stores with a chunk: its metadata, with the fields VectFox keeps on every chunk (keywords and
+ * importance) taken from the item, or from its metadata when the item does not carry them, as when the Chunk Visualizer
+ * stores a chunk again or an import brings one in.
  *
- * @param {{keywords?: unknown[], importance?: number, isSummaryChunk?: boolean, parentHash?: string|number, metadata?: object}} item
+ * @param {{keywords?: unknown[], importance?: number, metadata?: object}} item
  * @returns {object}
  */
 export function chunkPayload(item) {
@@ -57,7 +57,5 @@ export function chunkPayload(item) {
         ...metadata,
         keywords: item.keywords ?? metadata.keywords ?? [],
         importance: item.importance ?? metadata.importance,
-        isSummaryChunk: item.isSummaryChunk ?? metadata.isSummaryChunk,
-        parentHash: item.parentHash ?? metadata.parentHash,
     };
 }

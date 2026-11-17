@@ -3,8 +3,8 @@
  * INHERITED PROVIDER SELECT, STATIC MARKUP
  * ============================================================================
  * The Provider select of an LLM consumer that can run on the EventBase model's
- * connection, Auto-Reformat (ChunkBase page) and Agent Mode (AgentMode page), and the
- * hint under it, which the wiring hides while the consumer runs on a profile.
+ * connection, Agent Mode (AgentMode page), and the hint under it, which the wiring
+ * hides while the consumer runs on a profile.
  * Pure: builds strings.
  * ============================================================================
  */

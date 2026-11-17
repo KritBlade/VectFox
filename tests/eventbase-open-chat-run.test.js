@@ -1,9 +1,10 @@
 /**
- * Running EventBase over the open chat hands it the whole chat and the message to start at, so a run
- * from a later message numbers its windows from the chat's first message.
+ * Running EventBase over the open chat (runEventBaseOnOpenChat, src/features/eventbase/eventbase-chat-sync.js) hands it
+ * the whole chat and the message to start at, so a run from a later message numbers its windows from the chat's first
+ * message, and passes on the dialog's run: its windows at once, the progress panel's plan and the tip it skips.
  *
- * chat-vectorization.js's host modules and direct imports are stubbed as in
- * chunk-retrieval-setup-failure.test.js, and the EventBase run is a stub that records what it was asked.
+ * The module's SillyTavern wrappers and its EventBase, collection and backend imports are stubbed, and the EventBase
+ * run is a stub that records what it was asked.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,60 +12,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     chat: [],
     runEventBaseIngestion: vi.fn(async () => ({ eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 })),
-    log: {
-        error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(),
-        domain: vi.fn(), enabled: () => false, domainEnabled: () => false,
-    },
+    log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), enabled: () => false },
 }));
 
-vi.mock('../../../../../script.js', () => ({
-    getCurrentChatId: vi.fn(() => 'chat-1'),
-    is_send_press: false,
-    setExtensionPrompt: vi.fn(),
-    substituteParams: vi.fn((text) => text),
-    chat_metadata: {},
-    extension_prompts: {},
-    getRequestHeaders: vi.fn(() => ({})),
-}));
-vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: mocks.chat })), extension_settings: { vectfox: {} } }));
-vi.mock('../../../../utils.js', () => ({ getStringHash: vi.fn(() => 1) }));
-vi.mock('../src/features/keyword-search/keyword-extraction.js', () => ({ extractChatKeywords: vi.fn(() => []), extractBM25Keywords: vi.fn() }));
-vi.mock('../src/features/text-cleaning/text-cleaning.js', () => ({ cleanText: vi.fn((text) => text) }));
-vi.mock('../src/features/vector-backend/vector-api.js', () => ({
-    getSavedHashes: vi.fn(), insertVectorItems: vi.fn(), deleteVectorItems: vi.fn(), queryCollection: vi.fn(),
-}));
-vi.mock('../src/features/vector-backend/backend-registry.js', () => ({ isBackendAvailable: vi.fn(async () => true) }));
-vi.mock('../src/features/collections/collection-loader.js', () => ({
-    registerCollection: vi.fn(), getCollectionRegistry: vi.fn(() => []), isCollectionEmpty: vi.fn(() => false),
-}));
-vi.mock('../src/features/collections/collection-metadata.js', () => ({
-    isCollectionEnabled: vi.fn(() => true), filterActiveCollections: vi.fn(async (keys) => keys), setCollectionLock: vi.fn(),
-    getChunkMetadata: vi.fn(), getCollectionMeta: vi.fn(),
-}));
-vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { complete: vi.fn() } }));
-vi.mock('../src/features/collections/conditional-activation.js', () => ({ buildSearchContext: vi.fn(() => ({})), processChunkLinks: vi.fn() }));
-vi.mock('../src/features/vector-backend/bounded-retrieval.js', () => ({ runBoundedRetrieval: vi.fn(async (work) => work) }));
-vi.mock('../src/shared/retrieval-budget.js', () => ({ resolveEventBaseRetrievalTimeoutMs: vi.fn(() => 15000) }));
+vi.mock('../src/sillytavern/chat.js', () => ({ getContext: vi.fn(() => ({ chat: mocks.chat })), getCurrentChatId: vi.fn(() => 'chat-1') }));
+vi.mock('../src/sillytavern/generation.js', () => ({ is_send_press: false }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: mocks.log }));
-vi.mock('../src/shared/collection-ids.js', () => ({
-    getChatUUID: vi.fn(() => 'uuid-1'),
-    COLLECTION_PREFIXES: { VECTFOX_EVENTBASE: 'vf_eventbase_', VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_', VECTFOX_LOREBOOK: 'vf_lorebook_' },
-    INTERNAL_COLLECTION_IDS: [],
-    parseCollectionId: vi.fn(),
-    parseRegistryKey: vi.fn((registryKey) => ({ collectionId: registryKey.slice(registryKey.indexOf(':') + 1) })),
-    getRegistryBackend: vi.fn(),
+vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: {} } }));
+vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: vi.fn(() => 'uuid-1'), getRegistryBackend: vi.fn(backend => backend || 'standard') }));
+vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { complete: vi.fn() } }));
+vi.mock('../src/features/collections/index.js', () => ({ isCollectionAutoSyncEnabled: vi.fn(() => false) }));
+vi.mock('../src/features/vector-backend/index.js', () => ({ isBackendAvailable: vi.fn(async () => true) }));
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
+    findEventBaseCollectionsForChat: vi.fn(() => []), pauseAutoSyncForChat: vi.fn(), resolveEventBaseWriteTarget: vi.fn(() => null),
 }));
-vi.mock('../src/features/eventbase/index.js', () => ({
-    runEventBaseIngestion: mocks.runEventBaseIngestion, runEventBaseRetrieval: vi.fn(), runSummarizerInjection: vi.fn(), applyGhosting: vi.fn(),
+vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
+    runEventBaseIngestion: mocks.runEventBaseIngestion, countUnfinishedWindows: vi.fn(() => 0), getAutoSyncWindowSize: vi.fn(() => 4), notifyUnfinishedWindows: vi.fn(),
 }));
 
-// SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
-// read when embedding/providers.js loads.
-vi.mock('../../../../openai.js', () => ({}));
-vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
-vi.mock('../../../../textgen-settings.js', () => ({}));
-
-const { runEventBaseOnOpenChat } = await import('../src/features/chunkbase/chat-vectorization.js');
+const { runEventBaseOnOpenChat } = await import('../src/features/eventbase/eventbase-chat-sync.js');
 
 describe('EventBase over the open chat', () => {
     beforeEach(() => {
@@ -85,9 +51,12 @@ describe('EventBase over the open chat', () => {
         expect(mocks.runEventBaseIngestion.mock.calls[0][0].messages).toHaveLength(4);
     });
 
-    it('hands a run from a later message the whole chat and that message', async () => {
-        await runEventBaseOnOpenChat({ vector_backend: 'qdrant' }, null, { startFromMessage: 3 });
-        expect(mocks.runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ startFromMessage: 3 });
+    it('hands a run from a later message the whole chat and that message, with the dialog\'s run', async () => {
+        const progressPlan = { strategy: 'per_message', batchSize: 1, totalChunks: 4 };
+        await runEventBaseOnOpenChat({ vector_backend: 'qdrant' }, null, { startFromMessage: 3, parallelWindows: 2, progressPlan, skipTipFallback: true });
+        expect(mocks.runEventBaseIngestion.mock.calls[0][0]).toMatchObject({
+            startFromMessage: 3, chatUUID: 'uuid-1', isAutoSync: false, parallelWindows: 2, progressPlan, skipTipFallback: true,
+        });
         expect(mocks.runEventBaseIngestion.mock.calls[0][0].messages).toHaveLength(4);
     });
 });

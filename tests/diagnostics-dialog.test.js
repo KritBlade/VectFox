@@ -3,11 +3,10 @@
  *
  * Diagnostics' dialog on GUI-DNA (src/features/diagnostics/diagnostics-dialog.js): one dialog of three pages, Checks,
  * Backend health and Query Tester, each opened from its own Action-page button. Checks has one Run and a Production
- * tests switch, as the old four boxes only hid results the runner always made; it lists the results by category,
- * filters them, and catches what the console said meanwhile. Copy report prints each threshold as stored under its
- * page's name, where the old report printed `score_threshold || 0.5`, so a threshold of 0 read 0.5. Backend health
- * probes while it shows and stops when it hides. Query Tester shows what each retrieval would inject, or why not.
- * Every check name, message and error is text, never markup.
+ * tests switch; it lists the results by category, filters them, and catches what the console said meanwhile. Copy
+ * report prints the EventBase similarity threshold as stored, under its page's name, so a threshold of 0 reads 0.
+ * Backend health probes while it shows and stops when it hides. Query Tester shows what EventBase's retrieval would
+ * inject, or why it has nothing. Every check name, message and error is text, never markup.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -84,7 +83,7 @@ beforeEach(async () => {
     await closeDialog();
     vi.stubGlobal('$', $);
     vi.clearAllMocks();
-    host.root.vectfox = { vector_backend: 'qdrant', qdrant_mode: 'local', qdrant_url: 'http://qdrant:6333', embedding_provider: 'openrouter', openrouter_model: 'baai/bge-m3', query: 2, score_threshold: 0, eventbase_score_threshold: 0 };
+    host.root.vectfox = { vector_backend: 'qdrant', qdrant_mode: 'local', qdrant_url: 'http://qdrant:6333', embedding_provider: 'openrouter', openrouter_model: 'baai/bge-m3', query: 2, eventbase_score_threshold: 0 };
     host.runner = structuredClone(RUNNER_RESULTS);
     host.embeddingProfile = null;
     host.metrics = {
@@ -147,14 +146,13 @@ describe('the Diagnostics dialog', () => {
         expect(results).not.toContain('Connected');
     });
 
-    it('copies a report that prints each threshold as stored, under its page\'s name', async () => {
+    it('copies a report that prints the EventBase threshold as stored, under its page\'s name', async () => {
         void openDiagnostics('checks');
         click('run');
         await vi.waitFor(() => expect(document.querySelector('[data-diag-action="copy"]').disabled).toBe(false));
         click('copy');
         await vi.waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
         const report = navigator.clipboard.writeText.mock.calls[0][0];
-        expect(report).toMatch(/ChunkBase similarity threshold:\s+0\n/);
         expect(report).toMatch(/EventBase similarity threshold:\s+0\n/);
         expect(report).toMatch(/Model:\s+baai\/bge-m3/);
         expect(report).not.toContain('Score Threshold');
@@ -225,10 +223,9 @@ describe('the Diagnostics dialog', () => {
         expect(probeBackendHealth.mock.calls.length).toBe(probes + 1);
     });
 
-    it('shows what each retrieval would inject for a message, or why it has nothing', async () => {
+    it('shows what EventBase\'s retrieval would inject for a message, or why it has nothing', async () => {
         host.query = {
             eventBase: { injectionText: 'The harbor master keeps the ledger.', eventCount: 2, storyArc: { ruleName: 'last_time' } },
-            chunkBase: { noCollections: true },
             eventBaseThreshold: 0,
         };
         void openDiagnostics('query');
@@ -240,10 +237,17 @@ describe('the Diagnostics dialog', () => {
         await vi.waitFor(() => expect(part('query-results').textContent).toContain('2 events'));
         const results = part('query-results');
         expect(results.textContent).toContain('StoryArc rule last_time');
+        expect(results.querySelectorAll('textarea')).toHaveLength(1);
         expect(results.querySelector('textarea').value).toBe('The harbor master keeps the ledger.');
         expect(results.querySelector('textarea').readOnly).toBe(true);
-        expect(results.textContent).toContain('No ChunkBase collection is enabled.');
         expect(results.textContent).not.toContain('Lorebook');
+
+        host.query = { eventBase: { lockedCollectionsCount: 1, archiveCollectionsCount: 1 }, eventBaseThreshold: 0.4 };
+        click('query');
+        await vi.waitFor(() => expect(part('query-results').textContent).toContain('Nothing found'));
+        expect(part('query-results').textContent)
+            .toContain('Searched 2 collection(s) and no event matched. Try a more specific message, or lower the Similarity threshold on the ChatHistory page.');
+        expect(part('query-results').querySelector('textarea')).toBeNull();
     });
 });
 

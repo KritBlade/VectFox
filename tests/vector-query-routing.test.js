@@ -7,7 +7,7 @@
  *   - that the query is embedded once, and that every fallback reuses that vector
  *   - what a failed embedding or a failed backend does: one retry of a failing embedding, none of an invalid model,
  *     one fallback for a failed hybrid query, and a thrown error when every route fails
- * EventBase's search and ChunkBase's chunk collections send their queries this way.
+ * EventBase's search sends its queries this way.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -46,14 +46,14 @@ const { invalidateCollectionMetadata } = await import('../src/features/vector-ba
 const { resetRetrievalFailureNotifications } = await import('../src/shared/model-config-notifier.js');
 
 /** Registry keys as the insert writes them: "<backend>:<bare id>". */
-const QDRANT_ID = 'vf_document_qdrant_wren_harbor_atlas_1750000000000';
+const QDRANT_ID = 'vf_eventbase_qdrant_wren_keeper_orrin_aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const QDRANT_KEY = `qdrant:${QDRANT_ID}`;
-const VECTRA_ID = 'vf_document_standard_wren_harbor_atlas_1750000000000';
+const VECTRA_ID = 'vf_eventbase_standard_wren_keeper_orrin_aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const VECTRA_KEY = `vectra:${VECTRA_ID}`;
 const QUERY = 'Who keeps the lighthouse of Vell?';
 
 function chunk(hash, score) {
-    return { hash, text: 'Keeper Orrin keeps the lighthouse of Vell.', score, metadata: { contentType: 'document', sourceName: 'Harbor Atlas' } };
+    return { hash, text: 'Keeper Orrin keeps the lighthouse of Vell.', score, metadata: { eventbase: true, event_id: `event-${hash}` } };
 }
 
 function settingsWith(overrides = {}) {

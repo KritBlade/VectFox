@@ -2,8 +2,7 @@
  * @vitest-environment jsdom
  *
  * A collection's dialogs on GUI-DNA (src/features/database-browser/collection-dialogs-markup.js): each form holds the
- * controls its wiring finds, a rule shows its kind's settings with the values the activation check uses, and every
- * value is escaped.
+ * controls its wiring finds, Collection Settings holds the lock alone, and every value is escaped.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -13,14 +12,9 @@ import {
     RENAME_INPUT_ID,
     SETTINGS_IDS,
     collectionSettingsMarkup,
-    conditionRuleMarkup,
-    conditionRulesMarkup,
     lockDialogMarkup,
-    lorebookChoicesMarkup,
     modelFormMarkup,
     renameFormMarkup,
-    ruleControlId,
-    ruleControlOf,
 } from '../src/features/database-browser/collection-dialogs-markup.js';
 import { lockDialogView } from '../src/features/database-browser/collection-settings-core.js';
 
@@ -30,24 +24,9 @@ function parse(html) {
     return template.content;
 }
 
-const OPTIONS = { worldNames: ['Harbor Lore', '<b>Bold</b>'], generationTypes: ['normal', 'swipe', 'continue'] };
-
 const LOCK = {
     switchState: { title: 'Active for this character', description: 'On: active in every chat with this character.', isDisabled: false },
     summary: { pill: '2 locks', isActiveHere: true, line: 'Active here: locked to this character.' },
-};
-
-const SETTINGS_VIEW = {
-    lock: LOCK,
-    triggersText: 'harbor\ntide',
-    matchMode: 'all',
-    scanDepth: 7,
-    logic: 'OR',
-    rules: [],
-    context: 'Things {{char}} remembers:',
-    xmlTag: 'memories',
-    position: null,
-    depth: null,
 };
 
 const selectedValue = (fragment, id) => fragment.querySelector(`#${id}`).value;
@@ -71,68 +50,15 @@ describe('Rename and Switch model', () => {
 });
 
 describe('Collection Settings', () => {
-    it('holds every control its wiring finds, with the saved values', () => {
-        const form = parse(collectionSettingsMarkup(SETTINGS_VIEW, OPTIONS));
+    it('holds the lock alone: its switch, Manage locks, the lock count and whether one matches here', () => {
+        const form = parse(collectionSettingsMarkup({ lock: LOCK }));
         for (const id of Object.values(SETTINGS_IDS)) expect(form.querySelector(`#${id}`), id).not.toBeNull();
-        expect(selectedValue(form, SETTINGS_IDS.triggers)).toBe('harbor\ntide');
-        expect(selectedValue(form, SETTINGS_IDS.matchMode)).toBe('all');
-        expect(selectedValue(form, SETTINGS_IDS.scanDepth)).toBe('7');
-        expect(selectedValue(form, SETTINGS_IDS.logic)).toBe('OR');
-        expect(selectedValue(form, SETTINGS_IDS.position)).toBe('');
-        expect(form.querySelector(`#${SETTINGS_IDS.lockArea}`).textContent).toContain('2 locks');
-        expect(form.querySelector(`#${SETTINGS_IDS.rules}`).textContent).toContain('No conditions yet.');
-    });
-
-    it('shows the depth only for the in-chat position', () => {
-        expect(parse(collectionSettingsMarkup(SETTINGS_VIEW, OPTIONS)).querySelector(`#${SETTINGS_IDS.depthField}`).hidden).toBe(true);
-        const inChat = parse(collectionSettingsMarkup({ ...SETTINGS_VIEW, position: 1, depth: 0 }, OPTIONS));
-        expect(inChat.querySelector(`#${SETTINGS_IDS.depthField}`).hidden).toBe(false);
-        expect(selectedValue(inChat, SETTINGS_IDS.position)).toBe('1');
-        expect(selectedValue(inChat, SETTINGS_IDS.depth)).toBe('0');
-    });
-});
-
-describe('a condition rule', () => {
-    const rule = (type, settings = {}, negate = false) => parse(conditionRuleMarkup({ type, settings, negate }, 2, OPTIONS));
-
-    it('finds its controls by the rule\'s place and the setting\'s name', () => {
-        expect(ruleControlOf(ruleControlId(2, 'startTime'))).toEqual({ index: 2, name: 'startTime' });
-        expect(ruleControlOf('vectfox_rename_input')).toBeNull();
-    });
-
-    it('carries its place, its kind and its NOT', () => {
-        const record = rule('speaker', { values: ['Mira'] }, true);
-        expect(record.querySelector('[data-condition-rule]').dataset.conditionRule).toBe('2');
-        expect(selectedValue(record, ruleControlId(2, 'kind'))).toBe('speaker');
-        expect(record.querySelector('[data-rule-check="negate"]').checked).toBe(true);
-    });
-
-    it('shows each kind\'s settings with the values the activation check uses', () => {
-        const pattern = rule('keyword', { values: ['bridge'] });
-        expect(selectedValue(pattern, ruleControlId(2, 'kind'))).toBe('pattern');
-        expect(selectedValue(pattern, ruleControlId(2, 'patterns'))).toBe('bridge');
-        expect(selectedValue(pattern, ruleControlId(2, 'scanDepth'))).toBe('10');
-        expect(selectedValue(rule('messageCount'), ruleControlId(2, 'operator'))).toBe('gte');
-        expect(selectedValue(rule('isGroupChat'), ruleControlId(2, 'isGroup'))).toBe('true');
-        expect(selectedValue(rule('randomChance'), ruleControlId(2, 'probability'))).toBe('50');
-        expect(selectedValue(rule('timeOfDay'), ruleControlId(2, 'endTime'))).toBe('23:59');
-        const types = [...rule('generationType').querySelectorAll('[data-rule-generation-type]')];
-        expect(types.map(box => [box.dataset.ruleGenerationType, box.checked])).toEqual([['normal', true], ['swipe', false], ['continue', false]]);
-    });
-
-    it('offers the lorebooks, escaped, and lists the chosen ones with their remove buttons', () => {
-        const record = rule('lorebookActive', { values: ['Harbor Lore:12'] });
-        const lorebooks = [...record.querySelectorAll(`#${ruleControlId(2, 'lorebook')} option`)].map(option => option.textContent);
-        expect(lorebooks).toEqual(['Choose a lorebook', 'Harbor Lore', '<b>Bold</b>']);
-        expect(record.querySelector('[data-lorebook-choices]').textContent).toContain('Harbor Lore, entry 12');
-        expect(record.querySelector('[data-rule-action="remove-lorebook"]').dataset.lorebookValue).toBe('Harbor Lore:12');
-        expect(parse(lorebookChoicesMarkup([])).textContent).toBe('No lorebook chosen yet.');
-    });
-
-    it('keeps a kind it does not know as it is, and lists the rules in order', () => {
-        expect(rule('weather').textContent).toContain('does not know this kind of condition');
-        const list = parse(conditionRulesMarkup([{ type: 'speaker' }, { type: 'pattern' }], OPTIONS));
-        expect([...list.querySelectorAll('[data-condition-rule]')].map(record => record.dataset.conditionRule)).toEqual(['0', '1']);
+        expect([...form.querySelectorAll('input, select, textarea')].map(control => control.id)).toEqual([SETTINGS_IDS.lockSwitch]);
+        const area = form.querySelector(`#${SETTINGS_IDS.lockArea}`);
+        expect(area.querySelector('.vfx-switch-title').textContent).toBe('Active for this character');
+        expect(area.querySelector('[data-settings-action="manage-locks"]')).not.toBeNull();
+        expect([...area.querySelectorAll('.vfx-pill')].map(pill => [pill.textContent, pill.classList.contains('is-success')])).toEqual([['2 locks', true]]);
+        expect(area.textContent).toContain('Active here: locked to this character.');
     });
 });
 

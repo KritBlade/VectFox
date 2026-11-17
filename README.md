@@ -388,13 +388,13 @@ Auto-Sync card shows whether the current chat is vectorized and how many events 
 
 ### 🗂️ Tabbed interface
 
-Settings split into **Core** (backend, embedding, hybrid), **ChatHistory** (EventBase: chat history/archive chat file .jsonl), **ChunkBase** (docs/URLs/wiki), **Action** (diagnostics, dev tools).
+Settings split into **Action** (vectorization, Database Browser, diagnostics, dev tools), **Core** (backend, embedding, retrieval, hybrid), **ChatHistory** (EventBase: chat history/archive chat file .jsonl), **AutoSync** (keeps the open chat in sync), **WorldInfo** (LoreBase), **RAG** (how memory is wrapped in the prompt), **AgentMode** (the search planner) and **StoryArc** (story threads).
 
 ### ⚡ Windows at once — Vectorization Speedup
 
 Vectorizing a long chat normally processes one window at a time: send window 1 to the LLM → wait → embed → send window 2 → wait → embed → ... For a 2000-message chat that's a lot of serialized waiting.
 
-The **Windows at once** slider (the Chunking card on Vectorize Content's Chat page) lets you spawn up to **8 LLM extraction + embedding calls at the same time**. Window 1 is being extracted while windows 2–8 are also in flight, dramatically cutting total ingestion time.
+The **Windows at once** slider (the Windows card on Vectorize Content's Chat page) lets you spawn up to **8 LLM extraction + embedding calls at the same time**. Window 1 is being extracted while windows 2–8 are also in flight, dramatically cutting total ingestion time.
 
 | Slider value   | Behavior                                                                                             |
 | -------------- | ---------------------------------------------------------------------------------------------------- |
@@ -418,21 +418,13 @@ Numerous bug fixes around mixed-backend search, handle ID filtering, and other e
 
 ## 🎭 Activation Rules
 
-Each collection has activation settings: Edit collection settings on its row in the Database Browser. Activation is a chain of gates; every gate that applies must pass:
+Each collection has activation settings on its row in the Database Browser: the pause button, and the lock in Edit collection settings. Activation is a chain of gates; every gate must pass:
 
 1. **Disabled** (pause button) → never queries
-2. **Active for this chat / Active for this character** → required. A collection not locked to this chat or character never queries
-3. **Triggers**, if set → a keyword must match recent messages this turn
-4. **Advanced Conditions**, if set → the condition rules must also pass this turn
-5. **Locked, nothing else set** → queries every turn
+2. **Active for this chat** → required. A collection not locked to this chat never queries
+3. **Locked, not paused** → queries every turn
 
-Triggers and conditions only narrow a locked collection; neither can switch one on.
-
-Conditions support keywords/patterns, speaker, character-present, message/turn count, time of day, and combined AND/OR rules.
-
-> ⚠️ **Legacy feature note:** Triggers and condition-based activation are **inherited from VectHare** and kept here for backward compatibility only. **Always switch on "Active for this chat" or "Active for this character"**. That is what switches a collection on, and triggers and conditions can only narrow it further. The whole point of vector search is to let the search engine search everything. Narrowing it with keyword triggers defeats that purpose.
->
-> **CJK note:** Triggers and condition-based activation are **language-neutral** — keyword/pattern matching uses plain substring search, which works for Chinese/Japanese/Korean the same as English. (Only user-written regex with ASCII `\b` boundaries won't fire across CJK — use plain substrings or `\p{L}` + the `u` flag.)
+> 💡 **"Active for this chat" is what switches a collection on.** Vectorizing a chat locks its own collection to it. A collection made from an uploaded chat file is locked to no chat: switch it on in each chat that should read it.
 
 ---
 
@@ -479,7 +471,7 @@ That's it! VectFox will be downloaded and enabled automatically.
 | Event search & injection                  | ✅ Full functionality               | ✅ Full functionality           | ✅ Full functionality                                                             |
 | Summarizer Injection (recent-turn memory) | ❌ Needs per-event metadata         | ✅ Available                    | ✅ Available                                                                      |
 | Embedding & vectorization                 | ⚠️ Not on a llama.cpp, KoboldCPP or Custom profile | ✅ Works                        | ✅ Works                                                                          |
-| Keywords stored in DB (boost search)      | ❌ Saved to local settings only     | ✅ Stored in vector DB          | ✅ Stored in vector DB                                                            |
+| Keywords stored in DB (boost search)      | ✅ Kept in each event's text        | ✅ Stored in vector DB          | ✅ Stored in vector DB                                                            |
 | Event importance score                    | ❌ Lost (native API drops metadata) | ⚠️ Stored, not used in re-rank | ✅ Stored & used in re-rank                                                       |
 | View Chunks in Database Browser           | ❌ Not available                    | ✅ Available                    | ✅ Available                                                                      |
 | Edit individual chunks                    | ❌ Not available                    | ✅ Available                    | ✅ Available                                                                      |
@@ -487,7 +479,7 @@ That's it! VectFox will be downloaded and enabled automatically.
 | Scales to large datasets                  | ⚠️ Degrades on long story          | ⚠️ Degrades on long story      | ✅ 10 k+ messages, stays fast                                                     |
 | Setup                                     | None                                | Plugin install                  | Plugin install + Free cloud account **or** [local install](Doc/Qdrant_install.md) |
 
-On the Standard backend without the plugin, event search and injection still work. You just don't get chunk inspection, keyword metadata, or embedding on a llama.cpp, KoboldCPP or Custom profile. For the best retrieval quality, I strongly recommend **Qdrant**. The free cloud tier at https://qdrant.tech/ needs no local setup at all.
+On the Standard backend without the plugin, event search and injection still work. You just don't get Summarizer Injection, event importance, chunk inspection, or embedding on a llama.cpp, KoboldCPP or Custom profile. For the best retrieval quality, I strongly recommend **Qdrant**. The free cloud tier at https://qdrant.tech/ needs no local setup at all.
 
 #### First-time on Windows? Install Git and Node.js first
 
@@ -588,17 +580,10 @@ Look for the update notification in the Extensions panel, or manually check with
 
 ## ❓ FAQ
 
-**Why are there two separate pipelines under the hood?**
-Internally VectFox routes content through one of two retrieval paths, picked by content type:
+**What does VectFox search?**
+Your chat history, through EventBase: the live chat and uploaded `.jsonl` chat files, stored as events. Each reply searches the event collections locked to its chat.
 
-| Pipeline             | What it handles                                                                              |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| **EventBase**        | Your chat history (live chat + uploaded`.jsonl` archives)                                    |
-| **Standard (Chunk)** | Everything else: Character Cards, URLs, documents, wiki pages, YouTube transcripts           |
-
-They never see each other's content — so the same chat message can't get retrieved twice (once as an event and once as a raw chunk). You don't normally need to think about this; it just means EventBase owns chat, and the standard chunk pipeline owns everything else.
-
-Lorebooks are in neither one. LoreBase picks the entries a reply needs, and SillyTavern's own World Info sends them.
+Lorebooks are not in it. LoreBase picks the entries a reply needs, and SillyTavern's own World Info sends them.
 
 **Can I change the CJK tokenizer mid-chat?**
 No — don't do it. The CJK tokenizer is **locked into each Qdrant collection at upsert time** via a sentinel point. Switching modes after you've already vectorized content will trigger a "Tokenizer mismatch" warning modal on the next query, and your only real options are:
@@ -607,9 +592,6 @@ No — don't do it. The CJK tokenizer is **locked into each Qdrant collection at
 2. **Re-vectorize the collection from scratch** with the new mode (throw away all extracted events and start over).
 
 Pick your tokenizer mode *before* you start vectorizing a chat and stick with it. There's no in-place migration — sparse vectors were tokenized with the original mode, so they're incompatible with a different tokenizer's output.  Pick your embedding model *before* you start vectorizing a chat and stick with it.
-
-**Can I use triggers/conditions on Chinese/Japanese/Korean chats?**
-Yes. Keyword/pattern matching uses plain substring search, so it works for CJK the same as English. The only caveat is user-written regex using ASCII `\b` word boundaries (which don't fire between CJK characters) — use plain substrings or Unicode `\p{L}` with the `u` flag. Numeric conditions (Message Count / Turn Count) are always language-independent.
 
 **How do I delete a collection safely?**
 **ALWAYS use the Database Browser inside VectFox** (Action page → Database Browser → "Open browser") to delete collections. Click the red trash button on the collection's row. This properly cleans up both the vector database **and** VectFox's internal registry + metadata. Never delete collections manually from Qdrant's web UI or by editing SillyTavern's `settings.json` — doing so leaves orphaned metadata that causes sync conflicts, "collection not found" errors, and other strange behavior.
@@ -671,9 +653,9 @@ A couple of gotchas:
 
 **"No embeddings available"**: open VectFox, go to **Core** > **Embedding** and press **Test connection**. On a profile, the readout under **Profile** says what the server needs. Then run **Diagnostics** on the **Action** page, which checks the plugin, the backend and the embedding call.
 
-**Events/chunks not retrieved** — Open the chat first, not SillyTavern's lobby. Open the Database Browser and find the chat's collection. Its row should say "Locked to this chat". If it doesn't, open the collection's settings and switch on "Active for this chat".
+**Events not retrieved** — Open the chat first, not SillyTavern's lobby. Open the Database Browser and find the chat's collection. Its row should say "Locked to this chat". If it doesn't, open the collection's settings and switch on "Active for this chat".
 
-**"What would the AI actually recall for this message?"** — Press **Test a query** on the Action page. Type any message and run it: Diagnostics shows what EventBase and ChunkBase would inject for it, and why one finds nothing, without sending anything to the chat. Useful for tuning thresholds and checking that important events are in.
+**"What would the AI actually recall for this message?"** — Press **Test a query** on the Action page. Type any message and run it: Diagnostics shows what EventBase would inject for it, or why it finds nothing, without sending anything to the chat. Useful for tuning thresholds and checking that important events are in.
 
 **"Backend health check failed"** — On Qdrant, make sure the Qdrant server is running and the Similharity plugin is installed.
 

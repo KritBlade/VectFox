@@ -27,11 +27,11 @@ export const CONNECTION_PROFILE_OVERRIDE_KEYS = Object.freeze({
 });
 
 /**
- * The profile a chat consumer runs on, or '' when it runs on a manual provider. Agent Mode and Auto-Reformat take it
- * through resolveInheritedConnection, so on Same as EventBase model they use the EventBase model's profile.
+ * The profile a chat consumer runs on, or '' when it runs on a manual provider. Agent Mode takes it through
+ * resolveInheritedConnection, so on Same as EventBase model it uses the EventBase model's profile.
  *
  * @param {object} settings - VectFox settings
- * @param {'eventbase'|'agent'|'reformat'|'storyarc'|'lorebase'} consumer
+ * @param {'eventbase'|'agent'|'storyarc'|'lorebase'} consumer
  * @returns {string}
  */
 export function resolveConnectionProfileId(settings, consumer) {
@@ -43,12 +43,10 @@ export function resolveConnectionProfileId(settings, consumer) {
                 ? textOf(settings?.story_arc_link_connection_profile_id) : '';
         case 'lorebase':
             return textOf(settings?.lorebase_provider) === CONNECTION_PROFILE_PROVIDER ? textOf(settings?.lorebase_connection_profile_id) : '';
-        case 'agent':
-        case 'reformat': {
-            const prefix = consumer === 'agent' ? 'agent' : 'reformat';
+        case 'agent': {
             const connection = resolveInheritedConnection({
-                provider: settings?.[`${prefix}_provider`],
-                connectionProfileId: settings?.[`${prefix}_connection_profile_id`],
+                provider: settings?.agent_provider,
+                connectionProfileId: settings?.agent_connection_profile_id,
             }, settings);
             return connection.provider === CONNECTION_PROFILE_PROVIDER ? connection.connectionProfileId : '';
         }

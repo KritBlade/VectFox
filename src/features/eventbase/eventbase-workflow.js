@@ -1099,9 +1099,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
  * Scan the registry for archive event collections (VectFox_archiveevent_*) that are
  * enabled and locked to the current chat. These are included in Phase A retrieval.
  *
- * Uses direct enabled + lock checks instead of shouldCollectionActivate, which reads a
- * single key and also accepts character locks: here pause and lock state may sit under
- * either key form (see below), and only a lock to this chat counts.
+ * Uses direct enabled + lock checks: pause and lock state may sit under either key form
+ * (see below), and only a lock to this chat counts, never a character lock.
  *
  * @param {string} currentChatId
  * @returns {{ collectionId: string, registryKey: string }[]}
@@ -1297,7 +1296,7 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
         toastr.success(`EventBase: ${injectedCount} event(s) injected`, 'VectFox Retrieval');
     }
 
-    // The RAG page's context prompt goes before the events, and its XML tag wraps them, as on a chunk block.
+    // The RAG page's context prompt goes before the events, and its XML tag wraps them.
     const globalContext = settings.rag_context ? substituteParams(settings.rag_context) : '';
     if (globalContext) {
         injectionText = `${globalContext}\n\n${injectionText}`;

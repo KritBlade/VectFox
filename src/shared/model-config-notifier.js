@@ -123,7 +123,7 @@ const _upstreamNotified = new Set();
  * De-dup key is context + model + detail, so a different model or a different
  * upstream status warns afresh while a run of 200 failing windows warns once.
  *
- * @param {string} contextLabel - 'EventBase' | 'Summarizer' | 'Agent Mode' | 'Auto-Reformat'
+ * @param {string} contextLabel - The feature that sent the call, as postChatCompletion names it ('EventBase', 'StoryArc', …)
  * @param {string} model - the model id that was requested
  * @param {string} detail - upstream status text ST forwarded (e.g. 'Bad Request')
  * @param {boolean} [isQuotaError] - ST's quota_error flag (429 + insufficient_quota)

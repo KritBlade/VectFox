@@ -1,13 +1,14 @@
 /**
  * @vitest-environment jsdom
  *
- * Vectorize Content's wiring (src/features/chunkbase/content-vectorizer.js), driven as a user would: the rail shows one
- * type's page and each page keeps what was typed on it; a run says on its page what it needs; a fetch carries
- * SillyTavern's CSRF token, which the old dialog left out so every fetch got a 403; the Character fields, which
- * nothing read, reach the run; a chat's Vectorize asks before reading again;
- * the dialog closes after a clean read of something new and otherwise stays open saying why; the close is announced
- * once, after any run; the Action page's Sync chat reads what EventBase has not read once the user confirms, and says
- * in a dialog when there is nothing to read, the AutoSync page's Up to date included, or a run found nothing new.
+ * Vectorize Content's wiring (src/features/eventbase/content-vectorizer.js), driven as a user would: the dialog opens on
+ * the Chat page with the open chat, or on a chat file when none is open; a chat file picked or dropped on the Source
+ * card loads, a drop never reaching SillyTavern's own; the window sliders save VectFox's settings and Text cleaning sets
+ * its one preset; a run says on its page what it needs; a chat's Vectorize asks before reading again; the dialog closes
+ * after a clean read of something new and otherwise stays open saying why; Stop ends a run; the close is announced
+ * once, after any run; the Action page's Sync chat reads what EventBase has not read once the user confirms, and says in
+ * a dialog when there is nothing to read, the AutoSync page's Up to date included, or a run found nothing new; the
+ * auto-sync catch-up reads the open chat's new messages with no dialog.
  */
 /* global document, window, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -19,7 +20,7 @@ const host = vi.hoisted(() => ({
     dialogs: [],
     root: { vectfox: {} },
     context: {},
-    fetched: [],
+    cleaningPreset: 'light',
     priorWindows: false,
     runResult: null,
     syncStatus: null,
@@ -28,9 +29,7 @@ const host = vi.hoisted(() => ({
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => host.context }));
-vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json', 'X-CSRF-Token': 'token' }) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
-vi.mock('../src/sillytavern/identifiers.js', () => ({ getStringHash: text => text.length }));
 vi.mock('../src/sillytavern/popup.js', () => ({
     // A dialog is on the page while open; closing asks its canClose, as SillyTavern's Close does.
     openPanelPopup: vi.fn((root, { canClose } = {}) => {
@@ -47,8 +46,7 @@ vi.mock('../src/sillytavern/popup.js', () => ({
     confirmPopup: vi.fn(async () => host.answer),
     noticePopup: vi.fn(async () => {}),
 }));
-vi.mock('../src/features/chunkbase/chat-vectorization.js', () => ({
-    getChatUUID: () => 'chat-uuid',
+vi.mock('../src/features/eventbase/eventbase-chat-sync.js', () => ({
     runEventBaseOnOpenChat: vi.fn(async (settings, signal) => {
         if (host.runResult instanceof Error) throw host.runResult;
         // A run that goes on until stopped, then returns what it saved.
@@ -59,21 +57,30 @@ vi.mock('../src/features/chunkbase/chat-vectorization.js', () => ({
         return host.runResult;
     }),
 }));
-vi.mock('../src/features/chunkbase/content-vectorization.js', () => ({
-    resolveEffectiveSettings: settings => ({ ...settings }),
-    vectorizeContent: vi.fn(async () => ({ chunkCount: 3 })),
-    resolveAndPrepareContent: vi.fn(async (typeId, source) => ({ text: String(source.content || '') })),
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
+    getVectorizationTip: () => (host.priorWindows ? 120 : undefined),
+    prepareForFreshExtraction: vi.fn(async () => ({ skipTipFallback: true })),
+    checkWindowSizeChanged: () => ({ changed: false }),
+    setLastUsedWindowSize: vi.fn(),
 }));
-vi.mock('../src/features/chunkbase/chunking.js', () => ({ chunkText: vi.fn(async text => (Array.isArray(text) ? text : [text])) }));
-vi.mock('../src/features/llm-provider/index.js', () => ({ validateLLMConfig: () => host.llmCheck, resolveInheritedConnection: () => ({ provider: 'openrouter', model: 'm' }) }));
+vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
+    runEventBaseIngestion: vi.fn(),
+    countUnfinishedWindows: () => 0,
+    notifyUnfinishedWindows: vi.fn(),
+    getChatAutoSyncStatus: vi.fn(async () => host.syncStatus),
+}));
+vi.mock('../src/features/llm-provider/index.js', () => ({ validateLLMConfig: () => host.llmCheck }));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => '' }));
-vi.mock('../src/shared/collection-ids.js', () => ({ buildArchiveEventCollectionId: () => 'vf_archive' }));
+vi.mock('../src/shared/collection-ids.js', () => ({
+    getChatUUID: () => 'chat-uuid',
+    buildArchiveEventCollectionId: ({ filenameCharName, archiveUUID }) => `vf_archiveevent_${filenameCharName}_${archiveUUID}`,
+}));
 vi.mock('../src/features/text-cleaning/index.js', () => ({
     cleaningPresetChoices: () => [
         { id: 'light', name: 'Light', description: 'Strips markup.' },
         { id: 'custom', name: 'Custom', description: 'Your own built-ins and custom patterns.' },
     ],
-    getCleaningSettings: () => ({ selectedPreset: 'light' }),
+    getCleaningSettings: () => ({ selectedPreset: host.cleaningPreset }),
     chooseCleaningPreset: vi.fn(),
     openTextCleaningDialog: vi.fn(async () => {}),
 }));
@@ -81,28 +88,21 @@ vi.mock('../src/features/text-cleaning/index.js', () => ({
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { setCancelHandler: vi.fn(), clearCancelHandler: vi.fn(), show: vi.fn(), complete: vi.fn(), requestCancel: vi.fn() } }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ isInvalidModelConfigError: () => false, notifyInvalidModel: vi.fn() }));
 vi.mock('../src/shared/pick-files.js', () => ({ pickFiles: vi.fn(async () => []) }));
-vi.mock('../src/features/eventbase/index.js', () => ({
-    getVectorizationTip: () => (host.priorWindows ? 120 : undefined),
-    prepareForFreshExtraction: vi.fn(async () => ({ skipTipFallback: true })),
-    checkWindowSizeChanged: () => ({ changed: false }),
-    setLastUsedWindowSize: vi.fn(),
-    runEventBaseIngestion: vi.fn(),
-    countUnfinishedWindows: () => 0,
-    notifyUnfinishedWindows: vi.fn(),
-    getChatAutoSyncStatus: vi.fn(async () => host.syncStatus),
-}));
 
-const { openContentVectorizer, backfillCurrentChatWithProgress, syncOpenChat } = await import('../src/features/chunkbase/content-vectorizer.js');
-const { vectorizeContent } = await import('../src/features/chunkbase/content-vectorization.js');
-const { runEventBaseOnOpenChat } = await import('../src/features/chunkbase/chat-vectorization.js');
-const { runEventBaseIngestion } = await import('../src/features/eventbase/index.js');
+const { openContentVectorizer, backfillCurrentChatWithProgress, syncOpenChat } = await import('../src/features/eventbase/content-vectorizer.js');
+const { runEventBaseOnOpenChat } = await import('../src/features/eventbase/eventbase-chat-sync.js');
+const { runEventBaseIngestion } = await import('../src/features/eventbase/eventbase-workflow.js');
+const { chooseCleaningPreset, openTextCleaningDialog } = await import('../src/features/text-cleaning/index.js');
+const { pickFiles } = await import('../src/shared/pick-files.js');
 const { confirmPopup, closePanelPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 
 const $id = id => document.getElementById(id);
-const page = typeId => $id(`vectfox_cv_page_${typeId}`);
-const actionOn = (typeId, name) => page(typeId).querySelector(`[data-cv-action="${name}"]`);
-const runState = typeId => page(typeId).querySelector('[data-cv-hint="run-state"]').textContent;
+const page = () => $id('vectfox_cv_page_chat');
+const actionOn = name => page().querySelector(`[data-cv-action="${name}"]`);
+const partOf = name => page().querySelector(`[data-cv-part="${name}"]`);
+const fileRegion = () => page().querySelector('[data-cv-region="file"]');
+const runState = () => page().querySelector('[data-cv-hint="run-state"]').textContent;
 const change = (element, value) => {
     if (typeof value === 'boolean') element.checked = value;
     else element.value = value;
@@ -124,6 +124,7 @@ beforeEach(async () => {
     document.body.innerHTML = '';
     closed.length = 0;
     host.answer = true;
+    host.cleaningPreset = 'light';
     host.priorWindows = false;
     host.runResult = { eventsExtracted: 3, windowsProcessed: 1, windowsSkipped: 0 };
     host.syncStatus = { state: 'partial', chatMessageCount: 40, vectorizationTip: 30, unfinishedWindowCount: 0 };
@@ -133,60 +134,48 @@ beforeEach(async () => {
         chatId: 'chat.jsonl',
         chat: [{ mes: 'Open the gate.' }, { mes: 'It opens.' }],
         name2: 'Harbor Keeper',
-        characterId: 0,
-        characters: [{ avatar: 'keeper.png', name: 'Harbor Keeper', description: 'Old.' }, { avatar: 'gull.png', name: 'Gull' }],
     };
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
-        host.fetched.push({ url, init });
-        if (url === '/api/search/visit') return { ok: true, text: async () => '<html><head><title>Docks</title></head><body><p>The docks are busy at dawn, every boat unloading its catch.</p></body></html>' };
-        return { ok: false, status: 404, text: async () => 'Not found' };
-    }));
-    host.fetched = [];
 });
 
 document.addEventListener('vectfox:content-vectorizer-closed', () => closed.push('closed'));
 
-describe('the rail', () => {
-    it('opens on Chat while a chat is open, shows another type\'s page, and each page keeps what was typed on it', async () => {
+describe('opening', () => {
+    it('opens on the Chat page with the open chat, the saved window size and overlap, and three windows at once', () => {
         openContentVectorizer();
-        expect(page('chat').style.display).toBe('');
-        expect(page('chat').querySelector('[data-cv-part="this"]').textContent).toContain('Harbor Keeper');
+        expect(page().hidden).toBe(false);
+        expect($id('vectfox_cv_chat_source_choice').value).toBe('this');
+        expect(partOf('this').textContent).toContain('Harbor Keeper');
         expect($id('vectfox_cv_chat_window_size').value).toBe('4');
-
-        $id('vectfox_cv_tab_document').click();
-        expect(page('document').style.display).toBe('');
-        expect(page('chat').style.display).toBe('none');
-        $id('vectfox_cv_document_paste_text').value = 'The harbor wakes at dawn.';
-        $id('vectfox_cv_tab_url').click();
-        $id('vectfox_cv_tab_document').click();
-        expect($id('vectfox_cv_document_paste_text').value).toBe('The harbor wakes at dawn.');
+        expect($id('vectfox_cv_chat_window_overlap').value).toBe('1');
+        expect($id('vectfox_cv_chat_parallel_windows').value).toBe('3');
     });
 
-    it('opens on Character while no chat is open', async () => {
+    it('opens on a chat file while no chat is open', () => {
         host.context = { ...host.context, chatId: undefined, chat: [] };
         openContentVectorizer();
-        expect(page('character').style.display).toBe('');
-        expect(page('chat').style.display).toBe('none');
-    });
-
-    it('pins the open character first', async () => {
-        openContentVectorizer('character');
-        const select = $id('vectfox_cv_character_source_select');
-        await vi.waitFor(() => expect(select.value).toBe('keeper.png'));
-        expect(select.options[1].textContent).toBe('Harbor Keeper (open now)');
+        expect($id('vectfox_cv_chat_source_choice').value).toBe('file');
+        expect(partOf('this').hidden).toBe(true);
+        expect(partOf('file').hidden).toBe(false);
     });
 });
 
-describe('a dropped file', () => {
-    // jsdom has no DataTransfer and its File no text(), so the drop carries plain ones; SillyTavern listens for drops on
-    // the page body.
+describe('a chat file', () => {
+    // jsdom has no DataTransfer and its File no text(), so the pick and the drop carry plain ones; SillyTavern listens
+    // for drops on the page body.
     const fileOf = (name, text) => ({ name, text: async () => text });
     const dropOn = (element, file) => {
         const event = new Event('drop', { bubbles: true, cancelable: true });
         Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files: [file] } });
         element.dispatchEvent(event);
     };
+    const chatFile = [
+        { chat_metadata: { integrity: 'harbor-file' }, user_name: 'Rook', character_name: 'Harbor Keeper' },
+        { name: 'Harbor Keeper', is_user: false, mes: 'The gate is shut.' },
+        { name: 'Rook', is_user: true, mes: 'Open it.' },
+        { name: 'Harbor Keeper', is_user: false, mes: 'It opens.' },
+        { name: 'Rook', is_user: true, mes: 'Go in.' },
+    ].map(line => JSON.stringify(line)).join('\n');
     const reachedBody = [];
     const recordBodyDrop = () => reachedBody.push('drop');
     beforeEach(() => {
@@ -195,90 +184,96 @@ describe('a dropped file', () => {
         return () => document.body.removeEventListener('drop', recordBodyDrop);
     });
 
-    it('loads on a Source card as a picked file, and SillyTavern never sees it', async () => {
-        openContentVectorizer('document');
-        dropOn($id('vectfox_cv_document_source_card'), fileOf('docks.md', '# Docks\n\nBoats unload at dawn.'));
-        await vi.waitFor(() => expect(page('document').querySelector('[data-cv-region="file"]').textContent).toContain('docks.md'));
-        expect($id('vectfox_cv_document_source_choice').value).toBe('file');
-        expect($id('vectfox_cv_document_doc_name').value).toBe('docks');
+    it('loads one picked with Choose file, which asks only for the chat files it takes', async () => {
+        pickFiles.mockResolvedValueOnce([fileOf('harbor.jsonl', chatFile)]);
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_source_choice'), 'file');
+        actionOn('choose-file').click();
+        await vi.waitFor(() => expect(fileRegion().textContent).toContain('harbor.jsonl'));
+        expect(pickFiles).toHaveBeenCalledWith({ accept: '.txt,.jsonl,.json' });
+        expect(fileRegion().textContent).toContain('Messages: 4');
+        expect(fileRegion().textContent).toContain('Character: Harbor Keeper');
+    });
+
+    it('loads on the Source card as a picked file, and SillyTavern never sees it', async () => {
+        openContentVectorizer();
+        dropOn($id('vectfox_cv_chat_source_card'), fileOf('harbor.jsonl', chatFile));
+        await vi.waitFor(() => expect(fileRegion().textContent).toContain('harbor.jsonl'));
+        expect($id('vectfox_cv_chat_source_choice').value).toBe('file');
+        expect(partOf('file').hidden).toBe(false);
+        expect(reachedBody).toEqual([]);
+    });
+
+    it('loads nothing dropped beside the Source card, and still stops at the dialog', async () => {
+        openContentVectorizer();
+        dropOn($id('vectfox_cv_chat_windows_card'), fileOf('harbor.jsonl', chatFile));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect($id('vectfox_cv_chat_source_choice').value).toBe('this');
+        expect(fileRegion().textContent).toBe('');
         expect(reachedBody).toEqual([]);
     });
 
     it('hands EventBase the whole chat file and the message to start at, so its windows count from the file\'s first message', async () => {
-        const chatFile = [
-            { chat_metadata: { integrity: 'harbor-file' }, user_name: 'Rook', character_name: 'Harbor Keeper' },
-            { name: 'Harbor Keeper', is_user: false, mes: 'The gate is shut.' },
-            { name: 'Rook', is_user: true, mes: 'Open it.' },
-            { name: 'Harbor Keeper', is_user: false, mes: 'It opens.' },
-            { name: 'Rook', is_user: true, mes: 'Go in.' },
-        ].map(line => JSON.stringify(line)).join('\n');
-        openContentVectorizer('chat');
+        openContentVectorizer();
         dropOn($id('vectfox_cv_chat_source_card'), fileOf('harbor.jsonl', chatFile));
-        await vi.waitFor(() => expect(page('chat').querySelector('[data-cv-region="file"]').textContent).toContain('harbor.jsonl'));
+        await vi.waitFor(() => expect(fileRegion().textContent).toContain('harbor.jsonl'));
 
-        actionOn('chat', 'resume').click();
+        actionOn('resume').click();
         await vi.waitFor(() => expect(runEventBaseIngestion).toHaveBeenCalledTimes(1));
-        expect(runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ startFromMessage: 1 });
+        expect(runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ startFromMessage: 1, chatUUID: 'harbor-file', collectionIdOverride: 'vf_archiveevent_harbor_harbor-file' });
         expect(runEventBaseIngestion.mock.calls[0][0].messages).toHaveLength(4);
-        await vi.waitFor(() => expect(actionOn('chat', 'resume').disabled).toBe(false));
+        await vi.waitFor(() => expect(actionOn('resume').disabled).toBe(false));
 
         change($id('vectfox_cv_chat_start_from'), '3');
-        actionOn('chat', 'resume').click();
+        actionOn('resume').click();
         await vi.waitFor(() => expect(runEventBaseIngestion).toHaveBeenCalledTimes(2));
         expect(runEventBaseIngestion.mock.calls[1][0]).toMatchObject({ startFromMessage: 3 });
         expect(runEventBaseIngestion.mock.calls[1][0].messages).toHaveLength(4);
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+});
+
+describe('the page\'s settings', () => {
+    it('saves a chat\'s window size and overlap as VectFox\'s settings', () => {
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_window_size'), '6');
+        expect(host.root.vectfox.eventbase_window_size).toBe(6);
+        change($id('vectfox_cv_chat_window_overlap'), '2');
+        expect(host.root.vectfox.eventbase_window_overlap).toBe(2);
+        expect(saveSettingsDebounced).toHaveBeenCalledTimes(2);
     });
 
-    it('loads nothing on a page that takes no file, and still stops at the dialog', async () => {
-        openContentVectorizer('url');
-        dropOn($id('vectfox_cv_url_source_card'), fileOf('gull.json', '{"name":"Gull"}'));
-        await new Promise(resolve => setTimeout(resolve, 0));
-        actionOn('url', 'vectorize').click();
-        await vi.waitFor(() => expect(runState('url')).not.toBe(''));
-        expect(vectorizeContent).not.toHaveBeenCalled();
-        expect(reachedBody).toEqual([]);
+    it('sets VectFox\'s one cleaning preset, and shows the one Patterns leaves chosen in Text Cleaning', async () => {
+        openContentVectorizer();
+        const select = $id('vectfox_cv_chat_cleaning_preset');
+        const note = () => page().querySelector('[data-cv-hint="cleaning-note"]').textContent;
+        expect([select.value, note()]).toEqual(['light', 'Strips markup.']);
+
+        change(select, 'custom');
+        expect(chooseCleaningPreset).toHaveBeenCalledWith('custom');
+        expect(note()).toBe('Your own built-ins and custom patterns.');
+
+        host.cleaningPreset = 'light';
+        actionOn('manage-cleaning').click();
+        await vi.waitFor(() => expect(select.value).toBe('light'));
+        expect(openTextCleaningDialog).toHaveBeenCalledTimes(1);
+        expect(note()).toBe('Strips markup.');
     });
 });
 
 describe('a run', () => {
     it('says on its page what it needs, and runs nothing', async () => {
-        openContentVectorizer('document');
-        actionOn('document', 'vectorize').click();
-        await vi.waitFor(() => expect(runState('document')).toBe('Paste the text first.'));
-        expect(vectorizeContent).not.toHaveBeenCalled();
-    });
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_source_choice'), 'file');
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runState()).toBe('Choose a file first.'));
 
-    // Every POST to SillyTavern needs its CSRF token, and its visit route returns the page's HTML.
-    it('fetches a web page with SillyTavern\'s token, reads its text, and vectorizes it', async () => {
-        openContentVectorizer('url');
-        $id('vectfox_cv_url_url_input').value = 'https://example.com/docks';
-        actionOn('url', 'fetch').click();
-        await vi.waitFor(() => expect(page('url').querySelector('[data-cv-region="fetched"]').textContent).toContain('Page: Docks'));
-        expect(host.fetched[0].url).toBe('/api/search/visit');
-        expect(host.fetched[0].init.headers['X-CSRF-Token']).toBe('token');
-
-        actionOn('url', 'vectorize').click();
-        await vi.waitFor(() => expect(vectorizeContent).toHaveBeenCalledTimes(1));
-        expect(vectorizeContent.mock.calls[0][0]).toMatchObject({ contentType: 'url', source: { type: 'url', title: 'Docks' } });
-        expect(vectorizeContent.mock.calls[0][0].source.content).toContain('every boat unloading its catch');
-    });
-
-    it('carries the Character fields into the run', async () => {
-        openContentVectorizer('character');
-        await vi.waitFor(() => expect($id('vectfox_cv_character_source_select').value).toBe('keeper.png'));
-        const scenario = page('character').querySelectorAll('[data-cv-field]');
-        const field = [...scenario].find(box => box.dataset.cvField === 'creator_notes');
-        change(field, true);
-        actionOn('character', 'vectorize').click();
-        await vi.waitFor(() => expect(vectorizeContent).toHaveBeenCalledTimes(1));
-        expect(vectorizeContent.mock.calls[0][0].settings.fields.creator_notes).toBe(true);
-    });
-
-    it('saves a chat\'s window size as VectFox\'s setting', async () => {
-        openContentVectorizer('chat');
-        change($id('vectfox_cv_chat_window_size'), '6');
-        expect(host.root.vectfox.eventbase_window_size).toBe(6);
-        expect(saveSettingsDebounced).toHaveBeenCalled();
+        host.context.chat = [];
+        change($id('vectfox_cv_chat_source_choice'), 'this');
+        actionOn('resume').click();
+        await vi.waitFor(() => expect(runState()).toBe('The open chat has no messages.'));
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+        expect(runEventBaseIngestion).not.toHaveBeenCalled();
     });
 });
 
@@ -286,8 +281,8 @@ describe('a chat\'s Vectorize', () => {
     it('asks before reading a chat EventBase has read, and Cancel runs nothing', async () => {
         host.priorWindows = true;
         host.answer = false;
-        openContentVectorizer('chat');
-        actionOn('chat', 'vectorize').click();
+        openContentVectorizer();
+        actionOn('vectorize').click();
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
         await new Promise(resolve => setTimeout(resolve, 0));
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
@@ -298,28 +293,33 @@ describe('a chat\'s Vectorize', () => {
         const popupTexts = call => confirmPopup.mock.calls[call][0].map(line => line.text);
         host.priorWindows = true;
         host.answer = false;
-        openContentVectorizer('chat');
-        actionOn('chat', 'vectorize').click();
+        openContentVectorizer();
+        actionOn('vectorize').click();
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
         expect(popupTexts(0)).toContain('Each window it reads again replaces the events it had, so they do not repeat.');
 
         change($id('vectfox_cv_chat_start_from'), '41');
-        actionOn('chat', 'vectorize').click();
+        actionOn('vectorize').click();
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(2));
         expect(popupTexts(1)).toEqual(popupTexts(0));
     });
 
-    it('reads it again on Read again, then closes, announcing the close once the run is over', async () => {
+    it('reads it again on Read again, a message for each with words on the progress panel, then closes, announcing the close once the run is over', async () => {
         host.priorWindows = true;
-        openContentVectorizer('chat');
-        actionOn('chat', 'vectorize').click();
+        host.context.chat.push({ mes: '   ' });
+        openContentVectorizer();
+        actionOn('vectorize').click();
         await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
-        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 3, skipTipFallback: true });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({
+            startFromMessage: 1, parallelWindows: 3, skipTipFallback: true,
+            progressPlan: { strategy: 'per_message', batchSize: 1, totalChunks: 2 },
+        });
         await vi.waitFor(() => expect(host.dialogs).toHaveLength(0));
         await vi.waitFor(() => expect(closed).toEqual(['closed']));
     });
+
     it('closes without a run with one announcement', async () => {
-        openContentVectorizer('chat');
+        openContentVectorizer();
         await closeEveryDialog();
         expect(closed).toEqual(['closed']);
     });
@@ -328,48 +328,48 @@ describe('a chat\'s Vectorize', () => {
 describe('a chat run that reads nothing new, stops or fails', () => {
     it('stays open after a Resume with nothing new, saying so, and announces no close', async () => {
         host.runResult = { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
-        openContentVectorizer('chat');
-        actionOn('chat', 'resume').click();
-        await vi.waitFor(() => expect(runState('chat')).toContain('Nothing new to read'));
+        openContentVectorizer();
+        actionOn('resume').click();
+        await vi.waitFor(() => expect(runState()).toContain('Nothing new to read'));
         expect(host.dialogs).toHaveLength(1);
-        expect(actionOn('chat', 'resume').disabled).toBe(false);
+        expect(actionOn('resume').disabled).toBe(false);
         expect(globalThis.toastr.success).not.toHaveBeenCalled();
         expect(closed).toEqual([]);
     });
 
     it('stays open after a failed run, which says what broke in red', async () => {
         host.runResult = new Error('The provider refused the key');
-        openContentVectorizer('chat');
-        actionOn('chat', 'resume').click();
+        openContentVectorizer();
+        actionOn('resume').click();
         await vi.waitFor(() => expect(globalThis.toastr.error).toHaveBeenCalledWith('EventBase failed: The provider refused the key', 'VectFox'));
         expect(host.dialogs).toHaveLength(1);
-        expect(actionOn('chat', 'resume').disabled).toBe(false);
+        expect(actionOn('resume').disabled).toBe(false);
     });
 
     it('stops on the page\'s Stop, saying it is stopping, then stays open pointing at Resume', async () => {
         host.runResult = 'until-stopped';
-        openContentVectorizer('chat');
-        actionOn('chat', 'resume').click();
+        openContentVectorizer();
+        actionOn('resume').click();
         await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
-        const stop = page('chat').querySelector('[data-cv-part="stop"]');
-        expect(stop.style.display).toBe('');
-        (stop.matches('button') ? stop : stop.querySelector('button')).click();
-        expect(runState('chat')).toBe('Stopping: what was already sent finishes first.');
-        await vi.waitFor(() => expect(runState('chat')).toBe('Stopped. Resume adds what EventBase has not read yet.'));
+        expect(partOf('stop').hidden).toBe(false);
+        expect(actionOn('resume').disabled).toBe(true);
+        actionOn('stop').click();
+        expect(runState()).toBe('Stopping: what was already sent finishes first.');
+        await vi.waitFor(() => expect(runState()).toBe('Stopped. Resume adds what EventBase has not read yet.'));
+        expect(partOf('stop').hidden).toBe(true);
         expect(host.dialogs).toHaveLength(1);
         expect(closed).toEqual([]);
     });
 
     it('stays open after a run that could not start, which said why itself', async () => {
         host.runResult = null;
-        openContentVectorizer('chat');
-        actionOn('chat', 'resume').click();
+        openContentVectorizer();
+        actionOn('resume').click();
         await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
-        await vi.waitFor(() => expect(actionOn('chat', 'resume').disabled).toBe(false));
+        await vi.waitFor(() => expect(actionOn('resume').disabled).toBe(false));
         expect(host.dialogs).toHaveLength(1);
-        expect(runState('chat')).toBe('');
+        expect(runState()).toBe('');
     });
-
 });
 
 describe('Sync chat', () => {
@@ -404,7 +404,7 @@ describe('Sync chat', () => {
         host.syncStatus = { state: 'no-collection' };
         expect(await syncOpenChat()).toEqual({ ran: false, reason: 'no-collection' });
         await vi.waitFor(() => expect(host.dialogs).toHaveLength(1));
-        expect(page('chat').hidden).toBe(false);
+        expect(page().hidden).toBe(false);
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });

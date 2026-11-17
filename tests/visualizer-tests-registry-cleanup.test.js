@@ -23,7 +23,6 @@ vi.mock('../src/features/embedding/index.js', () => ({
     getModelFromSettings: () => '',
     resolveProviderApiUrl: () => undefined,
 }));
-vi.mock('../src/features/keyword-search/index.js', () => ({ extractTextKeywords: vi.fn() }));
 vi.mock('../src/features/vector-backend/index.js', async () => {
     const { buildRegistryKey } = await vi.importActual('../src/shared/collection-ids.js');
     return {
@@ -44,9 +43,6 @@ vi.mock('../src/features/vector-backend/index.js', async () => {
     };
 });
 vi.mock('../src/features/collections/index.js', () => ({
-    getChunkMetadata: vi.fn(() => null),
-    saveChunkMetadata: vi.fn(),
-    deleteChunkMetadata: vi.fn(),
     unregisterCollection: vi.fn(key => host.registry.delete(key)),
     deleteCollection: vi.fn(),
 }));

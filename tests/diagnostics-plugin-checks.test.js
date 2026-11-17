@@ -100,12 +100,9 @@ describe('the runner', () => {
             return Object.fromEntries(Object.keys(real).map(name => [name, ['checkServerPlugin', 'checkPluginEndpoints'].includes(name) ? real[name] : quiet(name)]));
         });
         vi.doMock('../src/features/diagnostics/configuration-checks.js', () => Object.fromEntries([
-            'checkChunkBaseSimilarityThreshold', 'checkInsertQueryCounts', 'checkChatVectors', 'checkConditionalActivationModule',
-            'checkCollectionIdFormat', 'checkHashCollisionRate', 'checkChatMetadataIntegrity', 'checkCollectionRegistryStatus',
-            'checkPromptContextConfig', 'checkPNGExportCapability',
+            'checkQueryDepth', 'checkCollectionRegistryStatus', 'checkPromptContextConfig', 'checkPNGExportCapability',
         ].map(name => [name, vi.fn(async () => ({ name, status: 'pass', message: '' }))])));
         vi.doMock('../src/features/diagnostics/production-tests.js', () => ({ isDiagnosticCollection: () => false, sweepLeftoverTestCollections: vi.fn(async () => ({})) }));
-        vi.doMock('../src/features/diagnostics/activation-tests.js', () => ({ testConditionalActivation: vi.fn(async () => []) }));
         vi.doMock('../src/features/diagnostics/visualizer-tests.js', () => ({ runVisualizerTests: vi.fn(async () => []) }));
         vi.doMock('../src/features/collections/index.js', () => ({ cleanupTestCollections: vi.fn(() => 0) }));
 

@@ -19,28 +19,26 @@ const ON_PROFILE = 'connection_profile';
 describe('the profile each chat consumer runs on', () => {
     const settings = {
         chat_provider: ON_PROFILE, chat_connection_profile_id: 'profile-eventbase',
-        agent_provider: '', agent_connection_profile_id: 'profile-agent-hidden',
-        reformat_provider: ON_PROFILE, reformat_connection_profile_id: 'profile-reformat',
+        agent_provider: '', agent_connection_profile_id: 'profile-agent',
         story_arc_link_provider: ON_PROFILE, story_arc_link_connection_profile_id: 'profile-storyarc',
         lorebase_provider: ON_PROFILE, lorebase_connection_profile_id: 'profile-lorebase',
     };
 
     it('reads each consumer\'s own profile while it is on one', () => {
         expect(resolveConnectionProfileId(settings, 'eventbase')).toBe('profile-eventbase');
-        expect(resolveConnectionProfileId(settings, 'reformat')).toBe('profile-reformat');
+        expect(resolveConnectionProfileId({ ...settings, agent_provider: ON_PROFILE }, 'agent')).toBe('profile-agent');
         expect(resolveConnectionProfileId(settings, 'storyarc')).toBe('profile-storyarc');
         expect(resolveConnectionProfileId(settings, 'lorebase')).toBe('profile-lorebase');
     });
 
     it('runs Same as EventBase model on the EventBase model\'s profile, not the consumer\'s hidden one', () => {
         expect(resolveConnectionProfileId(settings, 'agent')).toBe('profile-eventbase');
-        expect(resolveConnectionProfileId({ ...settings, reformat_provider: '' }, 'reformat')).toBe('profile-eventbase');
     });
 
     it('has no profile on a manual provider, the stored ID kept but unused', () => {
         const manual = { ...settings, chat_provider: 'vllm', agent_provider: 'openrouter', story_arc_link_provider: 'openrouter', lorebase_provider: 'vllm' };
         expect(['eventbase', 'agent', 'storyarc', 'lorebase'].map(consumer => resolveConnectionProfileId(manual, consumer))).toEqual(['', '', '', '']);
-        expect(resolveConnectionProfileId({ ...manual, reformat_provider: '' }, 'reformat')).toBe('');
+        expect(resolveConnectionProfileId({ ...manual, agent_provider: '' }, 'agent')).toBe('');
     });
 
     it('refuses a consumer it does not know', () => {

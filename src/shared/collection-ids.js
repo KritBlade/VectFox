@@ -27,6 +27,8 @@ export const INTERNAL_COLLECTION_IDS = Object.freeze([
 export const COLLECTION_PREFIXES = {
     // VectFox formats
     VECTFOX_LOREBOOK: 'vf_lorebook_',
+    // Retired sources of Vectorize Content: no longer made, kept so start-up deletes what is left of them
+    // (features/collections/retired-content-collections-core.js).
     VECTFOX_CHARACTER: 'vf_character_',
     VECTFOX_DOCUMENT: 'vf_document_',
     VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_',
@@ -37,13 +39,7 @@ export const COLLECTION_PREFIXES = {
 export const COLLECTION_TYPES = {
     CHAT: 'chat',
     LOREBOOK: 'lorebook',
-    CHARACTER: 'character',
-    DOCUMENT: 'document',
     ARCHIVE_EVENT: 'archive_event',
-    FILE: 'file',
-    URL: 'url',
-    WIKI: 'wiki',
-    YOUTUBE: 'youtube',
     UNKNOWN: 'unknown',
 };
 
@@ -321,8 +317,8 @@ export function sanitizeIdSegment(name, { maxLen = 30, trim = false, fallback = 
 /**
  * Sanitize a name segment for use in collection IDs (lowercase, alphanumeric +
  * underscores, length-capped). No edge-trim and no fallback word — matches the
- * positional name segment used by the character/document builders and the
- * registry-scan matchers in collection-loader / content-vectorization.
+ * positional name segment of an old lorebook collection's ID, which LoreBase's
+ * old-collection cleanup reads back.
  *
  * @param {string} name
  * @param {number} maxLength
@@ -345,54 +341,6 @@ export function sanitizeNameSegment(name, maxLength) {
  */
 export function sanitizeHandleId(name) {
     return sanitizeIdSegment(name, { maxLen: 30, trim: true, fallback: 'user' });
-}
-
-/**
- * Sanitize the persona handle from the active context. Must match the logic in the eventbase /
- * archive builders so registerCollection's stamp check sees the handle in the collection name.
- */
-function _currentHandleId() {
-    return sanitizeHandleId(getContext()?.name1);
-}
-
-/**
- * Builds a character collection ID following the unified protocol:
- *   vf_character_<backend>_<handle>_<name>_<timestamp>
- *
- * @param {string} characterName Character name
- * @param {string} [backend]     Vector backend
- * @param {number} [timestamp]   Optional timestamp
- * @returns {string} Collection ID
- */
-export function buildCharacterCollectionId(characterName, backend, timestamp) {
-    const sanitizedName = sanitizeNameSegment(characterName, 50);
-    const handle = _currentHandleId();
-    const normalizedBackend = normalizeBackendForId(backend);
-    const ts = timestamp || Date.now();
-    if (normalizedBackend) {
-        return `${COLLECTION_PREFIXES.VECTFOX_CHARACTER}${normalizedBackend}_${handle}_${sanitizedName}_${ts}`;
-    }
-    return `${COLLECTION_PREFIXES.VECTFOX_CHARACTER}${handle}_${sanitizedName}_${ts}`;
-}
-
-/**
- * Builds a document collection ID following the unified protocol:
- *   vf_document_<backend>_<handle>_<name>_<timestamp>
- *
- * @param {string} documentName Document name
- * @param {string} [backend]    Vector backend
- * @param {number} [timestamp]  Optional timestamp
- * @returns {string} Collection ID
- */
-export function buildDocumentCollectionId(documentName, backend, timestamp) {
-    const sanitizedName = sanitizeNameSegment(documentName, 50);
-    const handle = _currentHandleId();
-    const normalizedBackend = normalizeBackendForId(backend);
-    const ts = timestamp || Date.now();
-    if (normalizedBackend) {
-        return `${COLLECTION_PREFIXES.VECTFOX_DOCUMENT}${normalizedBackend}_${handle}_${sanitizedName}_${ts}`;
-    }
-    return `${COLLECTION_PREFIXES.VECTFOX_DOCUMENT}${handle}_${sanitizedName}_${ts}`;
 }
 
 /**
@@ -459,8 +407,8 @@ export function buildArchiveEventCollectionId({ filenameCharName, archiveUUID, b
  *
  * Scope mapping (must stay in sync with `getEffectiveScope`):
  *   - `vf_eventbase_*` / `vf_archiveevent_*` → 'chat'
- *   - `vf_lorebook_*` / `vf_character_*` / `vf_document_*` → 'character'
- *   - invalid input → 'unknown' (sentinel; `getEffectiveScope` falls through
+ *   - `vf_lorebook_*` → 'character'
+ *   - anything else → 'unknown' (sentinel; `getEffectiveScope` falls through
  *     to its 'character' default)
  *
  * @param {string} collectionId Collection ID to parse
@@ -481,26 +429,6 @@ export function parseCollectionId(collectionId) {
         return {
             type: COLLECTION_TYPES.LOREBOOK,
             rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_LOREBOOK, ''),
-            scope: COLLECTION_SCOPES.CHARACTER,
-            format: 'vectfox',
-        };
-    }
-
-    // VectFox character format: vf_character_*
-    if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_CHARACTER)) {
-        return {
-            type: COLLECTION_TYPES.CHARACTER,
-            rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_CHARACTER, ''),
-            scope: COLLECTION_SCOPES.CHARACTER,
-            format: 'vectfox',
-        };
-    }
-
-    // VectFox document format: vf_document_*
-    if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_DOCUMENT)) {
-        return {
-            type: COLLECTION_TYPES.DOCUMENT,
-            rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_DOCUMENT, ''),
             scope: COLLECTION_SCOPES.CHARACTER,
             format: 'vectfox',
         };

@@ -321,14 +321,14 @@ describe('StandardBackend', () => {
             expect(fetchMock).not.toHaveBeenCalled();
         });
 
-        it('keeps the keywords, importance and summary fields an item carries only in its metadata', async () => {
+        it('keeps the keywords, importance and event fields an item carries only in its metadata', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
-            const storedAgain = { hash: 77, index: 0, text: 'The gate stood open.', metadata: { keywords: ['gate'], importance: 7, parentHash: 42 } };
+            const storedAgain = { hash: 77, index: 0, text: 'The gate stood open.', metadata: { keywords: ['gate'], importance: 7, event_type: 'discovery' } };
 
             await backend.insertVectorItems('test-collection', [storedAgain], defaultSettings);
 
             const [sent] = JSON.parse(fetchMock.mock.calls[0][1].body).items;
-            expect(sent.metadata).toMatchObject({ keywords: ['gate'], importance: 7, parentHash: 42 });
+            expect(sent.metadata).toMatchObject({ keywords: ['gate'], importance: 7, event_type: 'discovery' });
         });
 
         it('should throw on insert failure', async () => {
@@ -805,20 +805,20 @@ describe('QdrantBackend', () => {
             expect(registrar).not.toHaveBeenCalled();
         });
 
-        it('keeps the keywords, importance and summary fields an item carries only in its metadata, and appends the keywords once', async () => {
+        it('keeps the keywords, importance and event fields an item carries only in its metadata, and appends the keywords once', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
             const storedAgain = {
                 hash: 77,
                 index: 0,
                 text: 'The gate stood open. [KEYWORDS: gate]',
-                metadata: { keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, isSummaryChunk: true, parentHash: 42 },
+                metadata: { keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, event_type: 'discovery', window_event_order: 2 },
             };
 
             await backend.insertVectorItems('vf_chat_abc123', [storedAgain], defaultSettings);
 
             const [sent] = JSON.parse(fetchMock.mock.calls[0][1].body).items;
             expect(sent.text).toBe('The gate stood open. [KEYWORDS: gate]');
-            expect(sent.metadata).toMatchObject({ keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, isSummaryChunk: true, parentHash: 42 });
+            expect(sent.metadata).toMatchObject({ keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, event_type: 'discovery', window_event_order: 2 });
         });
 
         it('should add content_type in multitenancy mode', async () => {
