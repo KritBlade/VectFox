@@ -33,6 +33,19 @@ export function keyCallsAtOnceOf(value) {
     return Number.isFinite(count) ? Math.min(KEY_CALLS_AT_ONCE_MAX, Math.max(1, count)) : KEY_CALLS_AT_ONCE_DEFAULT;
 }
 
+/**
+ * The opening lines of a question about the selected entries with no keys, as turning LoreBase on and closing the
+ * selection screen ask it: why keys are written, and how many entries lack them.
+ * @param {number} count
+ * @returns {Array<{icon?: string, text: string, name?: string}>} Popup lines (sillytavern/popup-core.js)
+ */
+export function missingKeysLines(count) {
+    return [
+        { icon: 'fa-key', text: "Before a selected entry takes part, LoreBase's model writes its keys: one call for each entry." },
+        { text: 'Selected entries with no keys:', name: count.toLocaleString('en-US') },
+    ];
+}
+
 const KEYS_SYSTEM_PROMPT = 'You write the keys of lorebook entries for a roleplay app, which picks the entries each reply needs by their '
     + 'titles and keys. Return JSON only.';
 

@@ -13,6 +13,7 @@ import { log } from '../../sillytavern/log.js';
 import { choicePopup, confirmPopup, noticePopup } from '../../sillytavern/popup.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { isVectorStorageWorldInfoOn, turnOffVectorStorageWorldInfo } from '../../sillytavern/vector-storage.js';
+import { missingKeysLines } from './lorebase-keys-core.js';
 import { keyWritingProblem, selectedEntriesWithoutKeys, writeKeysOfSelections } from './lorebase-keys.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, saveLoreBaseSwitch, turnLoreBaseOff } from './lorebase-switch.js';
 
@@ -54,8 +55,7 @@ async function isKeyingAgreed(pending, readProblem) {
         return false;
     }
     return confirmPopup([
-        { icon: 'fa-key', text: "Before a selected entry takes part, LoreBase's model writes its keys: one call for each entry." },
-        { text: 'Selected entries with no keys:', name: pending.count.toLocaleString('en-US') },
+        ...missingKeysLines(pending.count),
         { text: 'Write them and turn LoreBase on? A progress panel shows the writing. No leaves LoreBase off.' },
     ], { okButton: 'Write keys', cancelButton: 'Leave off' });
 }

@@ -4,8 +4,9 @@
  * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
  * LoreBase's model. Generate all keys writes the missing keys of every book with a selection under the progress panel,
- * whose Stop drops the entries not yet sent, telling its run listeners as it starts and ends; Delete all keys deletes
- * every key, never while keys are written.
+ * whose Stop drops the entries not yet sent, telling its run listeners as it starts and ends, and Regenerate keys
+ * rewrites the given entries there; one run at a time. Delete all keys deletes every key, never while keys are
+ * written, when it names how many are left and brings the panel up.
  * Similharity's routes are a fetch stand-in holding the keys in memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +23,7 @@ vi.mock('../src/shared/progress-tracker.js', () => ({
         show: (...args) => host.panel.show(...args), setCancelHandler: handler => { host.panel.stop = handler; },
         updateCurrentItem: (...args) => host.panel.updateCurrentItem(...args), updateProgress: (...args) => host.panel.updateProgress(...args),
         addError: (...args) => host.panel.addError(...args), complete: (...args) => host.panel.complete(...args),
+        reopen: (...args) => host.panel.reopen(...args),
     },
 }));
 vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
@@ -62,7 +64,7 @@ beforeEach(async () => {
         return { ok: true, json: async () => ({ written: request.entries.length }) };
     });
     host.connection = { ok: true };
-    host.panel = { show: vi.fn(), updateCurrentItem: vi.fn(), updateProgress: vi.fn(), addError: vi.fn(), complete: vi.fn(), stop: null };
+    host.panel = { show: vi.fn(), updateCurrentItem: vi.fn(), updateProgress: vi.fn(), addError: vi.fn(), complete: vi.fn(), reopen: vi.fn(), stop: null };
     host.ask = vi.fn(async messages => answerWith([`keys from ${messages[1].content.split('\n')[2].split(' ')[0]}`]));
     keysModule = await import('../src/features/lorebase/lorebase-keys.js');
 });
@@ -223,7 +225,7 @@ describe('every key at once', () => {
         await selectBooks();
         const pending = await keysModule.selectedEntriesWithoutKeys();
         expect(pending.books.map(book => [book.bookName, book.entries.map(each => each.uid)])).toEqual([[BOOK, [1]], ['Desert Atlas', [5]]]);
-        expect([pending.count, pending.unreadBooks]).toEqual([2, 1]);
+        expect([pending.count, pending.decidedCount, pending.unreadBooks]).toEqual([2, 3, 1]);
         expect(host.ask).not.toHaveBeenCalled();
     });
 
@@ -286,6 +288,33 @@ describe('every key at once', () => {
         expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 6 entries; 3 stopped');
     });
 
+    it('Regenerate keys rewrites the given entries under the progress panel, keys or not, telling the run listeners', async () => {
+        stored[BOOK] = { 0: ['old keys'] };
+        await keysModule.readBookKeys([BOOK]);
+        const seen = [];
+        keysModule.onKeyRunChange(run => seen.push(run.totals));
+        expect(await keysModule.regenerateKeysOfEntries(BOOK, [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')], QDRANT))
+            .toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 0 });
+        expect(stored[BOOK]).toEqual({ 0: ['keys from Lighthouse'], 1: ['keys from Tidewardens'] });
+        expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys', 2, 'Entries', { unitLabel: 'Entries' });
+        expect(host.panel.stop).toEqual(expect.any(Function));
+        expect(seen).toEqual([null, { written: 2, failed: 0, stopped: 0, unreadBooks: 0 }]);
+    });
+
+    it('runs one key run on the panel at a time: a second is refused and brings the running one up', async () => {
+        const answers = [];
+        host.ask = vi.fn(() => new Promise(resolve => answers.push(resolve)));
+        const first = keysModule.regenerateKeysOfEntries(BOOK, [entry(0, 'Lighthouse')], QDRANT);
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalledTimes(1));
+
+        await expect(keysModule.regenerateKeysOfEntries(BOOK, [entry(1, 'Tidewardens')], QDRANT))
+            .rejects.toThrow('LoreBase is already writing keys on the progress panel. Wait for it, or press Stop there.');
+        expect(host.panel.reopen).toHaveBeenCalledTimes(1);
+        answers[0](answerWith(['lighthouse']));
+        await first;
+        expect(await keysModule.regenerateKeysOfEntries(BOOK, [], QDRANT)).toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0 });
+    });
+
     it('Delete all keys deletes every key the user has, forgets the ones it knew, and tells the listeners', async () => {
         stored = { [BOOK]: { 0: ['lighthouse'], 1: ['tidewardens'] }, 'Desert Atlas': { 5: ['dunes'] } };
         await keysModule.readBookKeys([BOOK]);
@@ -304,7 +333,9 @@ describe('every key at once', () => {
         const writing = keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT);
         await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
 
-        await expect(keysModule.deleteAllKeys()).rejects.toThrow('LoreBase is writing keys. Delete them once it is done.');
+        await expect(keysModule.deleteAllKeys()).rejects.toThrow(
+            'LoreBase is still writing the keys of 1 entry; the progress panel shows them. Press Stop there, or delete once it is done.');
+        expect(host.panel.reopen).toHaveBeenCalledTimes(1);
         expect(routeCalls.some(call => call.url.endsWith('/delete'))).toBe(false);
         answer(answerWith(['lighthouse']));
         await writing;

@@ -200,6 +200,18 @@ describe('the progress panel over a SillyTavern popup', () => {
         expect(lower.contains(tracker.panel)).toBe(false);
     });
 
+    it('comes to the front again on reopen: into a popup opened since the run started, as the selection screen is', () => {
+        tracker = new ProgressTracker();
+        tracker.show('LoreBase keys', 313, 'Entries');
+        expect(tracker.panel.parentElement).toBe(document.body);
+        tracker.hide();
+        const screen = openPopup();
+
+        expect(tracker.reopen()).toBe(true);
+        expect(tracker.panel.parentElement).toBe(screen);
+        expect(isShown(tracker.panel)).toBe(true);
+    });
+
     it('skips a popup that is closing, such as the confirm popup a run starts from', () => {
         const page = openPopup();
         const confirm = openPopup();

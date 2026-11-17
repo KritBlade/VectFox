@@ -444,8 +444,8 @@ export function summaryText({ entryCount, titleTokens }) {
 
 /**
  * Where the selected entries' keys stand (D17): how many are written, being written, failed or not written yet; '' when
- * none is selected. An entry sends nothing until its keys are written; while LoreBase is off, turning it on asks to
- * write the missing ones.
+ * none is selected. An entry sends nothing until its keys are written; the ones without keys are asked about once the
+ * screen closes while LoreBase is on, or when LoreBase is turned on.
  * @param {{ready: number, writing: number, failed: number, missing: number}} counts
  * @param {{isLoreBaseOn?: boolean}} [options] - isLoreBaseOn: Use LoreBase's switch
  * @returns {string}
@@ -461,5 +461,6 @@ export function keySummaryText({ ready, writing, failed, missing }, { isLoreBase
     if (!waiting) return line;
     if (!isLoreBaseOn) return `${line} Turning on Use LoreBase asks to write them.`;
     const wait = waiting === 1 ? 'sends nothing until its keys are written' : 'send nothing until their keys are written';
-    return `${line} ${counted(waiting, 'selected entry', 'selected entries')} ${wait}.`;
+    const ask = failed + missing ? ' Closing this screen asks to write the missing ones.' : '';
+    return `${line} ${counted(waiting, 'selected entry', 'selected entries')} ${wait}.${ask}`;
 }

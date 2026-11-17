@@ -2,24 +2,27 @@
  * LoreBase's selection screen (plan §5.2 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
  * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
- * saves as it changes, as GUI-DNA asks. While LoreBase is on, turning entries on has LoreBase's model write their keys
- * (D17), which each selected row shows as they are written, and when keys cannot be written (no Qdrant, no model),
- * turning entries on says why and selects nothing. While it is off, turning entries on only selects them: turning
- * LoreBase on asks to write their keys. Regenerate keys writes the ticked entries' keys anew; a selected row's pencil
- * edits its keys in a dialog, where Regenerate fills the box from the model for the user to read before saving.
+ * saves as it changes, as GUI-DNA asks. Turning entries on only selects them: once the screen closes while LoreBase is
+ * on, it asks to write the keys of the selected entries that have none (D17), under the progress panel; while LoreBase
+ * is off, turning it on asks. Each selected row shows where its keys stand. Regenerate keys writes the ticked entries'
+ * keys anew under the progress panel, brought in front of the screen with its Stop; a selected row's pencil edits its
+ * keys in a dialog, where Regenerate fills the box from the model for the user to read before saving.
  * Opening a book keeps the uids it holds, so an entry added later shows as new, and drops the uids of deleted entries
  * from its selection.
  */
 import { log } from '../../sillytavern/log.js';
-import { formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { confirmPopup, formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
-import { editedKeys } from './lorebase-keys-core.js';
-import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys, writeKeys } from './lorebase-keys.js';
+import { editedKeys, missingKeysLines } from './lorebase-keys-core.js';
+import {
+    keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, regenerateKeysOfEntries, saveEditedKeys,
+    selectedEntriesWithoutKeys, writeKeysOfSelections,
+} from './lorebase-keys.js';
 import { entryTitle } from './lorebase-splitter.js';
 import { isLoreBaseSwitchedOn } from './lorebase-switch.js';
 import {
@@ -66,11 +69,6 @@ function isKeyWritingBlocked(heading) {
     if (problem) void noticePopup([{ icon: 'fa-key', text: heading }, { text: problem }]);
     return Boolean(problem);
 }
-
-const TURN_ON_HEADING = 'LoreBase writes keys for each entry it decides, so no entry can be turned on yet.';
-
-/** Whether turning entries on is refused now: only while LoreBase is on, which writes their keys at once, and cannot. */
-const isTurningOnBlocked = () => isLoreBaseSwitchedOn() && isKeyWritingBlocked(TURN_ON_HEADING);
 
 function currentChoices() {
     const names = [...world_names];
@@ -134,13 +132,6 @@ function renderSelectionSummary(root, session) {
     byId(root, ids.book).innerHTML = bookOptions(currentChoices(), session.bookName).join('');
 }
 
-/** Write the keys of the entries a selection change turned on, in the background, while LoreBase is on (D17). */
-function writeTurnedOnKeys(session, before) {
-    if (!isLoreBaseSwitchedOn()) return;
-    const turnedOn = new Set(session.rows.filter(row => row.isSelected && !before.has(row.uid)).map(row => row.uid));
-    if (turnedOn.size) void writeKeys(session.bookName, bookEntriesOf(session, turnedOn), extension_settings.vectfox);
-}
-
 /** Redraw the rows shown whose keys changed, keeping the keyboard where it was, and the summary. */
 function renderKeyStates(root, session) {
     const focused = document.activeElement;
@@ -166,31 +157,20 @@ function renderLocks(root, session) {
     byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterAvatar) });
 }
 
-/**
- * Save a new selection for the book shown, and redraw what it changes. While LoreBase is on, one that turns entries on
- * first checks keys can be written, and saves nothing when they cannot; then their keys are written.
- */
+/** Save a new selection for the book shown, and redraw what it changes. */
 function saveSelection(root, session, selectedUids) {
-    const before = new Set(selectedUidsOf(session));
-    if (selectedUids.some(uid => !before.has(String(uid))) && isTurningOnBlocked()) return;
     setLoreBookSelection(session.bookName, selectedUids);
     const selected = new Set(selectedUids.map(String));
     for (const row of session.rows) row.isSelected = selected.has(row.uid);
     renderCategories(root, session);
     renderEntries(root, session);
     renderSelectionSummary(root, session);
-    writeTurnedOnKeys(session, before);
 }
 
-/**
- * Turn one entry on or off, redrawing only its row so the keyboard stays on its toggle. While LoreBase is on, turning
- * it on first checks keys can be written, then writes them.
- */
+/** Turn one entry on or off, redrawing only its row so the keyboard stays on its toggle. */
 function toggleEntry(root, session, uid) {
     const row = session.rows.find(candidate => candidate.uid === uid);
     if (!row || (row.undecidableReason && !row.isSelected)) return;
-    if (!row.isSelected && isTurningOnBlocked()) return;
-    const before = new Set(selectedUidsOf(session));
     row.isSelected = !row.isSelected;
     setLoreBookSelection(session.bookName, selectedUidsOf(session));
     const element = entryElementOf(root, uid);
@@ -201,18 +181,59 @@ function toggleEntry(root, session, uid) {
     renderCategories(root, session);
     renderCounts(root, session);
     renderSelectionSummary(root, session);
-    writeTurnedOnKeys(session, before);
 }
 
-/** Regenerate keys: write the keys of the ticked entries that are turned on anew (D17). */
+/**
+ * Regenerate keys: write the keys of the ticked entries that are turned on anew (D17), under the progress panel, which
+ * shows in front of the screen with its Stop. While another run is on the panel, a notice says so.
+ */
 function regenerateTickedKeys(session) {
-    const uids = new Set(session.rows.filter(row => row.isSelected && session.ticked.has(row.uid)).map(row => row.uid));
+    const uids = new Set(session.rows.filter(row => row.isSelected && !row.undecidableReason && session.ticked.has(row.uid)).map(row => row.uid));
     if (!uids.size) {
         void noticePopup([{ icon: 'fa-key', text: 'None of the ticked entries is turned on. LoreBase writes keys only for entries it decides.' }]);
         return;
     }
     if (isKeyWritingBlocked('LoreBase cannot write keys yet.')) return;
-    void writeKeys(session.bookName, bookEntriesOf(session, uids), extension_settings.vectfox, { isRegenerating: true });
+    regenerateKeysOfEntries(session.bookName, bookEntriesOf(session, uids), extension_settings.vectfox).catch(error => {
+        log.warn('LoreBase: Regenerate keys did not run:', error);
+        void noticePopup([{ icon: 'fa-key', text: String(error?.message || error) }]);
+    });
+}
+
+/**
+ * Once the screen closes while LoreBase is on: ask to write the keys of the selected entries that have none, in every
+ * book, and write them under the progress panel on yes (D17). Says why when the keys cannot be read or written.
+ * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} What the selection's keys
+ *   came to, or null while LoreBase is off or when the keys could not be read
+ */
+async function offerMissingKeys() {
+    if (!isLoreBaseSwitchedOn()) return null;
+    let pending;
+    try {
+        pending = await selectedEntriesWithoutKeys();
+    } catch (error) {
+        log.warn('LoreBase: the selected entries\' keys could not be read once the selection screen closed:', error);
+        await noticePopup([{ icon: 'fa-key', text: 'LoreBase could not read the keys of its selected entries.' }, { name: String(error?.message || error) }]);
+        return null;
+    }
+    const outcome = { missingCount: pending.count, decidedCount: pending.decidedCount, isWriting: false };
+    if (!pending.count) return outcome;
+    const problem = keyWritingProblem(extension_settings.vectfox);
+    if (problem) {
+        await noticePopup([...missingKeysLines(pending.count), { text: "LoreBase's model cannot write them yet." }, { name: problem }]);
+        return outcome;
+    }
+    const isAgreed = await confirmPopup([
+        ...missingKeysLines(pending.count),
+        { text: 'Write them now? A progress panel shows the writing. Not now leaves them without keys until Generate all keys.' },
+    ], { okButton: 'Write keys', cancelButton: 'Not now' });
+    if (!isAgreed) return outcome;
+    outcome.isWriting = true;
+    writeKeysOfSelections(extension_settings.vectfox, pending).catch(error => {
+        log.warn('LoreBase: the selected entries\' keys were not written:', error);
+        void noticePopup([{ icon: 'fa-key', text: String(error?.message || error) }]);
+    });
+    return outcome;
 }
 
 /** Show one entry of the book shown in a dialog over the screen: what it is, why it can or cannot be chosen, its text. */
@@ -413,9 +434,11 @@ function bindScreen(root, session) {
 }
 
 /**
- * Open the selection screen on a book: the one named, else the open chat's first, else the first by name.
+ * Open the selection screen on a book: the one named, else the open chat's first, else the first by name. Once it
+ * closes while LoreBase is on, ask to write the selected entries' missing keys (offerMissingKeys).
  * @param {{bookName?: string}} [options]
- * @returns {Promise<void>} Once the screen is closed
+ * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} Once the screen is closed
+ *   and the question answered: what the selection's keys came to, or null while LoreBase is off or the keys were unread
  */
 export async function openLoreBaseSelection({ bookName = '' } = {}) {
     const choices = currentChoices();
@@ -438,4 +461,5 @@ export async function openLoreBaseSelection({ bookName = '' } = {}) {
     await closed;
     stopKeyUpdates();
     clearTimeout(session.searchTimer);
+    return offerMissingKeys();
 }

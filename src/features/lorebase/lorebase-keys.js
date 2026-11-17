@@ -1,12 +1,12 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D15, D17 and §5.2 of InternalProject/
  * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes,
- * each SillyTavern user's own. Turning an entry on while LoreBase is on, turning LoreBase on, Generate all keys and
- * Regenerate keys write them, as many calls at once as the WorldInfo page's Entries at once (1 to 8); the user can also
- * edit one entry's keys, or have the model write them again to read first, and Delete all keys deletes every one;
- * nothing rewrites them on its own. Turning LoreBase on and Generate all keys write under VectFox's progress panel,
- * whose Stop drops the entries not yet sent. An entry takes part in a reply only once its keys exist, and while they
- * are written or after they fail, the selection screen says so for its row.
+ * each SillyTavern user's own. Turning LoreBase on, closing the selection screen (each after asking), Generate all keys
+ * and Regenerate keys write them, as many calls at once as the WorldInfo page's Entries at once (1 to 8), every time
+ * under VectFox's progress panel, brought to the front with its Stop, which drops the entries not yet sent; one run at
+ * a time. The user can also edit one entry's keys, or have the model write them again to read first, and Delete all
+ * keys deletes every one; nothing rewrites them on its own. An entry takes part in a reply only once its keys exist,
+ * and while they are written or after they fail, the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
@@ -64,9 +64,9 @@ export function onKeyStateChange(listener) {
 }
 
 /**
- * Call `listener` as a run writing the keys of every selection (Generate all keys, or turning LoreBase on) starts, with
- * `{count, totals: null}`, and as it ends, with `{count, totals}`, the totals writeKeysOfSelections returns. A run with
- * nothing to write makes no call.
+ * Call `listener` as a key run on the progress panel (Generate all keys, turning LoreBase on, closing the selection
+ * screen, Regenerate keys) starts, with `{count, totals: null}`, and as it ends, with `{count, totals}`, the totals the
+ * run returns. A run with nothing to write makes no call.
  * @param {(run: {count: number, totals: {written: number, failed: number, stopped: number, unreadBooks: number}|null}) => void} listener
  * @returns {() => void} Stops the calls
  */
@@ -280,7 +280,8 @@ export async function saveEditedKeys(bookName, uid, keys) {
 /**
  * The selected entries LoreBase decides that have no keys and are not being written, by book: every book with a
  * selection loaded and its keys read from Similharity now. A book that cannot be loaded is logged and counted.
- * @returns {Promise<{books: Array<{bookName: string, entries: object[]}>, count: number, unreadBooks: number}>}
+ * `decidedCount` is every selected entry LoreBase decides, keys or not.
+ * @returns {Promise<{books: Array<{bookName: string, entries: object[]}>, count: number, decidedCount: number, unreadBooks: number}>}
  * @throws {Error} When Similharity cannot read the keys
  */
 export async function selectedEntriesWithoutKeys() {
@@ -300,7 +301,8 @@ export async function selectedEntriesWithoutKeys() {
         .map(({ bookName, entries }) => ({ bookName, entries: entries.filter(entry => !keys[bookName]?.[String(entry.uid)]
             && writeStates.get(bookName)?.get(String(entry.uid))?.status !== 'writing') }))
         .filter(book => book.entries.length);
-    return { books, count: books.reduce((sum, book) => sum + book.entries.length, 0), unreadBooks };
+    const countOf = list => list.reduce((sum, book) => sum + book.entries.length, 0);
+    return { books, count: countOf(books), decidedCount: countOf(loaded), unreadBooks };
 }
 
 function writtenSummary({ written, failed, stopped }) {
@@ -310,56 +312,97 @@ function writtenSummary({ written, failed, stopped }) {
     return parts.join('; ');
 }
 
+// The run the progress panel shows, while one goes: one at a time, as the panel shows one.
+let panelRun = null;
+
+/**
+ * Write the keys of the books' entries under VectFox's progress panel, brought to the front with its Stop, which drops
+ * the entries not yet sent; tell the run listeners as it starts and ends. Each book's failures get its toast and the
+ * panel's list. Nothing to write shows no panel.
+ * @returns {Promise<{written: number, failed: number, stopped: number, unreadBooks: number}>}
+ * @throws {Error} While another run is on the panel, which is brought to the front
+ */
+async function writeKeysOnPanel(settings, { books, count, unreadBooks = 0 }, { isRegenerating = false } = {}) {
+    const totals = { written: 0, failed: 0, stopped: 0, unreadBooks };
+    if (!count) return totals;
+    if (panelRun) {
+        progressTracker.reopen();
+        throw new Error('LoreBase is already writing keys on the progress panel. Wait for it, or press Stop there.');
+    }
+    const run = { isStopped: false };
+    panelRun = run;
+    try {
+        let done = 0;
+        progressTracker.show('LoreBase keys', count, 'Entries', { unitLabel: 'Entries' });
+        progressTracker.setCancelHandler(() => stopRun(run));
+        callEach(runListeners, { count, totals: null });
+        for (const { bookName, entries } of books) {
+            if (run.isStopped) {
+                totals.stopped += entries.length;
+                continue;
+            }
+            progressTracker.updateCurrentItem(bookName);
+            const result = await writeKeys(bookName, entries, settings, {
+                isRegenerating,
+                run,
+                onEntryDone: failure => {
+                    done += 1;
+                    if (failure) progressTracker.addError(`${failure.title}: ${failure.detail.slice(0, 200)}`);
+                    progressTracker.updateProgress(done);
+                },
+            });
+            totals.written += result.written;
+            totals.failed += result.failed;
+            totals.stopped += result.stopped;
+        }
+        progressTracker.complete(!totals.failed && !totals.stopped, writtenSummary(totals));
+        callEach(runListeners, { count, totals: { ...totals } });
+    } finally {
+        panelRun = null;
+    }
+    return totals;
+}
+
 /**
  * Write the keys of every selected entry LoreBase decides, in every book with a selection, that has none, as turning
- * LoreBase on and Generate all keys ask (§5.2, §5.9), under VectFox's progress panel, whose Stop drops the entries not
- * yet sent. Each book's failures get its toast and the panel's list.
+ * LoreBase on, closing the selection screen and Generate all keys ask (§5.2, §5.9), under the progress panel.
  * @param {object} settings - VectFox settings
  * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>} [pending] - What to write, when the caller read it
  * @returns {Promise<{written: number, failed: number, stopped: number, unreadBooks: number}>}
- * @throws {Error} When Similharity cannot read the keys
+ * @throws {Error} When Similharity cannot read the keys, or while another run is on the panel
  */
 export async function writeKeysOfSelections(settings, pending = null) {
-    const { books, count, unreadBooks } = pending ?? await selectedEntriesWithoutKeys();
-    const totals = { written: 0, failed: 0, stopped: 0, unreadBooks };
-    if (!count) return totals;
-    const run = { isStopped: false };
-    let done = 0;
-    progressTracker.show('LoreBase keys', count, 'Entries', { unitLabel: 'Entries' });
-    progressTracker.setCancelHandler(() => stopRun(run));
-    callEach(runListeners, { count, totals: null });
-    for (const { bookName, entries } of books) {
-        if (run.isStopped) {
-            totals.stopped += entries.length;
-            continue;
-        }
-        progressTracker.updateCurrentItem(bookName);
-        const result = await writeKeys(bookName, entries, settings, {
-            run,
-            onEntryDone: failure => {
-                done += 1;
-                if (failure) progressTracker.addError(`${failure.title}: ${failure.detail.slice(0, 200)}`);
-                progressTracker.updateProgress(done);
-            },
-        });
-        totals.written += result.written;
-        totals.failed += result.failed;
-        totals.stopped += result.stopped;
-    }
-    progressTracker.complete(!totals.failed && !totals.stopped, writtenSummary(totals));
-    callEach(runListeners, { count, totals: { ...totals } });
-    return totals;
+    return writeKeysOnPanel(settings, pending ?? await selectedEntriesWithoutKeys());
+}
+
+/**
+ * Regenerate keys: write the given entries' keys anew, hand-edited ones included, under the progress panel (D17).
+ * Entries already being written are left to that writing.
+ * @param {string} bookName
+ * @param {object[]} entries - The book's entries, as loadWorldInfo returns them
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{written: number, failed: number, stopped: number, unreadBooks: number}>}
+ * @throws {Error} While another run is on the panel
+ */
+export async function regenerateKeysOfEntries(bookName, entries, settings) {
+    const wanted = entries.filter(entry => writeStates.get(bookName)?.get(String(entry.uid))?.status !== 'writing');
+    return writeKeysOnPanel(settings, { books: [{ bookName, entries: wanted }], count: wanted.length }, { isRegenerating: true });
 }
 
 /**
  * Delete all keys: every LoreBase key of this SillyTavern user, in every book, the entries turned off included.
  * Selections stay, so the selected entries send nothing until their keys are written again. Refused while keys are
- * being written, which would put some back.
+ * being written, which would put some back; the progress panel showing that writing is brought to the front.
  * @returns {Promise<number>} How many entries' keys were deleted
  * @throws {Error} While keys are being written, or when Similharity cannot delete them
  */
 export async function deleteAllKeys() {
-    if (runningCalls || queue.length) throw new Error('LoreBase is writing keys. Delete them once it is done.');
+    const unwritten = runningCalls + queue.length;
+    if (unwritten) {
+        progressTracker.reopen();
+        throw new Error(`LoreBase is still writing the keys of ${unwritten} ${unwritten === 1 ? 'entry' : 'entries'}; the `
+            + 'progress panel shows them. Press Stop there, or delete once it is done.');
+    }
     const { deleted } = await postKeysRoute('delete', {});
     const bookNames = [...new Set([...storedKeys.keys(), ...writeStates.keys()])];
     storedKeys.clear();

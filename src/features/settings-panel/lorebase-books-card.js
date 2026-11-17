@@ -3,12 +3,13 @@
  * lorebook-semantic-overhaul-passage-index.md). LoreBase's switch: turning it on asks first about the selected entries'
  * missing keys and Vector Storage's World Info search, and with nothing selected says to choose entries. While it is
  * off, the user still chooses entries and sets its model, and a notice says to do that before turning it on; only
- * Generate all keys waits, since turning LoreBase on asks to write them. The books card: it draws the open chat's books with their selected counts and
- * locks, and opens LoreBase's selection screen on the book a row names, or on the chat's first book from the card's own
- * button, drawing the list again once the screen closes. Generate all keys writes the keys of every selected entry, in
- * every book, that has none; Delete all keys, once confirmed, deletes every key the user has and turns LoreBase off
- * (D17). The card's status line says how each went, and shows the keys written when LoreBase turns on as it shows
- * Generate all keys: the entries being keyed, then what was written.
+ * Generate all keys waits, since turning LoreBase on asks to write them. The books card: it draws the open chat's books
+ * with their selected counts and locks, and opens LoreBase's selection screen on the book a row names, or on the chat's
+ * first book from the card's own button, drawing the list again once the screen closes and saying where the
+ * selection's keys stand. Generate all keys writes the keys of every selected entry, in every book, that has none;
+ * Delete all keys, once confirmed, deletes every key the user has and turns LoreBase off (D17). The card's status line
+ * says how each went, and shows every key run on the progress panel, whichever started it: the entries being keyed,
+ * then what was written.
  */
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
@@ -69,7 +70,10 @@ function generatedText({ written, failed, stopped, unreadBooks }) {
     return lines.join(' ');
 }
 
-/** A run writing the keys of every selection, from Generate all keys or turning LoreBase on: what it keys, then did. */
+/**
+ * A key run on the progress panel, whichever started it (Generate all keys, turning LoreBase on, closing the selection
+ * screen, Regenerate keys): what it keys, then what it did.
+ */
 function showKeyRun({ count, totals }) {
     showKeysStatus(totals ? generatedText(totals)
         : `Writing the keys of ${counted(count, 'selected entry', 'selected entries')} with none; the progress panel counts them.`);
@@ -142,16 +146,33 @@ export function bindLoreBaseBooksCard(settings) {
     });
     // A reply's question can turn LoreBase off while the page is shown.
     onLoreBaseSwitchChange(paintLoreBaseSwitch);
-    // Turning LoreBase on writes keys too, and the status line shows that run as it shows Generate all keys.
+    // Every key run on the progress panel, Generate all keys' or another's, shows on the status line.
     onKeyRunChange(showKeyRun);
     document.getElementById('VectFox_lorebase_books_card')?.addEventListener('click', async event => {
         const opener = event.target.closest('[data-lorebase-choose]');
         if (!opener) return;
+        let chosen = null;
         try {
-            await openLoreBaseSelection({ bookName: opener.dataset.lorebaseChoose });
+            chosen = await openLoreBaseSelection({ bookName: opener.dataset.lorebaseChoose });
         } catch (error) {
             log.error('LoreBase: the selection screen failed:', error);
         }
         refreshLoreBaseBooks();
+        showChosenKeys(chosen);
     });
+}
+
+/**
+ * Where the selection's keys stand once the selection screen closed while LoreBase is on: all written, or how many have
+ * none after the user said Not now. A run started on the screen's question writes its own lines (showKeyRun).
+ * @param {{missingCount: number, decidedCount: number, isWriting: boolean}|null} chosen - From openLoreBaseSelection
+ */
+function showChosenKeys(chosen) {
+    if (!chosen || chosen.isWriting || !chosen.decidedCount) return;
+    if (chosen.missingCount) {
+        showKeysStatus(`${counted(chosen.missingCount, 'selected entry has', 'selected entries have')} no keys, so `
+            + `${chosen.missingCount === 1 ? 'it sends' : 'they send'} nothing yet. Generate all keys writes them.`);
+    } else {
+        showKeysStatus(chosen.decidedCount === 1 ? 'The selected entry has its keys.' : `All ${counted(chosen.decidedCount, 'selected entry', 'selected entries')} have keys.`);
+    }
 }
