@@ -13,7 +13,7 @@ import { CALL_TIMEOUT_MS } from './lorebase-reply-core.js';
 const DECISIONS_ROUTE = '/api/plugins/similharity/lorebase/decisions';
 /** The setting that holds Jev's profile ID. */
 export const JEV_PROFILE_SETTING = 'lorebase_jev_connection_profile_id';
-const WHERE_TO_FIX = 'Choose it under Jev profile in the LoreBase model card on the WorldInfo page.';
+const WHERE_TO_FIX = 'Choose one in the Jev group of the LoreBase model card on the WorldInfo page.';
 const UNTIL_FIXED = 'Until then the entries selected for LoreBase stay out of replies.';
 // A made-up state and question for Test connection, so a test never carries chat text.
 const TEST_STATE = "The chat so far. The last message is the user's; the next reply answers it.\n\nWren: We sail for the harbor lighthouse at dawn.";

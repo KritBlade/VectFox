@@ -32,12 +32,26 @@ export function isLoreBaseBackend(settings = extension_settings.vectfox) {
 }
 
 /**
+ * Why LoreBase does not act now, or null when it does: it acts with VectFox and LoreBase on, on Qdrant, and Vector
+ * Storage's World Info search off.
+ * @param {object} [settings] - VectFox settings, the live ones by default
+ * @returns {string|null}
+ */
+export function loreBaseInactiveReason(settings = extension_settings.vectfox) {
+    if (!isVectFoxEnabled(settings)) return 'VectFox is turned off.';
+    if (!isLoreBaseSwitchedOn(settings)) return 'Use LoreBase is off.';
+    if (!isLoreBaseBackend(settings)) return 'LoreBase runs on the Qdrant backend only.';
+    if (isVectorStorageWorldInfoOn()) return "SillyTavern's Vector Storage has its World Info search on, which LoreBase leaves alone.";
+    return null;
+}
+
+/**
  * Whether LoreBase acts now: VectFox and LoreBase on, on Qdrant, and Vector Storage's World Info search off.
  * @param {object} [settings] - VectFox settings, the live ones by default
  * @returns {boolean}
  */
 export function isLoreBaseActive(settings = extension_settings.vectfox) {
-    return isVectFoxEnabled(settings) && isLoreBaseSwitchedOn(settings) && isLoreBaseBackend(settings) && !isVectorStorageWorldInfoOn();
+    return loreBaseInactiveReason(settings) === null;
 }
 
 /**

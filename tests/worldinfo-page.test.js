@@ -18,7 +18,7 @@ const WIRED_IDS = [
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
     'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_role_picks', 'VectFox_lorebase_role_keys',
-    'VectFox_lorebase_tester_card', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
+    'VectFox_lorebase_tester_card', 'VectFox_lorebase_try_pick', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
 ];
 // The old vector search's controls, deleted with it.
 const OLD_SEARCH_IDS = [
@@ -264,5 +264,29 @@ describe("the tester's report (§5.10)", () => {
             ['7', `${time} · swipe · message #12, swipe 2`, true],
             ['3', `${time} · continue · message #10`, false],
         ]);
+    });
+
+    it("draws a try's report: listed as a try with no reply, its tokens without SillyTavern's keys, which need a reply", () => {
+        const time = new Date(measured.madeAt).toLocaleTimeString('en-GB', { hour12: false });
+        const tried = {
+            ...measured, type: 'try', isTry: true, messageIndex: null, swipeId: null, keysState: 'unavailable', keys: null,
+            tokens: { ...measured.tokens, promptWorldInfo: null },
+        };
+        document.body.innerHTML = `<select>${loreBaseReportOptions([tried], 7)}</select>`;
+        expect(document.querySelector('option').textContent).toBe(`${time} · try · no reply`);
+        expect(drawn(tried).summary).toEqual([
+            'Picked: 2 of 3 selected entries',
+            'Time: pick 2.6 s, slowest review 4.1 s, 6.8 s in all',
+            'LoreBase sent: 412 tokens, from 1,230 in the same entries whole',
+            "A try sends no reply, so what SillyTavern's keys would send is not measured.",
+            'A review failed: Tidewardens: it did not answer within 30 seconds',
+        ]);
+    });
+
+    it("says Jev rated no entry above the cut when Fast and cheap picked none, and Luna picked none otherwise", () => {
+        drawn({ ...measured, accuracy: 'fast', picks: [], failures: [] });
+        expect(document.body.textContent).toContain('Jev rated no entry above 0.25 for this reply.');
+        drawn({ ...measured, picks: [], failures: [] });
+        expect(document.body.textContent).toContain('Luna picked no entry for this reply.');
     });
 });

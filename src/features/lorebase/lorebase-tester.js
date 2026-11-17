@@ -6,8 +6,9 @@
  * SillyTavern's World Info budget is the last cut; and once the reply ends the report is tied to the message it went
  * to, with the World Info its prompt held as SillyTavern's prompt itemization holds it. Its token counts are measured
  * when the card shows it, with the tokenizer SillyTavern's itemization counts with, and what SillyTavern's keys would
- * send by scanning that chat again, dry, as SillyTavern alone (lorebase-delivery.js). Reports live in page memory
- * only, the newest 20; a reload clears them.
+ * send by scanning that chat again, dry, as SillyTavern alone (lorebase-delivery.js). A Try a pick makes a report too,
+ * with no reply: measured at once, it has no World Info scan, so what SillyTavern's keys would send is not measured.
+ * Reports live in page memory only, the newest 20; a reload clears them.
  */
 import { getCharacterCardFields, getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
@@ -24,15 +25,16 @@ const KEPT_REPORTS = 20;
  * @typedef {import('./lorebase-tester-core.js').ReplyReportBody & {
  *   id: number, chatId: string|null, type: string, accuracy: string, madeAt: number,
  *   scan: {chatForWorldInfo: string[], maxContext: number, globalScanData: object}|null,
- *   isUnderWay: boolean, messageIndex: number|null, swipeId: number|null, promptWorldInfo: string|null,
+ *   isTry: boolean, isUnderWay: boolean, messageIndex: number|null, swipeId: number|null, promptWorldInfo: string|null,
  *   isScanSeen: boolean, isMeasuring: boolean, measureFailure: string|null,
  *   tokens: {sent: number, pickedWhole: number, picks: Array<{sent: number, whole: number}|null>,
  *     promptWorldInfo: number|null}|null,
  *   keysState: 'unmeasured'|'waiting'|'measured'|'unavailable',
  *   keys: {entries: number, tokens: number, worldInfo: number}|null,
  * }} ReplyReport
- * `keysState`: what SillyTavern's keys would send is not measured yet; waits for a generation's scan that was due;
- * is measured into `keys`; or cannot be, as the reply's scan was not kept.
+ * `isTry`: made by Try a pick, with no reply. `keysState`: what SillyTavern's keys would send is not measured yet;
+ * waits for a generation's scan that was due; is measured into `keys`; or cannot be, as the reply's scan was not kept
+ * or there was no reply.
  */
 
 /** @type {ReplyReport[]} This session's reports, newest first. */
@@ -66,14 +68,16 @@ export function loreBaseReports() {
 
 /**
  * Make a reply's report once its pick and reviews are done. Never throws: the reply's lore must not wait on the tester.
+ * A try's report (Try a pick) has no reply to wait for, and no reply scan to measure SillyTavern's keys on.
  * @param {object} turn
  * @param {import('./lorebase-reply-core.js').ReplyLore} turn.lore
  * @param {Array<{bookName: string, entries: object[]}>} turn.books - The books taking part
- * @param {string} turn.type - The generation's type
+ * @param {string} turn.type - The generation's type, or 'try'
  * @param {string} turn.accuracy - The lorebase_accuracy setting the reviews ran on
  * @param {number} turn.seconds - LoreBase's whole time on the reply
+ * @param {boolean} [turn.isReply] - false for a try, which sends no reply
  */
-export function recordReplyReport({ lore, books, type, accuracy, seconds }) {
+export function recordReplyReport({ lore, books, type, accuracy, seconds, isReply = true }) {
     let body;
     try {
         body = replyReport({ lore, books, seconds });
@@ -83,8 +87,9 @@ export function recordReplyReport({ lore, books, type, accuracy, seconds }) {
     }
     const report = {
         id: nextReportId++, chatId: getCurrentChatId() ?? null, type, accuracy, madeAt: Date.now(), ...body,
-        scan: null, isUnderWay: true, messageIndex: null, swipeId: null, promptWorldInfo: null, isScanSeen: false,
-        isMeasuring: false, measureFailure: null, tokens: null, keysState: 'unmeasured', keys: null,
+        scan: null, isTry: !isReply, isUnderWay: isReply, messageIndex: null, swipeId: null, promptWorldInfo: null,
+        isScanSeen: false, isMeasuring: false, measureFailure: null, tokens: null, keysState: isReply ? 'unmeasured' : 'unavailable',
+        keys: null,
     };
     reportOfLore.set(lore, report);
     reports = [report, ...reports].slice(0, KEPT_REPORTS);

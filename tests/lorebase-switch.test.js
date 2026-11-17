@@ -27,7 +27,7 @@ const { log } = await import('../src/sillytavern/log.js');
 const { choicePopup, confirmPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 const { writeKeysOfSelections } = await import('../src/features/lorebase/lorebase-keys.js');
 const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
-const { isLoreBaseActive, isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } = await import('../src/features/lorebase/lorebase-switch.js');
+const { isLoreBaseActive, isLoreBaseSwitchedOn, loreBaseInactiveReason, onLoreBaseSwitchChange, turnLoreBaseOff } = await import('../src/features/lorebase/lorebase-switch.js');
 const { settleVectorStorageConflict, turnLoreBaseOn } = await import('../src/features/lorebase/lorebase-vector-storage.js');
 
 const showsSwitch = vi.fn();
@@ -55,6 +55,16 @@ describe('when LoreBase acts', () => {
 
         host.isWorldInfoSearchOn = true;
         expect(isLoreBaseActive()).toBe(false);
+    });
+
+    it('says why it does not act, first cause first, and nothing while it acts', () => {
+        expect(loreBaseInactiveReason({ enabled: false, lorebase_enabled: false, vector_backend: 'standard' })).toBe('VectFox is turned off.');
+        expect(loreBaseInactiveReason({ lorebase_enabled: false, vector_backend: 'standard' })).toBe('Use LoreBase is off.');
+        expect(loreBaseInactiveReason({ lorebase_enabled: true, vector_backend: 'standard' })).toBe('LoreBase runs on the Qdrant backend only.');
+        expect(loreBaseInactiveReason({ lorebase_enabled: true, vector_backend: 'qdrant' })).toBeNull();
+        host.isWorldInfoSearchOn = true;
+        expect(loreBaseInactiveReason({ lorebase_enabled: true, vector_backend: 'qdrant' }))
+            .toBe("SillyTavern's Vector Storage has its World Info search on, which LoreBase leaves alone.");
     });
 });
 

@@ -10,15 +10,16 @@
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ reports: [], listener: null }));
+const host = vi.hoisted(() => ({ reports: [], listener: null, settings: { lorebase_accuracy: 'fast' } }));
 
 vi.mock('../src/features/lorebase/index.js', () => ({
     loreBaseReports: () => host.reports,
     measureLoreBaseReport: vi.fn(async () => {}),
     onLoreBaseReportsChange: listener => { host.listener = listener; },
+    tryLoreBasePick: vi.fn(async () => ({ problem: null })),
 }));
 
-const { measureLoreBaseReport } = await import('../src/features/lorebase/index.js');
+const { measureLoreBaseReport, tryLoreBasePick } = await import('../src/features/lorebase/index.js');
 const { worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { bindLoreBaseTester, refreshLoreBaseTester } = await import('../src/features/settings-panel/lorebase-tester-card.js');
 
@@ -50,8 +51,10 @@ beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = `<div id="VectFox_settings">${worldInfoPageMarkup()}</div>`;
     host.reports = [];
-    bindLoreBaseTester();
+    globalThis.toastr = { warning: vi.fn() };
+    bindLoreBaseTester(host.settings);
 });
+const settle = () => new Promise(resolve => { setTimeout(resolve, 0); });
 
 describe('the LoreBase tester card', () => {
     it('hides the Reply list and says so while the open chat has no report', () => {
@@ -106,5 +109,34 @@ describe('the LoreBase tester card', () => {
         host.reports = [report(132), ...host.reports];
         host.listener();
         expect(isFolded('[data-lorebase-parts="0"]')).toBe(true);
+    });
+
+    it("runs Try a pick on the panel's settings, busy until it ends, then follows the newest report, its try", async () => {
+        host.reports = [report(142), report(141)];
+        refreshLoreBaseTester();
+        pick(141);
+        expect(drawnMessage()).toBe('message #141');
+
+        let finish;
+        tryLoreBasePick.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        const button = document.getElementById('VectFox_lorebase_try_pick');
+        button.click();
+        expect(tryLoreBasePick).toHaveBeenCalledWith(host.settings);
+        expect(button.disabled).toBe(true);
+
+        host.reports = [{ ...report(143), type: 'try', isTry: true, messageIndex: null, keysState: 'unavailable' }, ...host.reports];
+        host.listener();
+        finish({ problem: null });
+        await settle();
+        expect(button.disabled).toBe(false);
+        expect(list().selectedOptions[0].textContent).toMatch(/ · try · no reply$/);
+        expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+    });
+
+    it('says why a try picked nothing', async () => {
+        tryLoreBasePick.mockResolvedValueOnce({ problem: 'Use LoreBase is off.' });
+        document.getElementById('VectFox_lorebase_try_pick').click();
+        await settle();
+        expect(globalThis.toastr.warning).toHaveBeenCalledWith('Use LoreBase is off.', 'VectFox — Try a pick', expect.any(Object));
     });
 });

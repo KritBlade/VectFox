@@ -115,7 +115,7 @@ const { choicePopup } = await import('../src/sillytavern/popup.js');
 const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
 const { initializeLoreBaseTester, keepReplyScan, recordReplyReport } = await import('../src/features/lorebase/lorebase-tester.js');
 const { askJev } = await import('../src/features/lorebase/lorebase-jev.js');
-const { initializeLoreBase, prepareLoreBesideRetrieval, prepareLoreForReply } = await import('../src/features/lorebase/lorebase-reply.js');
+const { initializeLoreBase, prepareLoreBesideRetrieval, prepareLoreForReply, tryLoreBasePick } = await import('../src/features/lorebase/lorebase-reply.js');
 
 initializeLoreBase();
 host.handlers.app_ready();
@@ -247,10 +247,51 @@ describe('Fast and cheap (D16)', () => {
     });
 
     it('says where to choose Jev\'s profile when none can run, and sends no selected entry', async () => {
-        host.jevConnection = { ok: false, problem: 'Fast and cheap has no profile for Jev. Choose it under Jev profile in the LoreBase model card on the WorldInfo page.' };
+        host.jevConnection = { ok: false, problem: 'Fast and cheap has no profile for Jev. Choose one in the Jev group of the LoreBase model card on the WorldInfo page.' };
         expect(await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' })).toBeNull();
         expect(askJev).not.toHaveBeenCalled();
         expect(notifySetupIncomplete).toHaveBeenCalledWith('LoreBase', host.jevConnection.problem);
+    });
+});
+
+describe('Try a pick (§5.10)', () => {
+    it("picks for the open chat's next reply with no reply generation before it, and hands the tester a try's report", async () => {
+        // The last generation was not a reply, which a try does not need.
+        afterCommands('impersonate', {});
+        postChatCompletion.mockResolvedValueOnce(pickOf(1)).mockResolvedValueOnce(reviewOf('most'));
+
+        expect(await tryLoreBasePick(settings)).toEqual({ problem: null });
+        expect(postChatCompletion).toHaveBeenCalledTimes(2);
+        expect(recordReplyReport).toHaveBeenCalledTimes(1);
+        expect(recordReplyReport.mock.calls[0][0]).toMatchObject({ type: 'try', isReply: false, accuracy: 'default' });
+        expect(recordReplyReport.mock.calls[0][0].lore.picks.map(pick => pick.title)).toEqual(['Lighthouse of Vell']);
+        // Nothing is kept for a World Info scan: a try sends no reply.
+        expect(keepReplyScan).not.toHaveBeenCalled();
+    });
+
+    it('asks Jev on Fast and cheap, as a reply would', async () => {
+        expect(await tryLoreBasePick({ ...settings, lorebase_accuracy: 'fast' })).toEqual({ problem: null });
+        expect(askJev).toHaveBeenCalledTimes(1);
+        expect(postChatCompletion).not.toHaveBeenCalled();
+        expect(recordReplyReport.mock.calls[0][0]).toMatchObject({ type: 'try', isReply: false, accuracy: 'fast' });
+    });
+
+    it('says why it picked nothing: LoreBase off, off Qdrant, no keyed selection, or no user message', async () => {
+        expect(await tryLoreBasePick({ ...settings, lorebase_enabled: false })).toEqual({ problem: 'Use LoreBase is off.' });
+        expect(await tryLoreBasePick({ ...settings, vector_backend: 'standard' })).toEqual({ problem: 'LoreBase runs on the Qdrant backend only.' });
+        host.unkeyedUids = new Set(['Harbor Atlas/0', 'Harbor Atlas/1']);
+        expect(await tryLoreBasePick(settings)).toEqual({ problem: 'No lorebook locked to this chat or its character has selected entries with keys.' });
+        host.unkeyedUids = new Set();
+        host.context.chat = [{ name: 'Keeper Orrin', mes: 'Welcome to Vell.', is_user: false }];
+        expect(await tryLoreBasePick(settings)).toEqual({ problem: 'The chat holds no user message for a reply to answer.' });
+        expect(postChatCompletion).not.toHaveBeenCalled();
+        expect(recordReplyReport).not.toHaveBeenCalled();
+    });
+
+    it('returns a keys read that failed as its problem, logged, and never throws', async () => {
+        host.keysReadError = new Error("Similharity could not read LoreBase's keys (HTTP 500): Qdrant is down");
+        expect(await tryLoreBasePick(settings)).toEqual({ problem: "Similharity could not read LoreBase's keys (HTTP 500): Qdrant is down" });
+        expect(log.warn).toHaveBeenCalledWith('LoreBase: trying a pick failed:', host.keysReadError);
     });
 });
 

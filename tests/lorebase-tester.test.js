@@ -224,6 +224,21 @@ describe('measuring a report', () => {
         expect(checkWorldInfo).not.toHaveBeenCalled();
     });
 
+    it("makes a try's report with no reply to wait for: measured at once, its picks' tokens only, the keys left unmeasured", async () => {
+        tester.recordReplyReport({ lore: replyLore(), books, type: 'try', accuracy: 'default', seconds: 5.6, isReply: false });
+        const report = tester.loreBaseReports()[0];
+        expect([report.type, report.isTry, report.isUnderWay, report.keysState]).toEqual(['try', true, false, 'unavailable']);
+
+        await tester.measureLoreBaseReport(report);
+        expect(report.tokens).toEqual({ sent: 9, pickedWhole: 9, picks: [{ sent: 9, whole: 9 }], promptWorldInfo: null });
+        expect([report.keysState, report.keys]).toEqual(['unavailable', null]);
+        expect(checkWorldInfo).not.toHaveBeenCalled();
+
+        // A reply's end ties nothing to a try.
+        host.handlers.generation_ended(3);
+        expect(report.messageIndex).toBeNull();
+    });
+
     it("measures only the open chat's report, as the scan loads the open chat's books", async () => {
         const report = reply();
         host.chatId = 'chat-wren';

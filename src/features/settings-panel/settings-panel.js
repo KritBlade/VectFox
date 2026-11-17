@@ -1427,7 +1427,7 @@ function bindSettingsEvents(settings, callbacks) {
     bindLoreBaseBooksCard();
     refreshLoreBaseBooks();
     eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseBooks);
-    bindLoreBaseTester();
+    bindLoreBaseTester(settings);
     refreshLoreBaseTester();
     eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseTester);
 

@@ -26,11 +26,16 @@ import { readBookKeys } from './lorebase-keys.js';
 import { FAST_AND_CHEAP, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
-import { isLoreBaseActive } from './lorebase-switch.js';
+import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
 import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
 import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
 
 const LOREBASE = 'LoreBase';
+// A try's report type: the pick for the next reply, with no reply sent.
+const TRY_TYPE = 'try';
+// Why the open chat gives LoreBase nothing to pick from.
+const NO_KEYED_SELECTION = 'No lorebook locked to this chat or its character has selected entries with keys.';
+const NO_USER_MESSAGE = 'The chat holds no user message for a reply to answer.';
 
 // The last generation past its slash commands. SillyTavern passes the interceptor a generation's type but not whether
 // a quiet one is quiet-to-loud; GENERATION_AFTER_COMMANDS, which fires just before the interceptors run, carries it.
@@ -153,6 +158,37 @@ async function askForReplyLore(settings, scene, books) {
 }
 
 /**
+ * The open chat's turn for LoreBase: the books taking part and the scene the next reply answers, or why it has none.
+ * @returns {Promise<{books: object[], scene: string}|{problem: string}>}
+ * @throws {Error} When the keys cannot be read
+ */
+async function openChatTurn() {
+    const books = await booksTakingPart();
+    if (!books.length) return { problem: NO_KEYED_SELECTION };
+    const messages = sceneMessagesFromChat();
+    if (!messages) return { problem: NO_USER_MESSAGE };
+    return { books, scene: sceneText(messages) };
+}
+
+/**
+ * A turn's lore on the dropdown's choice, logged and made into the tester's report. null when the choice's connection
+ * cannot run, its setup notice shown.
+ * @param {object} settings - VectFox settings
+ * @param {{books: object[], scene: string}} turn - From openChatTurn
+ * @param {{type: string, isReply: boolean}} kind - The generation's type, or a try's, which sends no reply
+ * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
+ */
+async function pickForTurn(settings, { books, scene }, { type, isReply }) {
+    const startedAt = performance.now();
+    const lore = await askForReplyLore(settings, scene, books);
+    if (!lore) return null;
+    const seconds = (performance.now() - startedAt) / 1000;
+    reportReplyLore(lore, seconds);
+    recordReplyReport({ lore, books, type, accuracy: settings.lorebase_accuracy, seconds, isReply });
+    return lore;
+}
+
+/**
  * This reply's lore, or null when LoreBase has nothing to do: LoreBase not acting (isLoreBaseActive), a generation
  * that is not a reply (D8), no selected entry in the books taking part, or no user message for the reply to answer.
  * Never throws: a failure is logged and shown, and the reply goes on without the lore it could not get.
@@ -163,24 +199,38 @@ async function askForReplyLore(settings, scene, books) {
 export async function prepareLoreForReply(type, settings) {
     if (!isLoreBaseActive(settings) || !isReplyGeneration(type, lastGeneration)) return null;
     try {
-        const books = await booksTakingPart();
-        if (!books.length) return null;
-        const messages = sceneMessagesFromChat();
-        if (!messages) {
-            log.verbose('LoreBase: the chat holds no user message for the reply to answer, so nothing is picked');
+        const turn = await openChatTurn();
+        if (turn.problem) {
+            if (turn.problem === NO_USER_MESSAGE) log.verbose(`LoreBase: ${turn.problem} Nothing is picked.`);
             return null;
         }
-        const startedAt = performance.now();
-        const lore = await askForReplyLore(settings, sceneText(messages), books);
-        if (!lore) return null;
-        const seconds = (performance.now() - startedAt) / 1000;
-        reportReplyLore(lore, seconds);
-        recordReplyReport({ lore, books, type, accuracy: settings.lorebase_accuracy, seconds });
-        return lore;
+        return await pickForTurn(settings, turn, { type, isReply: true });
     } catch (error) {
         log.error('LoreBase: preparing the lore for this reply failed:', error);
         showLeftOutLoreToast(leftOutLoreMessage([{ step: 'pick', detail: String(error?.message || error) }], 0));
         return null;
+    }
+}
+
+/**
+ * Try a pick (plan §5.10): LoreBase's step for the open chat's next reply, on the dropdown's choice and its
+ * connections, with no reply sent and nothing held for World Info. Its report goes to the tester, marked as a try.
+ * Never throws: a failure is logged and returned as the problem.
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{problem: string|null}>} Why nothing was picked, or null once the pick ran or the choice's setup
+ *   notice showed
+ */
+export async function tryLoreBasePick(settings) {
+    const inactive = loreBaseInactiveReason(settings);
+    if (inactive) return { problem: inactive };
+    try {
+        const turn = await openChatTurn();
+        if (turn.problem) return { problem: turn.problem };
+        await pickForTurn(settings, turn, { type: TRY_TYPE, isReply: false });
+        return { problem: null };
+    } catch (error) {
+        log.warn('LoreBase: trying a pick failed:', error);
+        return { problem: String(error?.message || error) };
     }
 }
 

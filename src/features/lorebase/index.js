@@ -20,7 +20,7 @@ export { chatBookLocks } from './lorebase-chat-books.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
-export { initializeLoreBase, prepareLoreBesideRetrieval } from './lorebase-reply.js';
+export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
 export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';
 export { loreBaseReports, measureLoreBaseReport, onLoreBaseReportsChange } from './lorebase-tester.js';

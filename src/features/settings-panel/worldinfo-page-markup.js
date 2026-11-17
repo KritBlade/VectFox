@@ -16,7 +16,7 @@ import {
     button, controlRow, detail, emptyState, field, fieldLabel, groupTitle, hint, iconButton, listRow, notice, recordCard, resultList,
     select, selectOption, stack, statusPill,
 } from '../../shared/gui-dna/gui-dna-core.js';
-import { cardHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { buttonWithId, cardHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 
 const formatCount = count => Number(count).toLocaleString('en-US');
 const formatSeconds = seconds => `${Number(seconds).toFixed(1)} s`;
@@ -78,12 +78,16 @@ function loreBaseModelCard() {
     </section>`;
 }
 
-// LoreBase's tester (plan §5.10): this session's reports for the open chat, picked in the Reply list, which
-// lorebase-tester-card.js fills and hides while there is none.
+// LoreBase's tester (plan §5.10): Try a pick, and this session's reports for the open chat, picked in the Reply list,
+// which lorebase-tester-card.js fills and hides while there is none.
 function loreBaseTesterCard() {
     return `<section id="VectFox_lorebase_tester_card" class="vfx-card">
         ${cardHeader({ icon: 'fa-flask', title: 'LoreBase tester', description: "What LoreBase did on this session's replies in the open chat." })}
         <div class="vfx-card-body vfx-stack">
+            ${field([
+                controlRow([buttonWithId({ id: 'VectFox_lorebase_try_pick', text: 'Try a pick', icon: 'fa-play' })]),
+                hint({ text: "Picks for the open chat's next reply on your Accuracy and connections. Sends no reply." }),
+            ])}
             <div id="VectFox_lorebase_report_field">${field([fieldLabel({ text: 'Reply', forId: 'VectFox_lorebase_report' }), select({ id: 'VectFox_lorebase_report' })])}</div>
             <div id="VectFox_lorebase_report_body"></div>
             ${hint({ text: "Kept until the page reloads. Tokens are counted as SillyTavern's itemization counts them." })}
@@ -131,12 +135,13 @@ export function loreBaseBooksMarkup({ hasChat, books }) {
     return `<div class="vfx-list">${books.map(loreBaseBookRow).join('')}</div>`;
 }
 
-const REPLY_KINDS = { normal: 'send', swipe: 'swipe', regenerate: 'regenerate', continue: 'continue', quiet: 'quiet-to-loud' };
+const REPLY_KINDS = { normal: 'send', swipe: 'swipe', regenerate: 'regenerate', continue: 'continue', quiet: 'quiet-to-loud', try: 'try' };
 
 function reportLabel(report) {
     const time = new Date(report.madeAt).toLocaleTimeString('en-GB', { hour12: false });
     let where = 'no message';
-    if (report.isUnderWay) where = 'under way';
+    if (report.isTry) where = 'no reply';
+    else if (report.isUnderWay) where = 'under way';
     else if (report.messageIndex !== null) where = `message #${report.messageIndex}${report.swipeId > 0 ? `, swipe ${report.swipeId + 1}` : ''}`;
     return `${time} · ${REPLY_KINDS[report.type] ?? report.type} · ${where}`;
 }
@@ -166,6 +171,8 @@ const KEYS_STATE_LINES = {
     waiting: { icon: 'fa-hourglass-half', text: "What SillyTavern's keys would send is measured when no reply is under way." },
     unavailable: { icon: 'fa-key', text: "What SillyTavern's keys would send was not measured for this reply." },
 };
+// A try's: SillyTavern's keys are measured on a reply's World Info scan, and a try has none.
+const TRY_KEYS_LINE = { icon: 'fa-key', text: "A try sends no reply, so what SillyTavern's keys would send is not measured." };
 
 // The reply's tokens against what SillyTavern's keys would send, as SillyTavern's prompt itemization counts them.
 function tokenLines(report) {
@@ -173,9 +180,9 @@ function tokenLines(report) {
     if (!report.tokens) return [{ icon: 'fa-hourglass-half', text: report.isUnderWay ? 'Tokens are counted once the reply ends.' : 'Counting tokens…' }];
     const { tokens, keys } = report;
     const lines = [{ icon: 'fa-paper-plane', text: 'LoreBase sent', name: `${formatCount(tokens.sent)} tokens, from ${formatCount(tokens.pickedWhole)} in the same entries whole` }];
-    lines.push(keys
-        ? { icon: 'fa-key', text: "SillyTavern's keys", name: `${formatCount(keys.entries)} selected entries, ${formatCount(keys.tokens)} tokens` }
-        : KEYS_STATE_LINES[report.keysState]);
+    let keysLine = report.isTry ? TRY_KEYS_LINE : KEYS_STATE_LINES[report.keysState];
+    if (keys) keysLine = { icon: 'fa-key', text: "SillyTavern's keys", name: `${formatCount(keys.entries)} selected entries, ${formatCount(keys.tokens)} tokens` };
+    lines.push(keysLine);
     const alone = keys ? `SillyTavern alone ${formatCount(keys.worldInfo)} tokens` : '';
     if (tokens.promptWorldInfo !== null) {
         lines.push({ icon: 'fa-book-atlas', text: 'World Info in the prompt', name: [`${formatCount(tokens.promptWorldInfo)} tokens`, alone].filter(Boolean).join('; ') });
@@ -240,6 +247,12 @@ function pickRecord(pick, index, report) {
     });
 }
 
+// What a report with no pick says: Fast and cheap's picks are Jev's, the others Luna's.
+const NO_PICK_TEXT = {
+    jev: 'Jev rated no entry above 0.25 for this reply.',
+    luna: 'Luna picked no entry for this reply.',
+};
+
 // The selected entries the pick left out, folded until opened; each names its book when the reply read several.
 function skippedRecord(report) {
     const bookCount = new Set([...report.picks, ...report.skipped].map(entry => entry.bookName)).size;
@@ -259,7 +272,7 @@ function skippedRecord(report) {
  * @returns {string}
  */
 export function loreBaseReportMarkup(report) {
-    if (!report) return emptyState({ icon: 'fa-flask', text: 'No reply in this chat used LoreBase since the page loaded.' });
+    if (!report) return emptyState({ icon: 'fa-flask', text: 'No reply in this chat used LoreBase since the page loaded. Send a message, or Try a pick.' });
     const summary = [
         { icon: 'fa-list-check', text: 'Picked', name: `${formatCount(report.picks.length)} of ${formatCount(report.contentCount)} selected entries` },
         { icon: 'fa-stopwatch', text: 'Time', name: timeLine(report.seconds) },
@@ -270,7 +283,7 @@ export function loreBaseReportMarkup(report) {
     const isPickFailed = report.failures.some(failure => failure.step === 'pick');
     const picks = report.picks.length
         ? report.picks.map((pick, index) => pickRecord(pick, index, report))
-        : [emptyState({ icon: 'fa-hand', text: isPickFailed ? 'The pick failed, so no entry went in.' : 'Luna picked no entry for this reply.' })];
+        : [emptyState({ icon: 'fa-hand', text: isPickFailed ? 'The pick failed, so no entry went in.' : NO_PICK_TEXT[report.accuracy === 'fast' ? 'jev' : 'luna'] })];
     return stack([
         resultList({ lines: summary }),
         groupTitle({ icon: 'fa-hand-pointer', text: 'Picks' }),
