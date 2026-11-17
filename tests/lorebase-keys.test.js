@@ -3,7 +3,8 @@
  * lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on
  * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
- * LoreBase's model. Similharity's routes are a fetch stand-in holding the keys in memory.
+ * LoreBase's model. Generate all keys writes the missing keys of every book with a selection, and Delete all keys
+ * deletes every key, never while keys are written. Similharity's routes are a fetch stand-in holding the keys in memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -42,6 +43,11 @@ beforeEach(async () => {
         routeCalls.push({ url, request });
         if (url.endsWith('/read')) {
             return { ok: true, json: async () => ({ books: Object.fromEntries(request.books.map(book => [book, { ...(stored[book] ?? {}) }])) }) };
+        }
+        if (url.endsWith('/delete')) {
+            const deleted = Object.values(stored).reduce((count, book) => count + Object.keys(book).length, 0);
+            stored = {};
+            return { ok: true, json: async () => ({ deleted }) };
         }
         for (const { uid, keys } of request.entries) (stored[request.book] ??= {})[uid] = keys;
         return { ok: true, json: async () => ({ written: request.entries.length }) };
@@ -156,6 +162,62 @@ describe("editing one entry's keys", () => {
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, statusText: 'Server Error', text: async () => '{"error":"Qdrant is down"}' }));
         await expect(keysModule.saveEditedKeys(BOOK, 0, ['new keys'])).rejects.toThrow("Similharity could not write LoreBase's keys (HTTP 500)");
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['old keys'] });
+    });
+});
+
+describe('every key at once', () => {
+    it('Generate all keys writes the selected entries with no keys in every book with a selection, and counts what it did', async () => {
+        const { extension_settings } = await import('../src/sillytavern/settings.js');
+        const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
+        extension_settings.vectfox.lorebase_books = {
+            [BOOK]: { selectedUids: ['0', '1', '2'] }, 'Desert Atlas': { selectedUids: ['5'] },
+            'Lost Atlas': { selectedUids: ['1'] }, 'Unused Atlas': { selectedUids: [] },
+        };
+        const books = {
+            [BOOK]: { entries: { 0: entry(0, 'Lighthouse'), 1: entry(1, 'Tidewardens'), 2: { ...entry(2, 'Tide clock'), constant: true }, 3: entry(3, 'Pier') } },
+            'Desert Atlas': { entries: { 5: entry(5, 'Dunes') } },
+        };
+        loadWorldInfo.mockImplementation(async bookName => {
+            if (!books[bookName]) throw new Error('no such lorebook');
+            return books[bookName];
+        });
+        stored[BOOK] = { 0: ['old keys'] };
+
+        expect(await keysModule.writeKeysOfSelections(QDRANT)).toEqual({ written: 2, failed: 0, unreadBooks: 1 });
+        expect(stored).toEqual({ [BOOK]: { 0: ['old keys'], 1: ['keys from Tidewardens'] }, 'Desert Atlas': { 5: ['keys from Dunes'] } });
+        expect(loadWorldInfo.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK, 'Desert Atlas', 'Lost Atlas']);
+    });
+
+    it('Delete all keys deletes every key the user has, forgets the ones it knew, and tells the listeners', async () => {
+        stored = { [BOOK]: { 0: ['lighthouse'], 1: ['tidewardens'] }, 'Desert Atlas': { 5: ['dunes'] } };
+        await keysModule.readBookKeys([BOOK]);
+        const seen = [];
+        keysModule.onKeyStateChange(bookName => seen.push(bookName));
+
+        expect(await keysModule.deleteAllKeys()).toBe(3);
+        expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/keys/delete', request: {} });
+        expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'missing' });
+        expect(seen).toEqual([BOOK]);
+    });
+
+    it('Delete all keys is refused while keys are being written, and deletes nothing', async () => {
+        let answer;
+        host.ask = vi.fn(() => new Promise(resolve => { answer = resolve; }));
+        const writing = keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT);
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
+
+        await expect(keysModule.deleteAllKeys()).rejects.toThrow('LoreBase is writing keys. Delete them once it is done.');
+        expect(routeCalls.some(call => call.url.endsWith('/delete'))).toBe(false);
+        answer(answerWith(['lighthouse']));
+        await writing;
+    });
+
+    it('says what Similharity answered when the keys cannot be deleted, and keeps knowing them', async () => {
+        stored[BOOK] = { 0: ['lighthouse'] };
+        await keysModule.readBookKeys([BOOK]);
+        globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, statusText: 'Server Error', text: async () => '{"error":"Qdrant is down"}' }));
+        await expect(keysModule.deleteAllKeys()).rejects.toThrow("Similharity could not delete LoreBase's keys (HTTP 500)");
+        expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['lighthouse'] });
     });
 });
 

@@ -3,19 +3,30 @@
  *
  * The WorldInfo page's LoreBase controls (src/features/settings-panel/lorebase-books-card.js, plan §5.2 and §5.9 of
  * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): LoreBase's switch shows as saved, and
- * while it is off every other LoreBase control on the page is disabled with a notice saying why; turning it on can end
- * off when the user keeps Vector Storage's World Info search. The books card draws the open chat's books, opens the
- * selection screen on the book a row names or, from the card's own button, on the chat's first book, and draws the
- * list again once the screen closes, a screen that failed included.
+ * while it is off every other LoreBase control on the page but Delete all keys is disabled with a notice saying why;
+ * turning it on can end off when the user keeps Vector Storage's World Info search. The books card draws the open
+ * chat's books, opens the selection screen on the book a row names or, from the card's own button, on the chat's first
+ * book, and draws the list again once the screen closes, a screen that failed included. Generate all keys writes the
+ * missing keys, or says why it cannot; Delete all keys asks first; the status line says how each went.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null }));
+const host = vi.hoisted(() => ({
+    status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null,
+    settings: { vector_backend: 'qdrant' }, keyProblem: null, totals: null, isConfirmed: true, deleted: null,
+}));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
+vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(async () => host.isConfirmed) }));
 vi.mock('../src/features/lorebase/index.js', () => ({
     chatBookLocks: vi.fn(() => host.status),
+    keyWritingProblem: vi.fn(() => host.keyProblem),
+    writeKeysOfSelections: vi.fn(async () => host.totals),
+    deleteAllKeys: vi.fn(async () => {
+        if (host.deleted instanceof Error) throw host.deleted;
+        return host.deleted;
+    }),
     // The screen stays open until the test closes it.
     openLoreBaseSelection: vi.fn(() => new Promise((resolve, reject) => { host.screen = { resolve, reject }; })),
     isLoreBaseSwitchedOn: () => host.isOn,
@@ -25,8 +36,11 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     turnLoreBaseOn: vi.fn(async () => { host.isOn = host.willTurnOn; return host.isOn; }),
 }));
 
-const { chatBookLocks, openLoreBaseSelection, turnLoreBaseOff, turnLoreBaseOn } = await import('../src/features/lorebase/index.js');
+const {
+    chatBookLocks, deleteAllKeys, openLoreBaseSelection, turnLoreBaseOff, turnLoreBaseOn, writeKeysOfSelections,
+} = await import('../src/features/lorebase/index.js');
 const { log } = await import('../src/sillytavern/log.js');
+const { confirmPopup } = await import('../src/sillytavern/popup.js');
 const { worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { bindLoreBaseBooksCard, refreshLoreBaseBooks } = await import('../src/features/settings-panel/lorebase-books-card.js');
 
@@ -41,7 +55,11 @@ beforeEach(() => {
     host.status = { hasChat: true, books: [HARBOR, KEEPER] };
     host.isOn = true;
     host.willTurnOn = true;
-    bindLoreBaseBooksCard();
+    host.keyProblem = null;
+    host.totals = { written: 2, failed: 0, unreadBooks: 0 };
+    host.isConfirmed = true;
+    host.deleted = 311;
+    bindLoreBaseBooksCard(host.settings);
 });
 
 const toggle = () => document.getElementById('VectFox_lorebase_enabled');
@@ -49,10 +67,11 @@ const flipSwitch = isChecked => {
     toggle().checked = isChecked;
     toggle().dispatchEvent(new Event('change'));
 };
-// Every LoreBase control on the page but the switch and the cards' own collapse and help buttons.
+// Every LoreBase control on the page but the switch, Delete all keys and the cards' own collapse and help buttons.
 const waitingControls = () => [...document.querySelectorAll('#VectFox_lorebase_books_card, #VectFox_lorebase_model_card')]
     .flatMap(card => [...card.querySelectorAll('button, input, select, textarea')])
-    .filter(control => control.id !== 'VectFox_lorebase_enabled' && !control.matches('.vfx-collapse, .vfx-help-toggle'));
+    .filter(control => !['VectFox_lorebase_enabled', 'VectFox_lorebase_delete_keys'].includes(control.id)
+        && !control.matches('.vfx-collapse, .vfx-help-toggle'));
 const disabledStates = () => [...new Set(waitingControls().map(control => control.disabled))];
 const isNoticeShown = () => !document.getElementById('VectFox_lorebase_off_notice').hidden;
 
@@ -102,6 +121,13 @@ describe("LoreBase's switch", () => {
         expect([toggle().checked, disabledStates(), isNoticeShown()]).toEqual([false, [true], true]);
     });
 
+    it('keeps Delete all keys working while it is off, as turning LoreBase on writes keys, and Generate all keys waiting', () => {
+        host.isOn = false;
+        refreshLoreBaseBooks();
+        expect(document.getElementById('VectFox_lorebase_delete_keys').disabled).toBe(false);
+        expect(document.getElementById('VectFox_lorebase_generate_keys').disabled).toBe(true);
+    });
+
     it("shows a change a reply's question made while the page is open", () => {
         refreshLoreBaseBooks();
         host.isOn = false;
@@ -145,5 +171,68 @@ describe('the LoreBase books card', () => {
 
         await vi.waitFor(() => expect(log.error).toHaveBeenCalledWith(expect.stringContaining('selection screen'), failure));
         expect(chatBookLocks).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('every key at once', () => {
+    const status = () => document.getElementById('VectFox_lorebase_keys_status');
+    const generate = () => document.getElementById('VectFox_lorebase_generate_keys');
+    const remove = () => document.getElementById('VectFox_lorebase_delete_keys');
+
+    beforeEach(() => refreshLoreBaseBooks());
+
+    it('shows no status line until a button has run', () => {
+        expect(status().hidden).toBe(true);
+    });
+
+    it('Generate all keys writes the missing keys of every selection and says how many', async () => {
+        generate().click();
+        expect(generate().disabled).toBe(true);
+        await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 2 entries.'));
+        expect(writeKeysOfSelections).toHaveBeenCalledWith(host.settings);
+        expect([status().hidden, generate().disabled]).toEqual([false, false]);
+    });
+
+    it('Generate all keys names the entries that failed and the books it could not read, or that none was missing', async () => {
+        host.totals = { written: 3, failed: 1, unreadBooks: 2 };
+        generate().click();
+        await vi.waitFor(() => expect(status().textContent).toBe(
+            'Wrote the keys of 3 entries. 1 entry failed, as the toast says. 2 lorebooks could not be read; the console says why.'));
+        host.totals = { written: 0, failed: 0, unreadBooks: 0 };
+        generate().click();
+        await vi.waitFor(() => expect(status().textContent).toBe('No selected entry was missing keys.'));
+    });
+
+    it('Generate all keys writes nothing when keys cannot be written, and says why', async () => {
+        host.keyProblem = 'LoreBase keeps the keys its model writes for each entry in Qdrant. Choose Qdrant as the vector backend first.';
+        generate().click();
+        await vi.waitFor(() => expect(status().textContent).toBe(`Not written: ${host.keyProblem}`));
+        expect(writeKeysOfSelections).not.toHaveBeenCalled();
+    });
+
+    it('Delete all keys asks first, opening on Cancel, and deletes nothing when the user cancels', async () => {
+        host.isConfirmed = false;
+        remove().click();
+        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
+        expect(confirmPopup.mock.calls[0][1]).toEqual({ okButton: 'Delete all keys', isDestructive: true });
+        expect(confirmPopup.mock.calls[0][0].map(line => line.text).join(' ')).toContain('Keys you edited by hand are lost.');
+        await Promise.resolve();
+        expect(deleteAllKeys).not.toHaveBeenCalled();
+        expect(status().hidden).toBe(true);
+    });
+
+    it('Delete all keys deletes every key once confirmed, and says how many', async () => {
+        remove().click();
+        await vi.waitFor(() => expect(status().textContent).toBe(
+            'Deleted the keys of 311 entries. Selected entries send nothing until Generate all keys.'));
+        expect(deleteAllKeys).toHaveBeenCalledTimes(1);
+        expect(remove().disabled).toBe(false);
+    });
+
+    it('a delete that fails says Not deleted, with the reason, and logs it', async () => {
+        host.deleted = new Error('LoreBase is writing keys. Delete them once it is done.');
+        remove().click();
+        await vi.waitFor(() => expect(status().textContent).toBe('Not deleted: LoreBase is writing keys. Delete them once it is done.'));
+        expect(log.warn).toHaveBeenCalledWith('LoreBase: Delete all keys failed:', host.deleted);
     });
 });

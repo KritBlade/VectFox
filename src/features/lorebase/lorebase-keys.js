@@ -1,9 +1,9 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D15, D17 and §5.2 of InternalProject/
  * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes,
- * each SillyTavern user's own. Turning an entry on, turning LoreBase on and Regenerate keys write them, a few calls
- * at a time; the user can also edit one entry's keys, or have the model write them again to read first; nothing
- * rewrites them on its own. An entry takes part in a reply only once its keys exist, and while they are written or
+ * each SillyTavern user's own. Turning an entry on, turning LoreBase on, Generate all keys and Regenerate keys write
+ * them, a few calls at a time; the user can also edit one entry's keys, or have the model write them again to read
+ * first, and Delete all keys deletes every one; nothing rewrites them on its own. An entry takes part in a reply only once its keys exist, and while they are written or
  * after they fail, the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
@@ -237,20 +237,45 @@ export async function saveEditedKeys(bookName, uid, keys) {
 
 /**
  * Write the keys of every selected entry LoreBase decides, in every book with a selection, that has none, as turning
- * LoreBase on asks (§5.9). Never throws: a book that cannot be read is logged, and each book's failures get its toast.
+ * LoreBase on and Generate all keys ask (§5.2, §5.9). Never throws: a book that cannot be read is logged and counted,
+ * and each book's failures get its toast.
  * @param {object} settings - VectFox settings
- * @returns {Promise<void>}
+ * @returns {Promise<{written: number, failed: number, unreadBooks: number}>}
  */
 export async function writeKeysOfSelections(settings) {
+    const totals = { written: 0, failed: 0, unreadBooks: 0 };
     for (const bookName of selectedLoreBookNames()) {
         let book;
         try {
             book = await loadWorldInfo(bookName);
         } catch (error) {
             log.warn(`LoreBase: lorebook "${bookName}" could not be read, so its selected entries' keys were not written:`, error);
+            totals.unreadBooks += 1;
             continue;
         }
         const entries = decidedEntries(book, getLoreBook(bookName));
-        if (entries.length) await writeKeys(bookName, entries, settings);
+        if (!entries.length) continue;
+        const { written, failed } = await writeKeys(bookName, entries, settings);
+        totals.written += written;
+        totals.failed += failed;
     }
+    return totals;
+}
+
+/**
+ * Delete all keys: every LoreBase key of this SillyTavern user, in every book, the entries turned off included.
+ * Selections stay, so the selected entries send nothing until their keys are written again. Refused while keys are
+ * being written, which would put some back.
+ * @returns {Promise<number>} How many entries' keys were deleted
+ * @throws {Error} While keys are being written, or when Similharity cannot delete them
+ */
+export async function deleteAllKeys() {
+    if (runningCalls || queue.length) throw new Error('LoreBase is writing keys. Delete them once it is done.');
+    const { deleted } = await postKeysRoute('delete', {});
+    const bookNames = [...new Set([...storedKeys.keys(), ...writeStates.keys()])];
+    storedKeys.clear();
+    writeStates.clear();
+    for (const bookName of bookNames) tellListeners(bookName);
+    log.lifecycle(`LoreBase: deleted the keys of ${deleted} entries`);
+    return deleted;
 }

@@ -1424,7 +1424,7 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     // LoreBase books and tester (WorldInfo page): drawn for the open chat, again on each chat change and as the page opens.
-    bindLoreBaseBooksCard();
+    bindLoreBaseBooksCard(settings);
     refreshLoreBaseBooks();
     eventSource.on(event_types.CHAT_CHANGED, refreshLoreBaseBooks);
     bindLoreBaseTester(settings);
