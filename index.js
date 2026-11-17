@@ -48,7 +48,10 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
-import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource, loadSillyTavernEmbeddingHost } from './openai-style-embedding.js';
+import { askDecisions } from './lorebase-decisions.js';
+import { readLoreKeys, writeLoreKeys } from './lorebase-keys.js';
+import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource } from './openai-style-embedding.js';
+import { loadSillyTavernRequestHost } from './sillytavern-request-host.js';
 import { errorFreeOfServerReply, errorWithoutServerReply, redactKeyMaterial, serverFailureText } from './server-failure-text.js';
 import { assertSendableHeaders } from './request-safety.js';
 import { moveTopLevelTransformersIndexes, vectraIndexFolder, vectraModelFolder } from './vectra-folders.js';
@@ -1401,6 +1404,55 @@ async function getVectorsForSource(source, texts, model, directories, req) {
         }
     });
 
+    /**
+     * POST /api/plugins/similharity/lorebase/keys/read
+     * The keys LoreBase's model wrote for the entries of the named books, the requesting user's own (lorebase-keys.js).
+     * Body: { books: string[] }. Response: { books: { [book]: { [uid]: string[] } } }, every named book present.
+     */
+    router.post('/lorebase/keys/read', async (req, res) => {
+        try {
+            const books = await readLoreKeys(qdrantBackend, req.user.profile.handle, req.body?.books);
+            res.json({ books });
+        } catch (error) {
+            console.error(`[${pluginName}] lorebase/keys/read error:`, error);
+            res.status(error instanceof RangeError ? 400 : 500).json({ error: formatError(error) });
+        }
+    });
+
+    /**
+     * POST /api/plugins/similharity/lorebase/keys/write
+     * Write the keys of some of a book's entries for the requesting user, replacing any they had.
+     * Body: { book: string, entries: [{ uid, keys: string[] }] }. Response: { written: number }.
+     */
+    router.post('/lorebase/keys/write', async (req, res) => {
+        try {
+            const written = await writeLoreKeys(qdrantBackend, req.user.profile.handle, req.body?.book, req.body?.entries);
+            res.json({ written });
+        } catch (error) {
+            console.error(`[${pluginName}] lorebase/keys/write error:`, error);
+            res.status(error instanceof RangeError ? 400 : 500).json({ error: formatError(error) });
+        }
+    });
+
+    /**
+     * POST /api/plugins/similharity/lorebase/decisions
+     * LoreBase's Fast and cheap choice: one request to Jev, a decisions model, on the SillyTavern profile chosen for it
+     * (lorebase-decisions.js). The key is read here by its ID and goes only where SillyTavern sends that key.
+     * Body: { source: 'openrouter'|'custom', apiUrl?, model, secret_id?, state, questions }.
+     * Response: { yes: { [question]: number }, inputTokens, usd }.
+     */
+    router.post('/lorebase/decisions', async (req, res) => {
+        try {
+            _sillyTavernRequestHost ??= await loadSillyTavernRequestHost();
+            const { source, apiUrl, model, secret_id: secretId, state, questions } = req.body ?? {};
+            const answer = await askDecisions({ source, apiUrl, model, secretId, state, questions, directories: req.user.directories }, _sillyTavernRequestHost);
+            res.json(answer);
+        } catch (error) {
+            console.error(`[${pluginName}] lorebase/decisions error:`, error);
+            res.status(error instanceof RangeError ? 400 : 502).json({ error: formatError(errorWithoutServerReply(error)) });
+        }
+    });
+
     console.log(`[${pluginName}] Plugin initialized successfully`);
 }
 
@@ -1491,20 +1543,21 @@ async function getEmbeddingForSourceTimed(source, text, model, directories, req,
     }
 }
 
-let _openAiStyleHost = null;
+// SillyTavern's request helpers, loaded once, for the embedding and decisions requests the plugin sends itself.
+let _sillyTavernRequestHost = null;
 
 /**
  * Embed texts on llama.cpp, KoboldCPP or Custom, with the server URL, model
  * and key ID the client sent.
  */
 async function embedOpenAiStyle(source, texts, model, directories, req) {
-    _openAiStyleHost ??= await loadSillyTavernEmbeddingHost();
+    _sillyTavernRequestHost ??= await loadSillyTavernRequestHost();
     return await getOpenAiStyleEmbeddings(source, texts, {
         apiUrl: req.body?.apiUrl,
         model,
         secretId: req.body?.secret_id,
         directories,
-    }, _openAiStyleHost);
+    }, _sillyTavernRequestHost);
 }
 
 /**

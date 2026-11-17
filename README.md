@@ -464,6 +464,55 @@ Deletes ALL Qdrant collections. **Use with extreme caution!**
 
 ---
 
+## LoreBase Keys
+
+VectFox's LoreBase has its model write keys for each lorebook entry the user turns on, and keeps them in Qdrant: one collection with no vectors, `vectfox_lorebase_keys`, a point per entry, each SillyTavern user reading and writing only their own. The collection is never listed as a VectFox collection.
+
+### Write Keys
+
+#### `POST /lorebase/keys/write`
+
+Writes the keys of some of a book's entries, replacing any they had.
+
+**Request Body:**
+```json
+{
+  "book": "Harbor book",
+  "entries": [{ "uid": "3", "keys": ["lighthouse", "keeper"] }]
+}
+```
+
+**Response:** `{ "written": 1 }`. A malformed body answers 400; Qdrant not set up answers 500, saying LoreBase keeps its keys in Qdrant.
+
+### Read Keys
+
+#### `POST /lorebase/keys/read`
+
+**Request Body:** `{ "books": ["Harbor book"] }`
+
+**Response:** `{ "books": { "Harbor book": { "3": ["lighthouse", "keeper"] } } }`, every named book present, `{}` when none of its entries has keys.
+
+### Ask Jev (Fast and cheap)
+
+#### `POST /lorebase/decisions`
+
+LoreBase's Fast and cheap choice asks Jev, a decisions model, whether the next reply needs each selected entry, on the SillyTavern connection profile chosen for it. The request names the profile's source, its URL for a Custom profile, its model and its key's ID; the key is read here and goes only where SillyTavern sends it: an OpenRouter key to `https://openrouter.ai/api/v1/systemone`, a Custom key to the profile's own URL with `/systemone`.
+
+**Request Body:**
+```json
+{
+  "source": "openrouter",
+  "model": "typesafe/jev-1.14",
+  "secret_id": "<the profile's key ID>",
+  "state": "The chat so far. ...",
+  "questions": { "e1": { "type": "noul", "instructions": "Does the next reply need the lorebook entry \"Harbor lighthouse\" (about: lighthouse, keeper)?" } }
+}
+```
+
+**Response:** `{ "yes": { "e1": 0.34 }, "inputTokens": 120, "usd": 0.000014 }`. A malformed request answers 400; a refusal answers 502 with its status and a fixed hint, never the server's reply.
+
+---
+
 ## Vectra (Standard Backend) - Enhanced
 
 **Why Enhanced Vectra?**

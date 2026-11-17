@@ -191,14 +191,17 @@ test('a source with no OpenAI-style route is refused before any request', async 
     assert.equal(requests.length, 0);
 });
 
-// Credential invariant 7 of VectFox's connection plan.
+// Credential invariant 7 of VectFox's connection plan. The files that read the Custom key: this embedding, and
+// LoreBase's decisions route, whose own lookups by ID tests/lorebase-decisions.test.js checks.
+const CUSTOM_KEY_READERS = ['openai-style-embedding.js', 'lorebase-decisions.js'];
+
 test('invariant 7: ST\'s llama.cpp embedding is never called, and the Custom key is read only by an ID', async () => {
     const pluginFiles = readdirSync(PLUGIN_ROOT).filter(name => name.endsWith('.js'));
-    assert.ok(pluginFiles.includes('index.js') && pluginFiles.includes('openai-style-embedding.js'));
+    assert.ok(pluginFiles.includes('index.js') && CUSTOM_KEY_READERS.every(name => pluginFiles.includes(name)));
     for (const name of pluginFiles) {
         const text = readFileSync(path.join(PLUGIN_ROOT, name), 'utf8');
         assert.doesNotMatch(text, /getLlamaCppVector|getLlamaCppBatchVector/, `${name} names SillyTavern's llama.cpp embedding`);
-        if (name !== 'openai-style-embedding.js') {
+        if (!CUSTOM_KEY_READERS.includes(name)) {
             assert.doesNotMatch(text, /api_key_custom|SECRET_KEYS\.CUSTOM/, `${name} reads the Custom key`);
         }
     }

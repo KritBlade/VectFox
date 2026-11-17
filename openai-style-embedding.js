@@ -38,28 +38,6 @@ export function isOpenAiStyleEmbeddingSource(source) {
 }
 
 /**
- * What these requests use of SillyTavern: its key lookups, its URL trim and fetch.
- *
- * @returns {Promise<object>} The host getOpenAiStyleEmbeddings takes
- */
-export async function loadSillyTavernEmbeddingHost() {
-    const [headersModule, constantsModule, secretsModule, utilModule] = await Promise.all([
-        import('../../src/additional-headers.js'),
-        import('../../src/constants.js'),
-        import('../../src/endpoints/secrets.js'),
-        import('../../src/util.js'),
-    ]);
-    return {
-        fetch: globalThis.fetch,
-        trimV1: utilModule.trimV1,
-        setAdditionalHeadersByType: headersModule.setAdditionalHeadersByType,
-        readSecret: secretsModule.readSecret,
-        TEXTGEN_TYPES: constantsModule.TEXTGEN_TYPES,
-        SECRET_KEYS: secretsModule.SECRET_KEYS,
-    };
-}
-
-/**
  * The key header for a request: the key the ID names, or none. llama.cpp and KoboldCPP read it through SillyTavern's
  * own header builder, which also adds any request overrides config.yaml sets for the server's host; Custom reads it
  * from the Custom key list, as SillyTavern's chat route does.
@@ -113,7 +91,7 @@ function embeddingsOfReply(data, count, name) {
  * @param {string[]} texts
  * @param {{apiUrl?: string, model?: string, secretId?: string, directories: object}} request - What the client sent,
  *   and the user's SillyTavern directories, where the key lists are
- * @param {object} host - From loadSillyTavernEmbeddingHost
+ * @param {object} host - From loadSillyTavernRequestHost (sillytavern-request-host.js)
  * @returns {Promise<number[][]>}
  * @throws {Error} With no server URL, before any request; with the status and a fixed hint when it refuses, never
  *   the server's reply

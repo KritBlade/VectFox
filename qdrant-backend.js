@@ -40,6 +40,10 @@ const MULTITENANCY_COLLECTION = 'vectfox_main';
 // there. Indexed as a tenant field, so a filter on it reads one tenant's points only.
 export const TENANT_FIELD = 'content_type';
 
+// LoreBase's keys (lorebase-keys.js): a collection with no vectors, which VectFox's vector collections never are, so
+// the collection listing, discovery and the start-up index pass leave it out.
+export const LOREBASE_KEYS_COLLECTION = 'vectfox_lorebase_keys';
+
 // The most tenants one discovery lists. A facet answer this long may be cut, so discovery then says it did not list
 // them all, and VectFox prunes nothing it did not see.
 const TENANT_FACET_LIMIT = 10000;
@@ -1409,7 +1413,7 @@ class QdrantBackend {
         if (!this.baseUrl) { console.error(`[Qdrant LIFECYCLE] 'Qdrant not initialized' thrown. instanceId=${this._instanceId}, initCount=${this._initCount}, config.url=${this.config?.url}, config.host=${this.config?.host}, config.port=${this.config?.port}, apiKey=${this.apiKey ? '(set)' : '(null)'}`); throw new Error('Qdrant not initialized'); }
         try {
             const collections = await this._request('GET', '/collections');
-            return collections.result?.collections?.map(c => c.name) || [];
+            return collections.result?.collections?.map(c => c.name).filter(name => name !== LOREBASE_KEYS_COLLECTION) || [];
         } catch (error) {
             console.error(`[Qdrant] getCollections failed:`, error.message);
             return [];
