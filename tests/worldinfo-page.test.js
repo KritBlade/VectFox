@@ -17,7 +17,7 @@ const WIRED_IDS = [
     'VectFox_lorebase_enabled', 'VectFox_lorebase_off_notice', 'VectFox_lorebase_books_card', 'VectFox_lorebase_books',
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
-    'VectFox_lorebase_jev_test', 'VectFox_lorebase_jev_test_connection',
+    'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_role_picks', 'VectFox_lorebase_role_keys',
     'VectFox_lorebase_tester_card', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
 ];
 // The old vector search's controls, deleted with it.
@@ -31,11 +31,17 @@ describe('WorldInfo page markup', () => {
         document.body.innerHTML = `<div id="VectFox_settings">${worldInfoPageMarkup()}</div>`;
     });
 
-    it('offers Default Accuracy, High Accuracy and Fast and cheap, and hides Jev\'s profile row until it is chosen (D16)', () => {
+    it('opens the model card on Accuracy, offers Default Accuracy, High Accuracy and Fast and cheap, and hides Jev\'s group until it is chosen (D16)', () => {
+        const card = document.getElementById('VectFox_lorebase_model_card');
+        expect(card.querySelector('.vfx-card-body select, .vfx-card-body input')).toBe(document.getElementById('VectFox_lorebase_accuracy'));
         expect([...document.getElementById('VectFox_lorebase_accuracy').options].map(option => [option.value, option.textContent]))
             .toEqual([['default', 'Default Accuracy'], ['high', 'High Accuracy'], ['fast', 'Fast and cheap (Jev)']]);
-        expect(document.getElementById('VectFox_lorebase_jev_connection_profile_rows').style.display).toBe('none');
-        expect(document.getElementById('VectFox_lorebase_jev_test').style.display).toBe('none');
+        const titles = [...card.querySelectorAll('.vfx-group-title')].map(title => title.textContent.trim());
+        expect(titles).toEqual(['Keys and picks', 'Keys', 'Jev']);
+        expect(document.getElementById('VectFox_lorebase_role_picks').style.display).toBe('');
+        expect(document.getElementById('VectFox_lorebase_role_keys').style.display).toBe('none');
+        expect(document.getElementById('VectFox_lorebase_jev_group').style.display).toBe('none');
+        expect(document.getElementById('VectFox_lorebase_jev_group').contains(document.getElementById('VectFox_lorebase_jev_test_connection'))).toBe(true);
     });
 
     it('gives every wired control its own id, once', () => {

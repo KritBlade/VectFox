@@ -287,18 +287,23 @@ describe('a chat consumer\'s Provider dropdown', () => {
     });
 });
 
-describe("LoreBase's Jev profile (Fast and cheap, D16)", () => {
+describe("LoreBase's Accuracy rows and Jev's profile (Fast and cheap, D16)", () => {
+    const JEV_GROUP = 'VectFox_lorebase_jev_group';
     const JEV_ROWS = 'VectFox_lorebase_jev_connection_profile_rows';
     const JEV_SELECT = 'VectFox_lorebase_jev_connection_profile';
+    // Which of the own model's role titles show, and whether Jev's group and its profile rows do.
+    const shownRows = () => ({
+        picks: isShown(element('VectFox_lorebase_role_picks')),
+        keys: isShown(element('VectFox_lorebase_role_keys')),
+        jev: isShown(element(JEV_GROUP)) && isShown(element(JEV_ROWS)),
+    });
 
-    it('shows only on Fast and cheap, offers the OpenRouter and Custom profiles, and saves the choice', () => {
+    it('shows Jev only on Fast and cheap, where the own model only writes keys, offers the OpenRouter and Custom profiles, and saves the choice', () => {
         const settings = mount({ ...baseSettings(), lorebase_accuracy: 'default', lorebase_jev_connection_profile_id: '' });
-        expect(isShown(element(JEV_ROWS))).toBe(false);
-        expect(isShown(element('VectFox_lorebase_jev_test'))).toBe(false);
+        expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });
 
         choose('VectFox_lorebase_accuracy', 'fast');
-        expect(isShown(element(JEV_ROWS))).toBe(true);
-        expect(isShown(element('VectFox_lorebase_jev_test'))).toBe(true);
+        expect(shownRows()).toEqual({ picks: false, keys: true, jev: true });
         expect(optionsOf(JEV_SELECT).filter(option => !option.isDisabled).map(option => option.value)).toEqual(['p-harbor', 'p-lantern']);
 
         choose(JEV_SELECT, 'p-lantern');
@@ -306,7 +311,15 @@ describe("LoreBase's Jev profile (Fast and cheap, D16)", () => {
         expect(host.saveSettingsDebounced).toHaveBeenCalled();
 
         choose('VectFox_lorebase_accuracy', 'high');
-        expect(isShown(element(JEV_ROWS))).toBe(false);
+        expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });
+    });
+
+    it('opens on the saved Accuracy: Jev shown on a saved Fast and cheap, hidden on a saved High Accuracy', () => {
+        mount({ ...baseSettings(), lorebase_accuracy: 'fast', lorebase_jev_connection_profile_id: '' });
+        expect(shownRows()).toEqual({ picks: false, keys: true, jev: true });
+
+        mount({ ...baseSettings(), lorebase_accuracy: 'high', lorebase_jev_connection_profile_id: 'p-lantern' });
+        expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });
     });
 
     it('reads out what keeps the chosen profile from running, and runs Jev\'s own Test connection', async () => {

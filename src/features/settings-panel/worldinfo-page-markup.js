@@ -37,8 +37,10 @@ function loreBaseBooksCard() {
     </section>`;
 }
 
-// LoreBase's own model (plan §5.6), and its Accuracy: the review at low reasoning effort or at the model's default (D6),
-// or Fast and cheap, Jev on a profile of its own (D16), whose row shows only on that choice.
+// LoreBase's model card (plan §5.6). Accuracy comes first, since it decides what each model does: LoreBase's own model
+// writes each entry's keys on every choice (D17) and, on Default and High Accuracy, also picks and reviews (D6); on
+// Fast and cheap, Jev picks, on a profile of its own (D16). connection-rows.js shows the title of the own model's role
+// and Jev's group, which shows on Fast and cheap only.
 function loreBaseModelCard() {
     const accuracy = select({
         id: 'VectFox_lorebase_accuracy',
@@ -49,8 +51,16 @@ function loreBaseModelCard() {
         ],
     });
     return `<section id="VectFox_lorebase_model_card" class="vfx-card">
-        ${cardHeader({ icon: 'fa-plug', title: 'LoreBase model', description: 'The model that picks the selected entries a reply needs, and trims each one.' })}
+        ${cardHeader({ icon: 'fa-plug', title: 'LoreBase model', description: 'Writes each entry\'s keys, and picks and trims each reply\'s lore unless Jev does.' })}
         <div class="vfx-card-body vfx-grid">
+            ${field([
+                fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
+                accuracy,
+                hint({ text: 'Default Accuracy is quicker, High leaves out less, and Fast and cheap is quickest of all.' }),
+                detail({ text: 'Each picked entry of more than one part is reviewed at low reasoning effort on Default Accuracy, and at the model\'s own effort on High Accuracy. Fast and cheap asks Jev, a decisions model, instead: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole, so the reply reads more lore. LoreBase\'s own model still writes each entry\'s keys when it is turned on, since Jev\'s questions name them.' }),
+            ], { isSpan: true })}
+            <div id="VectFox_lorebase_role_picks" class="vfx-span">${groupTitle({ icon: 'fa-key', text: 'Keys and picks' })}${hint({ text: 'Writes each entry\'s keys when you turn it on, and picks each reply\'s lore.' })}</div>
+            <div id="VectFox_lorebase_role_keys" class="vfx-span" style="display:none;">${groupTitle({ icon: 'fa-key', text: 'Keys' })}${hint({ text: 'Writes each entry\'s keys once, when you turn it on. Replies use Jev.' })}</div>
             ${field([fieldLabel({ text: 'Provider', forId: 'VectFox_lorebase_provider' }), select({ id: 'VectFox_lorebase_provider', options: chatProviderOptions() })])}
             ${field([
                 fieldLabel({ text: 'Model', forId: 'VectFox_lorebase_model' }),
@@ -58,15 +68,12 @@ function loreBaseModelCard() {
                 hint({ text: 'LoreBase was tested on GPT-6 Luna.' }),
             ])}
             ${connectionProfileRows('VectFox_lorebase', { hintText: 'LoreBase was tested on GPT-6 Luna. The profile\'s model, URL and key are used.' })}
-            ${field([
-                fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
-                accuracy,
-                hint({ text: 'Default Accuracy is quicker, High leaves out less, and Fast and cheap is quickest of all.' }),
-                detail({ text: 'Each picked entry of more than one part is reviewed at low reasoning effort on Default Accuracy, and at the model\'s own effort on High Accuracy. Fast and cheap asks Jev, a decisions model, instead: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole, so the reply reads more lore. The model above still writes each entry\'s keys when it is turned on.' }),
-            ], { isSpan: true })}
             ${testConnectionButton('VectFox_lorebase', { hintText: 'Sends one short fixed message, never your chat, and shows the reply.' })}
-            ${connectionProfileRows('VectFox_lorebase_jev', { hintText: 'An OpenRouter or Custom profile whose model is Jev. Its key stays in SillyTavern.' })}
-            <div id="VectFox_lorebase_jev_test" class="vfx-span" style="display:none;">${testConnectionButton('VectFox_lorebase_jev', { hintText: 'Asks Jev one made-up question, never your chat.' })}</div>
+            <div id="VectFox_lorebase_jev_group" class="vfx-grid vfx-span" style="display:none;">
+                ${groupTitle({ icon: 'fa-bolt', text: 'Jev' })}
+                ${connectionProfileRows('VectFox_lorebase_jev', { hintText: 'An OpenRouter or Custom profile whose model is Jev. Its key stays in SillyTavern.' })}
+                ${testConnectionButton('VectFox_lorebase_jev', { hintText: 'Asks Jev one made-up question, never your chat.' })}
+            </div>
         </div>
     </section>`;
 }
