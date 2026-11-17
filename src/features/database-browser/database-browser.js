@@ -69,6 +69,8 @@ import { getRequestHeaders } from "../../sillytavern/requests.js";
 import { getCurrentChatId, getContext } from "../../sillytavern/chat.js";
 import { log } from "../../sillytavern/log.js";
 import { openChunkVisualizer } from "./chunk-visualizer.js";
+import { mergeSearchPieceResults } from "./search-results-core.js";
+import { searchPieces } from "../embedding/index.js";
 import { bindSizeInspector } from "./size-inspector.js";
 import { editCollectionSettings, renameCollection, switchCollectionModel } from "./collection-dialogs.js";
 import { formatBytes, utf8ByteLength } from "../../shared/byte-size.js";
@@ -1428,7 +1430,10 @@ async function performSearch() {
   $("#vectfox_search_btn").prop("disabled", true);
   $results.html(searchRunningMarkup());
   try {
-    const results = await queryMultipleCollections(collectionIds, query, topK, threshold, browserState.settings);
+    // A query over the embedding provider's piece size is searched in pieces, merged to one result per hash.
+    const pieceResults = await Promise.all(searchPieces(query, browserState.settings)
+      .map((piece) => queryMultipleCollections(collectionIds, piece, topK, threshold, browserState.settings)));
+    const results = mergeSearchPieceResults(pieceResults, topK);
     renderSearchResults(filterResultsByKeywords(results), results);
   } catch (error) {
     log.error("VectFox: Search failed", error);

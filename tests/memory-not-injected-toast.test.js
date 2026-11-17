@@ -39,7 +39,7 @@ vi.mock('../src/features/eventbase/eventbase-schema.js', () => ({
 }));
 vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({ extractEvents: vi.fn() }));
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: { execute: (run) => run() }, generationRateLimitSettings: () => ({}) }));
-vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn(), searchArchiveEvents: vi.fn(async () => []) }));
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn(async () => state.turn) }));
 vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({
     formatEventsForInjectionDetailed: vi.fn(() => ({ text: '- the duel at the mill', includedCount: 1 })),

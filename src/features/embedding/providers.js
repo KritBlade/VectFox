@@ -25,11 +25,17 @@ import { embeddingProfileKind, embeddingProfileProblem } from './embedding-profi
 /**
  * All supported embedding providers
  * This is the canonical list - update here and it applies everywhere
+ *
+ * searchPieceTokens: the most a search text may measure (search-pieces-core.js searchTokens) to be embedded whole; a
+ * longer one is searched in pieces of this size (InternalProject/Vectfox/plans/search-text-pieces.md §2). Each sits
+ * under the provider's limit with room for the measure's error.
  */
 export const EMBEDDING_PROVIDERS = {
     // Local providers (no API key needed)
     transformers: {
         name: 'Local (Transformers)',
+        // jina, SillyTavern's shipped default, crashes near 6,000 tokens; transformers.js does not cut it.
+        searchPieceTokens: 4000,
         local: true,
         requiresModel: false,
         requiresApiKey: false,
@@ -39,6 +45,8 @@ export const EMBEDDING_PROVIDERS = {
     // Local server providers (need URL)
     ollama: {
         name: 'Ollama',
+        // SillyTavern asks Ollama to cut at the model's context, 2,048 for nomic-embed-text by default.
+        searchPieceTokens: 2000,
         local: true,
         requiresModel: true,
         modelField: 'embedding_ollama_model',
@@ -47,6 +55,8 @@ export const EMBEDDING_PROVIDERS = {
     },
     vllm: {
         name: 'vLLM',
+        // The model's own length decides, 8,192 for bge-m3.
+        searchPieceTokens: 6000,
         local: true,
         requiresModel: true,
         modelField: 'embedding_vllm_model',
@@ -58,6 +68,8 @@ export const EMBEDDING_PROVIDERS = {
     // plan §3), so they have no fields of their own.
     llamacpp: {
         name: 'llama.cpp',
+        // A default server rejects more than its physical batch, 512 tokens.
+        searchPieceTokens: 500,
         local: true,
         requiresModel: false,
         requiresApiKey: false,
@@ -65,6 +77,8 @@ export const EMBEDDING_PROVIDERS = {
     },
     koboldcpp: {
         name: 'KoboldCPP',
+        // Its embedding limit is not documented; as low as llama.cpp, on which it is built.
+        searchPieceTokens: 500,
         local: true,
         requiresModel: false,
         requiresApiKey: false,
@@ -72,6 +86,8 @@ export const EMBEDDING_PROVIDERS = {
     },
     custom: {
         name: 'Custom (OpenAI-compatible)',
+        // The embedding model's length: 8,192 for bge-m3 and OpenAI's text-embedding-3.
+        searchPieceTokens: 6000,
         local: false,
         requiresModel: true,
         requiresApiKey: false,
@@ -84,6 +100,8 @@ export const EMBEDDING_PROVIDERS = {
     // togetherai: { name: 'TogetherAI', local: false, requiresModel: true, modelField: 'togetherai_model', requiresApiKey: true, secretKey: SECRET_KEYS.TOGETHERAI, requiresUrl: false },
     openrouter: {
         name: 'OpenRouter',
+        // Most of its embedding models take 8,192 tokens or more.
+        searchPieceTokens: 6000,
         local: false,
         requiresModel: true,
         modelField: 'embedding_openrouter_model',

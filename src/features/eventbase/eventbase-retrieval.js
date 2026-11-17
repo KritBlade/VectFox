@@ -15,6 +15,7 @@
  */
 
 import { getQueryVector, getBackendForCollection, getBackend } from '../vector-backend/index.js';
+import { searchPieces } from '../embedding/index.js';
 import { parseRegistryKey } from '../../shared/collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
 import { eventSearchSettings, eventSimilarityOf, keepRerankedEventsAtThreshold, searchEventCollection } from './eventbase-search.js';
@@ -292,6 +293,37 @@ export function dedupeEventsByIdentity(events) {
 }
 
 /**
+ * The events each archive event collection holds closest to the search text, searched beside the live collections.
+ * Archive events are stored with the same schema as live EventBase events, so they are searched the same way. A text
+ * over the embedding provider's piece size is searched in pieces, and each archive keeps an event once, at its best
+ * score, as the live search does. A failed archive search is logged and counts as no events.
+ *
+ * @param {Array<{registryKey: string, collectionId: string}>} archiveCollections
+ * @param {string} searchText
+ * @param {number} topK - Per archive and piece
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<object[]>} The events, each with its `_hash`, and its archive in `_sortFrame`, so the injector
+ *     groups by conversation before the chronological sort (source_window_end compares only within one conversation)
+ */
+export async function searchArchiveEvents(archiveCollections, searchText, topK, settings) {
+    const pieces = searchPieces(searchText, settings);
+    const perArchive = await Promise.all(archiveCollections.map(async ({ registryKey, collectionId }) => {
+        try {
+            // Canonical routing (Doc/collection_helper.md): the registry-key form
+            // searches each archive on the backend it was created with.
+            const pieceResults = await Promise.all(pieces.map(piece => searchEventCollection(registryKey, piece, topK, settings)));
+            return dedupeEventsByIdentity(pieceResults.flatMap(({ hashes, metadata }) => (hashes?.length
+                ? metadata.map((meta, i) => ({ ...meta, _hash: hashes[i], _sortFrame: collectionId }))
+                : [])));
+        } catch (err) {
+            log.error(`[EventBase] Archive event collection query failed (${collectionId}):`, err);
+            return [];
+        }
+    }));
+    return perArchive.flat();
+}
+
+/**
  * A candidate's similarity at or above this says it is a distinct event. Most Qdrant RRF
  * scores land in 0.2-0.6, so crossing it means the query and the event are tightly aligned.
  */
@@ -564,14 +596,17 @@ export async function retrieveEvents({ searchText, keywordQuery, chatLength, set
     //    Empty/undefined inputs are dropped (B5: dryRun callers may pass only
     //    one of the two; firing a query with empty text returns plugin 400).
     //    Identical strings are deduped so we never pay double cost.
+    //    A text over the embedding provider's piece size is searched in pieces (searchPieces): each piece is one more
+    //    query text, and the merge below keeps each event once, at its best score, as it does for the two texts.
     //    Skipped entirely when no live collection is available.
     let rawCandidates = [];
     // Live queries that failed, one per collection and query text, an embedding that still failed after its retry included.
     const failedSearches = [];
-    const queryTexts = [keywordQuery, searchText]
+    const searchedTexts = [keywordQuery, searchText]
         .filter(q => q && String(q).trim())
         .filter((q, i, arr) => arr.indexOf(q) === i);
-    const dualQuery = queryTexts.length > 1;
+    const dualQuery = searchedTexts.length > 1;
+    const queryTexts = [...new Set(searchedTexts.flatMap(text => searchPieces(String(text), ebSettings)))];
 
     // Per-(collection, queryText) live query. When useNativeRerank is on AND the
     // collection resolves to a Qdrant backend, dispatch to hybridQueryWithRerank

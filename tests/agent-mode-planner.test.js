@@ -20,6 +20,8 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
     getBackend: vi.fn(),
 }));
 vi.mock('../src/features/collections/index.js', () => ({ getCollectionMeta: () => ({}), setCollectionMeta: vi.fn() }));
+// A search text is one piece here; tests/search-pieces-core.test.js covers the cutting.
+vi.mock('../src/features/embedding/index.js', () => ({ searchPieces: text => (String(text ?? '').trim() ? [text] : []) }));
 
 const retrieveEventsMock = vi.fn();
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', async (importOriginal) => ({

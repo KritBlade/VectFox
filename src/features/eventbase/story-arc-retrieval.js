@@ -21,6 +21,7 @@ import { buildEntityNameWriter, entityNamesInMessage, entitySearchText, hasEntit
 import { readEntityMerges } from './story-arc-entities.js';
 import { inTimelineOrder, measureStoryLinkCoverage } from './story-arc-links-core.js';
 import { log } from '../../sillytavern/log.js';
+import { searchPieces } from '../embedding/index.js';
 
 /** Lists the whole collection: a limit below its size would return an arbitrary sample. */
 const LIST_WHOLE_COLLECTION = { limit: 50000 };
@@ -29,18 +30,27 @@ const LIST_WHOLE_COLLECTION = { limit: 50000 };
 const STORY_WEB_CLOSEST_COUNT = 10;
 
 /**
- * One collection's hybrid hits, closest first. A failed query counts as no hits,
- * so the other collections still count, and its error goes to `failedSearches`.
+ * One collection's hybrid hits, closest first. A search text over the embedding provider's
+ * piece size is searched in pieces (searchPieces): their hits are merged by place, each event
+ * kept once at its best place, and cut to poolSize, the size one search returns. A failed
+ * query counts as no hits, so the other searches still count, and its error goes to `failedSearches`.
  */
 async function _queryPool(collectionId, queryText, poolSize, settings, boundQuery, failedSearches) {
-    try {
-        const { hashes, metadata } = await boundQuery(searchEventCollection(collectionId, queryText, poolSize, settings));
-        return (hashes || []).map((hash, i) => ({ ...(metadata?.[i] || {}), _hash: Number(hash), _sortFrame: collectionId }));
-    } catch (err) {
-        log.warn(`[VectFox-StoryArc] Query failed (${collectionId}):`, err);
-        failedSearches.push(err);
-        return [];
-    }
+    const pieceHits = await Promise.all(searchPieces(queryText, settings).map(async piece => {
+        try {
+            const { hashes, metadata } = await boundQuery(searchEventCollection(collectionId, piece, poolSize, settings));
+            return (hashes || []).map((hash, i) => ({ ...(metadata?.[i] || {}), _hash: Number(hash), _sortFrame: collectionId }));
+        } catch (err) {
+            log.warn(`[VectFox-StoryArc] Query failed (${collectionId}):`, err);
+            failedSearches.push(err);
+            return [];
+        }
+    }));
+    if (pieceHits.length === 1) return pieceHits[0];
+    const seenHashes = new Set();
+    return _mergeHitsByPlace(pieceHits)
+        .filter(hit => !seenHashes.has(hit._hash) && seenHashes.add(hit._hash))
+        .slice(0, poolSize);
 }
 
 /** Every live collection's hybrid hits, closest first, one list per collection. */

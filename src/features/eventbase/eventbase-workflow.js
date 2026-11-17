@@ -23,7 +23,7 @@ import {
     setCollectionMeta,
 } from '../collections/index.js';
 import { getSavedHashes } from '../vector-backend/index.js';
-import { searchEventCollection } from './eventbase-search.js';
+import { searchArchiveEvents } from './eventbase-retrieval.js';
 import { EVENTBASE_PROMPT_TAG } from '../../shared/constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
 import { extractEvents } from './eventbase-extractor.js';
@@ -1233,27 +1233,8 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     }
 
     // --- Query archive event collections in parallel ---
-    // Archive events are stored with the same schema as live EventBase events, so they
-    // are searched the same way and tagged with _hash.
     const topK = (settings.eventbase_retrieval_top_k || 8) * 2;
-    const archiveEventPromises = archiveCollections.map(async ({ registryKey: archKey, collectionId: archColId }) => {
-        try {
-            // Canonical routing (Doc/collection_helper.md): the registry-key form
-            // searches each archive on the backend it was created with.
-            const { hashes, metadata } = await searchEventCollection(archKey, effectiveSearchText, topK, settings);
-            if (!hashes?.length) return [];
-            // _sortFrame tags each archive event with its source collection so the
-            // injector groups by conversation before the chronological sort
-            // (source_window_end is only comparable within one conversation).
-            return metadata.map((meta, i) => ({ ...meta, _hash: hashes[i], _sortFrame: archColId }));
-        } catch (err) {
-            log.error(`[EventBase] Archive event collection query failed (${archColId}):`, err);
-            return [];
-        }
-    });
-
-    const archiveResults = await Promise.all(archiveEventPromises);
-    const additionalCandidates = archiveResults.flat();
+    const additionalCandidates = await searchArchiveEvents(archiveCollections, effectiveSearchText, topK, settings);
 
     if (additionalCandidates.length > 0) {
         log.verbose(`[EventBase] Queried ${archiveCollections.length} archive event collection(s) → ${additionalCandidates.length} event(s)`);

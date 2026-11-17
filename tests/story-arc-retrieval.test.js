@@ -61,6 +61,11 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
 });
 
 const chatState = vi.hoisted(() => ({ chat: [] }));
+// How a search text is cut: whole unless a test sets its own split (tests/search-pieces-core.test.js covers the cutting).
+const pieceState = vi.hoisted(() => ({ split: null }));
+vi.mock('../src/features/embedding/index.js', () => ({
+    searchPieces: text => (pieceState.split ? pieceState.split(text) : (String(text ?? '').trim() ? [text] : [])),
+}));
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => ({ chat: chatState.chat }) }));
 vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => 'key', getCustomApiKey: () => 'key' }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: vi.fn(async () => true) }));
@@ -137,6 +142,7 @@ beforeEach(() => {
     listChunksMock.mockReset();
     listReturns([]);
     entityMerges = {};
+    pieceState.split = null;
 });
 
 describe('retrieveStoryRecipeEvents', () => {
@@ -370,6 +376,26 @@ describe('findStoryWebEvents', () => {
         expect(found.closestHashes).toEqual([20]);
         expect(found.reachedHashes.sort()).toEqual([10, 20]);
         expect(postChatCompletionMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('a StoryArc search text over the embedding provider\'s piece size', () => {
+    it('searches each piece, merges their hits by place, and keeps each event once, at its best place', async () => {
+        pieceState.split = text => text.split(' | ');
+        const hitsByPiece = {
+            'Where did Nora go': [event(20, 'Nora two'), event(10, 'Oracle one')],
+            'what did Tom find': [event(30, 'Tom three'), event(20, 'Nora two')],
+        };
+        queryCollectionMock.mockImplementation(async (_collectionId, queryText) => {
+            const hits = hitsByPiece[queryText] ?? [];
+            return { hashes: hits.map(item => item.source_window_start), metadata: hits };
+        });
+        const stored = [10, 20, 30].map(start => ({ ...event(start), _hash: start, story_links: [] }));
+
+        const found = await findStoryWebEvents({ question: 'Where did Nora go | what did Tom find', collectionKey: COLLECTION, storedEvents: stored, merges: {}, settings: baseParams.settings });
+
+        expect(queryCollectionMock.mock.calls.map(call => call[1])).toEqual(['Where did Nora go', 'what did Tom find']);
+        expect(found.closestHashes).toEqual([20, 30, 10]);
     });
 });
 

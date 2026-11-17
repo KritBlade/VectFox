@@ -28,6 +28,7 @@ vi.mock('../src/features/eventbase/index.js', async () => ({
     describeCompaction: (await import('../src/features/eventbase/eventbase-compaction-core.js')).describeCompaction,
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({}));
+vi.mock('../src/features/embedding/index.js', () => ({ searchPieces: text => (String(text ?? '').trim() ? [text] : []) }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: async () => true }));
 vi.mock('../src/sillytavern/popup.js', () => ({
     confirmPopup: vi.fn(async () => host.answer),

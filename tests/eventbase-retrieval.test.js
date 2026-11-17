@@ -15,6 +15,9 @@
  * vitest.config.js change. See [[project_vitest_host_stub]] for why the global
  * alias approach was abandoned (it collided with other tests' vi.mock calls).
  *
+ * It also guards a search text over the embedding provider's piece size: it is searched in pieces, each embedded
+ * once, and every event comes out once, at its best score, as from the two texts searched today.
+ *
  * It also guards the similarity threshold: re-ranked events read their similarity
  * from a plain search, and Standard's query gets EventBase's threshold, never ChunkBase's.
  *
@@ -84,7 +87,8 @@ vi.mock('../../../../openai.js', () => ({}));
 vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 
-import { retrieveEvents } from '../src/features/eventbase/eventbase-retrieval.js';
+import { retrieveEvents, searchArchiveEvents } from '../src/features/eventbase/eventbase-retrieval.js';
+import { searchTokens } from '../src/features/embedding/search-pieces-core.js';
 import { getBackend } from '../src/features/vector-backend/backend-registry.js';
 
 const baseSettings = {
@@ -417,5 +421,58 @@ describe('retrieveEvents: the similarity threshold', () => {
         queryCollectionMock.mockResolvedValue({ hashes: [], metadata: [] });
         await retrieve({ ...baseSettings, score_threshold: 0.25 }, ['standard:vf_eventbase_x']);
         expect(queryCollectionMock.mock.calls.map(call => call[3].score_threshold)).toEqual([0, 0]);
+    });
+});
+
+describe('a search text over the embedding provider\'s piece size', () => {
+    // About 1,200 tokens over llama.cpp's piece size of 500: three pieces or more.
+    const longText = Array.from({ length: 12 }, (_, i) => `Paragraph ${i}: ${'Wren carried the lamp up the tower stairs and watched the harbor. '.repeat(6)}`).join('\n');
+    const settings = { ...baseSettings, embedding_provider: 'llamacpp' };
+    // Every search finds evt_1 and evt_2; the piece holding paragraph 11 finds evt_1 closest.
+    const answerEverySearch = () => queryCollectionMock.mockImplementation(async (_collectionId, queryText) => {
+        const metadata = [makeEvent(1, { score: queryText.includes('Paragraph 11') ? 0.95 : 0.6 }), makeEvent(2, { score: 0.5 })];
+        return { hashes: metadata.map(m => m.event_id), metadata };
+    });
+
+    it('searches it in pieces, each embedded once for every collection, and keeps each event once at its best score', async () => {
+        answerEverySearch();
+
+        const { events, debug } = await retrieveEvents({
+            searchText: longText,
+            keywordQuery: 'lamp',
+            chatLength: 100,
+            settings,
+            liveCollectionIds: ['standard:vf_eventbase_a', 'standard:vf_eventbase_b'],
+            additionalCandidates: [],
+            skipLiveQuery: false,
+        });
+
+        const searchedTexts = [...new Set(queryCollectionMock.mock.calls.map(([, queryText]) => queryText))];
+        expect(searchedTexts.length).toBeGreaterThanOrEqual(4);   // the keyword and three pieces or more
+        for (const text of searchedTexts) expect(searchTokens(text)).toBeLessThanOrEqual(500);
+        expect(getQueryVectorMock).toHaveBeenCalledTimes(searchedTexts.length);
+        expect(queryCollectionMock).toHaveBeenCalledTimes(searchedTexts.length * 2);
+        expect(events.filter(e => e.event_id === 'evt_1')).toHaveLength(1);
+        expect(events.find(e => e.event_id === 'evt_1').score).toBe(0.95);
+        expect(debug.dualQuery).toBe(true);
+    });
+
+    it('searches each archive in pieces, keeping each event once at its best score', async () => {
+        answerEverySearch();
+
+        const events = await searchArchiveEvents([{ registryKey: 'standard:vf_archiveevent_a', collectionId: 'vf_archiveevent_a' }], longText, 16, settings);
+
+        expect(queryCollectionMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+        expect(events.map(e => e.event_id)).toEqual(['evt_1', 'evt_2']);
+        expect(events[0]).toMatchObject({ score: 0.95, _hash: 'evt_1', _sortFrame: 'vf_archiveevent_a' });
+    });
+
+    it('searches an archive once with a text within the size', async () => {
+        answerEverySearch();
+
+        await searchArchiveEvents([{ registryKey: 'standard:vf_archiveevent_a', collectionId: 'vf_archiveevent_a' }], 'the lamp in the tower', 16, settings);
+
+        expect(queryCollectionMock).toHaveBeenCalledTimes(1);
+        expect(queryCollectionMock.mock.calls[0][1]).toBe('the lamp in the tower');
     });
 });

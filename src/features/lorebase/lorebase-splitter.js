@@ -5,11 +5,11 @@
  * around the whole entry is its frame, kept apart so what is sent can keep the tags balanced.
  *
  * A port of the benchmark's splitter (InternalProject/Vectfox/tools/lorebase-benchmark/lore_passages.py), which the
- * live tests measured; it cuts the same passages. Pure: no SillyTavern, no network.
+ * live tests measured; it cuts the same passages. Its line-and-sentence cutter and packer are shared with the
+ * embedding feature's search pieces (shared/text-windows.js). Pure: no SillyTavern, no network.
  */
+import { CJK_CHARACTER, LATIN_WORD, lineAndSentenceParts, packWindows } from '../../shared/text-windows.js';
 
-const CJK_CHARACTER = /[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]/gu;
-const LATIN_WORD = /[A-Za-z0-9]+/g;
 
 // Section heading kinds, strongest first. Date A Live's '---' / '[NAME]' / '---' triple is matched apart. An entry's
 // strongest kind present makes its sections; weaker kinds only open units inside them, so an all-capitals 'PHASE 3'
@@ -30,7 +30,6 @@ const TRIPLE_RULE = /^-{3,}$/;
 const TRIPLE_NAME = /^\[[^\]\n]{1,60}\]$/u;
 const WRAPPER_OPEN = /^<([^\s<>/]{1,40})>$/u;
 const WRAPPER_CLOSE = /^<\/([^\s<>/]{1,40})>$/u;
-const SENTENCE_END = /(?<=[.!?。！？…])\s+|(?<=[。！？])/u;
 const CATEGORY_PREFIX = /^\s*(\[[^\]]*\]|【[^】]*】|[^:：\s[]{1,12}[:：])\s*/u;
 
 // The section name of an entry's text before its first heading.
@@ -171,38 +170,6 @@ function units(sectionLines, headingLineCount, extraStarts) {
     return grouped;
 }
 
-/** Lines, and the sentences of a line longer than LONG_LINE_TOKENS, as the smallest pieces a window may hold. */
-function atoms(text) {
-    const pieces = [];
-    for (const line of text.split('\n')) {
-        if (estimatedTokens(line) <= LONG_LINE_TOKENS) {
-            pieces.push(line);
-            continue;
-        }
-        pieces.push(...line.split(SENTENCE_END).filter(part => part));
-    }
-    return pieces;
-}
-
-/** Greedy packing of pieces into windows of about windowTokens, never splitting a piece. */
-function pack(pieces, windowTokens, joiner) {
-    const windows = [];
-    let current = [];
-    let currentTokens = 0;
-    for (const piece of pieces) {
-        const pieceTokens = estimatedTokens(piece);
-        if (current.length && currentTokens + pieceTokens > windowTokens) {
-            windows.push(current.join(joiner));
-            current = [];
-            currentTokens = 0;
-        }
-        current.push(piece);
-        currentTokens += pieceTokens;
-    }
-    if (current.length) windows.push(current.join(joiner));
-    return windows.filter(window => window.trim());
-}
-
 /**
  * Cuts an entry's content into passages.
  * @param {string} content - The entry's content
@@ -226,7 +193,8 @@ export function splitEntry(content, windowTokens = DEFAULT_WINDOW_TOKENS) {
             if (estimatedTokens(unitText) <= windowTokens) {
                 passages.push({ section: name, text: unitText });
             } else {
-                for (const window of pack(atoms(unitText), windowTokens, '\n')) passages.push({ section: name, text: window });
+                const parts = lineAndSentenceParts(unitText, LONG_LINE_TOKENS, estimatedTokens);
+                for (const window of packWindows(parts, windowTokens, '\n', estimatedTokens)) passages.push({ section: name, text: window });
             }
         }
     }

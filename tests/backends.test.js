@@ -82,6 +82,8 @@ vi.mock('../src/features/embedding/providers.js', () => ({
         return modelFields[source] || null;
     }),
     getModelFromSettings: vi.fn(() => 'test-model'),
+    // No piece size: a search text is embedded whole, with no warning.
+    getProviderConfig: vi.fn(() => null),
     // A manual provider's requests name no profile fields.
     embeddingProfileRequestFields: vi.fn(async () => ({})),
 }));

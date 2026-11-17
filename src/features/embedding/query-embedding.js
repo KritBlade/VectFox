@@ -7,6 +7,9 @@
  * same text server-side. Both backends call this from embedQuery(); each passes
  * its own provider params (apiUrl for URL-based sources, and a profile's key ID),
  * which the two backends build differently.
+ *
+ * A text over the provider's piece size is still embedded, with a console warning naming its size: every search that
+ * embeds a person's or a chat's text cuts it with searchPieces first, so the warning names one that did not.
  */
 
 import { getRequestHeaders } from '../../sillytavern/requests.js';
@@ -15,6 +18,8 @@ import { throwIfEmbeddingConfigError } from './embedding-request-failure.js';
 import { warnIfEmbeddingSlow } from './embedding-latency-warning.js';
 import { log } from '../../sillytavern/log.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
+import { searchTokens } from './search-pieces-core.js';
+import { searchPieceTokensOf } from './search-pieces.js';
 
 /**
  * @param {string} searchText - Query text to embed
@@ -25,6 +30,11 @@ import { readErrorBody } from '../../shared/server-error-text.js';
 export async function fetchQueryEmbedding(searchText, settings, providerParams) {
     const source = settings.embedding_provider || 'transformers';
     const model = getModelFromSettings(settings);
+    const pieceTokens = searchPieceTokensOf(settings);
+    const textTokens = searchTokens(String(searchText ?? ''));
+    if (textTokens > pieceTokens) {
+        log.warn(`VectFox: a search text of about ${Math.round(textTokens)} tokens reached '${source}' whole, over its piece size of ${pieceTokens}; the search that sent it does not cut it with searchPieces`);
+    }
     const tStart = performance.now();
     const response = await fetch('/api/plugins/similharity/get-embedding', {
         method: 'POST',
