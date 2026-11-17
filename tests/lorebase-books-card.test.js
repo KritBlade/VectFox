@@ -82,25 +82,25 @@ const freeControls = () => [...document.querySelectorAll('#VectFox_lorebase_book
 const isNoticeShown = () => !document.getElementById('VectFox_lorebase_off_notice').hidden;
 
 describe("LoreBase's switch", () => {
-    it('shows off as saved, with the notice saying to choose entries and set the model first, and only Generate all keys waiting', () => {
+    it('shows off as saved, with the notice saying to choose entries and set the model first, and only Generate all keys waiting', async () => {
         host.isOn = false;
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         expect([toggle().checked, generate().disabled, isNoticeShown()]).toEqual([false, true, true]);
         expect(document.getElementById('VectFox_lorebase_off_notice').textContent).toContain('Choose entries and set LoreBase');
         expect(freeControls().length).toBeGreaterThan(4);
         expect(freeControls().filter(control => control.disabled)).toEqual([]);
     });
 
-    it('opens the selection screen while it is off, so entries are chosen before LoreBase turns on', () => {
+    it('opens the selection screen while it is off, so entries are chosen before LoreBase turns on', async () => {
         host.isOn = false;
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         opener('Harbor Atlas').click();
         expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Harbor Atlas' });
     });
 
     it('enables Generate all keys and hides the notice once turned on', async () => {
         host.isOn = false;
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         flipSwitch(true);
         await vi.waitFor(() => expect(generate().disabled).toBe(false));
         expect(turnLoreBaseOn).toHaveBeenCalledTimes(1);
@@ -109,7 +109,7 @@ describe("LoreBase's switch", () => {
 
     it('says to choose entries next when turned on with nothing selected in any lorebook, and nothing with a selection', async () => {
         host.isOn = false;
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         flipSwitch(true);
         await vi.waitFor(() => expect(turnLoreBaseOn).toHaveBeenCalledTimes(1));
         expect(status().hidden).toBe(true);
@@ -129,7 +129,7 @@ describe("LoreBase's switch", () => {
             flipSwitch(true);
             await vi.waitFor(() => expect(status().textContent).toBe(nothingSelected));
         };
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         await switchOnWithNothing();
         opener('Harbor Atlas').click();
         host.selectedBooks = ['Harbor Atlas'];
@@ -145,23 +145,23 @@ describe("LoreBase's switch", () => {
         host.isOn = false;
         host.willTurnOn = false;
         host.selectedBooks = [];
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         flipSwitch(true);
         await vi.waitFor(() => expect(turnLoreBaseOn).toHaveBeenCalledTimes(1));
         await vi.waitFor(() => expect(toggle().checked).toBe(false));
         expect([generate().disabled, status().hidden]).toEqual([true, true]);
     });
 
-    it('turns off from the switch, Generate all keys waiting again', () => {
-        refreshLoreBaseBooks();
+    it('turns off from the switch, Generate all keys waiting again', async () => {
+        await refreshLoreBaseBooks();
         expect(generate().disabled).toBe(false);
         flipSwitch(false);
         expect(turnLoreBaseOff).toHaveBeenCalledTimes(1);
         expect([toggle().checked, generate().disabled, isNoticeShown()]).toEqual([false, true, true]);
     });
 
-    it("shows a change a reply's question made while the page is open", () => {
-        refreshLoreBaseBooks();
+    it("shows a change a reply's question made while the page is open", async () => {
+        await refreshLoreBaseBooks();
         host.isOn = false;
         host.switchListener(false);
         expect([toggle().checked, generate().disabled]).toEqual([false, true]);
@@ -170,7 +170,7 @@ describe("LoreBase's switch", () => {
     it('keeps Generate all keys disabled while it runs, whatever the switch shows meanwhile', async () => {
         let finish;
         writeKeysOfSelections.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         generate().click();
         await vi.waitFor(() => expect(writeKeysOfSelections).toHaveBeenCalledTimes(1));
         host.switchListener(true);
@@ -181,17 +181,17 @@ describe("LoreBase's switch", () => {
 });
 
 describe('the LoreBase books card', () => {
-    it("draws the open chat's books, and draws them again for the next chat", () => {
-        refreshLoreBaseBooks();
+    it("draws the open chat's books, and draws them again for the next chat", async () => {
+        await refreshLoreBaseBooks();
         expect(rowsShown()).toEqual(['Harbor Atlas: 2 selected', 'Keeper Notes: Nothing selected']);
         host.status = { hasChat: false, books: [] };
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         expect(rowsShown()).toEqual([]);
         expect(document.getElementById('VectFox_lorebase_books').textContent.trim()).toBe('Open a chat to see the lorebooks it loads.');
     });
 
     it('opens the selection screen on the book a row names, and draws the list again once the screen closes', async () => {
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         opener('Keeper Notes').click();
         expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Keeper Notes' });
         host.status = { hasChat: true, books: [HARBOR, { ...KEEPER, selectedCount: 3, isLockedToCharacter: true }] };
@@ -202,7 +202,7 @@ describe('the LoreBase books card', () => {
         expect(chatBookLocks).toHaveBeenCalledTimes(2);
     });
 
-    it("says where the selection's keys stand once the screen closes: all written, or how many have none, which turned LoreBase off", async () => {
+    it("says where the selection's keys stand once the screen closes, LoreBase on or off, and drops the line with nothing selected", async () => {
         const status = () => document.getElementById('VectFox_lorebase_keys_status');
         const closeWith = async chosen => {
             opener('Harbor Atlas').click();
@@ -210,16 +210,45 @@ describe('the LoreBase books card', () => {
             await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalled());
             await Promise.resolve();
         };
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         await closeWith({ missingCount: 0, decidedCount: 313, isWriting: false });
         await vi.waitFor(() => expect(status().textContent).toBe('All 313 selected entries have keys.'));
         await closeWith({ missingCount: 12, decidedCount: 313, isWriting: false });
-        await vi.waitFor(() => expect(status().textContent).toBe(
-            '12 selected entries have no keys, so Use LoreBase is off. Turn it on to write them.'));
-        // A run the screen's question started writes its own lines, and LoreBase off says nothing.
+        await vi.waitFor(() => expect(status().textContent).toBe('12 selected entries have no keys. Turn on Use LoreBase to write them.'));
+        // A run the screen's question started writes its own lines.
         await closeWith({ missingCount: 12, decidedCount: 313, isWriting: true });
+        expect(status().textContent).toBe('12 selected entries have no keys. Turn on Use LoreBase to write them.');
+        // Every entry unselected while LoreBase is off: the line goes.
+        host.isOn = false;
+        await closeWith({ missingCount: 0, decidedCount: 0, isWriting: false });
+        await vi.waitFor(() => expect(status().hidden).toBe(true));
+        // Unselected while it is on: the call to choose entries.
+        host.isOn = true;
+        host.selectedBooks = [];
+        await closeWith({ missingCount: 0, decidedCount: 0, isWriting: false });
+        await vi.waitFor(() => expect(status().textContent).toBe(
+            'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.'));
+        // Keys that could not be read: the line goes, the screen's notice having said why.
         await closeWith(null);
-        expect(status().textContent).toBe('12 selected entries have no keys, so Use LoreBase is off. Turn it on to write them.');
+        await vi.waitFor(() => expect(status().hidden).toBe(true));
+    });
+
+    it('draws only the newest refresh, so a slow load never draws a chat left since', async () => {
+        let finishFirst;
+        chatBookLocks.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }));
+        const first = refreshLoreBaseBooks();
+        host.status = { hasChat: true, books: [KEEPER] };
+        await refreshLoreBaseBooks();
+        finishFirst({ hasChat: true, books: [HARBOR, KEEPER] });
+        await first;
+        expect(rowsShown()).toEqual(['Keeper Notes: Nothing selected']);
+    });
+
+    it('logs a list that could not be drawn, and keeps the page', async () => {
+        const failure = new Error('no lorebooks');
+        chatBookLocks.mockRejectedValueOnce(failure);
+        await refreshLoreBaseBooks();
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('book list could not be drawn'), failure);
     });
 
     it("opens the screen on the chat's first book from the card's own button", () => {
@@ -228,7 +257,7 @@ describe('the LoreBase books card', () => {
     });
 
     it('logs a screen that failed, and still draws the list again', async () => {
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         opener('Harbor Atlas').click();
         const failure = new Error('no dialog');
         host.screen.reject(failure);
@@ -297,7 +326,7 @@ describe('every key at once', () => {
 
     it('Delete all keys while LoreBase is off leaves it off, and says the same', async () => {
         host.isOn = false;
-        refreshLoreBaseBooks();
+        await refreshLoreBaseBooks();
         remove().click();
         await vi.waitFor(() => expect(status().textContent).toBe(deletedText));
         expect(turnLoreBaseOff).not.toHaveBeenCalled();

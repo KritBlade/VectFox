@@ -335,6 +335,7 @@ describe('closing the screen (D17)', () => {
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: true });
         const [lines, buttons] = host.confirmPopup.mock.calls[0];
         expect(lines[1]).toEqual({ text: 'Selected entries with no keys:', name: '2' });
+        expect(lines.at(-1).text).toBe('Write them now? A progress panel shows the writing. Without them, LoreBase turns off.');
         expect(buttons).toEqual({ okButton: 'Write keys', cancelButton: 'Turn LoreBase off' });
         expect(host.writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo);
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
@@ -348,14 +349,35 @@ describe('closing the screen (D17)', () => {
         expect(host.settings.vectfox.lorebase_enabled).toBe(false);
     });
 
-    it('asks nothing when every selected entry has keys, and nothing at all while LoreBase is off', async () => {
+    it('asks nothing when every selected entry has keys, and keeps LoreBase on', async () => {
         host.pending = { books: [], count: 0, decidedCount: 5, unreadBooks: 0 };
         expect(await closeAndAnswer()).toEqual({ missingCount: 0, decidedCount: 5, isWriting: false });
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
-        host.settings.vectfox.lorebase_enabled = false;
-        expect(await closeAndAnswer()).toBeNull();
         expect(host.confirmPopup).not.toHaveBeenCalled();
-        expect(host.selectedEntriesWithoutKeys).toHaveBeenCalledTimes(1);
+    });
+
+    it('while LoreBase is off, counts the missing keys for the books card and asks nothing', async () => {
+        host.settings.vectfox.lorebase_enabled = false;
+        host.pending = missingTwo;
+        expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
+        expect(host.confirmPopup).not.toHaveBeenCalled();
+        expect(host.noticePopup).not.toHaveBeenCalled();
+        expect(host.writeKeysOfSelections).not.toHaveBeenCalled();
+    });
+
+    it('turns LoreBase off, saying why, when the keys cannot be read; while it is off, says nothing', async () => {
+        const failure = new Error("Similharity could not read LoreBase's keys (HTTP 500): Qdrant is down");
+        host.selectedEntriesWithoutKeys.mockRejectedValueOnce(failure);
+        expect(await closeAndAnswer()).toBeNull();
+        expect(host.noticePopup.mock.calls[0][0]).toEqual([
+            { icon: 'fa-key', text: 'LoreBase could not read the keys of its selected entries, so it turns off.' },
+            { name: failure.message },
+        ]);
+        expect(host.settings.vectfox.lorebase_enabled).toBe(false);
+
+        host.selectedEntriesWithoutKeys.mockRejectedValueOnce(failure);
+        expect(await closeAndAnswer()).toBeNull();
+        expect(host.noticePopup).toHaveBeenCalledTimes(1);
     });
 
     it("says why when LoreBase's model cannot write the missing keys yet, asks nothing, and turns LoreBase off", async () => {
@@ -363,6 +385,7 @@ describe('closing the screen (D17)', () => {
         host.keyProblem = 'Choose a model for LoreBase first.';
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
         expect(host.confirmPopup).not.toHaveBeenCalled();
+        expect(host.noticePopup.mock.calls[0][0]).toContainEqual({ text: "LoreBase's model cannot write them yet, so LoreBase turns off." });
         expect(host.noticePopup.mock.calls[0][0].at(-1)).toEqual({ name: 'Choose a model for LoreBase first.' });
         expect(host.settings.vectfox.lorebase_enabled).toBe(false);
     });

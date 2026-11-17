@@ -11,8 +11,7 @@
 import { log } from '../../sillytavern/log.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { extension_settings } from '../../sillytavern/settings.js';
-import { loadWorldInfo } from '../../sillytavern/world-info.js';
-import { getLoreBook, selectedLoreBookNames } from './lorebase-books.js';
+import { loadDecidedEntries, selectedLoreBookNames } from './lorebase-books.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
@@ -20,7 +19,6 @@ import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmCon
 import {
     KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCallsAtOnceOf, keyCount, keysMessages, readKeys,
 } from './lorebase-keys-core.js';
-import { decidedEntries } from './lorebase-reply-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 
 const KEYS_ROUTE = '/api/plugins/similharity/lorebase/keys';
@@ -291,7 +289,7 @@ export async function selectedEntriesWithoutKeys() {
     let unreadBooks = 0;
     for (const bookName of selectedLoreBookNames()) {
         try {
-            const entries = decidedEntries(await loadWorldInfo(bookName), getLoreBook(bookName));
+            const entries = await loadDecidedEntries(bookName);
             if (entries.length) loaded.push({ bookName, entries });
         } catch (error) {
             log.warn(`LoreBase: lorebook "${bookName}" could not be read, so its selected entries' keys were not counted:`, error);

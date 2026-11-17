@@ -3,10 +3,14 @@
  * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), the chats and characters
  * the book is locked to (D11), each character by its avatar file name, and the entries it held when the selection
  * screen last opened it, so a later one shows as new. One record per book, keyed by the book's exact name, in
- * VectFox's settings: never a key per entry (§3.3), and never in the lorebook file.
+ * VectFox's settings: never a key per entry (§3.3), and never in the lorebook file. A book's selected entries LoreBase
+ * decides are read here too, against the book as SillyTavern loads it: the one count every LoreBase screen and the
+ * reply share.
  */
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
+import { loadWorldInfo } from '../../sillytavern/world-info.js';
+import { decidedEntries } from './lorebase-reply-core.js';
 
 const BOOKS_KEY = 'lorebase_books';
 
@@ -30,6 +34,18 @@ function emptyRecord() {
  */
 export function getLoreBook(bookName) {
     return extension_settings.vectfox[BOOKS_KEY]?.[bookName] ?? null;
+}
+
+/**
+ * The selected entries LoreBase decides in a book, as SillyTavern loads it now (decidedEntries): what the WorldInfo
+ * page's book rows count, the keys count reads and the reply sends from. None when SillyTavern has no such book.
+ * @param {string} bookName
+ * @param {object|null} [record] - The book's record, the saved one by default
+ * @returns {Promise<object[]>}
+ * @throws {Error} When SillyTavern cannot load the book
+ */
+export async function loadDecidedEntries(bookName, record = getLoreBook(bookName)) {
+    return decidedEntries(await loadWorldInfo(bookName), record);
 }
 
 /**

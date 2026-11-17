@@ -6,7 +6,7 @@
  * Generate all keys waits, since turning LoreBase on asks to write them. The books card: it draws the open chat's books
  * with their selected counts and locks, and opens LoreBase's selection screen on the book a row names, or on the chat's
  * first book from the card's own button, drawing the list again once the screen closes and saying where the
- * selection's keys stand. Generate all keys writes the keys of every selected entry, in every book, that has none;
+ * selection's keys stand, LoreBase on or off. Generate all keys writes the keys of every selected entry, in every book, that has none;
  * Delete all keys, once confirmed, deletes every key the user has and turns LoreBase off (D17). The card's status line
  * says how each went, and shows every key run on the progress panel, whichever started it: the entries being keyed,
  * then what was written.
@@ -25,6 +25,8 @@ const DELETE_KEYS_ID = 'VectFox_lorebase_delete_keys';
 const KEYS_STATUS_ID = 'VectFox_lorebase_keys_status';
 const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.';
 let isGeneratingKeys = false;
+// Counts the card's refreshes, so a refresh whose books loaded after a newer one began draws nothing.
+let refreshCount = 0;
 
 /**
  * Show LoreBase's switch as saved; while it is off, show the notice and disable Generate all keys. The status line's
@@ -42,11 +44,23 @@ function paintLoreBaseSwitch() {
     if (isNothingSelectedShown && (!isOn || selectedLoreBookNames().length)) showKeysStatus('');
 }
 
-/** Draw the open chat's LoreBase books, once the panel is mounted, under the switch as saved. */
-export function refreshLoreBaseBooks() {
-    const list = document.getElementById('VectFox_lorebase_books');
-    if (list) list.innerHTML = loreBaseBooksMarkup(chatBookLocks());
+/**
+ * Draw the open chat's LoreBase books, once the panel is mounted, under the switch as saved: each row counts the
+ * selected entries LoreBase decides, as the keys line does, once the books are loaded. Only the newest refresh draws,
+ * so a slow load never draws a chat left since.
+ * @returns {Promise<void>}
+ */
+export async function refreshLoreBaseBooks() {
+    const refresh = ++refreshCount;
     paintLoreBaseSwitch();
+    try {
+        const status = await chatBookLocks();
+        if (refresh !== refreshCount) return;
+        const list = document.getElementById('VectFox_lorebase_books');
+        if (list) list.innerHTML = loreBaseBooksMarkup(status);
+    } catch (error) {
+        log.warn("LoreBase: the WorldInfo page's book list could not be drawn:", error);
+    }
 }
 
 function showKeysStatus(text) {
@@ -157,21 +171,24 @@ export function bindLoreBaseBooksCard(settings) {
         } catch (error) {
             log.error('LoreBase: the selection screen failed:', error);
         }
-        refreshLoreBaseBooks();
+        void refreshLoreBaseBooks();
         showChosenKeys(chosen);
     });
 }
 
 /**
- * Where the selection's keys stand once the selection screen closed while LoreBase was on: all written, or how many have
- * none, which turned LoreBase off. A run started on the screen's question writes its own lines (showKeyRun).
+ * Where the selection's keys stand once the selection screen closed, LoreBase on or off: all written, or how many have
+ * none, which leaves LoreBase off; with nothing selected, the line goes, or calls to choose entries while LoreBase is
+ * on; with the keys unread, the line goes. A run started on the screen's question writes its own lines (showKeyRun).
  * @param {{missingCount: number, decidedCount: number, isWriting: boolean}|null} chosen - From openLoreBaseSelection
  */
 function showChosenKeys(chosen) {
-    if (!chosen || chosen.isWriting || !chosen.decidedCount) return;
-    if (chosen.missingCount) {
-        showKeysStatus(`${counted(chosen.missingCount, 'selected entry has', 'selected entries have')} no keys, so Use LoreBase `
-            + 'is off. Turn it on to write them.');
+    if (chosen?.isWriting) return;
+    if (!chosen?.decidedCount) {
+        showKeysStatus(chosen && isLoreBaseSwitchedOn() && !selectedLoreBookNames().length ? NOTHING_SELECTED_TEXT : '');
+    } else if (chosen.missingCount) {
+        showKeysStatus(`${counted(chosen.missingCount, 'selected entry has', 'selected entries have')} no keys. Turn on Use `
+            + 'LoreBase to write them.');
     } else {
         showKeysStatus(chosen.decidedCount === 1 ? 'The selected entry has its keys.' : `All ${counted(chosen.decidedCount, 'selected entry', 'selected entries')} have keys.`);
     }

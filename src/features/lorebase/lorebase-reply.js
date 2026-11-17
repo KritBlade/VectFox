@@ -14,16 +14,15 @@
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
-import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
-import { getLoreBook, isLoreBookLocked, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
+import { getLoreBook, isLoreBookLocked, loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import { askJev, resolveJevConnection } from './lorebase-jev.js';
 import { loreForReplyByJev } from './lorebase-jev-core.js';
 import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
 import { readBookKeys } from './lorebase-keys.js';
-import { FAST_AND_CHEAP, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
+import { FAST_AND_CHEAP, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
@@ -92,7 +91,7 @@ async function booksTakingPart() {
     for (const bookName of chatBookNames()) {
         const record = getLoreBook(bookName);
         if (!record?.selectedUids.length || !isLoreBookLocked(bookName, where)) continue;
-        const entries = decidedEntries(await loadWorldInfo(bookName), record);
+        const entries = await loadDecidedEntries(bookName, record);
         if (entries.length) books.push({ bookName, entries, pinnedSections: record.pinnedSections });
     }
     if (!books.length) return books;

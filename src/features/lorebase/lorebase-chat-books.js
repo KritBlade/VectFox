@@ -5,8 +5,9 @@
  */
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getCharaFilename } from '../../sillytavern/identifiers.js';
+import { log } from '../../sillytavern/log.js';
 import { METADATA_KEY, getWorldInfoSettings, selected_world_info, world_names } from '../../sillytavern/world-info.js';
-import { getLoreBook, isLoreBookLocked } from './lorebase-books.js';
+import { getLoreBook, isLoreBookLocked, loadDecidedEntries } from './lorebase-books.js';
 import { activeBookNames } from './lorebase-reply-core.js';
 
 /**
@@ -44,19 +45,39 @@ export function lockTarget() {
 }
 
 /**
- * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, how many entries
- * are selected in it, and whether it is locked to this chat or to its character, where LoreBase decides them (D11).
- * @returns {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean}>}}
+ * How many selected entries LoreBase decides in a book (loadDecidedEntries), as the keys count reads them; a book that
+ * cannot be loaded counts its saved selection, and the console says why.
+ * @param {string} bookName
+ * @returns {Promise<number>}
  */
-export function chatBookLocks() {
+async function decidedCountOf(bookName) {
+    const record = getLoreBook(bookName);
+    if (!record?.selectedUids.length) return 0;
+    try {
+        return (await loadDecidedEntries(bookName, record)).length;
+    } catch (error) {
+        log.warn(`LoreBase: lorebook "${bookName}" could not be loaded, so its row counts its saved selection:`, error);
+        return record.selectedUids.length;
+    }
+}
+
+/**
+ * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, how many of its
+ * selected entries LoreBase decides, and whether it is locked to this chat or to its character, where LoreBase decides
+ * them (D11).
+ * @returns {Promise<{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
+ *   isLockedToCharacter: boolean}>}>}
+ */
+export async function chatBookLocks() {
     const { chatId, characterAvatar } = lockTarget();
     const known = new Set(world_names);
+    const bookNames = chatBookNames().filter(bookName => known.has(bookName));
+    const counts = await Promise.all(bookNames.map(decidedCountOf));
     return {
         hasChat: Boolean(chatId),
-        books: chatBookNames().filter(bookName => known.has(bookName)).map(bookName => ({
+        books: bookNames.map((bookName, index) => ({
             bookName,
-            selectedCount: getLoreBook(bookName)?.selectedUids.length ?? 0,
+            selectedCount: counts[index],
             isLockedToChat: Boolean(chatId) && isLoreBookLocked(bookName, { chatId }),
             isLockedToCharacter: Boolean(characterAvatar) && isLoreBookLocked(bookName, { characterAvatar }),
         })),

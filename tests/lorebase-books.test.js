@@ -1,15 +1,18 @@
 /**
  * LoreBase's book record (plan §5.4 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * the entries selected for LoreBase to decide, the pinned section names, the locks, and the entries the book held when
- * the selection screen last opened it, in one settings record per book.
+ * the selection screen last opened it, in one settings record per book; and the book's selected entries LoreBase
+ * decides, read against the book as SillyTavern loads it.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: {} }, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: vi.fn() }));
 
 const { extension_settings, saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
+const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
 const {
-    getLoreBook, isLoreBookLocked, renameLoreBookCharacter, renameLoreBookChat, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries,
+    getLoreBook, isLoreBookLocked, loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries,
     setLoreBookSelection,
 } = await import('../src/features/lorebase/lorebase-books.js');
 
@@ -18,6 +21,32 @@ const BOOK = 'Harbor Lore';
 beforeEach(() => {
     extension_settings.vectfox = {};
     vi.mocked(saveSettingsDebounced).mockClear();
+});
+
+describe("a book's decided entries", () => {
+    it('reads the selected entries LoreBase decides, against the book as SillyTavern loads it now', async () => {
+        setLoreBookSelection(BOOK, ['0', '1', '2', '3', '9']);
+        loadWorldInfo.mockResolvedValueOnce({
+            entries: {
+                0: { uid: 0, content: 'The harbor bells.' },
+                // Emptied, made constant, and not selected since the selection was saved; uid 9 was deleted.
+                1: { uid: 1, content: '  ' },
+                2: { uid: 2, content: 'The tide clock.', constant: true },
+                3: { uid: 3, content: 'Fog season.' },
+                4: { uid: 4, content: 'The lamp room.' },
+            },
+        });
+        expect((await loadDecidedEntries(BOOK)).map(entry => entry.uid)).toEqual([0, 3]);
+        expect(loadWorldInfo).toHaveBeenCalledWith(BOOK);
+    });
+
+    it('reads none when SillyTavern has no such book, and lets a failed load throw', async () => {
+        setLoreBookSelection(BOOK, ['0']);
+        loadWorldInfo.mockResolvedValueOnce(null);
+        expect(await loadDecidedEntries(BOOK)).toEqual([]);
+        loadWorldInfo.mockRejectedValueOnce(new Error('HTTP 500'));
+        await expect(loadDecidedEntries(BOOK)).rejects.toThrow('HTTP 500');
+    });
 });
 
 describe('the book record', () => {
