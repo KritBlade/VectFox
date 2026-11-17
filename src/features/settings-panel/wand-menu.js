@@ -9,12 +9,15 @@ import { openReplyLore } from '../reply-lore/index.js';
 import { openSettingsPanel } from './panel-shell.js';
 import { wandMenuMarkup } from './wand-menu-markup.js';
 
+// VectFox's row follows MVU Helper's, ranked 90, at the end of the wand menu.
+const WAND_MENU_RANK = 91;
+
 /** Add VectFox's row to the wand menu. Called once, at start-up. */
 export function mountWandMenu() {
     const template = document.createElement('template');
     template.innerHTML = wandMenuMarkup();
     const root = template.content.firstElementChild;
-    if (!addWandMenuRow(root)) return;
+    if (!addWandMenuRow(root, WAND_MENU_RANK)) return;
     const toggle = root.querySelector('#VectFox_wand_toggle');
     const options = [...root.querySelectorAll('.vfx-wand-option')];
     const chevron = root.querySelector('.vfx-wand-chevron');

@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  *
  * VectFox's row in SillyTavern's wand menu (src/features/settings-panel/wand-menu.js and src/sillytavern/wand-menu.js):
- * it goes into the menu SillyTavern built, its two options rows of the menu itself, folded; clicking it opens or folds
+ * it goes into the menu SillyTavern built, at its end with the other ranked row, MVU Helper's, in rank order, its two
+ * options rows of the menu itself, folded; clicking it opens or folds
  * Menu and Selected lorebook under it without the click reaching the page, where SillyTavern would close the menu; Menu
  * opens VectFox's panel, Selected lorebook the latest reply's lorebook entries; a click elsewhere folds the two rows;
  * and with no wand menu, the console says so.
@@ -18,6 +19,7 @@ const { log } = await import('../src/sillytavern/log.js');
 const { openSettingsPanel } = await import('../src/features/settings-panel/panel-shell.js');
 const { openReplyLore } = await import('../src/features/reply-lore/index.js');
 const { mountWandMenu } = await import('../src/features/settings-panel/wand-menu.js');
+const { addWandMenuRow } = await import('../src/sillytavern/wand-menu.js');
 
 const $id = id => document.getElementById(id);
 const option = name => document.querySelector(`[data-vectfox-wand="${name}"]`);
@@ -28,10 +30,35 @@ beforeEach(() => {
     document.body.innerHTML = '<div id="extensionsMenu"><div id="gallery_wand_container" class="extension_container"></div></div>';
 });
 
+const menuOrder = () => [...$id('extensionsMenu').children].map(child => child.id);
+
 describe("VectFox's row in the wand menu", () => {
+    it("ends the menu with the ranked rows in rank order, MVU Helper's 90 then VectFox's 91, below the rows other extensions added", () => {
+        $id('extensionsMenu').innerHTML = '<div id="gallery_wand_container" class="extension_container"></div>'
+            + '<div id="mvuh_wand_button" class="list-group-item" data-wand-menu-rank="90"></div>'
+            + '<div id="other_extension_row" class="list-group-item"></div>'
+            + '<div id="higher_ranked_row" class="list-group-item" data-wand-menu-rank="95"></div>'
+            + '<div id="later_extension_row" class="list-group-item"></div>';
+        const mvuHelperClicked = vi.fn();
+        $id('mvuh_wand_button').addEventListener('click', mvuHelperClicked);
+        mountWandMenu();
+        expect(menuOrder()).toEqual(['gallery_wand_container', 'other_extension_row', 'later_extension_row', 'mvuh_wand_button', 'VectFox_wand', 'higher_ranked_row']);
+        expect($id('VectFox_wand').dataset.wandMenuRank).toBe('91');
+        $id('mvuh_wand_button').click();
+        expect(mvuHelperClicked).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a row of the same rank that comes later below it, and puts one ranked lower that comes later above it', () => {
+        mountWandMenu();
+        const row = id => Object.assign(document.createElement('div'), { id });
+        addWandMenuRow(row('same_rank_row'), 91);
+        addWandMenuRow(row('mvuh_wand_button'), 90);
+        expect(menuOrder()).toEqual(['gallery_wand_container', 'mvuh_wand_button', 'VectFox_wand', 'same_rank_row']);
+    });
+
     it('goes into the wand menu with its two options folded, each a row of the menu itself, as SillyTavern stacks its own', () => {
         mountWandMenu();
-        expect($id('extensionsMenu').lastElementChild.id).toBe('VectFox_wand');
+        expect(menuOrder()).toEqual(['gallery_wand_container', 'VectFox_wand']);
         expect($id('VectFox_wand_toggle').textContent).toContain('VectFox');
         expect([...$id('VectFox_wand').children].map(row => row.id || row.dataset.vectfoxWand))
             .toEqual(['VectFox_wand_toggle', 'menu', 'selected-lorebook']);
