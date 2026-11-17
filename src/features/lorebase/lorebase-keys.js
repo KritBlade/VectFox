@@ -25,7 +25,7 @@ import { entryTitle } from './lorebase-splitter.js';
 
 const KEYS_ROUTE = '/api/plugins/similharity/lorebase/keys';
 const QDRANT_BACKEND = 'qdrant';
-const UNREADABLE_ANSWER = 'its answer held no keys';
+const UNREADABLE_ANSWER = 'its answer held no list of keys';
 
 // What Qdrant holds, as last read or written in this session: book name -> uid -> keys.
 const storedKeys = new Map();
@@ -147,6 +147,8 @@ async function writeOne({ bookName, entry, ask, failures, onEntryDone }) {
     let failure = null;
     try {
         const keys = await askForKeys(entry, ask);
+        // The model found nothing in the entry to key: kept as an empty list, so it is not asked again.
+        if (!keys.length) log.verbose(`LoreBase: the model found nothing to key in "${entryTitle(entry)}" of lorebook "${bookName}"`);
         await postKeysRoute('write', { book: bookName, entries: [{ uid, keys }] });
         mapOf(storedKeys, bookName).set(uid, keys);
         mapOf(writeStates, bookName).delete(uid);

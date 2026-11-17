@@ -44,6 +44,9 @@ function answerWith(keys) {
     return [{ keys }];
 }
 
+// An answer parseJsonArrayFromLlm reads with no list of keys in it.
+const UNREADABLE = [{ names: [] }];
+
 beforeEach(async () => {
     vi.resetModules();
     globalThis.toastr = { warning: vi.fn() };
@@ -97,14 +100,34 @@ describe('writing keys', () => {
     });
 
     it('asks an unreadable answer again, up to 3 asks, then marks the entry failed and names it in a toast', async () => {
-        host.ask = vi.fn(async () => answerWith([]));
+        host.ask = vi.fn(async () => UNREADABLE);
         const result = await keysModule.writeKeys(BOOK, [entry(4, 'Drowned Bell')], QDRANT);
 
         expect(result).toEqual({ written: 0, failed: 1, stopped: 0 });
         expect(host.ask).toHaveBeenCalledTimes(3);
-        expect(keysModule.keyStateOf(BOOK, '4')).toEqual({ status: 'failed', detail: 'its answer held no keys' });
+        expect(keysModule.keyStateOf(BOOK, '4')).toEqual({ status: 'failed', detail: 'its answer held no list of keys' });
         expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('could not write the keys of "Drowned Bell" in lorebook "Harbor Atlas"');
         expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('Regenerate keys');
+    });
+
+    it('keeps an answer of no keys at once, as an empty list, with no second ask and no toast', async () => {
+        host.ask = vi.fn(async () => answerWith([]));
+        const result = await keysModule.writeKeys(BOOK, [entry(4, 'Section marker')], QDRANT);
+
+        expect(result).toEqual({ written: 1, failed: 0, stopped: 0 });
+        expect(host.ask).toHaveBeenCalledTimes(1);
+        expect(stored[BOOK]).toEqual({ 4: [] });
+        expect(keysModule.keyStateOf(BOOK, '4')).toEqual({ status: 'ready', keys: [] });
+        expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+    });
+
+    it('never counts an entry kept with no keys as missing', async () => {
+        const { extension_settings } = await import('../src/sillytavern/settings.js');
+        const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
+        extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['4'] } };
+        loadWorldInfo.mockImplementation(async () => ({ entries: { 4: entry(4, 'Section marker') } }));
+        stored[BOOK] = { 4: [] };
+        expect((await keysModule.selectedEntriesWithoutKeys()).count).toBe(0);
     });
 
     it('takes a failed call as an ask, and writes the keys once a later ask answers', async () => {
@@ -179,7 +202,7 @@ describe("editing one entry's keys", () => {
     });
 
     it('stores the keys the user edited in place of a failed state, and tells the listeners', async () => {
-        host.ask = vi.fn(async () => answerWith([]));
+        host.ask = vi.fn(async () => UNREADABLE);
         await keysModule.writeKeys(BOOK, [entry(4, 'Drowned Bell')], QDRANT);
         expect(keysModule.keyStateOf(BOOK, '4').status).toBe('failed');
         const seen = [];
@@ -248,12 +271,12 @@ describe('every key at once', () => {
 
     it('shows the writing on the progress panel: the entries to key, each one done, each failure, and the outcome', async () => {
         await selectBooks();
-        host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? [{ keys: [] }] : answerWith(['tidewardens'])));
+        host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? UNREADABLE : answerWith(['tidewardens'])));
         await keysModule.writeKeysOfSelections(QDRANT);
         expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys', 2, 'Entries', { unitLabel: 'Entries' });
         expect(host.panel.updateCurrentItem.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK, 'Desert Atlas']);
         expect(host.panel.updateProgress.mock.calls.map(([done]) => done)).toEqual([1, 2]);
-        expect(host.panel.addError).toHaveBeenCalledWith('Dunes: its answer held no keys');
+        expect(host.panel.addError).toHaveBeenCalledWith('Dunes: its answer held no list of keys');
         expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 1 entry; 1 failed');
     });
 

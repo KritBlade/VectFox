@@ -259,6 +259,10 @@ async function regenerateInto(form, entry) {
     status.textContent = "LoreBase's model is writing keys…";
     try {
         const keys = await regenerateKeys(entry, extension_settings.vectfox);
+        if (!keys.length) {
+            status.textContent = "LoreBase's model found nothing in this entry to key. Type keys to save, or Cancel to keep the old ones.";
+            return;
+        }
         form.querySelector(`#${ids.keysEditor}`).value = keys.join('\n');
         status.textContent = `${keys.length} keys from LoreBase's model. Read them, then Save keys, or Cancel to keep the old ones.`;
     } catch (error) {

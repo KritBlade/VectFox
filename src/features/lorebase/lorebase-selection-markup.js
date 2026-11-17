@@ -289,11 +289,13 @@ function entryPills(row) {
     return pills;
 }
 
-// A selected entry's keys (D17), while they are written, after they fail, or before any are written.
+// A selected entry's keys (D17), while they are written, after they fail, before any are written, or written as none
+// when the model found nothing in the entry to key.
 const KEY_STATE_PILLS = {
     writing: { text: 'Writing keys', status: 'accent', icon: 'fa-pen-nib' },
     failed: { text: 'Keys failed', status: 'danger', icon: 'fa-triangle-exclamation' },
     missing: { text: 'No keys yet', status: 'warning', icon: 'fa-key' },
+    none: { text: 'No keys found', status: 'neutral', icon: 'fa-key' },
 };
 // Room for a failure's own text on the row.
 const KEY_FAILURE_CHARACTERS = 200;
@@ -309,14 +311,15 @@ const KEY_FAILURE_CHARACTERS = 200;
  */
 export function entryRowMarkup(row, { isTicked, keyState = null }) {
     const canToggle = !row.undecidableReason || row.isSelected;
-    const keyPill = KEY_STATE_PILLS[keyState?.status];
+    const hasNoKeysFound = keyState?.status === 'ready' && !keyState.keys.length;
+    const keyPill = KEY_STATE_PILLS[hasNoKeysFound ? 'none' : keyState?.status];
     const body = listRow({
         icon: 'fa-file-lines',
         name: row.title,
         sub: [
             row.category ? { name: row.category } : null,
             { name: `${formatCount(row.tokens)} tokens, ${counted(row.keyCount, 'key')}` },
-            keyState?.status === 'ready' ? { text: 'LoreBase keys', name: keyState.keys.join(', ') } : null,
+            keyState?.status === 'ready' && !hasNoKeysFound ? { text: 'LoreBase keys', name: keyState.keys.join(', ') } : null,
             keyState?.status === 'failed' ? { text: 'Keys failed', name: String(keyState.detail ?? '').slice(0, KEY_FAILURE_CHARACTERS) } : null,
         ],
         pills: keyPill ? [...entryPills(row), statusPill(keyPill)] : entryPills(row),

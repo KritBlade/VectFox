@@ -81,7 +81,9 @@ export function keysMessages(entry) {
 }
 
 /**
- * The keys in an answer: its `keys` strings, trimmed, each once, cut to the count asked; null when it holds none.
+ * The keys in an answer: its `keys` strings, trimmed, each once, cut to the count asked. An empty list, or one of blank
+ * strings, is the model saying the entry holds nothing to key, and reads as []; an answer with no `keys` list, or a
+ * list of anything but strings, could not be read, and reads as null.
  * @param {unknown[]} items - The answer's records, as parseJsonArrayFromLlm reads them with `keys` marking a record
  * @param {number} count - From keyCount
  * @returns {string[]|null}
@@ -89,8 +91,9 @@ export function keysMessages(entry) {
 export function readKeys(items, count) {
     const keys = Array.isArray(items) ? items[0]?.keys : undefined;
     if (!Array.isArray(keys)) return null;
-    const cleaned = [...new Set(keys.filter(key => typeof key === 'string').map(key => key.trim()).filter(Boolean))];
-    return cleaned.length ? cleaned.slice(0, count) : null;
+    const strings = keys.filter(key => typeof key === 'string');
+    if (keys.length && !strings.length) return null;
+    return [...new Set(strings.map(key => key.trim()).filter(Boolean))].slice(0, count);
 }
 
 // What Similharity stores for one entry (its lorebase-keys.js): at most this many keys, each at most this long.

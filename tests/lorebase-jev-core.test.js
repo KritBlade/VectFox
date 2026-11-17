@@ -23,6 +23,16 @@ describe("T22's request to Jev, word for word", () => {
     });
 });
 
+describe("Jev's question for an entry with no keys", () => {
+    it('names the entry alone, with no empty list of what it is about', () => {
+        expect(jevQuestions([{ number: 1, title: 'Section marker', keys: [] }])).toEqual({
+            [Object.keys(jevQuestions([{ number: 1, title: 'x', keys: ['y'] }]))[0]]: {
+                type: 'noul', instructions: 'Does the next reply need the lorebook entry "Section marker"?',
+            },
+        });
+    });
+});
+
 describe("Jev's picks", () => {
     const contents = Array.from({ length: 9 }, (_, index) => ({ number: index + 1, bookName: 'Harbor Atlas', uid: index, title: `Entry ${index}`, keys: ['harbor'] }));
     const yesOf = values => Object.fromEntries(values.map((value, index) => [`e${index + 1}`, value]));

@@ -176,11 +176,20 @@ describe('keys (D17)', () => {
 
     it("shows a failed entry's reason on its row", async () => {
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
-        host.keyStates.set('Harbor Atlas/1', { status: 'failed', detail: 'its answer held no keys' });
+        host.keyStates.set('Harbor Atlas/1', { status: 'failed', detail: 'its answer held no list of keys' });
         await openScreen();
         expect(rowText('1')).toContain('Keys failed');
-        expect(rowText('1')).toContain('its answer held no keys');
+        expect(rowText('1')).toContain('its answer held no list of keys');
         expect($id('vectfox_lorebase_summary').textContent).toContain('1 failed');
+    });
+
+    it('shows No keys found on a row the model found nothing to key in, counted as written', async () => {
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+        host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: [] });
+        await openScreen();
+        expect(rowText('1')).toContain('No keys found');
+        expect(rowText('1')).not.toContain('LoreBase keys');
+        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys: 1 written.');
     });
 
     it('writes the ticked entries that are on anew with Regenerate keys, and only those', async () => {
@@ -261,6 +270,7 @@ describe('keys (D17)', () => {
         it("fills the box from LoreBase's model with Regenerate, to read before Save keys, and says when the model fails", async () => {
             selectTidewardens();
             host.regenerateKeys.mockResolvedValueOnce(['tidewardens', 'harbor bells', 'bell code']);
+            host.regenerateKeys.mockResolvedValueOnce([]);
             const failure = Object.assign(new Error('The model openai/gpt-7 does not exist.'), { kind: 'model_config' });
             host.regenerateKeys.mockRejectedValueOnce(failure);
             host.formPopup.mockImplementationOnce(async (lines, form) => {
@@ -269,13 +279,17 @@ describe('keys (D17)', () => {
                 await vi.waitFor(() => expect(box(form).value).toBe('tidewardens\nharbor bells\nbell code'));
                 expect(status(form)).toBe("3 keys from LoreBase's model. Read them, then Save keys, or Cancel to keep the old ones.");
                 regenerate.click();
+                await vi.waitFor(() => expect(status(form)).toBe(
+                    "LoreBase's model found nothing in this entry to key. Type keys to save, or Cancel to keep the old ones."));
+                expect(box(form).value).toBe('tidewardens\nharbor bells\nbell code');
+                regenerate.click();
                 await vi.waitFor(() => expect(status(form)).toBe('No new keys: The model openai/gpt-7 does not exist.'));
                 expect(box(form).value).toBe('tidewardens\nharbor bells\nbell code');
                 return false;
             });
             await openScreen();
             pencil('1').click();
-            await vi.waitFor(() => expect(host.regenerateKeys).toHaveBeenCalledTimes(2));
+            await vi.waitFor(() => expect(host.regenerateKeys).toHaveBeenCalledTimes(3));
             await vi.waitFor(() => expect(notifyInvalidModel).toHaveBeenCalledWith('The model openai/gpt-7 does not exist.'));
             expect(host.regenerateKeys.mock.calls[0][0].uid).toBe(1);
             expect(host.saveEditedKeys).not.toHaveBeenCalled();

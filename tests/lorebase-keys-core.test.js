@@ -38,11 +38,17 @@ describe('reading the keys', () => {
         expect(readKeys([{ keys: [' lighthouse ', 'keeper', 'lighthouse', '', 7, 'harbor', 'tide'] }], 3)).toEqual(['lighthouse', 'keeper', 'harbor']);
     });
 
-    it('reads an answer with no keys as none, so it is asked again', () => {
-        expect(readKeys([{ keys: [] }], 6)).toBeNull();
-        expect(readKeys([{ keys: ['  '] }], 6)).toBeNull();
+    it('reads an empty list of keys, or one of blank strings, as the model finding nothing to key', () => {
+        expect(readKeys([{ keys: [] }], 6)).toEqual([]);
+        expect(readKeys([{ keys: ['  ', ''] }], 6)).toEqual([]);
+    });
+
+    it('reads an answer with no list of keys, or a list of anything but strings, as unreadable, so it is asked again', () => {
         expect(readKeys([{ names: ['harbor'] }], 6)).toBeNull();
+        expect(readKeys([{ keys: 'harbor' }], 6)).toBeNull();
+        expect(readKeys([{ keys: [42, null] }], 6)).toBeNull();
         expect(readKeys([], 6)).toBeNull();
+        expect(readKeys(null, 6)).toBeNull();
     });
 });
 

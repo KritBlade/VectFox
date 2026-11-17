@@ -35,7 +35,7 @@ const questionName = number => `e${number}`;
 export function jevQuestions(contents) {
     return Object.fromEntries(contents.map(item => [questionName(item.number), {
         type: 'noul',
-        instructions: `Does the next reply need the lorebook entry "${item.title}" (about: ${item.keys.join(', ')})?`,
+        instructions: `Does the next reply need the lorebook entry "${item.title}"${item.keys.length ? ` (about: ${item.keys.join(', ')})` : ''}?`,
     }]));
 }
 
