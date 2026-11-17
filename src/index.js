@@ -40,9 +40,10 @@ import { isVectFoxEnabled } from './shared/feature-gate.js';
 import { runNetworkStartup } from './app/network-startup.js';
 
 // VectFox modules - UI
-import { mountSettingsPanel, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
+import { mountSettingsPanel, mountWandMenu, refreshAutoSyncCheckbox, scheduleManualConnectionNotice } from './features/settings-panel/index.js';
 import { initializeDatabaseBrowser } from './features/database-browser/index.js';
 import { KEY_CALLS_AT_ONCE_DEFAULT, initializeLoreBase, prepareLoreBesideRetrieval } from './features/lorebase/index.js';
+import { initializeReplyLore } from './features/reply-lore/index.js';
 import { CJK_TOKENIZER_MODES, setCjkTokenizerMode, ensureJiebaTokenizerLoaded, ensureJiebaTwLoaded } from './features/keyword-search/index.js';
 
 // Calls a lower layer makes into a higher one, wired here before anything can delete or insert.
@@ -581,6 +582,9 @@ jQuery(async () => {
     // The settings panel, in SillyTavern's Extensions drawer
     mountSettingsPanel('extensions_settings2', settings, { runNetworkStartup });
 
+    // VectFox's row in SillyTavern's wand menu: Menu opens the panel, Selected lorebook the latest reply's entries
+    mountWandMenu();
+
     // Once SillyTavern has loaded: the one-time notice that manual OpenRouter and vLLM retire
     scheduleManualConnectionNotice(settings);
 
@@ -592,6 +596,9 @@ jQuery(async () => {
 
     // LoreBase follows generations, so its pick knows a quiet-to-loud one as a reply, and arms each World Info scan
     initializeLoreBase();
+
+    // The latest reply's lorebook entries, for the wand menu's Selected lorebook
+    initializeReplyLore();
 
     // Off-box startup work (discovery, EventBase index backfill, plugin version check).
     // Master switch OFF → skip it entirely; the switch re-runs this when turned back ON,

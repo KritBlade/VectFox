@@ -106,6 +106,24 @@ describe('armScan', () => {
         }]);
     });
 
+    it('says which picks each block carries, by the entry that carries it, for the reply lore list', () => {
+        const deliveries = new Map([
+            ['Keeper Notes.7', whole("Oil's Store")],
+            ['Harbor Atlas.1', whole('Tide Tables')],
+            ['Harbor Atlas.0', { isWhole: false, text: 'The lamp burns.', title: 'Lantern Room', hasFrame: false }],
+        ]);
+        expect(armScan(loadedScan(), { selectedUidsOf, deliveries }).blocks).toEqual([
+            {
+                key: 'Keeper Notes.7',
+                picks: [
+                    { bookName: 'Keeper Notes', uid: 7, title: "Oil's Store", isWhole: true },
+                    { bookName: 'Harbor Atlas', uid: 1, title: 'Tide Tables', isWhole: true },
+                ],
+            },
+            { key: 'Harbor Atlas.0', picks: [{ bookName: 'Harbor Atlas', uid: 0, title: 'Lantern Room', isWhole: false }] },
+        ]);
+    });
+
     it('carries the picks that go to one place in one block, most needed first, a whole pick less its opening decorator lines', () => {
         const deliveries = new Map([['Keeper Notes.7', whole("Oil's Store")], ['Harbor Atlas.1', whole('Tide Tables')]]);
         const { forced, sentCount } = armScan(loadedScan(), { selectedUidsOf, deliveries });
@@ -137,7 +155,7 @@ describe('armScan', () => {
     it('sends no pick the scan does not hold, or no longer leaves to LoreBase, and leaves the latter its keys', () => {
         const loaded = loadedScan();
         const deliveries = new Map([['Harbor Atlas.9', whole('Lost')], ['Harbor Atlas.5', whole('Fog')], ['Voyage Log.0', whole('Log')]]);
-        expect(armScan(loaded, { selectedUidsOf, deliveries })).toEqual({ forced: [], sentCount: 0 });
+        expect(armScan(loaded, { selectedUidsOf, deliveries })).toEqual({ forced: [], sentCount: 0, blocks: [] });
         expect(loaded.globalLore[3].key).toEqual(['fog']);
         expect(loaded.chatLore[0].key).toEqual(['lighthouse']);
     });

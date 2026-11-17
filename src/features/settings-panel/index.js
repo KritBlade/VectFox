@@ -7,3 +7,4 @@ export {
     refreshAutoSyncCheckbox,
 } from './settings-panel.js';
 export { scheduleManualConnectionNotice } from './manual-connection-notice.js';
+export { mountWandMenu } from './wand-menu.js';

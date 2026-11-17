@@ -1,0 +1,35 @@
+/**
+ * VectFox's row in SillyTavern's wand menu. Clicking it opens two rows under it, and keeps the menu open: Menu opens
+ * VectFox's panel, and Selected lorebook shows the lorebook entries in the latest reply's prompt, LoreBase's picks in
+ * blue and SillyTavern's own in green (features/reply-lore). Either closes the menu as SillyTavern's own rows do, and
+ * any click elsewhere folds the two rows again.
+ */
+import { addWandMenuRow } from '../../sillytavern/wand-menu.js';
+import { openReplyLore } from '../reply-lore/index.js';
+import { openSettingsPanel } from './panel-shell.js';
+import { wandMenuMarkup } from './wand-menu-markup.js';
+
+/** Add VectFox's row to the wand menu. Called once, at start-up. */
+export function mountWandMenu() {
+    const template = document.createElement('template');
+    template.innerHTML = wandMenuMarkup();
+    const root = template.content.firstElementChild;
+    if (!addWandMenuRow(root)) return;
+    const toggle = root.querySelector('#VectFox_wand_toggle');
+    const options = root.querySelector('#VectFox_wand_options');
+    const chevron = root.querySelector('.vfx-wand-chevron');
+    const showOptions = isShown => {
+        options.hidden = !isShown;
+        toggle.setAttribute('aria-expanded', String(isShown));
+        chevron.classList.toggle('fa-chevron-down', isShown);
+        chevron.classList.toggle('fa-chevron-right', !isShown);
+    };
+    toggle.addEventListener('click', event => {
+        // SillyTavern closes the menu on a click that reaches the page; this one only opens the two rows.
+        event.stopPropagation();
+        showOptions(options.hidden);
+    });
+    root.querySelector('[data-vectfox-wand="menu"]').addEventListener('click', () => void openSettingsPanel());
+    root.querySelector('[data-vectfox-wand="selected-lorebook"]').addEventListener('click', () => void openReplyLore());
+    document.addEventListener('click', () => showOptions(false));
+}

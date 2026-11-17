@@ -130,8 +130,10 @@ function lorebookBlock(picks) {
  *   this scan (D11), or null where LoreBase decides none of its entries
  * @param {Map<string, {isWhole: boolean, text: string, title: string, hasFrame: boolean}>|null} lore.deliveries - From
  *   scanDeliveries, for this scan's reply, or null for a scan that is not one
- * @returns {{forced: object[], sentCount: number}} The blocks' forced activations, for WORLDINFO_FORCE_ACTIVATE, and
- *   how many picks they carry
+ * @returns {{forced: object[], sentCount: number, blocks: Array<{key: string, picks: Array<{bookName: string,
+ *   uid: number|string, title: string, isWhole: boolean}>}>}} The blocks' forced activations, for
+ *   WORLDINFO_FORCE_ACTIVATE; how many picks they carry; and each block's picks, most needed first, by the scan key of
+ *   the entry that carries it, for the reply lore list
  */
 export function armScan(loaded, { selectedUidsOf, deliveries }) {
     const sent = new Map();
@@ -162,5 +164,9 @@ export function armScan(loaded, { selectedUidsOf, deliveries }) {
         group: '',
         useProbability: false,
     }));
-    return { forced, sentCount: sent.size };
+    const carried = [...blocks.values()].map(picks => ({
+        key: scanKey(picks[0].entry.world, picks[0].entry.uid),
+        picks: picks.map(({ entry, delivery }) => ({ bookName: entry.world, uid: entry.uid, title: delivery.title, isWhole: delivery.isWhole })),
+    }));
+    return { forced, sentCount: sent.size, blocks: carried };
 }

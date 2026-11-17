@@ -13,18 +13,22 @@
 // page's tester card. The folder also holds the entry splitter, which cuts the parts the review numbers; the per-book
 // record of selections, pins, locks and seen entries; LoreBase's model connection, whose Test connection the
 // WorldInfo page runs; and the start-up deletion of the old vectorized lorebook collections LoreBase replaced, whose
-// locks move to their books, with a notice naming the books.
+// locks move to their books, with a notice naming the books. Each armed scan keeps the picks its blocks carry, so the
+// reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { selectedLoreBookNames } from './lorebase-books.js';
 export { chatBookLocks } from './lorebase-chat-books.js';
+export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
 export { deleteAllKeys, keyWritingProblem, onKeyRunChange, writeKeysOfSelections } from './lorebase-keys.js';
 export { KEY_CALLS_AT_ONCE_DEFAULT, keyCallsAtOnceOf } from './lorebase-keys-core.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
+export { isReplyGeneration } from './lorebase-reply-core.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
+export { entryTitle } from './lorebase-splitter.js';
 export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';
 export { loreBaseReports, measureLoreBaseReport, onLoreBaseReportsChange } from './lorebase-tester.js';
 export { turnLoreBaseOn } from './lorebase-vector-storage.js';

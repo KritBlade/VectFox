@@ -64,8 +64,12 @@ vi.mock('../src/app/network-startup.js', () => ({
 }));
 vi.mock('../src/features/settings-panel/index.js', () => ({
     mountSettingsPanel: (_containerId, settings) => { panel.settings = settings; },
+    mountWandMenu: vi.fn(),
     refreshAutoSyncCheckbox: vi.fn(),
     scheduleManualConnectionNotice: (settings) => { panel.noticeSettings = settings; },
+}));
+vi.mock('../src/features/reply-lore/index.js', () => ({
+    initializeReplyLore: vi.fn(),
 }));
 vi.mock('../src/features/database-browser/index.js', () => ({
     initializeDatabaseBrowser: vi.fn(),

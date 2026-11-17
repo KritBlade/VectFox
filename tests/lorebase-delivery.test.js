@@ -41,7 +41,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 
 const { eventSource } = await import('../src/sillytavern/events.js');
-const { holdLoreForNextScan, initializeLoreBaseDelivery, scanLeftToSillyTavern } = await import('../src/features/lorebase/lorebase-delivery.js');
+const { holdLoreForNextScan, initializeLoreBaseDelivery, loreBasePicksCarriedBy, scanLeftToSillyTavern } = await import('../src/features/lorebase/lorebase-delivery.js');
 
 initializeLoreBaseDelivery();
 
@@ -114,6 +114,16 @@ describe('a reply and the scan that follows (§5.7)', () => {
 
         expect(keysOf(loaded)).toEqual([[], [], ['bell'], []]);
         expect(forcedActivations()).toEqual([[lighthouseBlock]]);
+    });
+
+    it("says which picks the entry carrying the scan's block holds, and none for another entry or after the next scan", async () => {
+        holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
+        await scan();
+
+        expect(loreBasePicksCarriedBy({ world: 'Harbor Atlas', uid: 0 })).toEqual([{ bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', isWhole: false }]);
+        expect(loreBasePicksCarriedBy({ world: 'Harbor Atlas', uid: 2 })).toBeNull();
+        await scan();
+        expect(loreBasePicksCarriedBy({ world: 'Harbor Atlas', uid: 0 })).toBeNull();
     });
 
     it('gives the picks to that scan alone: the next one blanks the same keys and forces nothing', async () => {

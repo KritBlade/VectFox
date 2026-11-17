@@ -1,11 +1,21 @@
 /* panel-shell.css — the settings panel's own rules beside the GUI-DNA (panel-shell.js): the launcher in the extensions
- * drawer, which keeps SillyTavern's look, and the holder the panel waits in while its dialog is closed. */
+ * drawer and VectFox's row in the wand menu, which keep SillyTavern's look, and the holder the panel waits in while its
+ * dialog is closed. */
 
 .menu_button#VectFox_open_panel {
     width: 100%;
     justify-content: center;
     gap: 8px;
     padding: 8px;
+}
+
+/* VectFox's row in the wand menu (wand-menu.js): its chevron at the row's end, and its two options set in under it. */
+.vfx-wand-chevron {
+    margin-inline-start: auto;
+}
+
+.vfx-wand-option {
+    padding-inline-start: 1.75em;
 }
 
 /* The panel lives here, hidden, whenever the dialog is closed. It is MOVED between this holder and the dialog, never

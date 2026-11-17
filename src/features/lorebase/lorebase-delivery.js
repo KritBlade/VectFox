@@ -13,6 +13,9 @@
  * the app is ready, and again each time the interceptor holds, as a listener added later, such as a TavernHelper
  * script's when its chat loads, would otherwise run after it and could give a selected entry its keys back.
  *
+ * Each armed scan keeps the picks its blocks carry until the next, so the reply lore list (the wand menu's Selected
+ * lorebook) tells LoreBase's picks from SillyTavern's own entries among those the scan activated.
+ *
  * The tester (§5.10) scans as SillyTavern alone, dry, to learn what SillyTavern's keys would send: that scan is left
  * alone, and what is held stays held. It runs only while no generation's scan is due, from an interceptor run to the
  * scan that follows it, and counts only when no interceptor ran meanwhile; any scan after one is armed as ever.
@@ -22,11 +25,13 @@ import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
 import { getLoreBook, isLoreBookLocked } from './lorebase-books.js';
 import { lockTarget } from './lorebase-chat-books.js';
-import { LOREBOOK_TAG, armScan, scanDeliveries } from './lorebase-delivery-core.js';
+import { LOREBOOK_TAG, armScan, scanDeliveries, scanKey } from './lorebase-delivery-core.js';
 import { isLoreBaseActive } from './lorebase-switch.js';
 
 // The picks of the last reply's interceptor, until a scan takes them: {chatId, deliveries}, or null.
 let heldLore = null;
+// The picks each block of the last armed scan carries, by the scan key of the entry that carries the block.
+let lastScanBlocks = new Map();
 // Whether scans are armed: from the moment the app is ready, when the listener is first made the last.
 let isArmingScans = false;
 // Interceptor runs so far: each holds a reply's picks or none, and a World Info scan follows it.
@@ -93,6 +98,7 @@ async function armLoadedScan(loaded) {
     // The tester's scan as SillyTavern alone, with no interceptor run since it began: left as SillyTavern loaded it.
     if (scanAloneAtHold !== null && scanAloneAtHold === holdCount) return;
     isScanDue = false;
+    lastScanBlocks = new Map();
     const held = heldLore;
     heldLore = null;
     if (!isLoreBaseActive()) return;
@@ -105,13 +111,24 @@ async function armLoadedScan(loaded) {
         log.error('LoreBase: arming the World Info scan failed, so this scan may send entries selected for LoreBase by their keys:', error);
         return;
     }
-    const { forced, sentCount } = armed;
+    const { forced, sentCount, blocks } = armed;
+    lastScanBlocks = new Map(blocks.map(block => [block.key, block.picks]));
     if (deliveries && sentCount < deliveries.size) {
         log.verbose(`LoreBase: ${deliveries.size - sentCount} of ${deliveries.size} picks are not in this scan's books, so they are not sent`);
     }
     if (!forced.length) return;
     await eventSource.emit(event_types.WORLDINFO_FORCE_ACTIVATE, forced);
     log.verbose(`LoreBase: ${sentCount} picked entries go to this scan, in ${forced.length} <${LOREBOOK_TAG}> block(s)`);
+}
+
+/**
+ * LoreBase's picks in the block an entry the last scan activated carries, most needed first; null for an entry that
+ * carries none, one of SillyTavern's own.
+ * @param {{world: string, uid: number|string}} activatedEntry - One of WORLD_INFO_ACTIVATED's entries
+ * @returns {Array<{bookName: string, uid: number|string, title: string, isWhole: boolean}>|null}
+ */
+export function loreBasePicksCarriedBy(activatedEntry) {
+    return lastScanBlocks.get(scanKey(activatedEntry?.world, activatedEntry?.uid)) ?? null;
 }
 
 /** Arm every World Info scan from now on, after the listeners SillyTavern's extensions added as they loaded. */
