@@ -49,7 +49,7 @@ import fs from 'node:fs/promises';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
 import { askDecisions } from './lorebase-decisions.js';
-import { readLoreKeys, writeLoreKeys } from './lorebase-keys.js';
+import { deleteLoreKeys, readLoreKeys, writeLoreKeys } from './lorebase-keys.js';
 import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource } from './openai-style-embedding.js';
 import { loadSillyTavernRequestHost } from './sillytavern-request-host.js';
 import { errorFreeOfServerReply, errorWithoutServerReply, redactKeyMaterial, serverFailureText } from './server-failure-text.js';
@@ -1430,6 +1430,21 @@ async function getVectorsForSource(source, texts, model, directories, req) {
             res.json({ written });
         } catch (error) {
             console.error(`[${pluginName}] lorebase/keys/write error:`, error);
+            res.status(error instanceof RangeError ? 400 : 500).json({ error: formatError(error) });
+        }
+    });
+
+    /**
+     * POST /api/plugins/similharity/lorebase/keys/delete
+     * Delete the keys of every entry, in every book, of the requesting user (LoreBase's Delete all keys).
+     * Body: {}. Response: { deleted: number }.
+     */
+    router.post('/lorebase/keys/delete', async (req, res) => {
+        try {
+            const deleted = await deleteLoreKeys(qdrantBackend, req.user.profile.handle);
+            res.json({ deleted });
+        } catch (error) {
+            console.error(`[${pluginName}] lorebase/keys/delete error:`, error);
             res.status(error instanceof RangeError ? 400 : 500).json({ error: formatError(error) });
         }
     });

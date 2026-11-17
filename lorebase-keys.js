@@ -2,7 +2,7 @@
  * LoreBase's keys: the keys VectFox's LoreBase has its model write for each lorebook entry the user turns on, kept in
  * Qdrant (plan D15 and D17 of lorebook-semantic-overhaul-passage-index.md). One collection with no vectors holds a
  * point per entry: the SillyTavern user who owns the book (the indexed tenant), the book's name, the entry's uid and
- * its keys. Each user reads and writes only their own points, as two users may hold books of the same name.
+ * its keys. Each user reads, writes and deletes only their own points, as two users may hold books of the same name.
  */
 
 import crypto from 'node:crypto';
@@ -143,4 +143,20 @@ export async function readLoreKeys(backend, user, books) {
         offset = response?.result?.next_page_offset ?? null;
     } while (offset !== null);
     return found;
+}
+
+/**
+ * Delete the keys of every entry, in every book, for one user: LoreBase's Delete all keys. Other users' points stay.
+ * @param {object} backend - The Qdrant backend, initialized
+ * @param {string} user - The SillyTavern user's handle
+ * @returns {Promise<number>} How many entries' keys were deleted
+ * @throws {RangeError} When the user is not a name; {Error} when Qdrant refuses it
+ */
+export async function deleteLoreKeys(backend, user) {
+    assertName(user, 'The user');
+    await ensureKeysCollection(backend);
+    const filter = { must: [{ key: USER_FIELD, match: { value: user } }] };
+    const counted = await backend._request('POST', `/collections/${LOREBASE_KEYS_COLLECTION}/points/count`, { filter, exact: true });
+    await backend._request('POST', `/collections/${LOREBASE_KEYS_COLLECTION}/points/delete?wait=true`, { filter });
+    return counted?.result?.count ?? 0;
 }

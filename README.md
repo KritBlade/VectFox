@@ -492,6 +492,16 @@ Writes the keys of some of a book's entries, replacing any they had.
 
 **Response:** `{ "books": { "Harbor book": { "3": ["lighthouse", "keeper"] } } }`, every named book present, `{}` when none of its entries has keys.
 
+### Delete Keys
+
+#### `POST /lorebase/keys/delete`
+
+Deletes the keys of every entry, in every book, of the requesting user. Other users' keys stay.
+
+**Request Body:** `{}`
+
+**Response:** `{ "deleted": 311 }`, how many entries' keys were deleted.
+
 ### Ask Jev (Fast and cheap)
 
 #### `POST /lorebase/decisions`

@@ -1,13 +1,13 @@
 // Tests LoreBase's key store: a collection with no vectors, a point per entry whose ID comes from the user, the book
-// and the uid, each user reading and writing only their own points, malformed writes refused, and the collection
-// left out of VectFox's collection listing. Qdrant is stubbed at the backend's one request function.
+// and the uid, each user reading, writing and deleting only their own points, malformed writes refused, and the
+// collection left out of VectFox's collection listing. Qdrant is stubbed at the backend's one request function.
 //
 //   node --test tests/
 
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import qdrantBackend, { LOREBASE_KEYS_COLLECTION } from '../qdrant-backend.js';
-import { keysPointId, readLoreKeys, writeLoreKeys } from '../lorebase-keys.js';
+import { deleteLoreKeys, keysPointId, readLoreKeys, writeLoreKeys } from '../lorebase-keys.js';
 
 function stubQdrant(collectionNames, answers = {}) {
     const requests = [];
@@ -74,6 +74,20 @@ test('a read asks for the requesting user\'s points of the named books only, and
         { key: 'book', match: { any: ['Harbor book', 'Desert book', 'Empty book'] } },
     ]);
     assert.equal(scrolls[1].body.offset, 'next');
+});
+
+test("a delete counts the requesting user's points, then deletes them by the same filter, in every book", async () => {
+    const requests = stubQdrant([LOREBASE_KEYS_COLLECTION], {
+        [`POST /collections/${LOREBASE_KEYS_COLLECTION}/points/count`]: () => ({ count: 311 }),
+    });
+    assert.equal(await deleteLoreKeys(qdrantBackend, 'tester'), 311);
+    const count = requests.find(request => request.endpoint.endsWith('/points/count'));
+    const deletion = requests.find(request => request.endpoint === `/collections/${LOREBASE_KEYS_COLLECTION}/points/delete?wait=true`);
+    const userOnly = { must: [{ key: 'user', match: { value: 'tester' } }] };
+    assert.deepEqual(count.body, { filter: userOnly, exact: true });
+    assert.deepEqual(deletion.body, { filter: userOnly });
+    assert.ok(requests.indexOf(count) < requests.indexOf(deletion));
+    await assert.rejects(deleteLoreKeys(qdrantBackend, ''), RangeError);
 });
 
 test('a malformed write is refused before Qdrant is asked', async () => {
