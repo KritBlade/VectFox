@@ -16,18 +16,18 @@ export function mountWandMenu() {
     const root = template.content.firstElementChild;
     if (!addWandMenuRow(root)) return;
     const toggle = root.querySelector('#VectFox_wand_toggle');
-    const options = root.querySelector('#VectFox_wand_options');
+    const options = [...root.querySelectorAll('.vfx-wand-option')];
     const chevron = root.querySelector('.vfx-wand-chevron');
     const showOptions = isShown => {
-        options.hidden = !isShown;
+        for (const option of options) option.hidden = !isShown;
         toggle.setAttribute('aria-expanded', String(isShown));
         chevron.classList.toggle('fa-chevron-down', isShown);
         chevron.classList.toggle('fa-chevron-right', !isShown);
     };
     toggle.addEventListener('click', event => {
-        // SillyTavern closes the menu on a click that reaches the page; this one only opens the two rows.
+        // SillyTavern closes the menu on a click that reaches the page; this one only opens or folds the two rows.
         event.stopPropagation();
-        showOptions(options.hidden);
+        showOptions(toggle.getAttribute('aria-expanded') !== 'true');
     });
     root.querySelector('[data-vectfox-wand="menu"]').addEventListener('click', () => void openSettingsPanel());
     root.querySelector('[data-vectfox-wand="selected-lorebook"]').addEventListener('click', () => void openReplyLore());

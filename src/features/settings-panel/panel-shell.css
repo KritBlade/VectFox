@@ -9,13 +9,21 @@
     padding: 8px;
 }
 
-/* VectFox's row in the wand menu (wand-menu.js): its chevron at the row's end, and its two options set in under it. */
+/* VectFox's row in the wand menu (wand-menu.js): its chevron at the row's end, and its two options set in under it.
+   Each option is a row of the menu itself, so SillyTavern's `#extensionsMenu>.extension_container>div` gives it its
+   padding and display:flex, and outranks a class and the hidden attribute. The indent therefore goes on the option's
+   icon, 30px to sit under the VectFox label (SillyTavern's 20px icon and 10px gap), and a folded option needs
+   !important to stay hidden. */
 .vfx-wand-chevron {
     margin-inline-start: auto;
 }
 
-.vfx-wand-option {
-    padding-inline-start: 1.75em;
+.vfx-wand-option > :first-child {
+    margin-inline-start: 30px;
+}
+
+.vfx-wand-option[hidden] {
+    display: none !important;
 }
 
 /* The panel lives here, hidden, whenever the dialog is closed. It is MOVED between this holder and the dialog, never
