@@ -59,10 +59,14 @@ function showKeysStatus(text) {
 
 const counted = (count, one, many) => `${Number(count).toLocaleString('en-US')} ${count === 1 ? one : many}`;
 
-/** What Generate all keys did, in a line: the keys written, the entries that failed, the books that could not be read. */
-function generatedText({ written, failed, unreadBooks }) {
-    const lines = [written || failed ? `Wrote the keys of ${counted(written, 'entry', 'entries')}.` : 'No selected entry was missing keys.'];
+/**
+ * What Generate all keys did, in a line: the keys written, the entries that failed or were stopped, the books that
+ * could not be read.
+ */
+function generatedText({ written, failed, stopped, unreadBooks }) {
+    const lines = [written || failed || stopped ? `Wrote the keys of ${counted(written, 'entry', 'entries')}.` : 'No selected entry was missing keys.'];
     if (failed) lines.push(`${counted(failed, 'entry', 'entries')} failed, as the toast says.`);
+    if (stopped) lines.push(`Stopped before ${counted(stopped, 'entry', 'entries')}.`);
     if (unreadBooks) lines.push(`${counted(unreadBooks, 'lorebook', 'lorebooks')} could not be read; the console says why.`);
     return lines.join(' ');
 }
@@ -75,7 +79,7 @@ async function generateAllKeys(settings, button) {
         return;
     }
     button.disabled = true;
-    showKeysStatus('Writing the keys of selected entries that have none…');
+    showKeysStatus('Writing the keys of selected entries that have none; the progress panel counts them.');
     try {
         showKeysStatus(generatedText(await writeKeysOfSelections(settings)));
     } catch (error) {

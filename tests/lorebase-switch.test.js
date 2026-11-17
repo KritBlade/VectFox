@@ -2,18 +2,26 @@
  * LoreBase's switch and SillyTavern's Vector Storage (src/features/lorebase/lorebase-switch.js and
  * lorebase-vector-storage.js, plan §5.9 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * LoreBase acts only while VectFox and its switch are on, on Qdrant (D15), and Vector Storage's World Info search is
- * off; turning LoreBase on off Qdrant says it needs Qdrant and stays off, turning it on asks to turn that search off,
- * LoreBase stays off when the user keeps it, and once on the selected entries' missing keys are written (D17); a reply
+ * off; turning LoreBase on off Qdrant says it needs Qdrant and stays off; turning it on asks first to have the selected
+ * entries with no keys keyed (D17), says why when they cannot be, and stays off unless the user agrees; then it asks to
+ * turn that search off, LoreBase staying off when the user keeps it; once on, the missing keys are written. A reply
  * that finds the search on again asks which of the two to turn off, and closing the question leaves LoreBase sitting out.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn: false, canTurnOff: true }));
+const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn: false, canTurnOff: true, pending: null, keyProblem: null }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { verbose: vi.fn(), warn: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(), choicePopup: vi.fn(), noticePopup: vi.fn() }));
-vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({ writeKeysOfSelections: vi.fn() }));
+vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
+    selectedEntriesWithoutKeys: vi.fn(async () => {
+        if (host.pending instanceof Error) throw host.pending;
+        return host.pending;
+    }),
+    keyWritingProblem: () => host.keyProblem,
+    writeKeysOfSelections: vi.fn(async () => ({ written: 0, failed: 0, stopped: 0, unreadBooks: 0 })),
+}));
 vi.mock('../src/sillytavern/vector-storage.js', () => ({
     isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn,
     turnOffVectorStorageWorldInfo: vi.fn(async () => {
@@ -41,6 +49,8 @@ beforeEach(() => {
     host.settings.vectfox = { vector_backend: 'qdrant', lorebase_books: { 'Harbor Atlas': HARBOR_RECORD } };
     host.isWorldInfoSearchOn = false;
     host.canTurnOff = true;
+    host.pending = { books: [], count: 0, unreadBooks: 0 };
+    host.keyProblem = null;
 });
 
 describe('when LoreBase acts', () => {
@@ -69,13 +79,65 @@ describe('when LoreBase acts', () => {
 });
 
 describe('turning LoreBase on and off', () => {
-    it("turns on with no question while Vector Storage's World Info search is off, and writes the missing keys", async () => {
+    it("turns on with no question when every selected entry has keys and Vector Storage's World Info search is off", async () => {
         expect(await turnLoreBaseOn()).toBe(true);
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
         expect(saveSettingsDebounced).toHaveBeenCalled();
         expect(showsSwitch).toHaveBeenCalledWith(true);
-        expect(writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox);
+        expect(writeKeysOfSelections).not.toHaveBeenCalled();
+    });
+
+    it('asks before writing the selected entries\' missing keys, and turns on and writes them when the user agrees', async () => {
+        host.pending = { books: [{ bookName: 'Harbor Atlas', entries: [] }], count: 311, unreadBooks: 0 };
+        confirmPopup.mockResolvedValueOnce(true);
+
+        expect(await turnLoreBaseOn()).toBe(true);
+        expect(confirmPopup).toHaveBeenCalledWith(expect.any(Array), { okButton: 'Write keys', cancelButton: 'Leave off' });
+        expect(confirmPopup.mock.calls[0][0]).toContainEqual({ text: 'Selected entries with no keys:', name: '311' });
+        expect(writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, host.pending);
+        expect(isLoreBaseSwitchedOn()).toBe(true);
+    });
+
+    it('stays off and writes nothing when the user leaves it off', async () => {
+        host.pending = { books: [{ bookName: 'Harbor Atlas', entries: [] }], count: 4, unreadBooks: 0 };
+        confirmPopup.mockResolvedValueOnce(false);
+
+        expect(await turnLoreBaseOn()).toBe(false);
+        expect(writeKeysOfSelections).not.toHaveBeenCalled();
+        expect(isLoreBaseSwitchedOn()).toBe(false);
+        expect(showsSwitch).not.toHaveBeenCalled();
+    });
+
+    it('asks about the keys before Vector Storage\'s search, so leaving LoreBase off turns nothing off', async () => {
+        host.pending = { books: [{ bookName: 'Harbor Atlas', entries: [] }], count: 4, unreadBooks: 0 };
+        host.isWorldInfoSearchOn = true;
+        confirmPopup.mockResolvedValueOnce(false);
+
+        expect(await turnLoreBaseOn()).toBe(false);
+        expect(confirmPopup).toHaveBeenCalledTimes(1);
+        expect(confirmPopup.mock.calls[0][1].okButton).toBe('Write keys');
+        expect(turnOffVectorStorageWorldInfo).not.toHaveBeenCalled();
+    });
+
+    it('stays off, saying why, when the missing keys cannot be written', async () => {
+        host.pending = { books: [{ bookName: 'Harbor Atlas', entries: [] }], count: 4, unreadBooks: 0 };
+        host.keyProblem = 'LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.';
+
+        expect(await turnLoreBaseOn()).toBe(false);
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(noticePopup.mock.calls[0][0]).toContainEqual({ name: host.keyProblem });
+        expect(isLoreBaseSwitchedOn()).toBe(false);
+    });
+
+    it('stays off, saying why, when the keys cannot be read', async () => {
+        host.pending = new Error("Similharity could not read LoreBase's keys (HTTP 500): Qdrant is down");
+
+        expect(await turnLoreBaseOn()).toBe(false);
+        expect(noticePopup.mock.calls[0][0][0].text).toContain('could not read the keys');
+        expect(noticePopup.mock.calls[0][0]).toContainEqual({ name: host.pending.message });
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('could not be read'), host.pending);
+        expect(isLoreBaseSwitchedOn()).toBe(false);
     });
 
     it('stays off on the Standard backend, and says LoreBase needs Qdrant', async () => {

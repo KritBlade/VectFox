@@ -56,7 +56,7 @@ beforeEach(() => {
     host.isOn = true;
     host.willTurnOn = true;
     host.keyProblem = null;
-    host.totals = { written: 2, failed: 0, unreadBooks: 0 };
+    host.totals = { written: 2, failed: 0, stopped: 0, unreadBooks: 0 };
     host.isConfirmed = true;
     host.deleted = 311;
     bindLoreBaseBooksCard(host.settings);
@@ -193,12 +193,12 @@ describe('every key at once', () => {
         expect([status().hidden, generate().disabled]).toEqual([false, false]);
     });
 
-    it('Generate all keys names the entries that failed and the books it could not read, or that none was missing', async () => {
-        host.totals = { written: 3, failed: 1, unreadBooks: 2 };
+    it('Generate all keys names the entries that failed or were stopped and the books it could not read, or that none was missing', async () => {
+        host.totals = { written: 3, failed: 1, stopped: 5, unreadBooks: 2 };
         generate().click();
-        await vi.waitFor(() => expect(status().textContent).toBe(
-            'Wrote the keys of 3 entries. 1 entry failed, as the toast says. 2 lorebooks could not be read; the console says why.'));
-        host.totals = { written: 0, failed: 0, unreadBooks: 0 };
+        await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 3 entries. 1 entry failed, as the toast says. '
+            + 'Stopped before 5 entries. 2 lorebooks could not be read; the console says why.'));
+        host.totals = { written: 0, failed: 0, stopped: 0, unreadBooks: 0 };
         generate().click();
         await vi.waitFor(() => expect(status().textContent).toBe('No selected entry was missing keys.'));
     });

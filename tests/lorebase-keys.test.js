@@ -3,18 +3,26 @@
  * lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on
  * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
- * LoreBase's model. Generate all keys writes the missing keys of every book with a selection, and Delete all keys
- * deletes every key, never while keys are written. Similharity's routes are a fetch stand-in holding the keys in memory.
+ * LoreBase's model. Generate all keys writes the missing keys of every book with a selection under the progress panel,
+ * whose Stop drops the entries not yet sent, and Delete all keys deletes every key, never while keys are written.
+ * Similharity's routes are a fetch stand-in holding the keys in memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null }));
+const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null, panel: null }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
 vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: vi.fn() }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: {} }, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/shared/progress-tracker.js', () => ({
+    progressTracker: {
+        show: (...args) => host.panel.show(...args), setCancelHandler: handler => { host.panel.stop = handler; },
+        updateCurrentItem: (...args) => host.panel.updateCurrentItem(...args), updateProgress: (...args) => host.panel.updateProgress(...args),
+        addError: (...args) => host.panel.addError(...args), complete: (...args) => host.panel.complete(...args),
+    },
+}));
 vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
     askOnLoreBase: () => (...args) => host.ask(...args),
     resolveLoreBaseLlmConfig: () => host.connection,
@@ -53,6 +61,7 @@ beforeEach(async () => {
         return { ok: true, json: async () => ({ written: request.entries.length }) };
     });
     host.connection = { ok: true };
+    host.panel = { show: vi.fn(), updateCurrentItem: vi.fn(), updateProgress: vi.fn(), addError: vi.fn(), complete: vi.fn(), stop: null };
     host.ask = vi.fn(async messages => answerWith([`keys from ${messages[1].content.split('\n')[2].split(' ')[0]}`]));
     keysModule = await import('../src/features/lorebase/lorebase-keys.js');
 });
@@ -62,7 +71,7 @@ describe('writing keys', () => {
         stored[BOOK] = { 0: ['old keys'] };
         const result = await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')], QDRANT);
 
-        expect(result).toEqual({ written: 1, failed: 0 });
+        expect(result).toEqual({ written: 1, failed: 0, stopped: 0 });
         expect(host.ask).toHaveBeenCalledTimes(1);
         expect(routeCalls.map(call => call.url)).toEqual(['/api/plugins/similharity/lorebase/keys/read', '/api/plugins/similharity/lorebase/keys/write']);
         expect(routeCalls[1].request).toEqual({ book: BOOK, entries: [{ uid: '1', keys: ['keys from Tidewardens'] }] });
@@ -80,7 +89,7 @@ describe('writing keys', () => {
         await keysModule.readBookKeys([BOOK]);
         const result = await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')], QDRANT, { isRegenerating: true });
 
-        expect(result).toEqual({ written: 2, failed: 0 });
+        expect(result).toEqual({ written: 2, failed: 0, stopped: 0 });
         expect(stored[BOOK]).toEqual({ 0: ['keys from Lighthouse'], 1: ['keys from Tidewardens'] });
     });
 
@@ -88,7 +97,7 @@ describe('writing keys', () => {
         host.ask = vi.fn(async () => answerWith([]));
         const result = await keysModule.writeKeys(BOOK, [entry(4, 'Drowned Bell')], QDRANT);
 
-        expect(result).toEqual({ written: 0, failed: 1 });
+        expect(result).toEqual({ written: 0, failed: 1, stopped: 0 });
         expect(host.ask).toHaveBeenCalledTimes(3);
         expect(keysModule.keyStateOf(BOOK, '4')).toEqual({ status: 'failed', detail: 'its answer held no keys' });
         expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('could not write the keys of "Drowned Bell" in lorebook "Harbor Atlas"');
@@ -99,7 +108,7 @@ describe('writing keys', () => {
         host.ask = vi.fn().mockRejectedValueOnce(new Error('upstream timeout')).mockResolvedValue(answerWith(['bell']));
         const result = await keysModule.writeKeys(BOOK, [entry(4, 'Drowned Bell')], QDRANT);
 
-        expect(result).toEqual({ written: 1, failed: 0 });
+        expect(result).toEqual({ written: 1, failed: 0, stopped: 0 });
         expect(host.ask).toHaveBeenCalledTimes(2);
         expect(globalThis.toastr.warning).not.toHaveBeenCalled();
     });
@@ -117,7 +126,7 @@ describe('writing keys', () => {
         const entries = Array.from({ length: 14 }, (_, uid) => entry(uid, `Pier ${uid}`));
         const result = await keysModule.writeKeys(BOOK, entries, QDRANT);
 
-        expect(result).toEqual({ written: 14, failed: 0 });
+        expect(result).toEqual({ written: 14, failed: 0, stopped: 0 });
         expect(most).toBe(6);
     });
 
@@ -166,7 +175,7 @@ describe("editing one entry's keys", () => {
 });
 
 describe('every key at once', () => {
-    it('Generate all keys writes the selected entries with no keys in every book with a selection, and counts what it did', async () => {
+    async function selectBooks() {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
         extension_settings.vectfox.lorebase_books = {
@@ -177,15 +186,59 @@ describe('every key at once', () => {
             [BOOK]: { entries: { 0: entry(0, 'Lighthouse'), 1: entry(1, 'Tidewardens'), 2: { ...entry(2, 'Tide clock'), constant: true }, 3: entry(3, 'Pier') } },
             'Desert Atlas': { entries: { 5: entry(5, 'Dunes') } },
         };
+        loadWorldInfo.mockClear();
         loadWorldInfo.mockImplementation(async bookName => {
             if (!books[bookName]) throw new Error('no such lorebook');
             return books[bookName];
         });
         stored[BOOK] = { 0: ['old keys'] };
+        return loadWorldInfo;
+    }
 
-        expect(await keysModule.writeKeysOfSelections(QDRANT)).toEqual({ written: 2, failed: 0, unreadBooks: 1 });
+    it('counts the selected entries LoreBase decides that have no keys, by book, a book it cannot read counted apart', async () => {
+        await selectBooks();
+        const pending = await keysModule.selectedEntriesWithoutKeys();
+        expect(pending.books.map(book => [book.bookName, book.entries.map(each => each.uid)])).toEqual([[BOOK, [1]], ['Desert Atlas', [5]]]);
+        expect([pending.count, pending.unreadBooks]).toEqual([2, 1]);
+        expect(host.ask).not.toHaveBeenCalled();
+    });
+
+    it('Generate all keys writes the selected entries with no keys in every book with a selection, and counts what it did', async () => {
+        const loadWorldInfo = await selectBooks();
+        expect(await keysModule.writeKeysOfSelections(QDRANT)).toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 1 });
         expect(stored).toEqual({ [BOOK]: { 0: ['old keys'], 1: ['keys from Tidewardens'] }, 'Desert Atlas': { 5: ['keys from Dunes'] } });
         expect(loadWorldInfo.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK, 'Desert Atlas', 'Lost Atlas']);
+    });
+
+    it('shows the writing on the progress panel: the entries to key, each one done, each failure, and the outcome', async () => {
+        await selectBooks();
+        host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? [{ keys: [] }] : answerWith(['tidewardens'])));
+        await keysModule.writeKeysOfSelections(QDRANT);
+        expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys', 2, 'Entries', { unitLabel: 'Entries' });
+        expect(host.panel.updateCurrentItem.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK, 'Desert Atlas']);
+        expect(host.panel.updateProgress.mock.calls.map(([done]) => done)).toEqual([1, 2]);
+        expect(host.panel.addError).toHaveBeenCalledWith('Dunes: its answer held no keys');
+        expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 1 entry; 1 failed');
+    });
+
+    it('shows no panel when no selected entry is missing keys', async () => {
+        expect(await keysModule.writeKeysOfSelections(QDRANT, { books: [], count: 0, unreadBooks: 0 })).toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0 });
+        expect(host.panel.show).not.toHaveBeenCalled();
+    });
+
+    it("the panel's Stop drops the entries not yet sent, back to no keys, and the run says how many it stopped", async () => {
+        const entries = Array.from({ length: 9 }, (_, uid) => entry(uid, `Pier ${uid}`));
+        const answers = [];
+        host.ask = vi.fn(() => new Promise(resolve => answers.push(resolve)));
+        const running = keysModule.writeKeysOfSelections(QDRANT, { books: [{ bookName: BOOK, entries }], count: 9, unreadBooks: 0 });
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalledTimes(6));
+
+        host.panel.stop();
+        expect(keysModule.keyStateOf(BOOK, '8')).toEqual({ status: 'missing' });
+        answers.forEach((resolve, index) => resolve(answerWith([`pier ${index}`])));
+        expect(await running).toEqual({ written: 6, failed: 0, stopped: 3, unreadBooks: 0 });
+        expect(host.ask).toHaveBeenCalledTimes(6);
+        expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 6 entries; 3 stopped');
     });
 
     it('Delete all keys deletes every key the user has, forgets the ones it knew, and tells the listeners', async () => {
@@ -224,14 +277,14 @@ describe('every key at once', () => {
 describe('what keys need', () => {
     it('writes nothing off Qdrant, and says LoreBase keeps them there', async () => {
         expect(keysModule.keyWritingProblem({ vector_backend: 'standard' })).toContain('Choose Qdrant as the vector backend');
-        expect(await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], { vector_backend: 'standard' })).toEqual({ written: 0, failed: 0 });
+        expect(await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], { vector_backend: 'standard' })).toEqual({ written: 0, failed: 0, stopped: 0 });
         expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
     it('writes nothing without LoreBase\'s model, and says where to set it', async () => {
         host.connection = { ok: false, reason: 'no_model', problem: 'LoreBase has no model.' };
         expect(keysModule.keyWritingProblem(QDRANT)).toBe('LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.');
-        expect(await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT)).toEqual({ written: 0, failed: 0 });
+        expect(await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT)).toEqual({ written: 0, failed: 0, stopped: 0 });
         expect(host.ask).not.toHaveBeenCalled();
     });
 

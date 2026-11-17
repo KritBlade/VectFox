@@ -3,7 +3,8 @@
  * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes,
  * each SillyTavern user's own. Turning an entry on, turning LoreBase on, Generate all keys and Regenerate keys write
  * them, a few calls at a time; the user can also edit one entry's keys, or have the model write them again to read
- * first, and Delete all keys deletes every one; nothing rewrites them on its own. An entry takes part in a reply only once its keys exist, and while they are written or
+ * first, and Delete all keys deletes every one; nothing rewrites them on its own. Turning LoreBase on and Generate all
+ * keys write under VectFox's progress panel, whose Stop drops the entries not yet sent. An entry takes part in a reply only once its keys exist, and while they are written or
  * after they fail, the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
@@ -11,6 +12,7 @@ import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { getLoreBook, selectedLoreBookNames } from './lorebase-books.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
+import { progressTracker } from '../../shared/progress-tracker.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import { KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCount, keysMessages, readKeys } from './lorebase-keys-core.js';
@@ -123,8 +125,9 @@ async function askForKeys(entry, ask) {
     throw new Error(lastProblem);
 }
 
-async function writeOne({ bookName, entry, ask, failures }) {
+async function writeOne({ bookName, entry, ask, failures, onEntryDone }) {
     const uid = String(entry.uid);
+    let failure = null;
     try {
         const keys = await askForKeys(entry, ask);
         await postKeysRoute('write', { book: bookName, entries: [{ uid, keys }] });
@@ -133,11 +136,12 @@ async function writeOne({ bookName, entry, ask, failures }) {
     } catch (error) {
         log.warn(`LoreBase: the keys of "${entryTitle(entry)}" in lorebook "${bookName}" could not be written:`, error);
         if (error?.kind === 'model_config') notifyInvalidModel(error.message);
-        const detail = String(error?.message || error);
-        mapOf(writeStates, bookName).set(uid, { status: 'failed', detail });
-        failures.push({ title: entryTitle(entry), detail });
+        failure = { title: entryTitle(entry), detail: String(error?.message || error) };
+        mapOf(writeStates, bookName).set(uid, { status: 'failed', detail: failure.detail });
+        failures.push(failure);
     }
     tellListeners(bookName);
+    onEntryDone?.(failure);
 }
 
 function runQueue() {
@@ -150,6 +154,20 @@ function runQueue() {
             runQueue();
         });
     }
+}
+
+/** Stop a run: its jobs not yet sent leave the queue, their entries back to having no keys, each counted as stopped. */
+function stopRun(run) {
+    run.isStopped = true;
+    const dropped = queue.filter(job => job.run === run);
+    if (!dropped.length) return;
+    queue.splice(0, queue.length, ...queue.filter(job => job.run !== run));
+    for (const job of dropped) {
+        mapOf(writeStates, job.bookName).delete(String(job.entry.uid));
+        job.outcome.stopped += 1;
+        job.done();
+    }
+    for (const bookName of new Set(dropped.map(job => job.bookName))) tellListeners(bookName);
 }
 
 function showKeyFailures(bookName, failures) {
@@ -165,19 +183,22 @@ function showKeyFailures(bookName, failures) {
 
 /**
  * Write the keys of a book's entries, a few calls at a time: those with none, or every one given when `isRegenerating`.
+ * A bulk run passes its `run`, whose stop drops the entries not yet sent, and `onEntryDone`, called with null or the
+ * failure as each entry is done.
  * Entries already being written are left to that writing. Never throws: a failed entry is marked failed, logged, and
  * named in one toast for the book once its writing is done.
  * @param {string} bookName
  * @param {object[]} entries - The book's entries, as loadWorldInfo returns them
  * @param {object} settings - VectFox settings
- * @param {{isRegenerating?: boolean}} [options] - isRegenerating: Regenerate keys, which rewrites hand-edited keys too
- * @returns {Promise<{written: number, failed: number}>} Once every entry given is written or failed
+ * @param {{isRegenerating?: boolean, run?: {isStopped: boolean}, onEntryDone?: (failure: object|null) => void}} [options]
+ *   isRegenerating: Regenerate keys, which rewrites hand-edited keys too
+ * @returns {Promise<{written: number, failed: number, stopped: number}>} Once every entry given is written, failed or stopped
  */
-export async function writeKeys(bookName, entries, settings, { isRegenerating = false } = {}) {
+export async function writeKeys(bookName, entries, settings, { isRegenerating = false, run = null, onEntryDone = null } = {}) {
     const problem = keyWritingProblem(settings);
     if (problem) {
         log.warn(`LoreBase: no keys written in lorebook "${bookName}": ${problem}`);
-        return { written: 0, failed: 0 };
+        return { written: 0, failed: 0, stopped: 0 };
     }
     if (!isRegenerating && !storedKeys.has(bookName)) {
         try {
@@ -185,24 +206,27 @@ export async function writeKeys(bookName, entries, settings, { isRegenerating = 
         } catch (error) {
             log.warn(`LoreBase: the keys of lorebook "${bookName}" could not be read, so none were written:`, error);
             showKeyFailures(bookName, entries.map(entry => ({ title: entryTitle(entry), detail: String(error?.message || error) })));
-            return { written: 0, failed: entries.length };
+            return { written: 0, failed: entries.length, stopped: 0 };
         }
     }
     const states = mapOf(writeStates, bookName);
     const stored = mapOf(storedKeys, bookName);
     const wanted = entries.filter(entry => states.get(String(entry.uid))?.status !== 'writing' && (isRegenerating || !stored.has(String(entry.uid))));
-    if (!wanted.length) return { written: 0, failed: 0 };
+    if (!wanted.length) return { written: 0, failed: 0, stopped: 0 };
     for (const entry of wanted) states.set(String(entry.uid), { status: 'writing' });
     tellListeners(bookName);
     const ask = askOnLoreBase(resolveLoreBaseLlmConfig(settings));
     const failures = [];
+    const outcome = { stopped: 0 };
     await Promise.all(wanted.map(entry => new Promise(done => {
-        queue.push({ bookName, entry, ask, failures, done });
+        queue.push({ bookName, entry, ask, failures, done, run, outcome, onEntryDone });
         runQueue();
     })));
     showKeyFailures(bookName, failures);
-    log.lifecycle(`LoreBase: wrote the keys of ${wanted.length - failures.length} of ${wanted.length} entries in lorebook "${bookName}"`);
-    return { written: wanted.length - failures.length, failed: failures.length };
+    const written = wanted.length - failures.length - outcome.stopped;
+    log.lifecycle(`LoreBase: wrote the keys of ${written} of ${wanted.length} entries in lorebook "${bookName}"`
+        + (outcome.stopped ? `, ${outcome.stopped} stopped` : ''));
+    return { written, failed: failures.length, stopped: outcome.stopped };
 }
 
 /**
@@ -236,29 +260,74 @@ export async function saveEditedKeys(bookName, uid, keys) {
 }
 
 /**
- * Write the keys of every selected entry LoreBase decides, in every book with a selection, that has none, as turning
- * LoreBase on and Generate all keys ask (§5.2, §5.9). Never throws: a book that cannot be read is logged and counted,
- * and each book's failures get its toast.
- * @param {object} settings - VectFox settings
- * @returns {Promise<{written: number, failed: number, unreadBooks: number}>}
+ * The selected entries LoreBase decides that have no keys and are not being written, by book: every book with a
+ * selection loaded and its keys read from Similharity now. A book that cannot be loaded is logged and counted.
+ * @returns {Promise<{books: Array<{bookName: string, entries: object[]}>, count: number, unreadBooks: number}>}
+ * @throws {Error} When Similharity cannot read the keys
  */
-export async function writeKeysOfSelections(settings) {
-    const totals = { written: 0, failed: 0, unreadBooks: 0 };
+export async function selectedEntriesWithoutKeys() {
+    const loaded = [];
+    let unreadBooks = 0;
     for (const bookName of selectedLoreBookNames()) {
-        let book;
         try {
-            book = await loadWorldInfo(bookName);
+            const entries = decidedEntries(await loadWorldInfo(bookName), getLoreBook(bookName));
+            if (entries.length) loaded.push({ bookName, entries });
         } catch (error) {
-            log.warn(`LoreBase: lorebook "${bookName}" could not be read, so its selected entries' keys were not written:`, error);
-            totals.unreadBooks += 1;
+            log.warn(`LoreBase: lorebook "${bookName}" could not be read, so its selected entries' keys were not counted:`, error);
+            unreadBooks += 1;
+        }
+    }
+    const keys = await readBookKeys(loaded.map(book => book.bookName));
+    const books = loaded
+        .map(({ bookName, entries }) => ({ bookName, entries: entries.filter(entry => !keys[bookName]?.[String(entry.uid)]
+            && writeStates.get(bookName)?.get(String(entry.uid))?.status !== 'writing') }))
+        .filter(book => book.entries.length);
+    return { books, count: books.reduce((sum, book) => sum + book.entries.length, 0), unreadBooks };
+}
+
+function writtenSummary({ written, failed, stopped }) {
+    const parts = [`Wrote the keys of ${written} ${written === 1 ? 'entry' : 'entries'}`];
+    if (failed) parts.push(`${failed} failed`);
+    if (stopped) parts.push(`${stopped} stopped`);
+    return parts.join('; ');
+}
+
+/**
+ * Write the keys of every selected entry LoreBase decides, in every book with a selection, that has none, as turning
+ * LoreBase on and Generate all keys ask (§5.2, §5.9), under VectFox's progress panel, whose Stop drops the entries not
+ * yet sent. Each book's failures get its toast and the panel's list.
+ * @param {object} settings - VectFox settings
+ * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>} [pending] - What to write, when the caller read it
+ * @returns {Promise<{written: number, failed: number, stopped: number, unreadBooks: number}>}
+ * @throws {Error} When Similharity cannot read the keys
+ */
+export async function writeKeysOfSelections(settings, pending = null) {
+    const { books, count, unreadBooks } = pending ?? await selectedEntriesWithoutKeys();
+    const totals = { written: 0, failed: 0, stopped: 0, unreadBooks };
+    if (!count) return totals;
+    const run = { isStopped: false };
+    let done = 0;
+    progressTracker.show('LoreBase keys', count, 'Entries', { unitLabel: 'Entries' });
+    progressTracker.setCancelHandler(() => stopRun(run));
+    for (const { bookName, entries } of books) {
+        if (run.isStopped) {
+            totals.stopped += entries.length;
             continue;
         }
-        const entries = decidedEntries(book, getLoreBook(bookName));
-        if (!entries.length) continue;
-        const { written, failed } = await writeKeys(bookName, entries, settings);
-        totals.written += written;
-        totals.failed += failed;
+        progressTracker.updateCurrentItem(bookName);
+        const result = await writeKeys(bookName, entries, settings, {
+            run,
+            onEntryDone: failure => {
+                done += 1;
+                if (failure) progressTracker.addError(`${failure.title}: ${failure.detail.slice(0, 200)}`);
+                progressTracker.updateProgress(done);
+            },
+        });
+        totals.written += result.written;
+        totals.failed += result.failed;
+        totals.stopped += result.stopped;
     }
+    progressTracker.complete(!totals.failed && !totals.stopped, writtenSummary(totals));
     return totals;
 }
 
