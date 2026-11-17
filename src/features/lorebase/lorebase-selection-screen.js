@@ -2,10 +2,11 @@
  * LoreBase's selection screen (plan §5.2 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
  * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
- * saves as it changes, as GUI-DNA asks. Turning entries on has LoreBase's model write their keys (D17), which each
- * selected row shows as they are written, and Regenerate keys writes the ticked entries' keys anew; a selected row's
- * pencil edits its keys in a dialog, where Regenerate fills the box from the model for the user to read before saving.
- * When keys cannot be written (no Qdrant, no model), turning entries on says why and selects nothing.
+ * saves as it changes, as GUI-DNA asks. While LoreBase is on, turning entries on has LoreBase's model write their keys
+ * (D17), which each selected row shows as they are written, and when keys cannot be written (no Qdrant, no model),
+ * turning entries on says why and selects nothing. While it is off, turning entries on only selects them: turning
+ * LoreBase on asks to write their keys. Regenerate keys writes the ticked entries' keys anew; a selected row's pencil
+ * edits its keys in a dialog, where Regenerate fills the box from the model for the user to read before saving.
  * Opening a book keeps the uids it holds, so an entry added later shows as new, and drops the uids of deleted entries
  * from its selection.
  */
@@ -20,6 +21,7 @@ import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { editedKeys } from './lorebase-keys-core.js';
 import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys, writeKeys } from './lorebase-keys.js';
 import { entryTitle } from './lorebase-splitter.js';
+import { isLoreBaseSwitchedOn } from './lorebase-switch.js';
 import {
     bookChoices, categoryList, entrySectionNames, filterRows, invertTicks, liveSelection, pinnableSections, selectionAfterBulk,
     selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
@@ -67,6 +69,9 @@ function isKeyWritingBlocked(heading) {
 
 const TURN_ON_HEADING = 'LoreBase writes keys for each entry it decides, so no entry can be turned on yet.';
 
+/** Whether turning entries on is refused now: only while LoreBase is on, which writes their keys at once, and cannot. */
+const isTurningOnBlocked = () => isLoreBaseSwitchedOn() && isKeyWritingBlocked(TURN_ON_HEADING);
+
 function currentChoices() {
     const names = [...world_names];
     return bookChoices(names, chatBookNames(), recordsOf(names));
@@ -112,7 +117,9 @@ function renderSummaryText(root, session) {
     for (const row of session.rows) {
         if (row.isSelected && !row.keptBySillyTavern) counts[keyStateOf(session.bookName, row.uid).status] += 1;
     }
-    const keyLine = session.keyReadProblem ? `The keys could not be read: ${session.keyReadProblem}` : keySummaryText(counts);
+    const keyLine = session.keyReadProblem
+        ? `The keys could not be read: ${session.keyReadProblem}`
+        : keySummaryText(counts, { isLoreBaseOn: isLoreBaseSwitchedOn() });
     const keysOf = uid => {
         const state = keyStateOf(session.bookName, uid);
         return state.status === 'ready' ? state.keys : [];
@@ -127,8 +134,9 @@ function renderSelectionSummary(root, session) {
     byId(root, ids.book).innerHTML = bookOptions(currentChoices(), session.bookName).join('');
 }
 
-/** Write the keys of the entries a selection change turned on, in the background (D17). */
+/** Write the keys of the entries a selection change turned on, in the background, while LoreBase is on (D17). */
 function writeTurnedOnKeys(session, before) {
+    if (!isLoreBaseSwitchedOn()) return;
     const turnedOn = new Set(session.rows.filter(row => row.isSelected && !before.has(row.uid)).map(row => row.uid));
     if (turnedOn.size) void writeKeys(session.bookName, bookEntriesOf(session, turnedOn), extension_settings.vectfox);
 }
@@ -159,12 +167,12 @@ function renderLocks(root, session) {
 }
 
 /**
- * Save a new selection for the book shown, and redraw what it changes. One that turns entries on first checks keys can
- * be written, and saves nothing when they cannot; then their keys are written.
+ * Save a new selection for the book shown, and redraw what it changes. While LoreBase is on, one that turns entries on
+ * first checks keys can be written, and saves nothing when they cannot; then their keys are written.
  */
 function saveSelection(root, session, selectedUids) {
     const before = new Set(selectedUidsOf(session));
-    if (selectedUids.some(uid => !before.has(String(uid))) && isKeyWritingBlocked(TURN_ON_HEADING)) return;
+    if (selectedUids.some(uid => !before.has(String(uid))) && isTurningOnBlocked()) return;
     setLoreBookSelection(session.bookName, selectedUids);
     const selected = new Set(selectedUids.map(String));
     for (const row of session.rows) row.isSelected = selected.has(row.uid);
@@ -175,13 +183,13 @@ function saveSelection(root, session, selectedUids) {
 }
 
 /**
- * Turn one entry on or off, redrawing only its row so the keyboard stays on its toggle. Turning it on first checks
- * keys can be written, then writes them.
+ * Turn one entry on or off, redrawing only its row so the keyboard stays on its toggle. While LoreBase is on, turning
+ * it on first checks keys can be written, then writes them.
  */
 function toggleEntry(root, session, uid) {
     const row = session.rows.find(candidate => candidate.uid === uid);
     if (!row || (row.keptBySillyTavern && !row.isSelected)) return;
-    if (!row.isSelected && isKeyWritingBlocked(TURN_ON_HEADING)) return;
+    if (!row.isSelected && isTurningOnBlocked()) return;
     const before = new Set(selectedUidsOf(session));
     row.isSelected = !row.isSelected;
     setLoreBookSelection(session.bookName, selectedUidsOf(session));

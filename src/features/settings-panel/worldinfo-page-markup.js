@@ -24,14 +24,14 @@ const formatSeconds = seconds => `${Number(seconds).toFixed(1)} s`;
 // LoreBase's switch (plan §5.9), off until the user turns it on, and its books (§5.2): the list loreBaseBooksMarkup
 // draws for the open chat, the selection screen's door, and the keys of every selected entry at once (D17): Generate
 // all keys writes the missing ones, Delete all keys deletes them all, its status line saying how it went. While the
-// switch is off, lorebase-books-card.js disables the page's other LoreBase controls but Delete all keys, and shows the
-// notice.
+// switch is off, lorebase-books-card.js disables Generate all keys, since turning LoreBase on asks to write them, and
+// shows the notice saying what to do first.
 function loreBaseBooksCard() {
     return `<section id="VectFox_lorebase_books_card" class="vfx-card">
         ${cardHeader({ icon: 'fa-book-open', title: 'LoreBase books', description: 'The lorebooks this chat loads. LoreBase decides selected entries in books locked here.' })}
         <div class="vfx-card-body vfx-stack">
             ${switchRow({ id: 'VectFox_lorebase_enabled', title: 'Use LoreBase', description: 'Off: every entry fires by its keys, as SillyTavern does. Selections are kept.' })}
-            <div id="VectFox_lorebase_off_notice">${notice({ status: 'info', text: 'Turn on Use LoreBase to choose entries and set its model.' })}</div>
+            <div id="VectFox_lorebase_off_notice">${notice({ status: 'info', text: "Choose entries and set LoreBase's model, then turn on Use LoreBase: it asks before writing their keys." })}</div>
             <div id="VectFox_lorebase_books" aria-live="polite"></div>
             ${controlRow([button({ text: 'Choose entries', icon: 'fa-list-check', kind: 'primary', data: { 'lorebase-choose': '' } })])}
             ${hint({ text: "Choose any lorebook's entries for LoreBase, and lock the book to this chat or character." })}
@@ -39,7 +39,7 @@ function loreBaseBooksCard() {
                 buttonWithId({ id: 'VectFox_lorebase_generate_keys', text: 'Generate all keys', icon: 'fa-key' }),
                 buttonWithId({ id: 'VectFox_lorebase_delete_keys', text: 'Delete all keys', icon: 'fa-trash' }),
             ])}
-            ${hint({ text: 'Generate writes keys for selected entries that have none. Delete removes all of yours.' })}
+            ${hint({ text: "Generate fills selected entries' missing keys. Delete removes all and turns LoreBase off." })}
             <p id="VectFox_lorebase_keys_status" class="vfx-hint" aria-live="polite" hidden></p>
         </div>
     </section>`;

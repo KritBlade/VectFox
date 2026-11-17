@@ -4,7 +4,8 @@
  * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
  * LoreBase's model. Generate all keys writes the missing keys of every book with a selection under the progress panel,
- * whose Stop drops the entries not yet sent, and Delete all keys deletes every key, never while keys are written.
+ * whose Stop drops the entries not yet sent, telling its run listeners as it starts and ends; Delete all keys deletes
+ * every key, never while keys are written.
  * Similharity's routes are a fetch stand-in holding the keys in memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -221,9 +222,20 @@ describe('every key at once', () => {
         expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 1 entry; 1 failed');
     });
 
-    it('shows no panel when no selected entry is missing keys', async () => {
+    it('tells its run listeners as the run starts, with the entries to key, and as it ends, with what it did', async () => {
+        await selectBooks();
+        const seen = [];
+        keysModule.onKeyRunChange(run => seen.push(run));
+        await keysModule.writeKeysOfSelections(QDRANT);
+        expect(seen).toEqual([{ count: 2, totals: null }, { count: 2, totals: { written: 2, failed: 0, stopped: 0, unreadBooks: 1 } }]);
+    });
+
+    it('shows no panel and tells no run listener when no selected entry is missing keys', async () => {
+        const seen = [];
+        keysModule.onKeyRunChange(run => seen.push(run));
         expect(await keysModule.writeKeysOfSelections(QDRANT, { books: [], count: 0, unreadBooks: 0 })).toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0 });
         expect(host.panel.show).not.toHaveBeenCalled();
+        expect(seen).toEqual([]);
     });
 
     it("the panel's Stop drops the entries not yet sent, back to no keys, and the run says how many it stopped", async () => {

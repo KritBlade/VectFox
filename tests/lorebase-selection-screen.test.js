@@ -5,9 +5,10 @@
  * plans/lorebook-semantic-overhaul-passage-index.md), driven as a user would while it is open: it opens on the chat's
  * book with the chat's books first; each row's toggle, a category's toggle and the bulk bar save the selection at
  * once; ticks follow the filters and shift-click; a row's eye button shows its entry and saves nothing; the locks and
- * the pins save; opening a book keeps its uids for the new marks and drops deleted ones from the selection; turning
- * entries on writes their keys, each selected row shows where its keys stand, Regenerate keys writes the ticked
- * entries' keys anew, and when keys cannot be written turning entries on says why and selects nothing (D17).
+ * the pins save; opening a book keeps its uids for the new marks and drops deleted ones from the selection. While
+ * LoreBase is on, turning entries on writes their keys, and when keys cannot be written says why and selects nothing;
+ * while it is off, turning entries on only selects them, the footer saying turning LoreBase on asks to write their
+ * keys. Each selected row shows where its keys stand, and Regenerate keys writes the ticked entries' keys anew (D17).
  */
 /* global document, MouseEvent -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -95,7 +96,7 @@ beforeEach(() => {
     host.globalBooks.splice(0, host.globalBooks.length);
     host.chatId = 'chat-harbor';
     host.context = { characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png', data: { extensions: { world: 'Harbor Atlas' } } } }, characterId: '3', chatMetadata: {}, powerUserSettings: {} };
-    host.settings.vectfox = {};
+    host.settings.vectfox = { lorebase_enabled: true };
     host.noticePopup.mockReset();
     host.formPopup.mockReset();
     host.regenerateKeys.mockReset();
@@ -264,6 +265,27 @@ describe('keys (D17)', () => {
         expect(host.keyWrites).toEqual([]);
         expect(host.noticePopup).toHaveBeenCalledTimes(2);
         expect(host.noticePopup.mock.calls[0][0][1].text).toContain('Choose Qdrant');
+    });
+
+    it('while LoreBase is off, only selects the entries turned on, the footer saying turning it on asks to write their keys', async () => {
+        host.settings.vectfox.lorebase_enabled = false;
+        await openScreen();
+        entryToggle('1').click();
+        tickBox('4').click();
+        actionButton('turn-on').click();
+        expect(record().selectedUids).toEqual(['1', '4']);
+        expect(host.keyWrites).toEqual([]);
+        expect($id('vectfox_lorebase_summary').textContent).toMatch(/Keys: 0 written, 2 not written yet\. Turning on Use LoreBase asks to write them\.$/);
+    });
+
+    it('while LoreBase is off, selects entries with no model or Qdrant yet, asking nothing', async () => {
+        host.settings.vectfox.lorebase_enabled = false;
+        host.keyProblem = 'LoreBase keeps the keys its model writes for each entry in Qdrant. Choose Qdrant as the vector backend first.';
+        await openScreen();
+        entryToggle('1').click();
+        actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
+        expect(record().selectedUids).toEqual(['1', '0']);
+        expect([host.keyWrites, host.noticePopup.mock.calls]).toEqual([[], []]);
     });
 });
 

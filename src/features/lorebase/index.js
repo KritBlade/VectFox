@@ -16,10 +16,11 @@
 // locks move to their books, with a notice naming the books.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
+export { selectedLoreBookNames } from './lorebase-books.js';
 export { chatBookLocks } from './lorebase-chat-books.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
-export { deleteAllKeys, keyWritingProblem, writeKeysOfSelections } from './lorebase-keys.js';
+export { deleteAllKeys, keyWritingProblem, onKeyRunChange, writeKeysOfSelections } from './lorebase-keys.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';

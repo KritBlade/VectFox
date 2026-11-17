@@ -443,17 +443,22 @@ export function summaryText({ entryCount, titleTokens }) {
 
 /**
  * Where the selected entries' keys stand (D17): how many are written, being written, failed or not written yet; '' when
- * none is selected. An entry sends nothing until its keys are written.
+ * none is selected. An entry sends nothing until its keys are written; while LoreBase is off, turning it on asks to
+ * write the missing ones.
  * @param {{ready: number, writing: number, failed: number, missing: number}} counts
+ * @param {{isLoreBaseOn?: boolean}} [options] - isLoreBaseOn: Use LoreBase's switch
  * @returns {string}
  */
-export function keySummaryText({ ready, writing, failed, missing }) {
+export function keySummaryText({ ready, writing, failed, missing }, { isLoreBaseOn = true } = {}) {
     if (!ready && !writing && !failed && !missing) return '';
     const parts = [`${formatCount(ready)} written`];
     if (writing) parts.push(`${formatCount(writing)} being written`);
     if (failed) parts.push(`${formatCount(failed)} failed`);
     if (missing) parts.push(`${formatCount(missing)} not written yet`);
     const waiting = writing + failed + missing;
+    const line = `Keys: ${parts.join(', ')}.`;
+    if (!waiting) return line;
+    if (!isLoreBaseOn) return `${line} Turning on Use LoreBase asks to write them.`;
     const wait = waiting === 1 ? 'sends nothing until its keys are written' : 'send nothing until their keys are written';
-    return `Keys: ${parts.join(', ')}.${waiting ? ` ${counted(waiting, 'selected entry', 'selected entries')} ${wait}.` : ''}`;
+    return `${line} ${counted(waiting, 'selected entry', 'selected entries')} ${wait}.`;
 }

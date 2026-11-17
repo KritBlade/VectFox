@@ -30,6 +30,7 @@ const storedKeys = new Map();
 // Entries being written or whose writing failed: book name -> uid -> {status: 'writing'} | {status: 'failed', detail}.
 const writeStates = new Map();
 const stateListeners = new Set();
+const runListeners = new Set();
 const queue = [];
 let runningCalls = 0;
 
@@ -38,15 +39,17 @@ const mapOf = (maps, bookName) => {
     return maps.get(bookName);
 };
 
-function tellListeners(bookName) {
-    for (const listener of stateListeners) {
+function callEach(listeners, update) {
+    for (const listener of listeners) {
         try {
-            listener(bookName);
+            listener(update);
         } catch (error) {
-            log.warn('LoreBase: a key state listener failed:', error);
+            log.warn('LoreBase: a key listener failed:', error);
         }
     }
 }
+
+const tellListeners = bookName => callEach(stateListeners, bookName);
 
 /**
  * Call `listener` with a book's name each time one of its entries' keys is written, starts being written or fails.
@@ -56,6 +59,18 @@ function tellListeners(bookName) {
 export function onKeyStateChange(listener) {
     stateListeners.add(listener);
     return () => stateListeners.delete(listener);
+}
+
+/**
+ * Call `listener` as a run writing the keys of every selection (Generate all keys, or turning LoreBase on) starts, with
+ * `{count, totals: null}`, and as it ends, with `{count, totals}`, the totals writeKeysOfSelections returns. A run with
+ * nothing to write makes no call.
+ * @param {(run: {count: number, totals: {written: number, failed: number, stopped: number, unreadBooks: number}|null}) => void} listener
+ * @returns {() => void} Stops the calls
+ */
+export function onKeyRunChange(listener) {
+    runListeners.add(listener);
+    return () => runListeners.delete(listener);
 }
 
 async function postKeysRoute(action, body) {
@@ -309,6 +324,7 @@ export async function writeKeysOfSelections(settings, pending = null) {
     let done = 0;
     progressTracker.show('LoreBase keys', count, 'Entries', { unitLabel: 'Entries' });
     progressTracker.setCancelHandler(() => stopRun(run));
+    callEach(runListeners, { count, totals: null });
     for (const { bookName, entries } of books) {
         if (run.isStopped) {
             totals.stopped += entries.length;
@@ -328,6 +344,7 @@ export async function writeKeysOfSelections(settings, pending = null) {
         totals.stopped += result.stopped;
     }
     progressTracker.complete(!totals.failed && !totals.stopped, writtenSummary(totals));
+    callEach(runListeners, { count, totals: { ...totals } });
     return totals;
 }
 

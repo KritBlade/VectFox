@@ -1,18 +1,20 @@
 /**
  * The WorldInfo page's LoreBase controls (plan §5.2 and §5.9 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md). LoreBase's switch: turning it on asks first about Vector Storage's
- * World Info search when that is on, and while it is off every other LoreBase control on the page is disabled, with a
- * notice saying why, but Delete all keys. The books card: it draws the open chat's books with their selected counts and
+ * lorebook-semantic-overhaul-passage-index.md). LoreBase's switch: turning it on asks first about the selected entries'
+ * missing keys and Vector Storage's World Info search, and with nothing selected says to choose entries. While it is
+ * off, the user still chooses entries and sets its model, and a notice says to do that before turning it on; only
+ * Generate all keys waits, since turning LoreBase on asks to write them. The books card: it draws the open chat's books with their selected counts and
  * locks, and opens LoreBase's selection screen on the book a row names, or on the chat's first book from the card's own
  * button, drawing the list again once the screen closes. Generate all keys writes the keys of every selected entry, in
- * every book, that has none; Delete all keys, once confirmed, deletes every key the user has (D17); the card's status
- * line says how each went.
+ * every book, that has none; Delete all keys, once confirmed, deletes every key the user has and turns LoreBase off
+ * (D17). The card's status line says how each went, and shows the keys written when LoreBase turns on as it shows
+ * Generate all keys: the entries being keyed, then what was written.
  */
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
-    chatBookLocks, deleteAllKeys, isLoreBaseSwitchedOn, keyWritingProblem, onLoreBaseSwitchChange, openLoreBaseSelection,
-    turnLoreBaseOff, turnLoreBaseOn, writeKeysOfSelections,
+    chatBookLocks, deleteAllKeys, isLoreBaseSwitchedOn, keyWritingProblem, onKeyRunChange, onLoreBaseSwitchChange,
+    openLoreBaseSelection, selectedLoreBookNames, turnLoreBaseOff, turnLoreBaseOn, writeKeysOfSelections,
 } from '../lorebase/index.js';
 import { loreBaseBooksMarkup } from './worldinfo-page-markup.js';
 
@@ -20,25 +22,15 @@ const SWITCH_ID = 'VectFox_lorebase_enabled';
 const GENERATE_KEYS_ID = 'VectFox_lorebase_generate_keys';
 const DELETE_KEYS_ID = 'VectFox_lorebase_delete_keys';
 const KEYS_STATUS_ID = 'VectFox_lorebase_keys_status';
-// Controls that work while the switch is off: the switch, and Delete all keys, since turning LoreBase on writes keys.
-const SWITCH_FREE_IDS = new Set([SWITCH_ID, DELETE_KEYS_ID]);
-const LOREBASE_CARD_IDS = ['VectFox_lorebase_books_card', 'VectFox_lorebase_model_card'];
-// The cards' own collapse and help buttons, which keep working while the switch is off.
-const CARD_CHROME = '.vfx-collapse, .vfx-help-toggle';
+let isGeneratingKeys = false;
 
-/** The page's LoreBase controls that wait for the switch: every one on its two cards but SWITCH_FREE_IDS and card chrome. */
-function waitingControls() {
-    return LOREBASE_CARD_IDS
-        .flatMap(id => [...(document.getElementById(id)?.querySelectorAll('button, input, select, textarea') ?? [])])
-        .filter(control => !SWITCH_FREE_IDS.has(control.id) && !control.matches(CARD_CHROME));
-}
-
-/** Show LoreBase's switch as saved, and while it is off disable the page's other LoreBase controls, saying why. */
+/** Show LoreBase's switch as saved; while it is off, show the notice and disable Generate all keys. */
 function paintLoreBaseSwitch() {
     const isOn = isLoreBaseSwitchedOn();
     const toggle = document.getElementById(SWITCH_ID);
     if (toggle) toggle.checked = isOn;
-    for (const control of waitingControls()) control.disabled = !isOn;
+    const generate = document.getElementById(GENERATE_KEYS_ID);
+    if (generate) generate.disabled = !isOn || isGeneratingKeys;
     const offNotice = document.getElementById('VectFox_lorebase_off_notice');
     if (offNotice) offNotice.hidden = isOn;
 }
@@ -71,6 +63,12 @@ function generatedText({ written, failed, stopped, unreadBooks }) {
     return lines.join(' ');
 }
 
+/** A run writing the keys of every selection, from Generate all keys or turning LoreBase on: what it keys, then did. */
+function showKeyRun({ count, totals }) {
+    showKeysStatus(totals ? generatedText(totals)
+        : `Writing the keys of ${counted(count, 'selected entry', 'selected entries')} with none; the progress panel counts them.`);
+}
+
 /** Generate all keys: write the keys of every selected entry, in every book, that has none. */
 async function generateAllKeys(settings, button) {
     const problem = keyWritingProblem(settings);
@@ -78,30 +76,44 @@ async function generateAllKeys(settings, button) {
         showKeysStatus(`Not written: ${problem}`);
         return;
     }
+    isGeneratingKeys = true;
     button.disabled = true;
-    showKeysStatus('Writing the keys of selected entries that have none; the progress panel counts them.');
+    showKeysStatus('Counting the selected entries with no keys.');
     try {
         showKeysStatus(generatedText(await writeKeysOfSelections(settings)));
     } catch (error) {
         log.error('LoreBase: Generate all keys failed:', error);
         showKeysStatus(`Not written: ${error?.message || error}`);
     } finally {
-        button.disabled = !isLoreBaseSwitchedOn();
+        isGeneratingKeys = false;
+        paintLoreBaseSwitch();
     }
 }
 
-/** Delete all keys, once the user confirms: every LoreBase key they have, in every book. */
+/** Turn LoreBase on from its switch; with nothing selected anywhere, the status line says to choose entries next. */
+async function switchLoreBaseOn() {
+    if (await turnLoreBaseOn() && !selectedLoreBookNames().length) {
+        showKeysStatus('LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.');
+    }
+}
+
+/**
+ * Delete all keys, once the user confirms: every LoreBase key they have, in every book. Once deleted, LoreBase turns
+ * off, since its selected entries would send nothing; turning it on again asks to write their keys.
+ */
 async function deleteKeys(button) {
     const isConfirmed = await confirmPopup([
         { text: 'Delete every LoreBase key you have, in every lorebook?' },
-        { text: 'Selected entries stay selected, but send nothing until Generate all keys writes their keys again.' },
+        { text: 'Use LoreBase turns off, and selections are kept; turning it on asks to write their keys again.' },
         { text: 'Keys you edited by hand are lost.' },
     ], { okButton: 'Delete all keys', isDestructive: true });
     if (!isConfirmed) return;
     button.disabled = true;
     try {
         const deleted = await deleteAllKeys();
-        showKeysStatus(`Deleted the keys of ${counted(deleted, 'entry', 'entries')}. Selected entries send nothing until Generate all keys.`);
+        if (isLoreBaseSwitchedOn()) turnLoreBaseOff();
+        showKeysStatus(`Deleted the keys of ${counted(deleted, 'entry', 'entries')}: no entry has keys now, and Use LoreBase `
+            + 'is off. Turn it on to write them again.');
     } catch (error) {
         log.warn('LoreBase: Delete all keys failed:', error);
         showKeysStatus(`Not deleted: ${error?.message || error}`);
@@ -119,16 +131,18 @@ export function bindLoreBaseBooksCard(settings) {
     document.getElementById(GENERATE_KEYS_ID)?.addEventListener('click', event => void generateAllKeys(settings, event.currentTarget));
     document.getElementById(DELETE_KEYS_ID)?.addEventListener('click', event => void deleteKeys(event.currentTarget));
     document.getElementById(SWITCH_ID)?.addEventListener('change', async event => {
-        if (event.currentTarget.checked) await turnLoreBaseOn();
+        if (event.currentTarget.checked) await switchLoreBaseOn();
         else turnLoreBaseOff();
         // Turning on can end off, when the user keeps Vector Storage's World Info search.
         paintLoreBaseSwitch();
     });
     // A reply's question can turn LoreBase off while the page is shown.
     onLoreBaseSwitchChange(paintLoreBaseSwitch);
+    // Turning LoreBase on writes keys too, and the status line shows that run as it shows Generate all keys.
+    onKeyRunChange(showKeyRun);
     document.getElementById('VectFox_lorebase_books_card')?.addEventListener('click', async event => {
         const opener = event.target.closest('[data-lorebase-choose]');
-        if (!opener || opener.disabled) return;
+        if (!opener) return;
         try {
             await openLoreBaseSelection({ bookName: opener.dataset.lorebaseChoose });
         } catch (error) {
