@@ -148,3 +148,19 @@ But picky cuts both ways. LoreBase sends what it is sure the next reply needs, a
 If you play in another language than your book, like Chinese against an English book, turn on more. Keys miss across languages, the LoreBase model doesn't.
 
 Basically, turn on the lore, leave the rules, the overviews and the main character to SillyTavern, and let the LoreBase model decide what goes in. Everything you don't turn on keeps working the old way.
+
+
+##  how lowerbase works now
+
+**Today: how LoreBase works now**
+
+On each reply, Luna works in two steps:
+1. **Pick.** Luna sees one line per entry, a number and the title only, and picks up to 6 entries:
+   ```
+   12. battle
+   ```
+2. **Review.** For each picked entry, Luna reads its text, cut into numbered parts, and says which parts the reply doesn't need. The parts come from VectFox's splitter: the author's own headings, otherwise windows of about 300 tokens. Only the kept parts are sent.
+
+"Today asked again" is the same thing run a second time, to show how much the numbers move from luck alone.
+
+
