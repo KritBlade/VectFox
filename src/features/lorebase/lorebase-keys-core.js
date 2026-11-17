@@ -2,8 +2,8 @@
  * The keys LoreBase's model writes for each entry the user turns on (plan D17 and §5.6 of InternalProject/Vectfox/
  * plans/lorebook-semantic-overhaul-passage-index.md): T20's prompt word for word (`LUNA_KEYS_SYSTEM` and
  * `LUNA_KEYS_PROMPT` in tools/lorebase-benchmark/segment_trials.py), on the entry's text, and its answer read as T20
- * read it (`read_luna_keys`). tests/lorebase-keys-core.test.js holds the prompt to T20's own rendering. Pure: no
- * SillyTavern, no network.
+ * read it (`read_luna_keys`); and the keys the user types in an entry's edit dialog. tests/lorebase-keys-core.test.js
+ * holds the prompt to T20's own rendering. Pure: no SillyTavern, no network.
  */
 import { THINKING_TOKEN_ALLOWANCE } from './lorebase-reply-core.js';
 import { estimatedTokens, roundHalfEven } from './lorebase-splitter.js';
@@ -64,4 +64,27 @@ export function readKeys(items, count) {
     if (!Array.isArray(keys)) return null;
     const cleaned = [...new Set(keys.filter(key => typeof key === 'string').map(key => key.trim()).filter(Boolean))];
     return cleaned.length ? cleaned.slice(0, count) : null;
+}
+
+// What Similharity stores for one entry (its lorebase-keys.js): at most this many keys, each at most this long.
+const MOST_KEYS = 200;
+const LONGEST_KEY = 300;
+// How much of a key too long to keep the problem names.
+const QUOTED_KEY_CHARACTERS = 40;
+
+/**
+ * The keys the user typed for an entry in its edit dialog, one per line: trimmed, each once, in their order; or why
+ * Similharity would not store them.
+ * @param {string} text - The dialog's box
+ * @returns {{keys: string[]}|{problem: string}}
+ */
+export function editedKeys(text) {
+    const keys = [...new Set(String(text ?? '').split(/\r?\n/u).map(line => line.trim()).filter(Boolean))];
+    if (!keys.length) return { problem: "An entry needs at least one key. Regenerate asks LoreBase's model for them." };
+    if (keys.length > MOST_KEYS) return { problem: `An entry holds at most ${MOST_KEYS} keys, and these are ${keys.length}.` };
+    const tooLong = keys.find(key => key.length > LONGEST_KEY);
+    if (tooLong) {
+        return { problem: `A key holds at most ${LONGEST_KEY} characters, and "${tooLong.slice(0, QUOTED_KEY_CHARACTERS)}…" holds ${tooLong.length}.` };
+    }
+    return { keys };
 }

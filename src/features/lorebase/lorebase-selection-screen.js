@@ -3,27 +3,31 @@
  * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
  * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
  * saves as it changes, as GUI-DNA asks. Turning entries on has LoreBase's model write their keys (D17), which each
- * selected row shows as they are written, and Write keys again writes the ticked entries' keys anew; when keys cannot
- * be written (no Qdrant, no model), turning entries on says why and selects nothing.
+ * selected row shows as they are written, and Regenerate keys writes the ticked entries' keys anew; a selected row's
+ * pencil edits its keys in a dialog, where Regenerate fills the box from the model for the user to read before saving.
+ * When keys cannot be written (no Qdrant, no model), turning entries on says why and selects nothing.
  * Opening a book keeps the uids it holds, so an entry added later shows as new, and drops the uids of deleted entries
  * from its selection.
  */
 import { log } from '../../sillytavern/log.js';
-import { noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
-import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, writeKeys } from './lorebase-keys.js';
+import { editedKeys } from './lorebase-keys-core.js';
+import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys, writeKeys } from './lorebase-keys.js';
+import { entryTitle } from './lorebase-splitter.js';
 import {
     bookChoices, categoryList, entrySectionNames, filterRows, invertTicks, liveSelection, pinnableSections, selectionAfterBulk,
     selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
 } from './lorebase-selection-core.js';
 import {
     NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup, entryDetailLines,
-    entryRowMarkup, entryTextMarkup, keySummaryText, lockNoticeMarkup, noLorebookMarkup, noMatchingEntriesMarkup, noTitleNoticeMarkup,
-    pinsMarkup, selectionScreenMarkup, summaryText,
+    entryRowMarkup, entryTextMarkup, keySummaryText, keysEditorLines, keysEditorMarkup, lockNoticeMarkup, noLorebookMarkup,
+    noMatchingEntriesMarkup, noTitleNoticeMarkup, pinsMarkup, selectionScreenMarkup, summaryText,
 } from './lorebase-selection-markup.js';
 
 const PAGE_SIZE = 100;
@@ -83,7 +87,7 @@ function matchingRows(root, session) {
 function renderCounts(root, session) {
     const tickedCount = session.ticked.size;
     root.querySelector('[data-lorebase-ticked-count]').textContent = `${tickedCount} ticked`;
-    for (const name of ['turn-on', 'turn-off', 'write-keys']) root.querySelector(`[data-lorebase-action="${name}"]`).disabled = tickedCount === 0;
+    for (const name of ['turn-on', 'turn-off', 'regenerate-keys']) root.querySelector(`[data-lorebase-action="${name}"]`).disabled = tickedCount === 0;
     root.querySelector('[data-lorebase-selected-count]').textContent = `${selectedUidsOf(session).length} selected`;
 }
 
@@ -192,15 +196,15 @@ function toggleEntry(root, session, uid) {
     writeTurnedOnKeys(session, before);
 }
 
-/** Write the keys of the ticked entries that are turned on anew (D17). */
-function writeTickedKeysAgain(session) {
+/** Regenerate keys: write the keys of the ticked entries that are turned on anew (D17). */
+function regenerateTickedKeys(session) {
     const uids = new Set(session.rows.filter(row => row.isSelected && session.ticked.has(row.uid)).map(row => row.uid));
     if (!uids.size) {
         void noticePopup([{ icon: 'fa-key', text: 'None of the ticked entries is turned on. LoreBase writes keys only for entries it decides.' }]);
         return;
     }
     if (isKeyWritingBlocked('LoreBase cannot write keys yet.')) return;
-    void writeKeys(session.bookName, bookEntriesOf(session, uids), extension_settings.vectfox, { isAgain: true });
+    void writeKeys(session.bookName, bookEntriesOf(session, uids), extension_settings.vectfox, { isRegenerating: true });
 }
 
 /** Show one entry of the book shown in a dialog over the screen: what it is, why it can or cannot be chosen, its text. */
@@ -216,6 +220,60 @@ async function showEntry(session, uid) {
     const text = holder.firstElementChild;
     text.readOnly = true;
     await noticePopup(entryDetailLines(row, entry), { body: text, isWide: true });
+}
+
+/** Fill the keys dialog's box with the keys LoreBase's model writes for the entry now, saying how it went. */
+async function regenerateInto(form, entry) {
+    const button = form.querySelector('[data-lorebase-keys-regenerate]');
+    const status = form.querySelector(`#${ids.keysEditorStatus}`);
+    button.disabled = true;
+    status.textContent = "LoreBase's model is writing keys…";
+    try {
+        const keys = await regenerateKeys(entry, extension_settings.vectfox);
+        form.querySelector(`#${ids.keysEditor}`).value = keys.join('\n');
+        status.textContent = `${keys.length} keys from LoreBase's model. Read them, then Save keys, or Cancel to keep the old ones.`;
+    } catch (error) {
+        log.warn(`LoreBase: the model could not write keys for "${entryTitle(entry)}":`, error);
+        if (error?.kind === 'model_config') notifyInvalidModel(error.message);
+        status.textContent = `No new keys: ${String(error?.message || error)}`;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/**
+ * Edit one selected entry's keys in a dialog over the screen (D17): the box holds its keys, one per line, and
+ * Regenerate fills it from LoreBase's model. Save keys stores them; keys Similharity would not store, or a save that
+ * failed, keep the dialog open with the user's text and the reason.
+ */
+async function editKeys(session, uid) {
+    const row = session.rows.find(candidate => candidate.uid === uid);
+    const entry = Object.values(session.book.entries ?? {}).find(candidate => String(candidate.uid) === uid);
+    if (!row?.isSelected || !entry) {
+        log.warn(`LoreBase: the selection screen has no selected entry ${uid} in lorebook "${session.bookName}" to edit the keys of`);
+        return;
+    }
+    const holder = document.createElement('div');
+    holder.innerHTML = keysEditorMarkup(keyStateOf(session.bookName, uid).keys ?? []);
+    const form = holder.firstElementChild;
+    const status = form.querySelector(`#${ids.keysEditorStatus}`);
+    form.querySelector('[data-lorebase-keys-regenerate]').addEventListener('click', () => { void regenerateInto(form, entry); });
+    for (;;) {
+        const isSaved = await formPopup(keysEditorLines(row.title), form, { okButton: 'Save keys', isWide: true, focusSelector: `#${ids.keysEditor}` });
+        if (!isSaved) return;
+        const edited = editedKeys(form.querySelector(`#${ids.keysEditor}`).value);
+        if (edited.problem) {
+            status.textContent = edited.problem;
+            continue;
+        }
+        try {
+            await saveEditedKeys(session.bookName, uid, edited.keys);
+            return;
+        } catch (error) {
+            log.warn(`LoreBase: the keys edited for "${row.title}" in lorebook "${session.bookName}" could not be saved:`, error);
+            status.textContent = `Not saved: ${String(error?.message || error)}`;
+        }
+    }
 }
 
 /** Read a book and show it: its entries, categories, pins, locks and footer. */
@@ -277,6 +335,8 @@ function onAction(root, session, element, event) {
         toggleEntry(root, session, element.dataset.lorebaseUid);
     } else if (name === 'show-entry') {
         void showEntry(session, element.dataset.lorebaseUid);
+    } else if (name === 'edit-keys') {
+        void editKeys(session, element.dataset.lorebaseUid);
     } else if (name === 'tick-all' || name === 'untick-all' || name === 'invert') {
         if (name === 'tick-all') session.ticked = tickAllMatching(session.ticked, matching());
         else if (name === 'invert') session.ticked = invertTicks(session.ticked, matching());
@@ -284,8 +344,8 @@ function onAction(root, session, element, event) {
         renderEntries(root, session);
     } else if (name === 'turn-on' || name === 'turn-off') {
         saveSelection(root, session, selectionAfterBulk(selectedUidsOf(session), session.rows, session.ticked, name === 'turn-on'));
-    } else if (name === 'write-keys') {
-        writeTickedKeysAgain(session);
+    } else if (name === 'regenerate-keys') {
+        regenerateTickedKeys(session);
     } else if (name === 'show-more') {
         session.shownLimit += PAGE_SIZE;
         renderEntries(root, session);

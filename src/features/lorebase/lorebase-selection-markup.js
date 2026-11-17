@@ -8,7 +8,8 @@
  * page, the book, its locks and the filters in a compact card above a split. The
  * start pane holds the categories and the pinned sections; the end pane the
  * entries, each with a tick box for the bulk bar, a button that shows the entry
- * in a dialog of its own, and its own LoreBase toggle.
+ * in a dialog of its own, a selected entry's button that edits its LoreBase
+ * keys in another, and its own LoreBase toggle.
  * lorebase-selection-screen.js finds each control by its id in SELECTION_IDS and
  * each action by `data-lorebase-action`; a row and its tick box carry the
  * entry's uid, a category row its category, and a pin its section name. Every
@@ -28,6 +29,7 @@ import {
     notice,
     select,
     selectOption,
+    stack,
     statusPill,
     textarea,
 } from '../../shared/gui-dna/gui-dna-core.js';
@@ -56,6 +58,8 @@ export const SELECTION_IDS = Object.freeze({
     entriesFooter: 'vectfox_lorebase_entries_footer',
     summary: 'vectfox_lorebase_summary',
     entryText: 'vectfox_lorebase_entry_text',
+    keysEditor: 'vectfox_lorebase_keys_editor',
+    keysEditorStatus: 'vectfox_lorebase_keys_editor_status',
 });
 
 /** The newness filter's choices. */
@@ -169,7 +173,7 @@ function bulkBar() {
     ]) + controlRow([
         statusPill({ name: '0 ticked', data: { 'lorebase-ticked-count': '' } }),
         controlRow([bulkButton('turn-on', 'Turn on', 'fa-toggle-on'), bulkButton('turn-off', 'Turn off', 'fa-toggle-off')]),
-        bulkButton('write-keys', 'Write keys again', 'fa-key'),
+        bulkButton('regenerate-keys', 'Regenerate keys', 'fa-key'),
     ]);
 }
 
@@ -317,6 +321,13 @@ export function entryRowMarkup(row, { isTicked, keyState = null }) {
         pills: keyPill ? [...entryPills(row), statusPill(keyPill)] : entryPills(row),
         actions: [
             iconButton({ icon: 'fa-eye', title: 'Show this entry', data: action('show-entry', { 'lorebase-uid': row.uid }) }),
+            // An entry LoreBase decides has keys to edit; not while its keys are being written.
+            row.isSelected && !row.keptBySillyTavern ? iconButton({
+                icon: 'fa-pen',
+                title: 'Edit LoreBase keys',
+                isDisabled: keyState?.status === 'writing',
+                data: action('edit-keys', { 'lorebase-uid': row.uid }),
+            }) : '',
             iconButton({
                 icon: 'fa-wand-magic-sparkles',
                 title: row.keptBySillyTavern ? 'SillyTavern keeps this entry' : 'LoreBase decides this entry',
@@ -369,6 +380,32 @@ export function entryDetailLines(row, entry) {
  */
 export function entryTextMarkup(entry) {
     return textarea({ id: ids.entryText, value: String(entry.content ?? ''), rows: 16, title: 'Entry text' });
+}
+
+/**
+ * The lines of an entry's keys dialog: the entry, then how its keys are read and kept.
+ * @param {string} title
+ * @returns {object[]}
+ */
+export function keysEditorLines(title) {
+    return [
+        { icon: 'fa-key', text: 'LoreBase keys:', name: title },
+        { text: "One key per line. The pick reads them beside the entry's title, and on Fast and cheap Jev's question names them." },
+        { text: "Regenerate asks LoreBase's model for new ones and puts them in the box; nothing is kept until Save keys." },
+    ];
+}
+
+/**
+ * The form of an entry's keys dialog: its keys, one per line, Regenerate, and the line that says how Regenerate went.
+ * @param {string[]} keys - The entry's keys now, or none
+ * @returns {string}
+ */
+export function keysEditorMarkup(keys) {
+    return stack([
+        textarea({ id: ids.keysEditor, value: keys.join('\n'), rows: 12, title: 'LoreBase keys, one per line' }),
+        controlRow([button({ text: 'Regenerate', icon: 'fa-rotate', data: { 'lorebase-keys-regenerate': '' } })]),
+        `<p id="${ids.keysEditorStatus}" class="vfx-hint" aria-live="polite"></p>`,
+    ]);
 }
 
 /** The entries pane when no entry matches the filters. */

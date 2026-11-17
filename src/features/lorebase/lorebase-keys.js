@@ -1,9 +1,10 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D15, D17 and §5.2 of InternalProject/
  * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes,
- * each SillyTavern user's own. Turning an entry on, turning LoreBase on and Write keys again write them, a few calls
- * at a time; nothing rewrites them on its own. An entry takes part in a reply only once its keys exist, and while they
- * are written or after they fail, the selection screen says so for its row.
+ * each SillyTavern user's own. Turning an entry on, turning LoreBase on and Regenerate keys write them, a few calls
+ * at a time; the user can also edit one entry's keys, or have the model write them again to read first; nothing
+ * rewrites them on its own. An entry takes part in a reply only once its keys exist, and while they are written or
+ * after they fail, the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
@@ -158,27 +159,27 @@ function showKeyFailures(bookName, failures) {
     // toastr is SillyTavern's page global, absent where no page is loaded.
     globalThis.toastr?.warning(
         `LoreBase could not write the keys of ${titles}${more} in lorebook "${bookName}", so they send nothing until they have keys. `
-        + `Open Choose entries, tick them and use Write keys again. Details: ${failures[0].detail.slice(0, 320)}`,
+        + `Open Choose entries, tick them and use Regenerate keys. Details: ${failures[0].detail.slice(0, 320)}`,
         'VectFox — LoreBase keys', { timeOut: 30000, extendedTimeOut: 10000 });
 }
 
 /**
- * Write the keys of a book's entries, a few calls at a time: those with none, or every one given when `isAgain`.
+ * Write the keys of a book's entries, a few calls at a time: those with none, or every one given when `isRegenerating`.
  * Entries already being written are left to that writing. Never throws: a failed entry is marked failed, logged, and
  * named in one toast for the book once its writing is done.
  * @param {string} bookName
  * @param {object[]} entries - The book's entries, as loadWorldInfo returns them
  * @param {object} settings - VectFox settings
- * @param {{isAgain?: boolean}} [options]
+ * @param {{isRegenerating?: boolean}} [options] - isRegenerating: Regenerate keys, which rewrites hand-edited keys too
  * @returns {Promise<{written: number, failed: number}>} Once every entry given is written or failed
  */
-export async function writeKeys(bookName, entries, settings, { isAgain = false } = {}) {
+export async function writeKeys(bookName, entries, settings, { isRegenerating = false } = {}) {
     const problem = keyWritingProblem(settings);
     if (problem) {
         log.warn(`LoreBase: no keys written in lorebook "${bookName}": ${problem}`);
         return { written: 0, failed: 0 };
     }
-    if (!isAgain && !storedKeys.has(bookName)) {
+    if (!isRegenerating && !storedKeys.has(bookName)) {
         try {
             await readBookKeys([bookName]);
         } catch (error) {
@@ -189,7 +190,7 @@ export async function writeKeys(bookName, entries, settings, { isAgain = false }
     }
     const states = mapOf(writeStates, bookName);
     const stored = mapOf(storedKeys, bookName);
-    const wanted = entries.filter(entry => states.get(String(entry.uid))?.status !== 'writing' && (isAgain || !stored.has(String(entry.uid))));
+    const wanted = entries.filter(entry => states.get(String(entry.uid))?.status !== 'writing' && (isRegenerating || !stored.has(String(entry.uid))));
     if (!wanted.length) return { written: 0, failed: 0 };
     for (const entry of wanted) states.set(String(entry.uid), { status: 'writing' });
     tellListeners(bookName);
@@ -202,6 +203,36 @@ export async function writeKeys(bookName, entries, settings, { isAgain = false }
     showKeyFailures(bookName, failures);
     log.lifecycle(`LoreBase: wrote the keys of ${wanted.length - failures.length} of ${wanted.length} entries in lorebook "${bookName}"`);
     return { written: wanted.length - failures.length, failed: failures.length };
+}
+
+/**
+ * The keys LoreBase's model writes for one entry now, stored nowhere: the edit dialog's Regenerate, which shows them to
+ * the user before Save keys stores them.
+ * @param {object} entry - The book's entry, as loadWorldInfo returns it
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<string[]>}
+ * @throws {Error} Why keys cannot be written now, or what the last of the model's asks reported; a model the provider
+ *   refuses keeps its kind, model_config
+ */
+export async function regenerateKeys(entry, settings) {
+    const problem = keyWritingProblem(settings);
+    if (problem) throw new Error(problem);
+    return askForKeys(entry, askOnLoreBase(resolveLoreBaseLlmConfig(settings)));
+}
+
+/**
+ * Store the keys the user edited for one entry, replacing any it had, so its row shows them (D17).
+ * @param {string} bookName
+ * @param {string|number} uid
+ * @param {string[]} keys - From editedKeys
+ * @returns {Promise<void>}
+ * @throws {Error} When Similharity cannot store them
+ */
+export async function saveEditedKeys(bookName, uid, keys) {
+    await postKeysRoute('write', { book: bookName, entries: [{ uid: String(uid), keys }] });
+    mapOf(storedKeys, bookName).set(String(uid), keys);
+    mapOf(writeStates, bookName).delete(String(uid));
+    tellListeners(bookName);
 }
 
 /**

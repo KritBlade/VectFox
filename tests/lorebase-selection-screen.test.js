@@ -6,7 +6,7 @@
  * book with the chat's books first; each row's toggle, a category's toggle and the bulk bar save the selection at
  * once; ticks follow the filters and shift-click; a row's eye button shows its entry and saves nothing; the locks and
  * the pins save; opening a book keeps its uids for the new marks and drops deleted ones from the selection; turning
- * entries on writes their keys, each selected row shows where its keys stand, Write keys again writes the ticked
+ * entries on writes their keys, each selected row shows where its keys stand, Regenerate keys writes the ticked
  * entries' keys anew, and when keys cannot be written turning entries on says why and selects nothing (D17).
  */
 /* global document, MouseEvent -- this file runs under the jsdom environment */
@@ -15,8 +15,10 @@ import $ from 'jquery';
 
 const host = vi.hoisted(() => ({
     books: {}, worldNames: [], globalBooks: [], context: null, chatId: 'chat-harbor', settings: { vectfox: {} }, noticePopup: vi.fn(),
+    formPopup: vi.fn(),
     // The key store: each entry's state by "book/uid", why keys cannot be written, its listeners and the writes asked.
     keyStates: new Map(), keyProblem: null, keyListeners: new Set(), keyWrites: [],
+    regenerateKeys: vi.fn(), saveEditedKeys: vi.fn(),
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
@@ -27,7 +29,9 @@ vi.mock('../src/sillytavern/popup.js', () => ({
         return new Promise(() => {});
     }),
     noticePopup: host.noticePopup,
+    formPopup: host.formPopup,
 }));
+vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
 vi.mock('../src/sillytavern/world-info.js', () => ({
     METADATA_KEY: 'world_info',
     getWorldInfoSettings: () => ({ world_info: { charLore: [] } }),
@@ -47,10 +51,13 @@ vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     },
     readBookKeys: async () => ({}),
     writeKeys: async (bookName, entries, settings, options) => {
-        host.keyWrites.push({ bookName, uids: entries.map(entry => String(entry.uid)), isAgain: Boolean(options?.isAgain) });
+        host.keyWrites.push({ bookName, uids: entries.map(entry => String(entry.uid)), isRegenerating: Boolean(options?.isRegenerating) });
     },
+    regenerateKeys: host.regenerateKeys,
+    saveEditedKeys: host.saveEditedKeys,
 }));
 
+const { notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
 const { openLoreBaseSelection } = await import('../src/features/lorebase/lorebase-selection-screen.js');
 
 const HARBOR = {
@@ -90,6 +97,10 @@ beforeEach(() => {
     host.context = { characters: { 3: { name: 'Keeper Orrin', avatar: 'keeper-orrin.png', data: { extensions: { world: 'Harbor Atlas' } } } }, characterId: '3', chatMetadata: {}, powerUserSettings: {} };
     host.settings.vectfox = {};
     host.noticePopup.mockReset();
+    host.formPopup.mockReset();
+    host.regenerateKeys.mockReset();
+    host.saveEditedKeys.mockReset();
+    vi.mocked(notifyInvalidModel).mockClear();
     host.keyStates = new Map();
     host.keyProblem = null;
     host.keyListeners.clear();
@@ -124,7 +135,7 @@ describe('keys (D17)', () => {
     it('writes the keys of an entry turned on, and its row shows them once they are written', async () => {
         await openScreen();
         entryToggle('1').click();
-        expect(host.keyWrites).toEqual([{ bookName: 'Harbor Atlas', uids: ['1'], isAgain: false }]);
+        expect(host.keyWrites).toEqual([{ bookName: 'Harbor Atlas', uids: ['1'], isRegenerating: false }]);
         expect(rowText('1')).toContain('No keys yet');
 
         host.keyStates.set('Harbor Atlas/1', { status: 'writing' });
@@ -144,7 +155,7 @@ describe('keys (D17)', () => {
         expect(host.keyWrites.map(write => write.uids)).toEqual([['0'], ['1']]);
         tickBox('4').click();
         actionButton('turn-on').click();
-        expect(host.keyWrites.at(-1)).toEqual({ bookName: 'Harbor Atlas', uids: ['4'], isAgain: false });
+        expect(host.keyWrites.at(-1)).toEqual({ bookName: 'Harbor Atlas', uids: ['4'], isRegenerating: false });
     });
 
     it("shows a failed entry's reason on its row", async () => {
@@ -156,14 +167,91 @@ describe('keys (D17)', () => {
         expect($id('vectfox_lorebase_summary').textContent).toContain('1 failed');
     });
 
-    it('writes the ticked entries that are on anew with Write keys again, and only those', async () => {
+    it('writes the ticked entries that are on anew with Regenerate keys, and only those', async () => {
         await openScreen();
         entryToggle('0').click();
         entryToggle('1').click();
         tickBox('1').click();
         tickBox('4').click();
-        actionButton('write-keys').click();
-        expect(host.keyWrites.at(-1)).toEqual({ bookName: 'Harbor Atlas', uids: ['1'], isAgain: true });
+        expect(actionButton('regenerate-keys').textContent).toContain('Regenerate keys');
+        actionButton('regenerate-keys').click();
+        expect(host.keyWrites.at(-1)).toEqual({ bookName: 'Harbor Atlas', uids: ['1'], isRegenerating: true });
+    });
+
+    describe("editing an entry's keys", () => {
+        const pencil = uid => document.querySelector(`[data-lorebase-action="edit-keys"][data-lorebase-uid="${uid}"]`);
+        const box = form => form.querySelector('#vectfox_lorebase_keys_editor');
+        const status = form => form.querySelector('#vectfox_lorebase_keys_editor_status').textContent;
+        const selectTidewardens = () => {
+            host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+            host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens', 'harbor bells'] });
+        };
+
+        it('offers the pencil on selected rows only, not while their keys are written, and saves the keys typed, one per line', async () => {
+            selectTidewardens();
+            await openScreen();
+            expect(pencil('0')).toBeNull();
+            expect(pencil('1').disabled).toBe(false);
+
+            host.formPopup.mockImplementationOnce(async (lines, form) => {
+                expect(box(form).value).toBe('tidewardens\nharbor bells');
+                expect(lines[0].name).toBe('Tidewardens');
+                box(form).value = ' tidewardens \n\nbell ringers\ntidewardens';
+                return true;
+            });
+            pencil('1').click();
+            await vi.waitFor(() => expect(host.saveEditedKeys).toHaveBeenCalledWith('Harbor Atlas', '1', ['tidewardens', 'bell ringers']));
+            expect(host.formPopup).toHaveBeenCalledTimes(1);
+
+            host.keyStates.set('Harbor Atlas/1', { status: 'writing' });
+            tellKeyListeners('Harbor Atlas');
+            expect(pencil('1').disabled).toBe(true);
+        });
+
+        it('keeps the dialog open with the text typed and the reason when the keys cannot be stored, or the save failed', async () => {
+            selectTidewardens();
+            host.saveEditedKeys.mockRejectedValueOnce(new Error('Similharity could not write LoreBase\'s keys (HTTP 500): Qdrant is down'));
+            const seen = [];
+            host.formPopup.mockImplementation(async (lines, form) => {
+                seen.push(status(form));
+                if (seen.length === 1) box(form).value = '  \n';
+                if (seen.length === 2) box(form).value = 'bells';
+                return seen.length < 3;
+            });
+            await openScreen();
+            pencil('1').click();
+            await vi.waitFor(() => expect(host.formPopup).toHaveBeenCalledTimes(3));
+            expect(seen).toEqual([
+                '',
+                "An entry needs at least one key. Regenerate asks LoreBase's model for them.",
+                "Not saved: Similharity could not write LoreBase's keys (HTTP 500): Qdrant is down",
+            ]);
+            expect(host.saveEditedKeys).toHaveBeenCalledTimes(1);
+            expect(host.saveEditedKeys).toHaveBeenCalledWith('Harbor Atlas', '1', ['bells']);
+        });
+
+        it("fills the box from LoreBase's model with Regenerate, to read before Save keys, and says when the model fails", async () => {
+            selectTidewardens();
+            host.regenerateKeys.mockResolvedValueOnce(['tidewardens', 'harbor bells', 'bell code']);
+            const failure = Object.assign(new Error('The model openai/gpt-7 does not exist.'), { kind: 'model_config' });
+            host.regenerateKeys.mockRejectedValueOnce(failure);
+            host.formPopup.mockImplementationOnce(async (lines, form) => {
+                const regenerate = form.querySelector('[data-lorebase-keys-regenerate]');
+                regenerate.click();
+                await vi.waitFor(() => expect(box(form).value).toBe('tidewardens\nharbor bells\nbell code'));
+                expect(status(form)).toBe("3 keys from LoreBase's model. Read them, then Save keys, or Cancel to keep the old ones.");
+                regenerate.click();
+                await vi.waitFor(() => expect(status(form)).toBe('No new keys: The model openai/gpt-7 does not exist.'));
+                expect(box(form).value).toBe('tidewardens\nharbor bells\nbell code');
+                return false;
+            });
+            await openScreen();
+            pencil('1').click();
+            await vi.waitFor(() => expect(host.regenerateKeys).toHaveBeenCalledTimes(2));
+            await vi.waitFor(() => expect(notifyInvalidModel).toHaveBeenCalledWith('The model openai/gpt-7 does not exist.'));
+            expect(host.regenerateKeys.mock.calls[0][0].uid).toBe(1);
+            expect(host.saveEditedKeys).not.toHaveBeenCalled();
+        });
     });
 
     it('says why and selects nothing when keys cannot be written', async () => {

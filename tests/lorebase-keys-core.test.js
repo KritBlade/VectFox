@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { keyCount, keysMessages, readKeys } from '../src/features/lorebase/lorebase-keys-core.js';
+import { editedKeys, keyCount, keysMessages, readKeys } from '../src/features/lorebase/lorebase-keys-core.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/lorebase-trial-prompts.json', import.meta.url), 'utf8'));
 const entriesByUid = new Map([...fixture.entries, fixture.keys.longEntry].map(entry => [entry.uid, entry]));
@@ -41,5 +41,18 @@ describe('reading the keys', () => {
         expect(readKeys([{ keys: ['  '] }], 6)).toBeNull();
         expect(readKeys([{ names: ['harbor'] }], 6)).toBeNull();
         expect(readKeys([], 6)).toBeNull();
+    });
+});
+
+describe('the keys the user types', () => {
+    it('takes one key per line, trimmed, each once, in order, commas kept inside a key', () => {
+        expect(editedKeys(' lighthouse \r\n\nkeeper, the old\nlighthouse\n灯塔')).toEqual({ keys: ['lighthouse', 'keeper, the old', '灯塔'] });
+    });
+
+    it('refuses what Similharity would not store: no key, more than 200, or a key over 300 characters', () => {
+        expect(editedKeys(' \n ')).toEqual({ problem: "An entry needs at least one key. Regenerate asks LoreBase's model for them." });
+        expect(editedKeys(Array.from({ length: 201 }, (_, index) => `key ${index}`).join('\n'))).toEqual({ problem: 'An entry holds at most 200 keys, and these are 201.' });
+        expect(editedKeys(`harbor\n${'b'.repeat(301)}`).problem).toBe(`A key holds at most 300 characters, and "${'b'.repeat(40)}…" holds 301.`);
+        expect(editedKeys(Array.from({ length: 200 }, (_, index) => `key ${index}`).join('\n')).keys).toHaveLength(200);
     });
 });

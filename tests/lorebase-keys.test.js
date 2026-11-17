@@ -1,7 +1,7 @@
 /**
  * LoreBase's keys (src/features/lorebase/lorebase-keys.js, plan D15 and D17 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on Write
- * keys again, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
+ * lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on
+ * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
  * LoreBase's model. Similharity's routes are a fetch stand-in holding the keys in memory.
  */
@@ -69,10 +69,10 @@ describe('writing keys', () => {
         expect(host.ask.mock.calls[0][1]).toEqual({ maxTokens: 11000, reasoningEffort: null, identKeys: ['keys'] });
     });
 
-    it('writes every entry given again on Write keys again, keys or not', async () => {
+    it('writes every entry given again on Regenerate keys, keys or not', async () => {
         stored[BOOK] = { 0: ['old keys'] };
         await keysModule.readBookKeys([BOOK]);
-        const result = await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')], QDRANT, { isAgain: true });
+        const result = await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')], QDRANT, { isRegenerating: true });
 
         expect(result).toEqual({ written: 2, failed: 0 });
         expect(stored[BOOK]).toEqual({ 0: ['keys from Lighthouse'], 1: ['keys from Tidewardens'] });
@@ -86,7 +86,7 @@ describe('writing keys', () => {
         expect(host.ask).toHaveBeenCalledTimes(3);
         expect(keysModule.keyStateOf(BOOK, '4')).toEqual({ status: 'failed', detail: 'its answer held no keys' });
         expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('could not write the keys of "Drowned Bell" in lorebook "Harbor Atlas"');
-        expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('Write keys again');
+        expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('Regenerate keys');
     });
 
     it('takes a failed call as an ask, and writes the keys once a later ask answers', async () => {
@@ -120,6 +120,42 @@ describe('writing keys', () => {
         keysModule.onKeyStateChange(bookName => seen.push(`${bookName}: ${keysModule.keyStateOf(bookName, '0').status}`));
         await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT);
         expect(seen).toEqual([`${BOOK}: writing`, `${BOOK}: ready`]);
+    });
+});
+
+describe("editing one entry's keys", () => {
+    it("regenerates an entry's keys from the model and stores nothing", async () => {
+        expect(await keysModule.regenerateKeys(entry(2, 'Tide clock'), QDRANT)).toEqual(['keys from Tide']);
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+        expect(keysModule.keyStateOf(BOOK, '2')).toEqual({ status: 'missing' });
+    });
+
+    it('regenerates nothing off Qdrant or without the model, and keeps a refused model\'s kind', async () => {
+        await expect(keysModule.regenerateKeys(entry(2, 'Tide clock'), { vector_backend: 'standard' })).rejects.toThrow('Choose Qdrant as the vector backend');
+        host.ask = vi.fn(async () => { throw Object.assign(new Error('The model openai/gpt-7 does not exist.'), { kind: 'model_config' }); });
+        await expect(keysModule.regenerateKeys(entry(2, 'Tide clock'), QDRANT)).rejects.toMatchObject({ kind: 'model_config' });
+        expect(host.ask).toHaveBeenCalledTimes(1);
+    });
+
+    it('stores the keys the user edited in place of a failed state, and tells the listeners', async () => {
+        host.ask = vi.fn(async () => answerWith([]));
+        await keysModule.writeKeys(BOOK, [entry(4, 'Drowned Bell')], QDRANT);
+        expect(keysModule.keyStateOf(BOOK, '4').status).toBe('failed');
+        const seen = [];
+        keysModule.onKeyStateChange(bookName => seen.push(keysModule.keyStateOf(bookName, '4')));
+
+        await keysModule.saveEditedKeys(BOOK, 4, ['drowned bell', 'bell tower']);
+        expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/keys/write', request: { book: BOOK, entries: [{ uid: '4', keys: ['drowned bell', 'bell tower'] }] } });
+        expect(stored[BOOK]['4']).toEqual(['drowned bell', 'bell tower']);
+        expect(seen).toEqual([{ status: 'ready', keys: ['drowned bell', 'bell tower'] }]);
+    });
+
+    it('throws what Similharity answered when the edited keys cannot be stored, and keeps the old keys', async () => {
+        stored[BOOK] = { 0: ['old keys'] };
+        await keysModule.readBookKeys([BOOK]);
+        globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, statusText: 'Server Error', text: async () => '{"error":"Qdrant is down"}' }));
+        await expect(keysModule.saveEditedKeys(BOOK, 0, ['new keys'])).rejects.toThrow("Similharity could not write LoreBase's keys (HTTP 500)");
+        expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['old keys'] });
     });
 });
 
