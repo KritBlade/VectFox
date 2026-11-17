@@ -45,7 +45,7 @@ function loreBaseBooksCard() {
                 buttonWithId({ id: 'VectFox_lorebase_generate_keys', text: 'Generate all keys', icon: 'fa-key' }),
                 buttonWithId({ id: 'VectFox_lorebase_delete_keys', text: 'Delete all keys', icon: 'fa-trash' }),
             ])}
-            ${hint({ text: "Generate fills selected entries' missing keys. Delete removes all and turns LoreBase off." })}
+            ${hint({ text: 'Generate writes the missing keys. Delete removes every key and turns LoreBase off.' })}
             <p id="VectFox_lorebase_keys_status" class="vfx-hint" aria-live="polite" hidden></p>
         </div>
     </section>`;
