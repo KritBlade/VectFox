@@ -22,9 +22,13 @@ const SWITCH_ID = 'VectFox_lorebase_enabled';
 const GENERATE_KEYS_ID = 'VectFox_lorebase_generate_keys';
 const DELETE_KEYS_ID = 'VectFox_lorebase_delete_keys';
 const KEYS_STATUS_ID = 'VectFox_lorebase_keys_status';
+const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.';
 let isGeneratingKeys = false;
 
-/** Show LoreBase's switch as saved; while it is off, show the notice and disable Generate all keys. */
+/**
+ * Show LoreBase's switch as saved; while it is off, show the notice and disable Generate all keys. The status line's
+ * call to choose entries goes once it no longer holds: LoreBase is off, or something is selected.
+ */
 function paintLoreBaseSwitch() {
     const isOn = isLoreBaseSwitchedOn();
     const toggle = document.getElementById(SWITCH_ID);
@@ -33,6 +37,8 @@ function paintLoreBaseSwitch() {
     if (generate) generate.disabled = !isOn || isGeneratingKeys;
     const offNotice = document.getElementById('VectFox_lorebase_off_notice');
     if (offNotice) offNotice.hidden = isOn;
+    const isNothingSelectedShown = document.getElementById(KEYS_STATUS_ID)?.textContent === NOTHING_SELECTED_TEXT;
+    if (isNothingSelectedShown && (!isOn || selectedLoreBookNames().length)) showKeysStatus('');
 }
 
 /** Draw the open chat's LoreBase books, once the panel is mounted, under the switch as saved. */
@@ -92,9 +98,7 @@ async function generateAllKeys(settings, button) {
 
 /** Turn LoreBase on from its switch; with nothing selected anywhere, the status line says to choose entries next. */
 async function switchLoreBaseOn() {
-    if (await turnLoreBaseOn() && !selectedLoreBookNames().length) {
-        showKeysStatus('LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.');
-    }
+    if (await turnLoreBaseOn() && !selectedLoreBookNames().length) showKeysStatus(NOTHING_SELECTED_TEXT);
 }
 
 /**

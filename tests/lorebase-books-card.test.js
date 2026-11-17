@@ -121,6 +121,26 @@ describe("LoreBase's switch", () => {
             'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.'));
     });
 
+    it('drops the call to choose entries once entries are chosen, and once LoreBase is turned off', async () => {
+        const nothingSelected = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.';
+        const switchOnWithNothing = async () => {
+            host.isOn = false;
+            host.selectedBooks = [];
+            flipSwitch(true);
+            await vi.waitFor(() => expect(status().textContent).toBe(nothingSelected));
+        };
+        refreshLoreBaseBooks();
+        await switchOnWithNothing();
+        opener('Harbor Atlas').click();
+        host.selectedBooks = ['Harbor Atlas'];
+        host.screen.resolve();
+        await vi.waitFor(() => expect(status().hidden).toBe(true));
+
+        await switchOnWithNothing();
+        flipSwitch(false);
+        expect([status().hidden, status().textContent]).toEqual([true, '']);
+    });
+
     it("shows off again when the user keeps Vector Storage's World Info search, saying nothing of the selection", async () => {
         host.isOn = false;
         host.willTurnOn = false;
