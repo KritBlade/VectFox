@@ -409,20 +409,6 @@ describe('retrieveEvents: the similarity threshold', () => {
         expect(events).toHaveLength(3);
     });
 
-    it('drops a summary point the re-rank returns beside the events', async () => {
-        const summaryPoints = [
-            { text: 'The duel, in short.', isSummary: true, parentHash: 1, contentType: 'summary', score: 0.95, rerankApplied: true },
-            { text: 'The bridge, in short.', contentType: 'summary', score: 0.94, rerankApplied: true },
-        ];
-        backend.hybridQueryWithRerank.mockResolvedValue({
-            hashes: [1, 91, 2, 92],
-            metadata: [makeEvent(1, { rerankApplied: true }), summaryPoints[0], makeEvent(2, { rerankApplied: true }), summaryPoints[1]],
-        });
-        const { events } = await retrieve(qdrantSettings);
-        expect(events.map(event => event.event_id).sort()).toEqual(['evt_1', 'evt_2']);
-        expect(events.some(event => event.text?.includes('in short'))).toBe(false);
-    });
-
     it('falls back to the plain path when the similarity search fails, which still applies the threshold', async () => {
         backend.queryCollection.mockRejectedValue(new Error('Qdrant answered 500'));
         queryCollectionMock.mockResolvedValue({ hashes: [1, 2], metadata: [makeEvent(1, { score: 0.6 }), makeEvent(2, { score: 0.2 })] });

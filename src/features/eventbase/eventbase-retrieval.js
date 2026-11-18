@@ -18,7 +18,7 @@ import { getQueryVector, getBackendForCollection, getBackend } from '../vector-b
 import { searchPieces } from '../embedding/index.js';
 import { parseRegistryKey } from '../../shared/collection-ids.js';
 import { parseEmbedText } from './eventbase-schema.js';
-import { eventSearchSettings, eventSimilarityOf, isSummaryPoint, keepRerankedEventsAtThreshold, searchEventCollection } from './eventbase-search.js';
+import { eventSearchSettings, eventSimilarityOf, keepRerankedEventsAtThreshold, searchEventCollection } from './eventbase-search.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { isInvalidModelConfigError } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
@@ -186,7 +186,7 @@ async function _runOneLiveQuery({
                     ...(metadata[i] || {}),
                     _hash: h,
                     _rerankApplied: !!metadata[i]?.rerankApplied,
-                })).filter(event => !isSummaryPoint(event));
+                }));
                 if (similaritySearch) {
                     const similarity = await similaritySearch;
                     if (similarity.searchError) throw similarity.searchError;

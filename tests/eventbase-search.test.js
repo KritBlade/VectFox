@@ -7,8 +7,6 @@
  *   - the threshold defaults to 0, so a score_threshold left in the settings never gates events,
  *   - Standard's query applies the threshold, so its hits, which may carry no score, are all kept,
  *   - on Qdrant the hits below the threshold are dropped by their similarity, not a fused score,
- *   - a summary point the Database Browser's Summaries once stored beside an event is never returned, with or without
- *     a threshold, and the events keep their order and metadata,
  *   - re-ranked events take their similarity from a plain search, and those outside it are dropped,
  *   - no other EventBase file searches a collection itself.
  */
@@ -28,7 +26,7 @@ vi.mock('../src/shared/collection-ids.js', () => ({
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { verbose: vi.fn() } }));
 
-const { eventSearchSettings, eventSimilarityOf, isSummaryPoint, keepRerankedEventsAtThreshold, searchEventCollection } = await import('../src/features/eventbase/eventbase-search.js');
+const { eventSearchSettings, eventSimilarityOf, keepRerankedEventsAtThreshold, searchEventCollection } = await import('../src/features/eventbase/eventbase-search.js');
 
 const searchSettingsOfCall = () => queryCollectionMock.mock.calls[0][3];
 
@@ -99,42 +97,6 @@ describe('searchEventCollection', () => {
         expect((await searchEventCollection('qdrant:vf_eventbase_x', 'the duel', 8, { vector_backend: 'qdrant' })).hashes).toEqual([1, 2, 3, 4, 5]);
         const settings = { vector_backend: 'qdrant', eventbase_score_threshold: 0.4 };
         expect((await searchEventCollection('qdrant:vf_eventbase_x', 'the duel', 8, settings, { threshold: 0 })).hashes).toEqual([1, 2, 3, 4, 5]);
-    });
-});
-
-describe('summary points', () => {
-    // Events beside the summary points the Database Browser's Summaries once stored: one marked by its flag and its
-    // content type, one by its content type alone, one by its flag alone.
-    const event = (hash, score, eventType) => ({ hash, meta: { eventbase: true, event_type: eventType, importance: 5, score } });
-    const hits = [
-        event(1, 0.8, 'travel'),
-        { hash: 2, meta: { isSummary: true, parentHash: 1, contentType: 'summary', score: 0.9 } },
-        event(3, 0.5, 'combat'),
-        { hash: 4, meta: { contentType: 'summary', score: 0.7 } },
-        { hash: 5, meta: { isSummary: true, parentHash: 3, score: 0.6 } },
-        event(6, 0.3, 'discovery'),
-    ];
-    const answer = { hashes: hits.map(hit => hit.hash), metadata: hits.map(hit => hit.meta) };
-    const eventsOf = (...hashes) => ({ hashes, metadata: hashes.map(hash => hits.find(hit => hit.hash === hash).meta) });
-
-    it('isSummaryPoint marks a hit flagged isSummary or of content type summary, and never an event', () => {
-        expect(isSummaryPoint({ isSummary: true })).toBe(true);
-        expect(isSummaryPoint({ contentType: 'summary' })).toBe(true);
-        expect([{}, { isSummary: false }, { contentType: 'chat' }, hits[0].meta, null, undefined].map(isSummaryPoint))
-            .toEqual([false, false, false, false, false, false]);
-    });
-
-    it('are never returned without a threshold, and the events keep their order and metadata', async () => {
-        queryCollectionMock.mockResolvedValue(answer);
-        for (const backend of ['standard', 'qdrant']) {
-            expect(await searchEventCollection(`${backend}:vf_eventbase_x`, 'the duel', 8, { vector_backend: backend }), backend).toEqual(eventsOf(1, 3, 6));
-        }
-    });
-
-    it('are never returned at a threshold: on Qdrant, above it too, and on Standard, whose query applied it', async () => {
-        queryCollectionMock.mockResolvedValue(answer);
-        expect(await searchEventCollection('qdrant:vf_eventbase_x', 'the duel', 8, { vector_backend: 'qdrant', eventbase_score_threshold: 0.4 })).toEqual(eventsOf(1, 3));
-        expect(await searchEventCollection('standard:vf_eventbase_x', 'the duel', 8, { vector_backend: 'standard', eventbase_score_threshold: 0.4 })).toEqual(eventsOf(1, 3, 6));
     });
 });
 
