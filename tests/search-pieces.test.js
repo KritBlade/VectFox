@@ -1,8 +1,8 @@
 /**
  * The pieces a search text is searched in at the embedding provider's piece size (src/features/embedding/
- * search-pieces.js, the sizes in providers.js; plan: InternalProject/Vectfox/plans/search-text-pieces.md §2), and the
- * guard in fetchQueryEmbedding (query-embedding.js): a text over the size still embeds, with a console warning naming
- * the search that sent it whole.
+ * search-pieces.js, the sizes in providers.js; plan: InternalProject/Vectfox/plans/executed/search-text-pieces.md §2),
+ * and the guard in fetchQueryEmbedding (query-embedding.js): a text over the size still embeds, with a console warning
+ * naming the search that sent it whole.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

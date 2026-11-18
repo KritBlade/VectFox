@@ -1,8 +1,8 @@
 /**
- * The pieces a search text is searched in (InternalProject/Vectfox/plans/search-text-pieces.md). Text over the
- * embedding provider's piece size is cut at line ends, then sentence ends, then spaces, then into runs within the size,
- * and packed greedily up to the size, so each piece can be embedded and searched on its own and nothing is dropped.
- * Pure: no SillyTavern, no network.
+ * The pieces a search text is searched in (InternalProject/Vectfox/plans/executed/search-text-pieces.md). Text over
+ * the embedding provider's piece size is cut at line ends, then sentence ends, then spaces, then into runs within the
+ * size, and packed greedily up to the size, so each piece can be embedded and searched on its own and nothing is
+ * dropped. Pure: no SillyTavern, no network.
  */
 import { CJK_CHARACTER, CJK_RANGES, LATIN_WORD, lineAndSentenceParts, packWindows } from '../../shared/text-windows.js';
 

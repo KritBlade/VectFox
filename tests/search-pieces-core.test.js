@@ -1,7 +1,7 @@
 /**
  * The pieces a search text is searched in (src/features/embedding/search-pieces-core.js; plan:
- * InternalProject/Vectfox/plans/search-text-pieces.md): text within the piece size is one piece, as before; a longer
- * one, in any script, is cut into pieces within the size, in its order, with every character of it kept.
+ * InternalProject/Vectfox/plans/executed/search-text-pieces.md): text within the piece size is one piece, as before; a
+ * longer one, in any script, is cut into pieces within the size, in its order, with every character of it kept.
  */
 import { describe, expect, it } from 'vitest';
 import { searchTokens, splitSearchText } from '../src/features/embedding/search-pieces-core.js';

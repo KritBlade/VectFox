@@ -1,7 +1,8 @@
 /**
  * The pieces a search text is searched in, at the embedding provider's piece size (search-pieces-core.js; plan:
- * InternalProject/Vectfox/plans/search-text-pieces.md). Every search that embeds text a person or a chat wrote runs
- * its text through searchPieces, searches each piece, and merges the pieces' results as it merges its other searches.
+ * InternalProject/Vectfox/plans/executed/search-text-pieces.md). Every search that embeds text a person or a chat
+ * wrote runs its text through searchPieces, searches each piece, and merges the pieces' results as it merges its other
+ * searches.
  */
 import { log } from '../../sillytavern/log.js';
 import { getProviderConfig } from './providers.js';

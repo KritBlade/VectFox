@@ -27,8 +27,8 @@ import { embeddingProfileKind, embeddingProfileProblem } from './embedding-profi
  * This is the canonical list - update here and it applies everywhere
  *
  * searchPieceTokens: the most a search text may measure (search-pieces-core.js searchTokens) to be embedded whole; a
- * longer one is searched in pieces of this size (InternalProject/Vectfox/plans/search-text-pieces.md §2). Each sits
- * under the provider's limit with room for the measure's error.
+ * longer one is searched in pieces of this size (InternalProject/Vectfox/plans/executed/search-text-pieces.md §2).
+ * Each sits under the provider's limit with room for the measure's error.
  */
 export const EMBEDDING_PROVIDERS = {
     // Local providers (no API key needed)
