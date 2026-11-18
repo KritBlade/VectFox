@@ -4,7 +4,8 @@
  * only on replies (D8), a quiet-to-loud generation included, and only while LoreBase acts, a reply first settling
  * Vector Storage's World Info search with the user; reads the books SillyTavern loads that are locked to the chat or
  * character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore a failed
- * call could not get, with the toast for it (D14); holds a reply's picks for the World Info scan that follows once
+ * call could not get, with the toast for it (D14); says, once per chat and again when their number changes, which
+ * selected entries a reply leaves out for having no keys (D17); holds a reply's picks for the World Info scan that follows once
  * the retrieval beside them is done, where a generation with no pick sends no selected entry (§5.7, §6.8); and hands
  * each reply's outcome to the tester, with what that scan reads (§5.10).
  */
@@ -326,6 +327,44 @@ describe('the books taking part (D11)', () => {
         host.unkeyedUids = new Set(['Harbor Atlas/0', 'Harbor Atlas/1']);
         expect(await prepareLoreForReply('normal', settings)).toBeNull();
         expect(postChatCompletion).not.toHaveBeenCalled();
+    });
+
+    it('says once per chat which selected entries it leaves out for having no keys, and again when their number changes', async () => {
+        // A chat of its own, so what an earlier reply said in another chat does not count here.
+        host.chatId = 'chat-unkeyed-once';
+        host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = ['chat-unkeyed-once'];
+        host.unkeyedUids = new Set(['Harbor Atlas/0']);
+        postChatCompletion.mockResolvedValue(pickOf());
+        const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys'));
+
+        await prepareLoreForReply('normal', settings);
+        expect(unkeyedToasts()).toEqual([['1 selected entry of the lorebook "Harbor Atlas" has no keys, so LoreBase leaves it out of every reply. '
+            + "Write its keys with Generate all keys on VectFox's WorldInfo page.", 'VectFox — LoreBase left lore out', { timeOut: 30000, extendedTimeOut: 10000 }]]);
+        await prepareLoreForReply('normal', settings);
+        expect(unkeyedToasts()).toHaveLength(1);
+
+        // Every selected entry without keys: nothing is picked, and the reply still says why.
+        host.unkeyedUids = new Set(['Harbor Atlas/0', 'Harbor Atlas/1']);
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(unkeyedToasts()).toHaveLength(2);
+        expect(unkeyedToasts()[1][0]).toContain('2 selected entries of the lorebook "Harbor Atlas" have no keys');
+    });
+
+    it('says it again in another chat, and nothing in a chat whose selected entries all have keys', async () => {
+        host.chatId = 'chat-unkeyed-first';
+        host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = ['chat-unkeyed-first', 'chat-unkeyed-second'];
+        host.unkeyedUids = new Set(['Harbor Atlas/1']);
+        postChatCompletion.mockResolvedValue(pickOf());
+        const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys'));
+
+        await prepareLoreForReply('normal', settings);
+        host.chatId = 'chat-unkeyed-second';
+        await prepareLoreForReply('normal', settings);
+        expect(unkeyedToasts()).toHaveLength(2);
+
+        host.unkeyedUids = new Set();
+        await prepareLoreForReply('normal', settings);
+        expect(unkeyedToasts()).toHaveLength(2);
     });
 
     it('goes on without the selected entries when their keys cannot be read, with the toast a failed pick shows', async () => {

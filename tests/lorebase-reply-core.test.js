@@ -3,12 +3,14 @@
  * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): which generations get a pick, the books
  * taking part and the entries LoreBase decides in them, the pick with each entry's keys and one review per pick of more
  * than one part sent at once as the route trials sent them, a one-part or template-code pick sent whole with no review
- * (T20), what a failed call leaves out (D14), and the toast that says so.
+ * (T20), what a failed call leaves out (D14), and the toast that says so; and when a reply says it leaves out selected
+ * entries that have no keys (D17): once per chat, and again when the books or their counts change.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { pickMessages, tableOfContents } from '../src/features/lorebase/lorebase-pick-core.js';
 import {
     SENT_WHOLE_UNREVIEWED, activeBookNames, decidedEntries, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort,
+    unkeyedEntriesNotice,
 } from '../src/features/lorebase/lorebase-reply-core.js';
 import { reviewMessages } from '../src/features/lorebase/lorebase-review-core.js';
 import { entryPassages } from '../src/features/lorebase/lorebase-splitter.js';
@@ -244,5 +246,35 @@ describe('the toast for lore left out (D14)', () => {
     it("keeps the provider's own error to 320 characters", () => {
         const message = leftOutLoreMessage([{ step: 'pick', detail: 'x'.repeat(400) }], 0);
         expect(message.endsWith(`Details: ${'x'.repeat(320)}`)).toBe(true);
+    });
+});
+
+describe('the toast for selected entries with no keys (D17)', () => {
+    const harbor = [{ bookName: 'Harbor Atlas', count: 21 }];
+
+    it('says how many entries of which lorebook have no keys, that every reply leaves them out, and where to write them', () => {
+        expect(unkeyedEntriesNotice(null, 'chat-harbor', harbor).message).toBe('21 selected entries of the lorebook "Harbor Atlas" have no keys, '
+            + "so LoreBase leaves them out of every reply. Write their keys with Generate all keys on VectFox's WorldInfo page.");
+        expect(unkeyedEntriesNotice(null, 'chat-harbor', [{ bookName: 'Harbor Atlas', count: 1 }]).message).toBe('1 selected entry of the lorebook '
+            + "\"Harbor Atlas\" has no keys, so LoreBase leaves it out of every reply. Write its keys with Generate all keys on VectFox's WorldInfo page.");
+        expect(unkeyedEntriesNotice(null, 'chat-harbor', [...harbor, { bookName: 'Keeper Notes', count: 2 }]).message).toBe('23 selected entries in 2 '
+            + 'lorebooks ("Harbor Atlas", "Keeper Notes") have no keys, so LoreBase leaves them out of every reply. Write their keys with Generate all '
+            + "keys on VectFox's WorldInfo page.");
+    });
+
+    it('shows once per chat, and again when the books or their counts change or another chat opens', () => {
+        const first = unkeyedEntriesNotice(null, 'chat-harbor', harbor);
+        const same = unkeyedEntriesNotice(first.notice, 'chat-harbor', harbor);
+        expect(same.message).toBeNull();
+        expect(unkeyedEntriesNotice(same.notice, 'chat-harbor', [{ bookName: 'Harbor Atlas', count: 20 }]).message).toContain('20 selected entries');
+        expect(unkeyedEntriesNotice(same.notice, 'chat-harbor', [{ bookName: 'Keeper Notes', count: 21 }]).message).toContain('"Keeper Notes"');
+        expect(unkeyedEntriesNotice(same.notice, 'chat-voyage', harbor).message).toContain('21 selected entries');
+    });
+
+    it('shows nothing when no entry lacks keys, and says it again once entries lose their keys after that', () => {
+        const shown = unkeyedEntriesNotice(null, 'chat-harbor', harbor);
+        const allKeyed = unkeyedEntriesNotice(shown.notice, 'chat-harbor', []);
+        expect(allKeyed.message).toBeNull();
+        expect(unkeyedEntriesNotice(allKeyed.notice, 'chat-harbor', harbor).message).toContain('21 selected entries');
     });
 });

@@ -2,8 +2,10 @@
  * LoreBase on a reply, the pure rules (plan §5.6, §5.8 and D8 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md): which generations it serves, the books taking part and the entries it
  * decides in them, the pick and one review per pick, all sent at once on a call the caller supplies and each timed for
- * the tester (§5.10), and the toast for a turn that left lore out (D14). Pure: no SillyTavern, no network.
+ * the tester (§5.10), the toast for a turn that left lore out (D14), and when a reply says it leaves out selected entries
+ * that have no keys (D17). Pure: no SillyTavern, no network.
  */
+import { counted } from '../../shared/counted.js';
 import { pickMessages, readPicks, tableOfContents } from './lorebase-pick-core.js';
 import { hasTemplateCode, partsToSend, readReview, reviewMessages } from './lorebase-review-core.js';
 import { entryPassages } from './lorebase-splitter.js';
@@ -215,4 +217,32 @@ export function leftOutLoreMessage(failures, pickCount) {
     const subject = failures.length === 1 ? `its pick ${titles}, so it is` : `${failures.length} of its picks (${titles}), so they are`;
     const others = pickCount > failures.length ? ' while the other picks go in' : '';
     return `LoreBase could not review ${subject} left out of this reply${others}. ${details}`;
+}
+
+/** The toast for selected entries a reply leaves out because they have no keys, with where to write them. */
+function unkeyedEntriesMessage(unkeyedBooks) {
+    const total = unkeyedBooks.reduce((sum, { count }) => sum + count, 0);
+    const isOne = total === 1;
+    const where = unkeyedBooks.length === 1
+        ? `of the lorebook "${unkeyedBooks[0].bookName}"`
+        : `in ${unkeyedBooks.length} lorebooks (${unkeyedBooks.map(({ bookName }) => `"${bookName}"`).join(', ')})`;
+    return `${counted(total, 'selected entry', 'selected entries')} ${where} ${isOne ? 'has' : 'have'} no keys, so LoreBase leaves `
+        + `${isOne ? 'it' : 'them'} out of every reply. Write ${isOne ? 'its' : 'their'} keys with Generate all keys on VectFox's WorldInfo page.`;
+}
+
+/**
+ * Whether a reply says it leaves out selected entries that have no keys (D17): once per chat, and again when the books
+ * or their counts change, so a selection whose keys were never written, or were lost with Qdrant, does not go quiet.
+ * A reply that leaves none out is remembered too, so entries that lose their keys later are said again.
+ *
+ * @param {{chatId: string|null, signature: string}|null} lastNotice - What the last reply remembered
+ * @param {string|null} chatId - The open chat
+ * @param {Array<{bookName: string, count: number}>} unkeyedBooks - Each book taking part that has selected entries with no keys
+ * @returns {{notice: {chatId: string|null, signature: string}, message: string|null}} What to remember, and the toast
+ *   to show, or null
+ */
+export function unkeyedEntriesNotice(lastNotice, chatId, unkeyedBooks) {
+    const signature = JSON.stringify(unkeyedBooks.map(({ bookName, count }) => [bookName, count]));
+    const isNew = !lastNotice || lastNotice.chatId !== chatId || lastNotice.signature !== signature;
+    return { notice: { chatId, signature }, message: isNew && unkeyedBooks.length ? unkeyedEntriesMessage(unkeyedBooks) : null };
 }
