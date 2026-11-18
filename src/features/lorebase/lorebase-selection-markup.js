@@ -398,7 +398,7 @@ export function entryTextMarkup(entry) {
 export function keysEditorLines(title) {
     return [
         { icon: 'fa-key', text: 'LoreBase keys:', name: title },
-        { text: "One key per line. The pick reads them beside the entry's title, and on Fast and cheap Jev's question names them." },
+        { text: "One key per line. The pick reads them beside the entry's title, and on Fast and Cheap [Jev], Jev's question names them." },
         { text: "Regenerate asks LoreBase's model for new ones and puts them in the box; nothing is kept until Save keys." },
     ];
 }

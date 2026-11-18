@@ -1,5 +1,5 @@
 /**
- * LoreBase's Fast and cheap choice, the pure rules (src/features/lorebase/lorebase-jev-core.js, plan D16 and §5.6 of
+ * LoreBase's Fast and Cheap [Jev] choice, the pure rules (src/features/lorebase/lorebase-jev-core.js, plan D16 and §5.6 of
  * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): Jev's state and questions are T22's word
  * for word, as segment_trials.py renders them in the fixture export_trial_prompts.py writes; the entries above 0.25, at
  * most 6, best first, go whole with no review; and a failed request is a failed pick.
@@ -48,7 +48,7 @@ describe("Jev's picks", () => {
     });
 });
 
-describe('a reply on Fast and cheap', () => {
+describe('a reply on Fast and Cheap [Jev]', () => {
     const lighthouse = { uid: 0, comment: 'Lighthouse of Vell', content: '[Cliff]\nThe lighthouse stands on the north cliff.\n[Lamp]\nIts lamp burns all night.' };
     const tidewardens = { uid: 1, comment: 'Tidewardens', content: 'The tidewardens read the harbor bells.' };
     const books = [{ bookName: 'Harbor Atlas', entries: [lighthouse, tidewardens], pinnedSections: [], keysByUid: { 0: ['lighthouse'], 1: ['tidewardens'] } }];

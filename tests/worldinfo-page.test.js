@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 const { loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { KEY_CALLS_AT_ONCE_MAX } = await import('../src/features/lorebase/lorebase-keys-core.js');
+const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lorebase/lorebase-reply-core.js');
 
 // The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
@@ -33,11 +34,14 @@ describe('WorldInfo page markup', () => {
         document.body.innerHTML = `<div id="VectFox_settings">${worldInfoPageMarkup()}</div>`;
     });
 
-    it('opens the model card on Accuracy, offers Default Accuracy, High Accuracy and Fast and cheap, and hides Jev\'s group until it is chosen (D16)', () => {
+    it('opens the model card on Accuracy, offers Fast and Cheap [Jev] first and High Accuracy, and hides Jev\'s group until it is chosen (D16)', () => {
         const card = document.getElementById('VectFox_lorebase_model_card');
         expect(card.querySelector('.vfx-card-body select, .vfx-card-body input')).toBe(document.getElementById('VectFox_lorebase_accuracy'));
         expect([...document.getElementById('VectFox_lorebase_accuracy').options].map(option => [option.value, option.textContent]))
-            .toEqual([['default', 'Default Accuracy'], ['high', 'High Accuracy'], ['fast', 'Fast and cheap (Jev)']]);
+            .toEqual([['fast', 'Fast and Cheap [Jev]'], ['high', 'High Accuracy']]);
+        // Each value is a choice the reply runs as itself, the default first.
+        const values = [...document.getElementById('VectFox_lorebase_accuracy').options].map(option => option.value);
+        expect([values.map(loreBaseAccuracyOf), values[0]]).toEqual([values, FAST_AND_CHEAP]);
         const titles = [...card.querySelectorAll('.vfx-group-title')].map(title => title.textContent.trim());
         expect(titles).toEqual(['Keys and picks', 'Keys', 'Jev']);
         expect(document.getElementById('VectFox_lorebase_role_picks').style.display).toBe('');
@@ -152,7 +156,7 @@ describe("the tester's report (§5.10)", () => {
         failure: 'it did not answer within 30 seconds', isInPrompt: null,
     };
     const measured = {
-        id: 7, chatId: 'chat', type: 'swipe', accuracy: 'default', madeAt: Date.UTC(2026, 10, 15, 15, 42, 10),
+        id: 7, chatId: 'chat', type: 'swipe', accuracy: 'high', madeAt: Date.UTC(2026, 10, 15, 15, 42, 10),
         contentCount: 3, picks: [lighthouse, tidewardens], skipped: [{ bookName: 'Harbor Atlas', uid: 2, title: 'Old Pier' }],
         unreadItemCount: 0,
         failures: [{ step: 'review', title: 'Tidewardens', detail: 'it did not answer within 30 seconds' }],
@@ -222,7 +226,7 @@ describe("the tester's report (§5.10)", () => {
         expect(records[0].lines.at(-1)).toBe('Sends: 1 of 1 parts, 9 of 9 tokens, not reviewed');
     });
 
-    it("shows Jev's rating on a Fast and cheap pick, which has no reasons of Luna's (D16)", () => {
+    it("shows Jev's rating on a Fast and Cheap [Jev] pick, which has no reasons of Luna's (D16)", () => {
         const jevPick = {
             bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', basis: undefined, certain: undefined, why: undefined, needs: undefined, yes: 0.64,
             wholeText: 'The lighthouse stands on the north cliff.', failure: null, isInPrompt: true,
@@ -295,7 +299,7 @@ describe("the tester's report (§5.10)", () => {
         ]);
     });
 
-    it("says Jev rated no entry above the cut when Fast and cheap picked none, and Luna picked none otherwise", () => {
+    it("says Jev rated no entry above the cut when Fast and Cheap [Jev] picked none, and Luna picked none otherwise", () => {
         drawn({ ...measured, accuracy: 'fast', picks: [], failures: [] });
         expect(document.body.textContent).toContain('Jev rated no entry above 0.25 for this reply.');
         drawn({ ...measured, picks: [], failures: [] });

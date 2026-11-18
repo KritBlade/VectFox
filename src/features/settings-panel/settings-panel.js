@@ -23,7 +23,7 @@ import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
-import { keyCallsAtOnceOf } from '../lorebase/index.js';
+import { keyCallsAtOnceOf, loreBaseAccuracyOf } from '../lorebase/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
@@ -1399,8 +1399,9 @@ function bindSettingsEvents(settings, callbacks) {
             saveSettingsDebounced();
         });
 
+    // A value the dropdown no longer offers shows as the choice it runs, High Accuracy (loreBaseAccuracyOf).
     $('#VectFox_lorebase_accuracy')
-        .val(settings.lorebase_accuracy)
+        .val(loreBaseAccuracyOf(settings.lorebase_accuracy))
         .on('change', function() {
             settings.lorebase_accuracy = String($(this).val());
             Object.assign(extension_settings.vectfox, settings);

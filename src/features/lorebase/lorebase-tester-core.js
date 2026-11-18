@@ -19,7 +19,7 @@ import { entryTitle } from './lorebase-splitter.js';
  * @property {boolean|null} certain - Whether Luna said the reply will certainly draw on it
  * @property {string} why - Luna's one sentence on why the reply needs it
  * @property {string} needs - What Luna wanted from it
- * @property {number|null} yes - On Fast and cheap, Jev's chance of yes for it (D16); null for Luna's picks
+ * @property {number|null} yes - On Fast and Cheap [Jev], Jev's chance of yes for it (D16); null for Luna's picks
  * @property {string} wholeText - The entry as SillyTavern sends it whole
  * @property {{uses: string, seconds: number, parts: Array<{text: string, isSent: boolean}>, sentText: string}|null}
  *   review - What its review kept, and the text the pick sends: '' when it keeps no part; null when the review failed

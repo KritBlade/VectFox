@@ -1,5 +1,5 @@
 /**
- * LoreBase's Fast and cheap connection (src/features/lorebase/lorebase-jev.js, plan D16 of InternalProject/Vectfox/
+ * LoreBase's Fast and Cheap [Jev] connection (src/features/lorebase/lorebase-jev.js, plan D16 of InternalProject/Vectfox/
  * plans/lorebook-semantic-overhaul-passage-index.md): Jev runs on the OpenRouter or Custom profile chosen for it; VectFox
  * sends Similharity's decisions route the profile's source, URL, model and key ID, never a key; each setup that cannot
  * run says what is wrong; a refusal says what Similharity answered; and Test connection asks one made-up question. The
@@ -57,7 +57,7 @@ describe("Jev's connection", () => {
 
     it('says what keeps the chosen setup from running', () => {
         const problem = id => resolveJevConnection({ lorebase_jev_connection_profile_id: id }).problem;
-        expect(problem('')).toContain('Fast and cheap has no profile for Jev');
+        expect(problem('')).toContain('Fast and Cheap [Jev] has no profile for Jev');
         expect(problem('p-deleted')).toContain("Jev's profile is no longer in SillyTavern");
         expect(problem('p-claude')).toContain('is neither an OpenRouter nor a Custom profile');
         expect(problem('p-no-model')).toContain('names no model');

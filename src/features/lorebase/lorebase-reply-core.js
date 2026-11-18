@@ -20,11 +20,14 @@ const QUIET_GENERATION_TYPE = 'quiet';
 export const THINKING_TOKEN_ALLOWANCE = 8000;
 const PICK_MAX_TOKENS = 1500 + THINKING_TOKEN_ALLOWANCE;
 const REVIEW_MAX_TOKENS = 2000 + THINKING_TOKEN_ALLOWANCE;
-// The pick runs at low reasoning effort on either Accuracy setting (D6).
-const PICK_REASONING_EFFORT = 'low';
-const HIGH_ACCURACY = 'high';
-/** The lorebase_accuracy value of the Fast and cheap choice: Jev in place of Luna's pick and reviews (D16). */
+// The pick and every review run at low reasoning effort (D6).
+const REASONING_EFFORT = 'low';
+/**
+ * The lorebase_accuracy values (plan §2 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): Fast and Cheap
+ * [Jev], the default, Jev in place of Luna's pick and reviews (D16); and High Accuracy, Luna's pick and reviews.
+ */
 export const FAST_AND_CHEAP = 'fast';
+const HIGH_ACCURACY = 'high';
 
 /** A call that has not answered by then fails (§5.8). The trials' slowest pick took 4.8 seconds, their slowest review 9.3. */
 export const CALL_TIMEOUT_MS = 30000;
@@ -93,12 +96,14 @@ export function decidedEntries(book, record) {
 }
 
 /**
- * The review's reasoning effort: High Accuracy asks at the model's default, so none is sent; Default Accuracy at low.
- * @param {string} accuracy - The lorebase_accuracy setting
- * @returns {string|null}
+ * The choice a lorebase_accuracy value runs: Fast and Cheap [Jev] on `fast`, High Accuracy on any other. So a profile
+ * still holding a value the dropdown no longer offers runs High Accuracy, and the dropdown shows it, until it is set
+ * (plan §2 of lorebook-multi-vector.md).
+ * @param {unknown} value - The lorebase_accuracy setting
+ * @returns {'fast'|'high'}
  */
-export function reviewEffort(accuracy) {
-    return accuracy === HIGH_ACCURACY ? null : 'low';
+export function loreBaseAccuracyOf(value) {
+    return value === FAST_AND_CHEAP ? FAST_AND_CHEAP : HIGH_ACCURACY;
 }
 
 /**
@@ -129,7 +134,7 @@ export function isSentWholeUnreviewed(entry, passages) {
     return passages.length === 1 || hasTemplateCode(entry.content);
 }
 
-async function reviewPick(pick, { scene, books, effort, ask }) {
+async function reviewPick(pick, { scene, books, ask }) {
     const book = books.find(candidate => candidate.bookName === pick.bookName);
     const entry = book.entries.find(candidate => candidate.uid === pick.uid);
     const { frame, passages } = entryPassages(entry);
@@ -140,7 +145,7 @@ async function reviewPick(pick, { scene, books, effort, ask }) {
     const failure = { step: 'review', bookName: pick.bookName, uid: pick.uid, title: pick.title };
     const startedAt = performance.now();
     try {
-        const items = await ask(reviewMessages(scene, pick, passages), { maxTokens: REVIEW_MAX_TOKENS, reasoningEffort: effort, identKeys: ['entry'] });
+        const items = await ask(reviewMessages(scene, pick, passages), { maxTokens: REVIEW_MAX_TOKENS, reasoningEffort: REASONING_EFFORT, identKeys: ['entry'] });
         const seconds = secondsSince(startedAt);
         const review = readReview(items, passages.length);
         if (!review) return { failure: { ...failure, detail: UNREADABLE_ANSWER, seconds } };
@@ -167,25 +172,25 @@ async function reviewPick(pick, { scene, books, effort, ask }) {
  */
 
 /**
- * The lore for one reply: the pick over the table of contents of the books taking part, then one review per pick of
- * more than one part, all sent at once, a one-part pick or one with template code sent whole with no review. A failed
- * pick leaves every selected entry out, and a failed review leaves out only its own entry (D14).
+ * The lore for one reply on High Accuracy: the pick over the table of contents of the books taking part, then one
+ * review per pick of more than one part, all sent at once, each at low reasoning effort, a one-part pick or one with
+ * template code sent whole with no review. A failed pick leaves every selected entry out, and a failed review leaves
+ * out only its own entry (D14).
  * @param {object} turn
  * @param {string} turn.scene - From sceneText
  * @param {Array<{bookName: string, entries: object[], pinnedSections: string[], keysByUid?: Record<string, string[]>}>} turn.books -
  *   The books taking part, in book order, each with the entries LoreBase decides in it (decidedEntries) and their keys
- * @param {string|null} turn.reviewEffort - From reviewEffort
- * @param {(messages: Array<{role: string, content: string}>, request: {maxTokens: number, reasoningEffort: string|null,
+ * @param {(messages: Array<{role: string, content: string}>, request: {maxTokens: number, reasoningEffort: string,
  *   identKeys: string[]}) => Promise<unknown[]>} turn.ask - Sends one call and returns its answer's entries, as
  *   parseJsonArrayFromLlm reads them; throws when the call fails
  * @returns {Promise<ReplyLore>}
  */
-export async function loreForReply({ scene, books, reviewEffort: effort, ask }) {
+export async function loreForReply({ scene, books, ask }) {
     const contents = tableOfContents(books);
     let picked;
     const pickStartedAt = performance.now();
     try {
-        const items = await ask(pickMessages(scene, contents), { maxTokens: PICK_MAX_TOKENS, reasoningEffort: PICK_REASONING_EFFORT, identKeys: ['number'] });
+        const items = await ask(pickMessages(scene, contents), { maxTokens: PICK_MAX_TOKENS, reasoningEffort: REASONING_EFFORT, identKeys: ['number'] });
         picked = readPicks(items, contents);
     } catch (error) {
         return {
@@ -194,7 +199,7 @@ export async function loreForReply({ scene, books, reviewEffort: effort, ask }) 
         };
     }
     const pickSeconds = secondsSince(pickStartedAt);
-    const reviews = await Promise.all(picked.picks.map(pick => reviewPick(pick, { scene, books, effort, ask })));
+    const reviews = await Promise.all(picked.picks.map(pick => reviewPick(pick, { scene, books, ask })));
     return {
         contentCount: contents.length,
         picks: picked.picks,

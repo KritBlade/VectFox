@@ -1,10 +1,10 @@
 /**
  * LoreBase's review (plan §5.6 and D6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * GPT-6 Luna reads one picked entry's text, cut into numbered parts, and says how much of it the next reply will use
- * and which parts are of no use for the moment. Each picked entry has its own call, showing it alone as entry 1. High
- * Accuracy asks at the model's default reasoning effort and Default Accuracy at low effort, with one prompt: the route
- * trials' review_topic_cuts_lean word for word (InternalProject/Vectfox/tools/lorebase-benchmark/route_trials.py);
- * tests/lorebase-pick-and-review.test.js holds it to the trials' own rendering. Pure: no SillyTavern, no network.
+ * and which parts are of no use for the moment. Each picked entry has its own call, showing it alone as entry 1, at
+ * low reasoning effort, with one prompt: the route trials' review_topic_cuts_lean word for word (InternalProject/
+ * Vectfox/tools/lorebase-benchmark/route_trials.py); tests/lorebase-pick-and-review.test.js holds it to the trials'
+ * own rendering. Pure: no SillyTavern, no network.
  */
 import { chatHead } from './lorebase-scene-core.js';
 import { INTRO_SECTION } from './lorebase-splitter.js';

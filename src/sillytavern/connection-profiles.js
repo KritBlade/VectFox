@@ -2,10 +2,10 @@
 // whether the Connection Manager is on, the profiles a Profile dropdown offers and when that list changes, a profile by
 // ID, whether SillyTavern can send a request on it and of which kind, the request itself through SillyTavern's
 // ConnectionManagerRequestService, and its reply as text; the source a profile's API is; for embedding, the server URL
-// it names and the ID of its key; for LoreBase's Fast and cheap choice, the fields of a decisions request to Jev on an
-// OpenRouter or Custom profile. The only file that touches that service or a profile's key ID or URL (connection plan
-// §6, credential invariant 4). SillyTavern's server, or Similharity on it, resolves the key from the ID; no key value
-// ever reaches VectFox.
+// it names and the ID of its key; for LoreBase's Fast and Cheap [Jev] choice, the fields of a decisions request to Jev
+// on an OpenRouter or Custom profile. The only file that touches that service or a profile's key ID or URL (connection
+// plan §6, credential invariant 4). SillyTavern's server, or Similharity on it, resolves the key from the ID; no key
+// value ever reaches VectFox.
 //
 // SillyTavern's context comes from its page global, read at each call, so importing this file loads nothing of
 // SillyTavern's and the chat-call modules that import it stay loadable on their own.
@@ -151,8 +151,8 @@ export function connectionProfileKeyIdField(profile) {
 const DECISIONS_SOURCES = new Set(['openrouter', 'custom']);
 
 /**
- * The fields of a decisions request to Jev on a profile, for LoreBase's Fast and cheap choice: its source, its URL for
- * a Custom source, its model and the ID of its key. null on a profile of another API.
+ * The fields of a decisions request to Jev on a profile, for LoreBase's Fast and Cheap [Jev] choice: its source, its
+ * URL for a Custom source, its model and the ID of its key. null on a profile of another API.
  *
  * @param {object} profile
  * @returns {{source: string, model: string, apiUrl?: string, secret_id?: string}|null}

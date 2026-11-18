@@ -24,7 +24,7 @@ const host = vi.hoisted(() => ({
     // Every entry has keys but these ("book/uid"), and a read of the keys fails with this error when one is set.
     unkeyedUids: new Set(),
     keysReadError: null,
-    // Fast and cheap: Jev's connection, and its answer.
+    // Fast and Cheap [Jev]: Jev's connection, and its answer.
     jevConnection: null,
     jevAnswer: null,
 }));
@@ -158,7 +158,7 @@ beforeEach(() => {
         vector_backend: 'qdrant',
         lorebase_books: { 'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] } },
     };
-    settings = { enabled: true, lorebase_enabled: true, vector_backend: 'qdrant', lorebase_accuracy: 'default' };
+    settings = { enabled: true, lorebase_enabled: true, vector_backend: 'qdrant', lorebase_accuracy: 'high' };
     host.connection = ON_PROFILE;
     host.isWorldInfoSearchOn = false;
     host.unkeyedUids = new Set();
@@ -234,7 +234,7 @@ describe("LoreBase's switch and Vector Storage's World Info search (§5.9)", () 
     });
 });
 
-describe('Fast and cheap (D16)', () => {
+describe('Fast and Cheap [Jev] (D16)', () => {
     it('asks Jev once about every keyed entry, asks Luna nothing, and sends its picks above 0.25 whole', async () => {
         const lore = await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' });
 
@@ -250,7 +250,7 @@ describe('Fast and cheap (D16)', () => {
     });
 
     it('says where to choose Jev\'s profile when none can run, and sends no selected entry', async () => {
-        host.jevConnection = { ok: false, problem: 'Fast and cheap has no profile for Jev. Choose one in the Jev group of the LoreBase model card on the WorldInfo page.' };
+        host.jevConnection = { ok: false, problem: 'Fast and Cheap [Jev] has no profile for Jev. Choose one in the Jev group of the LoreBase model card on the WorldInfo page.' };
         expect(await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' })).toBeNull();
         expect(askJev).not.toHaveBeenCalled();
         expect(notifySetupIncomplete).toHaveBeenCalledWith('LoreBase', host.jevConnection.problem);
@@ -266,13 +266,13 @@ describe('Try a pick (§5.10)', () => {
         expect(await tryLoreBasePick(settings)).toEqual({ problem: null });
         expect(postChatCompletion).toHaveBeenCalledTimes(2);
         expect(recordReplyReport).toHaveBeenCalledTimes(1);
-        expect(recordReplyReport.mock.calls[0][0]).toMatchObject({ type: 'try', isReply: false, accuracy: 'default' });
+        expect(recordReplyReport.mock.calls[0][0]).toMatchObject({ type: 'try', isReply: false, accuracy: 'high' });
         expect(recordReplyReport.mock.calls[0][0].lore.picks.map(pick => pick.title)).toEqual(['Lighthouse of Vell']);
         // Nothing is kept for a World Info scan: a try sends no reply.
         expect(keepReplyScan).not.toHaveBeenCalled();
     });
 
-    it('asks Jev on Fast and cheap, as a reply would', async () => {
+    it('asks Jev on Fast and Cheap [Jev], as a reply would', async () => {
         expect(await tryLoreBasePick({ ...settings, lorebase_accuracy: 'fast' })).toEqual({ problem: null });
         expect(askJev).toHaveBeenCalledTimes(1);
         expect(postChatCompletion).not.toHaveBeenCalled();
@@ -428,9 +428,9 @@ describe('the books taking part (D11)', () => {
 });
 
 describe("the calls on LoreBase's connection", () => {
-    it('sends no temperature, the pick at low effort, and each review at the effort Accuracy sets', async () => {
+    it('sends no temperature, and the pick and each review at low effort', async () => {
         postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
-        const lore = await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'high' });
+        const lore = await prepareLoreForReply('normal', settings);
 
         const sent = {
             provider: 'connection_profile', model: 'openai/gpt-6-luna', connectionProfileId: 'p-harbor', connectionProfilePage: 'WorldInfo',
@@ -438,10 +438,18 @@ describe("the calls on LoreBase's connection", () => {
         };
         const [pickRequest, reviewRequest] = postChatCompletion.mock.calls.map(([request]) => request);
         expect(pickRequest).toMatchObject({ ...sent, maxTokens: 9500, reasoningEffort: 'low' });
-        expect(reviewRequest).toMatchObject({ ...sent, maxTokens: 10000, reasoningEffort: null });
+        expect(reviewRequest).toMatchObject({ ...sent, maxTokens: 10000, reasoningEffort: 'low' });
         for (const request of [pickRequest, reviewRequest]) expect(request).not.toHaveProperty('temperature');
         expect(userContent(1)).toContain('Entry 1: Tidewardens\nYour reason: it is asked after You wanted: who keeps it');
         expect(lore.reviewedPicks).toMatchObject([{ bookName: 'Harbor Atlas', uid: 1, uses: 'most', sentParts: [1, 2] }]);
+    });
+
+    it('runs High Accuracy on a value the dropdown no longer offers, and reports it so', async () => {
+        postChatCompletion.mockResolvedValueOnce(pickOf(2)).mockResolvedValueOnce(reviewOf('most'));
+        await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'default' });
+        expect(postChatCompletion).toHaveBeenCalledTimes(2);
+        expect(askJev).not.toHaveBeenCalled();
+        expect(recordReplyReport.mock.calls[0][0].accuracy).toBe('high');
     });
 
     it('reads the answer, not the reasoning a thinking model writes before it', async () => {
@@ -582,7 +590,7 @@ describe('the tester (§5.10)', () => {
             bookName: 'Harbor Atlas', entries: [LIGHTHOUSE, TIDEWARDENS], pinnedSections: [],
             keysByUid: { 0: ['keys of Lighthouse of Vell'], 1: ['keys of Tidewardens'] },
         }]);
-        expect([type, accuracy]).toEqual(['swipe', 'default']);
+        expect([type, accuracy]).toEqual(['swipe', 'high']);
         expect(seconds).toBeGreaterThanOrEqual(0);
         expect(keepReplyScan).toHaveBeenCalledWith(lore, { chat: replyChat, maxContext: 8000, type: 'swipe' });
     });

@@ -1,5 +1,5 @@
 /**
- * LoreBase's Fast and cheap choice, its connection (plan D16 and §5.6 of InternalProject/Vectfox/plans/
+ * LoreBase's Fast and Cheap [Jev] choice, its connection (plan D16 and §5.6 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md): Jev runs on the SillyTavern profile chosen on its own row of the
  * WorldInfo page, an OpenRouter or Custom profile naming Jev's model. VectFox sends Similharity the profile's source,
  * URL, model and key ID, never a key; Similharity reads the key on SillyTavern's server and asks Jev at the URL's
@@ -26,7 +26,7 @@ const TEST_QUESTIONS = { e1: { type: 'noul', instructions: 'Does the next reply 
  */
 export function resolveJevConnection(settings) {
     const profileId = String(settings?.[JEV_PROFILE_SETTING] ?? '').trim();
-    if (!profileId) return { ok: false, problem: `Fast and cheap has no profile for Jev. ${WHERE_TO_FIX} ${UNTIL_FIXED}` };
+    if (!profileId) return { ok: false, problem: `Fast and Cheap [Jev] has no profile for Jev. ${WHERE_TO_FIX} ${UNTIL_FIXED}` };
     const profile = findConnectionProfile(profileId);
     if (!profile) return { ok: false, problem: `Jev's profile is no longer in SillyTavern. ${WHERE_TO_FIX} ${UNTIL_FIXED}` };
     const fields = connectionProfileDecisionsFields(profile);

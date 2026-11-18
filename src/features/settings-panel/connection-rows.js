@@ -7,7 +7,7 @@
  * and readout it shows, the rows a profile supplies hidden while one is chosen, the
  * profile Agent Mode takes from the EventBase model, and each card's
  * Test connection; and what LoreBase's Accuracy leaves each model to do, with Jev's
- * profile group shown on Fast and cheap only. The Profile dropdowns repaint when a profile is made, saved or
+ * profile group shown on Fast and Cheap [Jev] only. The Profile dropdowns repaint when a profile is made, saved or
  * deleted in SillyTavern, and embedding's readout once the Similharity probe settles.
  * ============================================================================
  */
@@ -23,7 +23,9 @@ import { setShown } from '../../shared/gui-dna/gene-behaviours.js';
 import { embeddingProfileKind, resolveEmbeddingProfile } from '../embedding/index.js';
 import { testAgentModeConnection, testEventBaseConnection, testStoryArcConnection } from '../eventbase/index.js';
 import { describeChatConnectionProfile, resolveInheritedConnection } from '../llm-provider/index.js';
-import { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection, testLoreBaseConnection } from '../lorebase/index.js';
+import {
+    FAST_AND_CHEAP, JEV_PROFILE_SETTING, loreBaseAccuracyOf, resolveJevConnection, testJevConnection, testLoreBaseConnection,
+} from '../lorebase/index.js';
 import { getBackend } from '../vector-backend/index.js';
 import { CHAT_CONSUMER_CONNECTIONS, chatProfileReadoutLines, embeddingProfileReadoutLines, ownProviderOf, profileSelectOptions } from './connection-rows-core.js';
 
@@ -31,7 +33,6 @@ const EMBEDDING_PREFIX = 'VectFox_embedding';
 const JEV_PREFIX = 'VectFox_lorebase_jev';
 const JEV_GROUP_ID = 'VectFox_lorebase_jev_group';
 const ACCURACY_SELECT_ID = 'VectFox_lorebase_accuracy';
-const FAST_AND_CHEAP_CHOICE = 'fast';
 // The profiles Jev runs on: OpenRouter and Custom, whose key Similharity sends only where SillyTavern does.
 const isJevProfileSource = provider => provider === 'openrouter' || provider === 'custom';
 
@@ -168,16 +169,16 @@ function refreshEmbedding(choice, settings, isManagerAvailable) {
 }
 
 /**
- * Show what LoreBase's Accuracy leaves each model to do: on Default and High Accuracy its own model's Keys and picks;
- * on Fast and cheap (plan D16) its own model's Keys and Jev's group, offering the OpenRouter and Custom profiles, with
- * what keeps the chosen one from running. Jev's group shows on Fast and cheap only.
+ * Show what LoreBase's Accuracy leaves each model to do: on High Accuracy its own model's Keys and picks; on Fast and
+ * Cheap [Jev] (plan D16) its own model's Keys and Jev's group, offering the OpenRouter and Custom profiles, with what
+ * keeps the chosen one from running. Jev's group shows on Fast and Cheap [Jev] only.
  * @param {object} settings
  * @param {boolean} isManagerAvailable
  * @param {string} accuracy - The dropdown's choice: the saved one, or the one just picked, which another listener saves
  */
 function refreshAccuracyRows(settings, isManagerAvailable, accuracy) {
     const ids = connectionProfileRowIds(JEV_PREFIX);
-    const isFastAndCheap = accuracy === FAST_AND_CHEAP_CHOICE;
+    const isFastAndCheap = loreBaseAccuracyOf(accuracy) === FAST_AND_CHEAP;
     setShown(byId('VectFox_lorebase_role_picks'), !isFastAndCheap);
     setShown(byId('VectFox_lorebase_role_keys'), isFastAndCheap);
     setShown(byId(JEV_GROUP_ID), isFastAndCheap);

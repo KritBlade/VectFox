@@ -10,7 +10,8 @@
  * itself, opens on it for a new install's Custom type with no profile, choosing a profile stores its ID and type, and
  * its readout is drawn again once the Similharity probe settles; each Test connection runs its feature's test on the
  * panel's settings and reports the answer, a cut the provider made included; LoreBase's Jev profile row shows only on
- * Fast and cheap, offers only OpenRouter and Custom profiles, saves the choice and says what keeps it from running.
+ * Fast and Cheap [Jev], offers only OpenRouter and Custom profiles, saves the choice and says what keeps it from
+ * running; a value the Accuracy dropdown no longer offers opens as High Accuracy.
  */
 /* global document, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -43,12 +44,18 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     testEventBaseConnection: (...args) => host.tests.eventbase(...args),
     testStoryArcConnection: (...args) => host.tests.storyarc(...args),
 }));
-vi.mock('../src/features/lorebase/index.js', () => ({
-    testLoreBaseConnection: (...args) => host.tests.lorebase(...args),
-    testJevConnection: (...args) => host.tests.jev(...args),
-    JEV_PROFILE_SETTING: 'lorebase_jev_connection_profile_id',
-    resolveJevConnection: () => (host.jevProblem ? { ok: false, problem: host.jevProblem } : { ok: true, fields: {} }),
-}));
+vi.mock('../src/features/lorebase/index.js', async () => {
+    // The choices' values and their reading, as the barrel has them: pure.
+    const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await vi.importActual('../src/features/lorebase/lorebase-reply-core.js');
+    return {
+        FAST_AND_CHEAP,
+        loreBaseAccuracyOf,
+        testLoreBaseConnection: (...args) => host.tests.lorebase(...args),
+        testJevConnection: (...args) => host.tests.jev(...args),
+        JEV_PROFILE_SETTING: 'lorebase_jev_connection_profile_id',
+        resolveJevConnection: () => (host.jevProblem ? { ok: false, problem: host.jevProblem } : { ok: true, fields: {} }),
+    };
+});
 vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: vi.fn(async () => host.backend) }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({ checkPluginAvailable: () => host.probe }));
 vi.mock('../src/features/embedding/index.js', async () => {
@@ -278,7 +285,7 @@ describe('a chat consumer\'s Provider dropdown', () => {
     });
 });
 
-describe("LoreBase's Accuracy rows and Jev's profile (Fast and cheap, D16)", () => {
+describe("LoreBase's Accuracy rows and Jev's profile (Fast and Cheap [Jev], D16)", () => {
     const JEV_GROUP = 'VectFox_lorebase_jev_group';
     const JEV_ROWS = 'VectFox_lorebase_jev_connection_profile_rows';
     const JEV_SELECT = 'VectFox_lorebase_jev_connection_profile';
@@ -289,8 +296,8 @@ describe("LoreBase's Accuracy rows and Jev's profile (Fast and cheap, D16)", () 
         jev: isShown(element(JEV_GROUP)) && isShown(element(JEV_ROWS)),
     });
 
-    it('shows Jev only on Fast and cheap, where the own model only writes keys, offers the OpenRouter and Custom profiles, and saves the choice', () => {
-        const settings = mount({ ...baseSettings(), lorebase_accuracy: 'default', lorebase_jev_connection_profile_id: '' });
+    it('shows Jev only on Fast and Cheap [Jev], where the own model only writes keys, offers the OpenRouter and Custom profiles, and saves the choice', () => {
+        const settings = mount({ ...baseSettings(), lorebase_accuracy: 'high', lorebase_jev_connection_profile_id: '' });
         expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });
 
         choose('VectFox_lorebase_accuracy', 'fast');
@@ -305,11 +312,14 @@ describe("LoreBase's Accuracy rows and Jev's profile (Fast and cheap, D16)", () 
         expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });
     });
 
-    it('opens on the saved Accuracy: Jev shown on a saved Fast and cheap, hidden on a saved High Accuracy', () => {
+    it('opens on the saved Accuracy: Jev shown on a saved Fast and Cheap [Jev], hidden on High Accuracy and on a value the dropdown no longer offers', () => {
         mount({ ...baseSettings(), lorebase_accuracy: 'fast', lorebase_jev_connection_profile_id: '' });
         expect(shownRows()).toEqual({ picks: false, keys: true, jev: true });
 
         mount({ ...baseSettings(), lorebase_accuracy: 'high', lorebase_jev_connection_profile_id: 'p-lantern' });
+        expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });
+
+        mount({ ...baseSettings(), lorebase_accuracy: 'default', lorebase_jev_connection_profile_id: 'p-lantern' });
         expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });
     });
 

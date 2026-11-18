@@ -51,17 +51,17 @@ function loreBaseBooksCard() {
     </section>`;
 }
 
-// LoreBase's model card (plan §5.6). Accuracy comes first, since it decides what each model does: LoreBase's own model
-// writes each entry's keys on every choice (D17) and, on Default and High Accuracy, also picks and reviews (D6); on
-// Fast and cheap, Jev picks, on a profile of its own (D16). connection-rows.js shows the title of the own model's role
-// and Jev's group, which shows on Fast and cheap only.
+// LoreBase's model card (plan §5.6, and §2 of lorebook-multi-vector.md). Accuracy comes first, since it decides what
+// each model does: LoreBase's own model writes each entry's keys on every choice (D17) and, on High Accuracy, also
+// picks and reviews (D6); on Fast and Cheap [Jev], the default, Jev picks, on a profile of its own (D16).
+// connection-rows.js shows the title of the own model's role and Jev's group, which shows on Fast and Cheap [Jev] only.
+// The option values are FAST_AND_CHEAP and High Accuracy's in lorebase-reply-core.js.
 function loreBaseModelCard() {
     const accuracy = select({
         id: 'VectFox_lorebase_accuracy',
         options: [
-            selectOption({ value: 'default', text: 'Default Accuracy' }),
+            selectOption({ value: 'fast', text: 'Fast and Cheap [Jev]' }),
             selectOption({ value: 'high', text: 'High Accuracy' }),
-            selectOption({ value: 'fast', text: 'Fast and cheap (Jev)' }),
         ],
     });
     return `<section id="VectFox_lorebase_model_card" class="vfx-card">
@@ -70,8 +70,8 @@ function loreBaseModelCard() {
             ${field([
                 fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
                 accuracy,
-                hint({ text: 'Default Accuracy is quicker, High leaves out less, and Fast and cheap is quickest of all.' }),
-                detail({ text: 'Each picked entry of more than one part is reviewed at low reasoning effort on Default Accuracy, and at the model\'s own effort on High Accuracy. Fast and cheap asks Jev, a decisions model, instead: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole, so the reply reads more lore. LoreBase\'s own model still writes each entry\'s keys when it is turned on, since Jev\'s questions name them.' }),
+                hint({ text: 'Fast and Cheap [Jev] is quickest and cheapest. High Accuracy sends only the parts needed.' }),
+                detail({ text: 'Fast and Cheap [Jev] asks Jev, a decisions model: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole. High Accuracy has LoreBase\'s own model pick the entries, then reviews each picked entry of more than one part at low reasoning effort and sends only the parts the reply needs. On both, LoreBase\'s own model writes each entry\'s keys when it is turned on, since the pick and Jev\'s questions read them.' }),
             ], { isSpan: true })}
             <div id="VectFox_lorebase_role_picks" class="vfx-span">${groupTitle({ icon: 'fa-key', text: 'Keys and picks' })}${hint({ text: 'Writes each entry\'s keys when you turn it on, and picks each reply\'s lore.' })}</div>
             <div id="VectFox_lorebase_role_keys" class="vfx-span" style="display:none;">${groupTitle({ icon: 'fa-key', text: 'Keys' })}${hint({ text: 'Writes each entry\'s keys once, when you turn it on. Replies use Jev.' })}</div>
@@ -261,7 +261,7 @@ function pickRecord(pick, index, report) {
     });
 }
 
-// What a report with no pick says: Fast and cheap's picks are Jev's, the others Luna's.
+// What a report with no pick says: Fast and Cheap [Jev]'s picks are Jev's, High Accuracy's Luna's.
 const NO_PICK_TEXT = {
     jev: 'Jev rated no entry above 0.25 for this reply.',
     luna: 'Luna picked no entry for this reply.',

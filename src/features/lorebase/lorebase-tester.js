@@ -73,7 +73,7 @@ export function loreBaseReports() {
  * @param {import('./lorebase-reply-core.js').ReplyLore} turn.lore
  * @param {Array<{bookName: string, entries: object[]}>} turn.books - The books taking part
  * @param {string} turn.type - The generation's type, or 'try'
- * @param {string} turn.accuracy - The lorebase_accuracy setting the reviews ran on
+ * @param {string} turn.accuracy - The choice the turn ran on, from loreBaseAccuracyOf: 'fast' or 'high'
  * @param {number} turn.seconds - LoreBase's whole time on the reply
  * @param {boolean} [turn.isReply] - false for a try, which sends no reply
  */

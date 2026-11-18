@@ -23,7 +23,7 @@ import { askJev, resolveJevConnection } from './lorebase-jev.js';
 import { loreForReplyByJev } from './lorebase-jev-core.js';
 import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
 import { readBookKeys } from './lorebase-keys.js';
-import { FAST_AND_CHEAP, isReplyGeneration, loreForReply, leftOutLoreMessage, reviewEffort, unkeyedEntriesNotice } from './lorebase-reply-core.js';
+import { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unkeyedEntriesNotice } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
@@ -152,12 +152,12 @@ function reportReplyLore(lore, seconds) {
 }
 
 /**
- * A reply's lore on the dropdown's choice: Jev's picks on Fast and cheap (D16), else Luna's pick and reviews. null, with
- * the setup notice, when the choice's connection cannot run.
+ * A reply's lore on the dropdown's choice (loreBaseAccuracyOf): Jev's picks on Fast and Cheap [Jev] (D16), else High
+ * Accuracy, Luna's pick and reviews. null, with the setup notice, when the choice's connection cannot run.
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
  */
 async function askForReplyLore(settings, scene, books) {
-    if (settings.lorebase_accuracy === FAST_AND_CHEAP) {
+    if (loreBaseAccuracyOf(settings.lorebase_accuracy) === FAST_AND_CHEAP) {
         const jev = resolveJevConnection(settings);
         if (!jev.ok) {
             notifySetupIncomplete(LOREBASE, jev.problem);
@@ -170,7 +170,7 @@ async function askForReplyLore(settings, scene, books) {
         notifySetupIncomplete(LOREBASE, describeLoreBaseConnectionProblem(connection.reason, connection.problem));
         return null;
     }
-    return loreForReply({ scene, books, reviewEffort: reviewEffort(settings.lorebase_accuracy), ask: askOnLoreBase(connection) });
+    return loreForReply({ scene, books, ask: askOnLoreBase(connection) });
 }
 
 /**
@@ -201,7 +201,7 @@ async function pickForTurn(settings, { books, scene }, { type, isReply }) {
     if (!lore) return null;
     const seconds = (performance.now() - startedAt) / 1000;
     reportReplyLore(lore, seconds);
-    recordReplyReport({ lore, books, type, accuracy: settings.lorebase_accuracy, seconds, isReply });
+    recordReplyReport({ lore, books, type, accuracy: loreBaseAccuracyOf(settings.lorebase_accuracy), seconds, isReply });
     return lore;
 }
 

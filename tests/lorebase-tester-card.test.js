@@ -29,7 +29,7 @@ const lighthouse = {
     review: { uses: 'some', seconds: 3, parts: [{ text: 'Kept.', isSent: true }, { text: 'Left out.', isSent: false }], sentText: 'Kept.' },
 };
 const report = (id, picks = [lighthouse]) => ({
-    id, chatId: 'chat-harbor', type: 'normal', accuracy: 'default', madeAt: Date.UTC(2026, 10, 15, 15, 0, id % 60),
+    id, chatId: 'chat-harbor', type: 'normal', accuracy: 'high', madeAt: Date.UTC(2026, 10, 15, 15, 0, id % 60),
     contentCount: 2, picks, skipped: [{ bookName: 'Harbor Atlas', uid: 1, title: 'Tidewardens' }], unreadItemCount: 0, failures: [],
     seconds: { pick: 2, slowestReview: 3, total: 5 }, isUnderWay: false, messageIndex: id, swipeId: 0,
     isMeasuring: false, measureFailure: null, tokens: null, keysState: 'unmeasured', keys: null,

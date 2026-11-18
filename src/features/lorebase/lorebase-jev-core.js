@@ -1,5 +1,5 @@
 /**
- * LoreBase's Fast and cheap choice (plan D16 and §5.6 of InternalProject/Vectfox/plans/
+ * LoreBase's Fast and Cheap [Jev] choice (plan D16 and §5.6 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md): Jev, a decisions model, reads the scene and one yes-or-no question per
  * entry of the table of contents, its title and keys, and answers each with its chance of yes; the entries above 0.25,
  * at most 6, go whole, with no review. The state and questions are T22's word for word (`decision_state` and
@@ -75,8 +75,8 @@ export function jevReplyLore({ picks, books, contentCount, pickSeconds }) {
 }
 
 /**
- * The lore for one reply on Fast and cheap: one request to Jev over the table of contents of the books taking part,
- * its picks sent whole. A failed request is a failed pick, which leaves every selected entry out (D14).
+ * The lore for one reply on Fast and Cheap [Jev]: one request to Jev over the table of contents of the books taking
+ * part, its picks sent whole. A failed request is a failed pick, which leaves every selected entry out (D14).
  * @param {object} turn
  * @param {string} turn.scene - From sceneText
  * @param {Array<{bookName: string, entries: object[], keysByUid?: Record<string, string[]>}>} turn.books - The books
