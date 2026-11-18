@@ -3,7 +3,9 @@
  * plan §5.2 and D11 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): each book
  * SillyTavern loads here and has, in the order its scan loads them, with how many of its selected entries LoreBase
  * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded, and
- * whether it is locked to this chat or to the character, by the character's avatar file name.
+ * whether it is locked to this chat or to the character, by the character's avatar file name. And the lock a key run
+ * makes (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): where, read as the run starts, and which of
+ * the books it wrote keys for lock to that chat.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,7 +30,7 @@ vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.sett
 
 const { log } = await import('../src/sillytavern/log.js');
 const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
-const { chatBookLocks } = await import('../src/features/lorebase/lorebase-chat-books.js');
+const { chatBookLocks, keyRunLockPlace, lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
 
 const recordOf = ({ selected = [], chats = [], characters = [] } = {}) => ({
     selectedUids: selected, pinnedSections: [], lockedToChatIds: chats, lockedToCharacterAvatars: characters,
@@ -103,5 +105,59 @@ describe('chatBookLocks', () => {
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
 
         expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false)] });
+    });
+});
+
+describe('the lock a key run makes', () => {
+    const books = () => host.settings.vectfox.lorebase_books;
+
+    it('is read as the run starts: the open chat, its character, and the books the chat loads, but those whose lock the user set', () => {
+        expect(keyRunLockPlace(['Keeper Notes'])).toEqual({
+            chatId: 'chat-harbor', characterAvatar: 'keeper-orrin.png', lockableBookNames: new Set(['Tide Tables', 'Lost Charts', 'Harbor Atlas']),
+        });
+        host.chatId = undefined;
+        expect(keyRunLockPlace()).toBeNull();
+    });
+
+    it('locks each keyed book the chat loads to the chat, unless it is locked to the chat or its character, and names them', () => {
+        host.settings.vectfox.lorebase_books = {
+            'Harbor Atlas': recordOf({ selected: ['0'] }),
+            // Locked to another chat only.
+            'Tide Tables': recordOf({ selected: ['2'], chats: ['chat-other'] }),
+            'Keeper Notes': recordOf({ selected: ['7'], characters: ['keeper-orrin.png'] }),
+            // This chat does not load it.
+            'Voyage Log': recordOf({ selected: ['5'] }),
+        };
+        expect(lockKeyedBooks(keyRunLockPlace(), ['Harbor Atlas', 'Tide Tables', 'Keeper Notes', 'Voyage Log']))
+            .toEqual({ chatId: 'chat-harbor', bookNames: ['Harbor Atlas', 'Tide Tables'] });
+        expect([books()['Harbor Atlas'].lockedToChatIds, books()['Tide Tables'].lockedToChatIds]).toEqual([['chat-harbor'], ['chat-other', 'chat-harbor']]);
+        expect(books()['Keeper Notes']).toEqual(recordOf({ selected: ['7'], characters: ['keeper-orrin.png'] }));
+        expect(books()['Voyage Log']).toEqual(recordOf({ selected: ['5'] }));
+    });
+
+    it('locks to the chat the run started in, never to one opened while it went', () => {
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': recordOf({ selected: ['0'] }) };
+        const place = keyRunLockPlace();
+        host.chatId = 'chat-later';
+        expect(lockKeyedBooks(place, ['Harbor Atlas'])).toEqual({ chatId: 'chat-harbor', bookNames: ['Harbor Atlas'] });
+        expect(books()['Harbor Atlas'].lockedToChatIds).toEqual(['chat-harbor']);
+    });
+
+    it('leaves a book whose lock the user set on the screen, so a lock turned off stays off, and locks nothing with no chat', () => {
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': recordOf({ selected: ['0'] }), 'Tide Tables': recordOf({ selected: ['2'], chats: ['chat-harbor'] }) };
+        expect(lockKeyedBooks(keyRunLockPlace(['Harbor Atlas']), ['Harbor Atlas', 'Tide Tables'])).toBeNull();
+        expect([books()['Harbor Atlas'].lockedToChatIds, books()['Tide Tables'].lockedToChatIds]).toEqual([[], ['chat-harbor']]);
+        expect(lockKeyedBooks(null, ['Harbor Atlas'])).toBeNull();
+        expect(books()['Harbor Atlas'].lockedToChatIds).toEqual([]);
+    });
+
+    it('locks to a group chat, where no one character holds a lock', () => {
+        host.chatId = 'group-harbor';
+        host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
+        host.settings.vectfox.lorebase_books = { 'Tide Tables': recordOf({ selected: ['2'], characters: ['keeper-orrin.png'] }) };
+        const place = keyRunLockPlace();
+        expect(place).toEqual({ chatId: 'group-harbor', characterAvatar: null, lockableBookNames: new Set(['Tide Tables']) });
+        expect(lockKeyedBooks(place, ['Tide Tables'])).toEqual({ chatId: 'group-harbor', bookNames: ['Tide Tables'] });
+        expect(books()['Tide Tables'].lockedToChatIds).toEqual(['group-harbor']);
     });
 });

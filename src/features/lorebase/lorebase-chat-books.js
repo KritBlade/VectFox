@@ -1,13 +1,15 @@
 /**
  * The open chat's lorebooks, as SillyTavern's World Info scan loads them (world-info.js, getSortedEntries), and what
  * a book can be locked to there: the open chat and its character (plan §5.2, §5.8 and D11 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md). The reply, the selection screen and the WorldInfo page read them.
+ * plans/lorebook-semantic-overhaul-passage-index.md). The reply, the selection screen and the WorldInfo page read them,
+ * and a key run locks the books it writes keys for to the chat it started in (§6.1 of InternalProject/Vectfox/plans/
+ * lorebook-multi-vector.md).
  */
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getCharaFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import { METADATA_KEY, getWorldInfoSettings, selected_world_info, world_names } from '../../sillytavern/world-info.js';
-import { getLoreBook, isLoreBookLocked, loadDecidedEntries } from './lorebase-books.js';
+import { getLoreBook, isLoreBookLocked, loadDecidedEntries, setLoreBookLock } from './lorebase-books.js';
 import { activeBookNames } from './lorebase-reply-core.js';
 
 /**
@@ -42,6 +44,36 @@ export function lockTarget() {
         characterAvatar: character?.avatar ? String(character.avatar) : null,
         characterName: character ? String(character.name ?? '') : '',
     };
+}
+
+/**
+ * Where a key run locks the books it writes keys for (§6.1 of lorebook-multi-vector.md): the chat open as the run
+ * starts, its character, and the books that chat loads, read then, so that a chat opened while the run goes is never
+ * the one locked. Null with no chat open.
+ * @param {Iterable<string>} [booksWithChosenLocks] - Books whose lock the user set on the selection screen that started
+ *   the run: they keep the locks the user set
+ * @returns {{chatId: string, characterAvatar: string|null, lockableBookNames: Set<string>}|null}
+ */
+export function keyRunLockPlace(booksWithChosenLocks = []) {
+    const { chatId, characterAvatar } = lockTarget();
+    if (!chatId) return null;
+    const chosen = new Set(booksWithChosenLocks);
+    return { chatId, characterAvatar, lockableBookNames: new Set(chatBookNames().filter(bookName => !chosen.has(bookName))) };
+}
+
+/**
+ * Lock each book a key run wrote keys for to the chat the run started in, when that chat loads it and it is locked to
+ * neither that chat nor its character (§6.1 of lorebook-multi-vector.md).
+ * @param {ReturnType<typeof keyRunLockPlace>} place - Read as the run started; null locks nothing
+ * @param {string[]} keyedBookNames - The books the run wrote at least one entry's keys for
+ * @returns {{chatId: string, bookNames: string[]}|null} The chat and the books locked to it, or null when none was
+ */
+export function lockKeyedBooks(place, keyedBookNames) {
+    if (!place) return null;
+    const where = { chatId: place.chatId, characterAvatar: place.characterAvatar };
+    const bookNames = keyedBookNames.filter(bookName => place.lockableBookNames.has(bookName) && !isLoreBookLocked(bookName, where));
+    for (const bookName of bookNames) setLoreBookLock(bookName, { chatId: place.chatId }, true);
+    return bookNames.length ? { chatId: place.chatId, bookNames } : null;
 }
 
 /**

@@ -98,7 +98,8 @@ describe('turning LoreBase on and off', () => {
         expect(confirmPopup.mock.calls[0][0]).toContainEqual({ text: 'Selected entries with no keys:', name: '311' });
         expect(confirmPopup.mock.calls[0][0].at(-1).text)
             .toBe('Write them and turn LoreBase on? A progress panel shows the writing. Without them, LoreBase stays off.');
-        expect(writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, host.pending);
+        // No selection screen set a lock, so the books it writes keys for lock to the open chat as §6.1 says.
+        expect(writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, host.pending, { booksWithChosenLocks: [] });
         expect(isLoreBaseSwitchedOn()).toBe(true);
     });
 

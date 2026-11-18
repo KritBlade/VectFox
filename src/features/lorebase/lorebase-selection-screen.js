@@ -4,11 +4,13 @@
  * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
  * saves as it changes, as GUI-DNA asks. Turning entries on only selects them: once the screen closes while LoreBase is
  * on, it asks to write the keys of the selected entries that have none (D17), under the progress panel, and turns
- * LoreBase off when they are not written, by the question turning LoreBase on asks (lorebase-keys-question.js); while
- * LoreBase is off, turning it on asks. Closing counts the selection's keys either way, for the books card's line. Each
- * selected row shows where its keys stand. Regenerate keys writes the ticked entries'
- * keys anew under the progress panel, brought in front of the screen with its Stop; a selected row's pencil edits its
- * keys in a dialog, where Regenerate fills the box from the model for the user to read before saving.
+ * LoreBase off when they are not written, by the question turning LoreBase on asks (lorebase-keys-question.js). The
+ * books that writing keys lock to the open chat, but for those whose lock the user set while the screen was open, which
+ * stay as the user set them (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md). While LoreBase is off,
+ * turning it on asks. Closing counts the selection's keys either way, for the books card's line. Each selected row
+ * shows where its keys stand. Regenerate keys writes the ticked entries' keys anew under the progress panel, brought in
+ * front of the screen with its Stop; a selected row's pencil edits its keys in a dialog, where Regenerate fills the box
+ * from the model for the user to read before saving.
  * Opening a book keeps the uids it holds, so an entry added later shows as new, and drops the uids of deleted entries
  * from its selection.
  */
@@ -206,15 +208,18 @@ function regenerateTickedKeys(session) {
 /**
  * Once the screen closes: where the selection's keys stand, for the books card's line. While LoreBase is on, ask to
  * write the selected entries' missing keys (D17, askToWriteMissingKeys, the question turning LoreBase on asks), write
- * them under the progress panel on yes, and turn LoreBase off otherwise; while it is off, only count them.
+ * them under the progress panel on yes, the books whose lock the user set here keeping it as set, and turn LoreBase off
+ * otherwise; while it is off, only count them.
+ * @param {Set<string>} booksWithChosenLocks - The books whose lock the user set while the screen was open
  * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} What the selection's keys
  *   came to, LoreBase off when some are missing and not being written; or null when the keys could not be read
  */
-async function settleKeysOnClose() {
+async function settleKeysOnClose(booksWithChosenLocks) {
     if (isLoreBaseSwitchedOn()) {
         const { canBeOn, pending } = await askToWriteMissingKeys({ isTurningOn: false });
         if (!canBeOn) turnLoreBaseOff();
-        return pending && { missingCount: pending.count, decidedCount: pending.decidedCount, isWriting: canBeOn && writeMissingKeys(pending) };
+        const isWriting = canBeOn && writeMissingKeys(pending, { booksWithChosenLocks: [...booksWithChosenLocks] });
+        return pending && { missingCount: pending.count, decidedCount: pending.decidedCount, isWriting };
     }
     try {
         const pending = await selectedEntriesWithoutKeys();
@@ -407,6 +412,7 @@ function bindScreen(root, session) {
         } else if (target.id === ids.lockChat || target.id === ids.lockCharacter) {
             const { chatId, characterAvatar } = lockTarget();
             setLoreBookLock(session.bookName, target.id === ids.lockChat ? { chatId } : { characterAvatar }, target.checked);
+            session.booksWithChosenLocks.add(session.bookName);
             renderLocks(root, session);
         } else if (target.matches('[data-lorebase-pin]')) {
             const pinned = [...root.querySelectorAll('[data-lorebase-pin]')].filter(pin => pin.checked).map(pin => pin.dataset.lorebasePin);
@@ -428,8 +434,8 @@ function bindScreen(root, session) {
 
 /**
  * Open the selection screen on a book: the one named, else the open chat's first, else the first by name. Once it
- * closes, count the selection's keys; while LoreBase is on, ask to write the missing ones, turning LoreBase off on no
- * (settleKeysOnClose).
+ * closes, count the selection's keys; while LoreBase is on, ask to write the missing ones, turning LoreBase off on no,
+ * and keep the locks the user set on the screen as set (settleKeysOnClose).
  * @param {{bookName?: string}} [options]
  * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} Once the screen is closed
  *   and any question answered: what the selection's keys came to, or null when the keys could not be read
@@ -442,7 +448,7 @@ export async function openLoreBaseSelection({ bookName = '' } = {}) {
     const root = template.content.firstElementChild;
     const session = {
         bookName: first, book: null, rows: [], ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE, searchTimer: null,
-        sectionNamesOf: entrySectionNames, shownKeyStates: new Map(), keyReadProblem: '',
+        sectionNamesOf: entrySectionNames, shownKeyStates: new Map(), keyReadProblem: '', booksWithChosenLocks: new Set(),
     };
     bindGeneBehaviours(root);
     bindScreen(root, session);
@@ -455,5 +461,5 @@ export async function openLoreBaseSelection({ bookName = '' } = {}) {
     await closed;
     stopKeyUpdates();
     clearTimeout(session.searchTimer);
-    return settleKeysOnClose();
+    return settleKeysOnClose(session.booksWithChosenLocks);
 }

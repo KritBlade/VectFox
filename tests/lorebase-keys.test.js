@@ -5,13 +5,15 @@
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
  * LoreBase's model. Generate all keys writes the missing keys of every book with a selection under the progress panel,
  * whose Stop drops the entries not yet sent, telling its run listeners as it starts and ends, and Regenerate keys
- * rewrites the given entries there; one run at a time. Delete all keys deletes every key, never while keys are
- * written, when it names how many are left and brings the panel up.
+ * rewrites the given entries there; one run at a time. A run that writes missing keys reads where to lock as it starts
+ * and then locks the books it wrote keys for there (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md);
+ * Regenerate keys locks nothing. Delete all keys deletes every key, never while keys are written, when it names how
+ * many are left and brings the panel up.
  * Similharity's routes are a fetch stand-in holding the keys in memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null, panel: null }));
+const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null, panel: null, lockPlace: null }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
@@ -30,6 +32,11 @@ vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
     askOnLoreBase: () => (...args) => host.ask(...args),
     resolveLoreBaseLlmConfig: () => host.connection,
     describeLoreBaseConnectionProblem: (reason, problem) => `${problem} Until then the entries selected for LoreBase stay out of replies.`,
+}));
+// Where a run locks, and a lock that takes every book it is given: lorebase-chat-books.test.js holds which books lock.
+vi.mock('../src/features/lorebase/lorebase-chat-books.js', () => ({
+    keyRunLockPlace: vi.fn(() => host.lockPlace),
+    lockKeyedBooks: vi.fn((place, keyedBookNames) => (place && keyedBookNames.length ? { chatId: place.chatId, bookNames: keyedBookNames } : null)),
 }));
 
 const BOOK = 'Harbor Atlas';
@@ -67,9 +74,14 @@ beforeEach(async () => {
         return { ok: true, json: async () => ({ written: request.entries.length }) };
     });
     host.connection = { ok: true };
-    host.panel = { show: vi.fn(), updateCurrentItem: vi.fn(), updateProgress: vi.fn(), addError: vi.fn(), complete: vi.fn(), reopen: vi.fn(), stop: null };
+    host.lockPlace = null;
+    host.panel ={ show: vi.fn(), updateCurrentItem: vi.fn(), updateProgress: vi.fn(), addError: vi.fn(), complete: vi.fn(), reopen: vi.fn(), stop: null };
     host.ask = vi.fn(async messages => answerWith([`keys from ${messages[1].content.split('\n')[2].split(' ')[0]}`]));
     keysModule = await import('../src/features/lorebase/lorebase-keys.js');
+    // A mocked module outlives resetModules, its calls with it.
+    const { keyRunLockPlace, lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
+    keyRunLockPlace.mockClear();
+    lockKeyedBooks.mockClear();
 });
 
 describe('writing keys', () => {
@@ -264,7 +276,7 @@ describe('every key at once', () => {
 
     it('Generate all keys writes the selected entries with no keys in every book with a selection, and counts what it did', async () => {
         const loadWorldInfo = await selectBooks();
-        expect(await keysModule.writeKeysOfSelections(QDRANT)).toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 1 });
+        expect(await keysModule.writeKeysOfSelections(QDRANT)).toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 1, chatLock: null });
         expect(stored).toEqual({ [BOOK]: { 0: ['old keys'], 1: ['keys from Tidewardens'] }, 'Desert Atlas': { 5: ['keys from Dunes'] } });
         expect(loadWorldInfo.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK, 'Desert Atlas', 'Lost Atlas']);
     });
@@ -285,15 +297,36 @@ describe('every key at once', () => {
         const seen = [];
         keysModule.onKeyRunChange(run => seen.push(run));
         await keysModule.writeKeysOfSelections(QDRANT);
-        expect(seen).toEqual([{ count: 2, totals: null }, { count: 2, totals: { written: 2, failed: 0, stopped: 0, unreadBooks: 1 } }]);
+        expect(seen).toEqual([{ count: 2, outcome: null }, { count: 2, outcome: { written: 2, failed: 0, stopped: 0, unreadBooks: 1, chatLock: null } }]);
     });
 
-    it('shows no panel and tells no run listener when no selected entry is missing keys', async () => {
+    it('shows no panel, tells no run listener and locks nothing when no selected entry is missing keys', async () => {
+        host.lockPlace = { chatId: 'chat-harbor', characterAvatar: null, lockableBookNames: new Set([BOOK]) };
+        const { lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
         const seen = [];
         keysModule.onKeyRunChange(run => seen.push(run));
-        expect(await keysModule.writeKeysOfSelections(QDRANT, { books: [], count: 0, unreadBooks: 0 })).toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0 });
+        expect(await keysModule.writeKeysOfSelections(QDRANT, { books: [], count: 0, unreadBooks: 0 }))
+            .toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null });
         expect(host.panel.show).not.toHaveBeenCalled();
         expect(seen).toEqual([]);
+        expect(lockKeyedBooks).not.toHaveBeenCalled();
+    });
+
+    it('reads where to lock as the run starts, then locks the books it wrote keys for there and tells the run listeners', async () => {
+        const loadWorldInfo = await selectBooks();
+        host.lockPlace = { chatId: 'chat-harbor', characterAvatar: 'wren.png', lockableBookNames: new Set([BOOK, 'Desert Atlas']) };
+        const { keyRunLockPlace, lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
+        // Desert Atlas's one entry fails, so only Harbor Atlas has keys written.
+        host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? UNREADABLE : answerWith(['tidewardens'])));
+        const seen = [];
+        keysModule.onKeyRunChange(run => seen.push(run.outcome?.chatLock));
+
+        const outcome = await keysModule.writeKeysOfSelections(QDRANT, null, { booksWithChosenLocks: ['Lost Atlas'] });
+        expect(keyRunLockPlace).toHaveBeenCalledWith(['Lost Atlas']);
+        expect(keyRunLockPlace.mock.invocationCallOrder[0]).toBeLessThan(loadWorldInfo.mock.invocationCallOrder[0]);
+        expect(lockKeyedBooks).toHaveBeenCalledWith(host.lockPlace, [BOOK]);
+        expect(outcome).toEqual({ written: 1, failed: 1, stopped: 0, unreadBooks: 1, chatLock: { chatId: 'chat-harbor', bookNames: [BOOK] } });
+        expect(seen).toEqual([undefined, { chatId: 'chat-harbor', bookNames: [BOOK] }]);
     });
 
     it("the panel's Stop drops the entries not yet sent, back to no keys, and the run says how many it stopped", async () => {
@@ -306,22 +339,25 @@ describe('every key at once', () => {
         host.panel.stop();
         expect(keysModule.keyStateOf(BOOK, '8')).toEqual({ status: 'missing' });
         answers.forEach((resolve, index) => resolve(answerWith([`pier ${index}`])));
-        expect(await running).toEqual({ written: 6, failed: 0, stopped: 3, unreadBooks: 0 });
+        expect(await running).toEqual({ written: 6, failed: 0, stopped: 3, unreadBooks: 0, chatLock: null });
         expect(host.ask).toHaveBeenCalledTimes(6);
         expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 6 entries; 3 stopped');
     });
 
-    it('Regenerate keys rewrites the given entries under the progress panel, keys or not, telling the run listeners', async () => {
+    it('Regenerate keys rewrites the given entries under the progress panel, keys or not, telling the run listeners, and locks nothing', async () => {
         stored[BOOK] = { 0: ['old keys'] };
         await keysModule.readBookKeys([BOOK]);
+        host.lockPlace = { chatId: 'chat-harbor', characterAvatar: null, lockableBookNames: new Set([BOOK]) };
+        const { keyRunLockPlace } = await import('../src/features/lorebase/lorebase-chat-books.js');
         const seen = [];
-        keysModule.onKeyRunChange(run => seen.push(run.totals));
+        keysModule.onKeyRunChange(run => seen.push(run.outcome));
         expect(await keysModule.regenerateKeysOfEntries(BOOK, [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')], QDRANT))
-            .toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 0 });
+            .toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null });
         expect(stored[BOOK]).toEqual({ 0: ['keys from Lighthouse'], 1: ['keys from Tidewardens'] });
         expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys', 2, 'Entries', { unitLabel: 'Entries' });
         expect(host.panel.stop).toEqual(expect.any(Function));
-        expect(seen).toEqual([null, { written: 2, failed: 0, stopped: 0, unreadBooks: 0 }]);
+        expect(seen).toEqual([null, { written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null }]);
+        expect(keyRunLockPlace).not.toHaveBeenCalled();
     });
 
     it('runs one key run on the panel at a time: a second is refused and brings the running one up', async () => {
@@ -335,7 +371,7 @@ describe('every key at once', () => {
         expect(host.panel.reopen).toHaveBeenCalledTimes(1);
         answers[0](answerWith(['lighthouse']));
         await first;
-        expect(await keysModule.regenerateKeysOfEntries(BOOK, [], QDRANT)).toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0 });
+        expect(await keysModule.regenerateKeysOfEntries(BOOK, [], QDRANT)).toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null });
     });
 
     it('Delete all keys deletes every key the user has, forgets the ones it knew, and tells the listeners', async () => {

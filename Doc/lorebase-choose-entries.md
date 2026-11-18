@@ -37,14 +37,18 @@ It works like the checkboxes in your email inbox. Ticking 20 emails doesn't dele
 
 Ticks are never saved. They go away when you switch to another book or close the screen. Everything else saves as you click it: the wands, Turn on and Turn off, the locks and the pins.
 
-## Lock the book, or nothing happens
+## The lock: where LoreBase decides
 
 Turning entries on says WHICH entries LoreBase decides. Locking the book says WHERE. LoreBase decides a book's entries only in a chat, or with a character, the book is locked to. Everywhere else the whole book fires by its keys, and your selection just waits.
 
 - **Lock to this chat**: LoreBase decides this book's entries in the chat you have open.
 - **Lock to this character**: the same in every chat with this character.
 
-So you can turn on 50 entries in Harbor Atlas and lock it only to your Wren chat to try it. Your other chats don't change at all. If you like it, lock it to the character too.
+You don't have to lock the chat yourself. Once LoreBase writes the keys of the entries you turned on, it locks their book to the chat you have open. That's when you close this screen and press **Write keys**, turn on **Use LoreBase**, or press **Generate all keys**. The line under Generate all keys tells you, like `Locked "Harbor Atlas" to this chat.`
+
+A book already locked to this chat or this character stays as it is. And if you changed a lock on this screen, closing it keeps your choice, so a lock you turned off there stays off. Locking to the character is always your call.
+
+So you can turn on 50 entries in Harbor Atlas in your Wren chat to try them. Only that chat changes, your other chats don't. If you like it, lock it to the character too.
 
 A group chat has no one character, so its character lock can't be turned on. With no chat open, neither lock can.
 
@@ -138,7 +142,7 @@ I go through a book in the same order every time. Even a book of 300+ entries is
 
 **6. Turn on the small ones too.** Monster and item entries are often 100 tokens or so, but their keys are common words like "King" or "dog". With keys, they ride along on lots of replies just because someone said the word. Turned on, they go in only when the scene is about them. Each one costs a title on every pick, about 4 tokens, and the line at the bottom of the screen adds them up for you.
 
-**7. Try it on one chat first.** Lock the book to one chat, play 10 replies or so, and open the **LoreBase tester** card on the WorldInfo page. It shows what was picked and why, which parts went in, and the tokens next to what SillyTavern's keys would have sent. Happy with it? Lock the book to the character too.
+**7. Try it on one chat first.** Writing the keys locks the book to the chat you're in, and only that one. Play 10 replies or so there, and open the **LoreBase tester** card on the WorldInfo page. It shows what was picked and why, which parts went in, and the tokens next to what SillyTavern's keys would have sent. Happy with it? Lock the book to the character too.
 
 ## What to expect
 

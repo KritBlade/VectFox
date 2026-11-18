@@ -4,14 +4,17 @@
  * each SillyTavern user's own. Turning LoreBase on, closing the selection screen (each after asking), Generate all keys
  * and Regenerate keys write them, as many calls at once as the WorldInfo page's Entries at once (1 to 8), every time
  * under VectFox's progress panel, brought to the front with its Stop, which drops the entries not yet sent; one run at
- * a time. The user can also edit one entry's keys, or have the model write them again to read first, and Delete all
- * keys deletes every one; nothing rewrites them on its own. An entry takes part in a reply only once its keys exist,
- * and while they are written or after they fail, the selection screen says so for its row.
+ * a time. A run that writes missing keys then locks each book it wrote keys for to the chat it started in, as §6.1 of
+ * InternalProject/Vectfox/plans/lorebook-multi-vector.md says; Regenerate keys locks nothing. The user can also edit
+ * one entry's keys, or have the model write them again to read first, and Delete all keys deletes every one; nothing
+ * rewrites them on its own. An entry takes part in a reply only once its keys exist, and while they are written or
+ * after they fail, the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { loadDecidedEntries, selectedLoreBookNames } from './lorebase-books.js';
+import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
@@ -62,10 +65,17 @@ export function onKeyStateChange(listener) {
 }
 
 /**
+ * What a key run did: the entries whose keys it wrote, that failed and that it stopped before, the books it could not
+ * read, and the chat it locked books to with those books, or null when it locked none.
+ * @typedef {{written: number, failed: number, stopped: number, unreadBooks: number,
+ *   chatLock: {chatId: string, bookNames: string[]}|null}} KeyRunOutcome
+ */
+
+/**
  * Call `listener` as a key run on the progress panel (Generate all keys, turning LoreBase on, closing the selection
- * screen, Regenerate keys) starts, with `{count, totals: null}`, and as it ends, with `{count, totals}`, the totals the
- * run returns. A run with nothing to write makes no call.
- * @param {(run: {count: number, totals: {written: number, failed: number, stopped: number, unreadBooks: number}|null}) => void} listener
+ * screen, Regenerate keys) starts, with `{count, outcome: null}`, and as it ends, with `{count, outcome}`, the outcome
+ * the run returns. A run with nothing to write makes no call.
+ * @param {(run: {count: number, outcome: KeyRunOutcome|null}) => void} listener
  * @returns {() => void} Stops the calls
  */
 export function onKeyRunChange(listener) {
@@ -182,7 +192,7 @@ function stopRun(run) {
     queue.splice(0, queue.length, ...queue.filter(job => job.run !== run));
     for (const job of dropped) {
         mapOf(writeStates, job.bookName).delete(String(job.entry.uid));
-        job.outcome.stopped += 1;
+        job.stopTally.stopped += 1;
         job.done();
     }
     for (const bookName of new Set(dropped.map(job => job.bookName))) tellListeners(bookName);
@@ -235,16 +245,16 @@ export async function writeKeys(bookName, entries, settings, { isRegenerating = 
     tellListeners(bookName);
     const ask = askOnLoreBase(resolveLoreBaseLlmConfig(settings));
     const failures = [];
-    const outcome = { stopped: 0 };
+    const stopTally = { stopped: 0 };
     await Promise.all(wanted.map(entry => new Promise(done => {
-        queue.push({ bookName, entry, ask, failures, done, run, outcome, onEntryDone });
+        queue.push({ bookName, entry, ask, failures, done, run, stopTally, onEntryDone });
         runQueue();
     })));
     showKeyFailures(bookName, failures);
-    const written = wanted.length - failures.length - outcome.stopped;
+    const written = wanted.length - failures.length - stopTally.stopped;
     log.lifecycle(`LoreBase: wrote the keys of ${written} of ${wanted.length} entries in lorebook "${bookName}"`
-        + (outcome.stopped ? `, ${outcome.stopped} stopped` : ''));
-    return { written, failed: failures.length, stopped: outcome.stopped };
+        + (stopTally.stopped ? `, ${stopTally.stopped} stopped` : ''));
+    return { written, failed: failures.length, stopped: stopTally.stopped };
 }
 
 /**
@@ -317,14 +327,18 @@ let panelRun = null;
 
 /**
  * Write the keys of the books' entries under VectFox's progress panel, brought to the front with its Stop, which drops
- * the entries not yet sent; tell the run listeners as it starts and ends. Each book's failures get its toast and the
- * panel's list. Nothing to write shows no panel.
- * @returns {Promise<{written: number, failed: number, stopped: number, unreadBooks: number}>}
+ * the entries not yet sent; then lock each book it wrote keys for where `lockPlace` says (lockKeyedBooks), and tell
+ * the run listeners as it starts and ends. Each book's failures get its toast and the panel's list. Nothing to write
+ * shows no panel.
+ * @param {object} settings - VectFox settings
+ * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>} pending - What to write
+ * @param {{isRegenerating?: boolean, lockPlace?: ReturnType<typeof keyRunLockPlace>}} [options]
+ * @returns {Promise<KeyRunOutcome>}
  * @throws {Error} While another run is on the panel, which is brought to the front
  */
-async function writeKeysOnPanel(settings, { books, count, unreadBooks = 0 }, { isRegenerating = false } = {}) {
-    const totals = { written: 0, failed: 0, stopped: 0, unreadBooks };
-    if (!count) return totals;
+async function writeKeysOnPanel(settings, { books, count, unreadBooks = 0 }, { isRegenerating = false, lockPlace = null } = {}) {
+    const outcome = { written: 0, failed: 0, stopped: 0, unreadBooks, chatLock: null };
+    if (!count) return outcome;
     if (panelRun) {
         progressTracker.reopen();
         throw new Error('LoreBase is already writing keys on the progress panel. Wait for it, or press Stop there.');
@@ -333,12 +347,13 @@ async function writeKeysOnPanel(settings, { books, count, unreadBooks = 0 }, { i
     panelRun = run;
     try {
         let done = 0;
+        const keyedBookNames = [];
         progressTracker.show('LoreBase keys', count, 'Entries', { unitLabel: 'Entries' });
         progressTracker.setCancelHandler(() => stopRun(run));
-        callEach(runListeners, { count, totals: null });
+        callEach(runListeners, { count, outcome: null });
         for (const { bookName, entries } of books) {
             if (run.isStopped) {
-                totals.stopped += entries.length;
+                outcome.stopped += entries.length;
                 continue;
             }
             progressTracker.updateCurrentItem(bookName);
@@ -351,37 +366,44 @@ async function writeKeysOnPanel(settings, { books, count, unreadBooks = 0 }, { i
                     progressTracker.updateProgress(done);
                 },
             });
-            totals.written += result.written;
-            totals.failed += result.failed;
-            totals.stopped += result.stopped;
+            outcome.written += result.written;
+            outcome.failed += result.failed;
+            outcome.stopped += result.stopped;
+            if (result.written) keyedBookNames.push(bookName);
         }
-        progressTracker.complete(!totals.failed && !totals.stopped, writtenSummary(totals));
-        callEach(runListeners, { count, totals: { ...totals } });
+        outcome.chatLock = lockKeyedBooks(lockPlace, keyedBookNames);
+        progressTracker.complete(!outcome.failed && !outcome.stopped, writtenSummary(outcome));
+        callEach(runListeners, { count, outcome: { ...outcome } });
     } finally {
         panelRun = null;
     }
-    return totals;
+    return outcome;
 }
 
 /**
  * Write the keys of every selected entry LoreBase decides, in every book with a selection, that has none, as turning
- * LoreBase on, closing the selection screen and Generate all keys ask (§5.2, §5.9), under the progress panel.
+ * LoreBase on, closing the selection screen and Generate all keys ask (§5.2, §5.9), under the progress panel. Once
+ * written, each book it wrote keys for is locked to the chat open as it started, where §6.1 of lorebook-multi-vector.md
+ * says (lockKeyedBooks).
  * @param {object} settings - VectFox settings
  * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>} [pending] - What to write, when the caller read it
- * @returns {Promise<{written: number, failed: number, stopped: number, unreadBooks: number}>}
+ * @param {{booksWithChosenLocks?: Iterable<string>}} [options] - booksWithChosenLocks: the books whose lock the user set
+ *   on the selection screen that started the run, which keep the locks the user set
+ * @returns {Promise<KeyRunOutcome>}
  * @throws {Error} When Similharity cannot read the keys, or while another run is on the panel
  */
-export async function writeKeysOfSelections(settings, pending = null) {
-    return writeKeysOnPanel(settings, pending ?? await selectedEntriesWithoutKeys());
+export async function writeKeysOfSelections(settings, pending = null, { booksWithChosenLocks = [] } = {}) {
+    const lockPlace = keyRunLockPlace(booksWithChosenLocks);
+    return writeKeysOnPanel(settings, pending ?? await selectedEntriesWithoutKeys(), { lockPlace });
 }
 
 /**
  * Regenerate keys: write the given entries' keys anew, hand-edited ones included, under the progress panel (D17).
- * Entries already being written are left to that writing.
+ * Entries already being written are left to that writing. It locks no book.
  * @param {string} bookName
  * @param {object[]} entries - The book's entries, as loadWorldInfo returns them
  * @param {object} settings - VectFox settings
- * @returns {Promise<{written: number, failed: number, stopped: number, unreadBooks: number}>}
+ * @returns {Promise<KeyRunOutcome>}
  * @throws {Error} While another run is on the panel
  */
 export async function regenerateKeysOfEntries(bookName, entries, settings) {

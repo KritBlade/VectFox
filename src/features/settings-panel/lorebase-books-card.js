@@ -9,8 +9,10 @@
  * selection's keys stand, LoreBase on or off. Generate all keys writes the keys of every selected entry, in every book, that has none;
  * Delete all keys, once confirmed, deletes every key the user has and turns LoreBase off (D17). The card's status line
  * says how each went, and shows every key run on the progress panel, whichever started it: the entries being keyed,
- * then what was written.
+ * then what was written and the books the run locked to its chat (§6.1 of InternalProject/Vectfox/plans/
+ * lorebook-multi-vector.md), a line that goes once another chat is open.
  */
+import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
@@ -27,6 +29,8 @@ const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose
 let isGeneratingKeys = false;
 // Counts the card's refreshes, so a refresh whose books loaded after a newer one began draws nothing.
 let refreshCount = 0;
+// The chat the status line says books were locked to as "this chat", so the line goes once another chat is open.
+let statusLockChatId = null;
 
 /**
  * Show LoreBase's switch as saved; while it is off, show the notice and disable Generate all keys. The status line's
@@ -47,11 +51,13 @@ function paintLoreBaseSwitch() {
 /**
  * Draw the open chat's LoreBase books, once the panel is mounted, under the switch as saved: each row counts the
  * selected entries LoreBase decides, as the keys line does, once the books are loaded. Only the newest refresh draws,
- * so a slow load never draws a chat left since.
+ * so a slow load never draws a chat left since. A status line saying books were locked to this chat goes once
+ * another chat is open.
  * @returns {Promise<void>}
  */
 export async function refreshLoreBaseBooks() {
     const refresh = ++refreshCount;
+    if (statusLockChatId !== null && statusLockChatId !== (getCurrentChatId() ?? null)) showKeysStatus('');
     paintLoreBaseSwitch();
     try {
         const status = await chatBookLocks();
@@ -63,7 +69,13 @@ export async function refreshLoreBaseBooks() {
     }
 }
 
-function showKeysStatus(text) {
+/**
+ * Show a line on the status line, or hide it when empty.
+ * @param {string} text
+ * @param {{lockChatId?: string|null}} [options] - lockChatId: the chat the line says books were locked to as "this chat"
+ */
+function showKeysStatus(text, { lockChatId = null } = {}) {
+    statusLockChatId = lockChatId;
     const status = document.getElementById(KEYS_STATUS_ID);
     if (!status) return;
     status.textContent = text;
@@ -71,29 +83,49 @@ function showKeysStatus(text) {
 }
 
 const counted = (count, one, many) => `${Number(count).toLocaleString('en-US')} ${count === 1 ? one : many}`;
+const bookList = new Intl.ListFormat('en', { type: 'conjunction' });
 
 /**
- * What Generate all keys did, in a line: the keys written, the entries that failed or were stopped, the books that
- * could not be read.
+ * What a key run did, in a line: the keys written, the entries that failed or were stopped, the books that could not
+ * be read, and the books it locked to its chat, "this chat" while that chat is open.
+ * @param {object} outcome - The run's outcome (KeyRunOutcome in lorebase-keys.js)
+ * @param {boolean} isLockChatOpen - Whether the chat the run locked books to is the open one
  */
-function generatedText({ written, failed, stopped, unreadBooks }) {
+function generatedText({ written, failed, stopped, unreadBooks, chatLock }, isLockChatOpen) {
     const lines = [written || failed || stopped ? `Wrote the keys of ${counted(written, 'entry', 'entries')}.` : 'No selected entry was missing keys.'];
     if (failed) lines.push(`${counted(failed, 'entry', 'entries')} failed, as the toast says.`);
     if (stopped) lines.push(`Stopped before ${counted(stopped, 'entry', 'entries')}.`);
     if (unreadBooks) lines.push(`${counted(unreadBooks, 'lorebook', 'lorebooks')} could not be read; the console says why.`);
+    if (chatLock) {
+        const where = isLockChatOpen ? 'this chat' : 'the chat open when the writing began';
+        lines.push(`Locked ${bookList.format(chatLock.bookNames.map(bookName => `"${bookName}"`))} to ${where}.`);
+    }
     return lines.join(' ');
+}
+
+/**
+ * What a key run did, on the status line, which notes the chat it locked books to while that chat is open; a run that
+ * locked books draws the list again, so their rows show the lock.
+ */
+function showRunOutcome(outcome) {
+    const isLockChatOpen = Boolean(outcome.chatLock) && outcome.chatLock.chatId === (getCurrentChatId() ?? null);
+    showKeysStatus(generatedText(outcome, isLockChatOpen), { lockChatId: isLockChatOpen ? outcome.chatLock.chatId : null });
+    if (outcome.chatLock) void refreshLoreBaseBooks();
 }
 
 /**
  * A key run on the progress panel, whichever started it (Generate all keys, turning LoreBase on, closing the selection
  * screen, Regenerate keys): what it keys, then what it did.
  */
-function showKeyRun({ count, totals }) {
-    showKeysStatus(totals ? generatedText(totals)
-        : `Writing the keys of ${counted(count, 'selected entry', 'selected entries')} with none; the progress panel counts them.`);
+function showKeyRun({ count, outcome }) {
+    if (outcome) showRunOutcome(outcome);
+    else showKeysStatus(`Writing the keys of ${counted(count, 'selected entry', 'selected entries')} with none; the progress panel counts them.`);
 }
 
-/** Generate all keys: write the keys of every selected entry, in every book, that has none. */
+/**
+ * Generate all keys: write the keys of every selected entry, in every book, that has none; the books it writes keys
+ * for lock to the open chat (§6.1 of lorebook-multi-vector.md).
+ */
 async function generateAllKeys(settings, button) {
     const problem = keyWritingProblem(settings);
     if (problem) {
@@ -104,7 +136,7 @@ async function generateAllKeys(settings, button) {
     button.disabled = true;
     showKeysStatus('Counting the selected entries with no keys.');
     try {
-        showKeysStatus(generatedText(await writeKeysOfSelections(settings)));
+        showRunOutcome(await writeKeysOfSelections(settings));
     } catch (error) {
         log.error('LoreBase: Generate all keys failed:', error);
         showKeysStatus(`Not written: ${error?.message || error}`);

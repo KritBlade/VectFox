@@ -52,14 +52,16 @@ export async function askToWriteMissingKeys({ isTurningOn }) {
 }
 
 /**
- * Write the keys askToWriteMissingKeys read as missing, under the progress panel, once LoreBase is on. A writing that
- * does not start says why in a notice.
+ * Write the keys askToWriteMissingKeys read as missing, under the progress panel, once LoreBase is on; the books it
+ * writes keys for lock to the open chat (writeKeysOfSelections). A writing that does not start says why in a notice.
  * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>|null} pending
+ * @param {{booksWithChosenLocks?: Iterable<string>}} [options] - booksWithChosenLocks: the books whose lock the user set
+ *   on the selection screen whose closing asked, which keep the locks the user set
  * @returns {boolean} Whether a writing was started: false when none are missing
  */
-export function writeMissingKeys(pending) {
+export function writeMissingKeys(pending, { booksWithChosenLocks = [] } = {}) {
     if (!pending?.count) return false;
-    writeKeysOfSelections(extension_settings.vectfox, pending).catch(error => {
+    writeKeysOfSelections(extension_settings.vectfox, pending, { booksWithChosenLocks }).catch(error => {
         log.warn("LoreBase: the selected entries' keys were not written:", error);
         void noticePopup([{ icon: 'fa-key', text: String(error?.message || error) }]);
     });

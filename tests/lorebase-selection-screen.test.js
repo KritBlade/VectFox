@@ -337,8 +337,26 @@ describe('closing the screen (D17)', () => {
         expect(lines[1]).toEqual({ text: 'Selected entries with no keys:', name: '2' });
         expect(lines.at(-1).text).toBe('Write them now? A progress panel shows the writing. Without them, LoreBase turns off.');
         expect(buttons).toEqual({ okButton: 'Write keys', cancelButton: 'Turn LoreBase off' });
-        expect(host.writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo);
+        expect(host.writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo, { booksWithChosenLocks: [] });
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
+    });
+
+    it('tells the writing which books had their lock set on the screen, so it keeps those locks as the user set them', async () => {
+        host.pending = missingTwo;
+        host.confirmPopup.mockResolvedValueOnce(true);
+        const opened = openLoreBaseSelection();
+        await vi.waitFor(() => expect(rowUids().length).toBeGreaterThan(0));
+        entryToggle('1').click();
+        change($id('vectfox_lorebase_lock_chat'), true);
+        change($id('vectfox_lorebase_lock_chat'), false);
+        // Another book shown, its lock left as it was.
+        change($id('vectfox_lorebase_book'), 'Voyage Log');
+        await vi.waitFor(() => expect(rowUids()).toEqual(['7']));
+        host.closeScreen();
+
+        expect(await opened).toEqual({ missingCount: 2, decidedCount: 5, isWriting: true });
+        expect(host.writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo, { booksWithChosenLocks: ['Harbor Atlas'] });
+        expect(record().lockedToChatIds).toEqual([]);
     });
 
     it('writes nothing on Turn LoreBase off, turns it off, and says how many are missing', async () => {

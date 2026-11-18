@@ -9,22 +9,24 @@
  * chat's books, opens the selection screen on the book a row names or, from the card's own button, on the chat's first
  * book, and draws the list again once the screen closes, a screen that failed included. Generate all keys writes the
  * missing keys, or says why it cannot; Delete all keys asks first, and once it has deleted turns LoreBase off; the
- * status line says how each went.
+ * status line says how each went, and names the books a key run locked to its chat (§6.1 of InternalProject/Vectfox/
+ * plans/lorebook-multi-vector.md), "this chat" while it is open, a line that goes once another chat is open.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
     status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, keyRunListener: null, selectedBooks: [],
-    settings: { vector_backend: 'qdrant' }, keyProblem: null, totals: null, isConfirmed: true, deleted: null,
+    settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(async () => host.isConfirmed) }));
+vi.mock('../src/sillytavern/chat.js', () => ({ getCurrentChatId: () => host.chatId }));
 vi.mock('../src/features/lorebase/index.js', () => ({
     chatBookLocks: vi.fn(() => host.status),
     keyWritingProblem: vi.fn(() => host.keyProblem),
-    writeKeysOfSelections: vi.fn(async () => host.totals),
+    writeKeysOfSelections: vi.fn(async () => host.outcome),
     deleteAllKeys: vi.fn(async () => {
         if (host.deleted instanceof Error) throw host.deleted;
         return host.deleted;
@@ -61,7 +63,8 @@ beforeEach(() => {
     host.isOn = true;
     host.willTurnOn = true;
     host.keyProblem = null;
-    host.totals = { written: 2, failed: 0, stopped: 0, unreadBooks: 0 };
+    host.outcome = { written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null };
+    host.chatId = 'chat-harbor';
     host.isConfirmed = true;
     host.deleted = 311;
     host.selectedBooks = ['Harbor Atlas'];
@@ -175,7 +178,7 @@ describe("LoreBase's switch", () => {
         await vi.waitFor(() => expect(writeKeysOfSelections).toHaveBeenCalledTimes(1));
         host.switchListener(true);
         expect(generate().disabled).toBe(true);
-        finish(host.totals);
+        finish(host.outcome);
         await vi.waitFor(() => expect(generate().disabled).toBe(false));
     });
 });
@@ -285,11 +288,11 @@ describe('every key at once', () => {
     });
 
     it('Generate all keys names the entries that failed or were stopped and the books it could not read, or that none was missing', async () => {
-        host.totals = { written: 3, failed: 1, stopped: 5, unreadBooks: 2 };
+        host.outcome = { written: 3, failed: 1, stopped: 5, unreadBooks: 2, chatLock: null };
         generate().click();
         await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 3 entries. 1 entry failed, as the toast says. '
             + 'Stopped before 5 entries. 2 lorebooks could not be read; the console says why.'));
-        host.totals = { written: 0, failed: 0, stopped: 0, unreadBooks: 0 };
+        host.outcome = { written: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null };
         generate().click();
         await vi.waitFor(() => expect(status().textContent).toBe('No selected entry was missing keys.'));
     });
@@ -335,10 +338,40 @@ describe('every key at once', () => {
     it('shows the keys turning LoreBase on writes in place of the delete: the entries being keyed, then what was written', async () => {
         remove().click();
         await vi.waitFor(() => expect(status().textContent).toBe(deletedText));
-        host.keyRunListener({ count: 311, totals: null });
+        host.keyRunListener({ count: 311, outcome: null });
         expect(status().textContent).toBe('Writing the keys of 311 selected entries with none; the progress panel counts them.');
-        host.keyRunListener({ count: 311, totals: { written: 309, failed: 2, stopped: 0, unreadBooks: 0 } });
+        host.keyRunListener({ count: 311, outcome: { written: 309, failed: 2, stopped: 0, unreadBooks: 0, chatLock: null } });
         expect(status().textContent).toBe('Wrote the keys of 309 entries. 2 entries failed, as the toast says.');
+    });
+
+    it('names the books a run locked to this chat, draws the list again, and drops the line once another chat is open', async () => {
+        host.outcome = { written: 313, failed: 0, stopped: 0, unreadBooks: 0, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas'] } };
+        generate().click();
+        await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 313 entries. Locked "Harbor Atlas" to this chat.'));
+        expect(chatBookLocks).toHaveBeenCalledTimes(2);
+        host.keyRunListener({
+            count: 4,
+            outcome: { written: 4, failed: 0, stopped: 0, unreadBooks: 0, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas', 'Keeper Notes', 'Tide Tables'] } },
+        });
+        expect(status().textContent).toBe('Wrote the keys of 4 entries. Locked "Harbor Atlas", "Keeper Notes", and "Tide Tables" to this chat.');
+
+        await refreshLoreBaseBooks();
+        expect(status().hidden).toBe(false);
+        host.chatId = 'chat-wren';
+        await refreshLoreBaseBooks();
+        expect([status().hidden, status().textContent]).toEqual([true, '']);
+    });
+
+    it('says a run that ends in another chat locked its books to the chat open when the writing began, and keeps that line', async () => {
+        host.chatId = 'chat-wren';
+        host.keyRunListener({
+            count: 2,
+            outcome: { written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas', 'Keeper Notes'] } },
+        });
+        expect(status().textContent).toBe('Wrote the keys of 2 entries. Locked "Harbor Atlas" and "Keeper Notes" to the chat open when the writing began.');
+        host.chatId = 'chat-harbor';
+        await refreshLoreBaseBooks();
+        expect(status().hidden).toBe(false);
     });
 
     it('a delete that fails says Not deleted, with the reason, logs it, and leaves LoreBase on', async () => {
