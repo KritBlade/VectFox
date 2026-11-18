@@ -153,6 +153,7 @@ describe('Collection Settings', () => {
     });
 
     it('writes nothing on Cancel, but answers that a lock changed in Manage locks', async () => {
+        host.meta = { scope: 'chat' };
         host.answer = false;
         host.onForm = form => { form.querySelector('#vectfox_always_active').checked = true; };
         expect(await editCollectionSettings(KEY, 'Harbor')).toBe(false);
@@ -182,5 +183,20 @@ describe('Manage locks', () => {
         expect(collections.removeCollectionCharacterLock).toHaveBeenCalledWith(KEY, '0');
         host.onNotice = null;
         expect(await manageCollectionLocks(KEY, 'Harbor')).toBe(false);
+    });
+
+    it('on a chat collection offers a chat lock alone, and removes a character lock it never reads', async () => {
+        host.meta = { scope: 'chat' };
+        collections.getCollectionCharacterLocks.mockReturnValue(['0']);
+        host.onNotice = (body) => {
+            expect(body.querySelector('[data-lock-action="add-character"]')).toBeNull();
+            expect(body.textContent).toContain('Not read');
+            body.querySelector('[data-lock-action="add-chat"]').click();
+            body.querySelector('[data-lock-action="remove-character"]').click();
+        };
+        expect(await manageCollectionLocks(KEY, 'Harbor')).toBe(true);
+        expect(collections.setCollectionLock).toHaveBeenCalledWith(KEY, 'Mira - 1');
+        expect(collections.removeCollectionCharacterLock).toHaveBeenCalledWith(KEY, '0');
+        expect(collections.setCollectionCharacterLock).not.toHaveBeenCalled();
     });
 });

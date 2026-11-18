@@ -254,7 +254,7 @@ A rewritten collection has no character lock, so its lock switch in Collection S
 
 ## DB Browser — the Active here pill in the listing
 
-In `src/features/database-browser/database-browser.js`, `renderCollections` calls `getCollectionListing(settings)` once and keys each entry's `isActive` (computed there with `isCollectionActiveForContext(registryKey, ...)`) by registry key and by bare ID. The "Active here only" filter and every row read that lookup; no row calls `isCollectionActiveForContext` itself. An active row shows the Active here pill and a line from `activeHereLine` naming each of its locks that matches here, this chat, this character or both, and how many other chats it is locked to.
+In `src/features/database-browser/database-browser.js`, `renderCollections` calls `getCollectionListing(settings)` once and keys each entry's `isActive` (computed there with `isCollectionActiveForContext(registryKey, ...)`) by registry key and by bare ID. The "Active here only" filter and every row read that lookup; no row calls `isCollectionActiveForContext` itself. An active row shows the Active here pill and a line from `activeHereLine` (`activeLockLine` in `collection-settings-core.js`) naming the lock its scope reads, this chat or this character, and how many other chats a chat collection is locked to. Collection Settings' summary and Manage locks read locks the same way: they count and offer the kind the scope reads, and Manage locks lists a lock of the other kind saved before as not read, with its Remove.
 
 ## DB Browser → Collection Settings → the lock switch
 

@@ -76,10 +76,12 @@ export function modelFormMarkup(models, currentPath) {
 }
 
 /**
- * The lock area of Collection Settings: the switch for this chat's or character's lock, the lock count and whether
- * one matches here, and Manage locks. The wiring sets the switch's state.
+ * The lock area of Collection Settings: the switch for this chat's or character's lock, the count of the locks the
+ * collection reads and whether one matches here, the locks of the other kind it never reads, and Manage locks. The
+ * wiring sets the switch's state.
  *
- * @param {{switchState: {title: string, description: string}, summary: {pill: string, isActiveHere: boolean, line: string}}} lock
+ * @param {{switchState: {title: string, description: string},
+ *   summary: {pill: string, isActiveHere: boolean, line: string, unreadLine: string|null}}} lock
  * @returns {string}
  */
 export function lockAreaMarkup({ switchState, summary }) {
@@ -88,7 +90,8 @@ export function lockAreaMarkup({ switchState, summary }) {
             button({ text: 'Manage locks', icon: 'fa-lock', data: { 'settings-action': 'manage-locks' } }),
             statusPill({ name: summary.pill, status: summary.isActiveHere ? 'success' : 'neutral' }),
         ])
-        + dynamicHint(summary.line);
+        + dynamicHint(summary.line)
+        + (summary.unreadLine ? dynamicHint(summary.unreadLine) : '');
 }
 
 /**
@@ -104,39 +107,49 @@ export function collectionSettingsMarkup({ lock }) {
     ]);
 }
 
+// Each kind of lock, as Manage locks shows it.
+const LOCK_KINDS = {
+    chat: { title: 'Chat locks', rowIcon: 'fa-comment', titleIcon: 'fa-comments', empty: 'No chat locks yet.', current: 'This chat', add: 'Lock to this chat' },
+    character: { title: 'Character locks', rowIcon: 'fa-user', titleIcon: 'fa-user', empty: 'No character locks yet.', current: 'This character', add: 'Lock to this character' },
+};
+
 /**
- * Manage locks' body: the chat locks, then the character locks, each with its remove button, a line on what can be
- * done here, and the button that locks to the open chat or character.
+ * Manage locks' body: the locks of the kind the collection reads, each with its remove button, a line on what can be
+ * done here and the button that locks to the open chat or character; then, while there are any, the locks of the
+ * other kind it never reads, each marked so and with its remove button.
  *
  * @param {ReturnType<import('./collection-settings-core.js').lockDialogView>} view
  * @returns {string}
  */
 export function lockDialogMarkup(view) {
-    const removeButton = (action, id) => iconButton({ icon: 'fa-trash', title: 'Remove this lock', isDanger: true, data: { 'lock-action': action, 'lock-id': id } });
-    const chatRows = view.chats.length
-        ? view.chats.map(chat => listRow({
-            icon: 'fa-comment',
-            name: chat.id,
-            pills: chat.isCurrent ? [statusPill({ text: 'This chat', status: 'success' })] : [],
-            actions: [removeButton('remove-chat', chat.id)],
+    const removeButton = (kind, id) => iconButton({ icon: 'fa-trash', title: 'Remove this lock', isDanger: true, data: { 'lock-action': `remove-${kind}`, 'lock-id': id } });
+    const kind = LOCK_KINDS[view.kind];
+    const rows = view.locks.length
+        ? view.locks.map(lock => listRow({
+            icon: kind.rowIcon,
+            name: lock.name,
+            pills: lock.isCurrent ? [statusPill({ text: kind.current, status: 'success' })] : [],
+            actions: [removeButton(view.kind, lock.id)],
         })).join('')
-        : emptyState({ icon: 'fa-comments', text: 'No chat locks yet.' });
-    const characterRows = view.characters.length
-        ? view.characters.map(character => listRow({
-            icon: 'fa-user',
-            name: character.name,
-            pills: character.isCurrent ? [statusPill({ text: 'This character', status: 'success' })] : [],
-            actions: [removeButton('remove-character', character.id)],
-        })).join('')
-        : emptyState({ icon: 'fa-user', text: 'No character locks yet.' });
-    return stack([
-        groupTitle({ icon: 'fa-comments', text: 'Chat locks' }),
-        chatRows,
-        dynamicHint(view.chatLine),
-        `<div>${button({ text: 'Lock to this chat', icon: 'fa-plus', isDisabled: !view.canLockChat, data: { 'lock-action': 'add-chat' } })}</div>`,
-        groupTitle({ icon: 'fa-user', text: 'Character locks' }),
-        characterRows,
-        dynamicHint(view.characterLine),
-        `<div>${button({ text: 'Lock to this character', icon: 'fa-plus', isDisabled: !view.canLockCharacter, data: { 'lock-action': 'add-character' } })}</div>`,
-    ]);
+        : emptyState({ icon: kind.titleIcon, text: kind.empty });
+    const parts = [
+        groupTitle({ icon: kind.titleIcon, text: kind.title }),
+        rows,
+        dynamicHint(view.line),
+        `<div>${button({ text: kind.add, icon: 'fa-plus', isDisabled: !view.canLock, data: { 'lock-action': `add-${view.kind}` } })}</div>`,
+    ];
+    if (view.unreadLocks.length) {
+        const unreadKind = LOCK_KINDS[view.unreadKind];
+        parts.push(
+            groupTitle({ icon: unreadKind.titleIcon, text: `${unreadKind.title}, not read` }),
+            view.unreadLocks.map(lock => listRow({
+                icon: unreadKind.rowIcon,
+                name: lock.name,
+                pills: [statusPill({ text: 'Not read', status: 'warning' })],
+                actions: [removeButton(view.unreadKind, lock.id)],
+            })).join(''),
+            dynamicHint(view.unreadLine),
+        );
+    }
+    return stack(parts);
 }

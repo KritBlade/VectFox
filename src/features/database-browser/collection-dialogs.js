@@ -7,7 +7,8 @@
  * (collection-dialogs-markup.js) in SillyTavern's popup (sillytavern/popup.js).
  * Collection Settings' lock switch is written on Save and dropped on Cancel.
  * Manage locks acts at once, as its buttons say, and opens over Collection
- * Settings, which then shows the locks as they are.
+ * Settings, which then shows the locks as they are. Both offer and count the
+ * kind of lock the collection's scope reads (collection-settings-core.js).
  * Each dialog answers whether it saved anything, so the browser repaints only
  * then.
  * ============================================================================
@@ -103,7 +104,8 @@ export async function switchCollectionModel(collection) {
 }
 
 /**
- * The lock area as it stands: what the switch writes, whether it is on here, and the locks in a few words.
+ * The lock area as it stands: what the switch writes, whether it is on here, and the locks in a few words, all by
+ * the kind of lock the collection's scope reads.
  *
  * @param {string} collectionId
  */
@@ -113,11 +115,13 @@ function lockAreaView(collectionId) {
     const hasChat = Boolean(chatId);
     const hasCharacter = characterId !== null;
     const scope = getCollectionMeta(collectionId).scope;
+    const isCharacterScope = scope !== 'chat';
     return {
         scope,
         isOn: isCollectionActiveForContext(collectionId, { chatId, characterId }),
-        switchState: lockSwitchState({ isCharacterScope: scope !== 'chat', hasChat, hasCharacter }),
+        switchState: lockSwitchState({ isCharacterScope, hasChat, hasCharacter }),
         summary: lockSummary({
+            isCharacterScope,
             chatLockCount: getCollectionLockCount(collectionId),
             characterLockCount: getCollectionCharacterLockCount(collectionId),
             isLockedToThisChat: hasChat && isCollectionLockedToChat(collectionId, chatId),
@@ -197,7 +201,8 @@ function writeLockHere(collectionId, scope, isOn) {
 }
 
 /**
- * Show and change a collection's chat and character locks. Each button acts at once, and the lists repaint.
+ * Show and change a collection's locks: those of the kind its scope reads, and add one here; and remove a lock of the
+ * other kind saved before, which it never reads. Each button acts at once, and the lists repaint.
  *
  * @param {string} collectionId - Its registry key
  * @param {string} collectionName
@@ -205,10 +210,12 @@ function writeLockHere(collectionId, scope, isOn) {
  */
 export async function manageCollectionLocks(collectionId, collectionName) {
     const characters = getContext()?.characters || [];
+    const isCharacterScope = getCollectionMeta(collectionId).scope !== 'chat';
     const body = document.createElement('div');
     let hasChanged = false;
     const paint = () => {
         body.innerHTML = lockDialogMarkup(lockDialogView({
+            isCharacterScope,
             chatLocks: getCollectionLocks(collectionId),
             characterLocks: getCollectionCharacterLocks(collectionId),
             chatId: getCurrentChatId(),

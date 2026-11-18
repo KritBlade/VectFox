@@ -24,9 +24,7 @@ import {
   getCollectionListing,
   cleanupOrphanedMeta,
   setCollectionEnabled,
-  isCollectionLockedToChat,
   getCollectionLockCount,
-  isCollectionLockedToCharacter,
   getCollectionCharacterLockCount,
   exportCollection,
   importCollection,
@@ -65,13 +63,14 @@ import {
   queryMultipleCollections,
 } from "../vector-backend/index.js";
 import { getRequestHeaders } from "../../sillytavern/requests.js";
-import { getCurrentChatId, getContext } from "../../sillytavern/chat.js";
+import { getContext } from "../../sillytavern/chat.js";
 import { log } from "../../sillytavern/log.js";
 import { openChunkVisualizer } from "./chunk-visualizer.js";
 import { mergeSearchPieceResults } from "./search-results-core.js";
 import { searchPieces } from "../embedding/index.js";
 import { bindSizeInspector } from "./size-inspector.js";
 import { editCollectionSettings, renameCollection, switchCollectionModel } from "./collection-dialogs.js";
+import { activeLockLine } from "./collection-settings-core.js";
 import { formatBytes, utf8ByteLength } from "../../shared/byte-size.js";
 import { counted } from "../../shared/counted.js";
 import {
@@ -639,10 +638,8 @@ function collectionRowView(collection, isActiveById) {
 }
 
 /**
- * Which lock makes a collection active in the current chat, in words, or "" when none does. It names the lock that
- * actually matched, not the one its scope implies: isCollectionActiveForContext() takes a chat lock OR a character lock
- * whatever the scope, so a chat-scoped collection can be active here through a character lock. Locks elsewhere show in
- * Collection Settings.
+ * Which lock makes a collection active in the current chat, in words, or "" when none does: the kind its scope reads,
+ * as isCollectionActiveForContext() reads only that one (activeLockLine). Locks elsewhere show in Collection Settings.
  * @param {object} collection
  * @param {Map<string, boolean>} isActiveById
  * @returns {string}
@@ -651,20 +648,8 @@ function activeHereLine(collection, isActiveById) {
   const isActive = isActiveById.get(collection.registryKey || `${collection.backend}:${collection.id}`) === true
     || isActiveById.get(collection.id) === true;
   if (!isActive) return "";
-
   // Registry-key form, so two collections sharing a bare ID on different backends keep their own locks.
-  const lockKey = collectionKey(collection);
-  const currentChatId = getCurrentChatId();
-  const isViaChat = Boolean(currentChatId && isCollectionLockedToChat(lockKey, currentChatId));
-  const isViaCharacter = Boolean(isCollectionLockedToCharacter(lockKey, getContext()?.characterId));
-  let line;
-  if (isViaChat && isViaCharacter) line = "Locked to this chat and to this character";
-  else if (isViaCharacter) line = "Locked to this character, so it is active in every chat with them";
-  else line = "Locked to this chat";
-
-  const otherChatCount = getCollectionLockCount(lockKey) - (isViaChat ? 1 : 0);
-  if (otherChatCount > 0) line += `, and to ${otherChatCount} other chat${otherChatCount === 1 ? "" : "s"}`;
-  return line;
+  return activeLockLine({ isCharacterScope: collection.scope !== "chat", chatLockCount: getCollectionLockCount(collectionKey(collection)) });
 }
 
 /**
