@@ -1,5 +1,6 @@
 // Tests that VectFox's collections inside the shared "vectfox_main" stay apart: every read, count, change and delete
-// scopes to the tenant field `content_type`, a purge that names no tenant deletes nothing, discovery lists each tenant
+// scopes to the tenant field `content_type`, a purge that names no tenant deletes nothing, a hybrid search may read
+// several collections a list names in one request while no change or delete takes a list, discovery lists each tenant
 // as a collection of its own, and an insert takes a point ID the client chose. Qdrant is stubbed at the backend's one
 // request function, so no server is needed.
 //
@@ -7,7 +8,7 @@
 
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import qdrantBackend, { TENANT_FIELD } from '../qdrant-backend.js';
+import qdrantBackend, { TENANT_FIELD, TENANTS_ANY_FILTER } from '../qdrant-backend.js';
 
 const SHARED = 'vectfox_main';
 const TENANT = 'vf_eventbase_qdrant_tester_chat_a';
@@ -85,6 +86,32 @@ test('a purge deletes the named tenant only, and a purge that names no tenant th
     const later = stubQdrant([SHARED]);
     await assert.rejects(qdrantBackend.purgeCollection(SHARED, { filter: { must: [] } }), /needs a tenant/);
     assert.equal(later.some(request => request.endpoint.includes('/points/delete')), false);
+});
+
+test('a hybrid search reads every collection a list names in one request, and refuses an empty or malformed list', async () => {
+    const books = ['vf_lorebase_tester_harbor_atlas', 'vf_lorebase_tester_wren_journal'];
+    const sparse = { indices: [3], values: [0.5] };
+    const requests = stubQdrant([SHARED], { [`POST /collections/${SHARED}/points/query`]: { points: [] } });
+    await qdrantBackend.hybridQueryNative(SHARED, [0.1, 0.2], sparse, 400, {}, { [TENANTS_ANY_FILTER]: books });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].body.limit, 400);
+    for (const leg of requests[0].body.prefetch) {
+        assert.deepEqual(leg.filter.must, [{ key: TENANT_FIELD, match: { any: books } }]);
+        assert.equal(leg.limit, 1600);
+    }
+
+    const refused = stubQdrant([SHARED]);
+    for (const tenants of [[], [''], 'vf_lorebase_tester_harbor_atlas', [7]]) {
+        await assert.rejects(qdrantBackend.hybridQueryNative(SHARED, [0.1, 0.2], sparse, 10, {}, { [TENANTS_ANY_FILTER]: tenants }),
+            /content_type_any needs a list of at least one collection ID/);
+    }
+    assert.equal(refused.length, 0);
+});
+
+test('a list of collections never scopes a change or a delete', async () => {
+    const requests = stubQdrant([SHARED]);
+    await assert.rejects(qdrantBackend.purgeCollection(SHARED, { [TENANTS_ANY_FILTER]: [TENANT] }), /needs a tenant/);
+    assert.equal(requests.some(request => request.endpoint.includes('/points/delete')), false);
 });
 
 test('an insert takes the point ID the client chose, and refuses one Qdrant cannot hold before writing anything', async () => {

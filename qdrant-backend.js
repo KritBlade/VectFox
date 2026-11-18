@@ -17,7 +17,8 @@
  * Collections: VectFox names the collection on each call. With its multitenancy on, every collection shares one,
  * "vectfox_main", told apart by the indexed tenant field `content_type`, which holds the collection's own ID, and
  * filters such as {content_type: "vf_eventbase_..."}. With it off, each collection is a Qdrant collection of its own.
- * Older clients scope by `type` and `sourceId`, which every path still reads.
+ * Older clients scope by `type` and `sourceId`, which every path still reads. A hybrid search may name several
+ * collections of one Qdrant collection, {content_type_any: [...]}, to search them in one request.
  *
  * @author VectFox
  * ============================================================================
@@ -39,6 +40,10 @@ const MULTITENANCY_COLLECTION = 'vectfox_main';
 // The payload field that tells collections apart inside the shared one: VectFox writes each point's collection ID
 // there. Indexed as a tenant field, so a filter on it reads one tenant's points only.
 export const TENANT_FIELD = 'content_type';
+
+// The filter naming several of those collections for one hybrid search, as LoreBase searches every book taking part
+// at once. The hybrid searches alone read it: no change or delete does, so none reaches past one collection.
+export const TENANTS_ANY_FILTER = `${TENANT_FIELD}_any`;
 
 // LoreBase's keys (lorebase-keys.js): a collection with no vectors, which VectFox's vector collections never are, so
 // the collection listing, discovery and the start-up index pass leave it out.
@@ -869,13 +874,32 @@ class QdrantBackend {
     }
 
     /**
-     * Build a Qdrant filter object from VectFox's filter shape. Shared by all hybrid paths.
-     * Always excludes the VectFox sentinel point via {@link _buildFilterExcludingSentinel}.
+     * The `must` clause of a hybrid search over several collections of one Qdrant collection: a point of any tenant
+     * the list names (TENANTS_ANY_FILTER).
+     * @private
+     * @param {unknown} tenants - The collection IDs
+     * @returns {object}
+     * @throws {Error} When the list is empty or holds anything but collection IDs, so that no search reads every
+     *   collection, or none, by mistake
+     */
+    _tenantsAnyClause(tenants) {
+        if (!Array.isArray(tenants) || !tenants.length || !tenants.every(tenant => typeof tenant === 'string' && tenant)) {
+            throw new Error(`[Qdrant] ${TENANTS_ANY_FILTER} needs a list of at least one collection ID, and got ${JSON.stringify(tenants)}.`);
+        }
+        return { key: TENANT_FIELD, match: { any: tenants } };
+    }
+
+    /**
+     * Build a Qdrant filter object from VectFox's filter shape. Shared by all hybrid paths: the tenant, or several
+     * (TENANTS_ANY_FILTER), and the fields that narrow them. Always excludes the VectFox sentinel point via
+     * {@link _buildFilterExcludingSentinel}.
      * @private
      * @returns {object}
+     * @throws {Error} When TENANTS_ANY_FILTER names no collection (_tenantsAnyClause)
      */
     _buildHybridFilter(filters) {
         const must = this._scopeMust(filters);
+        if (filters[TENANTS_ANY_FILTER] !== undefined) must.push(this._tenantsAnyClause(filters[TENANTS_ANY_FILTER]));
         const should = [];
 
         // Planner-emitted *_any filters: OR within and across fields.

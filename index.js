@@ -1105,6 +1105,8 @@ async function getVectorsForSource(source, texts, model, directories, req) {
      * POST /api/plugins/similharity/chunks/hybrid-query
      * Hybrid search combining vector similarity and keyword matching
      * Body: { backend, collectionId, searchText OR queryVector, keywords?, topK?, options?, filters?, source?, model? }
+     * filters names one collection of collectionId ({content_type}), or several to search in one request
+     * ({content_type_any: [...]}, as LoreBase searches its books).
      */
     router.post('/chunks/hybrid-query', async (req, res) => {
         try {
