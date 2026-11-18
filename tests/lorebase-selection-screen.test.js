@@ -475,6 +475,25 @@ describe('showing an entry', () => {
         expect(keptLines.some(line => line.icon === 'fa-circle-info')).toBe(false);
         expect(record()).toEqual(before);
     });
+
+    it('says on its row and in its dialog that SillyTavern keeps an entry an @@activate or @@dont_activate line opens', async () => {
+        host.books['Harbor Atlas'].entries[1].content = '@@dont_activate\nThe tidewardens read the harbor bells.';
+        host.books['Harbor Atlas'].entries[4].content = '@@activate\nFog closes the strait each spring.';
+        await openScreen();
+        const rowOf = uid => document.querySelector(`[data-lorebase-entry="${uid}"]`);
+        expect([rowOf('1').textContent.includes('@@dont_activate'), rowOf('4').textContent.includes('@@activate')]).toEqual([true, true]);
+        expect([tickBox('1').disabled, tickBox('4').disabled]).toEqual([true, true]);
+        actionButton('show-entry', '[data-lorebase-uid="4"]').click();
+        await vi.waitFor(() => expect(host.noticePopup).toHaveBeenCalledTimes(1));
+        expect(host.noticePopup.mock.calls[0][0]).toContainEqual({
+            icon: 'fa-lock', text: '@@activate: this line at its top has SillyTavern send it on every reply, so LoreBase cannot decide it.',
+        });
+        actionButton('show-entry', '[data-lorebase-uid="1"]').click();
+        await vi.waitFor(() => expect(host.noticePopup).toHaveBeenCalledTimes(2));
+        expect(host.noticePopup.mock.calls[1][0]).toContainEqual({
+            icon: 'fa-lock', text: '@@dont_activate: this line at its top keeps SillyTavern from ever sending it, so LoreBase cannot decide it.',
+        });
+    });
 });
 
 describe('locks, pins and books', () => {

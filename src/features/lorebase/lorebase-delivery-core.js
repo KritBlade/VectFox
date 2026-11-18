@@ -7,6 +7,7 @@
  * SillyTavern loaded, so it goes where that entry goes. The book file is never changed. Pure: no SillyTavern, no
  * network.
  */
+import { withoutDecoratorLines } from './lorebase-decorators-core.js';
 import { isDecidedEntry } from './lorebase-reply-core.js';
 
 /** The tag LoreBase's block of picks goes inside, in the prompt. */
@@ -14,7 +15,6 @@ export const LOREBOOK_TAG = 'VectLorebook';
 
 /** The lists of the books a scan loads, as SillyTavern's WORLDINFO_ENTRIES_LOADED carries them. */
 const SCAN_LISTS = ['globalLore', 'characterLore', 'chatLore', 'personaLore'];
-const DECORATOR_OPENER = '@@';
 // SillyTavern's World Info positions that take more than the position to place an entry: at a depth, by its depth and
 // role, and an outlet, by its name.
 const AT_DEPTH_POSITION = 4;
@@ -28,22 +28,6 @@ const OUTLET_POSITION = 7;
  */
 export function scanKey(bookName, uid) {
     return `${bookName}.${uid}`;
-}
-
-/**
- * An entry's content without the decorator lines that open it, as SillyTavern sends a scanned entry: it reads every
- * line starting with '@@' at the content's head as a decorator and leaves it out (parseDecorators in world-info.js),
- * and keeps the content whole when no other line follows them. A forced entry skips that step, so its content is
- * given as SillyTavern would send it.
- * @param {string} content
- * @returns {string}
- */
-export function withoutDecoratorLines(content) {
-    const text = String(content ?? '');
-    if (!text.startsWith(DECORATOR_OPENER)) return text;
-    const lines = text.split('\n');
-    const firstContentLine = lines.findIndex(line => !line.startsWith(DECORATOR_OPENER));
-    return firstContentLine === -1 ? text : lines.slice(firstContentLine).join('\n');
 }
 
 /**

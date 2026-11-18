@@ -56,6 +56,9 @@ describe('the entries LoreBase decides', () => {
             6: { uid: 6, comment: 'Net Market', content: 'Nets for sale.', sticky: 0, cooldown: null },
             7: { uid: 7, comment: 'Buoy Line' },
             8: { uid: 8, comment: 'Salt Flats', content: ' \n ' },
+            9: { uid: 9, comment: 'Lamp Oil', content: '@@activate\nOil for the lamp.' },
+            10: { uid: 10, comment: 'Wreck Map', content: '@@if wren_is_here\n@@dont_activate\nThe wreck lies north.' },
+            11: { uid: 11, comment: 'Gull Roost', content: '@@if wren_is_here\nGulls roost on the roof.\n@@activate' },
         },
     };
 
@@ -65,6 +68,10 @@ describe('the entries LoreBase decides', () => {
 
     it('never decides a selected entry with no text, which has nothing to key, pick or send', () => {
         expect(decidedEntries(book, { selectedUids: ['7', '1', '8'] }).map(entry => entry.uid)).toEqual([1]);
+    });
+
+    it('leaves SillyTavern an entry an @@activate or @@dont_activate line opens, which its scan reads before the keys', () => {
+        expect(decidedEntries(book, { selectedUids: ['9', '10', '11'] }).map(entry => entry.uid)).toEqual([11]);
     });
 
     it('decides nothing in a book with no selection, or one SillyTavern could not load', () => {

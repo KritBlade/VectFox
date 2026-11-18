@@ -5,6 +5,7 @@
  * the ticks the bulk bar acts on; what the bar and a category's toggle select; the entries new since the book was last
  * opened; the footer's count and title tokens; and the section names a book can pin. Pure: no SillyTavern, no DOM.
  */
+import { ACTIVATE_DECORATOR, DONT_ACTIVATE_DECORATOR, activationDecoratorOf } from './lorebase-decorators-core.js';
 import { contentsLine } from './lorebase-pick-core.js';
 import { decidedEntries } from './lorebase-reply-core.js';
 import { hasTemplateCode } from './lorebase-review-core.js';
@@ -67,12 +68,16 @@ function badgesOf(entry, { content, tokens, keys }) {
 
 /**
  * Why LoreBase cannot decide an entry, so it cannot be selected (§5.2), or null: SillyTavern keeps it its own
- * (constant, sticky, cooldown), or it has no text to key, pick or send (empty).
+ * (constant, sticky, cooldown, or an @@activate or @@dont_activate line opens it), or it has no text to key, pick or
+ * send (empty).
  */
 function undecidableReasonOf(entry) {
     if (entry.constant) return 'constant';
     if (Number(entry.sticky) > 0) return 'sticky';
     if (Number(entry.cooldown) > 0) return 'cooldown';
+    const decorator = activationDecoratorOf(entry.content);
+    if (decorator === ACTIVATE_DECORATOR) return 'activate_decorator';
+    if (decorator === DONT_ACTIVATE_DECORATOR) return 'dont_activate_decorator';
     if (!String(entry.content ?? '').trim()) return 'empty';
     return null;
 }
@@ -90,7 +95,8 @@ export function isEngineLike(row) {
  * @property {number} tokens - The entry's size
  * @property {number} keyCount
  * @property {string[]} badges - From BADGES
- * @property {string|null} undecidableReason - 'constant', 'sticky', 'cooldown' or 'empty' when it cannot be selected
+ * @property {string|null} undecidableReason - 'constant', 'sticky', 'cooldown', 'activate_decorator',
+ *   'dont_activate_decorator' or 'empty' when it cannot be selected
  * @property {boolean} isDisabled - SillyTavern never sends it while it is disabled
  * @property {boolean} isNew - Added since the book was last opened on the screen
  * @property {boolean} isSelected

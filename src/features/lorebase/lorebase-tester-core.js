@@ -6,7 +6,8 @@
  * what SillyTavern's keys would send from the entries a scan as SillyTavern alone activated. Pure: no SillyTavern, no
  * network.
  */
-import { scanDeliveries, scanKey, withoutDecoratorLines } from './lorebase-delivery-core.js';
+import { withoutDecoratorLines } from './lorebase-decorators-core.js';
+import { scanDeliveries, scanKey } from './lorebase-delivery-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 
 /**

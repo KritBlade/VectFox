@@ -6,7 +6,7 @@
  * place in the prompt they take, each pick in a tag of its own.
  */
 import { describe, expect, it } from 'vitest';
-import { armScan, scanDeliveries, scanKey, withoutDecoratorLines } from '../src/features/lorebase/lorebase-delivery-core.js';
+import { armScan, scanDeliveries, scanKey } from '../src/features/lorebase/lorebase-delivery-core.js';
 
 const passage = text => ({ section: '(intro)', text, tokens: 5 });
 const reviewed = (uid, sentParts, { frame = null, texts = ['The lamp burns all night.', 'The keeper sleeps by day.', 'Gulls nest on the roof.'] } = {}) => ({
@@ -17,19 +17,6 @@ describe('scanKey', () => {
     it("names an entry as SillyTavern's scan does: its book, a dot, its uid", () => {
         expect(scanKey('Harbor Atlas', 3)).toBe('Harbor Atlas.3');
         expect(scanKey('Harbor Atlas', '3')).toBe('Harbor Atlas.3');
-    });
-});
-
-describe('withoutDecoratorLines', () => {
-    it('leaves out the decorator lines that open an entry, as SillyTavern does before it sends one', () => {
-        expect(withoutDecoratorLines('@@activate\n@@if wren_is_here\nThe lamp burns.\n@@ stays here')).toBe('The lamp burns.\n@@ stays here');
-        expect(withoutDecoratorLines('The lamp burns.\n@@activate')).toBe('The lamp burns.\n@@activate');
-    });
-
-    it('keeps an entry of decorator lines alone whole, as SillyTavern does', () => {
-        expect(withoutDecoratorLines('@@activate\n@@dont_activate')).toBe('@@activate\n@@dont_activate');
-        expect(withoutDecoratorLines('')).toBe('');
-        expect(withoutDecoratorLines(undefined)).toBe('');
     });
 });
 
@@ -158,5 +145,20 @@ describe('armScan', () => {
         expect(armScan(loaded, { selectedUidsOf, deliveries })).toEqual({ forced: [], sentCount: 0, blocks: [] });
         expect(loaded.globalLore[3].key).toEqual(['fog']);
         expect(loaded.chatLore[0].key).toEqual(['lighthouse']);
+    });
+
+    it('leaves SillyTavern a selected entry an @@activate or @@dont_activate line opens: its keys kept, never sent, never carrying a block', () => {
+        const loaded = {
+            globalLore: [
+                { uid: 0, world: 'Harbor Atlas', key: ['lamp'], content: '@@activate\nThe lamp burns all night.' },
+                { uid: 1, world: 'Harbor Atlas', key: ['tide'], content: '@@if wren_is_here\n@@dont_activate\nThe tide turns at noon.' },
+                { uid: 2, world: 'Harbor Atlas', key: ['bell'], content: 'The bell rings at dusk.' },
+            ],
+        };
+        const deliveries = new Map([['Harbor Atlas.0', whole('Lamp')], ['Harbor Atlas.1', whole('Tide')], ['Harbor Atlas.2', whole('Bell')]]);
+        const { forced, sentCount } = armScan(loaded, { selectedUidsOf: () => new Set(['0', '1', '2']), deliveries });
+        expect(loaded.globalLore.map(entry => entry.key)).toEqual([['lamp'], ['tide'], []]);
+        expect(sentCount).toBe(1);
+        expect(forced.map(entry => [entry.uid, entry.content])).toEqual([[2, '<VectLorebook>\n<Bell>\nThe bell rings at dusk.\n</Bell>\n</VectLorebook>']]);
     });
 });

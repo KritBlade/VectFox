@@ -81,7 +81,9 @@ export const BADGE_LABELS = Object.freeze({
     [BADGES.noTitle]: { text: 'No title', icon: 'fa-heading' },
 });
 
-const UNDECIDABLE_LABELS = { constant: 'Constant', sticky: 'Sticky', cooldown: 'Cooldown', empty: 'Empty' };
+const UNDECIDABLE_LABELS = {
+    constant: 'Constant', sticky: 'Sticky', cooldown: 'Cooldown', activate_decorator: '@@activate', dont_activate_decorator: '@@dont_activate', empty: 'Empty',
+};
 
 // What each badge and each reason LoreBase cannot decide an entry means, as the entry's dialog says it.
 const BADGE_NOTES = {
@@ -97,6 +99,8 @@ const UNDECIDABLE_NOTES = {
     constant: 'Constant: SillyTavern sends it on every reply, so LoreBase cannot decide it.',
     sticky: 'Sticky: SillyTavern would lose its timer on an entry LoreBase sends, so LoreBase cannot decide it.',
     cooldown: 'Cooldown: SillyTavern would lose its timer on an entry LoreBase sends, so LoreBase cannot decide it.',
+    activate_decorator: '@@activate: this line at its top has SillyTavern send it on every reply, so LoreBase cannot decide it.',
+    dont_activate_decorator: '@@dont_activate: this line at its top keeps SillyTavern from ever sending it, so LoreBase cannot decide it.',
     empty: 'Empty: it has no text, so LoreBase has nothing to key, pick or send, and cannot decide it.',
 };
 

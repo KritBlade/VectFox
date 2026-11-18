@@ -6,6 +6,7 @@
  * that have no keys (D17). Pure: no SillyTavern, no network.
  */
 import { counted } from '../../shared/counted.js';
+import { activationDecoratorOf } from './lorebase-decorators-core.js';
 import { pickMessages, readPicks, tableOfContents } from './lorebase-pick-core.js';
 import { hasTemplateCode, partsToSend, readReview, reviewMessages } from './lorebase-review-core.js';
 import { entryPassages } from './lorebase-splitter.js';
@@ -65,16 +66,19 @@ export function activeBookNames({ globalBooks, characterBooks, chatBook, persona
 
 /**
  * Whether LoreBase decides an entry (§5.2): the user selected it, it has text, and SillyTavern does not keep it its
- * own, as it keeps a disabled entry, which it never sends; a constant one, which it always sends; and one with sticky
- * or cooldown, whose timers it finds again by a hash a forced entry lacks. An entry with no text has nothing to key,
- * pick or send, so its keys would fail at every writing.
+ * own, as it keeps a disabled entry, which it never sends; a constant one, which it always sends; one with sticky or
+ * cooldown, whose timers it finds again by a hash a forced entry lacks; and one an @@activate or @@dont_activate line
+ * opens (activationDecoratorOf), which its scan sends every time or never, read before the keys and before the
+ * LoreBase block that would go in the entry's place. An entry with no text has nothing to key, pick or send, so its
+ * keys would fail at every writing.
  * @param {{uid: number|string, content?: string, disable?: boolean, constant?: boolean, sticky?: number, cooldown?: number}} entry
  * @param {Set<string>} selectedUids - The book's selected uids, as its record holds them
  * @returns {boolean}
  */
 export function isDecidedEntry(entry, selectedUids) {
     return selectedUids.has(String(entry.uid)) && String(entry.content ?? '').trim() !== ''
-        && !entry.disable && !entry.constant && !(Number(entry.sticky) > 0) && !(Number(entry.cooldown) > 0);
+        && !entry.disable && !entry.constant && !(Number(entry.sticky) > 0) && !(Number(entry.cooldown) > 0)
+        && activationDecoratorOf(entry.content) === null;
 }
 
 /**

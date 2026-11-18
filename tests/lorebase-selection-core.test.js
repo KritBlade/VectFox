@@ -43,6 +43,15 @@ describe("the screen's rows", () => {
         expect(byUid(rows, '4')).toMatchObject({ title: 'entry 4', category: '' });
     });
 
+    it('says SillyTavern keeps an entry an @@activate or @@dont_activate line opens, and no other with decorator lines', () => {
+        const rows = selectionRows({ entries: {
+            0: { uid: 0, comment: 'Lamp Oil', content: '@@activate\nOil for the lamp.' },
+            1: { uid: 1, comment: 'Wreck Map', content: '@@if wren_is_here\n@@dont_activate\nThe wreck lies north.' },
+            2: { uid: 2, comment: 'Gull Roost', content: '@@if wren_is_here\nGulls roost on the roof.' },
+        } }, null);
+        expect(rows.map(row => row.undecidableReason)).toEqual(['activate_decorator', 'dont_activate_decorator', null]);
+    });
+
     it('badges template code, an engine, code-like keys, no keys, a long entry and no title', () => {
         const rows = rowsOf();
         expect(byUid(rows, '0').badges).toEqual([BADGES.long]);

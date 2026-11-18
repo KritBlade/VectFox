@@ -109,6 +109,7 @@ Some pills say why an entry can't be turned on. The rest are there to help you c
 | Pill | What it means |
 |---|---|
 | Constant, Sticky, Cooldown | SillyTavern keeps this entry. A constant entry always goes in, and sticky and cooldown timers only work when SillyTavern fires the entry itself. So it can't be turned on, and it can't be ticked. If it was on before it became one, you can still turn it off. |
+| `@@activate`, `@@dont_activate` | SillyTavern keeps this entry too. That line at the top of the entry tells SillyTavern to send it on every reply, or never, and SillyTavern follows it whatever LoreBase sends. So it can't be turned on, and it can't be ticked. If it was on before the line was added, you can still turn it off. |
 | Disabled | Turned off in World Info. You can turn it on here, but LoreBase skips it until you enable it again. |
 | New | Added to the book since you last opened it on this screen. The first time you open a book, nothing is new. |
 | Template code | Has template code, like `<% %>` blocks. When picked, it goes in whole, never cut. |
