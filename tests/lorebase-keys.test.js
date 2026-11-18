@@ -3,17 +3,20 @@
  * lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on
  * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
- * LoreBase's model. Generate all keys writes the missing keys of every book with a selection under the progress panel,
- * whose Stop drops the entries not yet sent, telling its run listeners as it starts and ends, and Regenerate keys
- * rewrites the given entries there; one run at a time. A run that writes missing keys reads where to lock as it starts
- * and then locks the books it wrote keys for there (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md);
- * Regenerate keys locks nothing. Delete all keys deletes every key, never while keys are written, when it names how
- * many are left and brings the panel up.
- * Similharity's routes are a fetch stand-in holding the keys in memory.
+ * LoreBase's model. Generate all writes what the selected entries of every book with a selection lack, keys and then
+ * vectors (§4.3 of InternalProject/Vectfox/plans/lorebook-multi-vector.md), under the progress panel, each entry counted
+ * once, whose Stop drops what is not yet sent, telling its run listeners as it starts and ends, and Regenerate keys
+ * rewrites the given entries' keys there; one run at a time. A run that writes missing keys reads where to lock as it
+ * starts and then locks the books it wrote keys for there (§6.1); a run that writes vectors alone and Regenerate keys
+ * lock nothing. Delete all deletes every vector and key, never while a run writes, when it brings the panel up.
+ * Similharity's routes are a fetch stand-in holding the keys in memory; the vectors are a stand-in for
+ * lorebase-vectors.js, which lorebase-vectors.test.js holds.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null, panel: null, lockPlace: null }));
+const host = vi.hoisted(() => ({
+    connection: { ok: true }, ask: null, panel: null, lockPlace: null, vectorized: new Set(), vectorFailures: new Set(),
+}));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
@@ -38,6 +41,34 @@ vi.mock('../src/features/lorebase/lorebase-chat-books.js', () => ({
     keyRunLockPlace: vi.fn(() => host.lockPlace),
     lockKeyedBooks: vi.fn((place, keyedBookNames) => (place && keyedBookNames.length ? { chatId: place.chatId, bookNames: keyedBookNames } : null)),
 }));
+// An entry has its vectors once host.vectorized holds "book/uid"; writing adds it, and an entry in host.vectorFailures fails.
+vi.mock('../src/features/lorebase/lorebase-vectors.js', () => {
+    const noVectorsOf = async bookNames => new Map(bookNames.map(bookName => [bookName, new Map()]));
+    return {
+        bookVectors: vi.fn(noVectorsOf),
+        readBookVectors: vi.fn(noVectorsOf),
+        uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid)).filter(uid => host.vectorized.has(`${bookName}/${uid}`)))),
+        writeBookVectors: vi.fn(async (bookName, decidedEntries, entries, settings, { run = null, onEntryDone = null } = {}) => {
+            const result = { written: 0, failures: [], stopped: 0 };
+            for (const entry of entries) {
+                if (run?.isStopped) {
+                    result.stopped += 1;
+                } else if (host.vectorFailures.has(String(entry.uid))) {
+                    const failure = { title: entry.comment, detail: 'upstream timeout' };
+                    result.failures.push(failure);
+                    onEntryDone?.(entry, failure);
+                } else {
+                    host.vectorized.add(`${bookName}/${entry.uid}`);
+                    result.written += 1;
+                    onEntryDone?.(entry, null);
+                }
+            }
+            return result;
+        }),
+        deleteAllVectors: vi.fn(async () => host.vectorized.clear()),
+        showVectorFailures: vi.fn(),
+    };
+});
 
 const BOOK = 'Harbor Atlas';
 const entry = (uid, comment) => ({ uid, comment, content: `${comment} stands by the harbor.` });
@@ -75,6 +106,8 @@ beforeEach(async () => {
     });
     host.connection = { ok: true };
     host.lockPlace = null;
+    host.vectorized = new Set();
+    host.vectorFailures = new Set();
     host.panel ={ show: vi.fn(), updateCurrentItem: vi.fn(), updateProgress: vi.fn(), addError: vi.fn(), complete: vi.fn(), reopen: vi.fn(), stop: null };
     host.ask = vi.fn(async messages => answerWith([`keys from ${messages[1].content.split('\n')[2].split(' ')[0]}`]));
     keysModule = await import('../src/features/lorebase/lorebase-keys.js');
@@ -82,6 +115,10 @@ beforeEach(async () => {
     const { keyRunLockPlace, lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
     keyRunLockPlace.mockClear();
     lockKeyedBooks.mockClear();
+    const vectorsModule = await import('../src/features/lorebase/lorebase-vectors.js');
+    for (const name of ['bookVectors', 'readBookVectors', 'uidsWithCurrentVectors', 'writeBookVectors', 'deleteAllVectors', 'showVectorFailures']) {
+        vectorsModule[name].mockClear();
+    }
 });
 
 describe('writing keys', () => {
@@ -139,7 +176,8 @@ describe('writing keys', () => {
         extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['4'] } };
         loadWorldInfo.mockImplementation(async () => ({ entries: { 4: entry(4, 'Section marker') } }));
         stored[BOOK] = { 4: [] };
-        expect((await keysModule.selectedEntriesWithoutKeys()).count).toBe(0);
+        host.vectorized.add(`${BOOK}/4`);
+        expect((await keysModule.selectedEntriesNotReady(QDRANT)).count).toBe(0);
     });
 
     it('takes a failed call as an ask, and writes the keys once a later ask answers', async () => {
@@ -235,8 +273,8 @@ describe("editing one entry's keys", () => {
     });
 });
 
-describe('every key at once', () => {
-    async function selectBooks() {
+describe('every key and vector at once', () => {
+    async function selectBooks({ isVectorized = true } = {}) {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
         extension_settings.vectfox.lorebase_books = {
@@ -253,15 +291,37 @@ describe('every key at once', () => {
             return books[bookName];
         });
         stored[BOOK] = { 0: ['old keys'] };
+        if (isVectorized) for (const key of [`${BOOK}/0`, `${BOOK}/1`, 'Desert Atlas/5']) host.vectorized.add(key);
         return loadWorldInfo;
     }
 
-    it('counts the selected entries LoreBase decides that have no keys, by book, a book it cannot read counted apart', async () => {
+    const uidsOf = entries => entries.map(each => each.uid);
+    const outcomeOf = fields => ({ keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null, ...fields });
+
+    it('counts what the selected entries LoreBase decides lack, by book, each entry once, a book it cannot read counted apart', async () => {
         await selectBooks();
-        const pending = await keysModule.selectedEntriesWithoutKeys();
-        expect(pending.books.map(book => [book.bookName, book.entries.map(each => each.uid)])).toEqual([[BOOK, [1]], ['Desert Atlas', [5]]]);
-        expect([pending.count, pending.decidedCount, pending.unreadBooks]).toEqual([2, 3, 1]);
+        const pending = await keysModule.selectedEntriesNotReady(QDRANT);
+        expect(pending.books.map(book => [book.bookName, uidsOf(book.keyEntries), uidsOf(book.vectorEntries), uidsOf(book.decidedEntries)]))
+            .toEqual([[BOOK, [1], [], [0, 1]], ['Desert Atlas', [5], [], [5]]]);
+        expect([pending.count, pending.readyCount, pending.decidedCount, pending.unreadBooks]).toEqual([2, 1, 3, 1]);
         expect(host.ask).not.toHaveBeenCalled();
+    });
+
+    it('counts the entries without vectors from the model set now, an entry lacking both once, and the ready ones apart', async () => {
+        await selectBooks({ isVectorized: false });
+        const pending = await keysModule.selectedEntriesNotReady(QDRANT);
+        expect(pending.books.map(book => [book.bookName, uidsOf(book.keyEntries), uidsOf(book.vectorEntries)]))
+            .toEqual([[BOOK, [1], [0, 1]], ['Desert Atlas', [5], [5]]]);
+        expect([pending.count, pending.readyCount]).toEqual([3, 0]);
+    });
+
+    it('reads the vectors as this session holds them, or from Qdrant again when asked to', async () => {
+        const { bookVectors, readBookVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
+        await selectBooks();
+        await keysModule.selectedEntriesNotReady(QDRANT);
+        expect([bookVectors.mock.calls.length, readBookVectors.mock.calls.length]).toEqual([1, 0]);
+        await keysModule.selectedEntriesNotReady(QDRANT, { isRereading: true });
+        expect(readBookVectors).toHaveBeenCalledWith([BOOK, 'Desert Atlas'], QDRANT);
     });
 
     it('never counts or keys a selected entry with no text', async () => {
@@ -269,44 +329,81 @@ describe('every key at once', () => {
         const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
         extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['0', '1'] } };
         loadWorldInfo.mockImplementation(async () => ({ entries: { 0: entry(0, 'Lighthouse'), 1: { uid: 1, comment: 'Buoy Line', content: '' } } }));
-        const pending = await keysModule.selectedEntriesWithoutKeys();
-        expect(pending.books.map(book => book.entries.map(each => each.uid))).toEqual([[0]]);
+        const pending = await keysModule.selectedEntriesNotReady(QDRANT);
+        expect(pending.books.map(book => uidsOf(book.keyEntries))).toEqual([[0]]);
         expect(pending.count).toBe(1);
     });
 
-    it('Generate all keys writes the selected entries with no keys in every book with a selection, and counts what it did', async () => {
+    it('Generate all writes the missing keys in every book with a selection, reading the vectors from Qdrant first, and counts what it did', async () => {
         const loadWorldInfo = await selectBooks();
-        expect(await keysModule.writeKeysOfSelections(QDRANT)).toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 1, chatLock: null });
+        const { readBookVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
+        expect(await keysModule.writeKeysAndVectorsOfSelections(QDRANT)).toEqual(outcomeOf({ keysWritten: 2, unreadBooks: 1 }));
         expect(stored).toEqual({ [BOOK]: { 0: ['old keys'], 1: ['keys from Tidewardens'] }, 'Desert Atlas': { 5: ['keys from Dunes'] } });
         expect(loadWorldInfo.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK, 'Desert Atlas', 'Lost Atlas']);
+        expect(readBookVectors).toHaveBeenCalledWith([BOOK, 'Desert Atlas'], QDRANT);
     });
 
-    it('shows the writing on the progress panel: the entries to key, each one done, each failure, and the outcome', async () => {
+    it("writes an entry's keys, then its vectors, and the vectors of entries that have keys, every entry LoreBase decides given", async () => {
+        await selectBooks({ isVectorized: false });
+        const { writeBookVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
+        expect(await keysModule.writeKeysAndVectorsOfSelections(QDRANT)).toEqual(outcomeOf({ keysWritten: 2, vectorsWritten: 3, unreadBooks: 1 }));
+        expect(writeBookVectors.mock.calls.map(([bookName, decided, entries]) => [bookName, uidsOf(decided), uidsOf(entries)]))
+            .toEqual([[BOOK, [0, 1], [0, 1]], ['Desert Atlas', [5], [5]]]);
+        expect(host.vectorized).toEqual(new Set([`${BOOK}/0`, `${BOOK}/1`, 'Desert Atlas/5']));
+    });
+
+    it('counts each entry once on the progress panel, done when the last of what it lacked is written', async () => {
+        await selectBooks({ isVectorized: false });
+        await keysModule.writeKeysAndVectorsOfSelections(QDRANT);
+        expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys and vectors', 3, 'Entries', { unitLabel: 'Entries' });
+        expect(host.panel.updateProgress.mock.calls.map(([done]) => done)).toEqual([1, 2, 3]);
+        expect(host.panel.complete).toHaveBeenCalledWith(true, 'Wrote the keys of 2 entries and the vectors of 3 entries');
+    });
+
+    it('gives no vectors to an entry whose keys failed, counting it failed once', async () => {
+        await selectBooks({ isVectorized: false });
+        const { writeBookVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
+        host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? UNREADABLE : answerWith(['tidewardens'])));
+        expect(await keysModule.writeKeysAndVectorsOfSelections(QDRANT)).toEqual(outcomeOf({ keysWritten: 1, vectorsWritten: 2, failed: 1, unreadBooks: 1 }));
+        expect(writeBookVectors.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK]);
+        expect(host.panel.updateProgress.mock.calls.map(([done]) => done)).toEqual([1, 2, 3]);
+    });
+
+    it('names the entries whose vectors failed on the panel and in their toast, and counts them failed', async () => {
+        await selectBooks();
+        const { showVectorFailures } = await import('../src/features/lorebase/lorebase-vectors.js');
+        host.vectorized.delete(`${BOOK}/0`);
+        host.vectorFailures.add('0');
+        expect(await keysModule.writeKeysAndVectorsOfSelections(QDRANT)).toEqual(outcomeOf({ keysWritten: 2, failed: 1, unreadBooks: 1 }));
+        expect(host.panel.addError).toHaveBeenCalledWith('Lighthouse: upstream timeout');
+        expect(showVectorFailures).toHaveBeenCalledWith(BOOK, [{ title: 'Lighthouse', detail: 'upstream timeout' }]);
+    });
+
+    it('shows the writing on the progress panel: the entries to write, each one done, each failure, and the outcome', async () => {
         await selectBooks();
         host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? UNREADABLE : answerWith(['tidewardens'])));
-        await keysModule.writeKeysOfSelections(QDRANT);
-        expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys', 2, 'Entries', { unitLabel: 'Entries' });
+        await keysModule.writeKeysAndVectorsOfSelections(QDRANT);
+        expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys and vectors', 2, 'Entries', { unitLabel: 'Entries' });
         expect(host.panel.updateCurrentItem.mock.calls.map(([bookName]) => bookName)).toEqual([BOOK, 'Desert Atlas']);
         expect(host.panel.updateProgress.mock.calls.map(([done]) => done)).toEqual([1, 2]);
         expect(host.panel.addError).toHaveBeenCalledWith('Dunes: its answer held no list of keys');
         expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 1 entry; 1 failed');
     });
 
-    it('tells its run listeners as the run starts, with the entries to key, and as it ends, with what it did', async () => {
+    it('tells its run listeners as the run starts, with the entries to write, and as it ends, with what it did', async () => {
         await selectBooks();
         const seen = [];
-        keysModule.onKeyRunChange(run => seen.push(run));
-        await keysModule.writeKeysOfSelections(QDRANT);
-        expect(seen).toEqual([{ count: 2, outcome: null }, { count: 2, outcome: { written: 2, failed: 0, stopped: 0, unreadBooks: 1, chatLock: null } }]);
+        keysModule.onWritingRunChange(run => seen.push(run));
+        await keysModule.writeKeysAndVectorsOfSelections(QDRANT);
+        expect(seen).toEqual([{ count: 2, outcome: null }, { count: 2, outcome: outcomeOf({ keysWritten: 2, unreadBooks: 1 }) }]);
     });
 
-    it('shows no panel, tells no run listener and locks nothing when no selected entry is missing keys', async () => {
+    it('shows no panel, tells no run listener and locks nothing when no selected entry lacks keys or vectors', async () => {
         host.lockPlace = { chatId: 'chat-harbor', characterAvatar: null, lockableBookNames: new Set([BOOK]) };
         const { lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
         const seen = [];
-        keysModule.onKeyRunChange(run => seen.push(run));
-        expect(await keysModule.writeKeysOfSelections(QDRANT, { books: [], count: 0, unreadBooks: 0 }))
-            .toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null });
+        keysModule.onWritingRunChange(run => seen.push(run));
+        expect(await keysModule.writeKeysAndVectorsOfSelections(QDRANT, { books: [], count: 0, unreadBooks: 0 })).toEqual(outcomeOf({}));
         expect(host.panel.show).not.toHaveBeenCalled();
         expect(seen).toEqual([]);
         expect(lockKeyedBooks).not.toHaveBeenCalled();
@@ -319,82 +416,116 @@ describe('every key at once', () => {
         // Desert Atlas's one entry fails, so only Harbor Atlas has keys written.
         host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? UNREADABLE : answerWith(['tidewardens'])));
         const seen = [];
-        keysModule.onKeyRunChange(run => seen.push(run.outcome?.chatLock));
+        keysModule.onWritingRunChange(run => seen.push(run.outcome?.chatLock));
 
-        const outcome = await keysModule.writeKeysOfSelections(QDRANT, null, { booksWithChosenLocks: ['Lost Atlas'] });
+        const outcome = await keysModule.writeKeysAndVectorsOfSelections(QDRANT, null, { booksWithChosenLocks: ['Lost Atlas'] });
         expect(keyRunLockPlace).toHaveBeenCalledWith(['Lost Atlas']);
         expect(keyRunLockPlace.mock.invocationCallOrder[0]).toBeLessThan(loadWorldInfo.mock.invocationCallOrder[0]);
         expect(lockKeyedBooks).toHaveBeenCalledWith(host.lockPlace, [BOOK]);
-        expect(outcome).toEqual({ written: 1, failed: 1, stopped: 0, unreadBooks: 1, chatLock: { chatId: 'chat-harbor', bookNames: [BOOK] } });
+        expect(outcome).toEqual(outcomeOf({ keysWritten: 1, failed: 1, unreadBooks: 1, chatLock: { chatId: 'chat-harbor', bookNames: [BOOK] } }));
         expect(seen).toEqual([undefined, { chatId: 'chat-harbor', bookNames: [BOOK] }]);
+    });
+
+    it('locks no book a run wrote vectors alone for', async () => {
+        await selectBooks({ isVectorized: false });
+        stored = { [BOOK]: { 0: ['lighthouse'], 1: ['tidewardens'] }, 'Desert Atlas': { 5: ['dunes'] } };
+        host.lockPlace = { chatId: 'chat-harbor', characterAvatar: null, lockableBookNames: new Set([BOOK, 'Desert Atlas']) };
+        const { lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
+        expect(await keysModule.writeKeysAndVectorsOfSelections(QDRANT)).toEqual(outcomeOf({ vectorsWritten: 3, unreadBooks: 1 }));
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(lockKeyedBooks).toHaveBeenCalledWith(host.lockPlace, []);
     });
 
     it("the panel's Stop drops the entries not yet sent, back to no keys, and the run says how many it stopped", async () => {
         const entries = Array.from({ length: 9 }, (_, uid) => entry(uid, `Pier ${uid}`));
         const answers = [];
         host.ask = vi.fn(() => new Promise(resolve => answers.push(resolve)));
-        const running = keysModule.writeKeysOfSelections(QDRANT, { books: [{ bookName: BOOK, entries }], count: 9, unreadBooks: 0 });
+        const running = keysModule.writeKeysAndVectorsOfSelections(QDRANT, { books: [{ bookName: BOOK, keyEntries: entries }], count: 9, unreadBooks: 0 });
         await vi.waitFor(() => expect(host.ask).toHaveBeenCalledTimes(6));
 
         host.panel.stop();
         expect(keysModule.keyStateOf(BOOK, '8')).toEqual({ status: 'missing' });
         answers.forEach((resolve, index) => resolve(answerWith([`pier ${index}`])));
-        expect(await running).toEqual({ written: 6, failed: 0, stopped: 3, unreadBooks: 0, chatLock: null });
+        expect(await running).toEqual(outcomeOf({ keysWritten: 6, stopped: 3 }));
         expect(host.ask).toHaveBeenCalledTimes(6);
         expect(host.panel.complete).toHaveBeenCalledWith(false, 'Wrote the keys of 6 entries; 3 stopped');
     });
 
-    it('Regenerate keys rewrites the given entries under the progress panel, keys or not, telling the run listeners, and locks nothing', async () => {
+    it('Stop leaves the vectors of the entries not yet written unsent, each counted stopped', async () => {
+        const entries = [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')];
+        stored[BOOK] = { 0: ['lighthouse'] };
+        await keysModule.readBookKeys([BOOK]);
+        const answers = [];
+        host.ask = vi.fn(() => new Promise(resolve => answers.push(resolve)));
+        const running = keysModule.writeKeysAndVectorsOfSelections(QDRANT, {
+            books: [{ bookName: BOOK, decidedEntries: entries, keyEntries: [entries[1]], vectorEntries: entries }], count: 2, unreadBooks: 0,
+        });
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalledTimes(1));
+        host.panel.stop();
+        answers[0](answerWith(['tidewardens']));
+        expect(await running).toEqual(outcomeOf({ keysWritten: 1, stopped: 2 }));
+    });
+
+    it('Regenerate keys rewrites the given entries under the progress panel, keys or not, writing no vectors, and locks nothing', async () => {
         stored[BOOK] = { 0: ['old keys'] };
         await keysModule.readBookKeys([BOOK]);
         host.lockPlace = { chatId: 'chat-harbor', characterAvatar: null, lockableBookNames: new Set([BOOK]) };
         const { keyRunLockPlace } = await import('../src/features/lorebase/lorebase-chat-books.js');
+        const { writeBookVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
         const seen = [];
-        keysModule.onKeyRunChange(run => seen.push(run.outcome));
+        keysModule.onWritingRunChange(run => seen.push(run.outcome));
         expect(await keysModule.regenerateKeysOfEntries(BOOK, [entry(0, 'Lighthouse'), entry(1, 'Tidewardens')], QDRANT))
-            .toEqual({ written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null });
+            .toEqual(outcomeOf({ keysWritten: 2 }));
         expect(stored[BOOK]).toEqual({ 0: ['keys from Lighthouse'], 1: ['keys from Tidewardens'] });
         expect(host.panel.show).toHaveBeenCalledWith('LoreBase keys', 2, 'Entries', { unitLabel: 'Entries' });
         expect(host.panel.stop).toEqual(expect.any(Function));
-        expect(seen).toEqual([null, { written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null }]);
+        expect(seen).toEqual([null, outcomeOf({ keysWritten: 2 })]);
         expect(keyRunLockPlace).not.toHaveBeenCalled();
+        expect(writeBookVectors).not.toHaveBeenCalled();
     });
 
-    it('runs one key run on the panel at a time: a second is refused and brings the running one up', async () => {
+    it('runs one writing run on the panel at a time: a second is refused and brings the running one up', async () => {
         const answers = [];
         host.ask = vi.fn(() => new Promise(resolve => answers.push(resolve)));
         const first = keysModule.regenerateKeysOfEntries(BOOK, [entry(0, 'Lighthouse')], QDRANT);
         await vi.waitFor(() => expect(host.ask).toHaveBeenCalledTimes(1));
 
         await expect(keysModule.regenerateKeysOfEntries(BOOK, [entry(1, 'Tidewardens')], QDRANT))
-            .rejects.toThrow('LoreBase is already writing keys on the progress panel. Wait for it, or press Stop there.');
+            .rejects.toThrow('LoreBase is already writing keys or vectors on the progress panel. Wait for it, or press Stop there.');
         expect(host.panel.reopen).toHaveBeenCalledTimes(1);
         answers[0](answerWith(['lighthouse']));
         await first;
-        expect(await keysModule.regenerateKeysOfEntries(BOOK, [], QDRANT)).toEqual({ written: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null });
+        expect(await keysModule.regenerateKeysOfEntries(BOOK, [], QDRANT)).toEqual(outcomeOf({}));
     });
 
-    it('Delete all keys deletes every key the user has, forgets the ones it knew, and tells the listeners', async () => {
+    it('Delete all deletes every vector, then every key the user has, forgets the keys it knew, and tells the listeners', async () => {
+        const { extension_settings } = await import('../src/sillytavern/settings.js');
+        const { deleteAllVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
+        extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['0'] }, 'Desert Atlas': { selectedUids: [] } };
         stored = { [BOOK]: { 0: ['lighthouse'], 1: ['tidewardens'] }, 'Desert Atlas': { 5: ['dunes'] } };
         await keysModule.readBookKeys([BOOK]);
         const seen = [];
         keysModule.onKeyStateChange(bookName => seen.push(bookName));
 
-        expect(await keysModule.deleteAllKeys()).toBe(3);
+        expect(await keysModule.deleteAllKeysAndVectors(QDRANT)).toBe(3);
+        expect(deleteAllVectors).toHaveBeenCalledWith([BOOK, 'Desert Atlas'], QDRANT);
+        expect(deleteAllVectors.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(globalThis.fetch).mock.invocationCallOrder.at(-1));
         expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/keys/delete', request: {} });
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'missing' });
         expect(seen).toEqual([BOOK]);
     });
 
-    it('Delete all keys is refused while keys are being written, and deletes nothing', async () => {
+    it('Delete all is refused while keys are being written, and deletes nothing', async () => {
+        const { deleteAllVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
         let answer;
         host.ask = vi.fn(() => new Promise(resolve => { answer = resolve; }));
         const writing = keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT);
         await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
 
-        await expect(keysModule.deleteAllKeys()).rejects.toThrow(
-            'LoreBase is still writing the keys of 1 entry; the progress panel shows them. Press Stop there, or delete once it is done.');
+        await expect(keysModule.deleteAllKeysAndVectors(QDRANT)).rejects.toThrow(
+            'LoreBase is still writing keys or vectors; the progress panel shows them. Press Stop there, or delete once it is done.');
         expect(host.panel.reopen).toHaveBeenCalledTimes(1);
+        expect(deleteAllVectors).not.toHaveBeenCalled();
         expect(routeCalls.some(call => call.url.endsWith('/delete'))).toBe(false);
         answer(answerWith(['lighthouse']));
         await writing;
@@ -404,7 +535,7 @@ describe('every key at once', () => {
         stored[BOOK] = { 0: ['lighthouse'] };
         await keysModule.readBookKeys([BOOK]);
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, statusText: 'Server Error', text: async () => '{"error":"Qdrant is down"}' }));
-        await expect(keysModule.deleteAllKeys()).rejects.toThrow("Similharity could not delete LoreBase's keys (HTTP 500)");
+        await expect(keysModule.deleteAllKeysAndVectors(QDRANT)).rejects.toThrow("Similharity could not delete LoreBase's keys (HTTP 500)");
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['lighthouse'] });
     });
 });

@@ -5,9 +5,10 @@
  * VectFox's generation interceptor asks it for a reply's lore beside its retrieval, after SillyTavern's slash commands
  * and never on a dry run, so a send that is only commands runs no pick (#29). The books taking part are those
  * SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its chat or character
- * through a rename; Luna picks among the entries selected in them that have keys (D17, lorebase-keys.js), and a reply
- * that leaves out selected entries for having no keys says so, once per chat and again when their number changes; then
- * Luna reviews each pick, all at once, and once the
+ * through a rename; Luna picks among the entries selected in them that are ready, with their keys (D17,
+ * lorebase-keys.js) and their vectors from the embedding model set now (§4.4 of InternalProject/Vectfox/plans/
+ * lorebook-multi-vector.md, lorebase-vectors.js), and a reply that leaves out selected entries not ready says so, once
+ * per chat and again when their number changes; then Luna reviews each pick, all at once, and once the
  * retrieval is done too the picks are held for the World Info scan that follows (lorebase-delivery.js). A turn whose
  * pick or review fails goes on without that lore, with a toast (D14). Each reply's outcome goes to the tester
  * (lorebase-tester.js), with what that scan reads.
@@ -23,26 +24,27 @@ import { askJev, resolveJevConnection } from './lorebase-jev.js';
 import { loreForReplyByJev } from './lorebase-jev-core.js';
 import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
 import { readBookKeys } from './lorebase-keys.js';
-import { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unkeyedEntriesNotice } from './lorebase-reply-core.js';
+import { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unreadyEntriesNotice } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
 import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
 import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
+import { bookVectors, initializeLoreBaseVectors, uidsWithCurrentVectors } from './lorebase-vectors.js';
 
 const LOREBASE = 'LoreBase';
 // A try's report type: the pick for the next reply, with no reply sent.
 const TRY_TYPE = 'try';
 // Why the open chat gives LoreBase nothing to pick from.
-const NO_KEYED_SELECTION = 'No lorebook locked to this chat or its character has selected entries with keys.';
+const NO_READY_SELECTION = 'No lorebook locked to this chat or its character has selected entries with their keys and vectors.';
 const NO_USER_MESSAGE = 'The chat holds no user message for a reply to answer.';
 
 // The last generation past its slash commands. SillyTavern passes the interceptor a generation's type but not whether
 // a quiet one is quiet-to-loud; GENERATION_AFTER_COMMANDS, which fires just before the interceptors run, carries it.
 let lastGeneration = null;
 
-// What the last reply said of the selected entries it left out for having no keys (unkeyedEntriesNotice).
-let lastUnkeyedNotice = null;
+// What the last reply said of the selected entries it left out for not being ready (unreadyEntriesNotice).
+let lastUnreadyNotice = null;
 
 // SillyTavern names a renamed chat by its file, with the extension; a chat lock holds the chat's id, the name without it.
 const chatIdOfFile = fileName => String(fileName ?? '').replace(/\.jsonl$/u, '');
@@ -67,11 +69,12 @@ async function followChatRename({ oldFileName, newFileName } = {}) {
 /**
  * Follow generations, so a quiet-to-loud one counts as a reply and a reply first settles Vector Storage's World Info
  * search with the user, and renamed characters and chats, so a book locked to one stays locked to it; arm every World
- * Info scan; and let the tester follow each reply. Called once at start-up.
+ * Info scan; let the tester follow each reply; and keep the vectors of edited books current. Called once at start-up.
  */
 export function initializeLoreBase() {
     initializeLoreBaseDelivery();
     initializeLoreBaseTester();
+    initializeLoreBaseVectors();
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, async (type, options, isDryRun) => {
         // A dry run reaches no interceptor, so it must not stand in for the generation that does.
         if (isDryRun) return;
@@ -85,13 +88,15 @@ export function initializeLoreBase() {
 
 /**
  * The books taking part in this reply (D11): those SillyTavern loads that the user locked to this chat or character,
- * each with the entries LoreBase decides in it that have keys (D17), and those keys by uid; and each such book's count
- * of selected entries left out for having no keys.
+ * each with the entries LoreBase decides in it that are ready, with their keys (D17) and their vectors from the
+ * embedding model set now (§4.4 of lorebook-multi-vector.md), and those keys by uid; and each such book's count of
+ * selected entries left out for not being ready.
+ * @param {object} settings - VectFox settings
  * @returns {Promise<{books: Array<{bookName: string, entries: object[], pinnedSections: string[], keysByUid: Record<string, string[]>}>,
- *   unkeyedBooks: Array<{bookName: string, count: number}>}>}
- * @throws {Error} When the keys cannot be read
+ *   unreadyBooks: Array<{bookName: string, count: number}>}>}
+ * @throws {Error} When the keys or vectors cannot be read
  */
-async function booksTakingPart() {
+async function booksTakingPart(settings) {
     const where = lockTarget();
     const books = [];
     for (const bookName of chatBookNames()) {
@@ -100,27 +105,29 @@ async function booksTakingPart() {
         const entries = await loadDecidedEntries(bookName, record);
         if (entries.length) books.push({ bookName, entries, pinnedSections: record.pinnedSections });
     }
-    if (!books.length) return { books, unkeyedBooks: [] };
-    const keys = await readBookKeys(books.map(book => book.bookName));
-    const keyed = [];
-    const unkeyedBooks = [];
+    if (!books.length) return { books, unreadyBooks: [] };
+    const bookNames = books.map(book => book.bookName);
+    const [keys, vectors] = await Promise.all([readBookKeys(bookNames), bookVectors(bookNames, settings)]);
+    const ready = [];
+    const unreadyBooks = [];
     for (const book of books) {
         const keysByUid = keys[book.bookName] ?? {};
-        const entries = book.entries.filter(entry => keysByUid[String(entry.uid)]);
-        const unkeyed = book.entries.length - entries.length;
-        if (unkeyed) {
-            log.verbose(`LoreBase: ${unkeyed} selected entries of lorebook "${book.bookName}" have no keys yet, so they send nothing`);
-            unkeyedBooks.push({ bookName: book.bookName, count: unkeyed });
+        const withVectors = uidsWithCurrentVectors(book.bookName, book.entries, vectors.get(book.bookName), settings);
+        const entries = book.entries.filter(entry => keysByUid[String(entry.uid)] && withVectors.has(String(entry.uid)));
+        const unready = book.entries.length - entries.length;
+        if (unready) {
+            log.verbose(`LoreBase: ${unready} selected entries of lorebook "${book.bookName}" have no keys or vectors yet, so they send nothing`);
+            unreadyBooks.push({ bookName: book.bookName, count: unready });
         }
-        if (entries.length) keyed.push({ ...book, entries, keysByUid });
+        if (entries.length) ready.push({ ...book, entries, keysByUid });
     }
-    return { books: keyed, unkeyedBooks };
+    return { books: ready, unreadyBooks };
 }
 
-/** Say once per chat, and again when their number changes, which selected entries this reply leaves out for having no keys. */
-function noticeUnkeyedEntries(unkeyedBooks) {
-    const { notice, message } = unkeyedEntriesNotice(lastUnkeyedNotice, lockTarget().chatId, unkeyedBooks);
-    lastUnkeyedNotice = notice;
+/** Say once per chat, and again when their number changes, which selected entries this reply leaves out for not being ready. */
+function noticeUnreadyEntries(unreadyBooks) {
+    const { notice, message } = unreadyEntriesNotice(lastUnreadyNotice, lockTarget().chatId, unreadyBooks);
+    lastUnreadyNotice = notice;
     if (message) showLeftOutLoreToast(message);
 }
 
@@ -175,16 +182,17 @@ async function askForReplyLore(settings, scene, books) {
 
 /**
  * The open chat's turn for LoreBase: the books taking part and the scene the next reply answers, or why it has none;
- * either way the books' counts of selected entries left out for having no keys.
- * @returns {Promise<{books: object[], scene: string, unkeyedBooks: object[]}|{problem: string, unkeyedBooks: object[]}>}
- * @throws {Error} When the keys cannot be read
+ * either way the books' counts of selected entries left out for not being ready.
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{books: object[], scene: string, unreadyBooks: object[]}|{problem: string, unreadyBooks: object[]}>}
+ * @throws {Error} When the keys or vectors cannot be read
  */
-async function openChatTurn() {
-    const { books, unkeyedBooks } = await booksTakingPart();
-    if (!books.length) return { problem: NO_KEYED_SELECTION, unkeyedBooks };
+async function openChatTurn(settings) {
+    const { books, unreadyBooks } = await booksTakingPart(settings);
+    if (!books.length) return { problem: NO_READY_SELECTION, unreadyBooks };
     const messages = sceneMessagesFromChat();
-    if (!messages) return { problem: NO_USER_MESSAGE, unkeyedBooks };
-    return { books, scene: sceneText(messages), unkeyedBooks };
+    if (!messages) return { problem: NO_USER_MESSAGE, unreadyBooks };
+    return { books, scene: sceneText(messages), unreadyBooks };
 }
 
 /**
@@ -216,8 +224,8 @@ async function pickForTurn(settings, { books, scene }, { type, isReply }) {
 export async function prepareLoreForReply(type, settings) {
     if (!isLoreBaseActive(settings) || !isReplyGeneration(type, lastGeneration)) return null;
     try {
-        const turn = await openChatTurn();
-        noticeUnkeyedEntries(turn.unkeyedBooks);
+        const turn = await openChatTurn(settings);
+        noticeUnreadyEntries(turn.unreadyBooks);
         if (turn.problem) {
             if (turn.problem === NO_USER_MESSAGE) log.verbose(`LoreBase: ${turn.problem} Nothing is picked.`);
             return null;
@@ -242,7 +250,7 @@ export async function tryLoreBasePick(settings) {
     const inactive = loreBaseInactiveReason(settings);
     if (inactive) return { problem: inactive };
     try {
-        const turn = await openChatTurn();
+        const turn = await openChatTurn(settings);
         if (turn.problem) return { problem: turn.problem };
         await pickForTurn(settings, turn, { type: TRY_TYPE, isReply: false });
         return { problem: null };

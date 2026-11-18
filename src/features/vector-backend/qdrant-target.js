@@ -2,8 +2,10 @@
  * Where a Qdrant request for one VectFox collection goes. With "One shared collection" off, every collection is a
  * Qdrant collection of its own. With it on, every collection lives in vectfox_main, and each point carries its
  * collection's ID in the tenant field `content_type`, which Similharity indexes as a tenant (its TENANT_FIELD), so every
- * request about a collection's points sends that tenant as a filter. Imports nothing, so any module can route a request
- * without taking in the Qdrant backend.
+ * request about a collection's points sends that tenant as a filter. A request's settings can name another shared
+ * collection in `qdrant_shared_collection`: LoreBase keeps every book of an account in one Qdrant collection, its own
+ * when "One shared collection" is off (features/lorebase/lorebase-vectors.js). Imports nothing, so any module can route
+ * a request without taking in the Qdrant backend.
  */
 
 // NOTE: `vectfox_main` is kept verbatim for on-disk compatibility
@@ -48,15 +50,15 @@ export function stripRegistryPrefix(collectionId) {
 
 /**
  * The Qdrant collection a request about one VectFox collection names, and the filters that keep it to that
- * collection's points: its own collection and no filter, or with "One shared collection" on, vectfox_main and the
- * collection's ID as the tenant.
+ * collection's points: its own collection and no filter, or with "One shared collection" on, the shared collection
+ * (vectfox_main, or the one `qdrant_shared_collection` names) and the collection's ID as the tenant.
  * @param {string} collectionId - The collection's ID or registry key
- * @param {object} settings - VectFox settings
+ * @param {object} settings - VectFox settings, or a request's copy of them
  * @returns {{collectionId: string, filters: object}}
  */
 export function qdrantTarget(collectionId, settings) {
     const ownId = stripRegistryPrefix(collectionId);
     return settings?.qdrant_multitenancy
-        ? { collectionId: MULTITENANCY_COLLECTION, filters: { [TENANT_FIELD]: ownId } }
+        ? { collectionId: settings.qdrant_shared_collection || MULTITENANCY_COLLECTION, filters: { [TENANT_FIELD]: ownId } }
         : { collectionId: ownId, filters: {} };
 }

@@ -5,7 +5,8 @@
  * Vector Storage's World Info search with the user; reads the books SillyTavern loads that are locked to the chat or
  * character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore a failed
  * call could not get, with the toast for it (D14); says, once per chat and again when their number changes, which
- * selected entries a reply leaves out for having no keys (D17); holds a reply's picks for the World Info scan that follows once
+ * selected entries a reply leaves out for not being ready, with no keys (D17) or no vectors from the embedding model set
+ * now (§4.4 of lorebook-multi-vector.md); holds a reply's picks for the World Info scan that follows once
  * the retrieval beside them is done, where a generation with no pick sends no selected entry (§5.7, §6.8); and hands
  * each reply's outcome to the tester, with what that scan reads (§5.10).
  */
@@ -24,6 +25,10 @@ const host = vi.hoisted(() => ({
     // Every entry has keys but these ("book/uid"), and a read of the keys fails with this error when one is set.
     unkeyedUids: new Set(),
     keysReadError: null,
+    // Every entry has vectors from the embedding model set now but these ("book/uid"), and a read of the vectors fails
+    // with this error when one is set.
+    unvectorizedUids: new Set(),
+    vectorsReadError: null,
     // Fast and Cheap [Jev]: Jev's connection, and its answer.
     jevConnection: null,
     jevAnswer: null,
@@ -96,6 +101,15 @@ vi.mock('../src/features/lorebase/lorebase-jev.js', () => ({
     resolveJevConnection: () => host.jevConnection,
     askJev: vi.fn(async () => host.jevAnswer),
 }));
+vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
+    initializeLoreBaseVectors: vi.fn(),
+    bookVectors: vi.fn(async bookNames => {
+        if (host.vectorsReadError) throw host.vectorsReadError;
+        return new Map(bookNames.map(bookName => [bookName, new Map()]));
+    }),
+    uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid))
+        .filter(uid => !host.unvectorizedUids.has(`${bookName}/${uid}`)))),
+}));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     readBookKeys: vi.fn(async bookNames => {
         if (host.keysReadError) throw host.keysReadError;
@@ -163,6 +177,8 @@ beforeEach(() => {
     host.isWorldInfoSearchOn = false;
     host.unkeyedUids = new Set();
     host.keysReadError = null;
+    host.unvectorizedUids = new Set();
+    host.vectorsReadError = null;
     host.jevConnection = { ok: true, fields: { source: 'openrouter', model: 'typesafe/jev-1.14', secret_id: 'or-jev' } };
     host.jevAnswer = { yes: { e1: 0.64, e2: 0.2 }, inputTokens: 40, usd: 0.00002 };
     // A fresh generation record for each test: a plain reply.
@@ -279,11 +295,11 @@ describe('Try a pick (§5.10)', () => {
         expect(recordReplyReport.mock.calls[0][0]).toMatchObject({ type: 'try', isReply: false, accuracy: 'fast' });
     });
 
-    it('says why it picked nothing: LoreBase off, off Qdrant, no keyed selection, or no user message', async () => {
+    it('says why it picked nothing: LoreBase off, off Qdrant, no ready selection, or no user message', async () => {
         expect(await tryLoreBasePick({ ...settings, lorebase_enabled: false })).toEqual({ problem: 'Use LoreBase is off.' });
         expect(await tryLoreBasePick({ ...settings, vector_backend: 'standard' })).toEqual({ problem: 'LoreBase runs on the Qdrant backend only.' });
         host.unkeyedUids = new Set(['Harbor Atlas/0', 'Harbor Atlas/1']);
-        expect(await tryLoreBasePick(settings)).toEqual({ problem: 'No lorebook locked to this chat or its character has selected entries with keys.' });
+        expect(await tryLoreBasePick(settings)).toEqual({ problem: 'No lorebook locked to this chat or its character has selected entries with their keys and vectors.' });
         host.unkeyedUids = new Set();
         host.context.chat = [{ name: 'Keeper Orrin', mes: 'Welcome to Vell.', is_user: false }];
         expect(await tryLoreBasePick(settings)).toEqual({ problem: 'The chat holds no user message for a reply to answer.' });
@@ -325,39 +341,55 @@ describe('the books taking part (D11)', () => {
         expect(pickTable(0)).toBe('1. Tidewardens (keys of Tidewardens)');
     });
 
-    it('runs no pick when no selected entry has keys', async () => {
-        host.unkeyedUids = new Set(['Harbor Atlas/0', 'Harbor Atlas/1']);
+    it('leaves out a selected entry with keys but no vectors from the embedding model set now (§4.4)', async () => {
+        host.unvectorizedUids = new Set(['Harbor Atlas/1']);
+        postChatCompletion.mockResolvedValue(pickOf());
+        await prepareLoreForReply('normal', settings);
+
+        expect(pickTable(0)).toBe('1. Lighthouse of Vell (keys of Lighthouse of Vell)');
+    });
+
+    it('runs no pick when no selected entry is ready', async () => {
+        host.unkeyedUids = new Set(['Harbor Atlas/0']);
+        host.unvectorizedUids = new Set(['Harbor Atlas/1']);
         expect(await prepareLoreForReply('normal', settings)).toBeNull();
         expect(postChatCompletion).not.toHaveBeenCalled();
     });
 
-    it('says once per chat which selected entries it leaves out for having no keys, and again when their number changes', async () => {
+    it('goes on without the selected entries when their vectors cannot be read, with the toast a failed pick shows', async () => {
+        host.vectorsReadError = new Error('[Qdrant] Failed to list chunks: 500 Server Error - Qdrant is down');
+        expect(await prepareLoreForReply('normal', settings)).toBeNull();
+        expect(postChatCompletion).not.toHaveBeenCalled();
+        expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('none of the entries selected for LoreBase go in');
+    });
+
+    it('says once per chat which selected entries it leaves out for not being ready, and again when their number changes', async () => {
         // A chat of its own, so what an earlier reply said in another chat does not count here.
         host.chatId = 'chat-unkeyed-once';
         host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = ['chat-unkeyed-once'];
         host.unkeyedUids = new Set(['Harbor Atlas/0']);
         postChatCompletion.mockResolvedValue(pickOf());
-        const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys'));
+        const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys or vectors'));
 
         await prepareLoreForReply('normal', settings);
-        expect(unkeyedToasts()).toEqual([['1 selected entry of the lorebook "Harbor Atlas" has no keys, so LoreBase leaves it out of every reply. '
-            + "Write its keys with Generate all keys on VectFox's WorldInfo page.", 'VectFox — LoreBase left lore out', { timeOut: 30000, extendedTimeOut: 10000 }]]);
+        expect(unkeyedToasts()).toEqual([['1 selected entry of the lorebook "Harbor Atlas" has no keys or vectors yet, so LoreBase leaves it out of every '
+            + "reply. Generate all on VectFox's WorldInfo page writes what it lacks.", 'VectFox — LoreBase left lore out', { timeOut: 30000, extendedTimeOut: 10000 }]]);
         await prepareLoreForReply('normal', settings);
         expect(unkeyedToasts()).toHaveLength(1);
 
-        // Every selected entry without keys: nothing is picked, and the reply still says why.
-        host.unkeyedUids = new Set(['Harbor Atlas/0', 'Harbor Atlas/1']);
+        // No selected entry ready, the other without vectors: nothing is picked, and the reply still says why.
+        host.unvectorizedUids = new Set(['Harbor Atlas/1']);
         expect(await prepareLoreForReply('normal', settings)).toBeNull();
         expect(unkeyedToasts()).toHaveLength(2);
-        expect(unkeyedToasts()[1][0]).toContain('2 selected entries of the lorebook "Harbor Atlas" have no keys');
+        expect(unkeyedToasts()[1][0]).toContain('2 selected entries of the lorebook "Harbor Atlas" have no keys or vectors yet');
     });
 
-    it('says it again in another chat, and nothing in a chat whose selected entries all have keys', async () => {
+    it('says it again in another chat, and nothing in a chat whose selected entries are all ready', async () => {
         host.chatId = 'chat-unkeyed-first';
         host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = ['chat-unkeyed-first', 'chat-unkeyed-second'];
         host.unkeyedUids = new Set(['Harbor Atlas/1']);
         postChatCompletion.mockResolvedValue(pickOf());
-        const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys'));
+        const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys or vectors'));
 
         await prepareLoreForReply('normal', settings);
         host.chatId = 'chat-unkeyed-second';

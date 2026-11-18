@@ -228,30 +228,31 @@ export function leftOutLoreMessage(failures, pickCount) {
     return `LoreBase could not review ${subject} left out of this reply${others}. ${details}`;
 }
 
-/** The toast for selected entries a reply leaves out because they have no keys, with where to write them. */
-function unkeyedEntriesMessage(unkeyedBooks) {
-    const total = unkeyedBooks.reduce((sum, { count }) => sum + count, 0);
+/** The toast for selected entries a reply leaves out because they have no keys or vectors yet, with where to write them. */
+function unreadyEntriesMessage(unreadyBooks) {
+    const total = unreadyBooks.reduce((sum, { count }) => sum + count, 0);
     const isOne = total === 1;
-    const where = unkeyedBooks.length === 1
-        ? `of the lorebook "${unkeyedBooks[0].bookName}"`
-        : `in ${unkeyedBooks.length} lorebooks (${unkeyedBooks.map(({ bookName }) => `"${bookName}"`).join(', ')})`;
-    return `${counted(total, 'selected entry', 'selected entries')} ${where} ${isOne ? 'has' : 'have'} no keys, so LoreBase leaves `
-        + `${isOne ? 'it' : 'them'} out of every reply. Write ${isOne ? 'its' : 'their'} keys with Generate all keys on VectFox's WorldInfo page.`;
+    const where = unreadyBooks.length === 1
+        ? `of the lorebook "${unreadyBooks[0].bookName}"`
+        : `in ${unreadyBooks.length} lorebooks (${unreadyBooks.map(({ bookName }) => `"${bookName}"`).join(', ')})`;
+    return `${counted(total, 'selected entry', 'selected entries')} ${where} ${isOne ? 'has' : 'have'} no keys or vectors yet, so `
+        + `LoreBase leaves ${isOne ? 'it' : 'them'} out of every reply. Generate all on VectFox's WorldInfo page writes what ${isOne ? 'it lacks' : 'they lack'}.`;
 }
 
 /**
- * Whether a reply says it leaves out selected entries that have no keys (D17): once per chat, and again when the books
- * or their counts change, so a selection whose keys were never written, or were lost with Qdrant, does not go quiet.
- * A reply that leaves none out is remembered too, so entries that lose their keys later are said again.
+ * Whether a reply says it leaves out selected entries that are not ready, with no keys or no vectors from the embedding
+ * model set now (D17, §4.4 of lorebook-multi-vector.md): once per chat, and again when the books or their counts change,
+ * so a selection whose keys or vectors were never written, or were lost with Qdrant, does not go quiet. A reply that
+ * leaves none out is remembered too, so entries that lose them later are said again.
  *
  * @param {{chatId: string|null, signature: string}|null} lastNotice - What the last reply remembered
  * @param {string|null} chatId - The open chat
- * @param {Array<{bookName: string, count: number}>} unkeyedBooks - Each book taking part that has selected entries with no keys
+ * @param {Array<{bookName: string, count: number}>} unreadyBooks - Each book taking part that has selected entries not ready
  * @returns {{notice: {chatId: string|null, signature: string}, message: string|null}} What to remember, and the toast
  *   to show, or null
  */
-export function unkeyedEntriesNotice(lastNotice, chatId, unkeyedBooks) {
-    const signature = JSON.stringify(unkeyedBooks.map(({ bookName, count }) => [bookName, count]));
+export function unreadyEntriesNotice(lastNotice, chatId, unreadyBooks) {
+    const signature = JSON.stringify(unreadyBooks.map(({ bookName, count }) => [bookName, count]));
     const isNew = !lastNotice || lastNotice.chatId !== chatId || lastNotice.signature !== signature;
-    return { notice: { chatId, signature }, message: isNew && unkeyedBooks.length ? unkeyedEntriesMessage(unkeyedBooks) : null };
+    return { notice: { chatId, signature }, message: isNew && unreadyBooks.length ? unreadyEntriesMessage(unreadyBooks) : null };
 }

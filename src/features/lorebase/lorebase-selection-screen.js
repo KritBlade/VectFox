@@ -3,16 +3,17 @@
  * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
  * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
  * saves as it changes, as GUI-DNA asks. Turning entries on only selects them: once the screen closes while LoreBase is
- * on, it asks to write the keys of the selected entries that have none (D17), under the progress panel, and turns
- * LoreBase off when they are not written, by the question turning LoreBase on asks (lorebase-keys-question.js). The
- * books that writing keys lock to the open chat, but for those whose lock the user set while the screen was open, which
- * stay as the user set them (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md). While LoreBase is off,
- * turning it on asks. Closing counts the selection's keys either way, for the books card's line. Each selected row
- * shows where its keys stand. Regenerate keys writes the ticked entries' keys anew under the progress panel, brought in
- * front of the screen with its Stop; a selected row's pencil edits its keys in a dialog, where Regenerate fills the box
- * from the model for the user to read before saving.
- * Opening a book keeps the uids it holds, so an entry added later shows as new, and drops the uids of deleted entries
- * from its selection.
+ * on, it asks to write the keys and vectors the selected entries lack (D17, §4.3 of InternalProject/Vectfox/plans/
+ * lorebook-multi-vector.md), under the progress panel, and turns LoreBase off when they are not written and no entry is
+ * ready, by the question turning LoreBase on asks (lorebase-keys-question.js). The books that writing keys lock to the
+ * open chat, but for those whose lock the user set while the screen was open, which stay as the user set them (§6.1).
+ * While LoreBase is off, turning it on asks. Closing counts what the selection lacks either way, for the books card's
+ * line, and deletes the vectors of the entries turned off in each book whose selection changed. Each selected row shows
+ * where its keys stand. Regenerate keys writes the ticked entries' keys anew under the progress panel, brought in front
+ * of the screen with its Stop; a selected row's pencil edits its keys in a dialog, where Regenerate fills the box from
+ * the model for the user to read before saving.
+ * Opening a book keeps the uids it holds, so an entry added later shows as new, drops the uids of deleted entries from
+ * its selection, and reads its vectors from Qdrant again, so edits made while SillyTavern was closed are found.
  */
 import { log } from '../../sillytavern/log.js';
 import { formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
@@ -25,11 +26,12 @@ import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { editedKeys } from './lorebase-keys-core.js';
 import {
     keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, regenerateKeysOfEntries, saveEditedKeys,
-    selectedEntriesWithoutKeys,
+    selectedEntriesNotReady,
 } from './lorebase-keys.js';
-import { askToWriteMissingKeys, writeMissingKeys } from './lorebase-keys-question.js';
+import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
 import { entryTitle } from './lorebase-splitter.js';
-import { isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
+import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
+import { pruneBookVectors, readBookVectors } from './lorebase-vectors.js';
 import {
     bookChoices, categoryList, entrySectionNames, filterRows, invertTicks, liveSelection, pinnableSections, selectionAfterBulk,
     selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
@@ -162,9 +164,15 @@ function renderLocks(root, session) {
     byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterAvatar) });
 }
 
+/** Save a book's selection, noting the book, so the vectors of the entries turned off go as the screen closes. */
+function saveBookSelection(session, bookName, selectedUids) {
+    setLoreBookSelection(bookName, selectedUids);
+    session.booksWithChangedSelection.add(bookName);
+}
+
 /** Save a new selection for the book shown, and redraw what it changes. */
 function saveSelection(root, session, selectedUids) {
-    setLoreBookSelection(session.bookName, selectedUids);
+    saveBookSelection(session, session.bookName, selectedUids);
     const selected = new Set(selectedUids.map(String));
     for (const row of session.rows) row.isSelected = selected.has(row.uid);
     renderCategories(root, session);
@@ -177,7 +185,7 @@ function toggleEntry(root, session, uid) {
     const row = session.rows.find(candidate => candidate.uid === uid);
     if (!row || (row.undecidableReason && !row.isSelected)) return;
     row.isSelected = !row.isSelected;
-    setLoreBookSelection(session.bookName, selectedUidsOf(session));
+    saveBookSelection(session, session.bookName, selectedUidsOf(session));
     const element = entryElementOf(root, uid);
     if (element) {
         element.outerHTML = rowMarkup(session, row);
@@ -206,26 +214,33 @@ function regenerateTickedKeys(session) {
 }
 
 /**
- * Once the screen closes: where the selection's keys stand, for the books card's line. While LoreBase is on, ask to
- * write the selected entries' missing keys (D17, askToWriteMissingKeys, the question turning LoreBase on asks), write
- * them under the progress panel on yes, the books whose lock the user set here keeping it as set, and turn LoreBase off
- * otherwise; while it is off, only count them.
- * @param {Set<string>} booksWithChosenLocks - The books whose lock the user set while the screen was open
- * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} What the selection's keys
- *   came to, LoreBase off when some are missing and not being written; or null when the keys could not be read
+ * Once the screen closes: delete the vectors of the entries turned off in each book whose selection changed (§4.3 of
+ * lorebook-multi-vector.md), in the background; then say what the selection lacks, for the books card's line. While
+ * LoreBase is on, ask to write the keys and vectors the selected entries lack (askToWriteMissingKeysAndVectors, the
+ * question turning LoreBase on asks), write them under the progress panel on yes, the books whose lock the user set
+ * here keeping it as set, and turn LoreBase off when no entry is ready and none will be written; while it is off, only
+ * count them.
+ * @param {{booksWithChosenLocks: Set<string>, booksWithChangedSelection: Set<string>}} session - The books whose lock
+ *   and whose selection the user changed while the screen was open
+ * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} What the selection lacks;
+ *   or null when its keys and vectors could not be read
  */
-async function settleKeysOnClose(booksWithChosenLocks) {
+async function settleSelectionOnClose({ booksWithChosenLocks, booksWithChangedSelection }) {
+    const settings = extension_settings.vectfox;
+    if (isLoreBaseBackend(settings)) {
+        for (const bookName of booksWithChangedSelection) void pruneBookVectors(bookName, settings);
+    }
     if (isLoreBaseSwitchedOn()) {
-        const { canBeOn, pending } = await askToWriteMissingKeys({ isTurningOn: false });
+        const { canBeOn, shouldWrite, pending } = await askToWriteMissingKeysAndVectors({ isTurningOn: false });
         if (!canBeOn) turnLoreBaseOff();
-        const isWriting = canBeOn && writeMissingKeys(pending, { booksWithChosenLocks: [...booksWithChosenLocks] });
+        const isWriting = shouldWrite && writeMissingKeysAndVectors(pending, { booksWithChosenLocks: [...booksWithChosenLocks] });
         return pending && { missingCount: pending.count, decidedCount: pending.decidedCount, isWriting };
     }
     try {
-        const pending = await selectedEntriesWithoutKeys();
+        const pending = await selectedEntriesNotReady(settings);
         return { missingCount: pending.count, decidedCount: pending.decidedCount, isWriting: false };
     } catch (error) {
-        log.warn("LoreBase: the selected entries' keys could not be counted once the selection screen closed:", error);
+        log.warn("LoreBase: the selected entries' keys and vectors could not be counted once the selection screen closed:", error);
         return null;
     }
 }
@@ -326,6 +341,14 @@ async function showBook(root, session, bookName) {
         log.warn(`LoreBase: the selection screen could not read the keys of lorebook "${bookName}":`, error);
         session.keyReadProblem = String(error?.message || error);
     }
+    const settings = extension_settings.vectfox;
+    if (isLoreBaseBackend(settings)) {
+        try {
+            await readBookVectors([bookName], settings);
+        } catch (error) {
+            log.warn(`LoreBase: the selection screen could not read the vectors of lorebook "${bookName}":`, error);
+        }
+    }
     if (session.bookName !== bookName) return;
     // The record as it stood says which entries are new; then it keeps the uids the book holds now.
     const record = getLoreBook(bookName);
@@ -338,7 +361,7 @@ async function showBook(root, session, bookName) {
         return sectionNames.get(key);
     };
     const live = liveSelection(book, record);
-    if (record && live.length !== record.selectedUids.length) setLoreBookSelection(bookName, live);
+    if (record && live.length !== record.selectedUids.length) saveBookSelection(session, bookName, live);
     setLoreBookSeenEntries(bookName, seenUidsOf(book));
     renderLocks(root, session);
     renderCategories(root, session);
@@ -434,11 +457,12 @@ function bindScreen(root, session) {
 
 /**
  * Open the selection screen on a book: the one named, else the open chat's first, else the first by name. Once it
- * closes, count the selection's keys; while LoreBase is on, ask to write the missing ones, turning LoreBase off on no,
- * and keep the locks the user set on the screen as set (settleKeysOnClose).
+ * closes, delete the vectors of the entries turned off and count what the selection lacks; while LoreBase is on, ask to
+ * write the missing keys and vectors, turning LoreBase off on no when no entry is ready, and keep the locks the user
+ * set on the screen as set (settleSelectionOnClose).
  * @param {{bookName?: string}} [options]
  * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} Once the screen is closed
- *   and any question answered: what the selection's keys came to, or null when the keys could not be read
+ *   and any question answered: what the selection lacks, or null when its keys and vectors could not be read
  */
 export async function openLoreBaseSelection({ bookName = '' } = {}) {
     const choices = currentChoices();
@@ -449,6 +473,7 @@ export async function openLoreBaseSelection({ bookName = '' } = {}) {
     const session = {
         bookName: first, book: null, rows: [], ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE, searchTimer: null,
         sectionNamesOf: entrySectionNames, shownKeyStates: new Map(), keyReadProblem: '', booksWithChosenLocks: new Set(),
+        booksWithChangedSelection: new Set(),
     };
     bindGeneBehaviours(root);
     bindScreen(root, session);
@@ -461,5 +486,5 @@ export async function openLoreBaseSelection({ bookName = '' } = {}) {
     await closed;
     stopKeyUpdates();
     clearTimeout(session.searchTimer);
-    return settleKeysOnClose(session.booksWithChosenLocks);
+    return settleSelectionOnClose(session);
 }

@@ -51,7 +51,7 @@ import { extension_settings } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
 import { getSavedHashes } from '../src/features/vector-backend/vector-api.js';
 import { log } from '../src/sillytavern/log.js';
-import { discoverExistingCollections, getCollectionRegistry } from '../src/features/collections/collection-loader.js';
+import { discoverExistingCollections, getCollectionFilterReason, getCollectionRegistry, registerCollection } from '../src/features/collections/collection-loader.js';
 import { resetPluginAvailableCache } from '../src/shared/similharity-plugin.js';
 import { cleanupOrphanedMeta } from '../src/features/collections/collection-metadata.js';
 
@@ -247,5 +247,33 @@ describe('discoverViaFallback outage handling', () => {
         await discoverExistingCollections(SETTINGS);
 
         expect(getCollectionRegistry()).not.toContain(VECTRA_KEY);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// LoreBase's vectors (§4.2 of InternalProject/Vectfox/plans/lorebook-multi-vector.md) are LoreBase's tab's to keep: a
+// book's tenant and the account's own collection never enter the registry, so the Database Browser never lists them.
+// ---------------------------------------------------------------------------
+describe("LoreBase's vectors and the registry", () => {
+    const BOOK_ID = 'vf_lorebase_qdrant_testpersona_harbor_atlas_1x2y';
+
+    it("discovery skips every vf_lorebase_ collection, a book inside vectfox_main and the account's own alike", async () => {
+        mockPluginFetch({
+            success: true, qdrantScanned: true, qdrantTenantsScanned: true,
+            collections: [VECTRA_LIVE, { id: BOOK_ID, backend: 'qdrant', source: 'openrouter', chunkCount: 40 },
+                { id: 'vf_lorebase_testpersona', backend: 'qdrant', source: 'openrouter', chunkCount: 40 }],
+        });
+
+        await discoverExistingCollections(SETTINGS);
+
+        expect(getCollectionRegistry().some(key => key.includes('vf_lorebase_'))).toBe(false);
+        expect(getCollectionFilterReason(BOOK_ID)).toBe('lorebase-vectors');
+    });
+
+    it('never registers a book a LoreBase insert wrote to, and registers any other collection', () => {
+        registerCollection(`qdrant:${BOOK_ID}`);
+        registerCollection('qdrant:vf_eventbase_qdrant_testpersona_harbor_chat');
+
+        expect(getCollectionRegistry()).toEqual(['qdrant:vf_eventbase_qdrant_testpersona_harbor_chat']);
     });
 });

@@ -17,7 +17,7 @@ const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lor
 // The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
     'VectFox_lorebase_enabled', 'VectFox_lorebase_off_notice', 'VectFox_lorebase_books_card', 'VectFox_lorebase_books',
-    'VectFox_lorebase_key_calls_at_once', 'VectFox_lorebase_generate_keys', 'VectFox_lorebase_delete_keys', 'VectFox_lorebase_keys_status',
+    'VectFox_lorebase_key_calls_at_once', 'VectFox_lorebase_generate_all', 'VectFox_lorebase_delete_all', 'VectFox_lorebase_books_status',
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
     'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_role_picks', 'VectFox_lorebase_role_keys',
@@ -82,7 +82,7 @@ describe('WorldInfo page markup', () => {
         expect([slider.min, slider.max]).toEqual(['1', String(KEY_CALLS_AT_ONCE_MAX)]);
         expect(document.querySelector('label[for="VectFox_lorebase_key_calls_at_once"]').textContent).toBe('Entries at once');
         const field = box.closest('.vfx-field');
-        expect(field.nextElementSibling.querySelector('#VectFox_lorebase_delete_keys')).not.toBeNull();
+        expect(field.nextElementSibling.querySelector('#VectFox_lorebase_delete_all')).not.toBeNull();
     });
 
     it("keeps none of the old vector search's controls", () => {

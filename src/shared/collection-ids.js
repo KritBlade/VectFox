@@ -33,6 +33,10 @@ export const COLLECTION_PREFIXES = {
     VECTFOX_DOCUMENT: 'vf_document_',
     VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_',
     VECTFOX_EVENTBASE: 'vf_eventbase_',
+    // LoreBase's vectors: each book's ID inside its account's Qdrant collection, and that collection when "One shared
+    // collection" is off (features/lorebase/lorebase-vectors-core.js). Never a collection of the registry or the
+    // Database Browser: discovery and registering skip them (getCollectionFilterReason in collection-loader.js).
+    VECTFOX_LOREBASE: 'vf_lorebase_',
 };
 
 /** Collection types */

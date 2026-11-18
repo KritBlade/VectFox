@@ -8,7 +8,9 @@
 // SillyTavern's Vector Storage: turning LoreBase on, or a reply that finds that search on again, asks the user which of
 // the two to keep. The selection screen is where the user chooses a book's entries, locks the book to the chat or
 // character, and pins section names; the WorldInfo page lists the open chat's books with their selections and locks,
-// and opens the screen, and generates or deletes every key at once. The tester keeps this session's reports of each reply, what Luna picked and why, what each
+// and opens the screen, and writes or deletes every key and vector at once. Each selected entry's vectors, one point per
+// part, live in Qdrant, every book of an account a tenant of one collection, and an entry takes part once it has its
+// keys and vectors. The tester keeps this session's reports of each reply, what Luna picked and why, what each
 // review kept and left out, the tokens against what SillyTavern's keys would send, and the seconds, for the WorldInfo
 // page's tester card. The folder also holds the entry splitter, which cuts the parts the review numbers; the per-book
 // record of selections, pins, locks and seen entries; LoreBase's model connection, whose Test connection the
@@ -22,7 +24,7 @@ export { chatBookLocks } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
-export { deleteAllKeys, keyWritingProblem, onKeyRunChange, writeKeysOfSelections } from './lorebase-keys.js';
+export { deleteAllKeysAndVectors, keyWritingProblem, onWritingRunChange, writeKeysAndVectorsOfSelections } from './lorebase-keys.js';
 export { KEY_CALLS_AT_ONCE_DEFAULT, keyCallsAtOnceOf } from './lorebase-keys-core.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';

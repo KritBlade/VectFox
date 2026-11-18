@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { pickMessages, tableOfContents } from '../src/features/lorebase/lorebase-pick-core.js';
 import {
     SENT_WHOLE_UNREVIEWED, activeBookNames, decidedEntries, isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage,
-    unkeyedEntriesNotice,
+    unreadyEntriesNotice,
 } from '../src/features/lorebase/lorebase-reply-core.js';
 import { reviewMessages } from '../src/features/lorebase/lorebase-review-core.js';
 import { entryPassages } from '../src/features/lorebase/lorebase-splitter.js';
@@ -250,32 +250,33 @@ describe('the toast for lore left out (D14)', () => {
     });
 });
 
-describe('the toast for selected entries with no keys (D17)', () => {
+describe('the toast for selected entries not ready (D17, §4.4 of lorebook-multi-vector.md)', () => {
     const harbor = [{ bookName: 'Harbor Atlas', count: 21 }];
 
-    it('says how many entries of which lorebook have no keys, that every reply leaves them out, and where to write them', () => {
-        expect(unkeyedEntriesNotice(null, 'chat-harbor', harbor).message).toBe('21 selected entries of the lorebook "Harbor Atlas" have no keys, '
-            + "so LoreBase leaves them out of every reply. Write their keys with Generate all keys on VectFox's WorldInfo page.");
-        expect(unkeyedEntriesNotice(null, 'chat-harbor', [{ bookName: 'Harbor Atlas', count: 1 }]).message).toBe('1 selected entry of the lorebook '
-            + "\"Harbor Atlas\" has no keys, so LoreBase leaves it out of every reply. Write its keys with Generate all keys on VectFox's WorldInfo page.");
-        expect(unkeyedEntriesNotice(null, 'chat-harbor', [...harbor, { bookName: 'Keeper Notes', count: 2 }]).message).toBe('23 selected entries in 2 '
-            + 'lorebooks ("Harbor Atlas", "Keeper Notes") have no keys, so LoreBase leaves them out of every reply. Write their keys with Generate all '
-            + "keys on VectFox's WorldInfo page.");
+    it('says how many entries of which lorebook have no keys or vectors yet, that every reply leaves them out, and what writes them', () => {
+        expect(unreadyEntriesNotice(null, 'chat-harbor', harbor).message).toBe('21 selected entries of the lorebook "Harbor Atlas" have no keys '
+            + "or vectors yet, so LoreBase leaves them out of every reply. Generate all on VectFox's WorldInfo page writes what they lack.");
+        expect(unreadyEntriesNotice(null, 'chat-harbor', [{ bookName: 'Harbor Atlas', count: 1 }]).message).toBe('1 selected entry of the lorebook '
+            + "\"Harbor Atlas\" has no keys or vectors yet, so LoreBase leaves it out of every reply. Generate all on VectFox's WorldInfo page writes "
+            + 'what it lacks.');
+        expect(unreadyEntriesNotice(null, 'chat-harbor', [...harbor, { bookName: 'Keeper Notes', count: 2 }]).message).toBe('23 selected entries in 2 '
+            + 'lorebooks ("Harbor Atlas", "Keeper Notes") have no keys or vectors yet, so LoreBase leaves them out of every reply. Generate all on '
+            + "VectFox's WorldInfo page writes what they lack.");
     });
 
     it('shows once per chat, and again when the books or their counts change or another chat opens', () => {
-        const first = unkeyedEntriesNotice(null, 'chat-harbor', harbor);
-        const same = unkeyedEntriesNotice(first.notice, 'chat-harbor', harbor);
+        const first = unreadyEntriesNotice(null, 'chat-harbor', harbor);
+        const same = unreadyEntriesNotice(first.notice, 'chat-harbor', harbor);
         expect(same.message).toBeNull();
-        expect(unkeyedEntriesNotice(same.notice, 'chat-harbor', [{ bookName: 'Harbor Atlas', count: 20 }]).message).toContain('20 selected entries');
-        expect(unkeyedEntriesNotice(same.notice, 'chat-harbor', [{ bookName: 'Keeper Notes', count: 21 }]).message).toContain('"Keeper Notes"');
-        expect(unkeyedEntriesNotice(same.notice, 'chat-voyage', harbor).message).toContain('21 selected entries');
+        expect(unreadyEntriesNotice(same.notice, 'chat-harbor', [{ bookName: 'Harbor Atlas', count: 20 }]).message).toContain('20 selected entries');
+        expect(unreadyEntriesNotice(same.notice, 'chat-harbor', [{ bookName: 'Keeper Notes', count: 21 }]).message).toContain('"Keeper Notes"');
+        expect(unreadyEntriesNotice(same.notice, 'chat-voyage', harbor).message).toContain('21 selected entries');
     });
 
-    it('shows nothing when no entry lacks keys, and says it again once entries lose their keys after that', () => {
-        const shown = unkeyedEntriesNotice(null, 'chat-harbor', harbor);
-        const allKeyed = unkeyedEntriesNotice(shown.notice, 'chat-harbor', []);
-        expect(allKeyed.message).toBeNull();
-        expect(unkeyedEntriesNotice(allKeyed.notice, 'chat-harbor', harbor).message).toContain('21 selected entries');
+    it('shows nothing when every entry is ready, and says it again once entries lose their keys or vectors after that', () => {
+        const shown = unreadyEntriesNotice(null, 'chat-harbor', harbor);
+        const allReady = unreadyEntriesNotice(shown.notice, 'chat-harbor', []);
+        expect(allReady.message).toBeNull();
+        expect(unreadyEntriesNotice(allReady.notice, 'chat-harbor', harbor).message).toContain('21 selected entries');
     });
 });

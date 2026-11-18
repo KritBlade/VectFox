@@ -4,19 +4,20 @@
  * The WorldInfo page's LoreBase controls (src/features/settings-panel/lorebase-books-card.js, plan §5.2 and §5.9 of
  * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): LoreBase's switch shows as saved; while
  * it is off the user still chooses entries and sets the model, a notice says to do that first, and only Generate all
- * keys waits; turning it on can end off when the user keeps Vector Storage's World Info search, and with nothing
- * selected anywhere the status line says to choose entries next. The books card draws the open
- * chat's books, opens the selection screen on the book a row names or, from the card's own button, on the chat's first
- * book, and draws the list again once the screen closes, a screen that failed included. Generate all keys writes the
- * missing keys, or says why it cannot; Delete all keys asks first, and once it has deleted turns LoreBase off; the
- * status line says how each went, and names the books a key run locked to its chat (§6.1 of InternalProject/Vectfox/
- * plans/lorebook-multi-vector.md), "this chat" while it is open, a line that goes once another chat is open.
+ * waits; turning it on can end off when the user keeps Vector Storage's World Info search, and with nothing selected
+ * anywhere the status line says to choose entries next. The books card draws the open chat's books, opens the selection
+ * screen on the book a row names or, from the card's own button, on the chat's first book, and draws the list again
+ * once the screen closes, a screen that failed included, saying what the selection lacks. Generate all writes the
+ * missing keys and vectors, or says why it cannot; Delete all asks first, and once it has deleted both turns LoreBase
+ * off; the status line says how each went, and names the books a writing run locked to its chat (§4.3 and §6.1 of
+ * InternalProject/Vectfox/plans/lorebook-multi-vector.md), "this chat" while it is open, a line that goes once another
+ * chat is open.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
-    status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, keyRunListener: null, selectedBooks: [],
+    status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, selectedBooks: [],
     settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
 }));
 
@@ -26,8 +27,8 @@ vi.mock('../src/sillytavern/chat.js', () => ({ getCurrentChatId: () => host.chat
 vi.mock('../src/features/lorebase/index.js', () => ({
     chatBookLocks: vi.fn(() => host.status),
     keyWritingProblem: vi.fn(() => host.keyProblem),
-    writeKeysOfSelections: vi.fn(async () => host.outcome),
-    deleteAllKeys: vi.fn(async () => {
+    writeKeysAndVectorsOfSelections: vi.fn(async () => host.outcome),
+    deleteAllKeysAndVectors: vi.fn(async () => {
         if (host.deleted instanceof Error) throw host.deleted;
         return host.deleted;
     }),
@@ -36,7 +37,7 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     isLoreBaseSwitchedOn: () => host.isOn,
     selectedLoreBookNames: () => host.selectedBooks,
     onLoreBaseSwitchChange: listener => { host.switchListener = listener; },
-    onKeyRunChange: listener => { host.keyRunListener = listener; },
+    onWritingRunChange: listener => { host.writingRunListener = listener; },
     // Tells the page, as saving the switch does.
     turnLoreBaseOff: vi.fn(() => { host.isOn = false; host.switchListener?.(false); }),
     // On, unless the user keeps Vector Storage's World Info search.
@@ -44,13 +45,14 @@ vi.mock('../src/features/lorebase/index.js', () => ({
 }));
 
 const {
-    chatBookLocks, deleteAllKeys, openLoreBaseSelection, turnLoreBaseOff, turnLoreBaseOn, writeKeysOfSelections,
+    chatBookLocks, deleteAllKeysAndVectors, openLoreBaseSelection, turnLoreBaseOff, turnLoreBaseOn, writeKeysAndVectorsOfSelections,
 } = await import('../src/features/lorebase/index.js');
 const { log } = await import('../src/sillytavern/log.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
 const { worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { bindLoreBaseBooksCard, refreshLoreBaseBooks } = await import('../src/features/settings-panel/lorebase-books-card.js');
 
+const outcomeOf = fields => ({ keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null, ...fields });
 const HARBOR = { bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: true, isLockedToCharacter: false };
 const KEEPER = { bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false };
 const rowsShown = () => [...document.querySelectorAll('#VectFox_lorebase_books .vfx-row')].map(row => `${row.querySelector('.vfx-row-name').textContent}: ${row.querySelector('.vfx-row-sub').textContent}`);
@@ -63,7 +65,7 @@ beforeEach(() => {
     host.isOn = true;
     host.willTurnOn = true;
     host.keyProblem = null;
-    host.outcome = { written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null };
+    host.outcome = outcomeOf({ keysWritten: 2, vectorsWritten: 2 });
     host.chatId = 'chat-harbor';
     host.isConfirmed = true;
     host.deleted = 311;
@@ -76,16 +78,16 @@ const flipSwitch = isChecked => {
     toggle().checked = isChecked;
     toggle().dispatchEvent(new Event('change'));
 };
-const generate = () => document.getElementById('VectFox_lorebase_generate_keys');
-const status = () => document.getElementById('VectFox_lorebase_keys_status');
-// Every LoreBase control on the books and model cards but Generate all keys and the cards' own collapse and help buttons.
+const generate = () => document.getElementById('VectFox_lorebase_generate_all');
+const status = () => document.getElementById('VectFox_lorebase_books_status');
+// Every LoreBase control on the books and model cards but Generate all and the cards' own collapse and help buttons.
 const freeControls = () => [...document.querySelectorAll('#VectFox_lorebase_books_card, #VectFox_lorebase_model_card')]
     .flatMap(card => [...card.querySelectorAll('button, input, select, textarea')])
-    .filter(control => control.id !== 'VectFox_lorebase_generate_keys' && !control.matches('.vfx-collapse, .vfx-help-toggle'));
+    .filter(control => control.id !== 'VectFox_lorebase_generate_all' && !control.matches('.vfx-collapse, .vfx-help-toggle'));
 const isNoticeShown = () => !document.getElementById('VectFox_lorebase_off_notice').hidden;
 
 describe("LoreBase's switch", () => {
-    it('shows off as saved, with the notice saying to choose entries and set the model first, and only Generate all keys waiting', async () => {
+    it('shows off as saved, with the notice saying to choose entries and set the model first, and only Generate all waiting', async () => {
         host.isOn = false;
         await refreshLoreBaseBooks();
         expect([toggle().checked, generate().disabled, isNoticeShown()]).toEqual([false, true, true]);
@@ -101,7 +103,7 @@ describe("LoreBase's switch", () => {
         expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Harbor Atlas' });
     });
 
-    it('enables Generate all keys and hides the notice once turned on', async () => {
+    it('enables Generate all and hides the notice once turned on', async () => {
         host.isOn = false;
         await refreshLoreBaseBooks();
         flipSwitch(true);
@@ -121,11 +123,11 @@ describe("LoreBase's switch", () => {
         host.selectedBooks = [];
         flipSwitch(true);
         await vi.waitFor(() => expect(status().textContent).toBe(
-            'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.'));
+            'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.'));
     });
 
     it('drops the call to choose entries once entries are chosen, and once LoreBase is turned off', async () => {
-        const nothingSelected = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.';
+        const nothingSelected = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.';
         const switchOnWithNothing = async () => {
             host.isOn = false;
             host.selectedBooks = [];
@@ -155,7 +157,7 @@ describe("LoreBase's switch", () => {
         expect([generate().disabled, status().hidden]).toEqual([true, true]);
     });
 
-    it('turns off from the switch, Generate all keys waiting again', async () => {
+    it('turns off from the switch, Generate all waiting again', async () => {
         await refreshLoreBaseBooks();
         expect(generate().disabled).toBe(false);
         flipSwitch(false);
@@ -170,12 +172,12 @@ describe("LoreBase's switch", () => {
         expect([toggle().checked, generate().disabled]).toEqual([false, true]);
     });
 
-    it('keeps Generate all keys disabled while it runs, whatever the switch shows meanwhile', async () => {
+    it('keeps Generate all disabled while it runs, whatever the switch shows meanwhile', async () => {
         let finish;
-        writeKeysOfSelections.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        writeKeysAndVectorsOfSelections.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
         await refreshLoreBaseBooks();
         generate().click();
-        await vi.waitFor(() => expect(writeKeysOfSelections).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(writeKeysAndVectorsOfSelections).toHaveBeenCalledTimes(1));
         host.switchListener(true);
         expect(generate().disabled).toBe(true);
         finish(host.outcome);
@@ -205,8 +207,8 @@ describe('the LoreBase books card', () => {
         expect(chatBookLocks).toHaveBeenCalledTimes(2);
     });
 
-    it("says where the selection's keys stand once the screen closes, LoreBase on or off, and drops the line with nothing selected", async () => {
-        const status = () => document.getElementById('VectFox_lorebase_keys_status');
+    it('says what the selection lacks once the screen closes, LoreBase on or off, and drops the line with nothing selected', async () => {
+        const status = () => document.getElementById('VectFox_lorebase_books_status');
         const closeWith = async chosen => {
             opener('Harbor Atlas').click();
             host.screen.resolve(chosen);
@@ -215,12 +217,17 @@ describe('the LoreBase books card', () => {
         };
         await refreshLoreBaseBooks();
         await closeWith({ missingCount: 0, decidedCount: 313, isWriting: false });
-        await vi.waitFor(() => expect(status().textContent).toBe('All 313 selected entries have keys.'));
+        await vi.waitFor(() => expect(status().textContent).toBe('All 313 selected entries have keys and vectors.'));
         await closeWith({ missingCount: 12, decidedCount: 313, isWriting: false });
-        await vi.waitFor(() => expect(status().textContent).toBe('12 selected entries have no keys. Turn on Use LoreBase to write them.'));
+        await vi.waitFor(() => expect(status().textContent).toBe(
+            '12 selected entries have no keys or vectors yet. LoreBase leaves them out until Generate all writes them.'));
         // A run the screen's question started writes its own lines.
         await closeWith({ missingCount: 12, decidedCount: 313, isWriting: true });
-        expect(status().textContent).toBe('12 selected entries have no keys. Turn on Use LoreBase to write them.');
+        expect(status().textContent).toBe('12 selected entries have no keys or vectors yet. LoreBase leaves them out until Generate all writes them.');
+        // While LoreBase is off, turning it on writes them.
+        host.isOn = false;
+        await closeWith({ missingCount: 1, decidedCount: 313, isWriting: false });
+        await vi.waitFor(() => expect(status().textContent).toBe('1 selected entry has no keys or vectors yet. Turn on Use LoreBase to write them.'));
         // Every entry unselected while LoreBase is off: the line goes.
         host.isOn = false;
         await closeWith({ missingCount: 0, decidedCount: 0, isWriting: false });
@@ -230,8 +237,8 @@ describe('the LoreBase books card', () => {
         host.selectedBooks = [];
         await closeWith({ missingCount: 0, decidedCount: 0, isWriting: false });
         await vi.waitFor(() => expect(status().textContent).toBe(
-            'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.'));
-        // Keys that could not be read: the line goes, the screen's notice having said why.
+            'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.'));
+        // Keys and vectors that could not be read: the line goes, the screen's notice having said why.
         await closeWith(null);
         await vi.waitFor(() => expect(status().hidden).toBe(true));
     });
@@ -270,8 +277,8 @@ describe('the LoreBase books card', () => {
     });
 });
 
-describe('every key at once', () => {
-    const remove = () => document.getElementById('VectFox_lorebase_delete_keys');
+describe('every key and vector at once', () => {
+    const remove = () => document.getElementById('VectFox_lorebase_delete_all');
 
     beforeEach(() => refreshLoreBaseBooks());
 
@@ -279,55 +286,59 @@ describe('every key at once', () => {
         expect(status().hidden).toBe(true);
     });
 
-    it('Generate all keys writes the missing keys of every selection and says how many', async () => {
+    it('Generate all writes the missing keys and vectors of every selection and says how many', async () => {
         generate().click();
         expect(generate().disabled).toBe(true);
-        await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 2 entries.'));
-        expect(writeKeysOfSelections).toHaveBeenCalledWith(host.settings);
+        await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 2 entries and the vectors of 2 entries.'));
+        expect(writeKeysAndVectorsOfSelections).toHaveBeenCalledWith(host.settings);
         expect([status().hidden, generate().disabled]).toEqual([false, false]);
     });
 
-    it('Generate all keys names the entries that failed or were stopped and the books it could not read, or that none was missing', async () => {
-        host.outcome = { written: 3, failed: 1, stopped: 5, unreadBooks: 2, chatLock: null };
+    it('Generate all names the entries that failed or were stopped and the books it could not read, or that none was missing', async () => {
+        host.outcome = outcomeOf({ vectorsWritten: 3, failed: 1, stopped: 5, unreadBooks: 2 });
         generate().click();
-        await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 3 entries. 1 entry failed, as the toast says. '
+        await vi.waitFor(() => expect(status().textContent).toBe('Wrote the vectors of 3 entries. 1 entry failed, as the toast says. '
             + 'Stopped before 5 entries. 2 lorebooks could not be read; the console says why.'));
-        host.outcome = { written: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null };
+        host.outcome = outcomeOf({ failed: 2 });
         generate().click();
-        await vi.waitFor(() => expect(status().textContent).toBe('No selected entry was missing keys.'));
+        await vi.waitFor(() => expect(status().textContent).toBe('Wrote no keys or vectors. 2 entries failed, as the toast says.'));
+        host.outcome = outcomeOf({});
+        generate().click();
+        await vi.waitFor(() => expect(status().textContent).toBe('No selected entry was missing keys or vectors.'));
     });
 
-    it('Generate all keys writes nothing when keys cannot be written, and says why', async () => {
+    it('Generate all writes nothing when keys cannot be written, and says why', async () => {
         host.keyProblem = 'LoreBase keeps the keys its model writes for each entry in Qdrant. Choose Qdrant as the vector backend first.';
         generate().click();
         await vi.waitFor(() => expect(status().textContent).toBe(`Not written: ${host.keyProblem}`));
-        expect(writeKeysOfSelections).not.toHaveBeenCalled();
+        expect(writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
     });
 
-    it('Delete all keys asks first, opening on Cancel, and deletes nothing when the user cancels', async () => {
+    it('Delete all asks first, opening on Cancel, and deletes nothing when the user cancels', async () => {
         host.isConfirmed = false;
         remove().click();
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
-        expect(confirmPopup.mock.calls[0][1]).toEqual({ okButton: 'Delete all keys', isDestructive: true });
+        expect(confirmPopup.mock.calls[0][1]).toEqual({ okButton: 'Delete all', isDestructive: true });
+        expect(confirmPopup.mock.calls[0][0][0].text).toBe('Delete every LoreBase key and vector you have, in every lorebook?');
         expect(confirmPopup.mock.calls[0][0].map(line => line.text).join(' ')).toContain('Keys you edited by hand are lost.');
         await Promise.resolve();
-        expect(deleteAllKeys).not.toHaveBeenCalled();
+        expect(deleteAllKeysAndVectors).not.toHaveBeenCalled();
         expect(turnLoreBaseOff).not.toHaveBeenCalled();
         expect([status().hidden, toggle().checked]).toEqual([true, true]);
     });
 
-    const deletedText = 'Deleted the keys of 311 entries: no entry has keys now, and Use LoreBase is off. Turn it on to write them again.';
+    const deletedText = 'Deleted the keys of 311 entries and every vector: no entry has either now, and Use LoreBase is off. Turn it on to write them again.';
 
-    it('Delete all keys deletes every key once confirmed, turns LoreBase off, and says so', async () => {
+    it('Delete all deletes every key and vector once confirmed, turns LoreBase off, and says so', async () => {
         remove().click();
         await vi.waitFor(() => expect(status().textContent).toBe(deletedText));
         expect(confirmPopup.mock.calls[0][0].map(line => line.text).join(' ')).toContain('Use LoreBase turns off');
-        expect(deleteAllKeys).toHaveBeenCalledTimes(1);
+        expect(deleteAllKeysAndVectors).toHaveBeenCalledWith(host.settings);
         expect(turnLoreBaseOff).toHaveBeenCalledTimes(1);
         expect([toggle().checked, generate().disabled, isNoticeShown(), remove().disabled]).toEqual([false, true, true, false]);
     });
 
-    it('Delete all keys while LoreBase is off leaves it off, and says the same', async () => {
+    it('Delete all while LoreBase is off leaves it off, and says the same', async () => {
         host.isOn = false;
         await refreshLoreBaseBooks();
         remove().click();
@@ -335,23 +346,23 @@ describe('every key at once', () => {
         expect(turnLoreBaseOff).not.toHaveBeenCalled();
     });
 
-    it('shows the keys turning LoreBase on writes in place of the delete: the entries being keyed, then what was written', async () => {
+    it('shows what turning LoreBase on writes in place of the delete: the entries being written, then what was written', async () => {
         remove().click();
         await vi.waitFor(() => expect(status().textContent).toBe(deletedText));
-        host.keyRunListener({ count: 311, outcome: null });
-        expect(status().textContent).toBe('Writing the keys of 311 selected entries with none; the progress panel counts them.');
-        host.keyRunListener({ count: 311, outcome: { written: 309, failed: 2, stopped: 0, unreadBooks: 0, chatLock: null } });
-        expect(status().textContent).toBe('Wrote the keys of 309 entries. 2 entries failed, as the toast says.');
+        host.writingRunListener({ count: 311, outcome: null });
+        expect(status().textContent).toBe('Writing what 311 selected entries lack; the progress panel counts them.');
+        host.writingRunListener({ count: 311, outcome: outcomeOf({ keysWritten: 309, vectorsWritten: 309, failed: 2 }) });
+        expect(status().textContent).toBe('Wrote the keys of 309 entries and the vectors of 309 entries. 2 entries failed, as the toast says.');
     });
 
     it('names the books a run locked to this chat, draws the list again, and drops the line once another chat is open', async () => {
-        host.outcome = { written: 313, failed: 0, stopped: 0, unreadBooks: 0, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas'] } };
+        host.outcome = outcomeOf({ keysWritten: 313, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas'] } });
         generate().click();
         await vi.waitFor(() => expect(status().textContent).toBe('Wrote the keys of 313 entries. Locked "Harbor Atlas" to this chat.'));
         expect(chatBookLocks).toHaveBeenCalledTimes(2);
-        host.keyRunListener({
+        host.writingRunListener({
             count: 4,
-            outcome: { written: 4, failed: 0, stopped: 0, unreadBooks: 0, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas', 'Keeper Notes', 'Tide Tables'] } },
+            outcome: outcomeOf({ keysWritten: 4, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas', 'Keeper Notes', 'Tide Tables'] } }),
         });
         expect(status().textContent).toBe('Wrote the keys of 4 entries. Locked "Harbor Atlas", "Keeper Notes", and "Tide Tables" to this chat.');
 
@@ -364,9 +375,9 @@ describe('every key at once', () => {
 
     it('says a run that ends in another chat locked its books to the chat open when the writing began, and keeps that line', async () => {
         host.chatId = 'chat-wren';
-        host.keyRunListener({
+        host.writingRunListener({
             count: 2,
-            outcome: { written: 2, failed: 0, stopped: 0, unreadBooks: 0, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas', 'Keeper Notes'] } },
+            outcome: outcomeOf({ keysWritten: 2, chatLock: { chatId: 'chat-harbor', bookNames: ['Harbor Atlas', 'Keeper Notes'] } }),
         });
         expect(status().textContent).toBe('Wrote the keys of 2 entries. Locked "Harbor Atlas" and "Keeper Notes" to the chat open when the writing began.');
         host.chatId = 'chat-harbor';
@@ -375,10 +386,10 @@ describe('every key at once', () => {
     });
 
     it('a delete that fails says Not deleted, with the reason, logs it, and leaves LoreBase on', async () => {
-        host.deleted = new Error('LoreBase is writing keys. Delete them once it is done.');
+        host.deleted = new Error('LoreBase is still writing keys or vectors; the progress panel shows them.');
         remove().click();
-        await vi.waitFor(() => expect(status().textContent).toBe('Not deleted: LoreBase is writing keys. Delete them once it is done.'));
-        expect(log.warn).toHaveBeenCalledWith('LoreBase: Delete all keys failed:', host.deleted);
+        await vi.waitFor(() => expect(status().textContent).toBe('Not deleted: LoreBase is still writing keys or vectors; the progress panel shows them.'));
+        expect(log.warn).toHaveBeenCalledWith('LoreBase: Delete all failed:', host.deleted);
         expect(turnLoreBaseOff).not.toHaveBeenCalled();
         expect(toggle().checked).toBe(true);
     });

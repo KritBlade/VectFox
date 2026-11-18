@@ -34,15 +34,29 @@ export function keyCallsAtOnceOf(value) {
 }
 
 /**
- * The opening lines of a question about the selected entries with no keys, as turning LoreBase on and closing the
- * selection screen ask it: why keys are written, and how many entries lack them.
+ * The toast for the entries of a book whose keys or vectors a writing could not write: up to three named, how many
+ * more, that they send nothing until they have them, what writes them again, and the first failure's detail.
+ * @param {{what: string, bookName: string, failures: Array<{title: string, detail: string}>, remedy: string}} options -
+ *   what: 'keys' or 'vectors'; at least one failure
+ * @returns {string}
+ */
+export function writingFailuresMessage({ what, bookName, failures, remedy }) {
+    const titles = failures.slice(0, 3).map(failure => `"${failure.title}"`).join(', ');
+    const more = failures.length > 3 ? ` and ${failures.length - 3} more` : '';
+    return `LoreBase could not write the ${what} of ${titles}${more} in lorebook "${bookName}", so they send nothing until they have them. `
+        + `${remedy} Details: ${failures[0].detail.slice(0, 320)}`;
+}
+
+/**
+ * The opening lines of a question about the selected entries without keys or vectors, as turning LoreBase on and
+ * closing the selection screen ask it: what is written before an entry takes part, and how many entries lack it.
  * @param {number} count
  * @returns {Array<{icon?: string, text: string, name?: string}>} Popup lines (sillytavern/popup-core.js)
  */
-export function missingKeysLines(count) {
+export function missingKeysAndVectorsLines(count) {
     return [
-        { icon: 'fa-key', text: "Before a selected entry takes part, LoreBase's model writes its keys: one call for each entry." },
-        { text: 'Selected entries with no keys:', name: count.toLocaleString('en-US') },
+        { icon: 'fa-key', text: "Before a selected entry takes part, it needs keys, one call to LoreBase's model each, and vectors from VectFox's embedding model." },
+        { text: 'Selected entries without keys or vectors:', name: count.toLocaleString('en-US') },
     ];
 }
 

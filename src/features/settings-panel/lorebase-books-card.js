@@ -1,51 +1,52 @@
 /**
  * The WorldInfo page's LoreBase controls (plan §5.2 and §5.9 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md). LoreBase's switch: turning it on asks first about the selected entries'
- * missing keys and Vector Storage's World Info search, and with nothing selected says to choose entries. While it is
- * off, the user still chooses entries and sets its model, and a notice says to do that before turning it on; only
- * Generate all keys waits, since turning LoreBase on asks to write them. The books card: it draws the open chat's books
- * with their selected counts and locks, and opens LoreBase's selection screen on the book a row names, or on the chat's
- * first book from the card's own button, drawing the list again once the screen closes and saying where the
- * selection's keys stand, LoreBase on or off. Generate all keys writes the keys of every selected entry, in every book, that has none;
- * Delete all keys, once confirmed, deletes every key the user has and turns LoreBase off (D17). The card's status line
- * says how each went, and shows every key run on the progress panel, whichever started it: the entries being keyed,
- * then what was written and the books the run locked to its chat (§6.1 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md), a line that goes once another chat is open.
+ * lorebook-semantic-overhaul-passage-index.md, §4.3 of InternalProject/Vectfox/plans/lorebook-multi-vector.md).
+ * LoreBase's switch: turning it on asks first about the keys and vectors the selected entries lack and Vector Storage's
+ * World Info search, and with nothing selected says to choose entries. While it is off, the user still chooses entries
+ * and sets its model, and a notice says to do that before turning it on; only Generate all waits, since turning
+ * LoreBase on asks to write them. The books card: it draws the open chat's books with their selected counts and locks,
+ * and opens LoreBase's selection screen on the book a row names, or on the chat's first book from the card's own
+ * button, drawing the list again once the screen closes and saying what the selection lacks, LoreBase on or off.
+ * Generate all writes the keys and vectors every selected entry, in every book, lacks; Delete all, once confirmed,
+ * deletes every key and vector the user has and turns LoreBase off (D17). The card's status line says how each went,
+ * and shows every writing run on the progress panel, whichever started it: the entries being written, then what was
+ * written and the books the run locked to its chat (§6.1 of lorebook-multi-vector.md), a line that goes once another
+ * chat is open.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
-    chatBookLocks, deleteAllKeys, isLoreBaseSwitchedOn, keyWritingProblem, onKeyRunChange, onLoreBaseSwitchChange,
-    openLoreBaseSelection, selectedLoreBookNames, turnLoreBaseOff, turnLoreBaseOn, writeKeysOfSelections,
+    chatBookLocks, deleteAllKeysAndVectors, isLoreBaseSwitchedOn, keyWritingProblem, onLoreBaseSwitchChange, onWritingRunChange,
+    openLoreBaseSelection, selectedLoreBookNames, turnLoreBaseOff, turnLoreBaseOn, writeKeysAndVectorsOfSelections,
 } from '../lorebase/index.js';
 import { loreBaseBooksMarkup } from './worldinfo-page-markup.js';
 
 const SWITCH_ID = 'VectFox_lorebase_enabled';
-const GENERATE_KEYS_ID = 'VectFox_lorebase_generate_keys';
-const DELETE_KEYS_ID = 'VectFox_lorebase_delete_keys';
-const KEYS_STATUS_ID = 'VectFox_lorebase_keys_status';
-const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys written then.';
-let isGeneratingKeys = false;
+const GENERATE_ALL_ID = 'VectFox_lorebase_generate_all';
+const DELETE_ALL_ID = 'VectFox_lorebase_delete_all';
+const BOOKS_STATUS_ID = 'VectFox_lorebase_books_status';
+const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.';
+let isGenerating = false;
 // Counts the card's refreshes, so a refresh whose books loaded after a newer one began draws nothing.
 let refreshCount = 0;
 // The chat the status line says books were locked to as "this chat", so the line goes once another chat is open.
 let statusLockChatId = null;
 
 /**
- * Show LoreBase's switch as saved; while it is off, show the notice and disable Generate all keys. The status line's
- * call to choose entries goes once it no longer holds: LoreBase is off, or something is selected.
+ * Show LoreBase's switch as saved; while it is off, show the notice and disable Generate all. The status line's call
+ * to choose entries goes once it no longer holds: LoreBase is off, or something is selected.
  */
 function paintLoreBaseSwitch() {
     const isOn = isLoreBaseSwitchedOn();
     const toggle = document.getElementById(SWITCH_ID);
     if (toggle) toggle.checked = isOn;
-    const generate = document.getElementById(GENERATE_KEYS_ID);
-    if (generate) generate.disabled = !isOn || isGeneratingKeys;
+    const generate = document.getElementById(GENERATE_ALL_ID);
+    if (generate) generate.disabled = !isOn || isGenerating;
     const offNotice = document.getElementById('VectFox_lorebase_off_notice');
     if (offNotice) offNotice.hidden = isOn;
-    const isNothingSelectedShown = document.getElementById(KEYS_STATUS_ID)?.textContent === NOTHING_SELECTED_TEXT;
-    if (isNothingSelectedShown && (!isOn || selectedLoreBookNames().length)) showKeysStatus('');
+    const isNothingSelectedShown = document.getElementById(BOOKS_STATUS_ID)?.textContent === NOTHING_SELECTED_TEXT;
+    if (isNothingSelectedShown && (!isOn || selectedLoreBookNames().length)) showBooksStatus('');
 }
 
 /**
@@ -57,7 +58,7 @@ function paintLoreBaseSwitch() {
  */
 export async function refreshLoreBaseBooks() {
     const refresh = ++refreshCount;
-    if (statusLockChatId !== null && statusLockChatId !== (getCurrentChatId() ?? null)) showKeysStatus('');
+    if (statusLockChatId !== null && statusLockChatId !== (getCurrentChatId() ?? null)) showBooksStatus('');
     paintLoreBaseSwitch();
     try {
         const status = await chatBookLocks();
@@ -74,9 +75,9 @@ export async function refreshLoreBaseBooks() {
  * @param {string} text
  * @param {{lockChatId?: string|null}} [options] - lockChatId: the chat the line says books were locked to as "this chat"
  */
-function showKeysStatus(text, { lockChatId = null } = {}) {
+function showBooksStatus(text, { lockChatId = null } = {}) {
     statusLockChatId = lockChatId;
-    const status = document.getElementById(KEYS_STATUS_ID);
+    const status = document.getElementById(BOOKS_STATUS_ID);
     if (!status) return;
     status.textContent = text;
     status.hidden = !text;
@@ -86,13 +87,17 @@ const counted = (count, one, many) => `${Number(count).toLocaleString('en-US')} 
 const bookList = new Intl.ListFormat('en', { type: 'conjunction' });
 
 /**
- * What a key run did, in a line: the keys written, the entries that failed or were stopped, the books that could not
- * be read, and the books it locked to its chat, "this chat" while that chat is open.
- * @param {object} outcome - The run's outcome (KeyRunOutcome in lorebase-keys.js)
+ * What a writing run did, in a line: the keys and the vectors written, the entries that failed or were stopped, the
+ * books that could not be read, and the books it locked to its chat, "this chat" while that chat is open.
+ * @param {object} outcome - The run's outcome (WritingRunOutcome in lorebase-keys.js)
  * @param {boolean} isLockChatOpen - Whether the chat the run locked books to is the open one
  */
-function generatedText({ written, failed, stopped, unreadBooks, chatLock }, isLockChatOpen) {
-    const lines = [written || failed || stopped ? `Wrote the keys of ${counted(written, 'entry', 'entries')}.` : 'No selected entry was missing keys.'];
+function writtenText({ keysWritten, vectorsWritten, failed, stopped, unreadBooks, chatLock }, isLockChatOpen) {
+    const written = [
+        keysWritten ? `the keys of ${counted(keysWritten, 'entry', 'entries')}` : '',
+        vectorsWritten ? `the vectors of ${counted(vectorsWritten, 'entry', 'entries')}` : '',
+    ].filter(Boolean);
+    const lines = [written.length ? `Wrote ${written.join(' and ')}.` : 'Wrote no keys or vectors.'];
     if (failed) lines.push(`${counted(failed, 'entry', 'entries')} failed, as the toast says.`);
     if (stopped) lines.push(`Stopped before ${counted(stopped, 'entry', 'entries')}.`);
     if (unreadBooks) lines.push(`${counted(unreadBooks, 'lorebook', 'lorebooks')} could not be read; the console says why.`);
@@ -104,86 +109,88 @@ function generatedText({ written, failed, stopped, unreadBooks, chatLock }, isLo
 }
 
 /**
- * What a key run did, on the status line, which notes the chat it locked books to while that chat is open; a run that
- * locked books draws the list again, so their rows show the lock.
+ * What a writing run did, on the status line, which notes the chat it locked books to while that chat is open; a run
+ * that locked books draws the list again, so their rows show the lock. A run with nothing missing says so.
  */
 function showRunOutcome(outcome) {
     const isLockChatOpen = Boolean(outcome.chatLock) && outcome.chatLock.chatId === (getCurrentChatId() ?? null);
-    showKeysStatus(generatedText(outcome, isLockChatOpen), { lockChatId: isLockChatOpen ? outcome.chatLock.chatId : null });
+    const hasDoneAnything = outcome.keysWritten || outcome.vectorsWritten || outcome.failed || outcome.stopped;
+    const text = hasDoneAnything || outcome.unreadBooks ? writtenText(outcome, isLockChatOpen) : 'No selected entry was missing keys or vectors.';
+    showBooksStatus(text, { lockChatId: isLockChatOpen ? outcome.chatLock.chatId : null });
     if (outcome.chatLock) void refreshLoreBaseBooks();
 }
 
 /**
- * A key run on the progress panel, whichever started it (Generate all keys, turning LoreBase on, closing the selection
- * screen, Regenerate keys): what it keys, then what it did.
+ * A writing run on the progress panel, whichever started it (Generate all, turning LoreBase on, closing the selection
+ * screen, Regenerate keys): what it writes, then what it did.
  */
-function showKeyRun({ count, outcome }) {
+function showWritingRun({ count, outcome }) {
     if (outcome) showRunOutcome(outcome);
-    else showKeysStatus(`Writing the keys of ${counted(count, 'selected entry', 'selected entries')} with none; the progress panel counts them.`);
+    else showBooksStatus(`Writing what ${counted(count, 'selected entry lacks', 'selected entries lack')}; the progress panel counts them.`);
 }
 
 /**
- * Generate all keys: write the keys of every selected entry, in every book, that has none; the books it writes keys
- * for lock to the open chat (§6.1 of lorebook-multi-vector.md).
+ * Generate all: write the keys and vectors every selected entry, in every book, lacks; the books it writes keys for
+ * lock to the open chat (§6.1 of lorebook-multi-vector.md).
  */
-async function generateAllKeys(settings, button) {
+async function generateAll(settings, button) {
     const problem = keyWritingProblem(settings);
     if (problem) {
-        showKeysStatus(`Not written: ${problem}`);
+        showBooksStatus(`Not written: ${problem}`);
         return;
     }
-    isGeneratingKeys = true;
+    isGenerating = true;
     button.disabled = true;
-    showKeysStatus('Counting the selected entries with no keys.');
+    showBooksStatus('Counting the selected entries without keys or vectors.');
     try {
-        showRunOutcome(await writeKeysOfSelections(settings));
+        showRunOutcome(await writeKeysAndVectorsOfSelections(settings));
     } catch (error) {
-        log.error('LoreBase: Generate all keys failed:', error);
-        showKeysStatus(`Not written: ${error?.message || error}`);
+        log.error('LoreBase: Generate all failed:', error);
+        showBooksStatus(`Not written: ${error?.message || error}`);
     } finally {
-        isGeneratingKeys = false;
+        isGenerating = false;
         paintLoreBaseSwitch();
     }
 }
 
 /** Turn LoreBase on from its switch; with nothing selected anywhere, the status line says to choose entries next. */
 async function switchLoreBaseOn() {
-    if (await turnLoreBaseOn() && !selectedLoreBookNames().length) showKeysStatus(NOTHING_SELECTED_TEXT);
+    if (await turnLoreBaseOn() && !selectedLoreBookNames().length) showBooksStatus(NOTHING_SELECTED_TEXT);
 }
 
 /**
- * Delete all keys, once the user confirms: every LoreBase key they have, in every book. Once deleted, LoreBase turns
- * off, since its selected entries would send nothing; turning it on again asks to write their keys.
+ * Delete all, once the user confirms: every LoreBase key and vector they have, in every book. Once deleted, LoreBase
+ * turns off, since its selected entries would send nothing; turning it on again asks to write them.
  */
-async function deleteKeys(button) {
+async function deleteAll(settings, button) {
     const isConfirmed = await confirmPopup([
-        { text: 'Delete every LoreBase key you have, in every lorebook?' },
-        { text: 'Use LoreBase turns off, and selections are kept; turning it on asks to write their keys again.' },
+        { text: 'Delete every LoreBase key and vector you have, in every lorebook?' },
+        { text: 'Use LoreBase turns off, and selections are kept; turning it on asks to write them again.' },
         { text: 'Keys you edited by hand are lost.' },
-    ], { okButton: 'Delete all keys', isDestructive: true });
+    ], { okButton: 'Delete all', isDestructive: true });
     if (!isConfirmed) return;
     button.disabled = true;
     try {
-        const deleted = await deleteAllKeys();
+        const deleted = await deleteAllKeysAndVectors(settings);
         if (isLoreBaseSwitchedOn()) turnLoreBaseOff();
-        showKeysStatus(`Deleted the keys of ${counted(deleted, 'entry', 'entries')}: no entry has keys now, and Use LoreBase `
-            + 'is off. Turn it on to write them again.');
+        showBooksStatus(`Deleted the keys of ${counted(deleted, 'entry', 'entries')} and every vector: no entry has either now, `
+            + 'and Use LoreBase is off. Turn it on to write them again.');
     } catch (error) {
-        log.warn('LoreBase: Delete all keys failed:', error);
-        showKeysStatus(`Not deleted: ${error?.message || error}`);
+        log.warn('LoreBase: Delete all failed:', error);
+        showBooksStatus(`Not deleted: ${error?.message || error}`);
     } finally {
         button.disabled = false;
     }
 }
 
 /**
- * Wire LoreBase's switch, open the selection screen from the card's buttons, and run Generate all keys and Delete all
- * keys. Called once, as the panel is mounted.
+ * Wire LoreBase's switch, open the selection screen from the card's buttons, and run Generate all and Delete all.
+ * Called once, as the panel is mounted.
  * @param {object} settings - VectFox settings
  */
 export function bindLoreBaseBooksCard(settings) {
-    document.getElementById(GENERATE_KEYS_ID)?.addEventListener('click', event => void generateAllKeys(settings, event.currentTarget));
-    document.getElementById(DELETE_KEYS_ID)?.addEventListener('click', event => void deleteKeys(event.currentTarget));
+    document.getElementById(GENERATE_ALL_ID)?.addEventListener('click', event => void generateAll(settings, event.currentTarget));
+    document.getElementById(DELETE_ALL_ID)?.addEventListener('click', event => void deleteAll(settings, event.currentTarget));
     document.getElementById(SWITCH_ID)?.addEventListener('change', async event => {
         if (event.currentTarget.checked) await switchLoreBaseOn();
         else turnLoreBaseOff();
@@ -192,8 +199,8 @@ export function bindLoreBaseBooksCard(settings) {
     });
     // A reply's question can turn LoreBase off while the page is shown.
     onLoreBaseSwitchChange(paintLoreBaseSwitch);
-    // Every key run on the progress panel, Generate all keys' or another's, shows on the status line.
-    onKeyRunChange(showKeyRun);
+    // Every writing run on the progress panel, Generate all's or another's, shows on the status line.
+    onWritingRunChange(showWritingRun);
     document.getElementById('VectFox_lorebase_books_card')?.addEventListener('click', async event => {
         const opener = event.target.closest('[data-lorebase-choose]');
         if (!opener) return;
@@ -204,24 +211,29 @@ export function bindLoreBaseBooksCard(settings) {
             log.error('LoreBase: the selection screen failed:', error);
         }
         void refreshLoreBaseBooks();
-        showChosenKeys(chosen);
+        showChosenSelection(chosen);
     });
 }
 
 /**
- * Where the selection's keys stand once the selection screen closed, LoreBase on or off: all written, or how many have
- * none, which leaves LoreBase off; with nothing selected, the line goes, or calls to choose entries while LoreBase is
- * on; with the keys unread, the line goes. A run started on the screen's question writes its own lines (showKeyRun).
+ * What the selection lacks once the selection screen closed, LoreBase on or off: nothing, or how many entries have no
+ * keys or vectors yet, which wait while LoreBase is on and are written by turning it on while it is off; with nothing
+ * selected, the line goes, or calls to choose entries while LoreBase is on; with the keys and vectors unread, the line
+ * goes. A run started on the screen's question writes its own lines (showWritingRun).
  * @param {{missingCount: number, decidedCount: number, isWriting: boolean}|null} chosen - From openLoreBaseSelection
  */
-function showChosenKeys(chosen) {
+function showChosenSelection(chosen) {
     if (chosen?.isWriting) return;
     if (!chosen?.decidedCount) {
-        showKeysStatus(chosen && isLoreBaseSwitchedOn() && !selectedLoreBookNames().length ? NOTHING_SELECTED_TEXT : '');
+        showBooksStatus(chosen && isLoreBaseSwitchedOn() && !selectedLoreBookNames().length ? NOTHING_SELECTED_TEXT : '');
     } else if (chosen.missingCount) {
-        showKeysStatus(`${counted(chosen.missingCount, 'selected entry has', 'selected entries have')} no keys. Turn on Use `
-            + 'LoreBase to write them.');
+        const missing = `${counted(chosen.missingCount, 'selected entry has', 'selected entries have')} no keys or vectors yet.`;
+        showBooksStatus(isLoreBaseSwitchedOn()
+            ? `${missing} LoreBase leaves them out until Generate all writes them.`
+            : `${missing} Turn on Use LoreBase to write them.`);
     } else {
-        showKeysStatus(chosen.decidedCount === 1 ? 'The selected entry has its keys.' : `All ${counted(chosen.decidedCount, 'selected entry', 'selected entries')} have keys.`);
+        showBooksStatus(chosen.decidedCount === 1
+            ? 'The selected entry has its keys and vectors.'
+            : `All ${counted(chosen.decidedCount, 'selected entry', 'selected entries')} have keys and vectors.`);
     }
 }

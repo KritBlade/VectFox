@@ -23,7 +23,7 @@ export function isLoreBaseSwitchedOn(settings = extension_settings.vectfox) {
 }
 
 /**
- * Whether LoreBase can run on the chosen vector backend: only Qdrant, which keeps its keys (D15).
+ * Whether LoreBase can run on the chosen vector backend: only Qdrant, which keeps its keys and vectors (D15).
  * @param {object} [settings] - VectFox settings, the live ones by default
  * @returns {boolean}
  */

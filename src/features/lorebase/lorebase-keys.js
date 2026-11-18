@@ -1,28 +1,33 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D15, D17 and §5.2 of InternalProject/
  * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes,
- * each SillyTavern user's own. Turning LoreBase on, closing the selection screen (each after asking), Generate all keys
- * and Regenerate keys write them, as many calls at once as the WorldInfo page's Entries at once (1 to 8), every time
- * under VectFox's progress panel, brought to the front with its Stop, which drops the entries not yet sent; one run at
- * a time. A run that writes missing keys then locks each book it wrote keys for to the chat it started in, as §6.1 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md says; Regenerate keys locks nothing. The user can also edit
- * one entry's keys, or have the model write them again to read first, and Delete all keys deletes every one; nothing
- * rewrites them on its own. An entry takes part in a reply only once its keys exist, and while they are written or
- * after they fail, the selection screen says so for its row.
+ * each SillyTavern user's own, and the run that writes them with the same entries' vectors (§4.3 of InternalProject/
+ * Vectfox/plans/lorebook-multi-vector.md, lorebase-vectors.js). Turning LoreBase on, closing the selection screen (each
+ * after asking), Generate all and Regenerate keys run it under VectFox's progress panel, brought to the front with its
+ * Stop, which drops what is not yet sent; one run at a time. A book's keys go first, as many calls at once as the
+ * WorldInfo page's Entries at once (1 to 8), then its vectors in batches. A run that writes missing keys then locks each
+ * book it wrote keys for to the chat it started in, as §6.1 of lorebook-multi-vector.md says; Regenerate keys writes
+ * keys alone and locks nothing. The user can also edit one entry's keys, or have the model write them again to read
+ * first, and Delete all deletes every key and vector; nothing rewrites keys on its own. An entry takes part in a reply
+ * only once it has its keys and vectors, and while its keys are written or after they fail, the selection screen says
+ * so for its row.
  */
 import { log } from '../../sillytavern/log.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { extension_settings } from '../../sillytavern/settings.js';
-import { loadDecidedEntries, selectedLoreBookNames } from './lorebase-books.js';
+import { loadDecidedEntries, recordedLoreBookNames, selectedLoreBookNames } from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import {
-    KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCallsAtOnceOf, keyCount, keysMessages, readKeys,
+    KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCallsAtOnceOf, keyCount, keysMessages, readKeys, writingFailuresMessage,
 } from './lorebase-keys-core.js';
 import { entryTitle } from './lorebase-splitter.js';
+import {
+    bookVectors, deleteAllVectors, readBookVectors, showVectorFailures, uidsWithCurrentVectors, writeBookVectors,
+} from './lorebase-vectors.js';
 
 const KEYS_ROUTE = '/api/plugins/similharity/lorebase/keys';
 const QDRANT_BACKEND = 'qdrant';
@@ -41,6 +46,7 @@ const mapOf = (maps, bookName) => {
     if (!maps.has(bookName)) maps.set(bookName, new Map());
     return maps.get(bookName);
 };
+const uidOf = entry => String(entry.uid);
 
 function callEach(listeners, update) {
     for (const listener of listeners) {
@@ -65,20 +71,21 @@ export function onKeyStateChange(listener) {
 }
 
 /**
- * What a key run did: the entries whose keys it wrote, that failed and that it stopped before, the books it could not
- * read, and the chat it locked books to with those books, or null when it locked none.
- * @typedef {{written: number, failed: number, stopped: number, unreadBooks: number,
- *   chatLock: {chatId: string, bookNames: string[]}|null}} KeyRunOutcome
+ * What a writing run did: the entries whose keys it wrote, those whose vectors it wrote, the entries that failed and
+ * that it stopped before, each counted once, the books it could not read, and the chat it locked books to with those
+ * books, or null when it locked none.
+ * @typedef {{keysWritten: number, vectorsWritten: number, failed: number, stopped: number, unreadBooks: number,
+ *   chatLock: {chatId: string, bookNames: string[]}|null}} WritingRunOutcome
  */
 
 /**
- * Call `listener` as a key run on the progress panel (Generate all keys, turning LoreBase on, closing the selection
+ * Call `listener` as a writing run on the progress panel (Generate all, turning LoreBase on, closing the selection
  * screen, Regenerate keys) starts, with `{count, outcome: null}`, and as it ends, with `{count, outcome}`, the outcome
  * the run returns. A run with nothing to write makes no call.
- * @param {(run: {count: number, outcome: KeyRunOutcome|null}) => void} listener
+ * @param {(run: {count: number, outcome: WritingRunOutcome|null}) => void} listener
  * @returns {() => void} Stops the calls
  */
-export function onKeyRunChange(listener) {
+export function onWritingRunChange(listener) {
     runListeners.add(listener);
     return () => runListeners.delete(listener);
 }
@@ -168,7 +175,7 @@ async function writeOne({ bookName, entry, ask, failures, onEntryDone }) {
         failures.push(failure);
     }
     tellListeners(bookName);
-    onEntryDone?.(failure);
+    onEntryDone?.(failure, entry);
 }
 
 /** Send queued entries while fewer than Entries at once are running; read each time, so a change applies as calls end. */
@@ -184,7 +191,10 @@ function runQueue() {
     }
 }
 
-/** Stop a run: its jobs not yet sent leave the queue, their entries back to having no keys, each counted as stopped. */
+/**
+ * Stop a run: its keys not yet asked for leave the queue, their entries back to having no keys, each counted as
+ * stopped, and its vector batches not yet sent stay unsent (writeBookVectors).
+ */
 function stopRun(run) {
     run.isStopped = true;
     const dropped = queue.filter(job => job.run === run);
@@ -200,25 +210,21 @@ function stopRun(run) {
 
 function showKeyFailures(bookName, failures) {
     if (!failures.length) return;
-    const titles = failures.slice(0, 3).map(failure => `"${failure.title}"`).join(', ');
-    const more = failures.length > 3 ? ` and ${failures.length - 3} more` : '';
+    const message = writingFailuresMessage({ what: 'keys', bookName, failures, remedy: 'Open Choose entries, tick them and use Regenerate keys.' });
     // toastr is SillyTavern's page global, absent where no page is loaded.
-    globalThis.toastr?.warning(
-        `LoreBase could not write the keys of ${titles}${more} in lorebook "${bookName}", so they send nothing until they have keys. `
-        + `Open Choose entries, tick them and use Regenerate keys. Details: ${failures[0].detail.slice(0, 320)}`,
-        'VectFox — LoreBase keys', { timeOut: 30000, extendedTimeOut: 10000 });
+    globalThis.toastr?.warning(message, 'VectFox — LoreBase keys', { timeOut: 30000, extendedTimeOut: 10000 });
 }
 
 /**
  * Write the keys of a book's entries, Entries at once calls at a time: those with none, or every one given when `isRegenerating`.
  * A bulk run passes its `run`, whose stop drops the entries not yet sent, and `onEntryDone`, called with null or the
- * failure as each entry is done.
+ * failure, and the entry, as each entry is done.
  * Entries already being written are left to that writing. Never throws: a failed entry is marked failed, logged, and
  * named in one toast for the book once its writing is done.
  * @param {string} bookName
  * @param {object[]} entries - The book's entries, as loadWorldInfo returns them
  * @param {object} settings - VectFox settings
- * @param {{isRegenerating?: boolean, run?: {isStopped: boolean}, onEntryDone?: (failure: object|null) => void}} [options]
+ * @param {{isRegenerating?: boolean, run?: {isStopped: boolean}, onEntryDone?: (failure: object|null, entry: object) => void}} [options]
  *   isRegenerating: Regenerate keys, which rewrites hand-edited keys too
  * @returns {Promise<{written: number, failed: number, stopped: number}>} Once every entry given is written, failed or stopped
  */
@@ -288,13 +294,19 @@ export async function saveEditedKeys(bookName, uid, keys) {
 }
 
 /**
- * The selected entries LoreBase decides that have no keys and are not being written, by book: every book with a
- * selection loaded and its keys read from Similharity now. A book that cannot be loaded is logged and counted.
- * `decidedCount` is every selected entry LoreBase decides, keys or not.
- * @returns {Promise<{books: Array<{bookName: string, entries: object[]}>, count: number, decidedCount: number, unreadBooks: number}>}
- * @throws {Error} When Similharity cannot read the keys
+ * What the selected entries LoreBase decides lack, by book (§4.3, §4.4): every book with a selection loaded, its keys
+ * read from Similharity now and its vectors as this session holds them, or read from Qdrant now when `isRereading`, as
+ * turning LoreBase on and Generate all ask, so edits made while SillyTavern was closed are found. Each book names every
+ * entry LoreBase decides in it, those with no keys and not being written, and those without vectors from the embedding
+ * model set now. `count` is every entry missing either, each once; `readyCount` those with both; `decidedCount` every
+ * selected entry LoreBase decides. A book that cannot be loaded is logged and counted.
+ * @param {object} settings - VectFox settings
+ * @param {{isRereading?: boolean}} [options]
+ * @returns {Promise<{books: Array<{bookName: string, decidedEntries: object[], keyEntries: object[], vectorEntries: object[]}>,
+ *   count: number, readyCount: number, decidedCount: number, unreadBooks: number}>}
+ * @throws {Error} When Similharity cannot read the keys or the vectors
  */
-export async function selectedEntriesWithoutKeys() {
+export async function selectedEntriesNotReady(settings, { isRereading = false } = {}) {
     const loaded = [];
     let unreadBooks = 0;
     for (const bookName of selectedLoreBookNames()) {
@@ -302,21 +314,35 @@ export async function selectedEntriesWithoutKeys() {
             const entries = await loadDecidedEntries(bookName);
             if (entries.length) loaded.push({ bookName, entries });
         } catch (error) {
-            log.warn(`LoreBase: lorebook "${bookName}" could not be read, so its selected entries' keys were not counted:`, error);
+            log.warn(`LoreBase: lorebook "${bookName}" could not be read, so its selected entries' keys and vectors were not counted:`, error);
             unreadBooks += 1;
         }
     }
-    const keys = await readBookKeys(loaded.map(book => book.bookName));
-    const books = loaded
-        .map(({ bookName, entries }) => ({ bookName, entries: entries.filter(entry => !keys[bookName]?.[String(entry.uid)]
-            && writeStates.get(bookName)?.get(String(entry.uid))?.status !== 'writing') }))
-        .filter(book => book.entries.length);
-    const countOf = list => list.reduce((sum, book) => sum + book.entries.length, 0);
-    return { books, count: countOf(books), decidedCount: countOf(loaded), unreadBooks };
+    const bookNames = loaded.map(book => book.bookName);
+    const keys = await readBookKeys(bookNames);
+    const vectors = isRereading ? await readBookVectors(bookNames, settings) : await bookVectors(bookNames, settings);
+    let count = 0;
+    let readyCount = 0;
+    const books = [];
+    for (const { bookName, entries } of loaded) {
+        const withVectors = uidsWithCurrentVectors(bookName, entries, vectors.get(bookName), settings);
+        const hasKeys = entry => Boolean(keys[bookName]?.[uidOf(entry)]);
+        const keyEntries = entries.filter(entry => !hasKeys(entry) && writeStates.get(bookName)?.get(uidOf(entry))?.status !== 'writing');
+        const vectorEntries = entries.filter(entry => !withVectors.has(uidOf(entry)));
+        const lacking = new Set([...keyEntries, ...vectorEntries].map(uidOf));
+        count += lacking.size;
+        readyCount += entries.filter(entry => hasKeys(entry) && withVectors.has(uidOf(entry))).length;
+        if (lacking.size) books.push({ bookName, decidedEntries: entries, keyEntries, vectorEntries });
+    }
+    return { books, count, readyCount, decidedCount: loaded.reduce((sum, book) => sum + book.entries.length, 0), unreadBooks };
 }
 
-function writtenSummary({ written, failed, stopped }) {
-    const parts = [`Wrote the keys of ${written} ${written === 1 ? 'entry' : 'entries'}`];
+const entriesOf = count => `${count} ${count === 1 ? 'entry' : 'entries'}`;
+
+function writtenSummary({ keysWritten, vectorsWritten, failed, stopped }) {
+    const written = [keysWritten ? `the keys of ${entriesOf(keysWritten)}` : '', vectorsWritten ? `the vectors of ${entriesOf(vectorsWritten)}` : '']
+        .filter(Boolean).join(' and ');
+    const parts = [written ? `Wrote ${written}` : 'Wrote nothing'];
     if (failed) parts.push(`${failed} failed`);
     if (stopped) parts.push(`${stopped} stopped`);
     return parts.join('; ');
@@ -326,50 +352,70 @@ function writtenSummary({ written, failed, stopped }) {
 let panelRun = null;
 
 /**
- * Write the keys of the books' entries under VectFox's progress panel, brought to the front with its Stop, which drops
- * the entries not yet sent; then lock each book it wrote keys for where `lockPlace` says (lockKeyedBooks), and tell
- * the run listeners as it starts and ends. Each book's failures get its toast and the panel's list. Nothing to write
- * shows no panel.
+ * Write each book's keys, then its vectors, under VectFox's progress panel, brought to the front with its Stop, which
+ * drops what is not yet sent; then lock each book it wrote keys for where `lockPlace` says (lockKeyedBooks), and tell
+ * the run listeners as it starts and ends. An entry counts once on the panel, done when the last of what it lacked is
+ * written or fails; one whose keys fail or are stopped gets no vectors. Each book's failures get its toasts and the
+ * panel's list. Nothing to write shows no panel.
  * @param {object} settings - VectFox settings
- * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>} pending - What to write
+ * @param {{books: Array<{bookName: string, decidedEntries?: object[], keyEntries?: object[], vectorEntries?: object[]}>,
+ *   count: number, unreadBooks?: number}} pending - What to write
  * @param {{isRegenerating?: boolean, lockPlace?: ReturnType<typeof keyRunLockPlace>}} [options]
- * @returns {Promise<KeyRunOutcome>}
+ * @returns {Promise<WritingRunOutcome>}
  * @throws {Error} While another run is on the panel, which is brought to the front
  */
-async function writeKeysOnPanel(settings, { books, count, unreadBooks = 0 }, { isRegenerating = false, lockPlace = null } = {}) {
-    const outcome = { written: 0, failed: 0, stopped: 0, unreadBooks, chatLock: null };
+async function writeOnPanel(settings, { books, count, unreadBooks = 0 }, { isRegenerating = false, lockPlace = null } = {}) {
+    const outcome = { keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks, chatLock: null };
     if (!count) return outcome;
     if (panelRun) {
         progressTracker.reopen();
-        throw new Error('LoreBase is already writing keys on the progress panel. Wait for it, or press Stop there.');
+        throw new Error('LoreBase is already writing keys or vectors on the progress panel. Wait for it, or press Stop there.');
     }
-    const run = { isStopped: false };
+    const run = { isStopped: false, vectorProblem: null };
     panelRun = run;
     try {
         let done = 0;
+        const advance = failure => {
+            done += 1;
+            if (failure) progressTracker.addError(`${failure.title}: ${failure.detail.slice(0, 200)}`);
+            progressTracker.updateProgress(done);
+        };
         const keyedBookNames = [];
-        progressTracker.show('LoreBase keys', count, 'Entries', { unitLabel: 'Entries' });
+        progressTracker.show(isRegenerating ? 'LoreBase keys' : 'LoreBase keys and vectors', count, 'Entries', { unitLabel: 'Entries' });
         progressTracker.setCancelHandler(() => stopRun(run));
         callEach(runListeners, { count, outcome: null });
-        for (const { bookName, entries } of books) {
+        for (const { bookName, decidedEntries = [], keyEntries = [], vectorEntries = [] } of books) {
             if (run.isStopped) {
-                outcome.stopped += entries.length;
+                outcome.stopped += new Set([...keyEntries, ...vectorEntries].map(uidOf)).size;
                 continue;
             }
             progressTracker.updateCurrentItem(bookName);
-            const result = await writeKeys(bookName, entries, settings, {
-                isRegenerating,
+            const needsVectors = new Set(vectorEntries.map(uidOf));
+            if (keyEntries.length) {
+                const result = await writeKeys(bookName, keyEntries, settings, {
+                    isRegenerating,
+                    run,
+                    onEntryDone: (failure, entry) => {
+                        if (failure || !needsVectors.has(uidOf(entry))) advance(failure);
+                    },
+                });
+                outcome.keysWritten += result.written;
+                outcome.failed += result.failed;
+                outcome.stopped += result.stopped;
+                if (result.written) keyedBookNames.push(bookName);
+            }
+            // An entry whose keys failed or were stopped is counted already, and gets no vectors.
+            const keyed = storedKeys.get(bookName);
+            const vectorsToWrite = vectorEntries.filter(entry => keyed?.has(uidOf(entry)));
+            if (!vectorsToWrite.length) continue;
+            const result = await writeBookVectors(bookName, decidedEntries, vectorsToWrite, settings, {
                 run,
-                onEntryDone: failure => {
-                    done += 1;
-                    if (failure) progressTracker.addError(`${failure.title}: ${failure.detail.slice(0, 200)}`);
-                    progressTracker.updateProgress(done);
-                },
+                onEntryDone: (_entry, failure) => advance(failure),
             });
-            outcome.written += result.written;
-            outcome.failed += result.failed;
+            outcome.vectorsWritten += result.written;
+            outcome.failed += result.failures.length;
             outcome.stopped += result.stopped;
-            if (result.written) keyedBookNames.push(bookName);
+            showVectorFailures(bookName, result.failures);
         }
         outcome.chatLock = lockKeyedBooks(lockPlace, keyedBookNames);
         progressTracker.complete(!outcome.failed && !outcome.stopped, writtenSummary(outcome));
@@ -381,50 +427,54 @@ async function writeKeysOnPanel(settings, { books, count, unreadBooks = 0 }, { i
 }
 
 /**
- * Write the keys of every selected entry LoreBase decides, in every book with a selection, that has none, as turning
- * LoreBase on, closing the selection screen and Generate all keys ask (§5.2, §5.9), under the progress panel. Once
- * written, each book it wrote keys for is locked to the chat open as it started, where §6.1 of lorebook-multi-vector.md
- * says (lockKeyedBooks).
+ * Write the keys and vectors every selected entry LoreBase decides lacks, in every book with a selection, as turning
+ * LoreBase on, closing the selection screen and Generate all ask (§4.3 of lorebook-multi-vector.md), under the
+ * progress panel. Once written, each book it wrote keys for is locked to the chat open as it started, where §6.1 says
+ * (lockKeyedBooks).
  * @param {object} settings - VectFox settings
- * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>} [pending] - What to write, when the caller read it
+ * @param {Awaited<ReturnType<typeof selectedEntriesNotReady>>} [pending] - What to write, when the caller read it; else
+ *   read now, the vectors from Qdrant (Generate all)
  * @param {{booksWithChosenLocks?: Iterable<string>}} [options] - booksWithChosenLocks: the books whose lock the user set
  *   on the selection screen that started the run, which keep the locks the user set
- * @returns {Promise<KeyRunOutcome>}
- * @throws {Error} When Similharity cannot read the keys, or while another run is on the panel
+ * @returns {Promise<WritingRunOutcome>}
+ * @throws {Error} When Similharity cannot read the keys or vectors, or while another run is on the panel
  */
-export async function writeKeysOfSelections(settings, pending = null, { booksWithChosenLocks = [] } = {}) {
+export async function writeKeysAndVectorsOfSelections(settings, pending = null, { booksWithChosenLocks = [] } = {}) {
     const lockPlace = keyRunLockPlace(booksWithChosenLocks);
-    return writeKeysOnPanel(settings, pending ?? await selectedEntriesWithoutKeys(), { lockPlace });
+    return writeOnPanel(settings, pending ?? await selectedEntriesNotReady(settings, { isRereading: true }), { lockPlace });
 }
 
 /**
- * Regenerate keys: write the given entries' keys anew, hand-edited ones included, under the progress panel (D17).
- * Entries already being written are left to that writing. It locks no book.
+ * Regenerate keys: write the given entries' keys anew, hand-edited ones included, under the progress panel (D17). Their
+ * vectors stay as they are: they hold the entry's title and text, not its keys. Entries already being written are left
+ * to that writing. It locks no book.
  * @param {string} bookName
  * @param {object[]} entries - The book's entries, as loadWorldInfo returns them
  * @param {object} settings - VectFox settings
- * @returns {Promise<KeyRunOutcome>}
+ * @returns {Promise<WritingRunOutcome>}
  * @throws {Error} While another run is on the panel
  */
 export async function regenerateKeysOfEntries(bookName, entries, settings) {
     const wanted = entries.filter(entry => writeStates.get(bookName)?.get(String(entry.uid))?.status !== 'writing');
-    return writeKeysOnPanel(settings, { books: [{ bookName, entries: wanted }], count: wanted.length }, { isRegenerating: true });
+    return writeOnPanel(settings, { books: [{ bookName, keyEntries: wanted }], count: wanted.length }, { isRegenerating: true });
 }
 
 /**
- * Delete all keys: every LoreBase key of this SillyTavern user, in every book, the entries turned off included.
- * Selections stay, so the selected entries send nothing until their keys are written again. Refused while keys are
- * being written, which would put some back; the progress panel showing that writing is brought to the front.
+ * Delete all: every LoreBase vector and key of this SillyTavern user, in every book, the entries turned off included,
+ * the vectors first, which cost little to write again. Selections stay, so the selected entries send nothing until both
+ * are written again. Refused while a run writes, which would put some back; the progress panel showing it is brought
+ * to the front.
+ * @param {object} settings - VectFox settings
  * @returns {Promise<number>} How many entries' keys were deleted
- * @throws {Error} While keys are being written, or when Similharity cannot delete them
+ * @throws {Error} While a run writes, or when Similharity cannot delete them
  */
-export async function deleteAllKeys() {
+export async function deleteAllKeysAndVectors(settings) {
     const unwritten = runningCalls + queue.length;
-    if (unwritten) {
+    if (panelRun || unwritten) {
         progressTracker.reopen();
-        throw new Error(`LoreBase is still writing the keys of ${unwritten} ${unwritten === 1 ? 'entry' : 'entries'}; the `
-            + 'progress panel shows them. Press Stop there, or delete once it is done.');
+        throw new Error('LoreBase is still writing keys or vectors; the progress panel shows them. Press Stop there, or delete once it is done.');
     }
+    await deleteAllVectors(recordedLoreBookNames(), settings);
     const { deleted } = await postKeysRoute('delete', {});
     const bookNames = [...new Set([...storedKeys.keys(), ...writeStates.keys()])];
     storedKeys.clear();

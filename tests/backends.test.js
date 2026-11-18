@@ -756,6 +756,23 @@ describe('QdrantBackend', () => {
             expect(fetchMock).not.toHaveBeenCalled();
         });
 
+        it("routes a request whose settings name their own shared collection there, the collection as the tenant (LoreBase's, Q6)", async () => {
+            const ownShared = { ...defaultSettings, qdrant_multitenancy: true, qdrant_shared_collection: 'vf_lorebase_rabbit' };
+            const book = { content_type: 'vf_lorebase_qdrant_rabbit_harbor_atlas_1x' };
+            expect(qdrantTarget('vf_lorebase_qdrant_rabbit_harbor_atlas_1x', ownShared)).toEqual({ collectionId: 'vf_lorebase_rabbit', filters: book });
+            expect(qdrantTarget('vf_lorebase_qdrant_rabbit_harbor_atlas_1x', { ...ownShared, qdrant_shared_collection: null }))
+                .toEqual({ collectionId: 'vectfox_main', filters: book });
+
+            fetchMock.mockImplementation(async () => mockFetchResponse({ success: true, items: [] }));
+            await backend.purgeVectorIndex('vf_lorebase_qdrant_rabbit_harbor_atlas_1x', ownShared);
+            await backend.deleteVectorItems('vf_lorebase_qdrant_rabbit_harbor_atlas_1x', [5], ownShared);
+            await backend.insertVectorItems('vf_lorebase_qdrant_rabbit_harbor_atlas_1x', sampleItems, ownShared);
+            expect(bodyOf(0)).toMatchObject({ collectionId: 'vf_lorebase_rabbit', filters: book });
+            expect(bodyOf(1)).toMatchObject({ collectionId: 'vf_lorebase_rabbit', filters: book });
+            expect(bodyOf(2).collectionId).toBe('vf_lorebase_rabbit');
+            expect(bodyOf(2).items[0].metadata.content_type).toBe(book.content_type);
+        });
+
         it('purges a collection of its own whole, with no tenant, when the shared collection is off', async () => {
             fetchMock.mockResolvedValueOnce(mockFetchResponse({ success: true }));
 
@@ -819,6 +836,17 @@ describe('QdrantBackend', () => {
             const [sent] = JSON.parse(fetchMock.mock.calls[0][1].body).items;
             expect(sent.text).toBe('The gate stood open. [KEYWORDS: gate]');
             expect(sent.metadata).toMatchObject({ keywords: [{ text: 'gate', weight: 1.5 }], importance: 7, event_type: 'discovery', window_event_order: 2 });
+        });
+
+        it('sends the point ID a caller chose, and none when it chose none, so Similharity stores the point under its hash', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({}));
+            const chosen = { hash: 91, text: 'Buoy\nA single red buoy marks the reef.', id: '0c5ad2e1-3f4b-8a1c-9d2e-112233445566' };
+
+            await backend.insertVectorItems('vf_chat_abc123', [chosen, sampleItems[0]], defaultSettings);
+
+            const items = JSON.parse(fetchMock.mock.calls[0][1].body).items;
+            expect(items[0].id).toBe(chosen.id);
+            expect('id' in items[1]).toBe(false);
         });
 
         it('should add content_type in multitenancy mode', async () => {

@@ -5,11 +5,12 @@
  * plans/lorebook-semantic-overhaul-passage-index.md), driven as a user would while it is open: it opens on the chat's
  * book with the chat's books first; each row's toggle, a category's toggle and the bulk bar save the selection at
  * once; ticks follow the filters and shift-click; a row's eye button shows its entry and saves nothing; the locks and
- * the pins save; opening a book keeps its uids for the new marks and drops deleted ones from the selection. Turning
- * entries on only selects them, writing no keys and needing no model; once the screen closes while LoreBase is on, it
- * asks to write the selected entries' missing keys under the progress panel, and while LoreBase is off asks nothing.
- * Each selected row shows where its keys stand, and Regenerate keys writes the ticked entries' keys anew on the panel
- * (D17).
+ * the pins save; opening a book keeps its uids for the new marks, drops deleted ones from the selection and reads its
+ * vectors from Qdrant again. Turning entries on only selects them, writing no keys and needing no model; once the screen
+ * closes, it deletes the vectors of the entries turned off, and while LoreBase is on asks to write the keys and vectors
+ * the selected entries lack under the progress panel, turning LoreBase off on no only when no entry is ready (§4.3 and
+ * §4.4 of InternalProject/Vectfox/plans/lorebook-multi-vector.md); while LoreBase is off it asks nothing. Each selected
+ * row shows where its keys stand, and Regenerate keys writes the ticked entries' keys anew on the panel (D17).
  */
 /* global document, MouseEvent -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,7 +23,9 @@ const host = vi.hoisted(() => ({
     // counts once the screen closes, and the writings asked.
     keyStates: new Map(), keyProblem: null, keyListeners: new Set(), pending: null,
     regenerateKeys: vi.fn(), saveEditedKeys: vi.fn(), regenerateKeysOfEntries: vi.fn(async () => ({})),
-    writeKeysOfSelections: vi.fn(async () => ({})), selectedEntriesWithoutKeys: vi.fn(async () => host.pending),
+    writeKeysAndVectorsOfSelections: vi.fn(async () => ({})), selectedEntriesNotReady: vi.fn(async () => host.pending),
+    // The vectors: the books read as the screen opens one, and those pruned as it closes.
+    readBookVectors: vi.fn(async () => new Map()), pruneBookVectors: vi.fn(async () => {}),
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
@@ -63,9 +66,10 @@ vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     regenerateKeys: host.regenerateKeys,
     saveEditedKeys: host.saveEditedKeys,
     regenerateKeysOfEntries: host.regenerateKeysOfEntries,
-    writeKeysOfSelections: host.writeKeysOfSelections,
-    selectedEntriesWithoutKeys: host.selectedEntriesWithoutKeys,
+    writeKeysAndVectorsOfSelections: host.writeKeysAndVectorsOfSelections,
+    selectedEntriesNotReady: host.selectedEntriesNotReady,
 }));
+vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({ readBookVectors: host.readBookVectors, pruneBookVectors: host.pruneBookVectors }));
 
 const { notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
 const { openLoreBaseSelection } = await import('../src/features/lorebase/lorebase-selection-screen.js');
@@ -110,9 +114,11 @@ beforeEach(() => {
     host.formPopup.mockReset();
     host.confirmPopup.mockReset();
     host.regenerateKeysOfEntries.mockClear();
-    host.writeKeysOfSelections.mockClear();
-    host.selectedEntriesWithoutKeys.mockClear();
-    host.pending = { books: [], count: 0, decidedCount: 0, unreadBooks: 0 };
+    host.writeKeysAndVectorsOfSelections.mockClear();
+    host.selectedEntriesNotReady.mockClear();
+    host.readBookVectors.mockClear();
+    host.pruneBookVectors.mockClear();
+    host.pending = { books: [], count: 0, readyCount: 0, decidedCount: 0, unreadBooks: 0 };
     host.regenerateKeys.mockReset();
     host.saveEditedKeys.mockReset();
     vi.mocked(notifyInvalidModel).mockClear();
@@ -150,7 +156,7 @@ describe('keys (D17)', () => {
         await openScreen();
         entryToggle('1').click();
         expect(record().selectedUids).toEqual(['1']);
-        expect([host.regenerateKeysOfEntries.mock.calls, host.writeKeysOfSelections.mock.calls]).toEqual([[], []]);
+        expect([host.regenerateKeysOfEntries.mock.calls, host.writeKeysAndVectorsOfSelections.mock.calls]).toEqual([[], []]);
         expect(rowText('1')).toContain('No keys yet');
         expect($id('vectfox_lorebase_summary').textContent).toMatch(/Closing this screen asks to write the missing ones\.$/);
 
@@ -171,7 +177,7 @@ describe('keys (D17)', () => {
         tickBox('4').click();
         actionButton('turn-on').click();
         expect(record().selectedUids).toEqual(['0', '1', '4']);
-        expect([host.regenerateKeysOfEntries.mock.calls, host.writeKeysOfSelections.mock.calls]).toEqual([[], []]);
+        expect([host.regenerateKeysOfEntries.mock.calls, host.writeKeysAndVectorsOfSelections.mock.calls]).toEqual([[], []]);
     });
 
     it("shows a failed entry's reason on its row", async () => {
@@ -319,7 +325,7 @@ describe('keys (D17)', () => {
     });
 });
 
-describe('closing the screen (D17)', () => {
+describe('closing the screen (D17, §4.3 and §4.4 of lorebook-multi-vector.md)', () => {
     const closeAndAnswer = async () => {
         const opened = openLoreBaseSelection();
         await vi.waitFor(() => expect(rowUids().length).toBeGreaterThan(0));
@@ -327,17 +333,21 @@ describe('closing the screen (D17)', () => {
         host.closeScreen();
         return opened;
     };
-    const missingTwo = { books: [{ bookName: 'Harbor Atlas', entries: [{ uid: 1 }, { uid: 4 }] }], count: 2, decidedCount: 5, unreadBooks: 0 };
+    const missingTwo = {
+        books: [{ bookName: 'Harbor Atlas', decidedEntries: [{ uid: 1 }, { uid: 4 }], keyEntries: [{ uid: 1 }], vectorEntries: [{ uid: 1 }, { uid: 4 }] }],
+        count: 2, readyCount: 0, decidedCount: 5, unreadBooks: 0,
+    };
+    const someReady = { ...missingTwo, readyCount: 3 };
 
-    it('asks to write the missing keys while LoreBase is on, and writes them under the progress panel on Write keys', async () => {
+    it('asks to write the missing keys and vectors while LoreBase is on, and writes them under the progress panel on yes', async () => {
         host.pending = missingTwo;
         host.confirmPopup.mockResolvedValueOnce(true);
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: true });
         const [lines, buttons] = host.confirmPopup.mock.calls[0];
-        expect(lines[1]).toEqual({ text: 'Selected entries with no keys:', name: '2' });
+        expect(lines[1]).toEqual({ text: 'Selected entries without keys or vectors:', name: '2' });
         expect(lines.at(-1).text).toBe('Write them now? A progress panel shows the writing. Without them, LoreBase turns off.');
-        expect(buttons).toEqual({ okButton: 'Write keys', cancelButton: 'Turn LoreBase off' });
-        expect(host.writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo, { booksWithChosenLocks: [] });
+        expect(buttons).toEqual({ okButton: 'Write keys and vectors', cancelButton: 'Turn LoreBase off' });
+        expect(host.writeKeysAndVectorsOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo, { booksWithChosenLocks: [] });
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
     });
 
@@ -355,57 +365,100 @@ describe('closing the screen (D17)', () => {
         host.closeScreen();
 
         expect(await opened).toEqual({ missingCount: 2, decidedCount: 5, isWriting: true });
-        expect(host.writeKeysOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo, { booksWithChosenLocks: ['Harbor Atlas'] });
+        expect(host.writeKeysAndVectorsOfSelections).toHaveBeenCalledWith(host.settings.vectfox, missingTwo, { booksWithChosenLocks: ['Harbor Atlas'] });
         expect(record().lockedToChatIds).toEqual([]);
     });
 
-    it('writes nothing on Turn LoreBase off, turns it off, and says how many are missing', async () => {
+    it('writes nothing on Turn LoreBase off with no entry ready, turns it off, and says how many are missing', async () => {
         host.pending = missingTwo;
         host.confirmPopup.mockResolvedValueOnce(false);
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
-        expect(host.writeKeysOfSelections).not.toHaveBeenCalled();
+        expect(host.writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
         expect(host.settings.vectfox.lorebase_enabled).toBe(false);
     });
 
-    it('asks nothing when every selected entry has keys, and keeps LoreBase on', async () => {
-        host.pending = { books: [], count: 0, decidedCount: 5, unreadBooks: 0 };
+    it('keeps LoreBase on with the ready entries on Not now, writing nothing', async () => {
+        host.pending = someReady;
+        host.confirmPopup.mockResolvedValueOnce(false);
+        expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
+        const [lines, buttons] = host.confirmPopup.mock.calls[0];
+        expect(lines.at(-1).text).toBe('Write them now? A progress panel shows the writing. Until they are written, LoreBase goes on with the 3 entries that are ready.');
+        expect(buttons).toEqual({ okButton: 'Write keys and vectors', cancelButton: 'Not now' });
+        expect(host.writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
+        expect(host.settings.vectfox.lorebase_enabled).toBe(true);
+    });
+
+    it('asks nothing when every selected entry is ready, and keeps LoreBase on', async () => {
+        host.pending = { books: [], count: 0, readyCount: 5, decidedCount: 5, unreadBooks: 0 };
         expect(await closeAndAnswer()).toEqual({ missingCount: 0, decidedCount: 5, isWriting: false });
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
         expect(host.confirmPopup).not.toHaveBeenCalled();
     });
 
-    it('while LoreBase is off, counts the missing keys for the books card and asks nothing', async () => {
+    it('while LoreBase is off, counts what is missing for the books card and asks nothing', async () => {
         host.settings.vectfox.lorebase_enabled = false;
         host.pending = missingTwo;
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
         expect(host.confirmPopup).not.toHaveBeenCalled();
         expect(host.noticePopup).not.toHaveBeenCalled();
-        expect(host.writeKeysOfSelections).not.toHaveBeenCalled();
+        expect(host.writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
     });
 
-    it('turns LoreBase off, saying why, when the keys cannot be read; while it is off, says nothing', async () => {
+    it('turns LoreBase off, saying why, when the keys and vectors cannot be read; while it is off, says nothing', async () => {
         const failure = new Error("Similharity could not read LoreBase's keys (HTTP 500): Qdrant is down");
-        host.selectedEntriesWithoutKeys.mockRejectedValueOnce(failure);
+        host.selectedEntriesNotReady.mockRejectedValueOnce(failure);
         expect(await closeAndAnswer()).toBeNull();
         expect(host.noticePopup.mock.calls[0][0]).toEqual([
-            { icon: 'fa-key', text: 'LoreBase could not read the keys of its selected entries, so it turns off.' },
+            { icon: 'fa-key', text: 'LoreBase could not read the keys and vectors of its selected entries, so it turns off.' },
             { name: failure.message },
         ]);
         expect(host.settings.vectfox.lorebase_enabled).toBe(false);
 
-        host.selectedEntriesWithoutKeys.mockRejectedValueOnce(failure);
+        host.selectedEntriesNotReady.mockRejectedValueOnce(failure);
         expect(await closeAndAnswer()).toBeNull();
         expect(host.noticePopup).toHaveBeenCalledTimes(1);
     });
 
-    it("says why when LoreBase's model cannot write the missing keys yet, asks nothing, and turns LoreBase off", async () => {
+    it("says why when LoreBase's model cannot write the missing keys yet, asks nothing, and turns LoreBase off with no entry ready", async () => {
         host.pending = missingTwo;
         host.keyProblem = 'Choose a model for LoreBase first.';
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, decidedCount: 5, isWriting: false });
         expect(host.confirmPopup).not.toHaveBeenCalled();
-        expect(host.noticePopup.mock.calls[0][0]).toContainEqual({ text: "LoreBase's model cannot write them yet, so LoreBase turns off." });
+        expect(host.noticePopup.mock.calls[0][0]).toContainEqual({ text: "LoreBase's model cannot write their keys yet. Without them, LoreBase turns off." });
         expect(host.noticePopup.mock.calls[0][0].at(-1)).toEqual({ name: 'Choose a model for LoreBase first.' });
         expect(host.settings.vectfox.lorebase_enabled).toBe(false);
+    });
+
+    it('keeps LoreBase on with the ready entries when its model cannot write the missing keys yet', async () => {
+        host.pending = someReady;
+        host.keyProblem = 'Choose a model for LoreBase first.';
+        await closeAndAnswer();
+        expect(host.noticePopup.mock.calls[0][0]).toContainEqual({
+            text: "LoreBase's model cannot write their keys yet. Until they are written, LoreBase goes on with the 3 entries that are ready.",
+        });
+        expect(host.settings.vectfox.lorebase_enabled).toBe(true);
+    });
+
+    it("on Qdrant, reads the shown book's vectors as it opens and deletes the vectors of entries turned off as it closes", async () => {
+        host.settings.vectfox.vector_backend = 'qdrant';
+        await closeAndAnswer();
+        expect(host.readBookVectors).toHaveBeenCalledWith(['Harbor Atlas'], host.settings.vectfox);
+        expect(host.pruneBookVectors).toHaveBeenCalledWith('Harbor Atlas', host.settings.vectfox);
+    });
+
+    it('prunes no book whose selection did not change, and reads no vectors off Qdrant', async () => {
+        host.settings.vectfox.vector_backend = 'qdrant';
+        const opened = openLoreBaseSelection();
+        await vi.waitFor(() => expect(rowUids().length).toBeGreaterThan(0));
+        host.closeScreen();
+        await opened;
+        expect(host.pruneBookVectors).not.toHaveBeenCalled();
+
+        host.settings.vectfox.vector_backend = 'standard';
+        host.readBookVectors.mockClear();
+        await closeAndAnswer();
+        expect(host.readBookVectors).not.toHaveBeenCalled();
+        expect(host.pruneBookVectors).not.toHaveBeenCalled();
     });
 });
 

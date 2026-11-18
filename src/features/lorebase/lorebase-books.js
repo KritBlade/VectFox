@@ -49,6 +49,14 @@ export async function loadDecidedEntries(bookName, record = getLoreBook(bookName
 }
 
 /**
+ * The names of every book with a record: each one LoreBase may have keys or vectors for.
+ * @returns {string[]}
+ */
+export function recordedLoreBookNames() {
+    return Object.keys(extension_settings.vectfox[BOOKS_KEY] ?? {});
+}
+
+/**
  * The names of the books with entries selected for LoreBase, as their records hold them.
  * @returns {string[]}
  */

@@ -6,7 +6,7 @@ This screen is where you tell LoreBase which lorebook entries it decides. Every 
 
 You open it from VectFox's **WorldInfo** page. In the **LoreBase books** card, **Choose entries** opens the first book of your chat, and the list button on a book's row opens that book.
 
-3 things have to be set first. **Use LoreBase** is on, the **LoreBase model** card has a model, and SillyTavern's Vector Storage has **Enabled for World Info** off. VectFox asks about that last one when you turn LoreBase on.
+4 things have to be set first. **Use LoreBase** is on, the **LoreBase model** card has a model, VectFox's embedding model works (**Core** > **Embedding**, the same one your chat memory uses), and SillyTavern's Vector Storage has **Enabled for World Info** off. VectFox asks about that last one when you turn LoreBase on.
 
 ## What turning an entry on does
 
@@ -23,6 +23,16 @@ On one of my test chats, the keys fired 8 of the entries I gave LoreBase, 5,729 
 In the prompt, everything LoreBase sends sits inside one `<VectLorebook>` block, each entry in a tag named after it, like `<Lighthouse_of_Vell>`. So you can tell it apart from SillyTavern's own entries, and so can the AI.
 
 The screen calls the LoreBase model "Luna", since GPT-6 Luna is the model I tested it on.
+
+## Keys and vectors
+
+An entry you turn on takes part only once it has 2 things. Its keys, which the LoreBase model writes, one call per entry. And its vectors, which VectFox's embedding model writes from the entry's title and text.
+
+So when you close this screen with new entries on, VectFox asks to write them, and a progress panel counts them. Until an entry has both, it sends nothing. The entries that are ready keep working meanwhile.
+
+Say "Not now", and LoreBase goes on with the ready ones. It only turns off when no entry is ready at all. **Generate all** on the WorldInfo page writes whatever is missing later.
+
+You don't have to keep them up to date. Edit an entry in World Info, and VectFox writes the vectors of the parts you changed again by itself. Turn an entry off, and its vectors are deleted when you close this screen. Its keys stay, in case you turn it back on.
 
 ## Ticked is NOT on
 
@@ -44,7 +54,7 @@ Turning entries on says WHICH entries LoreBase decides. Locking the book says WH
 - **Lock to this chat**: LoreBase decides this book's entries in the chat you have open.
 - **Lock to this character**: the same in every chat with this character.
 
-You don't have to lock the chat yourself. Once LoreBase writes the keys of the entries you turned on, it locks their book to the chat you have open. That's when you close this screen and press **Write keys**, turn on **Use LoreBase**, or press **Generate all keys**. The line under Generate all keys tells you, like `Locked "Harbor Atlas" to this chat.`
+You don't have to lock the chat yourself. Once LoreBase writes the keys of the entries you turned on, it locks their book to the chat you have open. That's when you close this screen and press **Write keys and vectors**, turn on **Use LoreBase**, or press **Generate all**. The line under Generate all tells you, like `Locked "Harbor Atlas" to this chat.`
 
 A book already locked to this chat or this character stays as it is. And if you changed a lock on this screen, closing it keeps your choice, so a lock you turned off there stays off. Locking to the character is always your call.
 

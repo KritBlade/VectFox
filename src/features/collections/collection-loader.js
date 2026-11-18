@@ -23,6 +23,7 @@ import {
 import { log } from '../../sillytavern/log.js';
 // Import from collection-ids.js - single source of truth for collection ID operations
 import {
+    COLLECTION_PREFIXES,
     parseCollectionId,
     parseRegistryKey,
     buildRegistryKey,
@@ -31,14 +32,21 @@ import {
 import { checkPluginAvailable, isPluginDetected, resetPluginAvailableCache } from '../../shared/similharity-plugin.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 
+// getCollectionFilterReason's reason for LoreBase's vectors, which registerCollection skips too.
+const LOREBASE_VECTORS_REASON = 'lorebase-vectors';
+
 /**
  * Detect collection IDs that VECTFOX should NOT register or query.
- * Two categories:
- *   1. Prefix-stacked corruption — IDs that start with a known backend name without
+ * Four categories:
+ *   1. Internal system collections — IDs starting with "__vectfox_" (health checks, test indexes).
+ *   2. LoreBase's vectors — IDs starting with "vf_lorebase_": each lorebook's points and the account's own Qdrant
+ *      collection that holds them when "One shared collection" is off. LoreBase's tab keeps them; a collection of the
+ *      registry would show in the Database Browser with locks and a Delete that mean nothing to them.
+ *   3. Prefix-stacked corruption — IDs that start with a known backend name without
  *      a colon separator (e.g. "vectraopenrouterfile_xxx"). These come from a prior
  *      bug where the registry key was used as the on-disk collection name. The
  *      filesystem stripped colons, leaving folders that get re-discovered each load.
- *   2. ST-native file attachments — IDs starting with "file_<digits>". Created by
+ *   4. ST-native file attachments — IDs starting with "file_<digits>". Created by
  *      SillyTavern's built-in Vector Storage extension when files are attached to
  *      chat. VECTFOX can't usefully retrieve from them (different embedding model
  *      and lifecycle) and they pollute the query path.
@@ -54,13 +62,18 @@ export function getCollectionFilterReason(collectionId) {
         return 'internal-system';
     }
 
-    // (2) Stacked-prefix corruption. Real collection IDs never start with a backend
+    // (2) LoreBase's vectors, which its own tab keeps.
+    if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_LOREBASE)) {
+        return LOREBASE_VECTORS_REASON;
+    }
+
+    // (3) Stacked-prefix corruption. Real collection IDs never start with a backend
     // name; backend is only used in the registry key with colon separators.
     if (/^(vectra|qdrant|standard)(?![:_])/i.test(collectionId)) {
         return 'corrupted-prefix-stacked';
     }
 
-    // (3) ST-native file attachments — `file_` followed by digits.
+    // (4) ST-native file attachments — `file_` followed by digits.
     if (/^file_\d+$/.test(collectionId)) {
         return 'st-native-file';
     }
@@ -96,6 +109,8 @@ export function registerCollection(collectionId) {
         log.warn('VectFox: Attempted to register null/undefined collectionId, skipping');
         return;
     }
+    // LoreBase's vectors go through the same insert as every collection, which registers what it inserts into.
+    if (getCollectionFilterReason(parseRegistryKey(collectionId).collectionId) === LOREBASE_VECTORS_REASON) return;
     const registry = getCollectionRegistry();
     const isNew = !registry.includes(collectionId);
     if (isNew) {

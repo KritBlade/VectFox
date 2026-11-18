@@ -1,68 +1,78 @@
 /**
- * The one question before LoreBase writes the keys of its selected entries that have none (plan D17 and §5.2 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md). Turning LoreBase on and closing the
- * selection screen while it is on both ask it here, under one rule: LoreBase is on only while every selected entry it
- * decides has its keys or is having them written. So it may be on when none are missing or when the user says Write
- * keys, and is off when the keys cannot be read, when LoreBase's model cannot write them yet, or when the user declines;
- * each caller sets the switch from the answer. A writing that does not start, as while another run is on the progress
- * panel, says why in a notice.
+ * The one question before LoreBase writes what its selected entries lack: keys and vectors (plan D17 and §5.2 of
+ * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md, §4.3 and §4.4 of InternalProject/Vectfox/
+ * plans/lorebook-multi-vector.md). Turning LoreBase on and closing the selection screen while it is on both ask it here,
+ * under one rule: LoreBase stays on while any selected entry is ready, with its keys and vectors, and a book whose
+ * entries are not ready waits. So it may be on when nothing is missing, when the user says to write them, or when some
+ * entry is ready whatever the answer; it is off when the keys or vectors cannot be read, and when no entry is ready and
+ * the user declines or LoreBase's model cannot write keys yet. Each caller sets the switch from the answer. A writing
+ * that does not start, as while another run is on the progress panel, says why in a notice.
  */
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup, noticePopup } from '../../sillytavern/popup.js';
 import { extension_settings } from '../../sillytavern/settings.js';
-import { missingKeysLines } from './lorebase-keys-core.js';
-import { keyWritingProblem, selectedEntriesWithoutKeys, writeKeysOfSelections } from './lorebase-keys.js';
+import { missingKeysAndVectorsLines } from './lorebase-keys-core.js';
+import { keyWritingProblem, selectedEntriesNotReady, writeKeysAndVectorsOfSelections } from './lorebase-keys.js';
+
+const readyEntries = count => `${count.toLocaleString('en-US')} ${count === 1 ? 'entry that is' : 'entries that are'} ready`;
 
 /**
- * Read the selected entries with no keys and, when there are any, ask to write them; say why when they cannot be read
- * or written.
- * @param {{isTurningOn: boolean}} options - Whether LoreBase is being turned on, so it stays off without the keys, or is
- *   on, so it turns off
- * @returns {Promise<{canBeOn: boolean, pending: Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>|null}>}
- *   Whether LoreBase may be on (none missing, or the user said Write keys), and what was read, null when it could not be
+ * Read what the selected entries lack and, when any lack keys or vectors, ask to write them; say why when they cannot
+ * be read or written. Turning LoreBase on reads the vectors from Qdrant again, so edits made while SillyTavern was
+ * closed are found.
+ * @param {{isTurningOn: boolean}} options - Whether LoreBase is being turned on, so it stays off without a ready entry,
+ *   or is on, so it turns off without one
+ * @returns {Promise<{canBeOn: boolean, shouldWrite: boolean, pending: Awaited<ReturnType<typeof selectedEntriesNotReady>>|null}>}
+ *   Whether LoreBase may be on (nothing missing, the user said to write it, or some entry ready), whether to write what
+ *   is missing, and what was read, null when it could not be
  */
-export async function askToWriteMissingKeys({ isTurningOn }) {
+export async function askToWriteMissingKeysAndVectors({ isTurningOn }) {
     const offWord = isTurningOn ? 'stays off' : 'turns off';
     let pending;
     try {
-        pending = await selectedEntriesWithoutKeys();
+        pending = await selectedEntriesNotReady(extension_settings.vectfox, { isRereading: isTurningOn });
     } catch (error) {
-        log.warn(`LoreBase: the keys of its selected entries could not be read, so it ${offWord}:`, error);
+        log.warn(`LoreBase: the keys and vectors of its selected entries could not be read, so it ${offWord}:`, error);
         await noticePopup([
-            { icon: 'fa-key', text: `LoreBase could not read the keys of its selected entries, so it ${offWord}.` },
+            { icon: 'fa-key', text: `LoreBase could not read the keys and vectors of its selected entries, so it ${offWord}.` },
             { name: String(error?.message || error) },
         ]);
-        return { canBeOn: false, pending: null };
+        return { canBeOn: false, shouldWrite: false, pending: null };
     }
-    if (!pending.count) return { canBeOn: true, pending };
+    if (!pending.count) return { canBeOn: true, shouldWrite: false, pending };
+    const isAnyReady = pending.readyCount > 0;
+    const meanwhile = isAnyReady
+        ? `Until they are written, LoreBase goes on with the ${readyEntries(pending.readyCount)}.`
+        : `Without them, LoreBase ${offWord}.`;
     const problem = keyWritingProblem(extension_settings.vectfox);
     if (problem) {
         await noticePopup([
-            ...missingKeysLines(pending.count),
-            { text: `LoreBase's model cannot write them yet, so LoreBase ${offWord}.` },
+            ...missingKeysAndVectorsLines(pending.count),
+            { text: `LoreBase's model cannot write their keys yet. ${meanwhile}` },
             { name: problem },
         ]);
-        return { canBeOn: false, pending };
+        return { canBeOn: isAnyReady, shouldWrite: false, pending };
     }
-    const canBeOn = await confirmPopup([
-        ...missingKeysLines(pending.count),
-        { text: `Write them ${isTurningOn ? 'and turn LoreBase on' : 'now'}? A progress panel shows the writing. Without them, LoreBase ${offWord}.` },
-    ], { okButton: 'Write keys', cancelButton: isTurningOn ? 'Leave off' : 'Turn LoreBase off' });
-    return { canBeOn, pending };
+    const shouldWrite = await confirmPopup([
+        ...missingKeysAndVectorsLines(pending.count),
+        { text: `Write them ${isTurningOn ? 'and turn LoreBase on' : 'now'}? A progress panel shows the writing. ${meanwhile}` },
+    ], { okButton: 'Write keys and vectors', cancelButton: isAnyReady ? 'Not now' : (isTurningOn ? 'Leave off' : 'Turn LoreBase off') });
+    return { canBeOn: shouldWrite || isAnyReady, shouldWrite, pending };
 }
 
 /**
- * Write the keys askToWriteMissingKeys read as missing, under the progress panel, once LoreBase is on; the books it
- * writes keys for lock to the open chat (writeKeysOfSelections). A writing that does not start says why in a notice.
- * @param {Awaited<ReturnType<typeof selectedEntriesWithoutKeys>>|null} pending
+ * Write the keys and vectors askToWriteMissingKeysAndVectors read as missing, under the progress panel, once LoreBase is
+ * on; the books it writes keys for lock to the open chat (writeKeysAndVectorsOfSelections). A writing that does not
+ * start says why in a notice.
+ * @param {Awaited<ReturnType<typeof selectedEntriesNotReady>>|null} pending
  * @param {{booksWithChosenLocks?: Iterable<string>}} [options] - booksWithChosenLocks: the books whose lock the user set
  *   on the selection screen whose closing asked, which keep the locks the user set
- * @returns {boolean} Whether a writing was started: false when none are missing
+ * @returns {boolean} Whether a writing was started: false when nothing is missing
  */
-export function writeMissingKeys(pending, { booksWithChosenLocks = [] } = {}) {
+export function writeMissingKeysAndVectors(pending, { booksWithChosenLocks = [] } = {}) {
     if (!pending?.count) return false;
-    writeKeysOfSelections(extension_settings.vectfox, pending, { booksWithChosenLocks }).catch(error => {
-        log.warn("LoreBase: the selected entries' keys were not written:", error);
+    writeKeysAndVectorsOfSelections(extension_settings.vectfox, pending, { booksWithChosenLocks }).catch(error => {
+        log.warn("LoreBase: the selected entries' keys and vectors were not written:", error);
         void noticePopup([{ icon: 'fa-key', text: String(error?.message || error) }]);
     });
     return true;

@@ -340,6 +340,9 @@ export class QdrantBackend extends VectorBackend {
                         }
 
                         return {
+                            // The point ID, when the caller chose one (LoreBase's, a UUID per book and part); Similharity
+                            // stores the point under its hash otherwise.
+                            id: item.id,
                             hash: item.hash,
                             text: textWithKeywords,
                             index: item.index,
