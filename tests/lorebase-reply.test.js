@@ -135,6 +135,8 @@ const answer = entries => ({ content: JSON.stringify({ entries }), cutReason: nu
 const pickOf = (...numbers) => answer(numbers.map(number => ({ number, basis: 'named in the chat', certain: true, why: 'it is asked after', needs: 'who keeps it' })));
 const reviewOf = (uses, leaveOut = []) => answer([{ entry: 1, uses, leave_out: leaveOut }]);
 const userContent = callIndex => postChatCompletion.mock.calls[callIndex][0].messages[1].content;
+// The pick's table of contents: all of its system prompt after the table's opening line, so the table ends it.
+const pickTable = callIndex => postChatCompletion.mock.calls[callIndex][0].messages[0].content.split('number and title.\n\n')[1];
 
 let settings;
 beforeEach(() => {
@@ -311,7 +313,7 @@ describe('the books taking part (D11)', () => {
         postChatCompletion.mockResolvedValue(pickOf());
         await prepareLoreForReply('normal', settings);
 
-        expect(userContent(0)).toContain("number and title.\n\n1. Tidewardens (keys of Tidewardens)\n2. Lamp Rules (keys of Lamp Rules)\n\nPick the entries");
+        expect(pickTable(0)).toBe('1. Tidewardens (keys of Tidewardens)\n2. Lamp Rules (keys of Lamp Rules)');
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas', 'Keeper Notes']);
     });
 
@@ -320,7 +322,7 @@ describe('the books taking part (D11)', () => {
         postChatCompletion.mockResolvedValue(pickOf());
         await prepareLoreForReply('normal', settings);
 
-        expect(userContent(0)).toContain('number and title.\n\n1. Tidewardens (keys of Tidewardens)\n\nPick the entries');
+        expect(pickTable(0)).toBe('1. Tidewardens (keys of Tidewardens)');
     });
 
     it('runs no pick when no selected entry has keys', async () => {

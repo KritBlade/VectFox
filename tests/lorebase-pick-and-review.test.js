@@ -1,8 +1,8 @@
 /**
  * LoreBase's pick and review (plan §5.6 and D6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md)
  * ask GPT-6 Luna the route trials' prompts word for word, and read its answers as the trials did. The fixture holds
- * made-up inputs and the prompts route_trials.py itself renders from them; InternalProject/Vectfox/tools/
- * lorebase-benchmark/export_trial_prompts.py writes it.
+ * made-up inputs and the prompts route_trials.py and segment_trials.py themselves render from them; InternalProject/
+ * Vectfox/tools/lorebase-benchmark/export_trial_prompts.py writes it.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -17,7 +17,7 @@ describe("the trials' prompts, word for word", () => {
     const scene = sceneText(fixture.messages);
     const contents = tableOfContents([{ bookName: fixture.bookName, entries: fixture.entries }]);
 
-    it('asks the pick what route_trials.py asked', () => {
+    it("asks the pick what T28's luna_keys_table_in_system asked: toc_focus with the table of contents at the end of the system prompt", () => {
         expect(pickMessages(scene, contents)).toEqual([
             { role: 'system', content: fixture.pick.system },
             { role: 'user', content: fixture.pick.prompt },

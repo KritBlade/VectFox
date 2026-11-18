@@ -170,11 +170,11 @@ describe("a reply's pick and reviews", () => {
         ]);
     });
 
-    it("shows each entry's keys after its title in the pick", async () => {
+    it("shows each entry's keys after its title in the pick's table, which ends its system prompt", async () => {
         const keyed = { ...harborAtlas, keysByUid: { 0: ['lighthouse', 'Keeper Orrin'], 1: ['tidewardens', 'harbor bells'] } };
         const ask = vi.fn(async () => []);
         await loreForReply({ scene, books: [keyed], reviewEffort: 'low', ask });
-        expect(ask.mock.calls[0][0][1].content).toContain('1. Lighthouse of Vell (lighthouse, Keeper Orrin)\n2. Tidewardens (tidewardens, harbor bells)\n');
+        expect(ask.mock.calls[0][0][0].content.endsWith('\n\n1. Lighthouse of Vell (lighthouse, Keeper Orrin)\n2. Tidewardens (tidewardens, harbor bells)')).toBe(true);
     });
 
     it('asks no review when the pick names none', async () => {

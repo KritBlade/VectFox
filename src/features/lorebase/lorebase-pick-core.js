@@ -2,9 +2,9 @@
  * LoreBase's pick (plan §5.6 and D6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * GPT-6 Luna reads the scene and the titles of the selected entries, each followed by the keys LoreBase's model wrote
  * for it (D17), and picks the entries the next reply needs. The prompt is the route trials' toc_focus word for word
- * (InternalProject/Vectfox/tools/lorebase-benchmark/route_trials.py), its lines T20's luna_keys lines
- * (segment_trials.py); tests/lorebase-pick-and-review.test.js holds it to the trials' own rendering. Pure: no
- * SillyTavern, no network.
+ * (InternalProject/Vectfox/tools/lorebase-benchmark/route_trials.py), with the table of contents at the end of the
+ * system prompt as T28's luna_keys_table_in_system asked it, its lines T20's luna_keys lines (segment_trials.py);
+ * tests/lorebase-pick-and-review.test.js holds it to the trials' own rendering. Pure: no SillyTavern, no network.
  */
 import { chatHead } from './lorebase-scene-core.js';
 import { entryTitle } from './lorebase-splitter.js';
@@ -58,16 +58,19 @@ export function contentsLine({ title, keys = [] }) {
 }
 
 /**
- * The pick's messages for a turn: the scene, then one line per entry of the table of contents, its number, title and
- * keys.
+ * The pick's messages for a turn: the system prompt ending with the table of contents, one line per entry, its number,
+ * title and keys; then the scene and the instructions. The table stays the same from turn to turn while the selection,
+ * the titles and the keys do, and a provider reads its cache back only for text at the end of the system message, so
+ * every turn after the first reads the table from the cache (T28, T30, plan §3 of InternalProject/Vectfox/plans/
+ * lorebook-multi-vector.md).
  * @param {string} scene - From sceneText
  * @param {Array<{number: number, title: string, keys?: string[]}>} contents - From tableOfContents
  * @returns {Array<{role: string, content: string}>}
  */
 export function pickMessages(scene, contents) {
     const lines = contents.map(item => `${item.number}. ${contentsLine(item)}`).join('\n');
-    const prompt = `${chatHead(scene)}The lorebook's table of contents, one entry per line: its number and title.\n\n${lines}\n\n${PICK_INSTRUCTIONS}`;
-    return [{ role: 'system', content: PICK_SYSTEM_PROMPT }, { role: 'user', content: prompt }];
+    const system = `${PICK_SYSTEM_PROMPT}\n\nThe lorebook's table of contents, one entry per line: its number and title.\n\n${lines}`.replace(/\n+$/, '');
+    return [{ role: 'system', content: system }, { role: 'user', content: `${chatHead(scene)}${PICK_INSTRUCTIONS}` }];
 }
 
 const textOf = value => (typeof value === 'string' ? value.trim() : '');
