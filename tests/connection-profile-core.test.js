@@ -1,8 +1,8 @@
 /**
  * The pure rules of a chat call on a SillyTavern connection profile (src/features/llm-provider/connection-profile-core.js,
  * connection plan §1, §2, §4): which profile each consumer runs on, Same as EventBase model included; the request's
- * closed override keys by API; what stops a call before it starts; and what each way SillyTavern's sendRequest fails
- * means, first match winning.
+ * closed override keys by API, the reasoning effort sent again as custom_include_body on a Custom source; what stops a
+ * call before it starts; and what each way SillyTavern's sendRequest fails means, first match winning.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -67,13 +67,26 @@ describe('the request a profile call sends', () => {
             .toEqual({ maxTokens: 900, overridePayload: { num_predict: 900, n_predict: 900 } });
     });
 
+    it('sends the reasoning effort again as custom_include_body on a Custom source, where SillyTavern merges it for any model', () => {
+        expect(connectionProfileRequestShape({ api: 'chat', source: 'custom', ...switches }).overridePayload).toEqual({
+            temperature: 0.2, max_completion_tokens: 900, reasoning_effort: 'none', custom_include_body: '{"reasoning_effort":"none"}', response_format: { type: 'json_object' },
+        });
+        expect(connectionProfileRequestShape({ api: 'chat', source: 'custom', ...switches, reasoningEffort: 'low' }).overridePayload.custom_include_body).toBe('{"reasoning_effort":"low"}');
+        // Another source forwards the top-level field itself; no effort, nothing to send.
+        expect(connectionProfileRequestShape({ api: 'chat', source: 'openrouter', ...switches }).overridePayload).not.toHaveProperty('custom_include_body');
+        expect(connectionProfileRequestShape({ api: 'chat', source: 'custom', ...switches, reasoningEffort: null }).overridePayload).not.toHaveProperty('custom_include_body');
+        expect(connectionProfileRequestShape({ api: 'text', source: 'custom', ...switches }).overridePayload).not.toHaveProperty('custom_include_body');
+    });
+
     it('never sends a key outside the closed set, for any combination of switches', () => {
         for (const api of ['chat', 'text']) {
-            for (const sendTemperature of [true, false]) {
-                for (const tokenLimitParameter of ['max_tokens', 'max_completion_tokens']) {
-                    for (const reasoningEffort of [null, 'low']) {
-                        const { overridePayload } = connectionProfileRequestShape({ ...switches, api, sendTemperature, tokenLimitParameter, reasoningEffort });
-                        expect(Object.keys(overridePayload).filter(key => !CONNECTION_PROFILE_OVERRIDE_KEYS[api].includes(key))).toEqual([]);
+            for (const source of [null, 'custom', 'openrouter']) {
+                for (const sendTemperature of [true, false]) {
+                    for (const tokenLimitParameter of ['max_tokens', 'max_completion_tokens']) {
+                        for (const reasoningEffort of [null, 'low']) {
+                            const { overridePayload } = connectionProfileRequestShape({ ...switches, api, source, sendTemperature, tokenLimitParameter, reasoningEffort });
+                            expect(Object.keys(overridePayload).filter(key => !CONNECTION_PROFILE_OVERRIDE_KEYS[api].includes(key))).toEqual([]);
+                        }
                     }
                 }
             }

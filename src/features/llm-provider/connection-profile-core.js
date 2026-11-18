@@ -16,13 +16,14 @@ const textOf = value => String(value ?? '').trim();
 
 /**
  * The keys a profile request may override, by the kind of request (plan §2). Closed: SillyTavern spreads the override
- * last, so any other key could replace the profile's URL or API and send its key to another host. Text Completion gets
- * temperature and the two token-limit names SillyTavern's own main reply sends every Text Completion server, and
- * nothing else, as SillyTavern forwards its body to most servers as it is. The wrapper adds one more key, for a profile
- * that stores no key: the ID that matches none.
+ * last, so any other key could replace the profile's URL or API and send its key to another host. Chat Completion's
+ * custom_include_body holds the reasoning effort alone, for a Custom source: SillyTavern merges it into the body it
+ * sends upstream, never the URL or headers. Text Completion gets temperature and the two token-limit names SillyTavern's
+ * own main reply sends every Text Completion server, and nothing else, as SillyTavern forwards its body to most servers
+ * as it is. The wrapper adds one more key, for a profile that stores no key: the ID that matches none.
  */
 export const CONNECTION_PROFILE_OVERRIDE_KEYS = Object.freeze({
-    chat: Object.freeze(['temperature', 'max_completion_tokens', 'reasoning_effort', 'response_format']),
+    chat: Object.freeze(['temperature', 'max_completion_tokens', 'reasoning_effort', 'custom_include_body', 'response_format']),
     text: Object.freeze(['temperature', 'num_predict', 'n_predict']),
 });
 
@@ -58,7 +59,10 @@ export function resolveConnectionProfileId(settings, consumer) {
 /**
  * The request's max-token argument and override keys, from the same switches the manual path reads
  * (resolveModelParameterStyle). Chat Completion: temperature when it is sent, max_completion_tokens in place of the
- * max-token argument when chosen, reasoning_effort and response_format when given. Text Completion: temperature when
+ * max-token argument when chosen, reasoning_effort and response_format when given. On a Custom source the reasoning
+ * effort goes again as custom_include_body, as on the manual Custom route: SillyTavern forwards the top-level field
+ * there only for the models on its own list, so a gateway ID such as `openai/gpt-6-luna` would keep thinking with the
+ * switch off, and it merges custom_include_body into the upstream body for any model. Text Completion: temperature when
  * it is sent, and the max tokens again as num_predict and n_predict, as SillyTavern's own main reply sends them:
  * SillyTavern's request service sends the max-token argument only as max_tokens, its server passes Ollama only
  * Ollama's own option names, so Ollama reads num_predict, and llama.cpp's /completion documents only n_predict.
@@ -66,6 +70,7 @@ export function resolveConnectionProfileId(settings, consumer) {
  *
  * @param {object} request
  * @param {'chat'|'text'} request.api - From the wrapper's connectionProfileApi
+ * @param {string|null} [request.source] - From the wrapper's connectionProfileSource: `custom` for a Custom source
  * @param {number} request.maxTokens
  * @param {number} request.temperature
  * @param {boolean} request.sendTemperature
@@ -74,13 +79,14 @@ export function resolveConnectionProfileId(settings, consumer) {
  * @param {object|null} request.responseFormat
  * @returns {{maxTokens: number|undefined, overridePayload: object}}
  */
-export function connectionProfileRequestShape({ api, maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, responseFormat }) {
+export function connectionProfileRequestShape({ api, source = null, maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, responseFormat }) {
     const isCompletionTokenLimit = api === 'chat' && tokenLimitParameter === 'max_completion_tokens';
     const wanted = {
         ...(sendTemperature ? { temperature } : {}),
         ...(isCompletionTokenLimit ? { max_completion_tokens: maxTokens } : {}),
         ...(api === 'text' ? { num_predict: maxTokens, n_predict: maxTokens } : {}),
         ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+        ...(reasoningEffort && source === 'custom' ? { custom_include_body: JSON.stringify({ reasoning_effort: reasoningEffort }) } : {}),
         ...(responseFormat ? { response_format: responseFormat } : {}),
     };
     const allowed = CONNECTION_PROFILE_OVERRIDE_KEYS[api] ?? [];

@@ -99,12 +99,17 @@ describe('a chat call on a connection profile', () => {
         const [profileId, messages, maxTokens, custom, overridePayload] = sentRequest();
         expect([profileId, messages[0].content, maxTokens]).toEqual(['p-custom', 'Read this window.', undefined]);
         expect(custom).toMatchObject({ includePreset: false, extractData: false });
-        expect(overridePayload).toEqual({ temperature: 0.2, max_completion_tokens: 900, reasoning_effort: 'none', response_format: { type: 'json_object' } });
+        expect(overridePayload).toEqual({
+            temperature: 0.2, max_completion_tokens: 900, reasoning_effort: 'none', custom_include_body: '{"reasoning_effort":"none"}', response_format: { type: 'json_object' },
+        });
     });
 
-    it('reads Claude\'s content array', async () => {
+    it('reads Claude\'s content array, the reasoning effort sent only as the top-level field, which Claude\'s source forwards', async () => {
         host.reply = { content: [{ type: 'thinking', thinking: '…' }, { type: 'text', text: '[{"name":"bell"}]' }], stop_reason: 'end_turn' };
         expect((await call(PROFILES.claude)).content).toBe('[{"name":"bell"}]');
+        const [, , , , overridePayload] = sentRequest();
+        expect(overridePayload).toMatchObject({ reasoning_effort: 'none' });
+        expect(overridePayload).not.toHaveProperty('custom_include_body');
     });
 
     it('reads a Text Completion reply, llama.cpp\'s content and Ollama\'s response, sending only temperature, the max tokens as num_predict and n_predict, and the no-key ID', async () => {

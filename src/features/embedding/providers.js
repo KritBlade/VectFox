@@ -13,8 +13,8 @@ import { SECRET_KEYS } from '../../sillytavern/secrets.js';
 import { textgen_types, textgenerationwebui_settings } from '../../sillytavern/connection-settings.js';
 import {
     connectionProfileKeyIdField,
-    connectionProfileEmbeddingProvider,
     connectionProfileServerUrl,
+    connectionProfileSource,
     connectionProfileStoresKey,
     findConnectionProfile,
     isConnectionManagerAvailable,
@@ -163,7 +163,7 @@ export function resolveEmbeddingProfile(settings) {
     const profile = findConnectionProfile(profileId);
     const url = profile ? connectionProfileServerUrl(profile) : '';
     const model = String(profile?.model ?? '').trim();
-    const profileProvider = profile ? connectionProfileEmbeddingProvider(profile) : null;
+    const profileProvider = profile ? connectionProfileSource(profile) : null;
     return {
         profileName: profile?.name ?? '',
         url,

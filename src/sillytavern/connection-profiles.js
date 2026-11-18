@@ -1,7 +1,7 @@
 // connection-profiles.js — SillyTavern's Connection Manager profiles, for a chat call or embedding that runs on one:
 // whether the Connection Manager is on, the profiles a Profile dropdown offers and when that list changes, a profile by
 // ID, whether SillyTavern can send a request on it and of which kind, the request itself through SillyTavern's
-// ConnectionManagerRequestService, and its reply as text; for embedding, the provider a profile's API is, the server URL
+// ConnectionManagerRequestService, and its reply as text; the source a profile's API is; for embedding, the server URL
 // it names and the ID of its key; for LoreBase's Fast and cheap choice, the fields of a decisions request to Jev on an
 // OpenRouter or Custom profile. The only file that touches that service or a profile's key ID or URL (connection plan
 // §6, credential invariant 4). SillyTavern's server, or Similharity on it, resolves the key from the ID; no key value
@@ -59,7 +59,7 @@ export function listConnectionProfileChoices() {
             id: String(profile.id),
             name: String(profile.name ?? ''),
             isSupported: isConnectionProfileSupported(profile),
-            embeddingProvider: connectionProfileEmbeddingProvider(profile),
+            embeddingProvider: connectionProfileSource(profile),
         }));
 }
 
@@ -112,13 +112,14 @@ export function connectionProfileApi(profile) {
 }
 
 /**
- * The embedding provider a profile's API is, as SillyTavern maps it: a Text Completion type such as `ollama`, or a
- * Chat Completion source such as `custom`. null for an API SillyTavern does not know.
+ * The source a profile's API is, as SillyTavern maps it: a Text Completion type such as `ollama`, or a Chat Completion
+ * source such as `custom`. Embedding reads it as its provider, and a chat call to know a Custom source. null for an API
+ * SillyTavern does not know.
  *
  * @param {object} profile
  * @returns {string|null}
  */
-export function connectionProfileEmbeddingProvider(profile) {
+export function connectionProfileSource(profile) {
     const api = getContext().CONNECT_API_MAP?.[profile?.api];
     return api?.type ?? api?.source ?? null;
 }
@@ -157,7 +158,7 @@ const DECISIONS_SOURCES = new Set(['openrouter', 'custom']);
  * @returns {{source: string, model: string, apiUrl?: string, secret_id?: string}|null}
  */
 export function connectionProfileDecisionsFields(profile) {
-    const source = connectionProfileEmbeddingProvider(profile);
+    const source = connectionProfileSource(profile);
     if (!DECISIONS_SOURCES.has(source)) return null;
     return {
         source,

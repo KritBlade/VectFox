@@ -29,6 +29,7 @@ import { getRequestHeaders } from '../../sillytavern/requests.js';
 import {
     connectionProfileApi,
     connectionProfileReplyText,
+    connectionProfileSource,
     connectionProfileStoresKey,
     findConnectionProfile,
     isConnectionManagerAvailable,
@@ -375,7 +376,7 @@ export async function postChatCompletion({
  *
  * @param {string} profileId
  * @param {{feature: string, page: string}} where - The feature, for messages, and the page that chooses its profile
- * @returns {{ok: true, profile: object, api: string, storesKey: boolean} | {ok: false, reason: string}}
+ * @returns {{ok: true, profile: object, api: string, source: string|null, storesKey: boolean} | {ok: false, reason: string}}
  */
 export function checkConnectionProfile(profileId, { feature, page }) {
     const isManagerAvailable = isConnectionManagerAvailable();
@@ -383,7 +384,9 @@ export function checkConnectionProfile(profileId, { feature, page }) {
     const isSupported = Boolean(profile) && isConnectionProfileSupported(profile);
     const api = isSupported ? connectionProfileApi(profile) : null;
     const reason = connectionProfileProblem({ feature, page, profileId, isManagerAvailable, profile, isSupported, api });
-    return reason ? { ok: false, reason } : { ok: true, profile, api, storesKey: connectionProfileStoresKey(profile) };
+    return reason
+        ? { ok: false, reason }
+        : { ok: true, profile, api, source: connectionProfileSource(profile), storesKey: connectionProfileStoresKey(profile) };
 }
 
 /**
@@ -413,10 +416,10 @@ async function _postOnConnectionProfile({
     const check = checkConnectionProfile(connectionProfileId, { feature: contextLabel, page: connectionProfilePage || 'VectFox' });
     if (!check.ok) throw new LlmCallError(check.reason, { kind: 'model_config', provider: CONNECTION_PROFILE_PROVIDER });
 
-    const { profile, api, storesKey } = check;
+    const { profile, api, source, storesKey } = check;
     const label = `profile "${profile.name}"`;
     const model = profile.model || '(the server\'s)';
-    const request = connectionProfileRequestShape({ api, maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, responseFormat });
+    const request = connectionProfileRequestShape({ api, source, maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, responseFormat });
 
     let data;
     try {
