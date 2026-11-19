@@ -4,7 +4,8 @@
  * The settings panel's WorldInfo page on GUI-DNA (src/features/settings-panel/worldinfo-page-markup.js): LoreBase's
  * three cards, its switch first, and nothing of the old vector search; every control keeps the id its wiring uses; the
  * page is drawn from GUI-DNA alone with none of the old debug tools; the LoreBase book list says what each book of
- * the open chat has selected and where it is locked; and the tester's report says what LoreBase did on a reply (§5.10).
+ * the open chat has selected and where it is locked, then Add a lorebook with the books it does not load; and the
+ * tester's report says what LoreBase did on a reply (§5.10).
  */
 /* global document, Node -- this file runs under the jsdom environment */
 
@@ -156,6 +157,36 @@ describe('loreBaseBooksMarkup', () => {
             hasChat: true,
             books: [{ bookName: 'Harbor Atlas', selectedCount: 1234, isLockedToChat: true, isLockedToCharacter: false, keyCount: 1200, vectorCount: 0 }],
         })[0].sub).toBe('1,234 selected, 1,200 with keys, 0 with vectors');
+    });
+
+    it('draws Add a lorebook under the books when given the books to add: a list, and a button for each place, all chats alone in a group chat', () => {
+        const addRow = add => {
+            document.body.innerHTML = loreBaseBooksMarkup({ hasChat: true, books: [], add });
+            const list = document.getElementById('VectFox_lorebase_add_book');
+            return {
+                label: document.querySelector('label[for="VectFox_lorebase_add_book"]')?.textContent ?? null,
+                options: list ? [...list.options].map(option => [option.value, option.textContent]) : null,
+                buttons: [...document.querySelectorAll('[data-lorebase-add]')].map(button => [button.dataset.lorebaseAdd, button.textContent.trim()]),
+                hint: document.querySelector('.vfx-hint')?.textContent ?? null,
+            };
+        };
+        expect(addRow({ bookNames: ['Tide Tables', 'The <b>Old</b> "Keep"'], canAddToCharacter: true })).toEqual({
+            label: 'Add a lorebook',
+            options: [['', 'Choose a lorebook'], ['Tide Tables', 'Tide Tables'], ['The <b>Old</b> "Keep"', 'The <b>Old</b> "Keep"']],
+            buttons: [['character', 'Add to this character'], ['all-chats', 'Add to all chats']],
+            hint: 'This character: its chats only, locked to the character. All chats: every chat, locked to this chat.',
+        });
+        expect(document.body.textContent).toContain('This chat loads no lorebook.');
+        expect(addRow({ bookNames: ['Tide Tables'], canAddToCharacter: false })).toMatchObject({
+            buttons: [['all-chats', 'Add to all chats']],
+            hint: 'A group chat has no one character, so a book goes to all chats, locked to this chat.',
+        });
+        expect(addRow({ bookNames: [], canAddToCharacter: true })).toEqual({ label: null, options: null, buttons: [], hint: 'This chat loads every lorebook you have.' });
+    });
+
+    it('draws no Add a lorebook while no chat is open', () => {
+        document.body.innerHTML = loreBaseBooksMarkup({ hasChat: false, books: [], add: { bookNames: ['Tide Tables'], canAddToCharacter: true } });
+        expect(document.getElementById('VectFox_lorebase_add_book')).toBeNull();
     });
 
     it('shows a book named like markup as written, and opens it by that name', () => {

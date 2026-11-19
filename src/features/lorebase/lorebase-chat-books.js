@@ -3,12 +3,15 @@
  * a book can be locked to there: the open chat and its character (plan §5.2, §5.8 and D11 of InternalProject/Vectfox/
  * plans/lorebook-semantic-overhaul-passage-index.md). The reply, the selection screen and the WorldInfo page read them,
  * and a key run locks the books it writes keys for to the chat it started in (§6.1 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md).
+ * lorebook-multi-vector.md). Add a lorebook adds a book the chat does not load, through SillyTavern's own lists, and
+ * locks it where it was added (§6 of lorebook-multi-vector.md).
  */
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getCharaFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
-import { METADATA_KEY, getWorldInfoSettings, selected_world_info, world_names } from '../../sillytavern/world-info.js';
+import {
+    METADATA_KEY, addCharacterLorebook, addGlobalLorebook, getWorldInfoSettings, selected_world_info, world_names,
+} from '../../sillytavern/world-info.js';
 import { getLoreBook, isLoreBookLocked, loadDecidedEntries, setLoreBookLock } from './lorebase-books.js';
 import { activeBookNames } from './lorebase-reply-core.js';
 
@@ -74,6 +77,50 @@ export function lockKeyedBooks(place, keyedBookNames) {
     const bookNames = keyedBookNames.filter(bookName => place.lockableBookNames.has(bookName) && !isLoreBookLocked(bookName, where));
     for (const bookName of bookNames) setLoreBookLock(bookName, { chatId: place.chatId }, true);
     return bookNames.length ? { chatId: place.chatId, bookNames } : null;
+}
+
+// Where Add a lorebook adds a book (§6 and Q1 of lorebook-multi-vector.md): the open character's Additional
+// Lorebooks, or SillyTavern's global list, which every chat loads. The WorldInfo page's Add buttons carry these values.
+export const ADD_TO_CHARACTER = 'character';
+export const ADD_TO_ALL_CHATS = 'all-chats';
+
+/**
+ * What Add a lorebook offers in the open chat (§6 of lorebook-multi-vector.md): every book SillyTavern has that the
+ * chat does not load, in SillyTavern's order, and whether the chat has one character to add a book to, which a group
+ * chat has not.
+ * @returns {{bookNames: string[], canAddToCharacter: boolean}}
+ */
+export function booksToAdd() {
+    const loaded = new Set(chatBookNames());
+    return { bookNames: world_names.filter(bookName => !loaded.has(bookName)), canAddToCharacter: Boolean(lockTarget().characterAvatar) };
+}
+
+/**
+ * Add a lorebook the open chat does not load (§6 of lorebook-multi-vector.md): link it through SillyTavern's own
+ * lists, to the open character's Additional Lorebooks or to the global list every chat loads, then lock it where it was
+ * added, to the character, or to this chat for all chats, so LoreBase decides its entries here once they are chosen.
+ * @param {string} bookName - One of booksToAdd's
+ * @param {string} place - ADD_TO_CHARACTER or ADD_TO_ALL_CHATS
+ * @returns {Promise<{chatId?: string, characterAvatar?: string}>} Where the book was locked
+ * @throws {Error} With no chat open, a place it does not know, a book SillyTavern lacks or the chat already loads, the
+ *   character asked for in a group chat, or a link SillyTavern did not make; then it locks nothing
+ */
+export async function addLoreBookToChat(bookName, place) {
+    const { chatId, characterAvatar } = lockTarget();
+    if (!chatId) throw new Error('Open a chat to add a lorebook to it.');
+    if (place !== ADD_TO_CHARACTER && place !== ADD_TO_ALL_CHATS) throw new Error(`Add a lorebook has no place called "${place}".`);
+    if (!world_names.includes(bookName)) throw new Error(`SillyTavern has no lorebook named "${bookName}".`);
+    if (chatBookNames().includes(bookName)) throw new Error(`This chat already loads "${bookName}".`);
+    const isToCharacter = place === ADD_TO_CHARACTER;
+    if (isToCharacter && !characterAvatar) throw new Error('A group chat has no one character to add a lorebook to: add it to all chats.');
+    if (isToCharacter) await addCharacterLorebook(characterAvatar, bookName);
+    else addGlobalLorebook(bookName);
+    if (!chatBookNames().includes(bookName)) {
+        throw new Error(`SillyTavern did not add "${bookName}" to ${isToCharacter ? "this character's lorebooks" : 'the lorebooks every chat loads'}.`);
+    }
+    const lock = isToCharacter ? { characterAvatar } : { chatId };
+    setLoreBookLock(bookName, lock, true);
+    return lock;
 }
 
 /**

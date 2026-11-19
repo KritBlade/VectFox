@@ -3,7 +3,8 @@
  * WORLDINFO PAGE, STATIC MARKUP
  * ============================================================================
  * The settings panel's WorldInfo page on GUI-DNA: LoreBase's switch, its books
- * for the open chat, with the door to its selection screen, LoreBase's model
+ * for the open chat, with the door to its selection screen and Add a lorebook,
+ * LoreBase's model
  * with its Accuracy, and its tester. Every control keeps the id
  * settings-panel.js, lorebase-books-card.js, lorebase-tester-card.js or
  * connection-rows.js wires it by. The LoreBase book list and the tester's
@@ -153,20 +154,44 @@ function loreBaseBookRow({ bookName, selectedCount, isLockedToChat, isLockedToCh
     });
 }
 
+// Add a lorebook (§6 and §7.1 of lorebook-multi-vector.md): the books the chat does not load, then a button for each
+// place, Add to this character, which a group chat with no one character lacks, and Add to all chats. Each button
+// carries the place addLoreBookToChat takes (ADD_TO_CHARACTER and ADD_TO_ALL_CHATS in lorebase-chat-books.js).
+function addBookMarkup({ bookNames, canAddToCharacter }) {
+    if (!bookNames.length) return hint({ text: 'This chat loads every lorebook you have.' });
+    const options = [selectOption({ value: '', text: 'Choose a lorebook' }), ...bookNames.map(bookName => selectOption({ value: bookName, name: bookName }))];
+    return field([
+        fieldLabel({ text: 'Add a lorebook', forId: 'VectFox_lorebase_add_book' }),
+        controlRow([
+            select({ id: 'VectFox_lorebase_add_book', title: 'Lorebook to add', options }),
+            canAddToCharacter ? button({ text: 'Add to this character', icon: 'fa-user-plus', data: { 'lorebase-add': 'character' } }) : '',
+            button({ text: 'Add to all chats', icon: 'fa-globe', data: { 'lorebase-add': 'all-chats' } }),
+        ]),
+        hint({
+            text: canAddToCharacter
+                ? 'This character: its chats only, locked to the character. All chats: every chat, locked to this chat.'
+                : 'A group chat has no one character, so a book goes to all chats, locked to this chat.',
+        }),
+    ]);
+}
+
 /**
  * The LoreBase books card's list for the open chat: each book SillyTavern loads here, how many entries are selected
  * in it and, once read, how many of those have keys and vectors, and whether it is locked to this chat or its
- * character, where LoreBase decides them (D11).
+ * character, where LoreBase decides them (D11); then, given what to add, Add a lorebook.
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean, keyCount?: number, vectorCount?: number}>}} status - LoreBase's chatBookLocks, with
- *   storedCountsOfBooks's counts
+ *   isLockedToCharacter: boolean, keyCount?: number, vectorCount?: number}>, add?: {bookNames: string[],
+ *   canAddToCharacter: boolean}|null}} status - LoreBase's chatBookLocks, with storedCountsOfBooks's counts and
+ *   booksToAdd's books
  * @returns {string}
  */
-export function loreBaseBooksMarkup({ hasChat, books }) {
+export function loreBaseBooksMarkup({ hasChat, books, add = null }) {
     if (!hasChat) return emptyState({ icon: 'fa-comments', text: 'Open a chat to see the lorebooks it loads.' });
-    if (!books.length) return emptyState({ icon: 'fa-book', text: 'This chat loads no lorebook.' });
-    return `<div class="vfx-list">${books.map(loreBaseBookRow).join('')}</div>`;
+    const list = books.length
+        ? `<div class="vfx-list">${books.map(loreBaseBookRow).join('')}</div>`
+        : emptyState({ icon: 'fa-book', text: 'This chat loads no lorebook.' });
+    return add ? list + addBookMarkup(add) : list;
 }
 
 const REPLY_KINDS = { normal: 'send', swipe: 'swipe', regenerate: 'regenerate', continue: 'continue', quiet: 'quiet-to-loud', try: 'try' };

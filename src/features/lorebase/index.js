@@ -10,6 +10,7 @@
 // SillyTavern's Vector Storage: turning LoreBase on, or a reply that finds that search on again, asks the user which of
 // the two to keep. The selection screen is where the user chooses a book's entries, locks the book to the chat or
 // character, and pins section names; the WorldInfo page lists the open chat's books with their selections and locks,
+// adds a book the chat does not load through SillyTavern's own lists, locked where it was added (Add a lorebook),
 // and opens the screen, and writes the keys, the vectors or both of every selected entry, or deletes them all, through
 // LoreBase's storage module, which every page that counts, writes or deletes them calls; the Database Browser lists
 // each book's keys and vectors as rows through it too, what LoreBase cannot use here among its leftovers, and exports,
@@ -25,7 +26,7 @@
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { selectedLoreBookNames } from './lorebase-books.js';
-export { chatBookLocks } from './lorebase-chat-books.js';
+export { addLoreBookToChat, booksToAdd, chatBookLocks } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';

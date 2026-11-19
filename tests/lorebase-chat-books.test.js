@@ -5,17 +5,32 @@
  * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded, and
  * whether it is locked to this chat or to the character, by the character's avatar file name. And the lock a key run
  * makes (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): where, read as the run starts, and which of
- * the books it wrote keys for lock to that chat.
+ * the books it wrote keys for lock to that chat. And Add a lorebook (§6 of lorebook-multi-vector.md): the books the
+ * chat does not load, each added to the character or to all chats through SillyTavern's own lists and locked where it
+ * went, or refused, linking and locking nothing.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
     worldNames: [], globalBooks: [], charLore: [], context: null, chatId: 'chat-harbor', settings: { vectfox: {} }, books: {},
+    isLinkMade: true,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn() } }));
 vi.mock('../src/sillytavern/world-info.js', () => ({
     METADATA_KEY: 'world_info',
+    // As SillyTavern does, unless the test says it made no link: the character's list, keyed by its avatar file name
+    // without its extension, and the global list.
+    addCharacterLorebook: vi.fn(async (characterAvatar, bookName) => {
+        if (!host.isLinkMade) return;
+        const name = characterAvatar.replace(/\.[^/.]+$/, '');
+        const item = host.charLore.find(candidate => candidate.name === name);
+        if (item) item.extraBooks.push(bookName);
+        else host.charLore.push({ name, extraBooks: [bookName] });
+    }),
+    addGlobalLorebook: vi.fn(bookName => {
+        if (host.isLinkMade) host.globalBooks.push(bookName);
+    }),
     getWorldInfoSettings: () => ({ world_info: { charLore: host.charLore } }),
     loadWorldInfo: vi.fn(async bookName => {
         if (host.books[bookName] instanceof Error) throw host.books[bookName];
@@ -29,8 +44,11 @@ vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: id => (i
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 
 const { log } = await import('../src/sillytavern/log.js');
-const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
-const { chatBookLocks, keyRunLockPlace, lockKeyedBooks } = await import('../src/features/lorebase/lorebase-chat-books.js');
+const { addCharacterLorebook, addGlobalLorebook, loadWorldInfo } = await import('../src/sillytavern/world-info.js');
+const {
+    ADD_TO_ALL_CHATS, ADD_TO_CHARACTER, addLoreBookToChat, booksToAdd, chatBookLocks, keyRunLockPlace, lockKeyedBooks,
+} = await import('../src/features/lorebase/lorebase-chat-books.js');
+const { loreBaseBooksMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 
 const recordOf = ({ selected = [], chats = [], characters = [] } = {}) => ({
     selectedUids: selected, pinnedSections: [], lockedToChatIds: chats, lockedToCharacterAvatars: characters,
@@ -51,6 +69,7 @@ beforeEach(() => {
     };
     host.settings.vectfox = {};
     host.books = { 'Harbor Atlas': bookWith(0, 1), 'Keeper Notes': bookWith(7), 'Tide Tables': bookWith(2), 'Voyage Log': bookWith(5) };
+    host.isLinkMade = true;
     vi.clearAllMocks();
 });
 
@@ -159,5 +178,64 @@ describe('the lock a key run makes', () => {
         expect(place).toEqual({ chatId: 'group-harbor', characterAvatar: null, lockableBookNames: new Set(['Tide Tables']) });
         expect(lockKeyedBooks(place, ['Tide Tables'])).toEqual({ chatId: 'group-harbor', bookNames: ['Tide Tables'] });
         expect(books()['Tide Tables'].lockedToChatIds).toEqual(['group-harbor']);
+    });
+});
+
+describe('Add a lorebook', () => {
+    const books = () => host.settings.vectfox.lorebase_books;
+    const inGroupChat = () => {
+        host.chatId = 'group-harbor';
+        host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
+    };
+
+    it('offers every book SillyTavern has that the chat does not load, in its order, and the character outside a group chat', () => {
+        host.worldNames.push('Coral Index');
+        expect(booksToAdd()).toEqual({ bookNames: ['Voyage Log', 'Coral Index'], canAddToCharacter: true });
+        inGroupChat();
+        expect(booksToAdd()).toEqual({ bookNames: ['Harbor Atlas', 'Keeper Notes', 'Voyage Log', 'Coral Index'], canAddToCharacter: false });
+    });
+
+    it("adds a book to the character's Additional Lorebooks and locks it to the character", async () => {
+        expect(await addLoreBookToChat('Voyage Log', ADD_TO_CHARACTER)).toEqual({ characterAvatar: 'keeper-orrin.png' });
+        expect(addCharacterLorebook).toHaveBeenCalledWith('keeper-orrin.png', 'Voyage Log');
+        expect(addGlobalLorebook).not.toHaveBeenCalled();
+        expect(books()['Voyage Log']).toMatchObject({ lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] });
+        expect(booksToAdd().bookNames).toEqual([]);
+    });
+
+    it('adds a book to all chats and locks it to this chat, in a group chat too', async () => {
+        expect(await addLoreBookToChat('Voyage Log', ADD_TO_ALL_CHATS)).toEqual({ chatId: 'chat-harbor' });
+        expect(addGlobalLorebook).toHaveBeenCalledWith('Voyage Log');
+        expect(books()['Voyage Log']).toMatchObject({ lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] });
+
+        inGroupChat();
+        expect(await addLoreBookToChat('Keeper Notes', ADD_TO_ALL_CHATS)).toEqual({ chatId: 'group-harbor' });
+        expect(books()['Keeper Notes'].lockedToChatIds).toEqual(['group-harbor']);
+    });
+
+    it('refuses, linking and locking nothing: no chat, a place it does not know, a book SillyTavern lacks or the chat loads, the character of a group chat', async () => {
+        host.chatId = null;
+        await expect(addLoreBookToChat('Voyage Log', ADD_TO_ALL_CHATS)).rejects.toThrow('Open a chat to add a lorebook to it.');
+        host.chatId = 'chat-harbor';
+        await expect(addLoreBookToChat('Voyage Log', 'persona')).rejects.toThrow('Add a lorebook has no place called "persona".');
+        await expect(addLoreBookToChat('Lost Charts', ADD_TO_CHARACTER)).rejects.toThrow('SillyTavern has no lorebook named "Lost Charts".');
+        await expect(addLoreBookToChat('Tide Tables', ADD_TO_CHARACTER)).rejects.toThrow('This chat already loads "Tide Tables".');
+        inGroupChat();
+        await expect(addLoreBookToChat('Voyage Log', ADD_TO_CHARACTER)).rejects.toThrow('A group chat has no one character to add a lorebook to: add it to all chats.');
+        expect(addCharacterLorebook).not.toHaveBeenCalled();
+        expect(addGlobalLorebook).not.toHaveBeenCalled();
+        expect(books()).toBeUndefined();
+    });
+
+    it('says when SillyTavern did not add the book, and locks nothing', async () => {
+        host.isLinkMade = false;
+        await expect(addLoreBookToChat('Voyage Log', ADD_TO_CHARACTER)).rejects.toThrow('SillyTavern did not add "Voyage Log" to this character\'s lorebooks.');
+        await expect(addLoreBookToChat('Voyage Log', ADD_TO_ALL_CHATS)).rejects.toThrow('SillyTavern did not add "Voyage Log" to the lorebooks every chat loads.');
+        expect(books()).toBeUndefined();
+    });
+
+    it("the WorldInfo page's Add buttons carry the places it takes", () => {
+        const markup = loreBaseBooksMarkup({ hasChat: true, books: [], add: { bookNames: ['Voyage Log'], canAddToCharacter: true } });
+        expect([...markup.matchAll(/data-lorebase-add="([^"]+)"/g)].map(match => match[1])).toEqual([ADD_TO_CHARACTER, ADD_TO_ALL_CHATS]);
     });
 });

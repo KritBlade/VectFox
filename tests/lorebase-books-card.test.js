@@ -9,7 +9,9 @@
  * to choose entries next. The books card draws the open chat's books, then how many of each book's selected entries
  * have keys and vectors, opens the selection screen on the book a row names or, from the card's own button, on the
  * chat's first book, and draws the list again once the screen closes, a screen that failed included, saying what the
- * selection lacks of each kind and, while LoreBase is on, which Generate button writes it. Generate keys, Generate
+ * selection lacks of each kind and, while LoreBase is on, which Generate button writes it. Add a lorebook (§6 of
+ * InternalProject/Vectfox/plans/lorebook-multi-vector.md) lists the books the chat does not load, adds the chosen one
+ * to this character or to all chats, says where it went or why it was not, and opens the screen on it. Generate keys, Generate
  * vectors and Generate all write the missing ones of their kinds, or say why they cannot; Delete all asks first, and
  * once it has deleted both turns LoreBase off; the status line says how each went, one entry as one, and names the
  * books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md),
@@ -21,7 +23,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const host = vi.hoisted(() => ({
     status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, selectedBooks: [],
     settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
-    counts: null,
+    counts: null, add: null, added: null,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
@@ -32,6 +34,12 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     VECTORS: 'vectors',
     BOTH_KINDS: ['keys', 'vectors'],
     chatBookLocks: vi.fn(() => host.status),
+    booksToAdd: vi.fn(() => host.add),
+    // Where the book was locked, or the error that stopped it.
+    addLoreBookToChat: vi.fn(async () => {
+        if (host.added instanceof Error) throw host.added;
+        return host.added;
+    }),
     storedCountsOfBooks: vi.fn(async () => host.counts),
     writingProblem: vi.fn(() => host.keyProblem),
     writeMissing: vi.fn(async () => host.outcome),
@@ -52,7 +60,8 @@ vi.mock('../src/features/lorebase/index.js', () => ({
 }));
 
 const {
-    chatBookLocks, deleteStored, openLoreBaseSelection, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing, writingProblem,
+    addLoreBookToChat, chatBookLocks, deleteStored, openLoreBaseSelection, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing,
+    writingProblem,
 } = await import('../src/features/lorebase/index.js');
 const { log } = await import('../src/sillytavern/log.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
@@ -78,6 +87,8 @@ beforeEach(() => {
     host.deleted = 311;
     host.selectedBooks = ['Harbor Atlas'];
     host.counts = new Map([['Harbor Atlas', { keyCount: 2, vectorCount: 1 }]]);
+    host.add = { bookNames: ['Tide Tables', 'Voyage Log'], canAddToCharacter: true };
+    host.added = { characterAvatar: 'keeper-orrin.png' };
     bindLoreBaseBooksCard(host.settings);
 });
 
@@ -309,6 +320,87 @@ describe('the LoreBase books card', () => {
 
         await vi.waitFor(() => expect(log.error).toHaveBeenCalledWith(expect.stringContaining('selection screen'), failure));
         expect(chatBookLocks).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('Add a lorebook', () => {
+    const bookList = () => document.getElementById('VectFox_lorebase_add_book');
+    const addButtons = () => [...document.querySelectorAll('#VectFox_lorebase_books [data-lorebase-add]')];
+    const addTo = (place, bookName) => {
+        bookList().value = bookName;
+        addButtons().find(button => button.dataset.lorebaseAdd === place).click();
+    };
+
+    it('lists the books the chat does not load under its books, with a button for each place, and all chats alone in a group chat', async () => {
+        await refreshLoreBaseBooks();
+        expect([...bookList().options].map(option => `${option.value}: ${option.textContent}`))
+            .toEqual([': Choose a lorebook', 'Tide Tables: Tide Tables', 'Voyage Log: Voyage Log']);
+        expect(addButtons().map(button => `${button.dataset.lorebaseAdd}: ${button.textContent.trim()}`))
+            .toEqual(['character: Add to this character', 'all-chats: Add to all chats']);
+
+        host.add = { bookNames: ['Voyage Log'], canAddToCharacter: false };
+        await refreshLoreBaseBooks();
+        expect(addButtons().map(button => button.dataset.lorebaseAdd)).toEqual(['all-chats']);
+
+        host.add = { bookNames: [], canAddToCharacter: true };
+        await refreshLoreBaseBooks();
+        expect(bookList()).toBeNull();
+        expect(document.getElementById('VectFox_lorebase_books').textContent).toContain('This chat loads every lorebook you have.');
+    });
+
+    it('says to choose a lorebook first, adding nothing', async () => {
+        await refreshLoreBaseBooks();
+        addTo('character', '');
+        expect(status().textContent).toBe('Choose a lorebook to add first.');
+        expect(addLoreBookToChat).not.toHaveBeenCalled();
+    });
+
+    it('adds the chosen book to this character, says so, draws the list again and opens the selection screen on it, keeping the line once the screen closes with nothing to say', async () => {
+        await refreshLoreBaseBooks();
+        let finishAdding;
+        addLoreBookToChat.mockImplementationOnce(() => new Promise(resolve => { finishAdding = resolve; }));
+        addTo('character', 'Voyage Log');
+        expect(addLoreBookToChat).toHaveBeenCalledWith('Voyage Log', 'character');
+        // The Add buttons wait while it is added.
+        expect(addButtons().every(button => button.disabled)).toBe(true);
+
+        finishAdding({ characterAvatar: 'keeper-orrin.png' });
+        await vi.waitFor(() => expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Voyage Log' }));
+        const added = 'Added "Voyage Log" to this character, and locked it to the character.';
+        expect(status().textContent).toBe(added);
+        expect(chatBookLocks).toHaveBeenCalledTimes(2);
+
+        // Nothing chosen with LoreBase off: the screen says nothing of the selection, so the line stays.
+        host.isOn = false;
+        host.screen.resolve({ missingCount: 0, missingKeyCount: 0, missingVectorCount: 0, decidedCount: 0, isWriting: false });
+        await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(3));
+        await vi.waitFor(() => expect(status().textContent).toBe(added));
+        expect(status().hidden).toBe(false);
+    });
+
+    it('adds the chosen book to all chats, locked to this chat, a line that goes once another chat is open', async () => {
+        host.added = { chatId: 'chat-harbor' };
+        await refreshLoreBaseBooks();
+        addTo('all-chats', 'Tide Tables');
+        expect(addLoreBookToChat).toHaveBeenCalledWith('Tide Tables', 'all-chats');
+        await vi.waitFor(() => expect(status().textContent).toBe('Added "Tide Tables" to all chats, and locked it to this chat.'));
+        host.screen.resolve(null);
+        await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(3));
+
+        host.chatId = 'chat-other';
+        await refreshLoreBaseBooks();
+        expect(status().hidden).toBe(true);
+    });
+
+    it('says why a book was not added, logs it, opens no screen, and lets the buttons be pressed again', async () => {
+        const failure = new Error('SillyTavern did not add "Voyage Log" to this character\'s lorebooks.');
+        host.added = failure;
+        await refreshLoreBaseBooks();
+        addTo('character', 'Voyage Log');
+        await vi.waitFor(() => expect(status().textContent).toBe(`Not added: ${failure.message}`));
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('"Voyage Log" was not added'), failure);
+        expect(openLoreBaseSelection).not.toHaveBeenCalled();
+        expect(addButtons().some(button => button.disabled)).toBe(false);
     });
 });
 

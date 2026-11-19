@@ -8,7 +8,9 @@
  * The books card: it draws the open chat's books with their selected counts and locks, then how many of each book's
  * selected entries have keys and vectors, and opens LoreBase's selection screen on the book a row names, or on the
  * chat's first book from the card's own button, drawing the list again once the screen closes and saying what the
- * selection lacks of each kind, LoreBase on or off, and while it is on which Generate button writes it. Generate keys
+ * selection lacks of each kind, LoreBase on or off, and while it is on which Generate button writes it. Add a lorebook
+ * (§6 of lorebook-multi-vector.md) adds the book chosen in its list to this character or to all chats, locked there,
+ * and opens the selection screen on it, the status line saying where it went or why it was not added. Generate keys
  * and Generate vectors write what the selected entries of every book lack of their kind, and Generate all both; Delete
  * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17). Each goes through
  * LoreBase's storage module. The card's status line says how each went, and shows every writing run on the progress
@@ -19,8 +21,9 @@ import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
-    BOTH_KINDS, KEYS, VECTORS, chatBookLocks, deleteStored, isLoreBaseSwitchedOn, onLoreBaseSwitchChange, onWritingRunChange,
-    openLoreBaseSelection, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing, writingProblem,
+    BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteStored, isLoreBaseSwitchedOn, onLoreBaseSwitchChange,
+    onWritingRunChange, openLoreBaseSelection, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing,
+    writingProblem,
 } from '../lorebase/index.js';
 import { loreBaseBooksMarkup } from './worldinfo-page-markup.js';
 
@@ -33,6 +36,8 @@ const GENERATE_BUTTONS = [
 ];
 const DELETE_ALL_ID = 'VectFox_lorebase_delete_all';
 const BOOKS_STATUS_ID = 'VectFox_lorebase_books_status';
+// Add a lorebook's list of the books the chat does not load, drawn with the books (loreBaseBooksMarkup).
+const ADD_BOOK_SELECT_ID = 'VectFox_lorebase_add_book';
 const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.';
 let isGenerating = false;
 // Counts the card's refreshes, so a refresh whose books loaded after a newer one began draws nothing.
@@ -69,8 +74,9 @@ function drawBooks(status) {
 /**
  * Draw the open chat's LoreBase books, once the panel is mounted, under the switch as saved: each row counts the
  * selected entries LoreBase decides, as the keys line does, once the books are loaded, then how many of them have keys
- * and vectors, once those are read. Only the newest refresh draws, so a slow load never draws a chat left since. A
- * status line saying books were locked to this chat goes once another chat is open.
+ * and vectors, once those are read; under them, Add a lorebook with the books the chat does not load. Only the newest
+ * refresh draws, so a slow load never draws a chat left since. A status line that says "this chat" goes once another
+ * chat is open.
  * @returns {Promise<void>}
  */
 export async function refreshLoreBaseBooks() {
@@ -79,7 +85,7 @@ export async function refreshLoreBaseBooks() {
     paintLoreBaseSwitch();
     let status;
     try {
-        status = await chatBookLocks();
+        status = { ...await chatBookLocks(), add: booksToAdd() };
         if (refresh !== refreshCount) return;
         drawBooks(status);
     } catch (error) {
@@ -102,7 +108,8 @@ export async function refreshLoreBaseBooks() {
 /**
  * Show a line on the status line, or hide it when empty.
  * @param {string} text
- * @param {{lockChatId?: string|null}} [options] - lockChatId: the chat the line says books were locked to as "this chat"
+ * @param {{lockChatId?: string|null}} [options] - lockChatId: the chat a line saying where books were locked was
+ *   written in, as "this chat" or "this character", so the line goes once another chat is open
  */
 function showBooksStatus(text, { lockChatId = null } = {}) {
     statusLockChatId = lockChatId;
@@ -240,18 +247,65 @@ export function bindLoreBaseBooksCard(settings) {
     onLoreBaseSwitchChange(paintLoreBaseSwitch);
     // Every writing run on the progress panel, a Generate button's or another's, shows on the status line.
     onWritingRunChange(showWritingRun);
-    document.getElementById('VectFox_lorebase_books_card')?.addEventListener('click', async event => {
+    document.getElementById('VectFox_lorebase_books_card')?.addEventListener('click', event => {
         const opener = event.target.closest('[data-lorebase-choose]');
-        if (!opener) return;
-        let chosen = null;
-        try {
-            chosen = await openLoreBaseSelection({ bookName: opener.dataset.lorebaseChoose });
-        } catch (error) {
-            log.error('LoreBase: the selection screen failed:', error);
-        }
-        void refreshLoreBaseBooks();
-        showChosenSelection(chosen);
+        if (opener) void chooseEntries(opener.dataset.lorebaseChoose);
+        const adder = event.target.closest('[data-lorebase-add]');
+        if (adder) void addBook(adder);
     });
+}
+
+/**
+ * Open the selection screen on a book, or on the chat's first with none named; once it closes, draw the list again, a
+ * screen that failed included, and say what the selection lacks (showChosenSelection).
+ * @param {string} bookName
+ * @returns {Promise<void>}
+ */
+async function chooseEntries(bookName) {
+    let chosen = null;
+    try {
+        chosen = await openLoreBaseSelection({ bookName });
+    } catch (error) {
+        log.error('LoreBase: the selection screen failed:', error);
+    }
+    void refreshLoreBaseBooks();
+    showChosenSelection(chosen);
+}
+
+/**
+ * Add a lorebook (§6 of lorebook-multi-vector.md): the book chosen in the card's list, to this character or to all
+ * chats as the button pressed says, locked there; then draw the list again, so its row shows, and open the selection
+ * screen on it. The status line says where it went, a line that stays when the screen closes with nothing to say of the
+ * selection, or that no book was chosen, or why it was not added. The Add buttons wait while it is added.
+ * @param {HTMLElement} button - The Add button pressed, carrying the place addLoreBookToChat takes
+ * @returns {Promise<void>}
+ */
+async function addBook(button) {
+    const bookName = document.getElementById(ADD_BOOK_SELECT_ID)?.value ?? '';
+    if (!bookName) {
+        showBooksStatus('Choose a lorebook to add first.');
+        return;
+    }
+    const chatId = getCurrentChatId() ?? null;
+    const addButtons = [...document.querySelectorAll('[data-lorebase-add]')];
+    for (const addButton of addButtons) addButton.disabled = true;
+    let lock;
+    try {
+        lock = await addLoreBookToChat(bookName, button.dataset.lorebaseAdd);
+    } catch (error) {
+        log.warn(`LoreBase: lorebook "${bookName}" was not added:`, error);
+        showBooksStatus(`Not added: ${error?.message || error}`);
+        return;
+    } finally {
+        for (const addButton of addButtons) addButton.disabled = false;
+    }
+    const addedText = lock.characterAvatar
+        ? `Added "${bookName}" to this character, and locked it to the character.`
+        : `Added "${bookName}" to all chats, and locked it to this chat.`;
+    showBooksStatus(addedText, { lockChatId: chatId });
+    void refreshLoreBaseBooks();
+    await chooseEntries(bookName);
+    if (document.getElementById(BOOKS_STATUS_ID)?.hidden) showBooksStatus(addedText, { lockChatId: chatId });
 }
 
 /**

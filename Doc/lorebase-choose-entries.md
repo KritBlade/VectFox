@@ -8,6 +8,23 @@ You open it from VectFox's **WorldInfo** page. In the **LoreBase books** card, *
 
 4 things have to be set first. **Use LoreBase** is on, the **LoreBase model** card has a model, VectFox's embedding model works (**Core** > **Embedding**, the same one your chat memory uses), and SillyTavern's Vector Storage has **Enabled for World Info** off. VectFox asks about that last one when you turn LoreBase on.
 
+## A book your chat doesn't load yet
+
+LoreBase only decides books your chat loads. If the book you want isn't in the **LoreBase books** card, add it with **Add a lorebook**, under the list of books. Its list has every lorebook your chat doesn't load yet.
+
+Pick the book, then one of the 2 buttons:
+
+- **Add to this character** puts it in the character's Additional Lorebooks. It loads in every chat with this character, and LoreBase locks it to the character.
+- **Add to all chats** turns it on in SillyTavern's global list. It loads in EVERY chat you have, and LoreBase locks it to this chat only.
+
+Both use SillyTavern's own lists, so SillyTavern's World Info panel shows the book there too. To take it out again, do it in that panel, like any other book.
+
+Right after, this screen opens on the new book, with nothing turned on. You pick its entries like any other book's.
+
+Be careful with **Add to all chats**. In your other chats the book isn't locked, so its entries fire by their keys, like any book SillyTavern loads. So if you only want Harbor Atlas with Keeper Orrin, use **Add to this character**.
+
+A group chat has no one character, so it only gets **Add to all chats**.
+
 ## What turning an entry on does
 
 An entry you turn on goes in only when the LoreBase model picks it, and only with the parts of it the next reply needs.
