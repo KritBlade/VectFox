@@ -14,6 +14,7 @@
  */
 
 import { fetchPortableChunks } from '../collections/index.js';
+import { exportFileHeader } from '../../shared/export-file-header.js';
 import { updateChunkMetadata } from '../vector-backend/index.js';
 import { searchEventCollection } from './eventbase-search.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
@@ -387,7 +388,7 @@ async function _readCollectionEvents(collectionId, settings) {
  */
 export async function buildCollectionLinksFile(collection, settings) {
     const events = await _readCollectionEvents(collection.id, settings);
-    return buildStoryLinksFile(events, collection, new Date().toISOString());
+    return buildStoryLinksFile(events, collection, exportFileHeader());
 }
 
 /**

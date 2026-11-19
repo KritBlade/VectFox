@@ -24,7 +24,12 @@ vi.mock('../src/features/collections/index.js', () => ({
 }));
 vi.mock('../src/features/eventbase/index.js', async () => ({
     ...compaction,
+    STORY_LINKS_FILE_TYPE: 'vectfox-story-links',
     describeCompaction: (await import('../src/features/eventbase/eventbase-compaction-core.js')).describeCompaction,
+}));
+vi.mock('../src/features/lorebase/index.js', () => ({
+    KEYS: 'keys', VECTORS: 'vectors', LOREBASE_KEYS_FILE_TYPE: 'vectfox-lorebase-keys', LOREBASE_VECTORS_FILE_TYPE: 'vectfox-lorebase-vectors',
+    loreBaseStorageRows: async () => [],
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({}));
 vi.mock('../src/features/embedding/index.js', () => ({ searchPieces: text => (String(text ?? '').trim() ? [text] : []) }));

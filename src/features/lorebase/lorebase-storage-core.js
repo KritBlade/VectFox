@@ -1,8 +1,9 @@
 /**
  * The rules of LoreBase's storage module (lorebase-storage.js, §3.1 of InternalProject/Vectfox/plans/
  * vectfox-multi-collection-per-chat.md), with no host imports: the two kinds LoreBase stores for each selected entry,
- * what of the selection's lack a run of some kinds writes, the progress panel's title and closing line for it, and how
- * many of a book's selected entries have each kind.
+ * what of the selection's lack a run of some kinds writes, the progress panel's title and closing line for it, how many
+ * of a book's selected entries have each kind, and the Database Browser's rows of each book's keys and vectors (§3.2).
+ * Its files are lorebase-files-core.js's.
  */
 
 /** An entry's keys, which LoreBase's model writes. */
@@ -89,4 +90,62 @@ export function storedCountsOf(decidedEntries, keysOfBook, uidsWithVectors) {
         keyCount: decidedEntries.filter(entry => Boolean(keysOfBook?.[uidOf(entry)])).length,
         vectorCount: decidedEntries.filter(entry => uidsWithVectors.has(uidOf(entry))).length,
     };
+}
+
+/**
+ * A row of the Database Browser's LoreBase rows: a book's keys, or one tenant of its vectors.
+ * @typedef {{key: string, kind: 'keys', book: string, hasRecord: boolean, isInSillyTavern: boolean, entryCount: number}} KeysRow
+ * @typedef {{key: string, kind: 'vectors', book: string|null, hasRecord: boolean, isInSillyTavern: boolean, collection: string,
+ *   tenant: string|null, isHere: boolean, pointCount: number, embeddingSource: string, embeddingModel: string}} VectorsRow
+ */
+
+/**
+ * The Database Browser's LoreBase rows (§3.2 of vectfox-multi-collection-per-chat.md), books by name. Every book that
+ * has a LoreBase record, keys or vectors gets its Keys row, then its Vectors row in the collection LoreBase reads now,
+ * at 0 when none are there, then a Vectors row for each of its tenants left in another collection; a tenant whose points
+ * name no book gets a Vectors row of its own. Each row knows whether its book has a LoreBase record and whether
+ * SillyTavern has the book.
+ * @param {{listing: {keys: Array<{book: string, entryCount: number}>, vectors: Array<{collection: string, tenant: string,
+ *   book: string|null, pointCount: number, embeddingSource: string, embeddingModel: string}>}, recordedBookNames: string[],
+ *   hereCollection: string, sillyTavernBookNames: string[]}} parts - listing: Similharity's /lorebase/books; hereCollection:
+ *   the Qdrant collection LoreBase reads this account's vectors in now
+ * @returns {Array<KeysRow|VectorsRow>}
+ */
+export function storageRowsOf({ listing, recordedBookNames, hereCollection, sillyTavernBookNames }) {
+    const recorded = new Set(recordedBookNames);
+    const inSillyTavern = new Set(sillyTavernBookNames);
+    const bookNames = new Set([
+        ...recordedBookNames,
+        ...listing.keys.map(row => row.book),
+        ...listing.vectors.map(row => row.book).filter(book => book !== null),
+    ]);
+    const tenantRow = (tenant, facts) => ({
+        key: `${VECTORS}|${tenant.collection}|${tenant.tenant}`,
+        kind: VECTORS,
+        ...facts,
+        collection: tenant.collection,
+        tenant: tenant.tenant,
+        isHere: tenant.collection === hereCollection,
+        pointCount: tenant.pointCount,
+        embeddingSource: tenant.embeddingSource,
+        embeddingModel: tenant.embeddingModel,
+    });
+    const rows = [];
+    for (const book of [...bookNames].sort((first, second) => first.localeCompare(second))) {
+        const facts = { book, hasRecord: recorded.has(book), isInSillyTavern: inSillyTavern.has(book) };
+        rows.push({ key: `${KEYS}|${book}`, kind: KEYS, ...facts, entryCount: listing.keys.find(row => row.book === book)?.entryCount ?? 0 });
+        const tenants = listing.vectors.filter(row => row.book === book);
+        const here = tenants.filter(row => row.collection === hereCollection);
+        if (!here.length) {
+            rows.push({
+                key: `${VECTORS}|${hereCollection}|${book}`, kind: VECTORS, ...facts, collection: hereCollection, tenant: null,
+                isHere: true, pointCount: 0, embeddingSource: '', embeddingModel: '',
+            });
+        }
+        for (const tenant of [...here, ...tenants.filter(row => row.collection !== hereCollection)]) rows.push(tenantRow(tenant, facts));
+    }
+    for (const tenant of listing.vectors.filter(row => row.book === null)) {
+        rows.push(tenantRow(tenant, { book: null, hasRecord: false, isInSillyTavern: false }));
+    }
+    return rows;
 }

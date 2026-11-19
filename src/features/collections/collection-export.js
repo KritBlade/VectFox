@@ -37,6 +37,7 @@ import { getModelFromSettings, refuseSillyTavernEmbeddingRoute } from '../embedd
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { formatBytes } from '../../shared/byte-size.js';
+import { exportFileHeader } from '../../shared/export-file-header.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 
 // ============================================================================
@@ -50,11 +51,19 @@ import { readErrorBody } from '../../shared/server-error-text.js';
 // CONSTANTS
 // ============================================================================
 
-/** Current export format version */
-const EXPORT_VERSION = '1.0.0';
-
 /** File extension for VectFox exports */
 export const EXPORT_FILE_EXTENSION = '.vectfox.json';
+
+/**
+ * What an export file holds: 'collection' for a collection export, of one collection or several (`type: 'multi'`),
+ * or the `type` a row's own file names, as a StoryArc links file and LoreBase's keys and vectors files do. The
+ * Database Browser's Import a collection takes collection files alone and names the row that takes any other.
+ * @param {unknown} data - Parsed JSON
+ * @returns {string}
+ */
+export function exportFileKind(data) {
+    return typeof data?.type === 'string' && data.type !== 'multi' ? data.type : 'collection';
+}
 
 // Backend-name helpers (normalizeBackendForId, remapCollectionIdToBackend) come from
 // src/shared/collection-ids.js, the single source of truth — see Doc/collection_helper.md
@@ -182,10 +191,7 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
         const chunksWithVectors = chunks.filter(c => c.vector).length;
 
         const exportData = {
-            // Header
-            version: EXPORT_VERSION,
-            exportDate: new Date().toISOString(),
-            generator: 'VectFox',
+            ...exportFileHeader(),
 
             // Embedding info - CRITICAL for import compatibility
             // NOTE: source + model must match for vectors to be compatible

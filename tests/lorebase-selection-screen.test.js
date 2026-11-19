@@ -245,7 +245,7 @@ describe('keys (D17)', () => {
                 return true;
             });
             pencil('1').click();
-            await vi.waitFor(() => expect(host.saveEditedKeys).toHaveBeenCalledWith('Harbor Atlas', '1', ['tidewardens', 'bell ringers']));
+            await vi.waitFor(() => expect(host.saveEditedKeys).toHaveBeenCalledWith('Harbor Atlas', expect.objectContaining({ uid: 1, comment: '[Harbor] Tidewardens' }), ['tidewardens', 'bell ringers']));
             expect(host.formPopup).toHaveBeenCalledTimes(1);
 
             host.keyStates.set('Harbor Atlas/1', { status: 'writing' });
@@ -272,7 +272,7 @@ describe('keys (D17)', () => {
                 "Not saved: Similharity could not write LoreBase's keys (HTTP 500): Qdrant is down",
             ]);
             expect(host.saveEditedKeys).toHaveBeenCalledTimes(1);
-            expect(host.saveEditedKeys).toHaveBeenCalledWith('Harbor Atlas', '1', ['bells']);
+            expect(host.saveEditedKeys).toHaveBeenCalledWith('Harbor Atlas', expect.objectContaining({ uid: 1 }), ['bells']);
         });
 
         it("fills the box from LoreBase's model with Regenerate, to read before Save keys, and says when the model fails", async () => {

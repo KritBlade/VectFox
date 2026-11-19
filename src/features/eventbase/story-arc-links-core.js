@@ -330,19 +330,20 @@ export function describeStoryLinkCoverage(coverage) {
  *
  * @param {object[]} events - The collection's stored events
  * @param {{id: string, name: string}} collection
- * @param {string} exportDate
- * @returns {{type: string, exportDate: string, collection: {id: string, name: string}, events: {event_id: string, story_links: object[]}[]}}
+ * @param {{version: string, exportDate: string, generator: string}} header - The header every VectFox file opens with
+ * @returns {{version: string, exportDate: string, generator: string, type: string, collection: {id: string, name: string},
+ *   events: {event_id: string, story_links: object[]}[]}}
  * @throws {Error} when a decided event or one of its links has no `event_id`, since a file could never match it
  */
-export function buildStoryLinksFile(events, collection, exportDate) {
+export function buildStoryLinksFile(events, collection, header) {
     const decided = inTimelineOrder(events.filter(isDecided));
     const unusableCount = decided.filter(event => !event.event_id || event.story_links.some(link => !link.event_id)).length;
     if (unusableCount) {
         throw new Error(`${unusableCount} events hold links without an event_id, so they cannot be exported. Regenerate this collection's links.`);
     }
     return {
+        ...header,
         type: STORY_LINKS_FILE_TYPE,
-        exportDate,
         collection: { id: collection.id, name: collection.name },
         events: decided.map(event => ({ event_id: event.event_id, story_links: event.story_links })),
     };

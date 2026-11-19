@@ -10,6 +10,7 @@ export {
     MAX_IMPORT_FILE_BYTES,
     downloadExport,
     exportCollection,
+    exportFileKind,
     fetchPortableChunks,
     getExportInfo,
     importCollection,

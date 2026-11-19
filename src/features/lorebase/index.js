@@ -9,15 +9,16 @@
 // the two to keep. The selection screen is where the user chooses a book's entries, locks the book to the chat or
 // character, and pins section names; the WorldInfo page lists the open chat's books with their selections and locks,
 // and opens the screen, and writes the keys, the vectors or both of every selected entry, or deletes them all, through
-// LoreBase's storage module, which every page that counts, writes or deletes them calls. Each selected entry's vectors,
-// one point per part, live in Qdrant, every book of an account a tenant of one collection, and an entry takes part once
-// it has its keys and vectors. The tester keeps this session's reports of each reply, what Luna picked and why, what
-// each review kept and left out, the tokens against what SillyTavern's keys would send, and the seconds, for the
-// WorldInfo page's tester card. The folder also holds the entry splitter, which cuts the parts the review numbers; the
-// per-book record of selections, pins, locks and seen entries; LoreBase's model connection, whose Test connection the
-// WorldInfo page runs; and the start-up deletion of the old vectorized lorebook collections LoreBase replaced, whose
-// locks move to their books, with a notice naming the books. Each armed scan keeps the picks its blocks carry, so the
-// reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
+// LoreBase's storage module, which every page that counts, writes or deletes them calls; the Database Browser lists
+// each book's keys and vectors as rows through it too, and exports, imports and deletes them a row at a time. Each
+// selected entry's vectors, one point per part, live in Qdrant, every book of an account a tenant of one collection,
+// and an entry takes part once it has its keys and vectors. The tester keeps this session's reports of each reply, what
+// Luna picked and why, what each review kept and left out, the tokens against what SillyTavern's keys would send, and
+// the seconds, for the WorldInfo page's tester card. The folder also holds the entry splitter, which cuts the parts the
+// review numbers; the per-book record of selections, pins, locks and seen entries; LoreBase's model connection, whose
+// Test connection the WorldInfo page runs; and the start-up deletion of the old vectorized lorebook collections
+// LoreBase replaced, whose locks move to their books, with a notice naming the books. Each armed scan keeps the picks
+// its blocks carry, so the reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { selectedLoreBookNames } from './lorebase-books.js';
@@ -30,7 +31,14 @@ export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
 export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from './lorebase-reply.js';
 export { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
-export { deleteStored, onWritingRunChange, storedCountsOfBooks, writeMissing, writingProblem } from './lorebase-storage.js';
+export {
+    LOREBASE_KEYS_FILE_TYPE, LOREBASE_VECTORS_FILE_TYPE, describeDelete, describeExport, describeImport, describeImported,
+    nothingToImportText,
+} from './lorebase-files-core.js';
+export {
+    deleteStored, deleteStoredRow, exportStored, loreBaseStorageRows, onWritingRunChange, planImport, storedCountsOfBooks, writeImport,
+    writeMissing, writingProblem,
+} from './lorebase-storage.js';
 export { BOTH_KINDS, KEYS, VECTORS } from './lorebase-storage-core.js';
 export { entryTitle } from './lorebase-splitter.js';
 export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';

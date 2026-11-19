@@ -1,25 +1,28 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D15, D17 and §5.2 of InternalProject/
- * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes,
- * each SillyTavern user's own. A book's keys are written as many calls at once as the WorldInfo page's Entries at once
- * (1 to 8), each entry's state kept for this session and told to the key listeners. lorebase-storage.js runs them on
- * the progress panel, whose Stop drops the calls not yet sent (stopKeyRun), and deletes them all (deleteAllKeys). The
- * user can also edit one entry's keys, or have the model write them again to read first; nothing rewrites keys on its
- * own. While an entry's keys are written or after they fail, the selection screen says so for its row.
+ * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes
+ * (lorebase-routes.js), each SillyTavern user's own, every entry's with its title (D11 of InternalProject/Vectfox/
+ * plans/vectfox-multi-collection-per-chat.md). A book's keys are written as many calls at once as the WorldInfo page's
+ * Entries at once (1 to 8), each entry's state kept for this session and told to the key listeners. lorebase-storage.js
+ * runs them on the progress panel, whose Stop drops the calls not yet sent (stopKeyRun), stores a keys file's keys
+ * (writeImportedKeys), and deletes one book's keys or every book's (deleteBookKeys, deleteAllKeys). The user can also
+ * edit one entry's keys, or have the model write them again to read first; nothing rewrites keys on its own. While an
+ * entry's keys are written or after they fail, the selection screen says so for its row.
  */
 import { log } from '../../sillytavern/log.js';
-import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
-import { readErrorBody } from '../../shared/server-error-text.js';
+import { PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../../shared/similharity-plugin.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import {
     KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCallsAtOnceOf, keyCount, keysMessages, readKeys, writingFailuresMessage,
 } from './lorebase-keys-core.js';
+import { postLoreBaseRoute } from './lorebase-routes.js';
 import { entryTitle } from './lorebase-splitter.js';
 
-const KEYS_ROUTE = '/api/plugins/similharity/lorebase/keys';
 const QDRANT_BACKEND = 'qdrant';
+// Similharity takes at most this many entries in one write (MOST_ENTRIES_PER_WRITE in its lorebase-keys.js).
+const ENTRIES_PER_WRITE = 2000;
 const UNREADABLE_ANSWER = 'its answer held no list of keys';
 
 // What Qdrant holds, as last read or written in this session: book name -> uid -> keys.
@@ -55,13 +58,8 @@ export function onKeyStateChange(listener) {
     return () => stateListeners.delete(listener);
 }
 
-async function postKeysRoute(action, body) {
-    const response = await fetch(`${KEYS_ROUTE}/${action}`, { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify(body) });
-    if (!response.ok) {
-        const detail = await readErrorBody(response, response.statusText);
-        throw new Error(`Similharity could not ${action} LoreBase's keys (HTTP ${response.status}): ${detail}`);
-    }
-    return response.json();
+function postKeysRoute(action, body) {
+    return postLoreBaseRoute(`keys/${action}`, body, `${action} LoreBase's keys`);
 }
 
 /**
@@ -75,6 +73,20 @@ export async function readBookKeys(bookNames) {
     const { books } = await postKeysRoute('read', { books: bookNames });
     for (const bookName of bookNames) storedKeys.set(bookName, new Map(Object.entries(books?.[bookName] ?? {})));
     return Object.fromEntries(bookNames.map(bookName => [bookName, books?.[bookName] ?? {}]));
+}
+
+/**
+ * Read one book's keys with the title stored beside each, for its keys file, and keep the keys for the selection
+ * screen. Keys written before Similharity 3.4.14 have no title.
+ * @param {string} bookName
+ * @returns {Promise<{keys: Record<string, string[]>, titles: Record<string, string>}>} uid -> keys, and uid -> title
+ * @throws {Error} When Similharity cannot read them
+ */
+export async function readBookKeysWithTitles(bookName) {
+    const { books, titles } = await postKeysRoute('read', { books: [bookName] });
+    const keys = books?.[bookName] ?? {};
+    storedKeys.set(bookName, new Map(Object.entries(keys)));
+    return { keys, titles: titles?.[bookName] ?? {} };
 }
 
 /**
@@ -129,7 +141,7 @@ async function writeOne({ bookName, entry, ask, failures, onEntryDone }) {
         const keys = await askForKeys(entry, ask);
         // The model found nothing in the entry to key: kept as an empty list, so it is not asked again.
         if (!keys.length) log.verbose(`LoreBase: the model found nothing to key in "${entryTitle(entry)}" of lorebook "${bookName}"`);
-        await postKeysRoute('write', { book: bookName, entries: [{ uid, keys }] });
+        await postKeysRoute('write', { book: bookName, entries: [{ uid, keys, title: entryTitle(entry) }] });
         mapOf(storedKeys, bookName).set(uid, keys);
         mapOf(writeStates, bookName).delete(uid);
     } catch (error) {
@@ -253,18 +265,72 @@ export async function regenerateKeys(entry, settings) {
 }
 
 /**
- * Store the keys the user edited for one entry, replacing any it had, so its row shows them (D17).
+ * Store the keys the user edited for one entry, with its title, replacing any it had, so its row shows them (D17).
  * @param {string} bookName
- * @param {string|number} uid
+ * @param {object} entry - The book's entry, as loadWorldInfo returns it
  * @param {string[]} keys - From editedKeys
  * @returns {Promise<void>}
  * @throws {Error} When Similharity cannot store them
  */
-export async function saveEditedKeys(bookName, uid, keys) {
-    await postKeysRoute('write', { book: bookName, entries: [{ uid: String(uid), keys }] });
-    mapOf(storedKeys, bookName).set(String(uid), keys);
-    mapOf(writeStates, bookName).delete(String(uid));
+export async function saveEditedKeys(bookName, entry, keys) {
+    const uid = String(entry.uid);
+    await postKeysRoute('write', { book: bookName, entries: [{ uid, keys, title: entryTitle(entry) }] });
+    mapOf(storedKeys, bookName).set(uid, keys);
+    mapOf(writeStates, bookName).delete(uid);
     tellListeners(bookName);
+}
+
+/**
+ * Store the keys a keys file holds for some of a book's entries, each with its title, replacing any they had, and keep
+ * them for the selection screen, telling the key listeners. No LLM call.
+ * @param {string} bookName
+ * @param {Array<{uid: string, title: string, keys: string[]}>} entries - From planKeysImport
+ * @returns {Promise<number>} How many entries' keys were written
+ * @throws {Error} When Similharity cannot store them; those written before it stay written
+ */
+export async function writeImportedKeys(bookName, entries) {
+    const stored = mapOf(storedKeys, bookName);
+    const states = mapOf(writeStates, bookName);
+    let written = 0;
+    try {
+        for (let start = 0; start < entries.length; start += ENTRIES_PER_WRITE) {
+            const batch = entries.slice(start, start + ENTRIES_PER_WRITE);
+            await postKeysRoute('write', { book: bookName, entries: batch.map(({ uid, title, keys }) => ({ uid, title, keys })) });
+            for (const { uid, keys } of batch) {
+                stored.set(uid, keys);
+                states.delete(uid);
+            }
+            written += batch.length;
+        }
+    } finally {
+        tellListeners(bookName);
+    }
+    log.lifecycle(`LoreBase: wrote the keys of ${written} entries in lorebook "${bookName}" from a keys file`);
+    return written;
+}
+
+/**
+ * Delete the LoreBase keys of the named books' entries, of this SillyTavern user, and forget those this session knew,
+ * telling the key listeners. lorebase-storage.js calls it once no keys are being written. A Similharity older than the
+ * floor in manifest.json does not read the books named and would delete every book's keys, so nothing is sent to one.
+ * @param {string[]} bookNames
+ * @returns {Promise<number>} How many entries' keys were deleted
+ * @throws {Error} When Similharity is older than the floor, or cannot delete them
+ */
+export async function deleteBookKeys(bookNames) {
+    const { isCurrent, version, requiredVersion } = similharityStanding();
+    if (!isCurrent) {
+        throw new Error(`Deleting one lorebook's keys needs Similharity ${requiredVersion} or later${version ? `, and ${version} is installed` : ''},`
+            + ` so nothing was deleted. ${PLUGIN_UPDATE_INSTRUCTIONS}`);
+    }
+    const { deleted } = await postKeysRoute('delete', { books: bookNames });
+    for (const bookName of bookNames) {
+        storedKeys.set(bookName, new Map());
+        writeStates.delete(bookName);
+        tellListeners(bookName);
+    }
+    log.lifecycle(`LoreBase: deleted the keys of ${deleted} entries in ${bookNames.length} lorebooks`);
+    return deleted;
 }
 
 /**

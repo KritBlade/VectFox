@@ -110,6 +110,7 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
     uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid))
         .filter(uid => !host.unvectorizedUids.has(`${bookName}/${uid}`)))),
 }));
+vi.mock('../src/features/lorebase/lorebase-routes.js', () => ({ postLoreBaseRoute: vi.fn() }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     readBookKeys: vi.fn(async bookNames => {
         if (host.keysReadError) throw host.keysReadError;

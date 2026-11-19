@@ -1,25 +1,36 @@
 /**
- * LoreBase's storage: the one module every page calls to count, write or delete the selected entries' keys and vectors
- * (§3.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), so a change to how one kind is written
- * or deleted reaches each page. The WorldInfo page's books card, the selection screen and turning LoreBase on all call
- * it. It counts what the selected entries lack (selectedEntriesNotReady) and what each book's selected entries have
- * (storedCountsOfBooks); runs the progress panel's writing of keys, vectors or both (writeMissing), and Regenerate keys,
- * one run at a time, brought to the front with its Stop, which drops what is not yet sent; and deletes every book's keys
- * or vectors (deleteStored). One guard refuses a run or a delete while LoreBase writes. A run that writes missing keys
- * locks each book it wrote keys for to the chat it started in (§6.1 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md); a run of vectors alone, and Regenerate keys, lock nothing. The keys and vectors themselves
- * are written, read and kept for the session by lorebase-keys.js and lorebase-vectors.js.
+ * LoreBase's storage: the one module every page calls to count, write, export, import or delete the keys and vectors of
+ * LoreBase's books (§3.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), so a change to how one
+ * kind is written or deleted reaches each page. The WorldInfo page's books card, the selection screen, turning LoreBase
+ * on and the Database Browser all call it. It counts what the selected entries lack (selectedEntriesNotReady) and what
+ * each book's selected entries have (storedCountsOfBooks); runs the progress panel's writing of keys, vectors or both
+ * (writeMissing), and Regenerate keys, one run at a time, brought to the front with its Stop, which drops what is not
+ * yet sent; and deletes every book's keys or vectors (deleteStored). For the Database Browser it reads a Keys row and
+ * Vectors rows for each book (loreBaseStorageRows, §3.2), exports a row as a file, plans and writes a file's import
+ * onto what matches (§3.3), and deletes one row. One guard refuses a run, an import or a delete while LoreBase writes. A
+ * run that writes missing keys locks each book it wrote keys for to the chat it started in (§6.1 of InternalProject/
+ * Vectfox/plans/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock nothing. The keys
+ * and vectors themselves are written, read and kept for the session by lorebase-keys.js and lorebase-vectors.js.
  */
 import { log } from '../../sillytavern/log.js';
+import { world_names } from '../../sillytavern/world-info.js';
+import { counted } from '../../shared/counted.js';
+import { exportFileHeader } from '../../shared/export-file-header.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
-import { loadDecidedEntries, recordedLoreBookNames, selectedLoreBookNames } from './lorebase-books.js';
+import { loadBookEntries, loadDecidedEntries, recordedLoreBookNames, selectedLoreBookNames } from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
-import { deleteAllKeys, isWritingKeys, keyStateOf, keyWritingProblem, readBookKeys, stopKeyRun, writeKeys } from './lorebase-keys.js';
-import { KEYS, VECTORS, pendingOfKinds, storedCountsOf, writingPanelTitle, writtenSummary } from './lorebase-storage-core.js';
+import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
+import {
+    deleteAllKeys, deleteBookKeys, isWritingKeys, keyStateOf, keyWritingProblem, readBookKeys, readBookKeysWithTitles, stopKeyRun,
+    writeImportedKeys, writeKeys,
+} from './lorebase-keys.js';
+import { postLoreBaseRoute } from './lorebase-routes.js';
+import { KEYS, VECTORS, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary } from './lorebase-storage-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
-    bookVectors, deleteAllVectors, readBookVectors, showVectorFailures, uidsWithCurrentVectors, writeBookVectors,
+    bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, importBookPoints,
+    loreBaseVectorsCollection, readBookVectors, readTenantPoints, showVectorFailures, uidsWithCurrentVectors, writeBookVectors,
 } from './lorebase-vectors.js';
 
 const uidOf = entry => String(entry.uid);
@@ -58,8 +69,9 @@ function tellRunListeners(update) {
 }
 
 /**
- * The one guard: refuse while LoreBase writes keys or vectors, a run on the progress panel or keys still being asked
- * for, which a delete would leave half done and a second run would write twice. The panel is brought to the front.
+ * The one guard: refuse while LoreBase writes keys or vectors, a run or an import on the progress panel or keys still
+ * being asked for, which a delete would leave half done and a second run would write twice. The panel is brought to the
+ * front.
  * @throws {Error} While anything is being written
  */
 function refuseWhileWriting() {
@@ -274,4 +286,137 @@ export async function deleteStored(kinds, settings) {
     refuseWhileWriting();
     if (kinds.includes(VECTORS)) await deleteAllVectors(recordedLoreBookNames(), settings);
     return kinds.includes(KEYS) ? deleteAllKeys() : 0;
+}
+
+/**
+ * The Database Browser's LoreBase rows (§3.2): this account's books with keys or vectors, from Similharity's listing
+ * (`/lorebase/books`), with every book that has a LoreBase record, each knowing whether SillyTavern still has the book
+ * (storageRowsOf). Off Qdrant, where LoreBase keeps nothing, there are none.
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<object[]>}
+ * @throws {Error} When Similharity cannot list them
+ */
+export async function loreBaseStorageRows(settings) {
+    if (!isLoreBaseBackend(settings)) return [];
+    const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
+    return storageRowsOf({
+        listing,
+        recordedBookNames: recordedLoreBookNames(),
+        hereCollection: loreBaseVectorsCollection(settings),
+        sillyTavernBookNames: world_names,
+    });
+}
+
+/**
+ * A row's file (§3.3), with how much it holds and how much it left out: a book's keys, each entry's title from
+ * SillyTavern's book or the one stored with its keys, or one tenant's points with their vectors, from whichever
+ * collection holds them. Reads only.
+ * @param {object} row - From loreBaseStorageRows
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{file: object, count: number, leftOutCount: number}>}
+ * @throws {Error} When Similharity cannot read them, or SillyTavern cannot load the book
+ */
+export async function exportStored(row, settings) {
+    if (row.kind === KEYS) {
+        const { keys, titles } = await readBookKeysWithTitles(row.book);
+        const entries = row.isInSillyTavern ? await loadBookEntries(row.book) : [];
+        return keysFileOf({ book: row.book, header: exportFileHeader(), keys, titles, entries });
+    }
+    const points = row.tenant ? await readTenantPoints(row.tenant, row.collection, settings) : [];
+    return vectorsFileOf({ book: row.book, header: exportFileHeader(), points });
+}
+
+/**
+ * What a file would write to a row's book, without writing it (§3.3): for keys, the entries of SillyTavern's book whose
+ * number and title match, selected or not; for vectors, the parts of its selected entries LoreBase decides now, read
+ * against what Qdrant holds now. The plan carries what writeImport needs.
+ * @param {object} row - A row of a book SillyTavern has; a Vectors row in the collection LoreBase reads now
+ * @param {unknown} fileData - Parsed JSON
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<object>} planKeysImport's or planVectorsImport's plan, with the row
+ * @throws {Error} When the file is not of the row's kind, or the book, its keys or its vectors cannot be read
+ */
+export async function planImport(row, fileData, settings) {
+    if (row.kind === KEYS) {
+        const entries = await loadBookEntries(row.book);
+        const storedKeys = (await readBookKeys([row.book]))[row.book] ?? {};
+        return { row, ...planKeysImport(fileData, { entries, storedKeys }) };
+    }
+    const decidedEntries = await loadDecidedEntries(row.book);
+    const stored = (await readBookVectors([row.book], settings)).get(row.book);
+    const plan = planVectorsImport(fileData, { decided: entriesWithPoints(row.book, decidedEntries), stored, modelKey: currentEmbeddingModelKey(settings) });
+    return { row, decidedEntries, ...plan };
+}
+
+/**
+ * Store a vectors file's points with its vectors, under the progress panel. No embedding call, and no Stop: nothing
+ * waits on a model.
+ * @param {object} plan - From planImport, its file of the embedding model set now
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{written: number, failed: number, isEmbedded: boolean}>}
+ * @throws {Error} When Similharity cannot store them
+ */
+async function storeFilePointsOnPanel(plan, settings) {
+    panelRun = { isStopped: false };
+    try {
+        progressTracker.show(writingPanelTitle([VECTORS]), plan.writes.length, 'Parts', { unitLabel: 'Parts' });
+        progressTracker.updateCurrentItem(plan.row.book);
+        try {
+            await importBookPoints(plan.row.book, plan.writes, settings, done => progressTracker.updateProgress(done));
+        } catch (error) {
+            progressTracker.addError(String(error?.message || error).slice(0, 200));
+            progressTracker.complete(false, 'Wrote not every part; the console says why');
+            throw error;
+        }
+        progressTracker.complete(true, `Wrote the vectors of ${counted(plan.writes.length, 'part')}`);
+        return { written: plan.writes.length, failed: 0, isEmbedded: false };
+    } finally {
+        panelRun = null;
+    }
+}
+
+/**
+ * Write what planImport planned, behind the guard: a keys file's keys, with no LLM call; a vectors file's vectors under
+ * the progress panel with no embedding call or, when its embedding model is not the one set now, the matched entries
+ * embedded again as Generate vectors embeds them. It locks nothing.
+ * @param {object} plan - From planImport, with something to write
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{written: number, failed: number, isEmbedded: boolean}>} written: entries' keys, or parts, or the
+ *   entries embedded again; failed: those not written
+ * @throws {Error} While LoreBase writes already, or when Similharity cannot store them
+ */
+export async function writeImport(plan, settings) {
+    refuseWhileWriting();
+    const { row } = plan;
+    if (row.kind === KEYS) {
+        panelRun = { isStopped: false };
+        try {
+            return { written: await writeImportedKeys(row.book, plan.writes), failed: 0, isEmbedded: false };
+        } finally {
+            panelRun = null;
+        }
+    }
+    if (!plan.needsEmbedding) return storeFilePointsOnPanel(plan, settings);
+    const uids = new Set(plan.uids);
+    const vectorEntries = plan.decidedEntries.filter(entry => uids.has(uidOf(entry)));
+    const outcome = await runOnPanel(settings, {
+        books: [{ bookName: row.book, decidedEntries: plan.decidedEntries, vectorEntries }],
+        count: vectorEntries.length,
+    }, { kinds: [VECTORS] });
+    return { written: outcome.vectorsWritten, failed: outcome.failed + outcome.stopped, isEmbedded: true };
+}
+
+/**
+ * Delete one row's keys or vectors (§3.2), behind the guard: a book's keys, or every point of one of its tenants in
+ * whichever collection holds it. Selections and LoreBase's switch stay as they are.
+ * @param {object} row - From loreBaseStorageRows, holding something
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<number>} How many entries' keys, or points, were deleted
+ * @throws {Error} While LoreBase writes, or when Similharity cannot delete them
+ */
+export async function deleteStoredRow(row, settings) {
+    refuseWhileWriting();
+    if (row.kind === KEYS) return deleteBookKeys([row.book]);
+    await deleteTenantPoints(row.tenant, row.collection, settings);
+    return row.pointCount;
 }

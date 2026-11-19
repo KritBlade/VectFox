@@ -4,8 +4,10 @@
  * is on and inside the account's own collection while it is off (Q6); what Qdrant holds read once a session and kept
  * current by what is written and deleted; writes in batches of whole entries, stored before the stale points are
  * deleted; a wrong embedding setup fails the rest of a run at once; a stop leaves the batches not yet sent; the points
- * of entries no longer selected deleted; Delete all; and an edit SillyTavern saves written again in the background.
- * The vector API is a stand-in holding points in memory, routed by the real qdrantTarget.
+ * of entries no longer selected deleted; Delete all; an edit SillyTavern saves written again in the background; and,
+ * for the Database Browser's rows, a book tenant read whole with its dense vectors in the collection named, a vectors
+ * file's points stored with their vectors, and a tenant deleted. The vector API is a stand-in holding points in memory,
+ * routed by the real qdrantTarget.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +19,7 @@ const host = vi.hoisted(() => ({
     qdrant: new Map(),
     calls: [],
     insertFailure: null,
+    isPurgeRefused: false,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
@@ -32,13 +35,14 @@ vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: async bookNa
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
 vi.mock('../src/features/embedding/index.js', () => ({ getModelFromSettings: settings => settings.embedding_model ?? 'baai/bge-m3' }));
 vi.mock('../src/features/vector-backend/index.js', async () => {
-    const { qdrantTarget } = await import('../src/features/vector-backend/qdrant-target.js');
+    const { MULTITENANCY_COLLECTION, qdrantTarget } = await import('../src/features/vector-backend/qdrant-target.js');
     const pointsAt = target => {
         const key = `${target.collectionId}|${target.filters.content_type ?? ''}`;
         if (!host.qdrant.has(key)) host.qdrant.set(key, new Map());
         return host.qdrant.get(key);
     };
     return {
+        MULTITENANCY_COLLECTION,
         insertVectorItems: vi.fn(async (collectionId, items, settings) => {
             const target = qdrantTarget(collectionId, settings);
             host.calls.push({ action: 'insert', target, hashes: items.map(item => item.hash) });
@@ -46,15 +50,17 @@ vi.mock('../src/features/vector-backend/index.js', async () => {
             if (failure) throw failure;
             for (const item of items) {
                 pointsAt(target).set(item.hash, {
-                    id: item.id, text: item.text, entryUid: item.metadata.entryUid,
+                    id: item.id, text: item.text, entryUid: item.metadata.entryUid, partNumber: item.metadata.partNumber, vector: item.vector,
                     embeddingSource: settings.embedding_provider || 'transformers', embeddingModel: settings.embedding_model ?? 'baai/bge-m3',
                 });
             }
         }),
         listChunks: vi.fn(async (collectionId, settings, options) => {
             const target = qdrantTarget(collectionId, settings);
-            host.calls.push({ action: 'list', target, limit: options.limit });
-            return { items: [...pointsAt(target)].map(([hash, point]) => ({ hash, text: point.text, metadata: point })) };
+            host.calls.push({ action: 'list', target, limit: options.limit, includeVectors: Boolean(options.includeVectors) });
+            return {
+                items: [...pointsAt(target)].map(([hash, point]) => ({ hash, text: point.text, metadata: point, vector: options.includeVectors ? point.vector : undefined })),
+            };
         }),
         deleteVectorItems: vi.fn(async (collectionId, hashes, settings) => {
             const target = qdrantTarget(collectionId, settings);
@@ -63,6 +69,7 @@ vi.mock('../src/features/vector-backend/index.js', async () => {
         }),
         purgeVectorIndex: vi.fn(async (collectionId, settings) => {
             host.calls.push({ action: 'purge', target: qdrantTarget(collectionId, settings), isShared: Boolean(settings.qdrant_multitenancy) });
+            return !host.isPurgeRefused;
         }),
     };
 });
@@ -96,6 +103,7 @@ beforeEach(async () => {
     host.qdrant = new Map();
     host.calls = [];
     host.insertFailure = null;
+    host.isPurgeRefused = false;
     globalThis.toastr = { warning: vi.fn() };
     vectors = await import('../src/features/lorebase/lorebase-vectors.js');
     core = await import('../src/features/lorebase/lorebase-vectors-core.js');
@@ -105,6 +113,64 @@ beforeEach(async () => {
 
 afterEach(() => {
     vi.useRealTimers();
+});
+
+describe('a book tenant, for the Database Browser', () => {
+    const listed = () => host.calls.filter(call => call.action === 'list');
+
+    it('names the collection LoreBase reads now: the account\'s own, or vectfox_main while One shared collection is on', () => {
+        expect(vectors.loreBaseVectorsCollection(SETTINGS)).toBe('vf_lorebase_rabbit');
+        expect(vectors.loreBaseVectorsCollection({ ...SETTINGS, qdrant_multitenancy: true })).toBe('vectfox_main');
+    });
+
+    it('reads every point of a tenant in the collection named, its dense vector taken from beside the sparse one', async () => {
+        const tenant = core.loreBaseBookCollectionId(BOOK, 'rabbit');
+        host.qdrant.set(`vectfox_main|${tenant}`, new Map([
+            [11, { text: 'Lighthouse', entryUid: '3', vector: { '': [0.1, 0.2], text_sparse: { indices: [1], values: [1] } } }],
+            [12, { text: 'Buoy', entryUid: '4', vector: [0.3, 0.4] }],
+        ]));
+        const points = await vectors.readTenantPoints(tenant, 'vectfox_main', SETTINGS);
+        expect(points.map(point => [point.hash, point.text, point.vector, point.metadata.entryUid])).toEqual([
+            [11, 'Lighthouse', [0.1, 0.2], '3'], [12, 'Buoy', [0.3, 0.4], '4'],
+        ]);
+        expect(listed()[0]).toMatchObject({ target: { collectionId: 'vectfox_main', filters: { content_type: tenant } }, includeVectors: true });
+    });
+
+    it('stores a file\'s points with their vectors, IDs, entries and parts, and keeps them as the model set now\'s', async () => {
+        selectEntries([lighthouse]);
+        const [{ points }] = vectors.entriesWithPoints(BOOK, [lighthouse]);
+        await vectors.importBookPoints(BOOK, points.map(point => ({ point, vector: [0.5, 0.5] })), SETTINGS);
+        const bookId = core.loreBaseBookCollectionId(BOOK, 'rabbit');
+        expect(inserted()).toEqual([{ action: 'insert', target: { collectionId: 'vf_lorebase_rabbit', filters: { content_type: bookId } }, hashes: points.map(point => point.hash) }]);
+        const stored = host.qdrant.get(`vf_lorebase_rabbit|${bookId}`);
+        expect([...stored.values()].map(point => [point.id, point.entryUid, point.partNumber, point.vector])).toEqual(
+            points.map(point => [point.id, '3', point.partNumber, [0.5, 0.5]]));
+        const held = (await vectors.bookVectors([BOOK], SETTINGS)).get(BOOK);
+        expect(vectors.uidsWithCurrentVectors(BOOK, [lighthouse], held, SETTINGS)).toEqual(new Set(['3']));
+        expect(listed()).toHaveLength(1);
+    });
+
+    it('forgets the book when storing a file\'s points fails, so the next read finds what went in', async () => {
+        selectEntries([lighthouse]);
+        await vectors.bookVectors([BOOK], SETTINGS);
+        host.insertFailure = () => new Error('Qdrant is down');
+        const [{ points }] = vectors.entriesWithPoints(BOOK, [lighthouse]);
+        await expect(vectors.importBookPoints(BOOK, points.map(point => ({ point, vector: [0.5, 0.5] })), SETTINGS)).rejects.toThrow('Qdrant is down');
+        await vectors.bookVectors([BOOK], SETTINGS);
+        expect(listed()).toHaveLength(2);
+    });
+
+    it('deletes one tenant in the collection named, and reads the books again next time; a refused delete throws', async () => {
+        selectEntries([lighthouse]);
+        await vectors.bookVectors([BOOK], SETTINGS);
+        const tenant = core.loreBaseBookCollectionId('Old Harbor', 'rabbit');
+        await vectors.deleteTenantPoints(tenant, 'vectfox_main', SETTINGS);
+        expect(host.calls.find(call => call.action === 'purge')).toEqual({ action: 'purge', target: { collectionId: 'vectfox_main', filters: { content_type: tenant } }, isShared: true });
+        await vectors.bookVectors([BOOK], SETTINGS);
+        expect(listed()).toHaveLength(2);
+        host.isPurgeRefused = true;
+        await expect(vectors.deleteTenantPoints(tenant, 'vf_lorebase_rabbit', SETTINGS)).rejects.toThrow(`Similharity could not delete the vectors of ${tenant} in vf_lorebase_rabbit`);
+    });
 });
 
 describe('where the vectors live (Q6)', () => {

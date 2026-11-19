@@ -6,7 +6,10 @@
  * selection screen opens the book, at turning LoreBase on and at Generate all, and kept current by what this session
  * writes and deletes. An entry is ready once it has its keys and its vectors from the embedding model set now (§4.4). An
  * edit SillyTavern saves writes the changed parts of the entries that had vectors again in the background and deletes
- * their gone parts; the points of an entry no longer selected go when the selection screen closes.
+ * their gone parts; the points of an entry no longer selected go when the selection screen closes. For the Database
+ * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), a book tenant's
+ * points are read whole, vectors included, in whichever collection holds them, a vectors file's points are stored with
+ * their vectors and no embedding call, and a tenant is deleted whole.
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
@@ -15,7 +18,7 @@ import { getCurrentUserHandle } from '../../sillytavern/user.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { getModelFromSettings } from '../embedding/index.js';
-import { deleteVectorItems, insertVectorItems, listChunks, purgeVectorIndex } from '../vector-backend/index.js';
+import { MULTITENANCY_COLLECTION, deleteVectorItems, insertVectorItems, listChunks, purgeVectorIndex } from '../vector-backend/index.js';
 import { getLoreBook, loadDecidedEntries } from './lorebase-books.js';
 import { writingFailuresMessage } from './lorebase-keys-core.js';
 import { entryTitle } from './lorebase-splitter.js';
@@ -44,17 +47,33 @@ const editTimers = new Map();
 const bookCollectionIdOf = bookName => loreBaseBookCollectionId(bookName, getCurrentUserHandle());
 
 /**
- * The settings a request about LoreBase's vectors goes with: a copy that names every book as a tenant, inside
- * vectfox_main while "One shared collection" is on, else inside the account's own collection (Q6, qdrantTarget).
+ * The Qdrant collection LoreBase reads and writes this account's vectors in now: vectfox_main while "One shared
+ * collection" is on, the account's own otherwise (Q6).
+ * @param {object} settings - VectFox settings
+ * @returns {string}
+ */
+export function loreBaseVectorsCollection(settings) {
+    return settings.qdrant_multitenancy ? MULTITENANCY_COLLECTION : loreBaseAccountCollection(getCurrentUserHandle());
+}
+
+/**
+ * The settings a request about books' points in one Qdrant collection goes with: a copy naming every book a tenant
+ * there (qdrantTarget), vectfox_main named by no shared collection of its own.
+ * @param {object} settings - VectFox settings
+ * @param {string} collection - The Qdrant collection
+ * @returns {object}
+ */
+function settingsInCollection(settings, collection) {
+    return { ...settings, qdrant_multitenancy: true, qdrant_shared_collection: collection === MULTITENANCY_COLLECTION ? null : collection };
+}
+
+/**
+ * The settings a request about LoreBase's vectors goes with: every book a tenant of the collection LoreBase reads now.
  * @param {object} settings - VectFox settings
  * @returns {object}
  */
 function vectorSettings(settings) {
-    return {
-        ...settings,
-        qdrant_multitenancy: true,
-        qdrant_shared_collection: settings.qdrant_multitenancy ? null : loreBaseAccountCollection(getCurrentUserHandle()),
-    };
+    return settingsInCollection(settings, loreBaseVectorsCollection(settings));
 }
 
 /**
@@ -83,12 +102,12 @@ function pointsOf(collectionId, entry) {
 }
 
 /**
- * Each of a book's entries with its points.
+ * Each of a book's entries with its points, each point's ID made for this book and account.
  * @param {string} bookName
  * @param {object[]} entries
- * @returns {Array<{entry: object, uid: string, points: object[]}>}
+ * @returns {Array<{entry: object, uid: string, points: Array<{id: string, hash: number, text: string, uid: string, partNumber: number}>}>}
  */
-function withPoints(bookName, entries) {
+export function entriesWithPoints(bookName, entries) {
     const collectionId = bookCollectionIdOf(bookName);
     return entries.map(entry => ({ entry, uid: String(entry.uid), points: pointsOf(collectionId, entry) }));
 }
@@ -131,7 +150,7 @@ export async function bookVectors(bookNames, settings) {
  */
 export function uidsWithCurrentVectors(bookName, entries, stored, settings) {
     const modelKey = currentEmbeddingModelKey(settings);
-    return new Set(withPoints(bookName, entries).filter(({ points }) => hasCurrentVectors(points, stored, modelKey)).map(({ uid }) => uid));
+    return new Set(entriesWithPoints(bookName, entries).filter(({ points }) => hasCurrentVectors(points, stored, modelKey)).map(({ uid }) => uid));
 }
 
 /** A point as the vector API inserts it: its own ID and hash, its text, and the book, entry and part it belongs to. */
@@ -196,7 +215,7 @@ export async function writeBookVectors(bookName, decidedEntries, entriesToWrite,
         return result;
     }
     const modelKey = currentEmbeddingModelKey(settings);
-    const { points, deleteHashes } = bookVectorWork(withPoints(bookName, decidedEntries), entriesToWrite.map(entry => String(entry.uid)), stored, modelKey);
+    const { points, deleteHashes } = bookVectorWork(entriesWithPoints(bookName, decidedEntries), entriesToWrite.map(entry => String(entry.uid)), stored, modelKey);
     const pointsByUid = new Map();
     for (const point of points) pointsByUid.set(point.uid, [...(pointsByUid.get(point.uid) ?? []), point]);
     const writing = entriesToWrite.map(entry => ({ entry, uid: String(entry.uid), points: pointsByUid.get(String(entry.uid)) ?? [] }));
@@ -266,11 +285,72 @@ export async function pruneBookVectors(bookName, settings) {
     try {
         const decidedEntries = await loadDecidedEntries(bookName);
         const stored = (await bookVectors([bookName], settings)).get(bookName);
-        const { deleteHashes } = bookVectorWork(withPoints(bookName, decidedEntries), [], stored, currentEmbeddingModelKey(settings));
+        const { deleteHashes } = bookVectorWork(entriesWithPoints(bookName, decidedEntries), [], stored, currentEmbeddingModelKey(settings));
         await deleteStoredPoints(bookName, deleteHashes, settings);
     } catch (error) {
         log.warn(`LoreBase: the vectors of lorebook "${bookName}" that no selected entry holds could not be read, so none were deleted:`, error);
     }
+}
+
+/**
+ * Every point of one book tenant in one Qdrant collection, its dense vector included, for its vectors file: the
+ * tenant LoreBase reads now, or one left in the other place. Qdrant gives a collection with a sparse vector its dense
+ * one under the empty name; it is taken from there.
+ * @param {string} tenant - The tenant's ID, as Similharity's listing names it
+ * @param {string} collection - The Qdrant collection holding it
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<Array<{hash: number, text: string, vector: number[]|null, metadata: object}>>}
+ * @throws {Error} When Similharity cannot list them
+ */
+export async function readTenantPoints(tenant, collection, settings) {
+    const listed = await listChunks(tenant, settingsInCollection(settings, collection), { limit: ALL_POINTS, includeVectors: true });
+    return (listed?.items ?? []).map(item => {
+        const vector = Array.isArray(item.vector) ? item.vector : item.vector?.[''] ?? null;
+        return { hash: item.hash, text: item.text ?? '', vector: Array.isArray(vector) ? vector : null, metadata: item.metadata ?? {} };
+    });
+}
+
+/**
+ * Store the points a vectors file holds for some of a book's parts with the file's vectors, through the vector API as
+ * Generate vectors stores them, each with its ID for this book and account, its entry and part; Similharity embeds
+ * nothing for a point that brings its vector. The file's embedding model is the one set now (planVectorsImport), so
+ * this session keeps them as that model's. When a batch fails, the batches before it stay, and this session reads the
+ * book again next time.
+ * @param {string} bookName
+ * @param {Array<{point: {id: string, hash: number, text: string, uid: string, partNumber: number}, vector: number[]}>} writes
+ * @param {object} settings - VectFox settings
+ * @param {(done: number, total: number) => void} [onProgress] - After each batch
+ * @returns {Promise<void>}
+ * @throws {Error} When Similharity cannot store them
+ */
+export async function importBookPoints(bookName, writes, settings, onProgress) {
+    const items = writes.map(({ point, vector }) => ({ ...pointItem(bookName, point), vector }));
+    try {
+        await insertVectorItems(bookCollectionIdOf(bookName), items, vectorSettings(settings), onProgress);
+    } catch (error) {
+        storedVectors.delete(bookName);
+        throw error;
+    }
+    const stored = (await bookVectors([bookName], settings)).get(bookName);
+    const modelKey = currentEmbeddingModelKey(settings);
+    for (const { point } of writes) stored.set(point.hash, { uid: point.uid, modelKey });
+    log.lifecycle(`LoreBase: stored ${writes.length} points of lorebook "${bookName}" from a vectors file`);
+}
+
+/**
+ * Delete every point of one book tenant in one Qdrant collection, and forget what this session read of the books, so
+ * the next read finds what is left.
+ * @param {string} tenant - The tenant's ID, as Similharity's listing names it
+ * @param {string} collection - The Qdrant collection holding it
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<void>}
+ * @throws {Error} When Similharity cannot delete them
+ */
+export async function deleteTenantPoints(tenant, collection, settings) {
+    const isDeleted = await purgeVectorIndex(tenant, settingsInCollection(settings, collection));
+    if (!isDeleted) throw new Error(`Similharity could not delete the vectors of ${tenant} in ${collection}. The console says why.`);
+    storedVectors.clear();
+    log.lifecycle(`LoreBase: deleted the vectors of ${tenant} in ${collection}`);
 }
 
 /**
@@ -306,7 +386,7 @@ async function refreshEditedBook(bookName) {
         const decidedEntries = await loadDecidedEntries(bookName);
         const stored = (await bookVectors([bookName], settings)).get(bookName);
         if (!stored.size) return;
-        const uids = new Set(uidsWithStoredVectors(withPoints(bookName, decidedEntries), stored));
+        const uids = new Set(uidsWithStoredVectors(entriesWithPoints(bookName, decidedEntries), stored));
         const { failures } = await writeBookVectors(bookName, decidedEntries, decidedEntries.filter(entry => uids.has(String(entry.uid))), settings);
         if (failures.length) log.warn(`LoreBase: after an edit, the vectors of ${failures.length} entries in lorebook "${bookName}" could not be written: ${failures[0].detail}`);
     } catch (error) {

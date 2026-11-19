@@ -5,8 +5,12 @@
  * Browses and manages every vector collection, in three pages: Collections (the
  * filters, the list with each collection's actions, and bulk actions on the
  * ticked ones), Search (a search across collections with a keyword filter) and
- * Size Inspector (size-inspector.js). The browser opens in a near-fullscreen dialog of its
- * own (sillytavern/popup.js openPanelPopup), drawn fresh on each open from
+ * Size Inspector (size-inspector.js). The Collections list also holds each
+ * lorebook's LoreBase rows, its keys and its vectors, each exported, imported and
+ * deleted through LoreBase's storage module (features/lorebase); Import a
+ * collection takes collection files alone and names the row whose Import takes
+ * any other file. The browser opens in a near-fullscreen dialog of its own
+ * (sillytavern/popup.js openPanelPopup), drawn fresh on each open from
  * database-browser-markup.js, and its handlers are delegated on its root. Rename,
  * Switch model and Collection Settings, which opens Manage locks, are dialogs of
  * their own over it (collection-dialogs.js), and so is the Chunk Visualizer that
@@ -27,6 +31,7 @@ import {
   getCollectionLockCount,
   getCollectionCharacterLockCount,
   exportCollection,
+  exportFileKind,
   importCollection,
   downloadExport,
   readImportFile,
@@ -59,6 +64,22 @@ import {
   writeImportedStoryLinks,
 } from "../eventbase/index.js";
 import {
+  KEYS,
+  LOREBASE_KEYS_FILE_TYPE,
+  LOREBASE_VECTORS_FILE_TYPE,
+  VECTORS,
+  deleteStoredRow,
+  describeDelete,
+  describeExport,
+  describeImport,
+  describeImported,
+  exportStored,
+  loreBaseStorageRows,
+  nothingToImportText,
+  planImport,
+  writeImport,
+} from "../lorebase/index.js";
+import {
   qdrantTarget,
   queryMultipleCollections,
 } from "../vector-backend/index.js";
@@ -67,7 +88,7 @@ import { getContext } from "../../sillytavern/chat.js";
 import { log } from "../../sillytavern/log.js";
 import { openChunkVisualizer } from "./chunk-visualizer.js";
 import { mergeSearchPieceResults } from "./search-results-core.js";
-import { searchPieces } from "../embedding/index.js";
+import { getModelFromSettings, searchPieces } from "../embedding/index.js";
 import { bindSizeInspector } from "./size-inspector.js";
 import { editCollectionSettings, renameCollection, switchCollectionModel } from "./collection-dialogs.js";
 import { activeLockLine } from "./collection-settings-core.js";
@@ -83,6 +104,8 @@ import {
   keywordScanFailedMarkup,
   keywordScanRunningMarkup,
   keywordTagsMarkup,
+  loreBaseBookMarkup,
+  loreBaseProblemMarkup,
   noCollectionsMarkup,
   nothingToSearchMarkup,
   searchFailedMarkup,
@@ -117,7 +140,20 @@ const browserState = {
   storyLinkCoverage: new Map(),
   // Each read's count in words, once it is in, so a redraw shows it at once
   storyLinkDescriptions: new Map(),
+  // LoreBase's rows, each book's keys and vectors (loreBaseStorageRows), as last read, and why the last read failed
+  loreBaseRows: [],
+  loreBaseProblem: null,
 };
+
+const LOREBASE_TOAST = "VectFox LoreBase";
+const kindWords = (kind) => (kind === KEYS ? "keys" : "vectors");
+
+// Import a collection's word for each file a row's own Import takes instead.
+const ROW_FILE_PLACES = Object.freeze({
+  [STORY_LINKS_FILE_TYPE]: "This is a StoryArc links file. Use Import links on its collection's row in this list.",
+  [LOREBASE_KEYS_FILE_TYPE]: "This is a LoreBase keys file. Use Import keys on its lorebook's keys row in this list.",
+  [LOREBASE_VECTORS_FILE_TYPE]: "This is a LoreBase vectors file. Use Import vectors on its lorebook's vectors row in this list.",
+});
 
 const collectionKey = (collection) => collection.registryKey || collection.id;
 
@@ -174,6 +210,8 @@ function resetBrowserState() {
   browserState.availableKeywords = null;
   browserState.storyLinkCoverage.clear();
   browserState.storyLinkDescriptions.clear();
+  browserState.loreBaseRows = [];
+  browserState.loreBaseProblem = null;
 }
 
 /** GUI-DNA draws a shell this wide or narrower in its phone layout (gui-dna.css, `@container vfx-shell`). */
@@ -233,6 +271,9 @@ function bindBrowserEvents(root) {
   });
   $root.on("click", "[data-collection-action]", function () {
     void runCollectionAction(this.dataset.collectionAction, this.dataset.collectionKey);
+  });
+  $root.on("click", "[data-lorebase-action]", function () {
+    void runLoreBaseAction(this.dataset.lorebaseAction, this.dataset.lorebaseRow);
   });
 
   // Collections page: the filters, then the ticks
@@ -349,8 +390,9 @@ async function importCollectionFile(file) {
       data = await readImportFile(file);
     }
 
-    if (data?.type === STORY_LINKS_FILE_TYPE) {
-      toastr.error("This is a StoryArc links file. Use Import links on its collection's row in this list.", "VectFox Import");
+    const kind = exportFileKind(data);
+    if (kind !== "collection") {
+      toastr.error(ROW_FILE_PLACES[kind] ?? `This is not a collection file: it holds "${kind}".`, "VectFox Import");
       return;
     }
 
@@ -517,6 +559,7 @@ async function refreshCollections(withScan = false) {
     browserState.storyLinkDescriptions.clear();
     const allCollections = await loadAllCollections(browserState.settings, withScan);
     browserState.collections = _filterCollectionsByCurrentPersona(allCollections);
+    await loadLoreBaseRows();
 
     if (allCollections.length !== browserState.collections.length) {
       const hidden = allCollections.length - browserState.collections.length;
@@ -547,9 +590,10 @@ async function refreshCollections(withScan = false) {
   }
 }
 
-// The collection types each Type filter keeps.
+// The collection types each Type filter keeps. LoreBase keeps no collection: only LoreBase's rows (shownLoreBaseBooks).
 const TYPE_FILTER_TYPES = Object.freeze({
   chat: ["chat"],
+  lorebase: [],
 });
 
 /**
@@ -577,8 +621,90 @@ function passesFilters(collection, isActiveById) {
 }
 
 /**
- * Renders the collections list from the current filters, keeps only the shown collections ticked, and fills in the
- * StoryArc links rows.
+ * Reads LoreBase's rows, each lorebook's keys and vectors as Similharity lists them. A failed read leaves a notice where
+ * the rows go, and the collections show as ever.
+ * @returns {Promise<void>}
+ */
+async function loadLoreBaseRows() {
+  if (!browserState.pluginAvailable) return;
+  try {
+    browserState.loreBaseRows = await loreBaseStorageRows(browserState.settings);
+    browserState.loreBaseProblem = null;
+  } catch (error) {
+    log.warn("VectFox Database Browser: LoreBase's keys and vectors could not be read:", error);
+    browserState.loreBaseRows = [];
+    browserState.loreBaseProblem = String(error?.message || error);
+  }
+}
+
+/** Reads LoreBase's rows again after one changed, and draws the list. The WorldInfo page counts again as it opens. */
+async function refreshLoreBaseRows() {
+  await loadLoreBaseRows();
+  renderCollections();
+}
+
+/**
+ * Whether the Collections page's filters show LoreBase's rows: under All types and LoreBase, with no filter on pause,
+ * locks or this chat, none of which they have.
+ * @returns {boolean}
+ */
+function isLoreBaseTypeShown() {
+  const { scope, collectionType, status, onlyActiveForChat } = browserState.filters;
+  return ["all", "lorebase"].includes(collectionType) && scope === "all" && status === "all" && !onlyActiveForChat;
+}
+
+/**
+ * The lorebooks whose LoreBase rows the filters keep, each its rows in order. Name or ID keeps a book whose name, or one
+ * of whose tenants' IDs, holds the words.
+ * @returns {object[][]}
+ */
+function shownLoreBaseBooks() {
+  if (!isLoreBaseTypeShown()) return [];
+  const books = [];
+  for (const row of browserState.loreBaseRows) {
+    const last = books.at(-1);
+    if (last && (last[0].book ?? last[0].tenant) === (row.book ?? row.tenant)) last.push(row);
+    else books.push([row]);
+  }
+  const { searchQuery } = browserState.filters;
+  if (!searchQuery) return books;
+  const holds = (value) => String(value ?? "").toLowerCase().includes(searchQuery);
+  return books.filter((rows) => rows.some((row) => holds(row.book) || holds(row.tenant)));
+}
+
+/**
+ * A lorebook's LoreBase rows as plain values, for loreBaseBookMarkup. Export and Delete need something stored; Import
+ * needs SillyTavern's book and, for vectors, the collection LoreBase reads now, which an import writes to.
+ * @param {object[]} rows - One book's rows, from loreBaseStorageRows
+ * @returns {object}
+ */
+function loreBaseBookView(rows) {
+  const [first] = rows;
+  return {
+    key: first.book ?? first.tenant,
+    name: first.book ?? first.tenant,
+    isInSillyTavern: first.isInSillyTavern,
+    rows: rows.map((row) => {
+      const count = row.kind === KEYS ? row.entryCount : row.pointCount;
+      return {
+        key: row.key,
+        kind: row.kind,
+        count,
+        storedIn: row.kind === VECTORS ? row.collection : "",
+        embedding: row.kind === VECTORS && count ? `${row.embeddingSource || "unknown"}/${row.embeddingModel || "default"}` : "",
+        tenant: row.kind === VECTORS ? row.tenant : null,
+        isElsewhere: row.kind === VECTORS && !row.isHere,
+        canExport: count > 0,
+        canImport: row.isInSillyTavern && (row.kind === KEYS || row.isHere),
+        canDelete: count > 0,
+      };
+    }),
+  };
+}
+
+/**
+ * Renders the collections list from the current filters, keeps only the shown collections ticked, fills in the
+ * StoryArc links rows, and draws LoreBase's rows after the collections.
  */
 function renderCollections() {
   // One read of the lock state for the filter pass and every row: getCollectionListing computes each entry's
@@ -594,16 +720,22 @@ function renderCollections() {
   for (const key of [...browserState.bulkSelected]) {
     if (!browserState.shownKeys.includes(key)) browserState.bulkSelected.delete(key);
   }
-  updateStats(shown.length, shown.reduce((sum, c) => sum + c.chunkCount, 0));
+  const loreBaseBooks = shownLoreBaseBooks();
+  const loreBaseProblem = isLoreBaseTypeShown() ? browserState.loreBaseProblem : null;
+  updateStats(shown.length, shown.reduce((sum, c) => sum + c.chunkCount, 0), loreBaseBooks.length);
   paintTicks();
 
   const container = $("#vectfox_collections_list");
-  if (shown.length === 0) {
+  if (shown.length === 0 && loreBaseBooks.length === 0 && !loreBaseProblem) {
     container.html(noCollectionsMarkup());
     return;
   }
-  container.html(shown.map((collection) => collectionEntryMarkup(collectionRowView(collection, isActiveById))).join(""));
-  fillStoryLinkRows().catch((err) => log.warn("VectFox: Could not fill in the StoryArc links rows:", err));
+  container.html([
+    ...shown.map((collection) => collectionEntryMarkup(collectionRowView(collection, isActiveById))),
+    ...loreBaseBooks.map((rows) => loreBaseBookMarkup(loreBaseBookView(rows))),
+    loreBaseProblem ? loreBaseProblemMarkup(loreBaseProblem) : "",
+  ].join(""));
+  if (shown.length) fillStoryLinkRows().catch((err) => log.warn("VectFox: Could not fill in the StoryArc links rows:", err));
 }
 
 const BACKEND_NAMES = Object.freeze({ standard: "Standard", qdrant: "Qdrant" });
@@ -848,6 +980,115 @@ async function exportCollectionStoryLinks(collection) {
   } catch (error) {
     log.error("VectFox: Export links failed", error);
     toastr.error(`Export links failed: ${error.message}`, "VectFox StoryArc");
+  }
+}
+
+/**
+ * Runs one of a LoreBase row's buttons.
+ * @param {string} action The button's data-lorebase-action
+ * @param {string} key The row's key
+ */
+async function runLoreBaseAction(action, key) {
+  const row = browserState.loreBaseRows.find((each) => each.key === key);
+  if (!row) return;
+  switch (action) {
+    case "export": return exportLoreBaseRow(row);
+    case "import": return importLoreBaseFromPicker(row);
+    case "delete": return deleteLoreBaseRow(row);
+    default: log.warn(`VectFox Database Browser: no LoreBase row button runs "${action}"`);
+  }
+}
+
+/**
+ * Saves a LoreBase row's keys or vectors to a file, and says how much it holds and what it left out.
+ * @param {object} row
+ */
+async function exportLoreBaseRow(row) {
+  try {
+    const exported = await exportStored(row, browserState.settings);
+    if (!exported.count) {
+      toastr.info(`This lorebook has no ${kindWords(row.kind)} to export.`, LOREBASE_TOAST);
+      return;
+    }
+    downloadExport(exported.file, `${row.book ?? row.tenant}-lorebase-${kindWords(row.kind)}`);
+    toastr.success(describeExport(row.kind, exported), LOREBASE_TOAST);
+  } catch (error) {
+    log.error(`VectFox: Export of LoreBase ${kindWords(row.kind)} failed`, error);
+    toastr.error(`Export failed: ${error.message}`, LOREBASE_TOAST);
+  }
+}
+
+/**
+ * Picks a LoreBase file and writes it onto a row's lorebook.
+ * @param {object} row
+ */
+async function importLoreBaseFromPicker(row) {
+  const [file] = await pickFiles({ accept: ".json" });
+  if (file) await importLoreBaseFile(file, row);
+}
+
+/**
+ * Writes a file's keys or vectors onto what matches in a row's lorebook, after showing what that writes and skips.
+ * @param {File} file The picked file
+ * @param {object} row The row whose Import was pressed
+ * @returns {Promise<void>}
+ */
+async function importLoreBaseFile(file, row) {
+  const words = kindWords(row.kind);
+  try {
+    const data = await readImportFile(file);
+    const plan = await planImport(row, data, browserState.settings);
+    if (plan.writes.length === 0) {
+      toastr.error(nothingToImportText(row.kind, plan, row.book), LOREBASE_TOAST);
+      return;
+    }
+    const current = { source: browserState.settings.embedding_provider, model: getModelFromSettings(browserState.settings) };
+    const isConfirmed = await confirmPopup([
+      { text: `Import LoreBase ${words} into this lorebook?` },
+      { text: "Lorebook:", name: row.book },
+      ...describeImport(row.kind, plan, current).map((sentence) => ({ parts: [{ name: sentence }] })),
+      { text: "Saved from:", name: `${data.book?.name ?? "an unnamed lorebook"}, on ${String(data.exportDate ?? "an unknown date").slice(0, 10)}` },
+      row.kind === KEYS ? { text: "This makes no LLM call." } : null,
+      { text: `Import ${words} writes them. Cancel leaves the lorebook as it is.` },
+    ].filter(Boolean), { okButton: `Import ${words}`, isDestructive: true });
+    if (!isConfirmed) return;
+
+    const outcome = await writeImport(plan, browserState.settings);
+    if (outcome.failed) toastr.warning(describeImported(row.kind, outcome, row.book), LOREBASE_TOAST);
+    else toastr.success(describeImported(row.kind, outcome, row.book), LOREBASE_TOAST);
+    await refreshLoreBaseRows();
+  } catch (error) {
+    log.error(`VectFox: Import of LoreBase ${words} failed`, error);
+    toastr.error(`Import failed: ${error.message}`, LOREBASE_TOAST);
+  }
+}
+
+/**
+ * Deletes a LoreBase row's keys or vectors, after showing what is lost and what follows.
+ * @param {object} row
+ * @returns {Promise<void>}
+ */
+async function deleteLoreBaseRow(row) {
+  const words = kindWords(row.kind);
+  const { lost, after } = describeDelete(row);
+  const isConfirmed = await confirmPopup([
+    { text: `Delete the LoreBase ${words} of this lorebook?` },
+    { text: "Lorebook:", name: row.book ?? row.tenant },
+    { text: "Lost:", name: lost },
+    { text: after },
+    { text: `Delete ${words} deletes them. Cancel keeps them.` },
+  ], { okButton: `Delete ${words}`, isDestructive: true });
+  if (!isConfirmed) return;
+
+  try {
+    const deletedCount = await deleteStoredRow(row, browserState.settings);
+    toastr.success(row.kind === KEYS
+      ? `Deleted the keys of ${counted(deletedCount, "entry", "entries")}`
+      : `Deleted the vectors of ${counted(deletedCount, "part")}`, LOREBASE_TOAST);
+    await refreshLoreBaseRows();
+  } catch (error) {
+    log.error(`VectFox: Delete of LoreBase ${words} failed`, error);
+    toastr.error(`Delete failed: ${error.message}`, LOREBASE_TOAST);
   }
 }
 
@@ -1164,13 +1405,15 @@ async function deleteTicked() {
 }
 
 /**
- * Paints the page header's counts.
+ * Paints the page header's counts; the lorebooks' only while LoreBase rows are shown.
  * @param {number} collectionCount Number of collections shown
  * @param {number} chunkCount Total chunks
+ * @param {number} loreBookCount Number of lorebooks whose LoreBase rows are shown
  */
-function updateStats(collectionCount, chunkCount) {
+function updateStats(collectionCount, chunkCount, loreBookCount) {
   $('[data-browser-count="collections"]').text(`${collectionCount} collection${collectionCount === 1 ? "" : "s"}`);
   $('[data-browser-count="chunks"]').text(`${chunkCount} chunk${chunkCount === 1 ? "" : "s"}`);
+  $('[data-browser-count="lorebooks"]').text(counted(loreBookCount, "lorebook")).toggle(loreBookCount > 0);
 }
 
 /**

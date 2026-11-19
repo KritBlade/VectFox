@@ -49,6 +49,17 @@ export async function loadDecidedEntries(bookName, record = getLoreBook(bookName
 }
 
 /**
+ * Every entry of a book as SillyTavern loads it now, selected or not: what a keys file matches by uid and title. None
+ * when SillyTavern has no such book.
+ * @param {string} bookName
+ * @returns {Promise<object[]>}
+ * @throws {Error} When SillyTavern cannot load the book
+ */
+export async function loadBookEntries(bookName) {
+    return Object.values((await loadWorldInfo(bookName))?.entries ?? {});
+}
+
+/**
  * The names of every book with a record: each one LoreBase may have keys or vectors for.
  * @returns {string[]}
  */

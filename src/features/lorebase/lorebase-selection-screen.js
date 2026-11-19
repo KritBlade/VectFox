@@ -309,7 +309,7 @@ async function editKeys(session, uid) {
             continue;
         }
         try {
-            await saveEditedKeys(session.bookName, uid, edited.keys);
+            await saveEditedKeys(session.bookName, entry, edited.keys);
             return;
         } catch (error) {
             log.warn(`LoreBase: the keys edited for "${row.title}" in lorebook "${session.bookName}" could not be saved:`, error);

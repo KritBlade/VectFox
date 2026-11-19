@@ -6,20 +6,29 @@
  * sent, telling its run listeners as it starts and ends, and Regenerate keys there; one run at a time. A run that
  * writes missing keys reads where to lock as it starts and then locks the books it wrote keys for there (§6.1); a run
  * of vectors alone and Regenerate keys lock nothing. Delete deletes every book's vectors, keys or both, never while
- * LoreBase writes, when it brings the panel up. Similharity's key routes are a fetch stand-in holding the keys in
- * memory, as lorebase-keys.test.js has them; the vectors are a stand-in for lorebase-vectors.js, which
- * lorebase-vectors.test.js holds.
+ * LoreBase writes, when it brings the panel up. For the Database Browser (§3.2, §3.3): its rows from Similharity's
+ * listing and the books with a record; a row's keys or vectors exported; a file's import planned onto what matches and
+ * written, a vectors file of another model embedded again; a row deleted; and an import or a delete refused while
+ * LoreBase writes. Similharity's LoreBase routes are a fetch stand-in holding the keys and titles in memory, as
+ * lorebase-keys.test.js has them; the vectors are a stand-in for lorebase-vectors.js, which lorebase-vectors.test.js
+ * holds, its points made by the real lorebase-vectors-core.js.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
     connection: { ok: true }, ask: null, panel: null, lockPlace: null, vectorized: new Set(), vectorFailures: new Set(),
+    worldNames: [], listing: { keys: [], vectors: [] }, tenantPoints: [], getBackend: null,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
-vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: vi.fn() }));
+vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: vi.fn(), world_names: host.worldNames }));
+vi.mock('../src/sillytavern/chat.js', () => ({ getContext: vi.fn(() => ({})), getCurrentChatId: vi.fn(), chat_metadata: {} }));
+vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: (...args) => host.getBackend(...args) }));
+vi.mock('../src/shared/similharity-plugin.js', () => ({
+    similharityStanding: () => ({ isFound: true, version: '3.4.14', requiredVersion: '3.4.14', isCurrent: true }), PLUGIN_UPDATE_INSTRUCTIONS: '',
+}));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: {} }, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/shared/progress-tracker.js', () => ({
     progressTracker: {
@@ -41,9 +50,20 @@ vi.mock('../src/features/lorebase/lorebase-chat-books.js', () => ({
     lockKeyedBooks: vi.fn((place, keyedBookNames) => (place && keyedBookNames.length ? { chatId: place.chatId, bookNames: keyedBookNames } : null)),
 }));
 // An entry has its vectors once host.vectorized holds "book/uid"; writing adds it, and an entry in host.vectorFailures fails.
-vi.mock('../src/features/lorebase/lorebase-vectors.js', () => {
+vi.mock('../src/features/lorebase/lorebase-vectors.js', async () => {
+    const core = await import('../src/features/lorebase/lorebase-vectors-core.js');
     const noVectorsOf = async bookNames => new Map(bookNames.map(bookName => [bookName, new Map()]));
     return {
+        currentEmbeddingModelKey: settings => core.embeddingModelKey(settings.embedding_provider || 'transformers', settings.embedding_model ?? 'baai/bge-m3'),
+        entriesWithPoints: (bookName, entries) => entries.map(entry => ({
+            entry, uid: String(entry.uid), points: core.entryPoints(entry, core.loreBaseBookCollectionId(bookName, 'rabbit')),
+        })),
+        loreBaseVectorsCollection: settings => (settings.qdrant_multitenancy ? 'vectfox_main' : 'vf_lorebase_rabbit'),
+        readTenantPoints: vi.fn(async () => host.tenantPoints),
+        importBookPoints: vi.fn(async (bookName, writes) => {
+            for (const { point } of writes) host.vectorized.add(`${bookName}/${point.uid}`);
+        }),
+        deleteTenantPoints: vi.fn(async () => {}),
         bookVectors: vi.fn(noVectorsOf),
         readBookVectors: vi.fn(noVectorsOf),
         uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid)).filter(uid => host.vectorized.has(`${bookName}/${uid}`)))),
@@ -75,6 +95,7 @@ const QDRANT = { vector_backend: 'qdrant' };
 const STILL_WRITING = 'LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.';
 
 let stored;
+let storedTitles;
 let routeCalls;
 let storage;
 let keysModule;
@@ -93,19 +114,30 @@ beforeEach(async () => {
     vi.resetModules();
     globalThis.toastr = { warning: vi.fn() };
     stored = {};
+    storedTitles = {};
     routeCalls = [];
+    host.worldNames.length = 0;
+    host.listing = { keys: [], vectors: [] };
+    host.tenantPoints = [];
+    host.getBackend = vi.fn(async () => ({}));
     globalThis.fetch = vi.fn(async (url, { body }) => {
         const request = JSON.parse(body);
         routeCalls.push({ url, request });
+        if (url.endsWith('/books')) return { ok: true, json: async () => host.listing };
         if (url.endsWith('/read')) {
-            return { ok: true, json: async () => ({ books: Object.fromEntries(request.books.map(book => [book, { ...(stored[book] ?? {}) }])) }) };
+            const of = all => Object.fromEntries(request.books.map(book => [book, { ...(all[book] ?? {}) }]));
+            return { ok: true, json: async () => ({ books: of(stored), titles: of(storedTitles) }) };
         }
         if (url.endsWith('/delete')) {
-            const deleted = Object.values(stored).reduce((count, book) => count + Object.keys(book).length, 0);
-            stored = {};
+            const books = request.books ?? Object.keys(stored);
+            const deleted = books.reduce((count, book) => count + Object.keys(stored[book] ?? {}).length, 0);
+            for (const book of books) delete stored[book];
             return { ok: true, json: async () => ({ deleted }) };
         }
-        for (const { uid, keys } of request.entries) (stored[request.book] ??= {})[uid] = keys;
+        for (const { uid, keys, title } of request.entries) {
+            (stored[request.book] ??= {})[uid] = keys;
+            if (title !== undefined) (storedTitles[request.book] ??= {})[uid] = title;
+        }
         return { ok: true, json: async () => ({ written: request.entries.length }) };
     });
     host.connection = { ok: true };
@@ -122,7 +154,8 @@ beforeEach(async () => {
     keyRunLockPlace.mockClear();
     lockKeyedBooks.mockClear();
     const vectorsModule = await import('../src/features/lorebase/lorebase-vectors.js');
-    for (const name of ['bookVectors', 'readBookVectors', 'uidsWithCurrentVectors', 'writeBookVectors', 'deleteAllVectors', 'showVectorFailures']) {
+    for (const name of ['bookVectors', 'readBookVectors', 'uidsWithCurrentVectors', 'writeBookVectors', 'deleteAllVectors', 'showVectorFailures',
+        'readTenantPoints', 'importBookPoints', 'deleteTenantPoints']) {
         vectorsModule[name].mockClear();
     }
 });
@@ -475,5 +508,148 @@ describe('deleting', () => {
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, statusText: 'Server Error', text: async () => '{"error":"Qdrant is down"}' }));
         await expect(storage.deleteStored(kinds.BOTH_KINDS, QDRANT)).rejects.toThrow("Similharity could not delete LoreBase's keys (HTTP 500)");
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['lighthouse'] });
+    });
+});
+
+describe("the Database Browser's rows", () => {
+    const keysRowOf = (fields = {}) => ({ key: `keys|${BOOK}`, kind: kinds.KEYS, book: BOOK, hasRecord: true, isInSillyTavern: true, entryCount: 1, ...fields });
+    const vectorsRowOf = (fields = {}) => ({
+        key: 'vectors|vf_lorebase_rabbit|harbor', kind: kinds.VECTORS, book: BOOK, hasRecord: true, isInSillyTavern: true,
+        collection: 'vf_lorebase_rabbit', tenant: 'vf_lorebase_qdrant_rabbit_harbor_atlas_19qag9zxydm', isHere: true, pointCount: 2,
+        embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3', ...fields,
+    });
+    const OPENROUTER = { ...QDRANT, embedding_provider: 'openrouter' };
+    const vectorsFileOf = (points, source = 'openrouter') => ({
+        type: 'vectfox-lorebase-vectors', book: { name: BOOK }, exportDate: '2026-11-19T00:00:00.000Z',
+        embedding: { source, model: 'baai/bge-m3', dimension: 2 }, points,
+    });
+
+    it("reads them from Similharity's listing once Qdrant is ready, with every book that has a record, and none off Qdrant", async () => {
+        await selectBooks();
+        host.worldNames.push(BOOK, 'Desert Atlas');
+        host.listing = {
+            keys: [{ book: BOOK, entryCount: 1 }],
+            vectors: [{ collection: 'vf_lorebase_rabbit', tenant: 'vf_lorebase_qdrant_rabbit_harbor', book: BOOK, pointCount: 4, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3' }],
+        };
+        const rows = await storage.loreBaseStorageRows(QDRANT);
+        expect(rows.map(row => [row.kind, row.book, row.isInSillyTavern, row.kind === kinds.KEYS ? row.entryCount : row.pointCount])).toEqual([
+            ['keys', 'Desert Atlas', true, 0], ['vectors', 'Desert Atlas', true, 0],
+            ['keys', BOOK, true, 1], ['vectors', BOOK, true, 4],
+            ['keys', 'Lost Atlas', false, 0], ['vectors', 'Lost Atlas', false, 0],
+            ['keys', 'Unused Atlas', false, 0], ['vectors', 'Unused Atlas', false, 0],
+        ]);
+        expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/books', request: {} });
+        expect(host.getBackend).toHaveBeenCalledWith(expect.any(Object), 'qdrant');
+
+        routeCalls.length = 0;
+        expect(await storage.loreBaseStorageRows({ vector_backend: 'standard' })).toEqual([]);
+        expect(routeCalls).toEqual([]);
+    });
+
+    it("exports a book's keys, each title from SillyTavern's book or the stored one, an entry with neither left out", async () => {
+        await selectBooks();
+        stored[BOOK] = { 0: ['lighthouse'], 7: ['gone entry'], 8: ['no title'] };
+        storedTitles[BOOK] = { 7: 'Old pier' };
+        const exported = await storage.exportStored(keysRowOf(), QDRANT);
+        expect(exported.file).toMatchObject({ version: '1.0.0', generator: 'VectFox', type: 'vectfox-lorebase-keys', book: { name: BOOK } });
+        expect(exported.file.entries).toEqual([{ uid: '0', title: 'Lighthouse', keys: ['lighthouse'] }, { uid: '7', title: 'Old pier', keys: ['gone entry'] }]);
+        expect([exported.count, exported.leftOutCount]).toEqual([2, 1]);
+        expect(host.ask).not.toHaveBeenCalled();
+    });
+
+    it("exports a tenant's points with their vectors, from the collection its row names", async () => {
+        const { readTenantPoints } = await import('../src/features/lorebase/lorebase-vectors.js');
+        host.tenantPoints = [{ hash: 11, text: 'Lighthouse\nThe lamp.', vector: [0.1, 0.2], metadata: { entryUid: '0', partNumber: 0, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3' } }];
+        const row = vectorsRowOf({ collection: 'vectfox_main', isHere: false });
+        const exported = await storage.exportStored(row, QDRANT);
+        expect(readTenantPoints).toHaveBeenCalledWith(row.tenant, 'vectfox_main', QDRANT);
+        expect(exported.file.embedding).toEqual({ source: 'openrouter', model: 'baai/bge-m3', dimension: 2 });
+        expect(exported.file.points).toEqual([{ hash: 11, uid: '0', partNumber: 0, text: 'Lighthouse\nThe lamp.', vector: [0.1, 0.2] }]);
+        expect(exported.count).toBe(1);
+    });
+
+    it('imports a keys file onto the entries whose number and title match, selected or not, with no LLM call', async () => {
+        await selectBooks();
+        const file = { type: 'vectfox-lorebase-keys', book: { name: BOOK }, entries: [
+            { uid: '0', title: 'Lighthouse', keys: ['beacon'] },
+            { uid: '3', title: 'Pier', keys: ['jetty'] },
+            { uid: '1', title: 'Another book\'s entry', keys: ['elsewhere'] },
+        ] };
+        const plan = await storage.planImport(keysRowOf(), file, QDRANT);
+        expect([plan.writes.map(write => write.uid), plan.replaceCount, plan.unmatchedCount, plan.damagedCount]).toEqual([['0', '3'], 1, 1, 0]);
+
+        expect(await storage.writeImport(plan, QDRANT)).toEqual({ written: 2, failed: 0, isEmbedded: false });
+        expect(routeCalls.at(-1).request).toEqual({ book: BOOK, entries: [{ uid: '0', title: 'Lighthouse', keys: ['beacon'] }, { uid: '3', title: 'Pier', keys: ['jetty'] }] });
+        expect(keysModule.keyStateOf(BOOK, '3')).toEqual({ status: 'ready', keys: ['jetty'] });
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(host.panel.show).not.toHaveBeenCalled();
+    });
+
+    it('imports a vectors file of the model set now with its vectors, under the panel, onto the parts of the selected entries', async () => {
+        const vectorsModule = await import('../src/features/lorebase/lorebase-vectors.js');
+        await selectBooks({ isVectorized: false });
+        const [lighthouse] = vectorsModule.entriesWithPoints(BOOK, [entry(0, 'Lighthouse')]);
+        const file = vectorsFileOf([
+            { uid: '0', partNumber: 0, text: lighthouse.points[0].text, vector: [0.1, 0.2] },
+            { uid: '3', partNumber: 0, text: 'Pier\nNot selected here.', vector: [0.3, 0.4] },
+        ]);
+        const plan = await storage.planImport(vectorsRowOf(), file, OPENROUTER);
+        expect([plan.writes.length, plan.unmatchedCount, plan.needsEmbedding]).toEqual([1, 1, false]);
+
+        expect(await storage.writeImport(plan, OPENROUTER)).toEqual({ written: 1, failed: 0, isEmbedded: false });
+        expect(vectorsModule.importBookPoints).toHaveBeenCalledWith(BOOK, plan.writes, OPENROUTER, expect.any(Function));
+        expect(vectorsModule.writeBookVectors).not.toHaveBeenCalled();
+        expect(host.panel.show).toHaveBeenCalledWith('LoreBase vectors', 1, 'Parts', { unitLabel: 'Parts' });
+        expect(host.panel.complete).toHaveBeenCalledWith(true, 'Wrote the vectors of 1 part');
+    });
+
+    it('embeds the matched entries again when the file was made by another model, as Generate vectors does', async () => {
+        const vectorsModule = await import('../src/features/lorebase/lorebase-vectors.js');
+        await selectBooks({ isVectorized: false });
+        const [lighthouse] = vectorsModule.entriesWithPoints(BOOK, [entry(0, 'Lighthouse')]);
+        const plan = await storage.planImport(vectorsRowOf(), vectorsFileOf([{ uid: '0', partNumber: 0, text: lighthouse.points[0].text, vector: [0.1, 0.2] }], 'openai'), OPENROUTER);
+        expect(plan.needsEmbedding).toBe(true);
+
+        expect(await storage.writeImport(plan, OPENROUTER)).toEqual({ written: 1, failed: 0, isEmbedded: true });
+        expect(vectorsModule.importBookPoints).not.toHaveBeenCalled();
+        expect(uidsOf(vectorsModule.writeBookVectors.mock.calls[0][2])).toEqual([0]);
+        expect(host.panel.show).toHaveBeenCalledWith('LoreBase vectors', 1, 'Entries', { unitLabel: 'Entries' });
+    });
+
+    it('refuses a file of another kind than its row, and writes nothing', async () => {
+        await selectBooks();
+        await expect(storage.planImport(keysRowOf(), vectorsFileOf([]), QDRANT)).rejects.toThrow('This is not a LoreBase keys file.');
+        await expect(storage.planImport(vectorsRowOf(), { type: 'vectfox-lorebase-keys', entries: [] }, QDRANT)).rejects.toThrow('This is not a LoreBase vectors file.');
+        expect(routeCalls.some(call => call.url.endsWith('/write'))).toBe(false);
+    });
+
+    it("deletes a row's keys alone, or one tenant in the collection its row names", async () => {
+        const { deleteTenantPoints } = await import('../src/features/lorebase/lorebase-vectors.js');
+        stored = { [BOOK]: { 0: ['beacon'], 1: ['tide'] }, 'Desert Atlas': { 5: ['dunes'] } };
+        expect(await storage.deleteStoredRow(keysRowOf(), QDRANT)).toBe(2);
+        expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/keys/delete', request: { books: [BOOK] } });
+        expect(stored).toEqual({ 'Desert Atlas': { 5: ['dunes'] } });
+
+        const row = vectorsRowOf({ collection: 'vectfox_main', isHere: false, pointCount: 7 });
+        expect(await storage.deleteStoredRow(row, QDRANT)).toBe(7);
+        expect(deleteTenantPoints).toHaveBeenCalledWith(row.tenant, 'vectfox_main', QDRANT);
+    });
+
+    it('refuses an import or a row delete while LoreBase writes, and writes or deletes nothing', async () => {
+        const { deleteTenantPoints } = await import('../src/features/lorebase/lorebase-vectors.js');
+        await selectBooks();
+        const plan = await storage.planImport(keysRowOf(), { type: 'vectfox-lorebase-keys', entries: [{ uid: '0', title: 'Lighthouse', keys: ['beacon'] }] }, QDRANT);
+        let answer;
+        host.ask = vi.fn(() => new Promise(resolve => { answer = resolve; }));
+        const writing = keysModule.writeKeys(BOOK, [entry(1, 'Tidewardens')], QDRANT);
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
+        const writesBefore = routeCalls.filter(call => call.url.endsWith('/write')).length;
+
+        await expect(storage.writeImport(plan, QDRANT)).rejects.toThrow(STILL_WRITING);
+        await expect(storage.deleteStoredRow(vectorsRowOf(), QDRANT)).rejects.toThrow(STILL_WRITING);
+        expect(routeCalls.filter(call => call.url.endsWith('/write'))).toHaveLength(writesBefore);
+        expect(deleteTenantPoints).not.toHaveBeenCalled();
+        answer(answerWith(['tidewardens']));
+        await writing;
     });
 });

@@ -3,18 +3,22 @@
  * lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on
  * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
- * LoreBase's model; one entry's keys are regenerated to read, or stored as the user edited them. The progress panel's
- * runs and Delete all are LoreBase's storage module's (tests/lorebase-storage.test.js). Similharity's routes are a
- * fetch stand-in holding the keys in memory.
+ * LoreBase's model; one entry's keys are regenerated to read, or stored as the user edited them; every write names the
+ * entry's title, which a read gives back; a keys file's keys are stored with no LLM call; one book's keys are deleted
+ * alone; and every call makes Similharity's Qdrant ready first. The progress panel's runs and Delete all are LoreBase's
+ * storage module's (tests/lorebase-storage.test.js). Similharity's routes are a fetch stand-in holding the keys and
+ * titles in memory.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null }));
+const host = vi.hoisted(() => ({ connection: { ok: true }, ask: null, getBackend: null, order: [], standing: null }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
-vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: {} }, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: { vector_backend: 'qdrant' } }, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: (...args) => host.getBackend(...args) }));
+vi.mock('../src/shared/similharity-plugin.js', () => ({ similharityStanding: () => host.standing, PLUGIN_UPDATE_INSTRUCTIONS: 'Update Similharity.' }));
 vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
     askOnLoreBase: () => (...args) => host.ask(...args),
     resolveLoreBaseLlmConfig: () => host.connection,
@@ -26,6 +30,7 @@ const entry = (uid, comment) => ({ uid, comment, content: `${comment} stands by 
 const QDRANT = { vector_backend: 'qdrant' };
 
 let stored;
+let storedTitles;
 let routeCalls;
 let keysModule;
 
@@ -40,19 +45,29 @@ beforeEach(async () => {
     vi.resetModules();
     globalThis.toastr = { warning: vi.fn() };
     stored = {};
+    storedTitles = {};
     routeCalls = [];
+    host.order = [];
+    host.standing = { isFound: true, version: '3.4.14', requiredVersion: '3.4.14', isCurrent: true };
+    host.getBackend = vi.fn(async () => { host.order.push('ready'); });
     globalThis.fetch = vi.fn(async (url, { body }) => {
         const request = JSON.parse(body);
         routeCalls.push({ url, request });
+        host.order.push(url);
         if (url.endsWith('/read')) {
-            return { ok: true, json: async () => ({ books: Object.fromEntries(request.books.map(book => [book, { ...(stored[book] ?? {}) }])) }) };
+            const of = all => Object.fromEntries(request.books.map(book => [book, { ...(all[book] ?? {}) }]));
+            return { ok: true, json: async () => ({ books: of(stored), titles: of(storedTitles) }) };
         }
         if (url.endsWith('/delete')) {
-            const deleted = Object.values(stored).reduce((count, book) => count + Object.keys(book).length, 0);
-            stored = {};
+            const books = request.books ?? Object.keys(stored);
+            const deleted = books.reduce((count, book) => count + Object.keys(stored[book] ?? {}).length, 0);
+            for (const book of books) delete stored[book];
             return { ok: true, json: async () => ({ deleted }) };
         }
-        for (const { uid, keys } of request.entries) (stored[request.book] ??= {})[uid] = keys;
+        for (const { uid, keys, title } of request.entries) {
+            (stored[request.book] ??= {})[uid] = keys;
+            if (title !== undefined) (storedTitles[request.book] ??= {})[uid] = title;
+        }
         return { ok: true, json: async () => ({ written: request.entries.length }) };
     });
     host.connection = { ok: true };
@@ -68,7 +83,7 @@ describe('writing keys', () => {
         expect(result).toEqual({ written: 1, failed: 0, stopped: 0 });
         expect(host.ask).toHaveBeenCalledTimes(1);
         expect(routeCalls.map(call => call.url)).toEqual(['/api/plugins/similharity/lorebase/keys/read', '/api/plugins/similharity/lorebase/keys/write']);
-        expect(routeCalls[1].request).toEqual({ book: BOOK, entries: [{ uid: '1', keys: ['keys from Tidewardens'] }] });
+        expect(routeCalls[1].request).toEqual({ book: BOOK, entries: [{ uid: '1', keys: ['keys from Tidewardens'], title: 'Tidewardens' }] });
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['old keys'] });
         expect(keysModule.keyStateOf(BOOK, '1')).toEqual({ status: 'ready', keys: ['keys from Tidewardens'] });
     });
@@ -187,8 +202,11 @@ describe("editing one entry's keys", () => {
         const seen = [];
         keysModule.onKeyStateChange(bookName => seen.push(keysModule.keyStateOf(bookName, '4')));
 
-        await keysModule.saveEditedKeys(BOOK, 4, ['drowned bell', 'bell tower']);
-        expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/keys/write', request: { book: BOOK, entries: [{ uid: '4', keys: ['drowned bell', 'bell tower'] }] } });
+        await keysModule.saveEditedKeys(BOOK, entry(4, 'Drowned Bell'), ['drowned bell', 'bell tower']);
+        expect(routeCalls.at(-1)).toEqual({
+            url: '/api/plugins/similharity/lorebase/keys/write',
+            request: { book: BOOK, entries: [{ uid: '4', keys: ['drowned bell', 'bell tower'], title: 'Drowned Bell' }] },
+        });
         expect(stored[BOOK]['4']).toEqual(['drowned bell', 'bell tower']);
         expect(seen).toEqual([{ status: 'ready', keys: ['drowned bell', 'bell tower'] }]);
     });
@@ -197,8 +215,65 @@ describe("editing one entry's keys", () => {
         stored[BOOK] = { 0: ['old keys'] };
         await keysModule.readBookKeys([BOOK]);
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, statusText: 'Server Error', text: async () => '{"error":"Qdrant is down"}' }));
-        await expect(keysModule.saveEditedKeys(BOOK, 0, ['new keys'])).rejects.toThrow("Similharity could not write LoreBase's keys (HTTP 500)");
+        await expect(keysModule.saveEditedKeys(BOOK, entry(0, 'Lighthouse'), ['new keys'])).rejects.toThrow("Similharity could not write LoreBase's keys (HTTP 500)");
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['old keys'] });
+    });
+});
+
+describe('titles, a keys file, and one book', () => {
+    it('makes Similharity\'s Qdrant ready before each call, as every vector call is', async () => {
+        await keysModule.readBookKeys([BOOK]);
+        expect(host.getBackend).toHaveBeenCalledWith({ vector_backend: 'qdrant' }, 'qdrant');
+        expect(host.order).toEqual(['ready', '/api/plugins/similharity/lorebase/keys/read']);
+    });
+
+    it('calls no route when Qdrant cannot be reached, and says why', async () => {
+        host.getBackend = vi.fn(async () => { throw new Error('Backend qdrant failed health check'); });
+        await expect(keysModule.readBookKeys([BOOK])).rejects.toThrow('Backend qdrant failed health check');
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('reads a book\'s keys with the title stored beside each, and keeps the keys for the selection screen', async () => {
+        stored[BOOK] = { 0: ['lighthouse'], 1: ['tidewardens'] };
+        storedTitles[BOOK] = { 0: 'Lighthouse' };
+        expect(await keysModule.readBookKeysWithTitles(BOOK)).toEqual({ keys: { 0: ['lighthouse'], 1: ['tidewardens'] }, titles: { 0: 'Lighthouse' } });
+        expect(keysModule.keyStateOf(BOOK, '1')).toEqual({ status: 'ready', keys: ['tidewardens'] });
+    });
+
+    it('stores a keys file\'s keys with their titles, with no LLM call, and tells the listeners once', async () => {
+        const seen = [];
+        keysModule.onKeyStateChange(bookName => seen.push(bookName));
+        const written = await keysModule.writeImportedKeys(BOOK, [
+            { uid: '0', title: 'Lighthouse', keys: ['lighthouse'] },
+            { uid: '3', title: 'Tide clock', keys: [] },
+        ]);
+        expect(written).toBe(2);
+        expect(host.ask).not.toHaveBeenCalled();
+        expect(routeCalls.at(-1).request).toEqual({ book: BOOK, entries: [
+            { uid: '0', title: 'Lighthouse', keys: ['lighthouse'] },
+            { uid: '3', title: 'Tide clock', keys: [] },
+        ] });
+        expect(keysModule.keyStateOf(BOOK, '3')).toEqual({ status: 'ready', keys: [] });
+        expect(seen).toEqual([BOOK]);
+    });
+
+    it('deletes one book\'s keys alone, forgets them, and keeps another book\'s', async () => {
+        stored = { [BOOK]: { 0: ['lighthouse'] }, 'Desert Atlas': { 5: ['dunes'] } };
+        await keysModule.readBookKeys([BOOK, 'Desert Atlas']);
+        expect(await keysModule.deleteBookKeys([BOOK])).toBe(1);
+        expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/keys/delete', request: { books: [BOOK] } });
+        expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'missing' });
+        expect(keysModule.keyStateOf('Desert Atlas', '5')).toEqual({ status: 'ready', keys: ['dunes'] });
+        expect(stored).toEqual({ 'Desert Atlas': { 5: ['dunes'] } });
+    });
+
+    it("sends no delete of one book to a Similharity older than the floor, which would delete every book's keys", async () => {
+        stored = { [BOOK]: { 0: ['lighthouse'] }, 'Desert Atlas': { 5: ['dunes'] } };
+        host.standing = { isFound: true, version: '3.4.13', requiredVersion: '3.4.14', isCurrent: false };
+        await expect(keysModule.deleteBookKeys([BOOK])).rejects.toThrow(
+            "Deleting one lorebook's keys needs Similharity 3.4.14 or later, and 3.4.13 is installed, so nothing was deleted. Update Similharity.");
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+        expect(stored).toEqual({ [BOOK]: { 0: ['lighthouse'] }, 'Desert Atlas': { 5: ['dunes'] } });
     });
 });
 

@@ -299,12 +299,15 @@ describe('the links file', () => {
         event(3, 30),
     ];
     const collection = { id: 'vf_eventbase_chat', name: 'A chat' };
-    const file = () => buildStoryLinksFile(events, collection, '2026-11-05T00:00:00.000Z');
+    const header = { version: '1.0.0', exportDate: '2026-11-05T00:00:00.000Z', generator: 'VectFox' };
+    const file = () => buildStoryLinksFile(events, collection, header);
 
-    it('holds each decided event in timeline order, and leaves out what is undecided', () => {
+    it('opens with the header every VectFox file has, then holds each decided event in timeline order, and leaves out what is undecided', () => {
         expect(file()).toEqual({
-            type: STORY_LINKS_FILE_TYPE,
+            version: '1.0.0',
             exportDate: '2026-11-05T00:00:00.000Z',
+            generator: 'VectFox',
+            type: STORY_LINKS_FILE_TYPE,
             collection,
             events: [
                 { event_id: 'id1', story_links: [] },
@@ -315,7 +318,7 @@ describe('the links file', () => {
 
     it('refuses to export links that name no event_id', () => {
         const unusable = [event(1, 10, { story_links: [] }), event(2, 20, { story_links: [{ hash: 1, type: STORY_LINK_TYPE.CONTINUES, thread: 't' }] })];
-        expect(() => buildStoryLinksFile(unusable, collection, 'a date')).toThrow('1 events hold links without an event_id');
+        expect(() => buildStoryLinksFile(unusable, collection, header)).toThrow('1 events hold links without an event_id');
     });
 
     it('reads back what it wrote', () => {

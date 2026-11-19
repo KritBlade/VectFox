@@ -38,6 +38,24 @@ Need only one of the 2? **Generate keys** writes just the missing keys, and **Ge
 
 You don't have to keep them up to date. Edit an entry in World Info, and VectFox writes the vectors of the parts you changed again by itself. Turn an entry off, and its vectors are deleted when you close this screen. Its keys stay, in case you turn it back on.
 
+## Saving them, putting them back, deleting one book
+
+The Database Browser lists every lorebook LoreBase keeps something for, under the type LoreBase. Each book gets a keys row and a vectors row, like `Entries with keys: 313` and `Parts: 504`. So you see what a book holds without opening anything.
+
+Each row has its own Export, Import and Delete. Export saves that one kind to a file. Import puts a file back. Delete removes that kind, of that book, and nothing else. Your selections stay, LoreBase stays on, and those entries just sit out of your replies until Generate keys or Generate vectors writes them again.
+
+This matters MOST for keys. They cost a LoreBase model call for every entry, so a book of 313 entries is 313 calls. Export them once, and after a reinstall, a new PC or a Delete you regret, Import brings them all back with no LLM call at all. Vectors work the same way, and Import puts them back with no embedding call.
+
+Import only writes what still matches. A keys file goes onto an entry only when its number AND its title match, because every book numbers its entries 0, 1, 2. That's what keeps another book's keys off your entries. A vectors file goes onto a part only when that part still has the same text, in an entry you have on.
+
+Before it writes, Import tells you how many it writes, how many of those replace what the book has, and how many it skips. Say Cancel, and nothing changes.
+
+If you switched your embedding model since the export, Import says so, and embeds those parts again with your current model, the same as Generate vectors. To use the saved vectors as they are, switch back to the model the file names first.
+
+A book you deleted from SillyTavern still shows its rows, so you can export or delete what is left. You just can't import into it, since there is no entry left to match. Vectors marked "Not read" are the same kind of leftover: they sit in the other collection from before you switched One shared collection, and LoreBase doesn't read them anymore.
+
+Import a collection, at the top of the list, takes collection files only. Give it a keys or vectors file, and it tells you which row's Import takes it.
+
 ## Ticked is NOT on
 
 This is the part that confuses everyone, so I'll say it first. Each entry row has 2 controls, and they do different things.
