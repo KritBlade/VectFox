@@ -106,8 +106,8 @@ function recordFor(bookName) {
 }
 
 /**
- * Set the entries LoreBase decides in a book: a selected entry goes in only when Luna picks it (D14). Every entry
- * starts unselected (D3).
+ * Set the entries LoreBase decides in a book: a selected entry goes in only when LoreBase picks it, Jev on Fast and
+ * Cheap [Jev] or Luna on High Accuracy (D14, D16). Every entry starts unselected (D3).
  * @param {string} bookName
  * @param {Iterable<string|number>} entryUids
  */

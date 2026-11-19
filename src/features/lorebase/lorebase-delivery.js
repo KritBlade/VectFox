@@ -3,7 +3,7 @@
  * lorebook-semantic-overhaul-passage-index.md). The generation interceptor holds a reply's picks for the scan that
  * follows it; at WORLDINFO_ENTRIES_LOADED, before SillyTavern scans, every entry LoreBase decides loses its keys in
  * the scan's copy, and the held picks are force-activated inside LoreBase's <VectLorebook> block (lorebase-delivery-core.js),
- * so a selected entry goes in only when Luna picks it (D14).
+ * so a selected entry goes in only when LoreBase picks it, Jev or Luna (D14, D16).
  * A scan with nothing held, such as a quiet generation's or a dry run's, sends no selected entry. While LoreBase does
  * not act (lorebase-switch.js), every scan is left to SillyTavern.
  *

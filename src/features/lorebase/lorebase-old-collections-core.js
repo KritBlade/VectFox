@@ -59,10 +59,11 @@ export function oldLorebookCollections(registryKeys, { bookNames, chatLocksOf, c
 }
 
 /**
- * The notice once old collections are deleted: that nothing needs vectorizing again, the books they came from, each
- * once, which keep working as plain lorebooks, the steps to have LoreBase decide a book's entries, the lock among
- * them, whether locks moved to the books, how many came from no book SillyTavern still has, and how many others could
- * not be deleted. Shown only when at least one was deleted.
+ * The notice once old collections are deleted: that their vectors are not needed, as LoreBase writes its own, the books
+ * they came from, each once, which keep working as plain lorebooks, the steps to have LoreBase decide a book's
+ * entries, ending with the keys and vectors whose writing locks the book to the chat (§6.1 of lorebook-multi-vector.md),
+ * whether locks moved to the books, how many came from no book SillyTavern still has, and how many others could not be
+ * deleted. Shown only when at least one was deleted.
  * @param {{deleted: Array<{bookName: string|null, chatIds: string[], characterAvatars: string[]}>, failedCount: number}} outcome
  * @returns {object[]} The dialog's lines (sillytavern/popup-core.js)
  */
@@ -72,17 +73,17 @@ export function oldCollectionsNoticeLines({ deleted, failedCount }) {
     const hasMovedLocks = deleted.some(collection => collection.bookName && (collection.chatIds.length || collection.characterAvatars.length));
     const lines = [
         { icon: 'fa-circle-info', text: 'LoreBase replaced vectorized lorebooks, so VectFox deleted their old collections.' },
-        { text: 'Nothing needs vectorizing again: LoreBase reads each lorebook as it is.' },
+        { text: 'Their old vectors are not needed: LoreBase writes its own keys and vectors for the entries you choose.' },
     ];
     if (books.length) {
         lines.push({ text: 'These books keep working as plain SillyTavern lorebooks:' });
         lines.push(...books.map(bookName => ({ icon: 'fa-book', name: bookName })));
         lines.push(
             { text: "To have LoreBase decide a book's entries instead:" },
-            { text: '1. Open a chat that uses the book. On the WorldInfo page, turn on Use LoreBase and set up the LoreBase model.' },
+            { text: '1. Open a chat that uses the book. On the WorldInfo page, turn on Use LoreBase and set up the LoreBase model card: its notice names anything still missing.' },
             { text: '2. Press Choose entries in the LoreBase books card, and pick the book at the top.' },
             { text: '3. Turn on the entries LoreBase should decide. Every entry starts off.' },
-            { text: '4. Turn on Lock to this chat or Lock to this character. LoreBase uses a book only where it is locked.' },
+            { text: "4. Close the screen and press Write keys and vectors. The book then locks to this chat, as LoreBase uses a book only where it is locked. Lock to this character, on the same screen, uses it in all of the character's chats." },
         );
     }
     if (hasMovedLocks) {

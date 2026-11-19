@@ -384,7 +384,7 @@ New collections auto-activate for the current chat. In a collection's settings, 
 
 ### 📡 Smarter status indicators
 
-Auto-Sync card shows whether the current chat is vectorized and how many events exist, and links to the vectorizer if it's not. The WorldInfo page lists the lorebooks your chat loads, how many entries you picked for LoreBase in each, and where each book is locked. Its **LoreBase tester** card shows what LoreBase did on each reply.
+Auto-Sync card shows whether the current chat is vectorized and how many events exist, and links to the vectorizer if it's not. The WorldInfo page lists the lorebooks your chat loads, how many entries you picked for LoreBase in each, whether their keys and vectors are ready, and where each book is locked. Its **LoreBase tester** card shows what LoreBase did on each reply.
 
 ### 🗂️ Tabbed interface
 
@@ -543,12 +543,14 @@ You need 2 profiles: one for embedding, and one for the model that writes events
 7. Most other settings work fine on default. Feel free to tweak.
 8. **Vectorize your chat once.** Open your chat, go to the **Action** page, press **Vectorize content**, pick **Chat**, then press **Vectorize**. You **HAVE** to do this to build your first DB.
 9. **Keep it in sync.** Turn on **Auto-sync this chat** on the **AutoSync** page if you want it automatic. **Turns** sets how many turns go into each run. Or press **Sync chat** on the **Action** page to catch up by hand.
-10. (Optional) Let LoreBase pick your lorebook entries. On the **WorldInfo** page, turn on **Use LoreBase**, set up the **LoreBase model**, press **Choose entries**, turn on the entries you want LoreBase to decide, and lock the book to your chat or character. [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md) explains every button on that screen.
+10. (Optional) Let LoreBase pick your lorebook entries. On the **WorldInfo** page, turn on **Use LoreBase** and set up the **LoreBase model** card: its notice names anything still missing. Press **Choose entries**, turn on the entries you want LoreBase to decide, and close the screen. VectFox asks to write their keys and vectors, and once their keys are written, the book locks to your chat. [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md) explains every button on that screen, and how each choice picks.
+   - LoreBase keeps each entry's keys and vectors in Qdrant, so it needs Qdrant as the vector backend and VectFox's embedding model. **Fast and Cheap [Jev]**, the default, also needs a SillyTavern profile for Jev, a small model that rates every entry for each reply. **High Accuracy** has the LoreBase model pick the entries and cut each one down to the parts the reply needs.
+   - Your chat doesn't load the book yet? **Add a lorebook**, under the books, adds it to this character or to all chats.
    - If SillyTavern's **Vector Storage** has **Enabled for World Info** on, VectFox asks to turn it off. Vector Storage sends lorebook entries by its own search, so it would send the entries you gave LoreBase in full, even when LoreBase leaves them out. If you keep it on, LoreBase stays off. Vector Storage's chat and file search stay as they are.
-   - The **LoreBase tester** card on the same page shows what LoreBase did on each reply. You see what the LoreBase model picked and why, which parts of each entry went in, and how many tokens that was next to what SillyTavern's keys would send. So if a reply forgot something, you can check if LoreBase left it out. It keeps your replies until you reload the page.
-   - In the prompt, everything LoreBase sends sits inside one `<VectLorebook>` block, each entry in a tag named after it, so you and the AI can tell it apart from SillyTavern's own entries.
+   - The **LoreBase tester** card on the same page shows what LoreBase did on each reply. You see what was picked and why, which parts of each entry went in, and how many tokens that was next to what SillyTavern's keys would send. So if a reply forgot something, you can check if LoreBase left it out. It keeps your replies until you reload the page.
+   - In the prompt, everything LoreBase sends sits inside a `<VectLorebook>` block, each entry in a tag named after it, so you and the AI can tell it apart from SillyTavern's own entries.
    - The **Database Browser** lists each book's LoreBase keys and vectors, each with Export, Import and Delete. Export your keys once, since each one costs a LoreBase model call to write, and Import puts them back with no LLM call. [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md) has the details.
-   - If you vectorized lorebooks with an older VectFox, those old collections can't work with LoreBase, so VectFox deletes them once at start and shows which books they came from. You don't need to vectorize anything again: LoreBase reads each lorebook as it is. Until you set those books up as above, they keep working as plain SillyTavern lorebooks. A chat or character lock on an old collection moves to its book.
+   - If you vectorized lorebooks with an older VectFox, those old collections can't work with LoreBase, so VectFox deletes them once at start and shows which books they came from. Their old vectors aren't needed: LoreBase writes its own keys and vectors for the entries you choose. Until you set those books up as above, they keep working as plain SillyTavern lorebooks. A chat or character lock on an old collection moves to its book.
 11. (Optional) Turn on **Agent Mode** on the **AgentMode** page once everything else works. Leave **Provider** on **Same as EventBase model**, and the planner runs on the EventBase model's profile. So the same cheap, fast model from step 5 also drives the planner. See "How It Works" > "Agent Mode" above for what it does.
 
 **Manual OpenRouter and vLLM are going away.** They are still in the Provider dropdowns and work like before, with their own key boxes. But a VectFox release 3 months after the one that brought SillyTavern profiles removes them. If you still use one, VectFox tells you once, and lists every dropdown to move.
@@ -584,7 +586,7 @@ Look for the update notification in the Extensions panel, or manually check with
 **What does VectFox search?**
 Your chat history, through EventBase: the live chat and uploaded `.jsonl` chat files, stored as events. Each reply searches the event collections locked to its chat.
 
-Lorebooks are not in it. LoreBase picks the entries a reply needs, and SillyTavern's own World Info sends them.
+Your lorebooks only through LoreBase, and only the entries you turned on: on **Fast and Cheap [Jev]**, a reply searches their vectors when the books locked to the chat or its character hold more than 100 ready entries. LoreBase picks the entries a reply needs, and SillyTavern's own World Info sends them.
 
 **Can I change the CJK tokenizer mid-chat?**
 No — don't do it. The CJK tokenizer is **locked into each Qdrant collection at upsert time** via a sentinel point. Switching modes after you've already vectorized content will trigger a "Tokenizer mismatch" warning modal on the next query, and your only real options are:

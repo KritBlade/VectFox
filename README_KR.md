@@ -377,7 +377,7 @@ VectFox는 모든 언어를 토크나이즈하고 인덱싱할 수 있습니다�
 새 컬렉션은 현재 채팅에 자동 활성화됩니다. 컬렉션 설정의 "Active for this chat" 스위치가 채팅 잠금을 제어합니다. 설정에는 잠금이 몇 개인지, 이 채팅에 맞는 잠금이 있는지도 표시됩니다.
 
 ### 📡 더 똑똑한 상태 표시기
-Auto-Sync 카드는 현재 채팅이 벡터화되었는지와 얼마나 많은 이벤트가 존재하는지 보여줍니다. 채팅이 벡터화되지 않았으면 벡터화 도구로 링크됩니다. WorldInfo 페이지는 채팅이 불러오는 로어북과, 각 로어북에서 LoreBase용으로 고른 항목 수, 각 로어북이 어디에 잠겨 있는지 보여줍니다. 그 **LoreBase tester** 카드는 각 답장에서 LoreBase가 무엇을 했는지 보여줍니다.
+Auto-Sync 카드는 현재 채팅이 벡터화되었는지와 얼마나 많은 이벤트가 존재하는지 보여줍니다. 채팅이 벡터화되지 않았으면 벡터화 도구로 링크됩니다. WorldInfo 페이지는 채팅이 불러오는 로어북과, 각 로어북에서 LoreBase용으로 고른 항목 수, 그 키와 벡터가 준비되었는지, 각 로어북이 어디에 잠겨 있는지 보여줍니다. 그 **LoreBase tester** 카드는 각 답장에서 LoreBase가 무엇을 했는지 보여줍니다.
 
 ### 🗂️ 탭 인터페이스
 설정은 **Action**(벡터화, Database Browser, 진단, 개발 도구), **Core**(백엔드, 임베딩, 검색, 하이브리드), **ChatHistory**(EventBase: 채팅 이력/아카이브 채팅 파일 .jsonl), **AutoSync**(열린 채팅 동기화), **WorldInfo**(LoreBase), **RAG**(기억을 프롬프트에서 감싸는 방식), **AgentMode**(검색 플래너), **StoryArc**(스토리 스레드)로 나뉩니다.
@@ -523,11 +523,14 @@ VectFox는 SillyTavern 연결 프로필(connection profile)로 작동합니다. 
 7. 나머지 대부분의 설정은 기본값으로 괜찮습니다. 필요하면 자유롭게 조정하세요.
 8. **채팅을 한 번 벡터화하기.** 채팅을 열고 **Action** 페이지에서 **Vectorize content**를 누르고 **Chat**을 고른 뒤 **Vectorize**를 누릅니다. 첫 DB를 만들려면 이 단계가 **꼭** 필요합니다.
 9. **동기화 유지.** 자동으로 하려면 **AutoSync** 페이지에서 **Auto-sync this chat**을 켭니다. **Turns**는 한 번 실행에 들어가는 턴 수를 정합니다. 직접 따라잡고 싶다면 **Action** 페이지에서 **Sync chat**을 누르세요.
-10. (선택) 로어북 항목을 LoreBase가 고르게 합니다. **WorldInfo** 페이지에서 **Use LoreBase**를 켜고, **LoreBase model**을 설정하고, **Choose entries**를 눌러 LoreBase에 맡길 항목을 켠 뒤, 로어북을 채팅이나 캐릭터에 잠급니다. 그 화면의 각 버튼 설명은 [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)(영어)에 있습니다.
+10. (선택) 로어북 항목을 LoreBase가 고르게 합니다. **WorldInfo** 페이지에서 **Use LoreBase**를 켜고 **LoreBase model** 카드를 설정합니다. 빠진 것이 있으면 카드의 알림이 알려 줍니다. **Choose entries**를 눌러 LoreBase에 맡길 항목을 켜고 화면을 닫습니다. VectFox가 키와 벡터를 쓸지 묻고, 키가 쓰이면 로어북이 그 채팅에 잠깁니다. 그 화면의 각 버튼과 각 선택지가 고르는 방식은 [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)(영어)에 설명되어 있습니다.
+   - LoreBase는 각 항목의 키와 벡터를 Qdrant에 보관하므로, 벡터 백엔드로 Qdrant와 VectFox의 임베딩 모델이 필요합니다. 기본값인 **Fast and Cheap [Jev]**에는 답장마다 각 항목을 평가하는 작은 모델 Jev용 SillyTavern 프로필도 필요합니다. **High Accuracy**에서는 LoreBase model이 항목을 고르고, 각 항목을 답장에 필요한 부분만 남기도록 줄입니다.
+   - 채팅이 아직 그 로어북을 불러오지 않나요? 로어북 목록 아래의 **Add a lorebook**으로 이 캐릭터나 모든 채팅에 추가할 수 있습니다.
    - SillyTavern의 **Vector Storage**에서 **Enabled for World Info**가 켜져 있으면, VectFox가 끌지 물어봅니다. Vector Storage는 자체 검색으로 로어북 항목을 보내기 때문에, LoreBase가 뺀 항목이라도 LoreBase에 맡긴 항목을 통째로 보냅니다. 켜 둔 채로 두면 LoreBase는 꺼진 채로 있습니다. Vector Storage의 채팅과 파일 검색은 그대로입니다.
-   - 같은 페이지의 **LoreBase tester** 카드는 각 답장에서 LoreBase가 무엇을 했는지 보여줍니다. LoreBase model이 무엇을 왜 골랐는지, 각 항목의 어느 부분이 들어갔는지, 그리고 그게 몇 토큰이었는지를 SillyTavern의 키가 보냈을 양과 나란히 볼 수 있습니다. 답장이 무언가를 빠뜨렸다면, LoreBase가 뺀 것인지 확인할 수 있습니다. 기록은 페이지를 새로고침할 때까지 남습니다.
-   - 프롬프트에서 LoreBase가 보내는 내용은 모두 하나의 `<VectLorebook>` 블록 안에 들어가고, 각 항목은 그 이름의 태그 안에 들어갑니다. 그래서 당신도 AI도 SillyTavern 자신의 항목과 구별할 수 있습니다.
-   - 이전 VectFox로 로어북을 벡터화했다면, 그 오래된 컬렉션은 LoreBase와 함께 쓸 수 없습니다. 그래서 VectFox는 시작할 때 한 번 그것들을 삭제하고, 어떤 로어북에서 만들어졌는지 보여 줍니다. 다시 벡터화할 필요는 없습니다. LoreBase는 로어북을 그대로 읽습니다. 위 단계대로 설정하기 전까지, 그 로어북들은 평소의 SillyTavern 로어북으로 작동합니다. 오래된 컬렉션의 채팅이나 캐릭터 잠금은 그 로어북으로 옮겨집니다.
+   - 같은 페이지의 **LoreBase tester** 카드는 각 답장에서 LoreBase가 무엇을 했는지 보여줍니다. 무엇이 왜 골라졌는지, 각 항목의 어느 부분이 들어갔는지, 그리고 그게 몇 토큰이었는지를 SillyTavern의 키가 보냈을 양과 나란히 볼 수 있습니다. 답장이 무언가를 빠뜨렸다면, LoreBase가 뺀 것인지 확인할 수 있습니다. 기록은 페이지를 새로고침할 때까지 남습니다.
+   - 프롬프트에서 LoreBase가 보내는 내용은 모두 `<VectLorebook>` 블록 안에 들어가고, 각 항목은 그 이름의 태그 안에 들어갑니다. 그래서 당신도 AI도 SillyTavern 자신의 항목과 구별할 수 있습니다.
+   - **Database Browser**에는 각 로어북의 LoreBase 키와 벡터가 나열되고, 각각 Export, Import, Delete가 있습니다. 키는 하나 쓸 때마다 LoreBase model 호출이 들기 때문에, 한 번 Export해 두세요. Import하면 LLM 호출 없이 되돌릴 수 있습니다. 자세한 내용은 [Doc/lorebase-choose-entries.md](Doc/lorebase-choose-entries.md)(영어)에 있습니다.
+   - 이전 VectFox로 로어북을 벡터화했다면, 그 오래된 컬렉션은 LoreBase와 함께 쓸 수 없습니다. 그래서 VectFox는 시작할 때 한 번 그것들을 삭제하고, 어떤 로어북에서 만들어졌는지 보여 줍니다. 오래된 벡터는 필요 없습니다. LoreBase가 고른 항목의 키와 벡터를 직접 씁니다. 위 단계대로 설정하기 전까지, 그 로어북들은 평소의 SillyTavern 로어북으로 작동합니다. 오래된 컬렉션의 채팅이나 캐릭터 잠금은 그 로어북으로 옮겨집니다.
 11. (선택) 다른 것이 모두 작동하면 **AgentMode** 페이지에서 **Agent Mode**를 켭니다. **Provider**를 **Same as EventBase model**로 두면 플래너가 EventBase model의 프로필로 돌아갑니다. 그래서 단계 5의 싸고 빠른 모델이 플래너도 구동합니다. 자세한 내용은 위의 "작동 방식" > "Agent Mode"를 참조하세요.
 
 **수동 OpenRouter와 vLLM은 사라집니다.** 지금은 아직 Provider 드롭다운에 있고, 전용 키 입력란과 함께 예전처럼 작동합니다. 하지만 SillyTavern 프로필이 들어온 릴리스의 3개월 뒤 VectFox 릴리스에서 제거됩니다. 아직 쓰고 있다면 VectFox가 한 번 알려 주고, 바꿔야 할 드롭다운을 모두 보여 줍니다.
@@ -563,7 +566,7 @@ Extensions 패널의 업데이트 알림을 찾거나 "Check for Updates" 버튼
 **VectFox는 무엇을 검색하나요?**
 EventBase를 통해 채팅 이력을 검색합니다: 라이브 채팅과 업로드된 `.jsonl` 채팅 파일을 이벤트로 저장한 것입니다. 각 답장은 그 채팅에 잠긴 이벤트 컬렉션을 검색합니다.
 
-로어북은 거기에 들어가지 않습니다. LoreBase가 답장에 필요한 항목을 고르고, SillyTavern 자체의 World Info가 그것을 보냅니다.
+로어북은 LoreBase를 통해서만, 켠 항목만 검색됩니다. **Fast and Cheap [Jev]**에서는 채팅이나 그 캐릭터에 잠긴 로어북의 준비된 항목이 100개를 넘으면, 답장마다 그 벡터를 검색합니다. LoreBase가 답장에 필요한 항목을 고르고, SillyTavern 자체의 World Info가 그것을 보냅니다.
 
 **채팅 중간에 CJK 토크나이저 모드를 변경할 수 있나요?**
 아니요—하지 마세요. CJK 토크나이저 모드는 센티넬 포인트를 통해 upsert 시 **각 Qdrant 컬렉션에 고정**됩니다. 이미 콘텐츠를 벡터화한 후 모드를 전환하면 다음 쿼리에서 "Tokenizer mismatch" 경고 모달이 발동되며, 실제 옵션은 다음뿐입니다:

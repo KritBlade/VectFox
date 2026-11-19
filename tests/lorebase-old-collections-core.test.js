@@ -71,22 +71,24 @@ describe('the notice', () => {
 
     const MOVED_LOCKS = 'A book whose old collections were locked to chats or characters is already locked to the same ones.';
 
-    it('says why the collections are gone and that nothing needs vectorizing again, then names each book once, in order', () => {
+    it('says why the collections are gone and that LoreBase writes its own keys and vectors, then names each book once, in order', () => {
         const lines = oldCollectionsNoticeLines({ deleted: [{ ...atlas }, { bookName: 'Tide Tables', chatIds: [], characterAvatars: [] }, { ...atlas }], failedCount: 0 });
         expect(lines[0]).toMatchObject({ icon: 'fa-circle-info' });
-        expect(lines.map(shown)).toContain('Nothing needs vectorizing again: LoreBase reads each lorebook as it is.');
+        expect(lines.map(shown)).toContain('Their old vectors are not needed: LoreBase writes its own keys and vectors for the entries you choose.');
         expect(lines.filter(line => line.icon === 'fa-book').map(line => line.name)).toEqual(['Harbor Atlas', 'Tide Tables']);
         expect(lines.map(shown)).not.toContain(MOVED_LOCKS);
     });
 
-    it('gives the steps to have LoreBase decide a book\'s entries, the lock last', () => {
+    it("gives the steps to have LoreBase decide a book's entries, ending with the keys and vectors whose writing locks the book to the chat", () => {
         const text = oldCollectionsNoticeLines({ deleted: [{ ...atlas }], failedCount: 0 }).map(shown);
         const steps = text.filter(line => /^\d\. /.test(line));
         expect(steps.map(line => line[0])).toEqual(['1', '2', '3', '4']);
         expect(steps[0]).toContain('Use LoreBase');
-        expect(steps[0]).toContain('LoreBase model');
+        expect(steps[0]).toContain('LoreBase model card');
         expect(steps[1]).toContain('Choose entries');
-        expect(steps[3]).toContain('Lock to this chat');
+        expect(steps[3]).toContain('Write keys and vectors');
+        expect(steps[3]).toContain('locks to this chat');
+        expect(steps[3]).toContain('Lock to this character');
     });
 
     it('says the books kept the locks when a collection with a book had any', () => {
