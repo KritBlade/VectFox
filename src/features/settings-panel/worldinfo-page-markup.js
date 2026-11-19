@@ -22,11 +22,12 @@ const formatCount = count => Number(count).toLocaleString('en-US');
 const formatSeconds = seconds => `${Number(seconds).toFixed(1)} s`;
 
 // LoreBase's switch (plan §5.9), off until the user turns it on, and its books (§5.2): the list loreBaseBooksMarkup
-// draws for the open chat, the selection screen's door, and the keys and vectors of every selected entry at once (D17,
-// §4.3 of lorebook-multi-vector.md): Entries at once, how many entries' keys are written at once (1 to 8,
-// KEY_CALLS_AT_ONCE_MAX in lorebase-keys-core.js), Generate all writes the missing ones, Delete all deletes them all,
-// its status line saying how it went. While the switch is off, lorebase-books-card.js disables Generate all, since
-// turning LoreBase on asks to write them, and shows the notice saying what to do first.
+// draws for the open chat, the selection screen's door, and the keys and vectors of every selected entry (D17, §4.3
+// of lorebook-multi-vector.md, §3.4 of vectfox-multi-collection-per-chat.md): Entries at once, how many entries' keys
+// are written at once (1 to 8, KEY_CALLS_AT_ONCE_MAX in lorebase-keys-core.js); Generate keys and Generate vectors
+// write the missing ones of their kind, Generate all both, and Delete all deletes them all, its status line saying
+// how each went. While the switch is off, lorebase-books-card.js disables the Generate buttons, since turning
+// LoreBase on asks to write them, and shows the notice saying what to do first.
 function loreBaseBooksCard() {
     return `<section id="VectFox_lorebase_books_card" class="vfx-card">
         ${cardHeader({ icon: 'fa-book-open', title: 'LoreBase books', description: 'The lorebooks this chat loads. LoreBase decides selected entries in books locked here.' })}
@@ -42,10 +43,12 @@ function loreBaseBooksCard() {
                 hint({ text: "How many entries' keys are written at once. More is faster but risks rate limits." }),
             ])}
             ${controlRow([
-                buttonWithId({ id: 'VectFox_lorebase_generate_all', text: 'Generate all', icon: 'fa-key' }),
+                buttonWithId({ id: 'VectFox_lorebase_generate_keys', text: 'Generate keys', icon: 'fa-key' }),
+                buttonWithId({ id: 'VectFox_lorebase_generate_vectors', text: 'Generate vectors', icon: 'fa-vector-square' }),
+                buttonWithId({ id: 'VectFox_lorebase_generate_all', text: 'Generate all', icon: 'fa-layer-group' }),
                 buttonWithId({ id: 'VectFox_lorebase_delete_all', text: 'Delete all', icon: 'fa-trash' }),
             ])}
-            ${hint({ text: 'Generate writes missing keys and vectors. Delete removes both and turns LoreBase off.' })}
+            ${hint({ text: 'Each Generate writes what is missing. Delete all removes both and turns LoreBase off.' })}
             <p id="VectFox_lorebase_books_status" class="vfx-hint" aria-live="polite" hidden></p>
         </div>
     </section>`;
@@ -124,12 +127,20 @@ const LOCK_PILLS = {
     none: statusPill({ text: 'Not locked', icon: 'fa-lock-open' }),
 };
 
-function loreBaseBookRow({ bookName, selectedCount, isLockedToChat, isLockedToCharacter }) {
+// A book's selected entries, and once read how many of them have keys and vectors: each count with its unit, so no two
+// numbers stand side by side.
+function selectedLine(selectedCount, keyCount, vectorCount) {
+    const line = `${formatCount(selectedCount)} selected`;
+    if (keyCount === undefined || vectorCount === undefined) return line;
+    return `${line}, ${formatCount(keyCount)} with keys, ${formatCount(vectorCount)} with vectors`;
+}
+
+function loreBaseBookRow({ bookName, selectedCount, isLockedToChat, isLockedToCharacter, keyCount, vectorCount }) {
     const locks = [isLockedToChat ? LOCK_PILLS.chat : '', isLockedToCharacter ? LOCK_PILLS.character : ''].filter(Boolean);
     return listRow({
         icon: 'fa-book',
         name: bookName,
-        sub: selectedCount ? { name: `${formatCount(selectedCount)} selected` } : { text: 'Nothing selected' },
+        sub: selectedCount ? { name: selectedLine(selectedCount, keyCount, vectorCount) } : { text: 'Nothing selected' },
         pills: locks.length ? locks : [LOCK_PILLS.none],
         actions: [iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } })],
     });
@@ -137,10 +148,12 @@ function loreBaseBookRow({ bookName, selectedCount, isLockedToChat, isLockedToCh
 
 /**
  * The LoreBase books card's list for the open chat: each book SillyTavern loads here, how many entries are selected
- * in it, and whether it is locked to this chat or its character, where LoreBase decides them (D11).
+ * in it and, once read, how many of those have keys and vectors, and whether it is locked to this chat or its
+ * character, where LoreBase decides them (D11).
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean}>}} status - LoreBase's chatBookLocks
+ *   isLockedToCharacter: boolean, keyCount?: number, vectorCount?: number}>}} status - LoreBase's chatBookLocks, with
+ *   storedCountsOfBooks's counts
  * @returns {string}
  */
 export function loreBaseBooksMarkup({ hasChat, books }) {

@@ -24,11 +24,10 @@ import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { editedKeys } from './lorebase-keys-core.js';
-import {
-    keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, regenerateKeysOfEntries, saveEditedKeys,
-    selectedEntriesNotReady,
-} from './lorebase-keys.js';
+import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys } from './lorebase-keys.js';
 import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
+import { regenerateKeysOfEntries, selectedEntriesNotReady } from './lorebase-storage.js';
+import { missingCountsOf } from './lorebase-storage-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
 import { pruneBookVectors, readBookVectors } from './lorebase-vectors.js';
@@ -222,8 +221,9 @@ function regenerateTickedKeys(session) {
  * count them.
  * @param {{booksWithChosenLocks: Set<string>, booksWithChangedSelection: Set<string>}} session - The books whose lock
  *   and whose selection the user changed while the screen was open
- * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} What the selection lacks;
- *   or null when its keys and vectors could not be read
+ * @returns {Promise<{missingCount: number, missingKeyCount: number, missingVectorCount: number, decidedCount: number,
+ *   isWriting: boolean}|null>} What the selection lacks: every entry missing either, each once, and those missing
+ *   each kind; or null when its keys and vectors could not be read
  */
 async function settleSelectionOnClose({ booksWithChosenLocks, booksWithChangedSelection }) {
     const settings = extension_settings.vectfox;
@@ -234,11 +234,11 @@ async function settleSelectionOnClose({ booksWithChosenLocks, booksWithChangedSe
         const { canBeOn, shouldWrite, pending } = await askToWriteMissingKeysAndVectors({ isTurningOn: false });
         if (!canBeOn) turnLoreBaseOff();
         const isWriting = shouldWrite && writeMissingKeysAndVectors(pending, { booksWithChosenLocks: [...booksWithChosenLocks] });
-        return pending && { missingCount: pending.count, decidedCount: pending.decidedCount, isWriting };
+        return pending && { missingCount: pending.count, ...missingCountsOf(pending), decidedCount: pending.decidedCount, isWriting };
     }
     try {
         const pending = await selectedEntriesNotReady(settings);
-        return { missingCount: pending.count, decidedCount: pending.decidedCount, isWriting: false };
+        return { missingCount: pending.count, ...missingCountsOf(pending), decidedCount: pending.decidedCount, isWriting: false };
     } catch (error) {
         log.warn("LoreBase: the selected entries' keys and vectors could not be counted once the selection screen closed:", error);
         return null;
@@ -461,8 +461,9 @@ function bindScreen(root, session) {
  * write the missing keys and vectors, turning LoreBase off on no when no entry is ready, and keep the locks the user
  * set on the screen as set (settleSelectionOnClose).
  * @param {{bookName?: string}} [options]
- * @returns {Promise<{missingCount: number, decidedCount: number, isWriting: boolean}|null>} Once the screen is closed
- *   and any question answered: what the selection lacks, or null when its keys and vectors could not be read
+ * @returns {Promise<{missingCount: number, missingKeyCount: number, missingVectorCount: number, decidedCount: number,
+ *   isWriting: boolean}|null>} Once the screen is closed and any question answered: what the selection lacks, or null
+ *   when its keys and vectors could not be read
  */
 export async function openLoreBaseSelection({ bookName = '' } = {}) {
     const choices = currentChoices();

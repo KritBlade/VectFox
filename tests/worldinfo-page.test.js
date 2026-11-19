@@ -17,7 +17,8 @@ const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lor
 // The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
     'VectFox_lorebase_enabled', 'VectFox_lorebase_off_notice', 'VectFox_lorebase_books_card', 'VectFox_lorebase_books',
-    'VectFox_lorebase_key_calls_at_once', 'VectFox_lorebase_generate_all', 'VectFox_lorebase_delete_all', 'VectFox_lorebase_books_status',
+    'VectFox_lorebase_key_calls_at_once', 'VectFox_lorebase_generate_keys', 'VectFox_lorebase_generate_vectors', 'VectFox_lorebase_generate_all',
+    'VectFox_lorebase_delete_all', 'VectFox_lorebase_books_status',
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
     'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_role_picks', 'VectFox_lorebase_role_keys',
@@ -85,6 +86,11 @@ describe('WorldInfo page markup', () => {
         expect(field.nextElementSibling.querySelector('#VectFox_lorebase_delete_all')).not.toBeNull();
     });
 
+    it('offers Generate keys, Generate vectors, Generate all and Delete all in that order', () => {
+        const buttons = [...document.querySelector('#VectFox_lorebase_delete_all').parentElement.querySelectorAll('button')];
+        expect(buttons.map(button => button.textContent.trim())).toEqual(['Generate keys', 'Generate vectors', 'Generate all', 'Delete all']);
+    });
+
     it("keeps none of the old vector search's controls", () => {
         for (const id of OLD_SEARCH_IDS) expect(document.getElementById(id), id).toBeNull();
     });
@@ -130,6 +136,13 @@ describe('loreBaseBooksMarkup', () => {
             { name: 'Keeper Notes', sub: '1 selected', pills: ['Locked to this character (success)'], opens: 'Keeper Notes', opener: 'Choose entries' },
             { name: 'Tide Tables', sub: 'Nothing selected', pills: ['Not locked (neutral)'], opens: 'Tide Tables', opener: 'Choose entries' },
         ]);
+    });
+
+    it('adds how many selected entries have keys and vectors once they are read, each count with its unit', () => {
+        expect(rowsOf({
+            hasChat: true,
+            books: [{ bookName: 'Harbor Atlas', selectedCount: 1234, isLockedToChat: true, isLockedToCharacter: false, keyCount: 1200, vectorCount: 0 }],
+        })[0].sub).toBe('1,234 selected, 1,200 with keys, 0 with vectors');
     });
 
     it('shows a book named like markup as written, and opens it by that name', () => {

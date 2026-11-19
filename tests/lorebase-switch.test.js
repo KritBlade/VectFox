@@ -16,13 +16,13 @@ const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn:
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { verbose: vi.fn(), warn: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(), choicePopup: vi.fn(), noticePopup: vi.fn() }));
-vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
+vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({ keyWritingProblem: () => host.keyProblem }));
+vi.mock('../src/features/lorebase/lorebase-storage.js', () => ({
     selectedEntriesNotReady: vi.fn(async () => {
         if (host.pending instanceof Error) throw host.pending;
         return host.pending;
     }),
-    keyWritingProblem: () => host.keyProblem,
-    writeKeysAndVectorsOfSelections: vi.fn(async () => ({ keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks: 0 })),
+    writeMissing: vi.fn(async () => ({ keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks: 0 })),
 }));
 vi.mock('../src/sillytavern/vector-storage.js', () => ({
     isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn,
@@ -35,7 +35,7 @@ vi.mock('../src/sillytavern/vector-storage.js', () => ({
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 const { log } = await import('../src/sillytavern/log.js');
 const { choicePopup, confirmPopup, noticePopup } = await import('../src/sillytavern/popup.js');
-const { selectedEntriesNotReady, writeKeysAndVectorsOfSelections } = await import('../src/features/lorebase/lorebase-keys.js');
+const { selectedEntriesNotReady, writeMissing } = await import('../src/features/lorebase/lorebase-storage.js');
 const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
 const { isLoreBaseActive, isLoreBaseSwitchedOn, loreBaseInactiveReason, onLoreBaseSwitchChange, turnLoreBaseOff } = await import('../src/features/lorebase/lorebase-switch.js');
 const { settleVectorStorageConflict, turnLoreBaseOn } = await import('../src/features/lorebase/lorebase-vector-storage.js');
@@ -87,7 +87,7 @@ describe('turning LoreBase on and off', () => {
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
         expect(saveSettingsDebounced).toHaveBeenCalled();
         expect(showsSwitch).toHaveBeenCalledWith(true);
-        expect(writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
+        expect(writeMissing).not.toHaveBeenCalled();
     });
 
     it('asks before writing the keys and vectors the selected entries lack, reading the vectors from Qdrant again, and turns on and writes them when the user agrees', async () => {
@@ -101,7 +101,7 @@ describe('turning LoreBase on and off', () => {
         expect(confirmPopup.mock.calls[0][0].at(-1).text)
             .toBe('Write them and turn LoreBase on? A progress panel shows the writing. Without them, LoreBase stays off.');
         // No selection screen set a lock, so the books it writes keys for lock to the open chat as §6.1 says.
-        expect(writeKeysAndVectorsOfSelections).toHaveBeenCalledWith(host.settings.vectfox, host.pending, { booksWithChosenLocks: [] });
+        expect(writeMissing).toHaveBeenCalledWith(host.settings.vectfox, ['keys', 'vectors'], { pending: host.pending, booksWithChosenLocks: [] });
         expect(isLoreBaseSwitchedOn()).toBe(true);
     });
 
@@ -109,7 +109,7 @@ describe('turning LoreBase on and off', () => {
         host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 4, readyCount: 0, unreadBooks: 0 };
         confirmPopup.mockResolvedValueOnce(true);
         const refusal = new Error('LoreBase is already writing keys or vectors on the progress panel. Wait for it, or press Stop there.');
-        writeKeysAndVectorsOfSelections.mockRejectedValueOnce(refusal);
+        writeMissing.mockRejectedValueOnce(refusal);
 
         expect(await turnLoreBaseOn()).toBe(true);
         await vi.waitFor(() => expect(noticePopup).toHaveBeenCalledWith([{ icon: 'fa-key', text: refusal.message }]));
@@ -121,7 +121,7 @@ describe('turning LoreBase on and off', () => {
         confirmPopup.mockResolvedValueOnce(false);
 
         expect(await turnLoreBaseOn()).toBe(false);
-        expect(writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
+        expect(writeMissing).not.toHaveBeenCalled();
         expect(isLoreBaseSwitchedOn()).toBe(false);
         expect(showsSwitch).not.toHaveBeenCalled();
     });
@@ -166,13 +166,13 @@ describe('turning LoreBase on and off', () => {
         expect(confirmPopup.mock.calls[0][1]).toEqual({ okButton: 'Write keys and vectors', cancelButton: 'Not now' });
         expect(confirmPopup.mock.calls[0][0].at(-1).text)
             .toBe('Write them and turn LoreBase on? A progress panel shows the writing. Until they are written, LoreBase goes on with the 357 entries that are ready.');
-        expect(writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
+        expect(writeMissing).not.toHaveBeenCalled();
         expect(isLoreBaseSwitchedOn()).toBe(true);
 
         turnLoreBaseOff();
         host.keyProblem = 'LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.';
         expect(await turnLoreBaseOn()).toBe(true);
-        expect(writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
+        expect(writeMissing).not.toHaveBeenCalled();
     });
 
     it('stays off on the Standard backend, and says LoreBase needs Qdrant', async () => {
@@ -180,7 +180,7 @@ describe('turning LoreBase on and off', () => {
         expect(await turnLoreBaseOn()).toBe(false);
         expect(noticePopup.mock.calls[0][0][0].text).toContain('LoreBase needs Qdrant');
         expect(isLoreBaseSwitchedOn()).toBe(false);
-        expect(writeKeysAndVectorsOfSelections).not.toHaveBeenCalled();
+        expect(writeMissing).not.toHaveBeenCalled();
     });
 
     it('asks to turn that search off first, and turns it off and LoreBase on when the user agrees', async () => {

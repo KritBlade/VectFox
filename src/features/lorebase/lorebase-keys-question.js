@@ -12,7 +12,9 @@ import { log } from '../../sillytavern/log.js';
 import { confirmPopup, noticePopup } from '../../sillytavern/popup.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { missingKeysAndVectorsLines } from './lorebase-keys-core.js';
-import { keyWritingProblem, selectedEntriesNotReady, writeKeysAndVectorsOfSelections } from './lorebase-keys.js';
+import { keyWritingProblem } from './lorebase-keys.js';
+import { selectedEntriesNotReady, writeMissing } from './lorebase-storage.js';
+import { BOTH_KINDS } from './lorebase-storage-core.js';
 
 const readyEntries = count => `${count.toLocaleString('en-US')} ${count === 1 ? 'entry that is' : 'entries that are'} ready`;
 
@@ -53,17 +55,17 @@ export async function askToWriteMissingKeysAndVectors({ isTurningOn }) {
         ]);
         return { canBeOn: isAnyReady, shouldWrite: false, pending };
     }
-    const shouldWrite = await confirmPopup([
+    const shouldWrite = Boolean(await confirmPopup([
         ...missingKeysAndVectorsLines(pending.count),
         { text: `Write them ${isTurningOn ? 'and turn LoreBase on' : 'now'}? A progress panel shows the writing. ${meanwhile}` },
-    ], { okButton: 'Write keys and vectors', cancelButton: isAnyReady ? 'Not now' : (isTurningOn ? 'Leave off' : 'Turn LoreBase off') });
+    ], { okButton: 'Write keys and vectors', cancelButton: isAnyReady ? 'Not now' : (isTurningOn ? 'Leave off' : 'Turn LoreBase off') }));
     return { canBeOn: shouldWrite || isAnyReady, shouldWrite, pending };
 }
 
 /**
  * Write the keys and vectors askToWriteMissingKeysAndVectors read as missing, under the progress panel, once LoreBase is
- * on; the books it writes keys for lock to the open chat (writeKeysAndVectorsOfSelections). A writing that does not
- * start says why in a notice.
+ * on; the books it writes keys for lock to the open chat (writeMissing). A writing that does not start says why in a
+ * notice.
  * @param {Awaited<ReturnType<typeof selectedEntriesNotReady>>|null} pending
  * @param {{booksWithChosenLocks?: Iterable<string>}} [options] - booksWithChosenLocks: the books whose lock the user set
  *   on the selection screen whose closing asked, which keep the locks the user set
@@ -71,7 +73,7 @@ export async function askToWriteMissingKeysAndVectors({ isTurningOn }) {
  */
 export function writeMissingKeysAndVectors(pending, { booksWithChosenLocks = [] } = {}) {
     if (!pending?.count) return false;
-    writeKeysAndVectorsOfSelections(extension_settings.vectfox, pending, { booksWithChosenLocks }).catch(error => {
+    writeMissing(extension_settings.vectfox, BOTH_KINDS, { pending, booksWithChosenLocks }).catch(error => {
         log.warn("LoreBase: the selected entries' keys and vectors were not written:", error);
         void noticePopup([{ icon: 'fa-key', text: String(error?.message || error) }]);
     });

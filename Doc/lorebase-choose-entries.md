@@ -32,6 +32,10 @@ So when you close this screen with new entries on, VectFox asks to write them, a
 
 Say "Not now", and LoreBase goes on with the ready ones. It only turns off when no entry is ready at all. **Generate all** on the WorldInfo page writes whatever is missing later.
 
+Each book's row on the WorldInfo page tells you where it stands, like `313 selected, 313 with keys, 300 with vectors`. When all 3 numbers are the same, every selected entry is ready.
+
+Need only one of the 2? **Generate keys** writes just the missing keys, and **Generate vectors** just the missing vectors. Generate vectors never calls the LoreBase model, so it costs almost nothing. It's the one to press after you switch your embedding model.
+
 You don't have to keep them up to date. Edit an entry in World Info, and VectFox writes the vectors of the parts you changed again by itself. Turn an entry off, and its vectors are deleted when you close this screen. Its keys stay, in case you turn it back on.
 
 ## Ticked is NOT on
