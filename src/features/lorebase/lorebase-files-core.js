@@ -294,24 +294,31 @@ export function nothingToImportText(kind, plan, bookName) {
     return `None of this file's ${counted(total, 'part')} is a part of an entry of ${bookName} now, so nothing was written.`;
 }
 
+const NOTHING_IN_REPLIES = 'No entry of this lorebook takes part in replies now, so replies lose nothing. Export them first to keep a copy.';
+
 /**
- * What deleting a row loses, and what follows, for its confirm.
+ * What deleting a row loses, and what follows, for its confirm. Replies lose entries only when the row's book is listed
+ * with entries selected; a leftover's book and a book with none selected have no entry in replies.
  * @param {{kind: string, entryCount?: number, pointCount?: number, isHere?: boolean, embeddingSource?: string,
- *   embeddingModel?: string}} row - From storageRowsOf
+ *   embeddingModel?: string, selectedCount: number, isLeftover: boolean}} row - From storageRowsOf
  * @returns {{lost: string, after: string}}
  */
 export function describeDelete(row) {
+    const isInReplies = !row.isLeftover && row.selectedCount > 0;
     if (row.kind === KEYS) {
         return {
             lost: `the keys of ${counted(row.entryCount, 'entry', 'entries')}, those edited by hand included`,
-            after: "Its selected entries leave replies until Generate keys writes their keys again, at the cost of LoreBase's model. LoreBase stays on. Export them first to keep a copy.",
+            after: isInReplies
+                ? "Its selected entries leave replies until Generate keys writes their keys again, at the cost of LoreBase's model. LoreBase stays on. Export them first to keep a copy."
+                : NOTHING_IN_REPLIES,
         };
     }
     const lost = `the vectors of ${counted(row.pointCount, 'part')}, made by ${modelWords(row.embeddingSource, row.embeddingModel)}`;
+    if (!row.isHere) return { lost, after: 'LoreBase reads its vectors from another collection now, so it does not read these. Export them first to keep a copy.' };
     return {
         lost,
-        after: row.isHere
+        after: isInReplies
             ? 'Its selected entries leave replies until Generate vectors writes their vectors again. LoreBase stays on. Export them first to keep a copy.'
-            : 'LoreBase reads its vectors from another collection now, so it does not read these. Export them first to keep a copy.',
+            : NOTHING_IN_REPLIES,
     };
 }

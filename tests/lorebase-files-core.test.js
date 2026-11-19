@@ -182,13 +182,28 @@ describe("the Database Browser's words", () => {
     });
 
     it('says what a delete loses, and what follows for the entries, LoreBase staying on', () => {
-        expect(files.describeDelete({ kind: 'keys', entryCount: 313 })).toEqual({
+        const listed = { selectedCount: 12, isLeftover: false };
+        expect(files.describeDelete({ kind: 'keys', entryCount: 313, ...listed })).toEqual({
             lost: 'the keys of 313 entries, those edited by hand included',
             after: "Its selected entries leave replies until Generate keys writes their keys again, at the cost of LoreBase's model. LoreBase stays on. Export them first to keep a copy.",
         });
-        expect(files.describeDelete({ kind: 'vectors', pointCount: 50, isHere: false, embeddingSource: 'custom', embeddingModel: 'baai/bge-m3' })).toEqual({
+        expect(files.describeDelete({ kind: 'vectors', pointCount: 504, isHere: true, embeddingSource: 'custom', embeddingModel: 'baai/bge-m3', ...listed }).after)
+            .toBe('Its selected entries leave replies until Generate vectors writes their vectors again. LoreBase stays on. Export them first to keep a copy.');
+        expect(files.describeDelete({ kind: 'vectors', pointCount: 50, isHere: false, embeddingSource: 'custom', embeddingModel: 'baai/bge-m3', ...listed })).toEqual({
             lost: 'the vectors of 50 parts, made by custom/baai/bge-m3',
             after: 'LoreBase reads its vectors from another collection now, so it does not read these. Export them first to keep a copy.',
         });
+    });
+
+    it('says replies lose nothing when no entry of the book is in them: none selected, or a leftover', () => {
+        const nothingInReplies = 'No entry of this lorebook takes part in replies now, so replies lose nothing. Export them first to keep a copy.';
+        const noneSelected = { selectedCount: 0, isLeftover: false };
+        const leftover = { selectedCount: 12, isLeftover: true };
+        expect(files.describeDelete({ kind: 'keys', entryCount: 2, ...noneSelected }).after).toBe(nothingInReplies);
+        expect(files.describeDelete({ kind: 'vectors', pointCount: 2, isHere: true, embeddingSource: 'custom', embeddingModel: 'baai/bge-m3', ...noneSelected }).after)
+            .toBe(nothingInReplies);
+        expect(files.describeDelete({ kind: 'keys', entryCount: 2, ...leftover }).after).toBe(nothingInReplies);
+        expect(files.describeDelete({ kind: 'vectors', pointCount: 2, isHere: true, embeddingSource: 'custom', embeddingModel: 'baai/bge-m3', ...leftover }).after)
+            .toBe(nothingInReplies);
     });
 });
