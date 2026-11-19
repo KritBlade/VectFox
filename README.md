@@ -464,21 +464,46 @@ Deletes ALL Qdrant collections. **Use with extreme caution!**
 
 ---
 
-## LoreBase Keys
+## LoreBase
 
-VectFox's LoreBase has its model write keys for each lorebook entry the user turns on, and keeps them in Qdrant: one collection with no vectors, `vectfox_lorebase_keys`, a point per entry, each SillyTavern user reading and writing only their own. The collection is never listed as a VectFox collection.
+VectFox's LoreBase has its model write keys for each lorebook entry the user turns on, and keeps them in Qdrant: one collection with no vectors, `vectfox_lorebase_keys`, a point per entry, each SillyTavern user reading and writing only their own. The collection is never listed as a VectFox collection. Each entry's vectors are points of its book's tenant, `vf_lorebase_qdrant_<account>_<book>`, in the account's own collection, `vf_lorebase_<account>`, or in `vectfox_main` while VectFox's One shared collection is on. `<account>` is the user's handle in lower case, each run of characters other than a to z, 0 to 9 and the hyphen turned into one hyphen, so it never holds an underscore.
+
+### List Books
+
+#### `POST /lorebase/books`
+
+Lists the requesting user's LoreBase books as Qdrant holds them: how many entries of each book have keys, an empty list included, and each of the account's book tenants in its own collection and in `vectfox_main`, with its point count, the book its points name (their `lorebookName`) and the embedding source and model one of them was stored with. `GET /collections`, which VectFox's discovery reads, stays as it was: it lists an account's `vf_lorebase_<account>` whole, never its books.
+
+**Request Body:** `{}`
+
+**Response:**
+```json
+{
+  "keys": [{ "book": "Harbor book", "entryCount": 313 }],
+  "vectors": [{
+    "collection": "vf_lorebase_rabbit",
+    "tenant": "vf_lorebase_qdrant_rabbit_harbor_book_1x9k2mq",
+    "book": "Harbor book",
+    "pointCount": 640,
+    "embeddingSource": "custom",
+    "embeddingModel": "baai/bge-m3"
+  }]
+}
+```
+
+A tenant whose point names no book has `"book": null`. Qdrant not set up answers 500.
 
 ### Write Keys
 
 #### `POST /lorebase/keys/write`
 
-Writes the keys of some of a book's entries, replacing any they had. An entry holds 0 to 200 keys of up to 300 characters each: an empty list is an entry LoreBase's model found nothing in to key, kept so it is not asked again.
+Writes the keys of some of a book's entries, replacing any they had. An entry holds 0 to 200 keys of up to 300 characters each: an empty list is an entry LoreBase's model found nothing in to key, kept so it is not asked again. An entry's `title`, up to 2,000 characters, is stored with its keys when given; an entry written with none keeps none.
 
 **Request Body:**
 ```json
 {
   "book": "Harbor book",
-  "entries": [{ "uid": "3", "keys": ["lighthouse", "keeper"] }]
+  "entries": [{ "uid": "3", "title": "Harbor lighthouse", "keys": ["lighthouse", "keeper"] }]
 }
 ```
 
@@ -490,15 +515,15 @@ Writes the keys of some of a book's entries, replacing any they had. An entry ho
 
 **Request Body:** `{ "books": ["Harbor book"] }`
 
-**Response:** `{ "books": { "Harbor book": { "3": ["lighthouse", "keeper"], "5": [] } } }`, every named book present, `{}` when none of its entries has keys written; an entry written with an empty list reads back as `[]`.
+**Response:** `{ "books": { "Harbor book": { "3": ["lighthouse", "keeper"], "5": [] } }, "titles": { "Harbor book": { "3": "Harbor lighthouse" } } }`, every named book present in each, `{}` when none of its entries has keys written; an entry written with an empty list reads back as `[]`, and one written with no title is in `books` alone.
 
 ### Delete Keys
 
 #### `POST /lorebase/keys/delete`
 
-Deletes the keys of every entry, in every book, of the requesting user. Other users' keys stay.
+Deletes the requesting user's keys: those of the named books' entries, or, with no `books`, of every entry in every book. Other users' keys stay. `books`, when given, lists 1 to 2,000 book names; an empty list, or anything else, answers 400 and deletes nothing.
 
-**Request Body:** `{}`
+**Request Body:** `{ "books": ["Harbor book"] }`, or `{}` for every book
 
 **Response:** `{ "deleted": 311 }`, how many entries' keys were deleted.
 

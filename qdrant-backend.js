@@ -35,7 +35,10 @@ const SENTINEL_FLAG_KEY = '_vectfox_sentinel';
 // still contains the old _vecthare_meta sentinel, meaning the user hasn't run
 // the upgrade button yet.
 let _legacyDataWarningFired = false;
-const MULTITENANCY_COLLECTION = 'vectfox_main';
+
+// The Qdrant collection every VectFox collection shares while VectFox's "One shared collection" is on, where LoreBase
+// keeps each account's book tenants then (lorebase-books.js).
+export const MULTITENANCY_COLLECTION = 'vectfox_main';
 
 // The payload field that tells collections apart inside the shared one: VectFox writes each point's collection ID
 // there. Indexed as a tenant field, so a filter on it reads one tenant's points only.
@@ -1503,6 +1506,23 @@ class QdrantBackend {
     }
 
     /**
+     * The named payload fields of one point the filters select, the sentinel left out, or null when they select none.
+     * @param {string} collectionName
+     * @param {object} [filters]
+     * @param {string[]} [fields]
+     * @returns {Promise<object|null>}
+     */
+    async samplePayload(collectionName, filters = {}, fields = []) {
+        const response = await this._request('POST', `/collections/${collectionName}/points/scroll`, {
+            filter: this._buildFilterExcludingSentinel(this._scopeMust(filters)),
+            limit: 1,
+            with_payload: { include: fields },
+            with_vector: false,
+        });
+        return response.result?.points?.[0]?.payload ?? null;
+    }
+
+    /**
      * The embedding source one point the filters select was stored with, or 'unknown'.
      * @private
      * @param {string} collectionName
@@ -1510,13 +1530,7 @@ class QdrantBackend {
      * @returns {Promise<string>}
      */
     async _sampleEmbeddingSource(collectionName, filters = {}) {
-        const response = await this._request('POST', `/collections/${collectionName}/points/scroll`, {
-            filter: this._buildFilterExcludingSentinel(this._scopeMust(filters)),
-            limit: 1,
-            with_payload: { include: ['embeddingSource'] },
-            with_vector: false,
-        });
-        return response.result?.points?.[0]?.payload?.embeddingSource || 'unknown';
+        return (await this.samplePayload(collectionName, filters, ['embeddingSource']))?.embeddingSource || 'unknown';
     }
 
     /**

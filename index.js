@@ -48,6 +48,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import vectra from 'vectra';
 import qdrantBackend from './qdrant-backend.js';
+import { listLoreBooks } from './lorebase-books.js';
 import { askDecisions } from './lorebase-decisions.js';
 import { deleteLoreKeys, readLoreKeys, writeLoreKeys } from './lorebase-keys.js';
 import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource } from './openai-style-embedding.js';
@@ -1407,14 +1408,34 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     });
 
     /**
+     * POST /api/plugins/similharity/lorebase/books
+     * The requesting user's LoreBase books as Qdrant holds them (lorebase-books.js): how many entries of each book have
+     * keys, and each of the account's book tenants in its own LoreBase collection and in vectfox_main, with its point
+     * count, its book and the embedding source and model one of its points was stored with. GET /collections, which
+     * VectFox's discovery reads, stays as it was: it lists the account's LoreBase collection whole, never its books.
+     * Body: {}. Response: { keys: [{ book, entryCount }], vectors: [{ collection, tenant, book, pointCount,
+     * embeddingSource, embeddingModel }] }.
+     */
+    router.post('/lorebase/books', async (req, res) => {
+        try {
+            res.json(await listLoreBooks(qdrantBackend, req.user.profile.handle));
+        } catch (error) {
+            console.error(`[${pluginName}] lorebase/books error:`, error);
+            res.status(error instanceof RangeError ? 400 : 500).json({ error: formatError(error) });
+        }
+    });
+
+    /**
      * POST /api/plugins/similharity/lorebase/keys/read
-     * The keys LoreBase's model wrote for the entries of the named books, the requesting user's own (lorebase-keys.js).
-     * Body: { books: string[] }. Response: { books: { [book]: { [uid]: string[] } } }, every named book present.
+     * The keys LoreBase's model wrote for the entries of the named books, and the title stored with each, the requesting
+     * user's own (lorebase-keys.js).
+     * Body: { books: string[] }. Response: { books: { [book]: { [uid]: string[] } }, titles: { [book]: { [uid]: string } } },
+     * every named book present in each; an entry written with no title is in books alone.
      */
     router.post('/lorebase/keys/read', async (req, res) => {
         try {
-            const books = await readLoreKeys(qdrantBackend, req.user.profile.handle, req.body?.books);
-            res.json({ books });
+            const { books, titles } = await readLoreKeys(qdrantBackend, req.user.profile.handle, req.body?.books);
+            res.json({ books, titles });
         } catch (error) {
             console.error(`[${pluginName}] lorebase/keys/read error:`, error);
             res.status(error instanceof RangeError ? 400 : 500).json({ error: formatError(error) });
@@ -1423,8 +1444,9 @@ async function getVectorsForSource(source, texts, model, directories, req) {
 
     /**
      * POST /api/plugins/similharity/lorebase/keys/write
-     * Write the keys of some of a book's entries for the requesting user, replacing any they had.
-     * Body: { book: string, entries: [{ uid, keys: string[] }] }. Response: { written: number }.
+     * Write the keys of some of a book's entries for the requesting user, each with its title when given, replacing any
+     * they had.
+     * Body: { book: string, entries: [{ uid, keys: string[], title?: string }] }. Response: { written: number }.
      */
     router.post('/lorebase/keys/write', async (req, res) => {
         try {
@@ -1438,12 +1460,13 @@ async function getVectorsForSource(source, texts, model, directories, req) {
 
     /**
      * POST /api/plugins/similharity/lorebase/keys/delete
-     * Delete the keys of every entry, in every book, of the requesting user (LoreBase's Delete all keys).
-     * Body: {}. Response: { deleted: number }.
+     * Delete the requesting user's keys: those of the named books' entries, or, with no books named, of every entry in
+     * every book (LoreBase's Delete all keys).
+     * Body: { books?: string[] }, 1 to 2,000 names when given. Response: { deleted: number }.
      */
     router.post('/lorebase/keys/delete', async (req, res) => {
         try {
-            const deleted = await deleteLoreKeys(qdrantBackend, req.user.profile.handle);
+            const deleted = await deleteLoreKeys(qdrantBackend, req.user.profile.handle, req.body?.books);
             res.json({ deleted });
         } catch (error) {
             console.error(`[${pluginName}] lorebase/keys/delete error:`, error);
