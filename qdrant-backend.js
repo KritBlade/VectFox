@@ -59,6 +59,17 @@ const TENANT_FACET_LIMIT = 10000;
 const UUID_FORMAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * A discovered collection's model fields, in the shape a Vectra collection's take: its one model, or none when its
+ * sampled point names none (describeCollections).
+ * @param {string} model
+ * @param {number} chunkCount
+ * @returns {{model?: string, models?: Array<{name: string, path: string, chunkCount: number}>}}
+ */
+function modelFields(model, chunkCount) {
+    return model ? { model, models: [{ name: model, path: model, chunkCount }] } : {};
+}
+
+/**
  * Qdrant Backend Manager
  * Manages Qdrant REST API connection and operations
  */
@@ -1523,14 +1534,16 @@ class QdrantBackend {
     }
 
     /**
-     * The embedding source one point the filters select was stored with, or 'unknown'.
+     * The embedding source and model one point the filters select was stored with: 'unknown' and '' for what it does
+     * not say, as a point stored before its model was kept says no model.
      * @private
      * @param {string} collectionName
      * @param {object} [filters]
-     * @returns {Promise<string>}
+     * @returns {Promise<{source: string, model: string}>}
      */
-    async _sampleEmbeddingSource(collectionName, filters = {}) {
-        return (await this.samplePayload(collectionName, filters, ['embeddingSource']))?.embeddingSource || 'unknown';
+    async _sampleEmbedding(collectionName, filters = {}) {
+        const payload = await this.samplePayload(collectionName, filters, ['embeddingSource', 'embeddingModel']);
+        return { source: payload?.embeddingSource || 'unknown', model: payload?.embeddingModel || '' };
     }
 
     /**
@@ -1538,7 +1551,13 @@ class QdrantBackend {
      * collection as a collection of its own, which is how VectFox names it. `tenantsListed` is false when a shared
      * collection's tenants could not all be listed (a Qdrant older than 1.12 has no facet counts); the shared
      * collection is then listed by its own name, as before.
-     * @returns {Promise<{collections: Array<{id: string, source: string, chunkCount: number, sharedCollection?: string}>, tenantsListed: boolean}>}
+     *
+     * A collection whose sampled point names its embedding model carries that one model, as `model` and as the only
+     * entry of `models`, which is how a Vectra collection names its models. One entry and no more: VectFox offers to
+     * switch between a collection's models when it has two, and a Qdrant search reads every point whatever model it
+     * names, so a second would offer a switch that changes nothing.
+     * @returns {Promise<{collections: Array<{id: string, source: string, chunkCount: number, sharedCollection?: string,
+     *   model?: string, models?: Array<{name: string, path: string, chunkCount: number}>}>, tenantsListed: boolean}>}
      */
     async describeCollections() {
         const collections = [];
@@ -1547,12 +1566,8 @@ class QdrantBackend {
             if (name === MULTITENANCY_COLLECTION) {
                 try {
                     for (const { tenant, count } of await this.listTenants(name)) {
-                        collections.push({
-                            id: tenant,
-                            source: await this._sampleEmbeddingSource(name, { [TENANT_FIELD]: tenant }),
-                            chunkCount: count,
-                            sharedCollection: name,
-                        });
+                        const { source, model } = await this._sampleEmbedding(name, { [TENANT_FIELD]: tenant });
+                        collections.push({ id: tenant, source, chunkCount: count, sharedCollection: name, ...modelFields(model, count) });
                     }
                     continue;
                 } catch (error) {
@@ -1560,12 +1575,14 @@ class QdrantBackend {
                     console.warn(`[Qdrant] The tenants of ${name} were not listed, so discovery shows it whole:`, error.message);
                 }
             }
-            // A "source:id" or "backend:source:id" name carries its source; otherwise one point says it.
+            // A "source:id" or "backend:source:id" name carries its source, and no point is read for its model;
+            // otherwise one point says both.
             const parts = name.split(':');
-            const source = parts.length === 2 ? parts[0]
-                : parts.length === 3 ? parts[1]
-                    : await this._sampleEmbeddingSource(name);
-            collections.push({ id: name, source, chunkCount: await this.countPoints(name) });
+            const { source, model } = parts.length === 2 ? { source: parts[0], model: '' }
+                : parts.length === 3 ? { source: parts[1], model: '' }
+                    : await this._sampleEmbedding(name);
+            const chunkCount = await this.countPoints(name);
+            collections.push({ id: name, source, chunkCount, ...modelFields(model, chunkCount) });
         }
         return { collections, tenantsListed };
     }

@@ -1,7 +1,8 @@
 // Tests that VectFox's collections inside the shared "vectfox_main" stay apart: every read, count, change and delete
 // scopes to the tenant field `content_type`, a purge that names no tenant deletes nothing, a hybrid search may read
 // several collections a list names in one request while no change or delete takes a list, discovery lists each tenant
-// as a collection of its own, and an insert takes a point ID the client chose. Qdrant is stubbed at the backend's one
+// as a collection of its own with the one embedding model a point of it names, and an insert takes a point ID the
+// client chose. Qdrant is stubbed at the backend's one
 // request function, so no server is needed.
 //
 //   node --test tests/
@@ -143,6 +144,34 @@ test('discovery lists each tenant of the shared collection as a collection, with
         { id: 'vf_own_collection', source: 'openrouter', chunkCount: 12 },
     ]);
     assert.ok(requests.some(request => request.method === 'PUT' && request.body?.field_name === TENANT_FIELD), 'the tenant field is indexed first');
+});
+
+test('discovery names the one embedding model a sampled point names, as a Vectra collection names its models; a name that carries its source reads none', async () => {
+    const requests = stubQdrant([SHARED, 'vf_own_collection', 'openrouter:vf_named_collection'], {
+        [`POST /collections/${SHARED}/facet`]: { hits: [{ value: TENANT, count: 40 }] },
+        [`POST /collections/${SHARED}/points/scroll`]: { points: [{ payload: { embeddingSource: 'custom', embeddingModel: 'baai/bge-m3' } }] },
+        'POST /collections/vf_own_collection/points/scroll': { points: [{ payload: { embeddingSource: 'openrouter', embeddingModel: 'qwen/qwen3-embedding-8b' } }] },
+        'POST /collections/vf_own_collection/points/count': { count: 12 },
+        'POST /collections/vf_named_collection/points/count': { count: 5 },
+    });
+    const { collections } = await qdrantBackend.describeCollections();
+    assert.deepEqual(collections, [
+        {
+            id: TENANT, source: 'custom', chunkCount: 40, sharedCollection: SHARED,
+            model: 'baai/bge-m3', models: [{ name: 'baai/bge-m3', path: 'baai/bge-m3', chunkCount: 40 }],
+        },
+        {
+            id: 'vf_own_collection', source: 'openrouter', chunkCount: 12,
+            model: 'qwen/qwen3-embedding-8b', models: [{ name: 'qwen/qwen3-embedding-8b', path: 'qwen/qwen3-embedding-8b', chunkCount: 12 }],
+        },
+        { id: 'openrouter:vf_named_collection', source: 'openrouter', chunkCount: 5 },
+    ]);
+    const samples = requests.filter(request => request.endpoint.endsWith('/points/scroll'));
+    assert.equal(samples.length, 2, 'one point read for each collection whose name does not carry its source');
+    for (const sample of samples) {
+        assert.equal(sample.body.limit, 1);
+        assert.deepEqual(sample.body.with_payload, { include: ['embeddingSource', 'embeddingModel'] });
+    }
 });
 
 test('a tenant whose points were all deleted is not listed, though Qdrant still reports it with a count of 0', async () => {
