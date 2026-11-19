@@ -163,6 +163,9 @@ async function reviewPick(pick, { scene, books, ask }) {
  * @property {number} unreadItemCount - Items of the pick's answer that named no entry of the table
  * @property {number|null} pickSeconds - How long the pick took to answer, or to fail; null when it was not asked, as
  *   when Fast and Cheap [Jev]'s search failed or found nothing
+ * @property {{prompt: number|null, cached: number|null}|null} [pickTokens] - On High Accuracy, the pick's prompt
+ *   tokens and those the provider read from its cache, each null where it did not report them (§7.5 of
+ *   lorebook-multi-vector.md); null when the call reported no counts or none came back; absent on Fast and Cheap [Jev]
  * @property {{seats: number, poolCount: number|null, seconds: number|null}} [search] - On Fast and Cheap [Jev], the
  *   search before Jev: the most entries Jev is asked about, how many the search kept, null when the entries were no
  *   more than the seats and nothing was searched, and how long it took (§5 of lorebook-multi-vector.md); absent on
@@ -193,13 +196,17 @@ async function reviewPick(pick, { scene, books, ask }) {
 export async function loreForReply({ scene, books, ask }) {
     const contents = tableOfContents(books);
     let picked;
+    let pickTokens = null;
+    const onUsage = usage => {
+        if (usage) pickTokens = { prompt: usage.prompt_tokens ?? null, cached: usage.cached_tokens ?? null };
+    };
     const pickStartedAt = performance.now();
     try {
-        const items = await ask(pickMessages(scene, contents), { maxTokens: PICK_MAX_TOKENS, reasoningEffort: REASONING_EFFORT, identKeys: ['number'] });
+        const items = await ask(pickMessages(scene, contents), { maxTokens: PICK_MAX_TOKENS, reasoningEffort: REASONING_EFFORT, identKeys: ['number'], onUsage });
         picked = readPicks(items, contents);
     } catch (error) {
         return {
-            contentCount: contents.length, picks: [], unreadItemCount: 0, pickSeconds: secondsSince(pickStartedAt),
+            contentCount: contents.length, picks: [], unreadItemCount: 0, pickSeconds: secondsSince(pickStartedAt), pickTokens,
             reviewedPicks: [], failures: [{ step: 'pick', detail: callFailureDetail(error), error }],
         };
     }
@@ -210,6 +217,7 @@ export async function loreForReply({ scene, books, ask }) {
         picks: picked.picks,
         unreadItemCount: picked.unreadItemCount,
         pickSeconds,
+        pickTokens,
         reviewedPicks: reviews.filter(review => review.reviewedPick).map(review => review.reviewedPick),
         failures: reviews.filter(review => review.failure).map(review => review.failure),
     };

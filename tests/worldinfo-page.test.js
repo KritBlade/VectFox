@@ -11,7 +11,9 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-const { loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
+const {
+    loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, loreBaseSetupNoticeMarkup, loreBaseVectorsLineText, worldInfoPageMarkup,
+} = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { KEY_CALLS_AT_ONCE_MAX } = await import('../src/features/lorebase/lorebase-keys-core.js');
 const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lorebase/lorebase-reply-core.js');
 const { LORE_BUDGET_MAX, LORE_BUDGET_MIN } = await import('../src/features/lorebase/lorebase-jev-core.js');
@@ -24,7 +26,7 @@ const WIRED_IDS = [
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
     'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_lore_budget_tokens', 'VectFox_lorebase_role_picks',
-    'VectFox_lorebase_role_keys',
+    'VectFox_lorebase_role_keys', 'VectFox_lorebase_setup_notice', 'VectFox_lorebase_vectors_model', 'VectFox_lorebase_vectors_link',
     'VectFox_lorebase_tester_card', 'VectFox_lorebase_try_pick', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
 ];
 // The old vector search's controls, deleted with it.
@@ -52,6 +54,25 @@ describe('WorldInfo page markup', () => {
         expect(document.getElementById('VectFox_lorebase_role_keys').style.display).toBe('none');
         expect(document.getElementById('VectFox_lorebase_jev_group').style.display).toBe('none');
         expect(document.getElementById('VectFox_lorebase_jev_group').contains(document.getElementById('VectFox_lorebase_jev_test_connection'))).toBe(true);
+    });
+
+    it("opens the model card's body on its setup notice, hidden and empty until drawn, and ends it on the Vectors line and its button to the Core page (§7.2)", () => {
+        const body = document.querySelector('#VectFox_lorebase_model_card .vfx-card-body');
+        const setupNotice = document.getElementById('VectFox_lorebase_setup_notice');
+        expect([body.firstElementChild, setupNotice.hidden, setupNotice.innerHTML]).toEqual([setupNotice, true, '']);
+        const link = document.getElementById('VectFox_lorebase_vectors_link');
+        expect(link.textContent.trim()).toBe('Set on the Core page');
+        expect(body.lastElementChild.contains(link)).toBe(true);
+        expect(body.lastElementChild.contains(document.getElementById('VectFox_lorebase_vectors_model'))).toBe(true);
+        expect(body.lastElementChild.querySelector('.vfx-field-label').textContent).toBe('Vectors');
+    });
+
+    it('draws the setup notice only when something is missing, and names the embedding model on the Vectors line', () => {
+        expect(loreBaseSetupNoticeMarkup('')).toBe('');
+        document.body.innerHTML = loreBaseSetupNoticeMarkup('Choose Qdrant as the vector backend on the Core page.');
+        expect(document.querySelector('.vfx-notice.is-warning')?.textContent.trim()).toBe('Choose Qdrant as the vector backend on the Core page.');
+        expect(loreBaseVectorsLineText('baai/bge-m3 at OpenRouter')).toBe("baai/bge-m3 at OpenRouter, VectFox's embedding model.");
+        expect(loreBaseVectorsLineText('')).toBe('No embedding model is set.');
     });
 
     it('gives every wired control its own id, once', () => {
@@ -159,6 +180,68 @@ describe('loreBaseBooksMarkup', () => {
         })[0].sub).toBe('1,234 selected, 1,200 with keys, 0 with vectors');
     });
 
+    describe("each book's state, once its keys and vectors are read (§7.1 of lorebook-multi-vector.md)", () => {
+        const book = fields => ({
+            bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false, keyCount: 40, vectorCount: 40, readyCount: 40,
+            missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null, writing: null, ...fields,
+        });
+        const TONES = ['success', 'warning', 'danger', 'accent', 'neutral'];
+        const stateOf = fields => {
+            document.body.innerHTML = loreBaseBooksMarkup({ hasChat: true, books: [book(fields)] });
+            const pill = document.querySelector('.vfx-row .vfx-pill');
+            return {
+                state: `${pill.textContent.trim()} (${TONES.find(tone => pill.classList.contains(`is-${tone}`))})`,
+                lines: [...document.querySelectorAll('.vfx-row .vfx-row-sub')].map(line => line.textContent),
+            };
+        };
+
+        it('says ready, or what the rest lack: keys and vectors, keys, vectors, or keys or vectors', () => {
+            expect(stateOf({}).state).toBe('Ready (success)');
+            expect(stateOf({ keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 40, missingVectorCount: 40 }).state).toBe('40 need keys and vectors (warning)');
+            expect(stateOf({ keyCount: 30, readyCount: 30, missingKeyCount: 10 }).state).toBe('10 need keys (warning)');
+            expect(stateOf({ vectorCount: 1, readyCount: 1, missingVectorCount: 39 }).state).toBe('39 need vectors (warning)');
+            expect(stateOf({ keyCount: 35, vectorCount: 30, readyCount: 25, missingKeyCount: 5, missingVectorCount: 10 }).state).toBe('15 need keys or vectors (warning)');
+        });
+
+        it('says another embedding model made its vectors, and how many failed with the first reason on a line of its own', () => {
+            expect(stateOf({ vectorCount: 0, readyCount: 0, missingVectorCount: 40, otherModelCount: 40 }).state).toBe('Vectors from another embedding model (warning)');
+            expect(stateOf({ keyCount: 37, readyCount: 37, missingKeyCount: 3, failedCount: 3, firstFailure: 'its answer held no list of keys' })).toEqual({
+                state: '3 failed (danger)', lines: ['40 selected, 37 with keys, 40 with vectors', 'First failure: its answer held no list of keys'],
+            });
+        });
+
+        it('shows the writing run on the book it writes now, with its entries done of those it writes, before anything else', () => {
+            expect(stateOf({ failedCount: 3, readyCount: 37, writing: { isKeys: true, done: 12, total: 40 } })).toEqual({
+                state: 'Writing keys, 12 of 40 (accent)', lines: ['40 selected, 40 with keys, 40 with vectors'],
+            });
+            expect(stateOf({ writing: { isKeys: false, done: 1200, total: 1221 } }).state).toBe('Vectorizing, 1,200 of 1,221 (accent)');
+        });
+
+        it('shows no state before the keys and vectors are read, nor on a book with nothing selected', () => {
+            document.body.innerHTML = loreBaseBooksMarkup({ hasChat: true, books: [
+                { bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false },
+                book({ bookName: 'Tide Tables', selectedCount: 0, readyCount: 0 }),
+            ] });
+            expect([...document.querySelectorAll('.vfx-row')].map(row => [...row.querySelectorAll('.vfx-pill')].map(pill => pill.textContent.trim())))
+                .toEqual([['Locked to this chat'], ['Locked to this chat']]);
+        });
+
+        it('counts the ready and waiting entries of the books locked here under the list, or says none with a selection is locked here', () => {
+            const lineOf = books => {
+                document.body.innerHTML = loreBaseBooksMarkup({ hasChat: true, books });
+                return document.querySelector('.vfx-list + .vfx-hint')?.textContent ?? null;
+            };
+            expect(lineOf([
+                book({ bookName: 'Harbor Atlas', selectedCount: 312, readyCount: 312 }),
+                book({ bookName: 'Keeper Notes', selectedCount: 40, readyCount: 0, isLockedToChat: false, isLockedToCharacter: true }),
+                book({ bookName: 'Tide Tables', selectedCount: 9, readyCount: 9, isLockedToChat: false }),
+            ])).toBe('2 books locked here: 312 entries ready, 40 entries waiting for keys or vectors.');
+            expect(lineOf([book({ selectedCount: 1, readyCount: 1 })])).toBe('1 book locked here: 1 entry ready.');
+            expect(lineOf([book({ isLockedToChat: false })])).toBe('No book with selected entries is locked here, so LoreBase sends none of them.');
+            expect(lineOf([{ bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false }])).toBeNull();
+        });
+    });
+
     it('draws Add a lorebook under the books when given the books to add: a list, and a button for each place, all chats alone in a group chat', () => {
         const addRow = add => {
             document.body.innerHTML = loreBaseBooksMarkup({ hasChat: true, books: [], add });
@@ -217,6 +300,7 @@ describe("the tester's report (§5.10)", () => {
         contentCount: 3, picks: [lighthouse, tidewardens], skipped: [{ bookName: 'Harbor Atlas', uid: 2, title: 'Old Pier' }],
         unreadItemCount: 0,
         failures: [{ step: 'review', title: 'Tidewardens', detail: 'it did not answer within 30 seconds' }],
+        pickTokens: { prompt: 15070, cached: 10141 },
         seconds: { pick: 2.63, slowestReview: 4.12, total: 6.81 },
         isUnderWay: false, messageIndex: 12, swipeId: 1, isMeasuring: false, measureFailure: null,
         tokens: { sent: 412, pickedWhole: 1230, picks: [{ sent: 412, whole: 1230 }, null], promptWorldInfo: 5000 },
@@ -242,12 +326,23 @@ describe("the tester's report (§5.10)", () => {
     it("sums the reply up: the pick, the time, the tokens against SillyTavern's keys, and each failure", () => {
         expect(drawn(measured).summary).toEqual([
             'Picked: 2 of 3 selected entries',
+            "Pick read from the cache: 10,141 of the pick's 15,070 prompt tokens",
             'Time: pick 2.6 s, slowest review 4.1 s, 6.8 s in all',
             'LoreBase sent: 412 tokens, from 1,230 in the same entries whole',
             "SillyTavern's keys: 3 selected entries, 3,456 tokens",
             'World Info in the prompt: 5,000 tokens; SillyTavern alone 8,044 tokens',
             'A review failed: Tidewardens: it did not answer within 30 seconds',
         ]);
+    });
+
+    it("says on High Accuracy when the provider did not report the pick's tokens read from its cache, and nothing of it on Fast and Cheap [Jev] or a failed pick (§7.5)", () => {
+        const cacheLines = report => drawn(report).summary.filter(line => line.startsWith('Pick read from the cache'));
+        expect(cacheLines({ ...measured, pickTokens: { prompt: 15070, cached: null } }))
+            .toEqual(["Pick read from the cache: not reported by the provider, of the pick's 15,070 prompt tokens"]);
+        expect(cacheLines({ ...measured, pickTokens: { prompt: 15070, cached: 0 } })).toEqual(["Pick read from the cache: 0 of the pick's 15,070 prompt tokens"]);
+        expect(cacheLines({ ...measured, pickTokens: null })).toEqual(['Pick read from the cache: not reported by the provider']);
+        expect(cacheLines({ ...measured, accuracy: 'fast', pickTokens: null })).toEqual([]);
+        expect(cacheLines({ ...measured, pickTokens: null, picks: [], failures: [{ step: 'pick', title: null, detail: 'it did not answer within 30 seconds' }] })).toEqual([]);
     });
 
     it("shows each pick with Luna's reasons and its review, its parts folded, then the entries left out", () => {
@@ -369,6 +464,7 @@ describe("the tester's report (§5.10)", () => {
         expect(document.querySelector('option').textContent).toBe(`${time} · try · no reply`);
         expect(drawn(tried).summary).toEqual([
             'Picked: 2 of 3 selected entries',
+            "Pick read from the cache: 10,141 of the pick's 15,070 prompt tokens",
             'Time: pick 2.6 s, slowest review 4.1 s, 6.8 s in all',
             'LoreBase sent: 412 tokens, from 1,230 in the same entries whole',
             "A try sends no reply, so what SillyTavern's keys would send is not measured.",

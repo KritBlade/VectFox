@@ -102,6 +102,15 @@ describe('postChatCompletion — request body', () => {
         expect(body.temperature).toBe(0.3);
     });
 
+    it("returns the prompt's tokens read from the provider's cache where it reports them, and null where it does not", async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => okResponse({
+            content: 'hi', usage: { prompt_tokens: 15070, completion_tokens: 40, total_tokens: 15110, prompt_tokens_details: { cached_tokens: 10141 } },
+        })));
+        expect((await postChatCompletion(baseArgs())).usage).toEqual({ prompt_tokens: 15070, completion_tokens: 40, total_tokens: 15110, cached_tokens: 10141 });
+        vi.stubGlobal('fetch', vi.fn(async () => okResponse({ content: 'hi', usage: { prompt_tokens: 12 } })));
+        expect((await postChatCompletion(baseArgs())).usage).toMatchObject({ prompt_tokens: 12, cached_tokens: null });
+    });
+
     it('routes vLLM through the proxy with chat_completion_source=custom + custom_url', async () => {
         const fetchMock = vi.fn(async () => okResponse({ content: 'hi' }));
         vi.stubGlobal('fetch', fetchMock);

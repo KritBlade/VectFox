@@ -1,8 +1,8 @@
 /**
  * The rules of LoreBase's storage module (lorebase-storage.js, §3.1 of InternalProject/Vectfox/plans/
  * vectfox-multi-collection-per-chat.md), with no host imports: the two kinds LoreBase stores for each selected entry,
- * what of the selection's lack a run of some kinds writes, the progress panel's title and closing line for it, how many
- * of a book's selected entries have each kind, and the Database Browser's rows of each book's keys and vectors, the
+ * what of the selection's lack a run of some kinds writes, the progress panel's title and closing line for it, where a
+ * book's selected entries stand, and the Database Browser's rows of each book's keys and vectors, the
  * list's and the leftovers' (§3.2). Its files are lorebase-files-core.js's.
  */
 
@@ -78,18 +78,36 @@ export function writtenSummary({ keysWritten, vectorsWritten, failed, stopped })
 }
 
 /**
- * How many of a book's selected entries have keys, an empty list the model found counted, and how many have vectors
- * from the embedding model set now.
- * @param {object[]} decidedEntries - The book's selected entries LoreBase decides
- * @param {Record<string, string[]>|undefined} keysOfBook - uid -> keys, as Similharity holds them
- * @param {Set<string>} uidsWithVectors - From uidsWithCurrentVectors
- * @returns {{keyCount: number, vectorCount: number}}
+ * Where a book's selected entries LoreBase decides stand, for its row on the books card (§7.1 of
+ * lorebook-multi-vector.md): how many have keys, an empty list the model found counted; how many have vectors from the
+ * embedding model set now; how many have both, and are ready; how many lack keys and how many lack vectors, an entry
+ * lacking both counted in each; how many hold only another embedding model's vectors; and how many of those not ready
+ * failed in this session, with the first one's reason.
+ * @param {Array<{hasKeys: boolean, vectorStatus: string, failure: string|null}>} entries - Each selected entry LoreBase
+ *   decides: whether it has keys, its vectors' status (vectorStateOf in lorebase-vectors.js), and what the last failed
+ *   writing of its keys or vectors reported, or null
+ * @returns {{keyCount: number, vectorCount: number, readyCount: number, missingKeyCount: number,
+ *   missingVectorCount: number, otherModelCount: number, failedCount: number, firstFailure: string|null}}
  */
-export function storedCountsOf(decidedEntries, keysOfBook, uidsWithVectors) {
-    return {
-        keyCount: decidedEntries.filter(entry => Boolean(keysOfBook?.[uidOf(entry)])).length,
-        vectorCount: decidedEntries.filter(entry => uidsWithVectors.has(uidOf(entry))).length,
+export function storedCountsOf(entries) {
+    const counts = {
+        keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null,
     };
+    for (const { hasKeys, vectorStatus, failure } of entries) {
+        const hasVectors = vectorStatus === 'ready';
+        if (hasKeys) counts.keyCount += 1;
+        else counts.missingKeyCount += 1;
+        if (hasVectors) counts.vectorCount += 1;
+        else counts.missingVectorCount += 1;
+        if (vectorStatus === 'other-model') counts.otherModelCount += 1;
+        if (hasKeys && hasVectors) {
+            counts.readyCount += 1;
+        } else if (failure) {
+            counts.failedCount += 1;
+            counts.firstFailure ??= failure;
+        }
+    }
+    return counts;
 }
 
 /**

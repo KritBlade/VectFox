@@ -36,7 +36,8 @@ import {
 import { cardHeader, navBrand, pageHeader, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
 import { counted } from '../../shared/counted.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
-import { BADGES, KEY_CHOICES, SIZE_CHOICES, isEngineLike, keyListOf } from './lorebase-selection-core.js';
+import { POOL_SEATS } from './lorebase-jev-core.js';
+import { BADGES, READINESS_CHOICES, SIZE_CHOICES, isEngineLike, keyListOf } from './lorebase-selection-core.js';
 
 /** The ids lorebase-selection-screen.js finds the screen's controls by. */
 export const SELECTION_IDS = Object.freeze({
@@ -48,7 +49,7 @@ export const SELECTION_IDS = Object.freeze({
     lockNotice: 'vectfox_lorebase_lock_notice',
     search: 'vectfox_lorebase_search',
     size: 'vectfox_lorebase_size',
-    keys: 'vectfox_lorebase_keys',
+    readiness: 'vectfox_lorebase_readiness',
     badge: 'vectfox_lorebase_badge',
     newness: 'vectfox_lorebase_newness',
     categories: 'vectfox_lorebase_categories',
@@ -133,10 +134,10 @@ function controlsCard(choices, bookName) {
             ${controlRow([
                 input({ id: ids.search, placeholder: 'Search titles, keys and text', title: 'Search the entries' }),
                 select({ id: ids.size, title: 'Size', options: SIZE_CHOICES.map(size => selectOption({ value: String(size), text: sizeNames[size] })) }),
-                select({ id: ids.keys, title: 'Keys', options: [
-                    selectOption({ value: KEY_CHOICES.any, text: 'Any keys' }),
-                    selectOption({ value: KEY_CHOICES.withKeys, text: 'With keys' }),
-                    selectOption({ value: KEY_CHOICES.withoutKeys, text: 'Without keys' }),
+                select({ id: ids.readiness, title: 'Keys and vectors', options: [
+                    selectOption({ value: READINESS_CHOICES.any, text: 'Ready or not' }),
+                    selectOption({ value: READINESS_CHOICES.ready, text: 'Ready' }),
+                    selectOption({ value: READINESS_CHOICES.notReady, text: 'Without keys or vectors' }),
                 ] }),
                 select({ id: ids.badge, title: 'Badge', options: [
                     selectOption({ value: '', text: 'Any badge' }),
@@ -293,47 +294,75 @@ function entryPills(row) {
     return pills;
 }
 
-// A selected entry's keys (D17), while they are written, after they fail, before any are written, or written as none
-// when the model found nothing in the entry to key.
-const KEY_STATE_PILLS = {
-    writing: { text: 'Writing keys', status: 'accent', icon: 'fa-pen-nib' },
-    failed: { text: 'Keys failed', status: 'danger', icon: 'fa-triangle-exclamation' },
-    missing: { text: 'No keys yet', status: 'warning', icon: 'fa-key' },
-    none: { text: 'No keys found', status: 'neutral', icon: 'fa-key' },
+// A selected entry's keys and vectors (D17, §7.3 of lorebook-multi-vector.md): its keys or its vectors being written or
+// failed, what it still lacks, or keys written as none when the model found nothing in the entry to key.
+const READINESS_PILLS = {
+    writingKeys: { text: 'Writing keys', status: 'accent', icon: 'fa-pen-nib' },
+    vectorizing: { text: 'Vectorizing', status: 'accent', icon: 'fa-vector-square' },
+    keysFailed: { text: 'Keys failed', status: 'danger', icon: 'fa-triangle-exclamation' },
+    vectorsFailed: { text: 'Vectors failed', status: 'danger', icon: 'fa-triangle-exclamation' },
+    missingBoth: { text: 'No keys or vectors yet', status: 'warning', icon: 'fa-key' },
+    missingKeys: { text: 'No keys yet', status: 'warning', icon: 'fa-key' },
+    missingVectors: { text: 'No vectors yet', status: 'warning', icon: 'fa-vector-square' },
+    otherModel: { text: 'Vectors from another model', status: 'warning', icon: 'fa-vector-square' },
+    noKeysFound: { text: 'No keys found', status: 'neutral', icon: 'fa-key' },
 };
 // Room for a failure's own text on the row.
-const KEY_FAILURE_CHARACTERS = 200;
+const FAILURE_CHARACTERS = 200;
+
+// The pill for a selected entry's state, or null for a ready entry with keys, whose keys show instead.
+function readinessPill(readiness) {
+    switch (readiness?.status) {
+        case 'writing-keys': return READINESS_PILLS.writingKeys;
+        case 'vectorizing': return READINESS_PILLS.vectorizing;
+        case 'keys-failed': return READINESS_PILLS.keysFailed;
+        case 'vectors-failed': return READINESS_PILLS.vectorsFailed;
+        case 'missing':
+            if (readiness.lacksKeys && readiness.lacksVectors) return READINESS_PILLS.missingBoth;
+            if (readiness.lacksKeys) return READINESS_PILLS.missingKeys;
+            return readiness.isOtherModel ? READINESS_PILLS.otherModel : READINESS_PILLS.missingVectors;
+        case 'ready': return readiness.keys.length ? null : READINESS_PILLS.noKeysFound;
+        default: return null;
+    }
+}
+
+// What failed for a selected entry, with the reason, or null.
+function failureLine(readiness) {
+    if (readiness?.status === 'keys-failed') return { text: 'Keys failed', name: String(readiness.detail ?? '').slice(0, FAILURE_CHARACTERS) };
+    if (readiness?.status === 'vectors-failed') return { text: 'Vectors failed', name: String(readiness.detail ?? '').slice(0, FAILURE_CHARACTERS) };
+    return null;
+}
 
 /**
  * One entry: its tick box, then its row (title, category, size and keys, the keys LoreBase's model wrote for it when
- * selected, its pills) with the button that shows the entry and its LoreBase toggle. An entry LoreBase cannot decide
- * (SillyTavern keeps it, or it is empty) cannot be turned on, only off when it was selected before it became one.
+ * selected, its pills, where its keys and vectors stand among them) with the button that shows the entry and its
+ * LoreBase toggle. An entry LoreBase cannot decide (SillyTavern keeps it, or it is empty) cannot be turned on, only off
+ * when it was selected before it became one.
  * @param {import('./lorebase-selection-core.js').SelectionRow} row
- * @param {{isTicked: boolean, keyState?: {status: string, keys?: string[], detail?: string}|null}} view - keyState is
- *   from lorebase-keys.js's keyStateOf, for a selected entry only
+ * @param {{isTicked: boolean, readiness?: ReturnType<typeof import('./lorebase-selection-core.js').entryReadiness>|null}}
+ *   view - readiness is the entry's state, for a selected entry LoreBase decides only
  * @returns {string}
  */
-export function entryRowMarkup(row, { isTicked, keyState = null }) {
+export function entryRowMarkup(row, { isTicked, readiness = null }) {
     const canToggle = !row.undecidableReason || row.isSelected;
-    const hasNoKeysFound = keyState?.status === 'ready' && !keyState.keys.length;
-    const keyPill = KEY_STATE_PILLS[hasNoKeysFound ? 'none' : keyState?.status];
+    const pill = readinessPill(readiness);
     const body = listRow({
         icon: 'fa-file-lines',
         name: row.title,
         sub: [
             row.category ? { name: row.category } : null,
             { name: `${formatCount(row.tokens)} tokens, ${counted(row.keyCount, 'key')}` },
-            keyState?.status === 'ready' && !hasNoKeysFound ? { text: 'LoreBase keys', name: keyState.keys.join(', ') } : null,
-            keyState?.status === 'failed' ? { text: 'Keys failed', name: String(keyState.detail ?? '').slice(0, KEY_FAILURE_CHARACTERS) } : null,
+            readiness?.keys?.length ? { text: 'LoreBase keys', name: readiness.keys.join(', ') } : null,
+            failureLine(readiness),
         ],
-        pills: keyPill ? [...entryPills(row), statusPill(keyPill)] : entryPills(row),
+        pills: pill ? [...entryPills(row), statusPill(pill)] : entryPills(row),
         actions: [
             iconButton({ icon: 'fa-eye', title: 'Show this entry', data: action('show-entry', { 'lorebase-uid': row.uid }) }),
             // An entry LoreBase decides has keys to edit; not while its keys are being written.
             row.isSelected && !row.undecidableReason ? iconButton({
                 icon: 'fa-pen',
                 title: 'Edit LoreBase keys',
-                isDisabled: keyState?.status === 'writing',
+                isDisabled: readiness?.status === 'writing-keys',
                 data: action('edit-keys', { 'lorebase-uid': row.uid }),
             }) : '',
             iconButton({
@@ -440,34 +469,52 @@ export function entriesFooterMarkup({ shownCount, matchCount, hasMore }) {
 }
 
 /**
- * The footer line: how many titles the pick reads from the book, and what they add to every pick.
+ * The footer line. On High Accuracy: how many titles the pick reads from the book, and what they add to every pick. On
+ * Fast and Cheap [Jev] (§7.3 of lorebook-multi-vector.md): how many selected entries Jev is asked about on every reply,
+ * every one up to POOL_SEATS, else the search's best POOL_SEATS, counted over the books taking part in the open chat;
+ * that this book takes no part there; or the rule alone while the count is not known.
  * @param {{entryCount: number, titleTokens: number}} footer - From selectionFooter
+ * @param {{isFastAndCheap?: boolean, takingPart?: {count: number, isBookTakingPart: boolean}|null}} [choice] -
+ *   isFastAndCheap: LoreBase's Accuracy is Fast and Cheap [Jev]; takingPart: the selected entries LoreBase decides in the
+ *   books taking part in the open chat, this book's as now selected among them, and whether this book is one, or null
+ *   while not known
  * @returns {string}
  */
-export function summaryText({ entryCount, titleTokens }) {
+export function summaryText({ entryCount, titleTokens }, { isFastAndCheap = false, takingPart = null } = {}) {
     if (!entryCount) return 'LoreBase decides no entry of this book: SillyTavern\'s keys decide them all.';
-    return `The pick reads ${counted(entryCount, 'title')} and their keys from this book, about ${formatCount(titleTokens)} tokens on every pick.`;
+    if (!isFastAndCheap) {
+        return `The pick reads ${counted(entryCount, 'title')} and their keys from this book, about ${formatCount(titleTokens)} tokens on every pick.`;
+    }
+    if (!takingPart) {
+        return `Jev is asked about every selected entry of the books a chat locks, up to ${formatCount(POOL_SEATS)} in all, `
+            + `and above that about the ${formatCount(POOL_SEATS)} a search finds best, on every reply.`;
+    }
+    if (!takingPart.isBookTakingPart) return 'This book takes no part in this chat, so Jev is never asked about its entries here.';
+    const entries = `${counted(takingPart.count, 'selected entry', 'selected entries')} taking part in this chat`;
+    return takingPart.count > POOL_SEATS
+        ? `Jev is asked about the ${formatCount(POOL_SEATS)} a search finds best of the ${entries}, on every reply.`
+        : `Jev is asked about every one of the ${entries}, on every reply.`;
 }
 
 /**
- * Where the selected entries' keys stand (D17): how many are written, being written, failed or not written yet; '' when
- * none is selected. An entry sends nothing until its keys are written; the ones without keys are asked about once the
- * screen closes while LoreBase is on, or when LoreBase is turned on.
+ * Where the selected entries' keys and vectors stand (D17, §4.4 of lorebook-multi-vector.md): how many are ready, being
+ * written, failed or not written yet; '' when none is selected. An entry sends nothing until both are written; the
+ * ones without them are asked about once the screen closes while LoreBase is on, or when LoreBase is turned on.
  * @param {{ready: number, writing: number, failed: number, missing: number}} counts
  * @param {{isLoreBaseOn?: boolean}} [options] - isLoreBaseOn: Use LoreBase's switch
  * @returns {string}
  */
-export function keySummaryText({ ready, writing, failed, missing }, { isLoreBaseOn = true } = {}) {
+export function readinessSummaryText({ ready, writing, failed, missing }, { isLoreBaseOn = true } = {}) {
     if (!ready && !writing && !failed && !missing) return '';
-    const parts = [`${formatCount(ready)} written`];
+    const parts = [`${formatCount(ready)} ready`];
     if (writing) parts.push(`${formatCount(writing)} being written`);
     if (failed) parts.push(`${formatCount(failed)} failed`);
     if (missing) parts.push(`${formatCount(missing)} not written yet`);
     const waiting = writing + failed + missing;
-    const line = `Keys: ${parts.join(', ')}.`;
+    const line = `Keys and vectors: ${parts.join(', ')}.`;
     if (!waiting) return line;
     if (!isLoreBaseOn) return `${line} Turning on Use LoreBase asks to write them.`;
-    const wait = waiting === 1 ? 'sends nothing until its keys are written' : 'send nothing until their keys are written';
+    const wait = waiting === 1 ? 'sends nothing until its keys and vectors are written' : 'send nothing until their keys and vectors are written';
     const ask = failed + missing ? ' Closing this screen asks to write the missing ones.' : '';
     return `${line} ${counted(waiting, 'selected entry', 'selected entries')} ${wait}.${ask}`;
 }

@@ -84,6 +84,13 @@ describe("a reply's report", () => {
         expect(unsearched.seconds.search).toBeNull();
     });
 
+    it("keeps High Accuracy's pick tokens, those read from the provider's cache among them, and none when the call reported none", () => {
+        expect(replyReport({ lore: { ...lore, pickTokens: { prompt: 15070, cached: 10141 } }, books, seconds: 6 }).pickTokens).toEqual({ prompt: 15070, cached: 10141 });
+        expect(replyReport({ lore: { ...lore, pickTokens: { prompt: 15070, cached: null } }, books, seconds: 6 }).pickTokens).toEqual({ prompt: 15070, cached: null });
+        expect(replyReport({ lore: { ...lore, pickTokens: null }, books, seconds: 6 }).pickTokens).toBeNull();
+        expect(replyReport({ lore, books, seconds: 6 }).pickTokens).toBeNull();
+    });
+
     it('sends nothing of a pick whose review says the reply uses none of it', () => {
         const none = { ...lore.reviewedPicks[0], uses: 'none', sentParts: [] };
         const report = replyReport({ lore: { ...lore, reviewedPicks: [none], failures: [] }, books, seconds: 4 });

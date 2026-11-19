@@ -115,7 +115,7 @@ describe("a reply's pick and reviews", () => {
         const lore = await running;
 
         const contents = tableOfContents(books);
-        expect(ask.mock.calls[0]).toEqual([pickMessages(scene, contents), { maxTokens: 9500, reasoningEffort: 'low', identKeys: ['number'] }]);
+        expect(ask.mock.calls[0]).toEqual([pickMessages(scene, contents), { maxTokens: 9500, reasoningEffort: 'low', identKeys: ['number'], onUsage: expect.any(Function) }]);
         const review = { maxTokens: 10000, reasoningEffort: 'low', identKeys: ['entry'] };
         expect(ask.mock.calls[1]).toEqual([reviewMessages(scene, { title: 'Fog Season', why: 'fog decides the crossing', needs: 'needs 3' }, entryPassages(fogSeason).passages), review]);
         expect(ask.mock.calls[2]).toEqual([reviewMessages(scene, { title: 'Lighthouse of Vell', why: 'the keeper is asked after', needs: 'needs 1' }, entryPassages(lighthouse).passages), review]);
@@ -195,9 +195,22 @@ describe("a reply's pick and reviews", () => {
         const lore = await loreForReply({ scene, books: [harborAtlas], ask });
         expect(ask).toHaveBeenCalledTimes(1);
         expect(lore).toEqual({
-            contentCount: 2, picks: [], unreadItemCount: 0, pickSeconds: expect.any(Number), reviewedPicks: [],
+            contentCount: 2, picks: [], unreadItemCount: 0, pickSeconds: expect.any(Number), pickTokens: null, reviewedPicks: [],
             failures: [{ step: 'pick', detail: 'it did not answer within 30 seconds', error }],
         });
+    });
+
+    it("keeps the pick's prompt tokens and those its provider read from the cache, as the call reported them (§7.5)", async () => {
+        const reported = async (usage, items) => {
+            const ask = vi.fn(async (_messages, request) => {
+                request.onUsage?.(usage);
+                return items;
+            });
+            return (await loreForReply({ scene, books: [harborAtlas], ask })).pickTokens;
+        };
+        expect(await reported({ prompt_tokens: 15070, cached_tokens: 10141 }, [])).toEqual({ prompt: 15070, cached: 10141 });
+        expect(await reported({ prompt_tokens: 15070, cached_tokens: null }, [])).toEqual({ prompt: 15070, cached: null });
+        expect(await reported(null, [])).toBeNull();
     });
 
     it('leaves out only the entry whose review failed, and the other picks go in', async () => {

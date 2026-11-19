@@ -2,6 +2,7 @@
  * LoreBase's selection screen, the pure rules (plan §5.2 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md): each entry of a book as a row, with its badges and, for an entry
  * LoreBase cannot decide (SillyTavern keeps it its own, or it is empty), why; the books the screen offers; the categories the comment prefixes make; the filters;
+ * where a selected entry stands with its keys and vectors;
  * the ticks the bulk bar acts on; what the bar and a category's toggle select; the entries new since the book was last
  * opened; the footer's count and title tokens; and the section names a book can pin. Pure: no SillyTavern, no DOM.
  */
@@ -36,7 +37,11 @@ const MOSTLY_CODE_SHARE = 0.5;
 
 /** The filters' size choices: an entry at least this many tokens, 0 for any size. */
 export const SIZE_CHOICES = Object.freeze([0, 300, 1000, 3000]);
-export const KEY_CHOICES = Object.freeze({ any: 'any', withKeys: 'with', withoutKeys: 'without' });
+/**
+ * The readiness filter's choices (§7.3 of lorebook-multi-vector.md): every entry; the selected entries that are ready,
+ * with their keys and vectors; or those not ready yet, without keys or vectors.
+ */
+export const READINESS_CHOICES = Object.freeze({ any: 'any', ready: 'ready', notReady: 'not-ready' });
 
 /** A key list as SillyTavern stores it (`key`, `keysecondary`): each key trimmed, empty ones dropped. */
 export const keyListOf = list => (Array.isArray(list) ? list : []).map(key => String(key).trim()).filter(Boolean);
@@ -182,18 +187,50 @@ export function categoryList(rows) {
 /**
  * The rows the filters let through, in order. Text matches the title, comment, keys and text, case ignored.
  * @param {SelectionRow[]} rows
- * @param {{text?: string, category?: string|null, minimumTokens?: number, keys?: string, badge?: string,
- *   isNewOnly?: boolean}} filters - category null for every category; badge '' for any
+ * @param {{text?: string, category?: string|null, minimumTokens?: number, readiness?: string, readinessOf?:
+ *   (row: SelectionRow) => {status: string}|null, badge?: string, isNewOnly?: boolean}} filters - category null for
+ *   every category; readiness one of READINESS_CHOICES, read through readinessOf, which gives a selected entry's state
+ *   (entryReadiness) and null for any other; badge '' for any
  * @returns {SelectionRow[]}
  */
-export function filterRows(rows, { text = '', category = null, minimumTokens = 0, keys = KEY_CHOICES.any, badge = '', isNewOnly = false } = {}) {
+export function filterRows(rows, {
+    text = '', category = null, minimumTokens = 0, readiness = READINESS_CHOICES.any, readinessOf = () => null, badge = '', isNewOnly = false,
+} = {}) {
     const words = text.toLowerCase().split(/\s+/u).filter(Boolean);
+    const isReadinessShown = row => {
+        if (readiness === READINESS_CHOICES.any) return true;
+        const state = readinessOf(row);
+        return Boolean(state) && (state.status === 'ready') === (readiness === READINESS_CHOICES.ready);
+    };
     return rows.filter(row => (category === null || row.category === category)
         && row.tokens >= minimumTokens
-        && (keys === KEY_CHOICES.any || (keys === KEY_CHOICES.withKeys) === (row.keyCount > 0))
         && (!badge || row.badges.includes(badge))
         && (!isNewOnly || row.isNew)
-        && words.every(word => row.searchText.includes(word)));
+        && words.every(word => row.searchText.includes(word))
+        && isReadinessShown(row));
+}
+
+/**
+ * Where a selected entry stands with its keys and vectors, as its row says it (§7.3 of lorebook-multi-vector.md), one
+ * state: its keys being written; its vectors being written; its keys failed, or else its vectors, with the reason; what
+ * it still lacks; or ready. Each but the first carries the keys it has, for the row to show. Vectors this session has
+ * not read count as had, so the row claims nothing of them.
+ * @param {{status: string, keys?: string[], detail?: string}} keyState - From keyStateOf in lorebase-keys.js
+ * @param {{status: string, detail?: string}} vectorState - From vectorStateOf in lorebase-vectors.js
+ * @returns {{status: 'writing-keys'}|{status: 'vectorizing', keys: string[]|null}|{status: 'keys-failed', detail: string}|
+ *   {status: 'vectors-failed', detail: string, keys: string[]|null}|{status: 'missing', lacksKeys: boolean,
+ *   lacksVectors: boolean, isOtherModel: boolean, keys: string[]|null}|{status: 'ready', keys: string[]}}
+ */
+export function entryReadiness(keyState, vectorState) {
+    if (keyState.status === 'writing') return { status: 'writing-keys' };
+    const keys = keyState.status === 'ready' ? keyState.keys : null;
+    if (vectorState.status === 'writing') return { status: 'vectorizing', keys };
+    if (keyState.status === 'failed') return { status: 'keys-failed', detail: keyState.detail };
+    if (vectorState.status === 'failed') return { status: 'vectors-failed', detail: vectorState.detail, keys };
+    const lacksKeys = !keys;
+    const lacksVectors = vectorState.status !== 'ready' && vectorState.status !== 'unknown';
+    if (lacksKeys || lacksVectors) return { status: 'missing', lacksKeys, lacksVectors, isOtherModel: vectorState.status === 'other-model', keys };
+    return { status: 'ready', keys };
 }
 
 const canBeOn = row => !row.undecidableReason;

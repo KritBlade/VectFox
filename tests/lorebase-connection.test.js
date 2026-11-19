@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const checkConnectionProfileMock = vi.fn();
 const sendConnectionTestMock = vi.fn();
+const postChatCompletionMock = vi.fn();
 const keys = vi.hoisted(() => ({ openRouter: 'key', custom: 'key' }));
 
 // The real connection check reads the profile and the saved keys through these mocks.
@@ -22,19 +23,24 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
         resolveConnectionProfileId: (await import('../src/features/llm-provider/connection-profile-core.js')).resolveConnectionProfileId,
         resolveModelParameterStyle: () => ({ sendTemperature: true, reasoningEffort: 'none', tokenLimitParameter: 'max_completion_tokens' }),
         sendConnectionTest: (...args) => sendConnectionTestMock(...args),
+        postChatCompletion: (...args) => postChatCompletionMock(...args),
+        parseJsonArrayFromLlm: text => JSON.parse(text),
     };
 });
 // LoreBase's calls, which this file does not send, read their answers through these.
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({ stripReasoningBlocks: text => text }));
 
-const { describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig, testLoreBaseConnection } = await import('../src/features/lorebase/lorebase-connection.js');
+const {
+    askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig, testLoreBaseConnection,
+} = await import('../src/features/lorebase/lorebase-connection.js');
 
 const CONSEQUENCE = 'Until then the entries selected for LoreBase stay out of replies.';
 
 beforeEach(() => {
     checkConnectionProfileMock.mockReset();
     sendConnectionTestMock.mockReset();
+    postChatCompletionMock.mockReset();
     keys.openRouter = 'key';
     keys.custom = 'key';
 });
@@ -82,5 +88,17 @@ describe("LoreBase's connection", () => {
         await expect(testLoreBaseConnection({ lorebase_provider: 'vllm', lorebase_model: 'served-model' }))
             .rejects.toThrow(`LoreBase is on, but it runs on vLLM with no URL. Set Base URL on the AgentMode page, or under EventBase model on the Core page. ${CONSEQUENCE}`);
         expect(sendConnectionTestMock).not.toHaveBeenCalled();
+    });
+});
+
+describe("a call on LoreBase's connection", () => {
+    it("reads its answer's entries, and hands the caller the call's token counts once it answers, as the tester reads the pick's", async () => {
+        postChatCompletionMock.mockResolvedValue({ content: '[{"number": 3}]', cutReason: null, usage: { prompt_tokens: 15070, cached_tokens: 10141 } });
+        const ask = askOnLoreBase({ provider: 'openrouter', model: 'openai/gpt-6-luna', parameterStyle: {} });
+        const onUsage = vi.fn();
+        await expect(ask([{ role: 'user', content: 'pick' }], { maxTokens: 10, reasoningEffort: 'low', identKeys: ['number'], onUsage })).resolves.toEqual([{ number: 3 }]);
+        expect(onUsage).toHaveBeenCalledWith({ prompt_tokens: 15070, cached_tokens: 10141 });
+        await expect(ask([{ role: 'user', content: 'keys' }], { maxTokens: 10, reasoningEffort: 'low', identKeys: ['keys'] })).resolves.toEqual([{ number: 3 }]);
+        expect(postChatCompletionMock.mock.calls[0][0]).toMatchObject({ model: 'openai/gpt-6-luna', provider: 'openrouter', maxTokens: 10, reasoningEffort: 'low' });
     });
 });

@@ -49,7 +49,9 @@ So when you close this screen with new entries on, VectFox asks to write them, a
 
 Say "Not now", and LoreBase goes on with the ready ones. It only turns off when no entry is ready at all. **Generate all** on the WorldInfo page writes whatever is missing later.
 
-Each book's row on the WorldInfo page tells you where it stands, like `313 selected, 313 with keys, 300 with vectors`. When all 3 numbers are the same, every selected entry is ready.
+Each book's row on the WorldInfo page tells you where it stands, like `313 selected, 313 with keys, 300 with vectors`, and its pill says what that means: **Ready**, or what the rest still need, like `13 need vectors`. While a run writes the book, the pill counts along, like `Vectorizing, 120 of 313`. If some entries failed, it says how many, and the line under the numbers gives the first reason. After you switch your embedding model, it says **Vectors from another embedding model**.
+
+Under the books, one line adds up the books locked to this chat, like `2 books locked here: 312 entries ready, 40 entries waiting for keys or vectors.` So a book that still waits shows right there, while LoreBase goes on with the rest.
 
 Need only one of the 2? **Generate keys** writes just the missing keys, and **Generate vectors** just the missing vectors. Generate vectors never calls the LoreBase model, so it costs almost nothing. It's the one to press after you switch your embedding model.
 
@@ -117,7 +119,7 @@ The row under the locks narrows the list. Filters only change what you see. They
 |---|---|
 | Search | Entries with every word you type somewhere in their title, keys or text. Case doesn't matter. |
 | Any size | Only entries of at least 300, 1,000 or 3,000 tokens. |
-| Any keys | Only entries with keys, or only those without. |
+| Ready or not | Only the entries you turned on that are ready, or only those still without keys or vectors. Handy after a run where some failed. |
 | Any badge | Only entries with one badge. The badges are explained below. |
 | All entries | Pick "New since last opened" to see only the entries added to the book since you last opened it here. |
 
@@ -146,6 +148,8 @@ The list shows the section names in the entries you turned on, the most common f
 
 Each row shows the entry's title, its category, its size in tokens, how many keys it has, and its pills.
 
+An entry you turned on also shows where its keys and vectors stand: **Writing keys** or **Vectorizing** while a run writes them, **No keys or vectors yet**, **No keys yet** or **No vectors yet** before that, and **Vectors from another model** after you switch your embedding model. If its writing failed, it says **Keys failed** or **Vectors failed**, with the reason under the title. A ready entry shows the keys the LoreBase model wrote for it instead, or **No keys found** when the model found nothing in it to key.
+
 The buttons above the list work on your ticks:
 
 - **Tick all matching** ticks every entry your filters show, even the ones further down that the list hasn't drawn yet. It skips engine entries and the ones SillyTavern keeps.
@@ -159,7 +163,7 @@ One thing to watch. A tick stays when a filter hides its row. If you tick 10 ent
 
 The list draws 100 entries at a time. **Show more** draws the next 100.
 
-At the bottom, a line says how many titles the LoreBase model reads from this book, and about how many tokens that adds to every pick. Every entry you turn on is one more title it reads before every single reply.
+At the bottom, a line says what your entries cost each reply. On High Accuracy, it's how many titles the LoreBase model reads from this book, and about how many tokens that adds to every pick. Every entry you turn on is one more title it reads before every single reply. On Fast and Cheap [Jev], it's how many entries Jev is asked about: every one while the books locked to this chat have 100 or fewer turned on, and above that the 100 a search finds best. If this book isn't locked to the chat, the line says it takes no part here.
 
 ## The pills on a row
 
@@ -195,7 +199,7 @@ I go through a book in the same order every time. Even a book of 300+ entries is
 
 **5. Leave the main character to SillyTavern.** I mean the one every reply is about, usually the one you play. Their sheet is needed in most replies, so it works like a rule. In my test the main character's sheet was needed in 7 of 12 replies, and LoreBase picked it in only 2 of those.
 
-**6. Turn on the small ones too.** Monster and item entries are often 100 tokens or so, but their keys are common words like "King" or "dog". With keys, they ride along on lots of replies just because someone said the word. Turned on, they go in only when the scene is about them. Each one costs a title on every pick, about 4 tokens, and the line at the bottom of the screen adds them up for you.
+**6. Turn on the small ones too.** Monster and item entries are often 100 tokens or so, but their keys are common words like "King" or "dog". With keys, they ride along on lots of replies just because someone said the word. Turned on, they go in only when the scene is about them. On High Accuracy, each one costs a title on every pick, about 4 tokens, and the line at the bottom of the screen adds them up for you.
 
 **7. Try it on one chat first.** Writing the keys locks the book to the chat you're in, and only that one. Play 10 replies or so there, and open the **LoreBase tester** card on the WorldInfo page. It shows what was picked and why, which parts went in, and the tokens next to what SillyTavern's keys would have sent. Happy with it? Lock the book to the character too.
 

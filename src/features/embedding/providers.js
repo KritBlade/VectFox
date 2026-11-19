@@ -198,6 +198,43 @@ export function getModelFromSettings(settings, fallback = '') {
 }
 
 /**
+ * Why VectFox's embedding model cannot embed now, or '' when it can: no provider, one VectFox does not know, a
+ * connection profile that cannot be used, or no model where the provider needs one. A profile's Similharity check reads
+ * the probe's settled result, so a caller that must be sure waits for checkPluginAvailable() first, as the diagnostics
+ * check does.
+ *
+ * @param {object} settings - VectFox settings
+ * @returns {string}
+ */
+export function embeddingSetupProblem(settings) {
+    const source = settings?.embedding_provider;
+    if (!source) return 'No embedding provider selected';
+    const config = getProviderConfig(source);
+    if (!config) return `Unknown provider: ${source}`;
+    const onProfile = resolveEmbeddingProfile(settings);
+    if (onProfile?.problem) return onProfile.problem;
+    if (config.requiresModel && !getModelFromSettings(settings)) return `${config.name} selected but no model configured`;
+    return '';
+}
+
+/**
+ * VectFox's embedding model in words, for a page that names it: the model and its provider, or the SillyTavern profile
+ * it runs on; a provider that takes no model name runs its own default, and one that needs a name says none is set.
+ *
+ * @param {object} settings - VectFox settings
+ * @returns {string} '' when no known provider is set
+ */
+export function embeddingModelName(settings) {
+    const config = getProviderConfig(settings?.embedding_provider);
+    if (!config) return '';
+    const onProfile = resolveEmbeddingProfile(settings);
+    if (onProfile) return `${onProfile.model || "the server's model"} on the SillyTavern profile "${onProfile.profileName}"`;
+    const model = getModelFromSettings(settings);
+    if (model) return `${model} at ${config.name}`;
+    return config.requiresModel ? `${config.name}, with no model set` : `${config.name}'s default model`;
+}
+
+/**
  * Get the secret key constant for a provider
  */
 export function getSecretKey(providerId) {

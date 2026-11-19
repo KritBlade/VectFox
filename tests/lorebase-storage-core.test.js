@@ -70,10 +70,26 @@ describe('the progress panel', () => {
 });
 
 describe("a book's selected entries, by what they have", () => {
-    it('counts those with keys, an empty list included, and those with vectors from the model set now', () => {
-        const decided = [entry(0), entry(1), entry(2)];
-        expect(storedCountsOf(decided, { 0: ['lighthouse'], 2: [] }, new Set(['1']))).toEqual({ keyCount: 2, vectorCount: 1 });
-        expect(storedCountsOf(decided, undefined, new Set())).toEqual({ keyCount: 0, vectorCount: 0 });
+    const standing = (hasKeys, vectorStatus, failure = null) => ({ hasKeys, vectorStatus, failure });
+
+    it('counts those with keys and with vectors from the model set now, those ready with both, and what the rest lack', () => {
+        expect(storedCountsOf([standing(true, 'ready'), standing(true, 'missing'), standing(false, 'ready'), standing(false, 'writing')])).toEqual({
+            keyCount: 2, vectorCount: 2, readyCount: 1, missingKeyCount: 2, missingVectorCount: 2, otherModelCount: 0, failedCount: 0, firstFailure: null,
+        });
+        expect(storedCountsOf([])).toMatchObject({ keyCount: 0, vectorCount: 0, readyCount: 0 });
+    });
+
+    it("counts the entries holding another embedding model's vectors as lacking vectors", () => {
+        expect(storedCountsOf([standing(true, 'other-model'), standing(true, 'other-model'), standing(true, 'ready')]))
+            .toMatchObject({ vectorCount: 1, readyCount: 1, missingVectorCount: 2, otherModelCount: 2 });
+    });
+
+    it('counts the failed entries not ready, with the first reason, and never a ready one whose earlier writing failed', () => {
+        expect(storedCountsOf([
+            standing(true, 'ready', 'rate limited'),
+            standing(false, 'missing', 'the model answered no list'),
+            standing(true, 'failed', 'the embedding server refused'),
+        ])).toMatchObject({ readyCount: 1, failedCount: 2, firstFailure: 'the model answered no list' });
     });
 });
 

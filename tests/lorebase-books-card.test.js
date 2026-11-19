@@ -21,8 +21,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
-    status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, selectedBooks: [],
-    settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
+    status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, writingProgressListener: null,
+    selectedBooks: [], settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
     counts: null, add: null, added: null,
 }));
 
@@ -53,6 +53,7 @@ vi.mock('../src/features/lorebase/index.js', () => ({
     selectedLoreBookNames: () => host.selectedBooks,
     onLoreBaseSwitchChange: listener => { host.switchListener = listener; },
     onWritingRunChange: listener => { host.writingRunListener = listener; },
+    onWritingProgress: listener => { host.writingProgressListener = listener; },
     // Tells the page, as saving the switch does.
     turnLoreBaseOff: vi.fn(() => { host.isOn = false; host.switchListener?.(false); }),
     // On, unless the user keeps Vector Storage's World Info search.
@@ -69,6 +70,10 @@ const { worldInfoPageMarkup } = await import('../src/features/settings-panel/wor
 const { bindLoreBaseBooksCard, refreshLoreBaseBooks } = await import('../src/features/settings-panel/lorebase-books-card.js');
 
 const outcomeOf = fields => ({ keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null, ...fields });
+// A book's counts as storedCountsOfBooks gives them.
+const countsOf = fields => ({
+    keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null, ...fields,
+});
 const HARBOR = { bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: true, isLockedToCharacter: false };
 const KEEPER = { bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false };
 const rowsShown = () => [...document.querySelectorAll('#VectFox_lorebase_books .vfx-row')].map(row => `${row.querySelector('.vfx-row-name').textContent}: ${row.querySelector('.vfx-row-sub').textContent}`);
@@ -86,7 +91,7 @@ beforeEach(() => {
     host.isConfirmed = true;
     host.deleted = 311;
     host.selectedBooks = ['Harbor Atlas'];
-    host.counts = new Map([['Harbor Atlas', { keyCount: 2, vectorCount: 1 }]]);
+    host.counts = new Map([['Harbor Atlas', countsOf({ keyCount: 2, vectorCount: 1, readyCount: 1, missingVectorCount: 1 })]]);
     host.add = { bookNames: ['Tide Tables', 'Voyage Log'], canAddToCharacter: true };
     host.added = { characterAvatar: 'keeper-orrin.png' };
     bindLoreBaseBooksCard(host.settings);
@@ -548,5 +553,47 @@ describe('the Generate buttons and Delete all', () => {
         expect(log.warn).toHaveBeenCalledWith('LoreBase: Delete all failed:', host.deleted);
         expect(turnLoreBaseOff).not.toHaveBeenCalled();
         expect(toggle().checked).toBe(true);
+    });
+});
+
+describe("each book's state on the card (§7.1 of lorebook-multi-vector.md)", () => {
+    const LOCK_PILLS = ['Locked to this chat', 'Locked to this character', 'Not locked'];
+    const stateOf = bookName => {
+        const row = [...document.querySelectorAll('#VectFox_lorebase_books .vfx-row')].find(candidate => candidate.querySelector('.vfx-row-name').textContent === bookName);
+        return [...row.querySelectorAll('.vfx-pill')].map(pill => pill.textContent.trim()).find(text => !LOCK_PILLS.includes(text)) ?? null;
+    };
+
+    it('shows the writing run on the row of the book it writes now, then the counts read again once the run ends', async () => {
+        await refreshLoreBaseBooks();
+        expect(stateOf('Harbor Atlas')).toBe('1 need vectors');
+        const addList = document.getElementById('VectFox_lorebase_add_book');
+        addList.value = 'Voyage Log';
+        host.writingProgressListener({ bookName: 'Harbor Atlas', kind: 'vectors', done: 0, total: 1 });
+        expect(stateOf('Harbor Atlas')).toBe('Vectorizing, 0 of 1');
+        host.writingProgressListener({ bookName: 'Keeper Notes', kind: 'keys', done: 1, total: 3 });
+        expect(stateOf('Harbor Atlas')).toBe('1 need vectors');
+        // Only the rows are drawn again as the run moves, so a lorebook being chosen to add stays chosen.
+        expect([document.getElementById('VectFox_lorebase_add_book'), addList.value]).toEqual([addList, 'Voyage Log']);
+        host.counts = new Map([['Harbor Atlas', countsOf({ keyCount: 2, vectorCount: 2, readyCount: 2 })]]);
+        host.writingRunListener({ count: 1, outcome: outcomeOf({ vectorsWritten: 1 }) });
+        host.writingProgressListener(null);
+        await vi.waitFor(() => expect(stateOf('Harbor Atlas')).toBe('Ready'));
+        expect(storedCountsOfBooks).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps a row's state while the same chat's list is drawn again, until the new counts are read, and drops it when they cannot be", async () => {
+        await refreshLoreBaseBooks();
+        let answerCounts;
+        storedCountsOfBooks.mockImplementationOnce(() => new Promise(resolve => { answerCounts = resolve; }));
+        const refreshing = refreshLoreBaseBooks();
+        await vi.waitFor(() => expect(storedCountsOfBooks).toHaveBeenCalledTimes(2));
+        expect(stateOf('Harbor Atlas')).toBe('1 need vectors');
+        answerCounts(new Map([['Harbor Atlas', countsOf({ keyCount: 2, vectorCount: 2, readyCount: 2 })]]));
+        await refreshing;
+        expect(stateOf('Harbor Atlas')).toBe('Ready');
+        storedCountsOfBooks.mockRejectedValueOnce(new Error('Similharity is down'));
+        await refreshLoreBaseBooks();
+        expect(stateOf('Harbor Atlas')).toBeNull();
+        expect(rowsShown()).toEqual(['Harbor Atlas: 2 selected', 'Keeper Notes: Nothing selected']);
     });
 });

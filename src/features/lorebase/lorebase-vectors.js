@@ -4,7 +4,9 @@
  * of a SillyTavern account a tenant inside one Qdrant collection (Q6): vectfox_main while "One shared collection" is on,
  * the account's own otherwise. What Qdrant holds for a book is read the first time this session needs it, again when the
  * selection screen opens the book, at turning LoreBase on and at Generate all, and kept current by what this session
- * writes and deletes. An entry is ready once it has its keys and its vectors from the embedding model set now (§4.4). An
+ * writes and deletes. An entry is ready once it has its keys and its vectors from the embedding model set now (§4.4).
+ * While an entry's vectors are written, and after they fail, its state is kept for this session and told to the vector
+ * listeners, so the selection screen's row and the books card say so (§7.1, §7.3). An
  * edit SillyTavern saves writes the changed parts of the entries that had vectors again in the background and deletes
  * their gone parts; the points of an entry no longer selected go when the selection screen closes. For the Database
  * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), a book tenant's
@@ -28,7 +30,7 @@ import { writingFailuresMessage } from './lorebase-keys-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn } from './lorebase-switch.js';
 import {
-    PARTS_PER_SEAT, bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, loreBaseAccountCollection,
+    PARTS_PER_SEAT, bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, hasOtherModelVectors, loreBaseAccountCollection,
     loreBaseBookCollectionId, newestWithin, pointBatches, searchPool, searchTextsOf, storedPointsOf, uidsWithStoredVectors,
 } from './lorebase-vectors-core.js';
 
@@ -46,9 +48,39 @@ const storedVectors = new Map();
 const pointsMemo = new Map();
 // Each book's refresh after an edit, waiting for SillyTavern's saves to settle: book name -> timer.
 const editTimers = new Map();
+// Entries whose vectors are being written or whose writing failed: book name -> uid -> {status: 'writing'} |
+// {status: 'failed', detail}.
+const writeStates = new Map();
+const stateListeners = new Set();
 
 /** The book's collection ID for this SillyTavern account. */
 const bookCollectionIdOf = bookName => loreBaseBookCollectionId(bookName, getCurrentUserHandle());
+
+const statesOf = bookName => {
+    if (!writeStates.has(bookName)) writeStates.set(bookName, new Map());
+    return writeStates.get(bookName);
+};
+
+function tellStateListeners(bookName) {
+    for (const listener of stateListeners) {
+        try {
+            listener(bookName);
+        } catch (error) {
+            log.warn('LoreBase: a vector listener failed:', error);
+        }
+    }
+}
+
+/**
+ * Call `listener` with a book's name each time some of its entries' vectors start being written, are written, fail or
+ * are stopped.
+ * @param {(bookName: string) => void} listener
+ * @returns {() => void} Stops the calls
+ */
+export function onVectorStateChange(listener) {
+    stateListeners.add(listener);
+    return () => stateListeners.delete(listener);
+}
 
 /**
  * The Qdrant collection LoreBase reads and writes this account's vectors in now: vectfox_main while "One shared
@@ -158,6 +190,28 @@ export function uidsWithCurrentVectors(bookName, entries, stored, settings) {
 }
 
 /**
+ * Where an entry's vectors stand, as this session knows them (§7.3): being written; ready, every part stored by the
+ * embedding model set now; failed, with the reason; made by another embedding model; missing; or unknown while this
+ * session has not read the book's vectors.
+ * @param {string} bookName
+ * @param {object} entry - The book's entry, as loadWorldInfo returns it
+ * @param {object} settings - VectFox settings
+ * @returns {{status: 'writing'}|{status: 'ready'}|{status: 'failed', detail: string}|{status: 'other-model'}|
+ *   {status: 'missing'}|{status: 'unknown'}}
+ */
+export function vectorStateOf(bookName, entry, settings) {
+    const state = writeStates.get(bookName)?.get(String(entry.uid));
+    if (state?.status === 'writing') return state;
+    const stored = storedVectors.get(bookName);
+    if (!stored) return { status: 'unknown' };
+    const points = pointsOf(bookCollectionIdOf(bookName), entry);
+    const modelKey = currentEmbeddingModelKey(settings);
+    if (hasCurrentVectors(points, stored, modelKey)) return { status: 'ready' };
+    if (state) return state;
+    return { status: hasOtherModelVectors(points, stored, modelKey) ? 'other-model' : 'missing' };
+}
+
+/**
  * A reply's pool on Fast and Cheap [Jev] (§4.5): the user's last message and the message before it, each cut to its
  * newest tokens within the embedding provider's piece size, embedded in one request, each searched in one request over
  * every book taking part; the entries of the table of contents the searches rank best (searchPool).
@@ -223,12 +277,20 @@ async function deleteStoredPoints(bookName, hashes, settings) {
  */
 export async function writeBookVectors(bookName, decidedEntries, entriesToWrite, settings, { run = null, onEntryDone = null } = {}) {
     const result = { written: 0, failures: [], stopped: 0 };
+    const states = statesOf(bookName);
     const fail = (entries, detail) => {
         for (const entry of entries) {
             const failure = { title: entryTitle(entry), detail };
+            states.set(String(entry.uid), { status: 'failed', detail });
             result.failures.push(failure);
             onEntryDone?.(entry, failure);
         }
+        if (entries.length) tellStateListeners(bookName);
+    };
+    // Written or stopped: the entry's state is what Qdrant holds again.
+    const settle = entries => {
+        for (const entry of entries) states.delete(String(entry.uid));
+        if (entries.length) tellStateListeners(bookName);
     };
     let stored;
     try {
@@ -244,18 +306,24 @@ export async function writeBookVectors(bookName, decidedEntries, entriesToWrite,
     for (const point of points) pointsByUid.set(point.uid, [...(pointsByUid.get(point.uid) ?? []), point]);
     const writing = entriesToWrite.map(entry => ({ entry, uid: String(entry.uid), points: pointsByUid.get(String(entry.uid)) ?? [] }));
     // An entry whose every point is stored already has nothing to write.
-    for (const { entry } of writing.filter(item => !item.points.length)) {
+    const unchanged = writing.filter(item => !item.points.length).map(item => item.entry);
+    for (const entry of unchanged) {
         result.written += 1;
         onEntryDone?.(entry, null);
     }
+    settle(unchanged);
+    const toSend = writing.filter(item => item.points.length);
+    for (const { uid } of toSend) states.set(uid, { status: 'writing' });
+    if (toSend.length) tellStateListeners(bookName);
     const collectionId = bookCollectionIdOf(bookName);
     const requestSettings = vectorSettings(settings);
     // A wrong embedding setup fails every batch the same way: once met, here or earlier in the run, no batch is sent.
     let setupProblem = run?.vectorProblem ?? null;
-    for (const batch of pointBatches(writing.filter(item => item.points.length), settings.insert_batch_size || DEFAULT_BATCH_SIZE)) {
+    for (const batch of pointBatches(toSend, settings.insert_batch_size || DEFAULT_BATCH_SIZE)) {
         const entries = batch.map(item => item.entry);
         if (run?.isStopped) {
             result.stopped += entries.length;
+            settle(entries);
             continue;
         }
         if (setupProblem) {
@@ -268,6 +336,7 @@ export async function writeBookVectors(bookName, decidedEntries, entriesToWrite,
             for (const point of batchPoints) stored.set(point.hash, { uid: point.uid, modelKey });
             result.written += entries.length;
             for (const entry of entries) onEntryDone?.(entry, null);
+            settle(entries);
         } catch (error) {
             const detail = String(error?.message || error);
             log.warn(`LoreBase: the vectors of ${entries.length} entries in lorebook "${bookName}" could not be written:`, error);
@@ -378,7 +447,8 @@ export async function deleteTenantPoints(tenant, collection, settings) {
 }
 
 /**
- * Delete every LoreBase vector of this SillyTavern account (Delete all, §4.3): its own Qdrant collection while "One
+ * Delete every LoreBase vector of this SillyTavern account (Delete all, §4.3), and forget the entries whose writing
+ * failed, telling the vector listeners: its own Qdrant collection while "One
  * shared collection" is off, else each named book's points in vectfox_main.
  * @param {string[]} bookNames - Every book VectFox keeps a LoreBase record of
  * @param {object} settings - VectFox settings
@@ -393,6 +463,9 @@ export async function deleteAllVectors(bookNames, settings) {
         await purgeVectorIndex(loreBaseAccountCollection(getCurrentUserHandle()), { ...settings, qdrant_multitenancy: false });
     }
     storedVectors.clear();
+    const failedBookNames = [...writeStates.keys()];
+    writeStates.clear();
+    for (const bookName of failedBookNames) tellStateListeners(bookName);
     log.lifecycle('LoreBase: deleted every vector of this account');
 }
 

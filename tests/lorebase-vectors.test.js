@@ -406,3 +406,51 @@ describe('an edit SillyTavern saves', () => {
         expect(host.calls).toEqual([]);
     });
 });
+
+describe("each entry's vectors, as this session knows them (§7.1, §7.3 of lorebook-multi-vector.md)", () => {
+    it("knows nothing of a book not read yet, then reads an entry as ready, missing, or holding another embedding model's vectors", async () => {
+        selectEntries([lighthouse, buoy]);
+        expect(vectors.vectorStateOf(BOOK, lighthouse, SETTINGS)).toEqual({ status: 'unknown' });
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [lighthouse], SETTINGS);
+        expect(vectors.vectorStateOf(BOOK, lighthouse, SETTINGS)).toEqual({ status: 'ready' });
+        expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'missing' });
+        expect(vectors.vectorStateOf(BOOK, lighthouse, { ...SETTINGS, embedding_model: 'openai/text-embedding-3-large' })).toEqual({ status: 'other-model' });
+        // An edited part is missing; the unchanged one is the model's set now, so nothing is another model's.
+        const edited = { ...lighthouse, content: lighthouse.content.replace('dusk', 'dawn') };
+        expect(vectors.vectorStateOf(BOOK, edited, SETTINGS)).toEqual({ status: 'missing' });
+    });
+
+    it('says an entry is being written while its batch is sent, and why it failed until it is written, telling the listeners each time', async () => {
+        selectEntries([lighthouse, buoy]);
+        const told = [];
+        const stop = vectors.onVectorStateChange(bookName => told.push(`${bookName}: ${vectors.vectorStateOf(BOOK, buoy, SETTINGS).status}`));
+        let whileSent = null;
+        host.insertFailure = () => {
+            whileSent = vectors.vectorStateOf(BOOK, buoy, SETTINGS);
+            return new Error('the embedding server refused');
+        };
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [buoy], SETTINGS);
+        expect(whileSent).toEqual({ status: 'writing' });
+        expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'failed', detail: 'the embedding server refused' });
+        expect(told).toEqual([`${BOOK}: writing`, `${BOOK}: failed`]);
+
+        host.insertFailure = null;
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [buoy], SETTINGS);
+        expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'ready' });
+        stop();
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [lighthouse], SETTINGS);
+        expect(told.at(-1)).toBe(`${BOOK}: ready`);
+    });
+
+    it('leaves a stopped entry missing, and forgets every failure once every vector is deleted', async () => {
+        selectEntries([lighthouse, buoy]);
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [buoy], SETTINGS, { run: { isStopped: true } });
+        expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'missing' });
+        host.insertFailure = () => new Error('the embedding server refused');
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [buoy], SETTINGS);
+        expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS).status).toBe('failed');
+        await vectors.deleteAllVectors([BOOK], SETTINGS);
+        await vectors.bookVectors([BOOK], SETTINGS);
+        expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'missing' });
+    });
+});

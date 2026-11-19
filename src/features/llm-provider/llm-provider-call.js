@@ -452,10 +452,12 @@ function _completionResult(content, data, { contextLabel, label, model }) {
     if (cutReason) {
         log.warn(`[${contextLabel}] ${label} cut the reply from model "${model}" short, with finish reason ${cutReason}, after ${Array.from(content).length} characters.`);
     }
+    // cached_tokens: of the prompt's tokens, those the provider read from its cache, where it reports them.
     const usage = data?.usage ? {
         prompt_tokens: data.usage.prompt_tokens ?? null,
         completion_tokens: data.usage.completion_tokens ?? null,
         total_tokens: data.usage.total_tokens ?? null,
+        cached_tokens: data.usage.prompt_tokens_details?.cached_tokens ?? null,
     } : null;
 
     return {

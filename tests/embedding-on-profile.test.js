@@ -21,7 +21,9 @@ vi.mock('../src/sillytavern/connection-settings.js', () => ({
 }));
 vi.mock('../src/features/vector-backend/sparse-vector-encoder.js', () => ({ encodeSparseVector: () => ({ indices: [1], values: [1] }) }));
 
-const { getModelFromSettings, resolveEmbeddingProfile, resolveProviderApiUrl } = await import('../src/features/embedding/index.js');
+const {
+    embeddingModelName, embeddingSetupProblem, getModelFromSettings, resolveEmbeddingProfile, resolveProviderApiUrl,
+} = await import('../src/features/embedding/index.js');
 const { QdrantBackend } = await import('../src/features/vector-backend/qdrant.js');
 const { checkApiUrls, checkEmbeddingProvider } = await import('../src/features/diagnostics/infrastructure-checks.js');
 
@@ -136,5 +138,28 @@ describe('manual Ollama', () => {
     it('sends its own URL and model on a query', async () => {
         await new QdrantBackend().embedQuery('Where is the lamp?', { embedding_provider: 'ollama', vector_backend: 'qdrant', ...MANUAL });
         expect(sentBody(0)).toMatchObject({ source: 'ollama', model: 'manual-embed', apiUrl: 'http://manual:11434', keep: true });
+    });
+});
+
+describe("the embedding model, as LoreBase's model card names it (§7.2 of lorebook-multi-vector.md)", () => {
+    it('names the model and its provider, the profile it runs on, or the default of a provider that takes no name', () => {
+        expect(embeddingModelName({ embedding_provider: 'openrouter', embedding_openrouter_model: 'baai/bge-m3' })).toBe('baai/bge-m3 at OpenRouter');
+        expect(embeddingModelName(onProfile())).toBe('harbor-embed on the SillyTavern profile "Harbor Ollama"');
+        expect(embeddingModelName({ embedding_provider: 'transformers' })).toBe("Local (Transformers)'s default model");
+        expect(embeddingModelName({ embedding_provider: 'openrouter' })).toBe('OpenRouter, with no model set');
+        expect(embeddingModelName({})).toBe('');
+        expect(embeddingModelName({ embedding_provider: 'cohere' })).toBe('');
+    });
+
+    it('says what keeps it from running, as the diagnostics check says it, or nothing when it can run', async () => {
+        expect(embeddingSetupProblem({ embedding_provider: 'openrouter', embedding_openrouter_model: 'baai/bge-m3' })).toBe('');
+        expect(embeddingSetupProblem(onProfile())).toBe('');
+        expect(embeddingSetupProblem({ embedding_provider: 'transformers' })).toBe('');
+        for (const settings of [{}, { embedding_provider: 'cohere' }, { embedding_provider: 'openrouter' }, onProfile({ embedding_connection_profile_id: 'p-gone' })]) {
+            const problem = embeddingSetupProblem(settings);
+            expect(problem).not.toBe('');
+            await expect(checkEmbeddingProvider(settings)).resolves.toMatchObject({ status: 'fail', message: problem });
+        }
+        expect(embeddingSetupProblem({ embedding_provider: 'openrouter' })).toBe('OpenRouter selected but no model configured');
     });
 });

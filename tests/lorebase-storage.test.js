@@ -68,6 +68,7 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', async () => {
         bookVectors: vi.fn(noVectorsOf),
         readBookVectors: vi.fn(noVectorsOf),
         uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid)).filter(uid => host.vectorized.has(`${bookName}/${uid}`)))),
+        vectorStateOf: (bookName, entry) => ({ status: host.vectorized.has(`${bookName}/${entry.uid}`) ? 'ready' : 'missing' }),
         writeBookVectors: vi.fn(async (bookName, decidedEntries, entries, settings, { run = null, onEntryDone = null } = {}) => {
             const result = { written: 0, failures: [], stopped: 0 };
             for (const entry of entries) {
@@ -236,10 +237,22 @@ describe("each book's keys and vectors, counted", () => {
     it('counts the selected entries LoreBase decides with keys, and with vectors from the model set now, by book', async () => {
         await selectBooks();
         host.vectorized.delete(`${BOOK}/1`);
+        const counts = fields => ({
+            keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null,
+            ...fields,
+        });
         expect(await storage.storedCountsOfBooks([BOOK, 'Desert Atlas'], QDRANT)).toEqual(new Map([
-            [BOOK, { keyCount: 1, vectorCount: 1 }],
-            ['Desert Atlas', { keyCount: 0, vectorCount: 1 }],
+            [BOOK, counts({ keyCount: 1, vectorCount: 1, readyCount: 1, missingKeyCount: 1, missingVectorCount: 1 })],
+            ['Desert Atlas', counts({ vectorCount: 1, missingKeyCount: 1 })],
         ]));
+    });
+
+    it('counts the entries whose keys or vectors failed in this session, with the first reason, as not ready', async () => {
+        await selectBooks();
+        host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? UNREADABLE : answerWith(['tidewardens'])));
+        await storage.writeMissing(QDRANT, [kinds.KEYS]);
+        expect((await storage.storedCountsOfBooks(['Desert Atlas'], QDRANT)).get('Desert Atlas'))
+            .toMatchObject({ keyCount: 0, readyCount: 0, failedCount: 1, firstFailure: 'its answer held no list of keys' });
     });
 
     it('reads nothing off Qdrant, where LoreBase keeps neither, or while VectFox is off', async () => {
@@ -351,6 +364,17 @@ describe('writing on the progress panel', () => {
         storage.onWritingRunChange(run => seen.push(run));
         await storage.writeMissing(QDRANT, kinds.BOTH_KINDS);
         expect(seen).toEqual([{ count: 2, outcome: null }, { count: 2, outcome: outcomeOf({ keysWritten: 2, unreadBooks: 1 }) }]);
+    });
+
+    it('tells its progress listeners the book it writes now, the kind, and its entries done of those to write, then nothing once it ends', async () => {
+        await selectBooks({ isVectorized: false });
+        const seen = [];
+        storage.onWritingProgress(progress => seen.push(progress && `${progress.bookName}: ${progress.kind} ${progress.done} of ${progress.total}`));
+        await storage.writeMissing(QDRANT, kinds.BOTH_KINDS);
+        expect(seen).toEqual([
+            `${BOOK}: keys 0 of 1`, `${BOOK}: keys 1 of 1`, `${BOOK}: vectors 0 of 2`, `${BOOK}: vectors 1 of 2`, `${BOOK}: vectors 2 of 2`,
+            'Desert Atlas: keys 0 of 1', 'Desert Atlas: keys 1 of 1', 'Desert Atlas: vectors 0 of 1', 'Desert Atlas: vectors 1 of 1', null,
+        ]);
     });
 
     it('shows no panel, tells no run listener and locks nothing when no selected entry lacks keys or vectors', async () => {

@@ -12,7 +12,7 @@ vi.mock('../src/sillytavern/chat.js', () => ({ getContext: vi.fn(() => ({})), ge
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 
 const {
-    PARTS_PER_SEAT, bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, loreBaseAccountCollection, loreBaseBookCollectionId,
+    PARTS_PER_SEAT, bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, hasOtherModelVectors, loreBaseAccountCollection, loreBaseBookCollectionId,
     newestWithin, pointBatches, pointHash, pointId, searchPool, searchTextsOf, storedPointsOf, uidsWithStoredVectors,
 } = await import('../src/features/lorebase/lorebase-vectors-core.js');
 
@@ -93,6 +93,14 @@ describe('ready vectors (§4.4)', () => {
 
     it('counts an entry with no part as having its vectors, so it never waits for them', () => {
         expect(hasCurrentVectors([], new Map(), MODEL)).toBe(true);
+    });
+
+    it("finds a part another embedding model made, but not a part edited since, nor one the model set now made (§7.1)", () => {
+        const points = entryPoints(lighthouse, BOOK_ID);
+        expect(hasOtherModelVectors(points, storedFrom(points, embeddingModelKey('ollama', 'nomic-embed-text')), MODEL)).toBe(true);
+        expect(hasOtherModelVectors(points, storedFrom(points.slice(1)), MODEL)).toBe(false);
+        expect(hasOtherModelVectors(points, storedFrom(points), MODEL)).toBe(false);
+        expect(hasOtherModelVectors([], new Map(), MODEL)).toBe(false);
     });
 });
 

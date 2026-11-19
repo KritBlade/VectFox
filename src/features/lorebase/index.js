@@ -20,7 +20,8 @@
 // search, what was picked and why, what each review kept and left out, the tokens against what SillyTavern's keys would
 // send, and the seconds, for the WorldInfo page's tester card. The folder also holds the entry splitter, which cuts the parts the
 // review numbers; the per-book record of selections, pins, locks and seen entries; LoreBase's model connection, whose
-// Test connection the WorldInfo page runs; and the start-up deletion of the old vectorized lorebook collections
+// Test connection the WorldInfo page runs; the first thing LoreBase's setup lacks, which the page's model card names;
+// and the start-up deletion of the old vectorized lorebook collections
 // LoreBase replaced, whose locks move to their books, with a notice naming the books. Each armed scan keeps the picks
 // its blocks carry, so the reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
 //
@@ -29,6 +30,7 @@ export { selectedLoreBookNames } from './lorebase-books.js';
 export { addLoreBookToChat, booksToAdd, chatBookLocks } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
+export { loreBaseSetupProblem } from './lorebase-setup.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
 export { KEY_CALLS_AT_ONCE_DEFAULT, keyCallsAtOnceOf } from './lorebase-keys-core.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
@@ -41,7 +43,7 @@ export {
     nothingToImportText,
 } from './lorebase-files-core.js';
 export {
-    deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingRunChange, planImport,
+    deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
     storedCountsOfBooks, writeImport, writeMissing, writingProblem,
 } from './lorebase-storage.js';
 export { BOTH_KINDS, KEYS, VECTORS } from './lorebase-storage-core.js';

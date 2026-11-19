@@ -3,9 +3,10 @@
  * LoreBase's books (§3.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), so a change to how one
  * kind is written or deleted reaches each page. The WorldInfo page's books card, the selection screen, turning LoreBase
  * on and the Database Browser all call it. It counts what the selected entries lack (selectedEntriesNotReady) and what
- * each book's selected entries have (storedCountsOfBooks); runs the progress panel's writing of keys, vectors or both
- * (writeMissing), and Regenerate keys, one run at a time, brought to the front with its Stop, which drops what is not
- * yet sent; and deletes every book's keys or vectors (deleteStored). For the Database Browser it reads a Keys row and
+ * each book's selected entries have, are ready with, lack or failed to get (storedCountsOfBooks); runs the progress
+ * panel's writing of keys, vectors or both (writeMissing), and Regenerate keys, one run at a time, brought to the front
+ * with its Stop, which drops what is not yet sent, telling the books card the book it writes and how far it is
+ * (onWritingProgress); and deletes every book's keys or vectors (deleteStored). For the Database Browser it reads a Keys row and
  * Vectors rows for each book, the list's and the leftovers' (loreBaseStorageRows, §3.2), exports a row as a file, finds
  * the row a file the global Import takes goes to (loreBaseImportRow), plans and writes a file's import onto what matches
  * (§3.3), and deletes one row. One guard refuses a run, an import or a delete while LoreBase writes. A
@@ -36,11 +37,13 @@ import {
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
     bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, importBookPoints,
-    loreBaseVectorsCollection, readBookVectors, readTenantPoints, showVectorFailures, uidsWithCurrentVectors, writeBookVectors,
+    loreBaseVectorsCollection, readBookVectors, readTenantPoints, showVectorFailures, uidsWithCurrentVectors, vectorStateOf,
+    writeBookVectors,
 } from './lorebase-vectors.js';
 
 const uidOf = entry => String(entry.uid);
 const runListeners = new Set();
+const progressListeners = new Set();
 // The run the progress panel shows, while one goes: one at a time, as the panel shows one.
 let panelRun = null;
 
@@ -70,6 +73,28 @@ function tellRunListeners(update) {
             listener(update);
         } catch (error) {
             log.warn('LoreBase: a writing run listener failed:', error);
+        }
+    }
+}
+
+/**
+ * Call `listener` as a writing run on the progress panel moves through its books, for the books card's rows (§7.1 of
+ * lorebook-multi-vector.md): with the book it writes now, the kind, KEYS or VECTORS, and how many of the entries it
+ * writes that kind for are done, as each starts and as each entry is done; then with null once the run ends.
+ * @param {(progress: {bookName: string, kind: string, done: number, total: number}|null) => void} listener
+ * @returns {() => void} Stops the calls
+ */
+export function onWritingProgress(listener) {
+    progressListeners.add(listener);
+    return () => progressListeners.delete(listener);
+}
+
+function tellProgressListeners(progress) {
+    for (const listener of progressListeners) {
+        try {
+            listener(progress);
+        } catch (error) {
+            log.warn('LoreBase: a writing progress listener failed:', error);
         }
     }
 }
@@ -144,13 +169,13 @@ export async function selectedEntriesNotReady(settings, { isRereading = false } 
 }
 
 /**
- * How many of each named book's selected entries LoreBase decides have keys, and vectors from the embedding model set
- * now, for the books card's rows: the keys read from Similharity, the vectors as this session holds them. The card
- * counts on every chat change, so while VectFox is off, and off Qdrant, where LoreBase keeps neither, nothing is read
- * and the map is empty; a book with no selection is left out.
+ * Where each named book's selected entries LoreBase decides stand, for the books card's rows (storedCountsOf, §7.1 of
+ * lorebook-multi-vector.md): the keys read from Similharity, the vectors as this session holds them, and the failures of
+ * this session's writing. The card counts on every chat change, so while VectFox is off, and off Qdrant, where LoreBase
+ * keeps neither, nothing is read and the map is empty; a book with no selection is left out.
  * @param {string[]} bookNames
  * @param {object} settings - VectFox settings
- * @returns {Promise<Map<string, {keyCount: number, vectorCount: number}>>}
+ * @returns {Promise<Map<string, ReturnType<typeof storedCountsOf>>>}
  * @throws {Error} When a book cannot be loaded, or Similharity cannot read its keys or vectors
  */
 export async function storedCountsOfBooks(bookNames, settings) {
@@ -162,11 +187,13 @@ export async function storedCountsOfBooks(bookNames, settings) {
     }
     if (!loaded.length) return new Map();
     const names = loaded.map(book => book.bookName);
-    const [keys, vectors] = await Promise.all([readBookKeys(names), bookVectors(names, settings)]);
-    return new Map(loaded.map(({ bookName, entries }) => [
-        bookName,
-        storedCountsOf(entries, keys[bookName], uidsWithCurrentVectors(bookName, entries, vectors.get(bookName), settings)),
-    ]));
+    const [keys] = await Promise.all([readBookKeys(names), bookVectors(names, settings)]);
+    return new Map(loaded.map(({ bookName, entries }) => [bookName, storedCountsOf(entries.map(entry => {
+        const keyState = keyStateOf(bookName, uidOf(entry));
+        const vectorState = vectorStateOf(bookName, entry, settings);
+        const failure = [keyState, vectorState].find(state => state.status === 'failed')?.detail ?? null;
+        return { hasKeys: Boolean(keys[bookName]?.[uidOf(entry)]), vectorStatus: vectorState.status, failure };
+    }))]));
 }
 
 /**
@@ -210,10 +237,14 @@ async function runOnPanel(settings, { books, count, unreadBooks = 0 }, { kinds, 
             const needsVectors = new Set(vectorEntries.map(uidOf));
             const keysAsked = new Set(keyEntries.map(uidOf));
             if (keyEntries.length) {
+                let keysDone = 0;
+                tellProgressListeners({ bookName, kind: KEYS, done: 0, total: keyEntries.length });
                 const result = await writeKeys(bookName, keyEntries, settings, {
                     isRegenerating,
                     run,
                     onEntryDone: (failure, entry) => {
+                        keysDone += 1;
+                        tellProgressListeners({ bookName, kind: KEYS, done: keysDone, total: keyEntries.length });
                         if (failure || !needsVectors.has(uidOf(entry))) advance(failure);
                     },
                 });
@@ -225,9 +256,15 @@ async function runOnPanel(settings, { books, count, unreadBooks = 0 }, { kinds, 
             // An entry whose keys failed or were stopped is counted already, and gets no vectors.
             const vectorsToWrite = vectorEntries.filter(entry => !keysAsked.has(uidOf(entry)) || keyStateOf(bookName, uidOf(entry)).status === 'ready');
             if (!vectorsToWrite.length) continue;
+            let vectorsDone = 0;
+            tellProgressListeners({ bookName, kind: VECTORS, done: 0, total: vectorsToWrite.length });
             const result = await writeBookVectors(bookName, decidedEntries, vectorsToWrite, settings, {
                 run,
-                onEntryDone: (_entry, failure) => advance(failure),
+                onEntryDone: (_entry, failure) => {
+                    vectorsDone += 1;
+                    tellProgressListeners({ bookName, kind: VECTORS, done: vectorsDone, total: vectorsToWrite.length });
+                    advance(failure);
+                },
             });
             outcome.vectorsWritten += result.written;
             outcome.failed += result.failures.length;
@@ -239,6 +276,7 @@ async function runOnPanel(settings, { books, count, unreadBooks = 0 }, { kinds, 
         tellRunListeners({ count, outcome: { ...outcome } });
     } finally {
         panelRun = null;
+        tellProgressListeners(null);
     }
     return outcome;
 }

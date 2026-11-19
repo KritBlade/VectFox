@@ -156,6 +156,18 @@ export function hasCurrentVectors(points, stored, modelKey) {
 }
 
 /**
+ * Whether an entry holds a part whose vectors another embedding model made: the part's text unchanged, so its point
+ * is stored, but by a model other than the one set now, as after the user switches embedding models (§7.1).
+ * @param {Array<{hash: number}>} points - From entryPoints
+ * @param {Map<number, {modelKey: string}>} stored - From storedPointsOf
+ * @param {string} modelKey - The embedding model set now (embeddingModelKey)
+ * @returns {boolean}
+ */
+export function hasOtherModelVectors(points, stored, modelKey) {
+    return points.some(point => stored.has(point.hash) && stored.get(point.hash).modelKey !== modelKey);
+}
+
+/**
  * What brings a book's vectors in line with its selection (§4.3): of the entries to write, each point not stored by
  * the embedding model set now; and the stored points to delete, each part an entry LoreBase decides no longer has, and
  * every point of an entry it no longer decides (unselected, deleted, or one it cannot decide).

@@ -6,7 +6,9 @@ export { describeEmbeddingTimeoutCause, warnIfEmbeddingSlow } from './embedding-
 export { throwIfEmbeddingConfigError } from './embedding-request-failure.js';
 export { embeddingProfileKind, refuseSillyTavernEmbeddingRoute } from './embedding-profile-core.js';
 export {
+    embeddingModelName,
     embeddingProfileRequestFields,
+    embeddingSetupProblem,
     getModelField,
     getModelFromSettings,
     getProviderConfig,

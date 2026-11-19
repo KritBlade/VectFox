@@ -1,7 +1,8 @@
 /**
  * LoreBase's model (plan §5.6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): its own
  * row on the WorldInfo page, on a SillyTavern profile, OpenRouter or vLLM. The llm-provider feature resolves it as it
- * resolves every other consumer's, so LoreBase holds no manual-provider code of its own.
+ * resolves every other consumer's, so LoreBase holds no manual-provider code of its own. A call can hand its token
+ * counts to the caller, as the tester's report of High Accuracy's pick reads them.
  */
 import { log } from '../../sillytavern/log.js';
 import {
@@ -61,15 +62,16 @@ export function describeLoreBaseConnectionProblem(reason, problem) {
 
 /**
  * One call on LoreBase's connection, its answer's entries read as the trials read them: the pick, a review, or an
- * entry's keys.
+ * entry's keys. A request's onUsage is handed the call's token counts, as the provider reported them, once it answers.
  * @param {{model: string, provider: string, vllmUrl?: string, connectionProfileId?: string, connectionProfilePage?: string,
  *   parameterStyle: object}} connection - From resolveLoreBaseLlmConfig, ok
  * @returns {(messages: Array<{role: string, content: string}>, request: {maxTokens: number, reasoningEffort: string|null,
- *   identKeys: string[]}) => Promise<unknown[]>}
+ *   identKeys: string[], onUsage?: (usage: {prompt_tokens: number|null, cached_tokens: number|null}|null) => void}) =>
+ *   Promise<unknown[]>}
  */
 export function askOnLoreBase(connection) {
-    return async (messages, { maxTokens, reasoningEffort, identKeys }) => {
-        const { content, cutReason } = await postChatCompletion({
+    return async (messages, { maxTokens, reasoningEffort, identKeys, onUsage = null }) => {
+        const { content, cutReason, usage } = await postChatCompletion({
             messages,
             model: connection.model,
             provider: connection.provider,
@@ -87,6 +89,7 @@ export function askOnLoreBase(connection) {
             reasoningEffort,
         });
         if (cutReason) log.warn(`LoreBase: the provider cut an answer short (${cutReason}); reading what arrived`);
+        onUsage?.(usage);
         // A thinking model can write its reasoning before the JSON, and what it reasoned is not the answer.
         return parseJsonArrayFromLlm(stripReasoningBlocks(content), { label: LOREBASE, identKeys });
     };

@@ -3,12 +3,13 @@
  * WORLDINFO PAGE, STATIC MARKUP
  * ============================================================================
  * The settings panel's WorldInfo page on GUI-DNA: LoreBase's switch, its books
- * for the open chat, with the door to its selection screen and Add a lorebook,
- * LoreBase's model
- * with its Accuracy, and its tester. Every control keeps the id
- * settings-panel.js, lorebase-books-card.js, lorebase-tester-card.js or
- * connection-rows.js wires it by. The LoreBase book list and the tester's
- * reports are built here as well. Pure: builds strings.
+ * for the open chat, each with its state, with the door to its selection
+ * screen and Add a lorebook; LoreBase's model with its setup notice, its
+ * Accuracy and the embedding model that writes its vectors; and its tester.
+ * Every control keeps the id settings-panel.js, lorebase-books-card.js,
+ * lorebase-model-card.js, lorebase-tester-card.js or connection-rows.js wires
+ * it by. The LoreBase book list and the tester's reports are built here as
+ * well. Pure: builds strings.
  * ============================================================================
  */
 
@@ -21,6 +22,8 @@ import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/
 
 const formatCount = count => Number(count).toLocaleString('en-US');
 const formatSeconds = seconds => `${Number(seconds).toFixed(1)} s`;
+// Room for a failure's own text on a book's row.
+const FAILURE_CHARACTERS = 200;
 
 // LoreBase's switch (plan §5.9), off until the user turns it on, and its books (§5.2): the list loreBaseBooksMarkup
 // draws for the open chat, the selection screen's door, and the keys and vectors of every selected entry (D17, §4.3
@@ -55,13 +58,16 @@ function loreBaseBooksCard() {
     </section>`;
 }
 
-// LoreBase's model card (plan §5.6, and §2 of lorebook-multi-vector.md). Accuracy comes first, since it decides what
-// each model does: LoreBase's own model writes each entry's keys on every choice (D17) and, on High Accuracy, also
-// picks and reviews (D6); on Fast and Cheap [Jev], the default, Jev picks, on a profile of its own (D16), its picks
-// sent within the Lore budget (§5 and Q4 of lorebook-multi-vector.md: 3,000 tokens by default, 1,000 to 12,000,
-// LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN and LORE_BUDGET_MAX in lorebase-jev-core.js). connection-rows.js shows the
-// title of the own model's role and Jev's group, which shows on Fast and Cheap [Jev] only. The option values are
-// FAST_AND_CHEAP and High Accuracy's in lorebase-reply-core.js.
+// LoreBase's model card (plan §5.6, and §2 and §7.2 of lorebook-multi-vector.md). The setup notice comes first, naming
+// the first thing LoreBase lacks, which lorebase-model-card.js fills and hides while nothing is missing. Accuracy comes
+// next, since it decides what each model does: LoreBase's own model writes each entry's keys on every choice (D17) and,
+// on High Accuracy, also picks and reviews (D6); on Fast and Cheap [Jev], the default, Jev picks, on a profile of its
+// own (D16), its picks sent within the Lore budget (§5 and Q4 of lorebook-multi-vector.md: 3,000 tokens by default,
+// 1,000 to 12,000, LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN and LORE_BUDGET_MAX in lorebase-jev-core.js). connection-rows.js
+// shows the title of the own model's role and Jev's group, which shows on Fast and Cheap [Jev] only. Last, the Vectors
+// line names VectFox's embedding model, which writes every selected entry's vectors on either choice, with the button
+// to the Core page that sets it; lorebase-model-card.js fills it. The option values are FAST_AND_CHEAP and High
+// Accuracy's in lorebase-reply-core.js.
 function loreBaseModelCard() {
     const accuracy = select({
         id: 'VectFox_lorebase_accuracy',
@@ -73,6 +79,7 @@ function loreBaseModelCard() {
     return `<section id="VectFox_lorebase_model_card" class="vfx-card">
         ${cardHeader({ icon: 'fa-plug', title: 'LoreBase model', description: 'Writes each entry\'s keys, and picks and trims each reply\'s lore unless Jev does.' })}
         <div class="vfx-card-body vfx-grid">
+            <div id="VectFox_lorebase_setup_notice" class="vfx-span" hidden></div>
             ${field([
                 fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
                 accuracy,
@@ -99,8 +106,34 @@ function loreBaseModelCard() {
                     hint({ text: "The most tokens Jev's picks send a reply. More keeps more lore and costs more." }),
                 ])}
             </div>
+            ${field([
+                fieldLabel({ text: 'Vectors' }),
+                controlRow([
+                    '<p id="VectFox_lorebase_vectors_model" class="vfx-hint"></p>',
+                    buttonWithId({ id: 'VectFox_lorebase_vectors_link', text: 'Set on the Core page', icon: 'fa-arrow-right' }),
+                ]),
+                hint({ text: "VectFox's embedding model writes each selected entry's vectors, on both choices." }),
+            ], { isSpan: true })}
         </div>
     </section>`;
+}
+
+/**
+ * The model card's setup notice: the first thing LoreBase lacks, from loreBaseSetupProblem, or nothing.
+ * @param {string} problem - '' when nothing is missing
+ * @returns {string}
+ */
+export function loreBaseSetupNoticeMarkup(problem) {
+    return problem ? notice({ status: 'warning', text: problem }) : '';
+}
+
+/**
+ * The model card's Vectors line: VectFox's embedding model, from embeddingModelName.
+ * @param {string} modelName - '' when no known provider is set
+ * @returns {string}
+ */
+export function loreBaseVectorsLineText(modelName) {
+    return modelName ? `${modelName}, VectFox's embedding model.` : 'No embedding model is set.';
 }
 
 // LoreBase's tester (plan §5.10): Try a pick, and this session's reports for the open chat, picked in the Reply list,
@@ -143,15 +176,69 @@ function selectedLine(selectedCount, keyCount, vectorCount) {
     return `${line}, ${formatCount(keyCount)} with keys, ${formatCount(vectorCount)} with vectors`;
 }
 
-function loreBaseBookRow({ bookName, selectedCount, isLockedToChat, isLockedToCharacter, keyCount, vectorCount }) {
+// What the selected entries lack, as one state: each lacking entry once, by the kinds they lack.
+function needLine({ readyCount, selectedCount, missingKeyCount, missingVectorCount }) {
+    const lacking = selectedCount - readyCount;
+    let kinds = 'keys or vectors';
+    if (missingKeyCount === lacking && missingVectorCount === lacking) kinds = 'keys and vectors';
+    else if (!missingVectorCount) kinds = 'keys';
+    else if (!missingKeyCount) kinds = 'vectors';
+    return `${formatCount(lacking)} need ${kinds}`;
+}
+
+/**
+ * A book's one state (§7.1 of lorebook-multi-vector.md), once its keys and vectors are read: the run writing its keys
+ * or vectors now, with its entries done of those it writes; the entries that failed; vectors another embedding model
+ * made; what the rest lack; or ready.
+ */
+function bookStatePill(book) {
+    const { writing, readyCount, selectedCount, failedCount, otherModelCount } = book;
+    if (writing) {
+        const step = writing.isKeys ? 'Writing keys' : 'Vectorizing';
+        return statusPill({ name: `${step}, ${formatCount(writing.done)} of ${formatCount(writing.total)}`, icon: writing.isKeys ? 'fa-pen-nib' : 'fa-vector-square', status: 'accent' });
+    }
+    if (failedCount) return statusPill({ name: `${formatCount(failedCount)} failed`, icon: 'fa-triangle-exclamation', status: 'danger' });
+    if (readyCount === selectedCount) return statusPill({ text: 'Ready', icon: 'fa-check', status: 'success' });
+    if (otherModelCount) return statusPill({ text: 'Vectors from another embedding model', icon: 'fa-vector-square', status: 'warning' });
+    return statusPill({ name: needLine(book), icon: 'fa-key', status: 'warning' });
+}
+
+/**
+ * One book's row in the LoreBase books card's list, as loreBaseBooksMarkup draws it, for the card to draw again alone
+ * as a writing run moves through the book.
+ * @param {object} book - One of loreBaseBooksMarkup's books
+ * @returns {string}
+ */
+export function loreBaseBookRow(book) {
+    const { bookName, selectedCount, isLockedToChat, isLockedToCharacter, keyCount, vectorCount, readyCount, failedCount, firstFailure } = book;
     const locks = [isLockedToChat ? LOCK_PILLS.chat : '', isLockedToCharacter ? LOCK_PILLS.character : ''].filter(Boolean);
+    const isStateShown = Boolean(selectedCount) && (Boolean(book.writing) || readyCount !== undefined);
+    const sub = selectedCount ? [{ name: selectedLine(selectedCount, keyCount, vectorCount) }] : [{ text: 'Nothing selected' }];
+    if (isStateShown && failedCount && !book.writing) sub.push({ text: 'First failure', name: String(firstFailure ?? '').slice(0, FAILURE_CHARACTERS) });
     return listRow({
         icon: 'fa-book',
         name: bookName,
-        sub: selectedCount ? { name: selectedLine(selectedCount, keyCount, vectorCount) } : { text: 'Nothing selected' },
-        pills: locks.length ? locks : [LOCK_PILLS.none],
+        sub,
+        pills: [isStateShown ? bookStatePill(book) : '', ...(locks.length ? locks : [LOCK_PILLS.none])].filter(Boolean),
         actions: [iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } })],
     });
+}
+
+/**
+ * The line under the book list (§7.1): the ready entries of the books taking part in this chat, locked to it or its
+ * character, and those still waiting for keys or vectors, so a book that waits shows while LoreBase goes on with the
+ * rest; or that no book with selected entries is locked here. Nothing before the counts are read.
+ */
+function readyLine(books) {
+    const selected = books.filter(book => book.selectedCount && book.readyCount !== undefined);
+    if (!selected.length) return '';
+    const takingPart = selected.filter(book => book.isLockedToChat || book.isLockedToCharacter);
+    if (!takingPart.length) return hint({ text: 'No book with selected entries is locked here, so LoreBase sends none of them.' });
+    const ready = takingPart.reduce((sum, book) => sum + book.readyCount, 0);
+    const waiting = takingPart.reduce((sum, book) => sum + book.selectedCount - book.readyCount, 0);
+    const lockedBooks = `${formatCount(takingPart.length)} ${takingPart.length === 1 ? 'book' : 'books'} locked here`;
+    const entries = count => `${formatCount(count)} ${count === 1 ? 'entry' : 'entries'}`;
+    return hint({ text: `${lockedBooks}: ${entries(ready)} ready${waiting ? `, ${entries(waiting)} waiting for keys or vectors` : ''}.` });
 }
 
 // Add a lorebook (§6 and §7.1 of lorebook-multi-vector.md): the books the chat does not load, then a button for each
@@ -177,19 +264,22 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
 
 /**
  * The LoreBase books card's list for the open chat: each book SillyTavern loads here, how many entries are selected
- * in it and, once read, how many of those have keys and vectors, and whether it is locked to this chat or its
- * character, where LoreBase decides them (D11); then, given what to add, Add a lorebook.
+ * in it and, once read, how many of those have keys and vectors and its one state (§7.1 of lorebook-multi-vector.md),
+ * and whether it is locked to this chat or its character, where LoreBase decides them (D11); under the list, the ready
+ * entries of the books locked here and those waiting; then, given what to add, Add a lorebook.
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean, keyCount?: number, vectorCount?: number}>, add?: {bookNames: string[],
- *   canAddToCharacter: boolean}|null}} status - LoreBase's chatBookLocks, with storedCountsOfBooks's counts and
- *   booksToAdd's books
+ *   isLockedToCharacter: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
+ *   missingKeyCount?: number, missingVectorCount?: number, otherModelCount?: number, failedCount?: number,
+ *   firstFailure?: string|null, writing?: {isKeys: boolean, done: number, total: number}|null}>,
+ *   add?: {bookNames: string[], canAddToCharacter: boolean}|null}} status - LoreBase's chatBookLocks, with
+ *   storedCountsOfBooks's counts, the writing run's place in the book it writes now, and booksToAdd's books
  * @returns {string}
  */
 export function loreBaseBooksMarkup({ hasChat, books, add = null }) {
     if (!hasChat) return emptyState({ icon: 'fa-comments', text: 'Open a chat to see the lorebooks it loads.' });
     const list = books.length
-        ? `<div class="vfx-list">${books.map(loreBaseBookRow).join('')}</div>`
+        ? `<div class="vfx-list">${books.map(loreBaseBookRow).join('')}</div>${readyLine(books)}`
         : emptyState({ icon: 'fa-book', text: 'This chat loads no lorebook.' });
     return add ? list + addBookMarkup(add) : list;
 }
@@ -261,6 +351,19 @@ function searchLines({ search, contentCount }) {
     }
     if (contentCount > search.seats) return [];
     return [{ icon: 'fa-magnifying-glass', text: 'No search', name: `Jev was asked about all ${formatCount(contentCount)} entries, as a search runs above ${formatCount(search.seats)}` }];
+}
+
+// High Accuracy's pick: of its prompt's tokens, those the provider read from its cache, which holds the entry list from
+// reply to reply while the selection and the keys stay (§3 and §7.5 of lorebook-multi-vector.md). A pick that failed
+// says so in the failure's line instead.
+function pickCacheLines({ accuracy, pickTokens, failures }) {
+    if (accuracy === 'fast' || failures.some(failure => failure.step === 'pick')) return [];
+    const text = 'Pick read from the cache';
+    if (!pickTokens || pickTokens.prompt === null) return [{ icon: 'fa-database', text, name: 'not reported by the provider' }];
+    if (pickTokens.cached === null) {
+        return [{ icon: 'fa-database', text, name: `not reported by the provider, of the pick's ${formatCount(pickTokens.prompt)} prompt tokens` }];
+    }
+    return [{ icon: 'fa-database', text, name: `${formatCount(pickTokens.cached)} of the pick's ${formatCount(pickTokens.prompt)} prompt tokens` }];
 }
 
 function failureLine(failure) {
@@ -335,8 +438,9 @@ function skippedRecord(report) {
 }
 
 /**
- * One of the tester's reports in full: what was picked, on Fast and Cheap [Jev] the search before Jev, the time, the
- * tokens against what SillyTavern's keys would send, and any failure; each pick with Luna's reasons or Jev's rating,
+ * One of the tester's reports in full: what was picked, on Fast and Cheap [Jev] the search before Jev, on High Accuracy
+ * the pick's prompt tokens read from the provider's cache, the time, the tokens against what SillyTavern's keys would
+ * send, and any failure; each pick with Luna's reasons or Jev's rating,
  * its review and its parts, kept and left out; then the selected entries the pick left out. An empty state when the
  * open chat has no report.
  *
@@ -348,6 +452,7 @@ export function loreBaseReportMarkup(report) {
     const summary = [
         { icon: 'fa-list-check', text: 'Picked', name: `${formatCount(report.picks.length)} of ${formatCount(report.contentCount)} selected entries` },
         ...searchLines(report),
+        ...pickCacheLines(report),
         { icon: 'fa-stopwatch', text: 'Time', name: timeLine(report.seconds) },
         ...tokenLines(report),
         ...report.failures.map(failureLine),

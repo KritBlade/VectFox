@@ -6,7 +6,9 @@
  * selected says to choose entries. While it is off, the user still chooses entries and sets its model, and a notice
  * says to do that before turning it on; only the Generate buttons wait, since turning LoreBase on asks to write them.
  * The books card: it draws the open chat's books with their selected counts and locks, then how many of each book's
- * selected entries have keys and vectors, and opens LoreBase's selection screen on the book a row names, or on the
+ * selected entries have keys and vectors, and each book's state (§7.1 of lorebook-multi-vector.md): ready, what its
+ * entries need, how many failed, vectors another embedding model made, or the writing run's place in it as the run
+ * goes; under them, the ready and waiting entries of the books locked here. It opens LoreBase's selection screen on the book a row names, or on the
  * chat's first book from the card's own button, drawing the list again once the screen closes and saying what the
  * selection lacks of each kind, LoreBase on or off, and while it is on which Generate button writes it. Add a lorebook
  * (§6 of lorebook-multi-vector.md) adds the book chosen in its list to this character or to all chats, locked there,
@@ -22,10 +24,10 @@ import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
     BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteStored, isLoreBaseSwitchedOn, onLoreBaseSwitchChange,
-    onWritingRunChange, openLoreBaseSelection, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing,
-    writingProblem,
+    onWritingProgress, onWritingRunChange, openLoreBaseSelection, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn,
+    writeMissing, writingProblem,
 } from '../lorebase/index.js';
-import { loreBaseBooksMarkup } from './worldinfo-page-markup.js';
+import { loreBaseBookRow, loreBaseBooksMarkup } from './worldinfo-page-markup.js';
 
 const SWITCH_ID = 'VectFox_lorebase_enabled';
 // Each Generate button, the kinds it writes, and its name, which the console and the status line give it.
@@ -46,6 +48,12 @@ let refreshCount = 0;
 let statusLockChatId = null;
 // The settings the card was bound with, which counting the books' keys and vectors reads.
 let cardSettings = null;
+// The list last drawn, with its chat, so a writing run's place redraws it and a refresh of the same chat keeps its
+// counts until new ones are read.
+let shownStatus = null;
+let shownChatId = null;
+// Where the writing run on the progress panel is: the book it writes now, the kind, and its entries done of those to do.
+let writingProgress = null;
 
 /**
  * Show LoreBase's switch as saved; while it is off, show the notice and disable the Generate buttons, as while one of
@@ -66,17 +74,53 @@ function paintLoreBaseSwitch() {
     if (isNothingSelectedShown && (!isOn || selectedLoreBookNames().length)) showBooksStatus('');
 }
 
+// The writing run's place in a book, while it writes that book.
+const writingOf = bookName => (writingProgress?.bookName === bookName
+    ? { isKeys: writingProgress.kind === KEYS, done: writingProgress.done, total: writingProgress.total }
+    : null);
+
+/**
+ * Draw the list, the writing run's place shown on the row of the book it writes now (§7.1 of lorebook-multi-vector.md).
+ * @param {object} status - What loreBaseBooksMarkup takes, without the run's place
+ */
 function drawBooks(status) {
+    shownStatus = status;
+    shownChatId = getCurrentChatId() ?? null;
     const list = document.getElementById('VectFox_lorebase_books');
-    if (list) list.innerHTML = loreBaseBooksMarkup(status);
+    if (list) list.innerHTML = loreBaseBooksMarkup({ ...status, books: status.books.map(book => ({ ...book, writing: writingOf(book.bookName) })) });
+}
+
+/**
+ * Draw one book's row again with the writing run's place, leaving the rest of the list, Add a lorebook's choice among
+ * it, as it is. A book the list does not show is left alone.
+ * @param {string} bookName
+ */
+function drawBookRow(bookName) {
+    const book = shownStatus?.books.find(candidate => candidate.bookName === bookName);
+    const opener = [...document.querySelectorAll('#VectFox_lorebase_books [data-lorebase-choose]')].find(element => element.dataset.lorebaseChoose === bookName);
+    const row = opener?.closest('.vfx-row');
+    if (book && row) row.outerHTML = loreBaseBookRow({ ...book, writing: writingOf(bookName) });
+}
+
+/**
+ * The books of a list about to be drawn, each with the counts the list last drawn for the same chat held for it, while
+ * its selection is the same, so its state stays shown until the new counts are read.
+ * @param {Array<{bookName: string, selectedCount: number}>} books
+ */
+function withLastCounts(books) {
+    if (!shownStatus || shownChatId !== (getCurrentChatId() ?? null)) return books;
+    return books.map(book => {
+        const shown = shownStatus.books.find(candidate => candidate.bookName === book.bookName && candidate.selectedCount === book.selectedCount);
+        return shown ? { ...shown, ...book } : book;
+    });
 }
 
 /**
  * Draw the open chat's LoreBase books, once the panel is mounted, under the switch as saved: each row counts the
  * selected entries LoreBase decides, as the keys line does, once the books are loaded, then how many of them have keys
- * and vectors, once those are read; under them, Add a lorebook with the books the chat does not load. Only the newest
- * refresh draws, so a slow load never draws a chat left since. A status line that says "this chat" goes once another
- * chat is open.
+ * and vectors and the book's state, once those are read, a row of the same chat keeping the state it showed until
+ * then; under them, Add a lorebook with the books the chat does not load. Only the newest refresh draws, so a slow load
+ * never draws a chat left since. A status line that says "this chat" goes once another chat is open.
  * @returns {Promise<void>}
  */
 export async function refreshLoreBaseBooks() {
@@ -87,21 +131,21 @@ export async function refreshLoreBaseBooks() {
     try {
         status = { ...await chatBookLocks(), add: booksToAdd() };
         if (refresh !== refreshCount) return;
-        drawBooks(status);
+        drawBooks({ ...status, books: withLastCounts(status.books) });
     } catch (error) {
         log.warn("LoreBase: the WorldInfo page's book list could not be drawn:", error);
         return;
     }
     const selectedBookNames = status.books.filter(book => book.selectedCount).map(book => book.bookName);
     if (!selectedBookNames.length || !cardSettings) return;
-    let counts;
+    let counts = new Map();
     try {
         counts = await storedCountsOfBooks(selectedBookNames, cardSettings);
     } catch (error) {
         log.warn("LoreBase: the keys and vectors of the WorldInfo page's books could not be counted:", error);
-        return;
     }
-    if (refresh !== refreshCount || !counts.size) return;
+    if (refresh !== refreshCount) return;
+    // Drawn again whatever was read, so counts kept from the last list never stay in place of ones that could not be read.
     drawBooks({ ...status, books: status.books.map(book => ({ ...book, ...counts.get(book.bookName) })) });
 }
 
@@ -148,7 +192,8 @@ function writtenText({ keysWritten, vectorsWritten, failed, stopped, unreadBooks
 
 /**
  * What a writing run did, on the status line, which notes the chat it locked books to while that chat is open; a run
- * that locked books draws the list again, so their rows show the lock. A run with nothing missing of its kinds says so.
+ * that wrote or locked anything draws the list again, so its rows show their counts, states and locks. A run with
+ * nothing missing of its kinds says so.
  * @param {object} outcome - The run's outcome (WritingRunOutcome in lorebase-storage.js)
  * @param {readonly string[]} [kinds] - What the run wrote
  */
@@ -157,7 +202,7 @@ function showRunOutcome(outcome, kinds = BOTH_KINDS) {
     const hasDoneAnything = outcome.keysWritten || outcome.vectorsWritten || outcome.failed || outcome.stopped;
     const text = hasDoneAnything || outcome.unreadBooks ? writtenText(outcome, isLockChatOpen) : `No selected entry was missing ${kindsText(kinds)}.`;
     showBooksStatus(text, { lockChatId: isLockChatOpen ? outcome.chatLock.chatId : null });
-    if (outcome.chatLock) void refreshLoreBaseBooks();
+    if (hasDoneAnything || outcome.chatLock) void refreshLoreBaseBooks();
 }
 
 /**
@@ -245,8 +290,14 @@ export function bindLoreBaseBooksCard(settings) {
     });
     // A reply's question can turn LoreBase off while the page is shown.
     onLoreBaseSwitchChange(paintLoreBaseSwitch);
-    // Every writing run on the progress panel, a Generate button's or another's, shows on the status line.
+    // Every writing run on the progress panel, a Generate button's or another's, shows on the status line, and its place
+    // on the row of the book it writes now.
     onWritingRunChange(showWritingRun);
+    onWritingProgress(progress => {
+        const bookNames = new Set([writingProgress?.bookName, progress?.bookName].filter(Boolean));
+        writingProgress = progress;
+        for (const bookName of bookNames) drawBookRow(bookName);
+    });
     document.getElementById('VectFox_lorebase_books_card')?.addEventListener('click', event => {
         const opener = event.target.closest('[data-lorebase-choose]');
         if (opener) void chooseEntries(opener.dataset.lorebaseChoose);

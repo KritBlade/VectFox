@@ -20,6 +20,7 @@ import {
 } from '../../shared/similharity-plugin.js';
 import {
     embeddingProfileKind,
+    embeddingSetupProblem,
     isValidProvider,
     getProviderConfig,
     getModelFromSettings,
@@ -404,45 +405,20 @@ export async function checkQdrantBackend(settings) {
  * Check: Embedding provider is configured properly
  */
 export async function checkEmbeddingProvider(settings) {
-    const source = settings.embedding_provider;
-
-    if (!source) {
-        return {
-            name: 'Embedding Provider',
-            status: 'fail',
-            message: 'No embedding provider selected'
-        };
-    }
-
-    const config = getProviderConfig(source);
-    if (!config) {
-        return {
-            name: 'Embedding Provider',
-            status: 'fail',
-            message: `Unknown provider: ${source}`
-        };
-    }
-
     // A llama.cpp, KoboldCPP or Custom profile needs Similharity, which the profile check reads from the settled probe.
-    await checkPluginAvailable();
+    if (settings.embedding_provider && getProviderConfig(settings.embedding_provider)) await checkPluginAvailable();
+    const problem = embeddingSetupProblem(settings);
+    if (problem) {
+        return {
+            name: 'Embedding Provider',
+            status: 'fail',
+            message: problem
+        };
+    }
+
+    const config = getProviderConfig(settings.embedding_provider);
     const onProfile = resolveEmbeddingProfile(settings);
-    if (onProfile?.problem) {
-        return {
-            name: 'Embedding Provider',
-            status: 'fail',
-            message: onProfile.problem
-        };
-    }
-
     const model = getModelFromSettings(settings);
-    if (config.requiresModel && !model) {
-        return {
-            name: 'Embedding Provider',
-            status: 'fail',
-            message: `${config.name} selected but no model configured`
-        };
-    }
-
     const modelInfo = model ? ` (${model})` : '';
     const profileInfo = onProfile ? ` on profile "${onProfile.profileName}"` : '';
     return {

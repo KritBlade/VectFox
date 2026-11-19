@@ -2,8 +2,9 @@
  * LoreBase's tester, the pure rules (plan §5.10 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md): one reply's report, built from its lore as the pick and the reviews
  * left it: each pick with Luna's reasons, what its review kept and left out, part by part, and the text it sends; the
- * selected entries the pick skipped; on Fast and Cheap [Jev] the search before Jev, or that none ran; and the seconds,
- * the search's among them. Its token counts come from a counter the caller supplies, and
+ * selected entries the pick skipped; on Fast and Cheap [Jev] the search before Jev, or that none ran; on High Accuracy
+ * the pick's prompt tokens and those read from the provider's cache; and the seconds, the search's among them. Its
+ * token counts come from a counter the caller supplies, and
  * what SillyTavern's keys would send from the entries a scan as SillyTavern alone activated. Pure: no SillyTavern, no
  * network.
  */
@@ -39,6 +40,9 @@ import { entryTitle } from './lorebase-splitter.js';
  * @property {{seats: number, poolCount: number|null}|null} search - On Fast and Cheap [Jev], the search before Jev:
  *   the most entries Jev is asked about, and how many the search kept, null when nothing was searched; null on High
  *   Accuracy
+ * @property {{prompt: number|null, cached: number|null}|null} pickTokens - On High Accuracy, the pick's prompt tokens
+ *   and those the provider read from its cache, each null where it did not report them; null on Fast and Cheap [Jev],
+ *   or when the pick's call reported no counts
  * @property {{search: number|null, pick: number|null, slowestReview: number|null, total: number}} seconds - The
  *   reviews run at once, so the slowest one is the reviews' wait
  */
@@ -88,6 +92,7 @@ export function replyReport({ lore, books, seconds }) {
         unreadItemCount: lore.unreadItemCount,
         failures: lore.failures.map(({ step, title, detail }) => ({ step, title: title ?? null, detail })),
         search: lore.search ? { seats: lore.search.seats, poolCount: finiteOrNull(lore.search.poolCount) } : null,
+        pickTokens: lore.pickTokens ? { prompt: finiteOrNull(lore.pickTokens.prompt), cached: finiteOrNull(lore.pickTokens.cached) } : null,
         seconds: {
             search: finiteOrNull(lore.search?.seconds), pick: finiteOrNull(lore.pickSeconds), slowestReview: largest(reviewSeconds), total: seconds,
         },

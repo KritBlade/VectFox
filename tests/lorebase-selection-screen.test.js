@@ -24,8 +24,9 @@ const host = vi.hoisted(() => ({
     keyStates: new Map(), keyProblem: null, keyListeners: new Set(), pending: null,
     regenerateKeys: vi.fn(), saveEditedKeys: vi.fn(), regenerateKeysOfEntries: vi.fn(async () => ({})),
     writeMissing: vi.fn(async () => ({})), selectedEntriesNotReady: vi.fn(async () => host.pending),
-    // The vectors: the books read as the screen opens one, and those pruned as it closes.
-    readBookVectors: vi.fn(async () => new Map()), pruneBookVectors: vi.fn(async () => {}),
+    // The vectors: the books read as the screen opens one, and those pruned as it closes; each entry's state by
+    // "book/uid", every one ready unless a test sets it, and their listeners.
+    readBookVectors: vi.fn(async () => new Map()), pruneBookVectors: vi.fn(async () => {}), vectorStates: new Map(), vectorListeners: new Set(),
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn() } }));
@@ -71,10 +72,19 @@ vi.mock('../src/features/lorebase/lorebase-storage.js', () => ({
     writeMissing: host.writeMissing,
     selectedEntriesNotReady: host.selectedEntriesNotReady,
 }));
-vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({ readBookVectors: host.readBookVectors, pruneBookVectors: host.pruneBookVectors }));
+vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
+    readBookVectors: host.readBookVectors,
+    pruneBookVectors: host.pruneBookVectors,
+    vectorStateOf: (bookName, entry) => host.vectorStates.get(`${bookName}/${entry.uid}`) ?? { status: 'ready' },
+    onVectorStateChange: listener => {
+        host.vectorListeners.add(listener);
+        return () => host.vectorListeners.delete(listener);
+    },
+}));
 
 const { notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
 const { openLoreBaseSelection } = await import('../src/features/lorebase/lorebase-selection-screen.js');
+const { summaryText } = await import('../src/features/lorebase/lorebase-selection-markup.js');
 
 const HARBOR = {
     entries: {
@@ -127,6 +137,8 @@ beforeEach(() => {
     host.keyStates = new Map();
     host.keyProblem = null;
     host.keyListeners.clear();
+    host.vectorStates = new Map();
+    host.vectorListeners.clear();
 });
 
 describe('opening the screen', () => {
@@ -169,7 +181,7 @@ describe('keys (D17)', () => {
         host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens', 'harbor bells'] });
         tellKeyListeners('Harbor Atlas');
         expect(rowText('1')).toContain('LoreBase keys: tidewardens, harbor bells');
-        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys: 1 written.');
+        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys and vectors: 1 ready.');
     });
 
     it('writes no keys for the entries the bulk bar and a category turn on', async () => {
@@ -197,7 +209,7 @@ describe('keys (D17)', () => {
         await openScreen();
         expect(rowText('1')).toContain('No keys found');
         expect(rowText('1')).not.toContain('LoreBase keys');
-        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys: 1 written.');
+        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys and vectors: 1 ready.');
     });
 
     it('writes the ticked entries that are on anew with Regenerate keys, and only those', async () => {
@@ -323,7 +335,7 @@ describe('keys (D17)', () => {
         entryToggle('1').click();
         tickBox('4').click();
         actionButton('turn-on').click();
-        expect($id('vectfox_lorebase_summary').textContent).toMatch(/Keys: 0 written, 2 not written yet\. Turning on Use LoreBase asks to write them\.$/);
+        expect($id('vectfox_lorebase_summary').textContent).toMatch(/Keys and vectors: 0 ready, 2 not written yet\. Turning on Use LoreBase asks to write them\.$/);
     });
 });
 
@@ -472,7 +484,7 @@ describe('choosing entries', () => {
         expect(entryToggle('1').getAttribute('aria-pressed')).toBe('true');
         expect(document.querySelector('[data-lorebase-selected-count]').textContent).toBe('1 selected');
         expect($id('vectfox_lorebase_summary').textContent).toMatch(
-            /^The pick reads 1 title and their keys from this book, about \d+ tokens on every pick\. Keys: 0 written, 1 not written yet\. 1 selected entry sends nothing until its keys are written\. Closing this screen asks to write the missing ones\.$/);
+            /^The pick reads 1 title and their keys from this book, about \d+ tokens on every pick\. Keys and vectors: 0 ready, 1 not written yet\. 1 selected entry sends nothing until its keys and vectors are written\. Closing this screen asks to write the missing ones\.$/);
         expect(entryToggle('3').disabled).toBe(true);
         expect(tickBox('3').disabled).toBe(true);
     });
@@ -610,5 +622,74 @@ describe('locks, pins and books', () => {
         await vi.waitFor(() => expect(rowUids()).toEqual(['7']));
         expect(document.querySelector('[data-lorebase-ticked-count]').textContent).toBe('0 ticked');
         expect(record('Voyage Log').seenUids).toEqual(['7']);
+    });
+});
+
+describe('vectors on each row, the readiness filter, and the footer on Fast and Cheap [Jev] (§7.3 of lorebook-multi-vector.md)', () => {
+    const rowText = uid => document.querySelector(`[data-lorebase-entry="${uid}"]`).textContent;
+    const selectHarbor = (uids, locks = {}) => {
+        host.settings.vectfox.lorebase_books = {
+            'Harbor Atlas': { selectedUids: uids, pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [], ...locks },
+        };
+    };
+    const tellVectorListeners = bookName => host.vectorListeners.forEach(listener => listener(bookName));
+
+    it("shows each selected row's vectors beside its keys: missing, another model's, being written, or failed with the reason, redrawn as they change", async () => {
+        selectHarbor(['0', '1', '4']);
+        host.keyStates.set('Harbor Atlas/0', { status: 'ready', keys: ['lighthouse'] });
+        host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens'] });
+        host.vectorStates.set('Harbor Atlas/0', { status: 'missing' });
+        host.vectorStates.set('Harbor Atlas/1', { status: 'other-model' });
+        await openScreen();
+        expect(rowText('0')).toContain('No vectors yet');
+        expect(rowText('0')).toContain('LoreBase keys: lighthouse');
+        expect(rowText('1')).toContain('Vectors from another model');
+        expect(rowText('4')).toContain('No keys yet');
+        host.vectorStates.set('Harbor Atlas/0', { status: 'writing' });
+        tellVectorListeners('Harbor Atlas');
+        expect(rowText('0')).toContain('Vectorizing');
+        host.vectorStates.set('Harbor Atlas/0', { status: 'failed', detail: 'the embedding server refused' });
+        tellVectorListeners('Harbor Atlas');
+        expect(rowText('0')).toContain('Vectors failed: the embedding server refused');
+        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys and vectors: 0 ready, 1 failed, 2 not written yet.');
+        tellVectorListeners('Voyage Log');
+        expect(rowText('0')).toContain('Vectors failed');
+    });
+
+    it('shows only the ready entries, or only those without keys or vectors, the rest of the filters kept', async () => {
+        selectHarbor(['0', '1', '4']);
+        host.keyStates.set('Harbor Atlas/0', { status: 'ready', keys: ['lighthouse'] });
+        host.keyStates.set('Harbor Atlas/1', { status: 'writing' });
+        await openScreen();
+        expect([...$id('vectfox_lorebase_readiness').options].map(option => option.textContent)).toEqual(['Ready or not', 'Ready', 'Without keys or vectors']);
+        change($id('vectfox_lorebase_readiness'), 'ready');
+        expect(rowUids()).toEqual(['0']);
+        change($id('vectfox_lorebase_readiness'), 'not-ready');
+        expect(rowUids()).toEqual(['1', '4']);
+        change($id('vectfox_lorebase_readiness'), 'any');
+        expect(rowUids()).toEqual(['0', '1', '2', '3', '4']);
+    });
+
+    it("says on Fast and Cheap [Jev] how many selected entries taking part in this chat Jev is asked about, or that this book takes no part", async () => {
+        host.settings.vectfox.lorebase_accuracy = 'fast';
+        selectHarbor(['0', '1'], { lockedToChatIds: ['chat-harbor'] });
+        await openScreen();
+        await vi.waitFor(() => expect($id('vectfox_lorebase_summary').textContent)
+            .toMatch(/^Jev is asked about every one of the 2 selected entries taking part in this chat, on every reply\./));
+        change($id('vectfox_lorebase_lock_chat'), false);
+        expect($id('vectfox_lorebase_summary').textContent).toMatch(/^This book takes no part in this chat, so Jev is never asked about its entries here\./);
+    });
+
+    it("words the footer's rule: the search's best 100 above 100, the rule alone while the count is not known, and the pick's titles on High Accuracy", () => {
+        const footer = { entryCount: 40, titleTokens: 600 };
+        expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 313, isBookTakingPart: true } }))
+            .toBe('Jev is asked about the 100 a search finds best of the 313 selected entries taking part in this chat, on every reply.');
+        expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 100, isBookTakingPart: true } }))
+            .toBe('Jev is asked about every one of the 100 selected entries taking part in this chat, on every reply.');
+        expect(summaryText(footer, { isFastAndCheap: true, takingPart: null }))
+            .toBe('Jev is asked about every selected entry of the books a chat locks, up to 100 in all, and above that about the 100 a search finds best, on every reply.');
+        expect(summaryText(footer, { isFastAndCheap: false, takingPart: { count: 313, isBookTakingPart: true } }))
+            .toBe('The pick reads 40 titles and their keys from this book, about 600 tokens on every pick.');
+        expect(summaryText({ entryCount: 0, titleTokens: 0 }, { isFastAndCheap: true })).toBe("LoreBase decides no entry of this book: SillyTavern's keys decide them all.");
     });
 });
