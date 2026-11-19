@@ -35,6 +35,7 @@ import {
     throwIfEmbeddingConfigError,
     warnIfEmbeddingSlow,
     fetchQueryEmbedding,
+    fetchQueryEmbeddings,
 } from '../embedding/index.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { VECTOR_LIST_LIMIT } from '../../shared/constants.js';
@@ -44,7 +45,7 @@ import { buildRegistryKey } from '../../shared/collection-ids.js';
 import { chunkPayload, textWithKeywordSuffix } from './stored-chunk.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 import { PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../../shared/similharity-plugin.js';
-import { TENANT_FIELD, qdrantTarget, stripRegistryPrefix } from './qdrant-target.js';
+import { TENANTS_ANY_FILTER, TENANT_FIELD, qdrantTarget, stripRegistryPrefix } from './qdrant-target.js';
 
 // What a successful insert calls with the collection's registry key, so the collection
 // shows in the registry. The registry sits above the backends, so index.js sets it at startup.
@@ -749,6 +750,62 @@ export class QdrantBackend extends VectorBackend {
      */
     async embedQuery(searchText, settings) {
         return fetchQueryEmbedding(searchText, settings, await getPluginProviderParams(settings));
+    }
+
+    /**
+     * Embed several query texts in one request (fetchQueryEmbeddings).
+     * @param {string[]} searchTexts
+     * @param {object} settings - VectFox settings
+     * @returns {Promise<number[][]>} One vector for each text, in their order
+     */
+    async embedQueries(searchTexts, settings) {
+        return fetchQueryEmbeddings(searchTexts, settings, await getPluginProviderParams(settings));
+    }
+
+    /**
+     * One fused search over several collections of one shared collection, in one request: Qdrant's dense and sparse
+     * legs, each fetching four times what the search returns, fused by RRF, every point of any collection listed
+     * (Similharity's content_type_any, 3.4.13 on). Its scores are the RRF scores, whose order is the search's; no cosine
+     * lookup follows, as no threshold reads them. The shared collection is the one the settings name (qdrantTarget).
+     * Throws on every failure, a vector size mismatch included, after its warning: no other path could search.
+     * @param {string[]} collectionIds - The collections, each a tenant of the shared collection
+     * @param {string} searchText
+     * @param {number} topK - How many points it returns
+     * @param {object} settings - VectFox settings, with "One shared collection" on, as a request's copy sets it
+     * @param {number[]} queryVector - The text's embedding
+     * @returns {Promise<Array<{hash: number, score: number, metadata: object}>>} Best first
+     * @throws {Error} When the search cannot run, or the user stops it over the collection's CJK tokenizer
+     */
+    async hybridQueryCollections(collectionIds, searchText, topK, settings, queryVector) {
+        const actualCollectionId = qdrantTarget(collectionIds[0], settings).collectionId;
+        if (!(await settleTokenizerMismatch(settings, actualCollectionId))) {
+            throw new Error(`The search of ${actualCollectionId} stopped: it was made with another CJK tokenizer than VectFox is set to.`);
+        }
+        const { encodeSparseQuery } = await import('./sparse-vector-encoder.js');
+        const response = await fetch('/api/plugins/similharity/chunks/hybrid-query', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                backend: BACKEND_TYPE,
+                collectionId: actualCollectionId,
+                queryVector,
+                topK,
+                threshold: 0.0,
+                source: settings.embedding_provider || 'transformers',
+                model: getModelFromSettings(settings),
+                hybrid: true,
+                hybridOptions: { fusionMethod: 'rrf', prefetchLimit: topK * 4 },
+                sparseQueryVector: encodeSparseQuery(searchText),
+                filters: { [TENANTS_ANY_FILTER]: collectionIds },
+            }),
+        });
+        if (!response.ok) {
+            const errorBody = await readErrorBody(response, '(no body)');
+            if (_isDimensionMismatch(errorBody)) _warnDimensionMismatch(errorBody);
+            throw new Error(`[Qdrant] Hybrid query of ${collectionIds.length} collections in ${actualCollectionId} failed: ${response.status} ${response.statusText} - ${errorBody.slice(0, 500)}`);
+        }
+        const data = await response.json();
+        return (data.results ?? []).map(result => ({ hash: result.hash, score: result.score, metadata: result.metadata ?? {} }));
     }
 
     /**

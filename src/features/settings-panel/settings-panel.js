@@ -23,7 +23,7 @@ import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
-import { keyCallsAtOnceOf, loreBaseAccuracyOf } from '../lorebase/index.js';
+import { keyCallsAtOnceOf, loreBaseAccuracyOf, loreBudgetOf } from '../lorebase/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
 import { wireSettingsPanel } from './panel-shell.js';
 import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
@@ -1407,6 +1407,8 @@ function bindSettingsEvents(settings, callbacks) {
             Object.assign(extension_settings.vectfox, settings);
             saveSettingsDebounced();
         });
+    // Fast and Cheap [Jev]'s Lore budget: the most tokens Jev's picks send a reply, read by each reply as it starts.
+    bindNumberSetting(settings, { id: 'VectFox_lorebase_lore_budget_tokens', key: 'lorebase_lore_budget_tokens', initial: loreBudgetOf(settings.lorebase_lore_budget_tokens), isInteger: true });
 
     // CJK tokenizer mode selector
     $('#VectFox_cjk_tokenizer_mode')

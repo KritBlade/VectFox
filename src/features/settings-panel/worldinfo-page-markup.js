@@ -56,9 +56,11 @@ function loreBaseBooksCard() {
 
 // LoreBase's model card (plan §5.6, and §2 of lorebook-multi-vector.md). Accuracy comes first, since it decides what
 // each model does: LoreBase's own model writes each entry's keys on every choice (D17) and, on High Accuracy, also
-// picks and reviews (D6); on Fast and Cheap [Jev], the default, Jev picks, on a profile of its own (D16).
-// connection-rows.js shows the title of the own model's role and Jev's group, which shows on Fast and Cheap [Jev] only.
-// The option values are FAST_AND_CHEAP and High Accuracy's in lorebase-reply-core.js.
+// picks and reviews (D6); on Fast and Cheap [Jev], the default, Jev picks, on a profile of its own (D16), its picks
+// sent within the Lore budget (§5 and Q4 of lorebook-multi-vector.md: 3,000 tokens by default, 1,000 to 12,000,
+// LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN and LORE_BUDGET_MAX in lorebase-jev-core.js). connection-rows.js shows the
+// title of the own model's role and Jev's group, which shows on Fast and Cheap [Jev] only. The option values are
+// FAST_AND_CHEAP and High Accuracy's in lorebase-reply-core.js.
 function loreBaseModelCard() {
     const accuracy = select({
         id: 'VectFox_lorebase_accuracy',
@@ -74,7 +76,7 @@ function loreBaseModelCard() {
                 fieldLabel({ text: 'Accuracy', forId: 'VectFox_lorebase_accuracy' }),
                 accuracy,
                 hint({ text: 'Fast and Cheap [Jev] is quickest and cheapest. High Accuracy sends only the parts needed.' }),
-                detail({ text: 'Fast and Cheap [Jev] asks Jev, a decisions model: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole. High Accuracy has LoreBase\'s own model pick the entries, then reviews each picked entry of more than one part at low reasoning effort and sends only the parts the reply needs. On both, LoreBase\'s own model writes each entry\'s keys when it is turned on, since the pick and Jev\'s questions read them.' }),
+                detail({ text: 'Fast and Cheap [Jev] asks Jev, a decisions model: it answers in under a second for a fraction of the cost, and sends the entries it rates above 0.25 whole, best first, within the Lore budget. Above 100 selected entries, a search of their vectors first finds the 100 Jev is asked about. High Accuracy has LoreBase\'s own model pick the entries, then reviews each picked entry of more than one part at low reasoning effort and sends only the parts the reply needs. On both, LoreBase\'s own model writes each entry\'s keys when it is turned on, since the pick and Jev\'s questions read them.' }),
             ], { isSpan: true })}
             <div id="VectFox_lorebase_role_picks" class="vfx-span">${groupTitle({ icon: 'fa-key', text: 'Keys and picks' })}${hint({ text: 'Writes each entry\'s keys when you turn it on, and picks each reply\'s lore.' })}</div>
             <div id="VectFox_lorebase_role_keys" class="vfx-span" style="display:none;">${groupTitle({ icon: 'fa-key', text: 'Keys' })}${hint({ text: 'Writes each entry\'s keys once, when you turn it on. Replies use Jev.' })}</div>
@@ -90,6 +92,11 @@ function loreBaseModelCard() {
                 ${groupTitle({ icon: 'fa-bolt', text: 'Jev' })}
                 ${connectionProfileRows('VectFox_lorebase_jev', { hintText: 'An OpenRouter or Custom profile whose model is Jev. Its key stays in SillyTavern.' })}
                 ${testConnectionButton('VectFox_lorebase_jev', { hintText: 'Asks Jev one made-up question, never your chat.' })}
+                ${field([
+                    fieldLabel({ text: 'Lore budget', forId: 'VectFox_lorebase_lore_budget_tokens' }),
+                    sliderNumber({ id: 'VectFox_lorebase_lore_budget_tokens', min: 1000, max: 12000, step: 500, title: 'Tokens' }),
+                    hint({ text: "The most tokens Jev's picks send a reply. More keeps more lore and costs more." }),
+                ])}
             </div>
         </div>
     </section>`;
@@ -185,8 +192,9 @@ export function loreBaseReportOptions(reports, shownId) {
     return reports.map(report => selectOption({ value: report.id, name: reportLabel(report), isSelected: report.id === shownId })).join('');
 }
 
-function timeLine({ pick, slowestReview, total }) {
+function timeLine({ search = null, pick, slowestReview, total }) {
     const parts = [];
+    if (search !== null) parts.push(`search ${formatSeconds(search)}`);
     if (pick !== null) parts.push(`pick ${formatSeconds(pick)}`);
     if (slowestReview !== null) parts.push(`slowest review ${formatSeconds(slowestReview)}`);
     parts.push(`${formatSeconds(total)} in all`);
@@ -217,6 +225,17 @@ function tokenLines(report) {
         lines.push({ icon: 'fa-book-atlas', text: 'World Info with SillyTavern alone', name: `${formatCount(keys.worldInfo)} tokens` });
     }
     return lines;
+}
+
+// Fast and Cheap [Jev]'s search before Jev: how many entries it kept of how many, or that the entries were few enough
+// for Jev to be asked about every one. A search that failed says so in the failure's line instead.
+function searchLines({ search, contentCount }) {
+    if (!search) return [];
+    if (search.poolCount !== null) {
+        return [{ icon: 'fa-magnifying-glass', text: 'Searched', name: `Jev was asked about the ${formatCount(search.poolCount)} best of ${formatCount(contentCount)} entries` }];
+    }
+    if (contentCount > search.seats) return [];
+    return [{ icon: 'fa-magnifying-glass', text: 'No search', name: `Jev was asked about all ${formatCount(contentCount)} entries, as a search runs above ${formatCount(search.seats)}` }];
 }
 
 function failureLine(failure) {
@@ -291,9 +310,10 @@ function skippedRecord(report) {
 }
 
 /**
- * One of the tester's reports in full: what was picked, the time, the tokens against what SillyTavern's keys would
- * send, and any failure; each pick with Luna's reasons, its review and its parts, kept and left out; then the selected
- * entries the pick left out. An empty state when the open chat has no report.
+ * One of the tester's reports in full: what was picked, on Fast and Cheap [Jev] the search before Jev, the time, the
+ * tokens against what SillyTavern's keys would send, and any failure; each pick with Luna's reasons or Jev's rating,
+ * its review and its parts, kept and left out; then the selected entries the pick left out. An empty state when the
+ * open chat has no report.
  *
  * @param {object|null} report - LoreBase's report, from loreBaseReports
  * @returns {string}
@@ -302,6 +322,7 @@ export function loreBaseReportMarkup(report) {
     if (!report) return emptyState({ icon: 'fa-flask', text: 'No reply in this chat used LoreBase since the page loaded. Send a message, or Try a pick.' });
     const summary = [
         { icon: 'fa-list-check', text: 'Picked', name: `${formatCount(report.picks.length)} of ${formatCount(report.contentCount)} selected entries` },
+        ...searchLines(report),
         { icon: 'fa-stopwatch', text: 'Time', name: timeLine(report.seconds) },
         ...tokenLines(report),
         ...report.failures.map(failureLine),

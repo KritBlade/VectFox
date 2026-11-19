@@ -35,5 +35,6 @@ export {
     purgeVectorIndex,
     queryCollection,
     queryMultipleCollections,
+    searchCollectionsTogether,
     updateChunkMetadata,
 } from './vector-api.js';

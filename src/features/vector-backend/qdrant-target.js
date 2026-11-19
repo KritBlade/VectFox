@@ -15,6 +15,10 @@ export const MULTITENANCY_COLLECTION = 'vectfox_main';
 // The payload field that tells VectFox's collections apart inside vectfox_main.
 export const TENANT_FIELD = 'content_type';
 
+// The filter naming several collections of one shared collection, which a hybrid search reads in one request
+// (Similharity's TENANTS_ANY_FILTER, 3.4.13 on); no change or delete takes it.
+export const TENANTS_ANY_FILTER = `${TENANT_FIELD}_any`;
+
 const KNOWN_BACKENDS = ['standard', 'vectra', 'qdrant'];
 const KNOWN_SOURCES = ['transformers', 'openai', 'cohere', 'ollama', 'llamacpp', 'vllm', 'koboldcpp', 'webllm', 'openrouter'];
 

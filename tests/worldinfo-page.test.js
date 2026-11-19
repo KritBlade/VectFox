@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 const { loreBaseBooksMarkup, loreBaseReportMarkup, loreBaseReportOptions, worldInfoPageMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 const { KEY_CALLS_AT_ONCE_MAX } = await import('../src/features/lorebase/lorebase-keys-core.js');
 const { FAST_AND_CHEAP, loreBaseAccuracyOf } = await import('../src/features/lorebase/lorebase-reply-core.js');
+const { LORE_BUDGET_MAX, LORE_BUDGET_MIN } = await import('../src/features/lorebase/lorebase-jev-core.js');
 
 // The ids settings-panel.js, lorebase-books-card.js and lorebase-tester-card.js wire on the WorldInfo page.
 const WIRED_IDS = [
@@ -21,7 +22,8 @@ const WIRED_IDS = [
     'VectFox_lorebase_delete_all', 'VectFox_lorebase_books_status',
     'VectFox_lorebase_model_card', 'VectFox_lorebase_model', 'VectFox_lorebase_accuracy',
     'VectFox_lorebase_jev_connection_profile_rows', 'VectFox_lorebase_jev_connection_profile', 'VectFox_lorebase_jev_connection_profile_readout',
-    'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_role_picks', 'VectFox_lorebase_role_keys',
+    'VectFox_lorebase_jev_group', 'VectFox_lorebase_jev_test_connection', 'VectFox_lorebase_lore_budget_tokens', 'VectFox_lorebase_role_picks',
+    'VectFox_lorebase_role_keys',
     'VectFox_lorebase_tester_card', 'VectFox_lorebase_try_pick', 'VectFox_lorebase_report_field', 'VectFox_lorebase_report', 'VectFox_lorebase_report_body',
 ];
 // The old vector search's controls, deleted with it.
@@ -84,6 +86,17 @@ describe('WorldInfo page markup', () => {
         expect(document.querySelector('label[for="VectFox_lorebase_key_calls_at_once"]').textContent).toBe('Entries at once');
         const field = box.closest('.vfx-field');
         expect(field.nextElementSibling.querySelector('#VectFox_lorebase_delete_all')).not.toBeNull();
+    });
+
+    it("offers the Lore budget in Jev's group, after Jev's Test connection, from the least to the most the reply reads", () => {
+        const box = document.getElementById('VectFox_lorebase_lore_budget_tokens');
+        const slider = document.querySelector('.vfx-range[data-vfx-slider-for="VectFox_lorebase_lore_budget_tokens"]');
+        expect([box.type, box.min, box.max, box.step]).toEqual(['number', String(LORE_BUDGET_MIN), String(LORE_BUDGET_MAX), '500']);
+        expect([slider.min, slider.max]).toEqual([String(LORE_BUDGET_MIN), String(LORE_BUDGET_MAX)]);
+        expect(document.querySelector('label[for="VectFox_lorebase_lore_budget_tokens"]').textContent).toBe('Lore budget');
+        const group = document.getElementById('VectFox_lorebase_jev_group');
+        expect(group.contains(box)).toBe(true);
+        expect(document.getElementById('VectFox_lorebase_jev_test_connection').compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('offers Generate keys, Generate vectors, Generate all and Delete all in that order', () => {
@@ -248,6 +261,26 @@ describe("the tester's report (§5.10)", () => {
         const { records } = drawn({ ...measured, accuracy: 'fast', picks: [jevPick], failures: [], tokens: { ...measured.tokens, picks: [{ sent: 9, whole: 9 }] } });
         expect(records[0].pills).toEqual(['Sent whole, not reviewed']);
         expect(records[0].lines).toEqual(['Book: Harbor Atlas', 'Jev rated it: 0.64', 'Sends: 1 of 1 parts, 9 of 9 tokens, not reviewed']);
+    });
+
+    it("says on Fast and Cheap [Jev] how many entries the search kept for Jev, and its seconds beside Jev's", () => {
+        const searched = drawn({
+            ...measured, accuracy: 'fast', contentCount: 313, search: { seats: 100, poolCount: 100 },
+            seconds: { search: 0.62, pick: 0.48, slowestReview: null, total: 1.12 },
+        });
+        expect(searched.summary).toEqual(expect.arrayContaining([
+            'Searched: Jev was asked about the 100 best of 313 entries', 'Time: search 0.6 s, pick 0.5 s, 1.1 s in all',
+        ]));
+        const few = drawn({ ...measured, accuracy: 'fast', contentCount: 21, search: { seats: 100, poolCount: null } });
+        expect(few.summary).toContain('No search: Jev was asked about all 21 entries, as a search runs above 100');
+        // A search that failed says so in the pick's failure, not as no search.
+        const failed = drawn({
+            ...measured, accuracy: 'fast', contentCount: 313, search: { seats: 100, poolCount: null }, picks: [], skipped: [],
+            failures: [{ step: 'pick', title: null, detail: 'the search failed: Hybrid query failed' }],
+        });
+        expect(failed.summary.some(line => /search/u.test(line) && !line.startsWith('The pick failed'))).toBe(false);
+        expect(failed.summary).toContain('The pick failed: the search failed: Hybrid query failed');
+        expect(drawn(measured).summary.some(line => line.startsWith('Searched') || line.startsWith('No search'))).toBe(false);
     });
 
     it("marks a pick SillyTavern's World Info budget cut, and names each entry's book when the reply read several", () => {

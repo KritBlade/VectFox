@@ -5,13 +5,14 @@
  * VectFox's generation interceptor asks it for a reply's lore beside its retrieval, after SillyTavern's slash commands
  * and never on a dry run, so a send that is only commands runs no pick (#29). The books taking part are those
  * SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its chat or character
- * through a rename; Luna picks among the entries selected in them that are ready, with their keys (D17,
+ * through a rename; the pick reads the entries selected in them that are ready, with their keys (D17,
  * lorebase-keys.js) and their vectors from the embedding model set now (§4.4 of InternalProject/Vectfox/plans/
  * lorebook-multi-vector.md, lorebase-vectors.js), and a reply that leaves out selected entries not ready says so, once
- * per chat and again when their number changes; then Luna reviews each pick, all at once, and once the
- * retrieval is done too the picks are held for the World Info scan that follows (lorebase-delivery.js). A turn whose
- * pick or review fails goes on without that lore, with a toast (D14). Each reply's outcome goes to the tester
- * (lorebase-tester.js), with what that scan reads.
+ * per chat and again when their number changes. On Fast and Cheap [Jev] Jev rates them, above 100 only a search's 100
+ * best, and its picks go whole within the lore budget (§5, lorebase-jev-core.js); on High Accuracy Luna picks, then
+ * reviews each pick, all at once. Once the retrieval is done too the picks are held for the World Info scan that
+ * follows (lorebase-delivery.js). A turn whose search, pick or review fails goes on without that lore, with a toast
+ * (D14). Each reply's outcome goes to the tester (lorebase-tester.js), with what that scan reads.
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
@@ -21,7 +22,7 @@ import { getLoreBook, isLoreBookLocked, loadDecidedEntries, renameLoreBookCharac
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import { askJev, resolveJevConnection } from './lorebase-jev.js';
-import { loreForReplyByJev } from './lorebase-jev-core.js';
+import { loreBudgetOf, loreForReplyByJev } from './lorebase-jev-core.js';
 import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
 import { readBookKeys } from './lorebase-keys.js';
 import { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unreadyEntriesNotice } from './lorebase-reply-core.js';
@@ -30,7 +31,7 @@ import { sceneMessagesFromChat } from './lorebase-scene.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
 import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
 import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
-import { bookVectors, initializeLoreBaseVectors, uidsWithCurrentVectors } from './lorebase-vectors.js';
+import { bookVectors, initializeLoreBaseVectors, searchReplyPool, uidsWithCurrentVectors } from './lorebase-vectors.js';
 
 const LOREBASE = 'LoreBase';
 // A try's report type: the pick for the next reply, with no reply sent.
@@ -138,13 +139,16 @@ function showLeftOutLoreToast(message) {
 
 const tokensOf = (passages, partNumbers) => partNumbers.reduce((total, number) => total + passages[number - 1].tokens, 0);
 const allPartNumbers = passages => passages.map((_, index) => index + 1);
-// A failed call that regenerating cannot fix, such as a model the provider does not know.
-const isConfigurationFailure = failure => failure.error?.kind === 'model_config';
+// A failed call that regenerating cannot fix: a model the provider does not know, or an embedding setup that cannot run.
+const isConfigurationFailure = failure => failure.error?.kind === 'model_config' || failure.error?.code === 'invalid_model_config';
 
 /** The turn's outcome in the console, and a toast for the lore it left out. */
 function reportReplyLore(lore, seconds) {
     const titles = lore.picks.map(pick => `"${pick.title}"`).join(', ') || 'none';
     log.lifecycle(`LoreBase: picked ${lore.picks.length} of ${lore.contentCount} selected entries in ${seconds.toFixed(1)} s: ${titles}`);
+    if (Number.isFinite(lore.search?.poolCount)) {
+        log.verbose(`LoreBase: the search kept ${lore.search.poolCount} of ${lore.contentCount} entries for Jev in ${lore.search.seconds.toFixed(1)} s`);
+    }
     if (lore.unreadItemCount) log.warn(`LoreBase: the pick named ${lore.unreadItemCount} item(s) not in its table of contents, which were skipped`);
     for (const { title, uses, passages, sentParts } of lore.reviewedPicks) {
         log.verbose(`LoreBase: "${title}" uses ${uses}: sends ${sentParts.length} of ${passages.length} parts, `
@@ -159,18 +163,27 @@ function reportReplyLore(lore, seconds) {
 }
 
 /**
- * A reply's lore on the dropdown's choice (loreBaseAccuracyOf): Jev's picks on Fast and Cheap [Jev] (D16), else High
- * Accuracy, Luna's pick and reviews. null, with the setup notice, when the choice's connection cannot run.
+ * A reply's lore on the dropdown's choice (loreBaseAccuracyOf): Jev's picks on Fast and Cheap [Jev] (D16), above 100
+ * entries among the search's best, within the lore budget (§5 of lorebook-multi-vector.md), else High Accuracy, Luna's
+ * pick and reviews. null, with the setup notice, when the choice's connection cannot run.
+ * @param {object} settings - VectFox settings
+ * @param {{books: object[], scene: string, messages: Array<{name: string, text: string}>}} turn - From openChatTurn
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
  */
-async function askForReplyLore(settings, scene, books) {
+async function askForReplyLore(settings, { books, scene, messages }) {
     if (loreBaseAccuracyOf(settings.lorebase_accuracy) === FAST_AND_CHEAP) {
         const jev = resolveJevConnection(settings);
         if (!jev.ok) {
             notifySetupIncomplete(LOREBASE, jev.problem);
             return null;
         }
-        return loreForReplyByJev({ scene, books, ask: (state, questions) => askJev(jev.fields, state, questions) });
+        return loreForReplyByJev({
+            scene,
+            books,
+            ask: (state, questions) => askJev(jev.fields, state, questions),
+            searchPool: contents => searchReplyPool(books, contents, messages, settings),
+            loreBudget: loreBudgetOf(settings.lorebase_lore_budget_tokens),
+        });
     }
     const connection = resolveLoreBaseLlmConfig(settings);
     if (!connection.ok) {
@@ -181,10 +194,12 @@ async function askForReplyLore(settings, scene, books) {
 }
 
 /**
- * The open chat's turn for LoreBase: the books taking part and the scene the next reply answers, or why it has none;
- * either way the books' counts of selected entries left out for not being ready.
+ * The open chat's turn for LoreBase: the books taking part, and the scene the next reply answers with its messages,
+ * which Fast and Cheap [Jev]'s search reads, or why it has none; either way the books' counts of selected entries left
+ * out for not being ready.
  * @param {object} settings - VectFox settings
- * @returns {Promise<{books: object[], scene: string, unreadyBooks: object[]}|{problem: string, unreadyBooks: object[]}>}
+ * @returns {Promise<{books: object[], scene: string, messages: Array<{name: string, text: string}>, unreadyBooks: object[]}
+ *   |{problem: string, unreadyBooks: object[]}>}
  * @throws {Error} When the keys or vectors cannot be read
  */
 async function openChatTurn(settings) {
@@ -192,24 +207,24 @@ async function openChatTurn(settings) {
     if (!books.length) return { problem: NO_READY_SELECTION, unreadyBooks };
     const messages = sceneMessagesFromChat();
     if (!messages) return { problem: NO_USER_MESSAGE, unreadyBooks };
-    return { books, scene: sceneText(messages), unreadyBooks };
+    return { books, scene: sceneText(messages), messages, unreadyBooks };
 }
 
 /**
  * A turn's lore on the dropdown's choice, logged and made into the tester's report. null when the choice's connection
  * cannot run, its setup notice shown.
  * @param {object} settings - VectFox settings
- * @param {{books: object[], scene: string}} turn - From openChatTurn
+ * @param {{books: object[], scene: string, messages: object[]}} turn - From openChatTurn
  * @param {{type: string, isReply: boolean}} kind - The generation's type, or a try's, which sends no reply
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
  */
-async function pickForTurn(settings, { books, scene }, { type, isReply }) {
+async function pickForTurn(settings, turn, { type, isReply }) {
     const startedAt = performance.now();
-    const lore = await askForReplyLore(settings, scene, books);
+    const lore = await askForReplyLore(settings, turn);
     if (!lore) return null;
     const seconds = (performance.now() - startedAt) / 1000;
     reportReplyLore(lore, seconds);
-    recordReplyReport({ lore, books, type, accuracy: loreBaseAccuracyOf(settings.lorebase_accuracy), seconds, isReply });
+    recordReplyReport({ lore, books: turn.books, type, accuracy: loreBaseAccuracyOf(settings.lorebase_accuracy), seconds, isReply });
     return lore;
 }
 

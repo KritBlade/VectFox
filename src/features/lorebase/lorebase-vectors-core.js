@@ -1,8 +1,9 @@
 /**
- * LoreBase's vectors (§4.1 to §4.4 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): the IDs that keep a
+ * LoreBase's vectors (§4.1 to §4.5 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): the IDs that keep a
  * SillyTavern account's books apart inside one Qdrant collection (Q6), one point for each part of each selected entry,
- * which entries have their vectors from the embedding model set now, and what brings a book's vectors in line with its
- * selection. Pure: no SillyTavern, no network.
+ * which entries have their vectors from the embedding model set now, what brings a book's vectors in line with its
+ * selection, and a reply's search: its two texts, and the pool of entries Jev is asked about from the searches' points.
+ * Pure: no SillyTavern, no network.
  */
 import { COLLECTION_PREFIXES, sanitizeNameSegment } from '../../shared/collection-ids.js';
 import { entryPassages } from './lorebase-splitter.js';
@@ -12,6 +13,12 @@ import { entryPassages } from './lorebase-splitter.js';
 const ID_NAME_LENGTH = 30;
 // The field separator inside a hashed key and a model key: no title, text or model name holds it.
 const SEPARATOR = '\u001f';
+
+/** Each search returns this many parts for each of the pool's seats (POOL_SEATS in lorebase-jev-core.js), so that as
+ * many different entries are among them, as the trials searched (PARTS_PER_PICK in segment_trials.py). */
+export const PARTS_PER_SEAT = 4;
+// How much of a text over the size a cut keeps each time it tries again, the tokens of its characters being uneven.
+const SHORTEN_BY = 0.9;
 
 /**
  * cyrb53: a fast 53-bit string hash with good spread (public domain, bryc). 53 bits keep it a whole number JavaScript
@@ -178,6 +185,66 @@ export function bookVectorWork(decided, uidsToWrite, stored, modelKey) {
 export function uidsWithStoredVectors(decided, stored) {
     const storedUids = new Set([...stored.values()].map(point => point.uid));
     return decided.map(entry => String(entry.uid)).filter(uid => storedUids.has(uid));
+}
+
+/**
+ * A reply's two search texts (§4.5), as EventBase's two channels read the chat: the user's last message, then the
+ * message before it, the reply it answers, as the scene's messages hold them. A scene of one message has one search.
+ * @param {Array<{text: string}>} messages - The scene's messages, oldest first, the user's last (sceneMessages)
+ * @returns {string[]}
+ */
+export function searchTextsOf(messages) {
+    return messages.slice(-2).reverse().map(message => message.text);
+}
+
+/**
+ * A search text's newest part within a size (§4.5): the text whole when it fits, else its end, as the trials cut it
+ * (newest_tokens in segment_trials.py): the share of its characters the size allows, shortened again while it still
+ * measures over the size.
+ * @param {string} text
+ * @param {number} limit - The size, in the tokens countTokens counts; Infinity keeps every text whole
+ * @param {(text: string) => number} countTokens
+ * @returns {string}
+ */
+export function newestWithin(text, limit, countTokens) {
+    const trimmed = String(text ?? '').trim();
+    const tokens = countTokens(trimmed);
+    if (tokens <= limit) return trimmed;
+    const characters = Array.from(trimmed);
+    let keep = Math.floor(characters.length * limit / tokens);
+    let newest = characters.slice(characters.length - keep).join('');
+    while (keep > 0 && countTokens(newest) > limit) {
+        keep = Math.floor(keep * SHORTEN_BY);
+        newest = characters.slice(characters.length - keep).join('');
+    }
+    return newest.trim();
+}
+
+/**
+ * The pool Jev is asked about (§4.5): each entry of the table of contents keeps its best part's score of either
+ * search, and the `seats` best are kept, a tie going to the earlier search, then to the table's order, the pool coming
+ * back in the table's order, as the trials asked it (rank_entries and arm_pool in segment_trials.py). A point counts
+ * only for an entry the table holds, by the book and entry its payload names, so the parts of an entry LoreBase does
+ * not decide in its book now, which a vectors import can leave until the book's next write, count for nothing.
+ * @param {Array<Array<{score: number, metadata?: {lorebookName?: string, entryUid?: string|number}}>>} searches - Each
+ *   search's points, best first, as searchCollectionsTogether returns them
+ * @param {Array<{number: number, bookName: string, uid: number|string}>} contents - From tableOfContents
+ * @param {number} seats
+ * @returns {Array<{number: number, bookName: string, uid: number|string}>} Items of `contents`
+ */
+export function searchPool(searches, contents, seats) {
+    const itemOf = new Map(contents.map(item => [`${item.bookName}${SEPARATOR}${item.uid}`, item]));
+    const best = new Map();
+    searches.forEach((points, searchIndex) => {
+        for (const point of points) {
+            const item = itemOf.get(`${point.metadata?.lorebookName}${SEPARATOR}${point.metadata?.entryUid}`);
+            if (!item || !Number.isFinite(point.score)) continue;
+            const known = best.get(item);
+            if (!known || point.score > known.score) best.set(item, { score: point.score, searchIndex });
+        }
+    });
+    const ranked = [...best].sort(([itemA, a], [itemB, b]) => b.score - a.score || a.searchIndex - b.searchIndex || itemA.number - itemB.number);
+    return ranked.slice(0, seats).map(([item]) => item).sort((a, b) => a.number - b.number);
 }
 
 /**

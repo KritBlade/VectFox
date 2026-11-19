@@ -899,6 +899,62 @@ describe('QdrantBackend', () => {
         });
     });
 
+    describe('embedQueries', () => {
+        it('embeds every text in one /batch-embeddings request and returns their vectors in order', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({ embeddings: [[0.1, 0.2], [0.3, 0.4]] }));
+            const vectors = await backend.embedQueries(['Who keeps the lamp?', 'The lamp is lit.'], defaultSettings);
+            expect(vectors).toEqual([[0.1, 0.2], [0.3, 0.4]]);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            const [route, init] = fetchMock.mock.calls[0];
+            expect(route).toBe('/api/plugins/similharity/batch-embeddings');
+            expect(JSON.parse(init.body)).toMatchObject({ texts: ['Who keeps the lamp?', 'The lamp is lit.'], source: 'transformers' });
+        });
+
+        it('fails when the plugin returns a vector short', async () => {
+            fetchMock.mockResolvedValueOnce(mockFetchResponse({ embeddings: [[0.1, 0.2]] }));
+            await expect(backend.embedQueries(['a', 'b'], defaultSettings)).rejects.toThrow('returned 1 vectors for 2 texts');
+        });
+    });
+
+    describe('hybridQueryCollections', () => {
+        const books = ['vf_lorebase_qdrant_rabbit_harbor_atlas_1x', 'vf_lorebase_qdrant_rabbit_wren_journal_2y'];
+        const inAccountCollection = { ...defaultSettings, qdrant_multitenancy: true, qdrant_shared_collection: 'vf_lorebase_rabbit' };
+
+        it('searches every collection listed in one fused request, four times the points per leg, and keeps the RRF scores', async () => {
+            const { invalidateCollectionMetadata } = await import('../src/features/vector-backend/tokenizer-lock.js');
+            invalidateCollectionMetadata('vf_lorebase_rabbit');
+            fetchMock
+                .mockResolvedValueOnce(mockFetchResponse({ payload: null, supported: true }))      // sentinel: no lock
+                .mockResolvedValueOnce(mockFetchResponse({
+                    results: [{ hash: 7, text: 'Lighthouse', score: 0.5, metadata: { lorebookName: 'Harbor Atlas', entryUid: '3' } }],
+                }));
+
+            const points = await backend.hybridQueryCollections(books, 'Who keeps the lamp?', 400, inAccountCollection, [0.1, 0.2]);
+
+            expect(points).toEqual([{ hash: 7, score: 0.5, metadata: { lorebookName: 'Harbor Atlas', entryUid: '3' } }]);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            const [route, init] = fetchMock.mock.calls[1];
+            expect(route).toBe('/api/plugins/similharity/chunks/hybrid-query');
+            const body = JSON.parse(init.body);
+            expect(body).toMatchObject({
+                backend: 'qdrant', collectionId: 'vf_lorebase_rabbit', queryVector: [0.1, 0.2], topK: 400,
+                hybridOptions: { fusionMethod: 'rrf', prefetchLimit: 1600 }, filters: { content_type_any: books },
+            });
+            expect(body.sparseQueryVector).toEqual(expect.objectContaining({ indices: expect.any(Array), values: expect.any(Array) }));
+        });
+
+        it('throws when the search fails, with no other request after it', async () => {
+            const { invalidateCollectionMetadata } = await import('../src/features/vector-backend/tokenizer-lock.js');
+            invalidateCollectionMetadata('vf_lorebase_rabbit');
+            fetchMock
+                .mockResolvedValueOnce(mockFetchResponse({ payload: null, supported: true }))
+                .mockResolvedValueOnce(mockFetchError(500, 'content_type_any needs a list of at least one collection ID'));
+            await expect(backend.hybridQueryCollections(books, 'Who keeps the lamp?', 400, inAccountCollection, [0.1, 0.2]))
+                .rejects.toThrow('Hybrid query of 2 collections in vf_lorebase_rabbit failed');
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+    });
+
     describe('hybridQuery', () => {
         // Call order per hybridQuery: sentinel-metadata fetch (tokenizer-lock
         // check) → /get-embedding (embed ONCE, vector reused by both queries) →

@@ -6,8 +6,9 @@
  * deleted; a wrong embedding setup fails the rest of a run at once; a stop leaves the batches not yet sent; the points
  * of entries no longer selected deleted; Delete all; an edit SillyTavern saves written again in the background; and,
  * for the Database Browser's rows, a book tenant read whole with its dense vectors in the collection named, a vectors
- * file's points stored with their vectors, and a tenant deleted. The vector API is a stand-in holding points in memory,
- * routed by the real qdrantTarget.
+ * file's points stored with their vectors, and a tenant deleted; a reply's search, both texts over every book taking
+ * part in the collection LoreBase reads now. The vector API is a stand-in holding points in memory, routed by the real
+ * qdrantTarget.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +21,7 @@ const host = vi.hoisted(() => ({
     calls: [],
     insertFailure: null,
     isPurgeRefused: false,
+    searchAnswer: null,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
@@ -33,7 +35,12 @@ vi.mock('../src/sillytavern/events.js', () => ({
 }));
 vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: async bookName => host.books[bookName] }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
-vi.mock('../src/features/embedding/index.js', () => ({ getModelFromSettings: settings => settings.embedding_model ?? 'baai/bge-m3' }));
+vi.mock('../src/features/embedding/index.js', () => ({
+    getModelFromSettings: settings => settings.embedding_model ?? 'baai/bge-m3',
+    // A piece size of 8 words, so a long message is cut to its newest words.
+    searchPieceTokensOf: () => 8,
+    searchTokens: text => text.split(/\s+/).filter(Boolean).length,
+}));
 vi.mock('../src/features/vector-backend/index.js', async () => {
     const { MULTITENANCY_COLLECTION, qdrantTarget } = await import('../src/features/vector-backend/qdrant-target.js');
     const pointsAt = target => {
@@ -71,6 +78,10 @@ vi.mock('../src/features/vector-backend/index.js', async () => {
             host.calls.push({ action: 'purge', target: qdrantTarget(collectionId, settings), isShared: Boolean(settings.qdrant_multitenancy) });
             return !host.isPurgeRefused;
         }),
+        searchCollectionsTogether: vi.fn(async (collectionIds, texts, topK, settings) => {
+            host.calls.push({ action: 'search', collectionIds, texts, topK, collection: qdrantTarget(collectionIds[0], settings).collectionId });
+            return host.searchAnswer ?? texts.map(() => []);
+        }),
     };
 });
 
@@ -104,6 +115,7 @@ beforeEach(async () => {
     host.calls = [];
     host.insertFailure = null;
     host.isPurgeRefused = false;
+    host.searchAnswer = null;
     globalThis.toastr = { warning: vi.fn() };
     vectors = await import('../src/features/lorebase/lorebase-vectors.js');
     core = await import('../src/features/lorebase/lorebase-vectors-core.js');
@@ -170,6 +182,37 @@ describe('a book tenant, for the Database Browser', () => {
         expect(listed()).toHaveLength(2);
         host.isPurgeRefused = true;
         await expect(vectors.deleteTenantPoints(tenant, 'vf_lorebase_rabbit', SETTINGS)).rejects.toThrow(`Similharity could not delete the vectors of ${tenant} in vf_lorebase_rabbit`);
+    });
+});
+
+describe("a reply's search", () => {
+    const contents = [
+        { number: 1, bookName: BOOK, uid: 3, title: 'Lighthouse of Vell', keys: [] },
+        { number: 2, bookName: 'Wren Journal', uid: 3, title: 'Fog Season', keys: [] },
+    ];
+    const messages = [
+        { name: 'Orrin', text: 'The lamp was lit at dusk, as every night since the long storm took the old keeper.' },
+        { name: 'Wren', text: 'Who keeps it tonight?' },
+    ];
+
+    it('searches both texts, the longer cut to its newest words, over every book in the collection LoreBase reads now', async () => {
+        host.searchAnswer = [[{ score: 0.4, metadata: { lorebookName: 'Wren Journal', entryUid: '3' } }], []];
+        const pool = await vectors.searchReplyPool([{ bookName: BOOK }, { bookName: 'Wren Journal' }], contents, messages, SETTINGS);
+
+        const searches = host.calls.filter(call => call.action === 'search');
+        expect(searches).toEqual([{
+            action: 'search',
+            collectionIds: [core.loreBaseBookCollectionId(BOOK, 'rabbit'), core.loreBaseBookCollectionId('Wren Journal', 'rabbit')],
+            texts: ['Who keeps it tonight?', expect.stringMatching(/the long storm took the old keeper\.$/u)],
+            topK: 400,
+            collection: 'vf_lorebase_rabbit',
+        }]);
+        // Cut by characters, as the trials cut it, so it may start inside a word.
+        expect(searches[0].texts[1].split(/\s+/).length).toBeLessThanOrEqual(8);
+        expect(pool).toEqual([contents[1]]);
+
+        await vectors.searchReplyPool([{ bookName: BOOK }], contents, messages, { ...SETTINGS, qdrant_multitenancy: true });
+        expect(host.calls.filter(call => call.action === 'search')[1].collection).toBe('vectfox_main');
     });
 });
 

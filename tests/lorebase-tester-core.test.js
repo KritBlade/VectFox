@@ -70,8 +70,18 @@ describe("a reply's report", () => {
         const report = replyReport({ lore, books, seconds: 33.2 });
         expect(report.skipped).toEqual([{ bookName: 'Harbor Atlas', uid: 2, title: 'Old Pier' }]);
         expect(report.failures).toEqual([{ step: 'review', title: 'Fog Season', detail: 'it did not answer within 30 seconds' }]);
-        expect(report.seconds).toEqual({ pick: 2.5, slowestReview: 30, total: 33.2 });
+        expect(report.seconds).toEqual({ search: null, pick: 2.5, slowestReview: 30, total: 33.2 });
         expect([report.contentCount, report.unreadItemCount]).toEqual([4, 1]);
+        expect(report.search).toBeNull();
+    });
+
+    it("keeps Fast and Cheap [Jev]'s search: the seats, the entries it kept, and its seconds", () => {
+        const searched = replyReport({ lore: { ...lore, search: { seats: 100, poolCount: 100, seconds: 0.6 } }, books, seconds: 1.8 });
+        expect(searched.search).toEqual({ seats: 100, poolCount: 100 });
+        expect(searched.seconds.search).toBe(0.6);
+        const unsearched = replyReport({ lore: { ...lore, search: { seats: 100, poolCount: null, seconds: null } }, books, seconds: 1.2 });
+        expect(unsearched.search).toEqual({ seats: 100, poolCount: null });
+        expect(unsearched.seconds.search).toBeNull();
     });
 
     it('sends nothing of a pick whose review says the reply uses none of it', () => {
@@ -87,7 +97,7 @@ describe("a reply's report", () => {
         expect(report.picks).toEqual([]);
         expect(report.skipped.map(entry => entry.title)).toEqual(['Lighthouse of Vell', 'Tidewardens', 'Old Pier', 'Fog Season']);
         expect(report.failures).toEqual([{ step: 'pick', title: null, detail: 'its answer could not be read' }]);
-        expect(report.seconds).toEqual({ pick: 30, slowestReview: null, total: 30.1 });
+        expect(report.seconds).toEqual({ search: null, pick: 30, slowestReview: null, total: 30.1 });
     });
 });
 

@@ -10,6 +10,7 @@
  * - insertVectorItems() - POST embeddings to backend
  * - queryCollection() - POST query to find similar vectors
  * - queryMultipleCollections() - POST query across multiple collections
+ * - searchCollectionsTogether() - fused searches over several collections of one shared Qdrant collection, each in one request
  * - deleteVectorItems() - DELETE specific hashes
  * - purgeVectorIndex() - DELETE entire collection
  * - purgeAllVectorIndexes() - DELETE all collections
@@ -666,18 +667,55 @@ export async function deleteVectorItems(collectionId, hashes, settings) {
  *   embed per request (Standard without the Similharity plugin)
  */
 export async function getQueryVector(backend, searchText, settings) {
-    try {
-        return await backend.embedQuery(searchText, settings);
-    } catch (error) {
-        if (error?.code === 'invalid_model_config') throw error;
-        log.warn(`VectFox: query embedding failed, retrying once in ${QUERY_EMBEDDING_RETRY_PAUSE_MS} ms — ${error?.message || error}`);
-        await new Promise(resolve => setTimeout(resolve, QUERY_EMBEDDING_RETRY_PAUSE_MS));
-        return await backend.embedQuery(searchText, settings);
-    }
+    return embedWithOneRetry(() => backend.embedQuery(searchText, settings));
 }
 
 /** How long a failed query embedding waits before its one retry. */
 export const QUERY_EMBEDDING_RETRY_PAUSE_MS = 1000;
+
+/**
+ * A query embedding, tried again once after QUERY_EMBEDDING_RETRY_PAUSE_MS when it fails for any reason but a wrong
+ * configuration, which no retry fixes.
+ * @template T
+ * @param {() => Promise<T>} embed
+ * @returns {Promise<T>}
+ */
+async function embedWithOneRetry(embed) {
+    try {
+        return await embed();
+    } catch (error) {
+        if (error?.code === 'invalid_model_config') throw error;
+        log.warn(`VectFox: query embedding failed, retrying once in ${QUERY_EMBEDDING_RETRY_PAUSE_MS} ms — ${error?.message || error}`);
+        await new Promise(resolve => setTimeout(resolve, QUERY_EMBEDDING_RETRY_PAUSE_MS));
+        return await embed();
+    }
+}
+
+/**
+ * Search several collections of one shared Qdrant collection together, one fused search for each text, as LoreBase
+ * searches every book taking part in a reply (§4.5 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): the
+ * texts embedded in one request, retried once as getQueryVector retries, then their searches sent at once, each
+ * reading every collection listed in one request (QdrantBackend.hybridQueryCollections).
+ * @param {string[]} collectionIds - The collections, each a tenant of the shared collection the settings name
+ * @param {string[]} searchTexts - Each within the embedding provider's piece size
+ * @param {number} topK - How many points each search returns
+ * @param {object} settings - VectFox settings, with "One shared collection" on, as a request's copy sets it
+ * @returns {Promise<Array<Array<{hash: number, score: number, metadata: object}>>>} Each text's points, best first
+ * @throws {Error} When an embedding or a search fails; a wrong embedding setup with `code: 'invalid_model_config'`
+ */
+export async function searchCollectionsTogether(collectionIds, searchTexts, topK, settings) {
+    const backend = await getBackendForCollection('qdrant', settings);
+    const vectors = await embedWithOneRetry(() => backend.embedQueries(searchTexts, settings));
+    const queryStart = Date.now();
+    try {
+        const searches = await Promise.all(searchTexts.map((text, index) => backend.hybridQueryCollections(collectionIds, text, topK, settings, vectors[index])));
+        recordQuery('qdrant', Date.now() - queryStart);
+        return searches;
+    } catch (error) {
+        recordError('qdrant', error);
+        throw error;
+    }
+}
 
 /**
  * Queries a single collection for similar vectors

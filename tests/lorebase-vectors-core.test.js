@@ -1,9 +1,10 @@
 /**
- * LoreBase's vectors, the pure part (src/features/lorebase/lorebase-vectors-core.js, §4.1 to §4.4 of
+ * LoreBase's vectors, the pure part (src/features/lorebase/lorebase-vectors-core.js, §4.1 to §4.5 of
  * InternalProject/Vectfox/plans/lorebook-multi-vector.md): the account's Qdrant collection and each book's ID inside it
  * (Q6), one point per part with its entry's title before the part, hashes and point IDs that keep entries and books
- * apart, which entries have their vectors from the model set now, what brings a book in line with its selection, and
- * insert batches of whole entries.
+ * apart, which entries have their vectors from the model set now, what brings a book in line with its selection,
+ * insert batches of whole entries, and a reply's search: its two texts, each cut to its newest tokens, and the pool
+ * the searches' points make, as segment_trials.py's rank_entries made it.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -11,8 +12,8 @@ vi.mock('../src/sillytavern/chat.js', () => ({ getContext: vi.fn(() => ({})), ge
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 
 const {
-    bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, loreBaseAccountCollection, loreBaseBookCollectionId, pointBatches,
-    pointHash, pointId, storedPointsOf, uidsWithStoredVectors,
+    PARTS_PER_SEAT, bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, loreBaseAccountCollection, loreBaseBookCollectionId,
+    newestWithin, pointBatches, pointHash, pointId, searchPool, searchTextsOf, storedPointsOf, uidsWithStoredVectors,
 } = await import('../src/features/lorebase/lorebase-vectors-core.js');
 
 const BOOK_ID = loreBaseBookCollectionId('Harbor Atlas', 'rabbit');
@@ -136,5 +137,59 @@ describe('insert batches', () => {
     it('puts an entry of more points than the size in a batch of its own', () => {
         const batches = pointBatches([entryWith(1, 1), entryWith(2, 7), entryWith(3, 1)], 5);
         expect(batches.map(batch => batch.map(entry => entry.uid))).toEqual([['1'], ['2'], ['3']]);
+    });
+});
+
+describe("a reply's search texts", () => {
+    it("searches the user's last message first, then the message before it, and one text for a scene of one message", () => {
+        const messages = [{ name: 'Wren', text: 'Hello.' }, { name: 'Orrin', text: 'The lamp is lit.' }, { name: 'Wren', text: 'Who keeps it tonight?' }];
+        expect(searchTextsOf(messages)).toEqual(['Who keeps it tonight?', 'The lamp is lit.']);
+        expect(searchTextsOf([{ name: 'Wren', text: 'Who keeps it tonight?' }])).toEqual(['Who keeps it tonight?']);
+    });
+
+    it('keeps a text within the size whole, and cuts a longer one to its newest tokens within it', () => {
+        const words = text => text.split(/\s+/).filter(Boolean).length;
+        expect(newestWithin('  The lamp is lit.  ', 4, words)).toBe('The lamp is lit.');
+        const long = Array.from({ length: 50 }, (_, index) => `word${index}`).join(' ');
+        const cut = newestWithin(long, 10, words);
+        expect(words(cut)).toBeLessThanOrEqual(10);
+        expect(cut.endsWith('word49')).toBe(true);
+        expect(newestWithin(long, Infinity, words)).toBe(long);
+    });
+
+    it('asks for four parts a seat, as the trials searched', () => {
+        expect(PARTS_PER_SEAT).toBe(4);
+    });
+});
+
+describe("a reply's pool", () => {
+    const contents = [
+        { number: 1, bookName: 'Harbor Atlas', uid: 3 },
+        { number: 2, bookName: 'Harbor Atlas', uid: 4 },
+        { number: 3, bookName: 'Wren Journal', uid: 3 },
+        { number: 4, bookName: 'Wren Journal', uid: 9 },
+    ];
+    const point = (bookName, entryUid, score) => ({ score, metadata: { lorebookName: bookName, entryUid: String(entryUid) } });
+
+    it("keeps each entry's best part of either search, the best entries first, then returns them in the table's order", () => {
+        const searches = [
+            [point('Wren Journal', 9, 0.9), point('Harbor Atlas', 3, 0.5), point('Wren Journal', 9, 0.4)],
+            [point('Harbor Atlas', 4, 0.7), point('Harbor Atlas', 3, 0.8)],
+        ];
+        // Entry 4 at 0.9, entry 1 at 0.8 from the second search, entry 2 at 0.7.
+        expect(searchPool(searches, contents, 2).map(item => item.number)).toEqual([1, 4]);
+        expect(searchPool(searches, contents, 3).map(item => item.number)).toEqual([1, 2, 4]);
+    });
+
+    it('gives a tie to the earlier search, then to the table\'s order', () => {
+        const searches = [[point('Wren Journal', 9, 0.5)], [point('Harbor Atlas', 4, 0.5), point('Harbor Atlas', 3, 0.5)]];
+        expect(searchPool(searches, contents, 1).map(item => item.number)).toEqual([4]);
+        expect(searchPool(searches, contents, 2).map(item => item.number)).toEqual([1, 4]);
+    });
+
+    it("counts no part of an entry the table does not hold: another book's, or one LoreBase does not decide now", () => {
+        const searches = [[point('Old Pier', 3, 0.99), point('Harbor Atlas', 77, 0.95), point('Wren Journal', 3, 0.2)]];
+        expect(searchPool(searches, contents, 100)).toEqual([contents[2]]);
+        expect(searchPool([[], []], contents, 100)).toEqual([]);
     });
 });

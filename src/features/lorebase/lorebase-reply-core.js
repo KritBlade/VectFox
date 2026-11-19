@@ -161,7 +161,12 @@ async function reviewPick(pick, { scene, books, ask }) {
  * @property {number} contentCount - Entries in the table of contents the pick read
  * @property {object[]} picks - From readPicks, most needed first
  * @property {number} unreadItemCount - Items of the pick's answer that named no entry of the table
- * @property {number} pickSeconds - How long the pick took to answer, or to fail
+ * @property {number|null} pickSeconds - How long the pick took to answer, or to fail; null when it was not asked, as
+ *   when Fast and Cheap [Jev]'s search failed or found nothing
+ * @property {{seats: number, poolCount: number|null, seconds: number|null}} [search] - On Fast and Cheap [Jev], the
+ *   search before Jev: the most entries Jev is asked about, how many the search kept, null when the entries were no
+ *   more than the seats and nothing was searched, and how long it took (§5 of lorebook-multi-vector.md); absent on
+ *   High Accuracy
  * @property {Array<{bookName: string, uid: number, title: string, uses: string, frame: object|null, passages: object[],
  *   sentParts: number[], seconds: number|null}>} reviewedPicks - Each pick whose review was read, with the numbers of
  *   the parts it sends: none when the review says the reply uses none of the entry; and how long its review took; and

@@ -17,5 +17,6 @@ export {
     resolveEmbeddingProfile,
     resolveProviderApiUrl,
 } from './providers.js';
-export { fetchQueryEmbedding } from './query-embedding.js';
-export { searchPieces } from './search-pieces.js';
+export { fetchQueryEmbedding, fetchQueryEmbeddings } from './query-embedding.js';
+export { searchTokens } from './search-pieces-core.js';
+export { searchPieceTokensOf, searchPieces } from './search-pieces.js';

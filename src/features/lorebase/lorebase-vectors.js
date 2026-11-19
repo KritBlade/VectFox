@@ -9,7 +9,8 @@
  * their gone parts; the points of an entry no longer selected go when the selection screen closes. For the Database
  * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), a book tenant's
  * points are read whole, vectors included, in whichever collection holds them, a vectors file's points are stored with
- * their vectors and no embedding call, and a tenant is deleted whole.
+ * their vectors and no embedding call, and a tenant is deleted whole. A reply on Fast and Cheap [Jev] searches every
+ * book taking part in one request for each of its two texts (§4.5).
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
@@ -17,15 +18,18 @@ import { extension_settings } from '../../sillytavern/settings.js';
 import { getCurrentUserHandle } from '../../sillytavern/user.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
-import { getModelFromSettings } from '../embedding/index.js';
-import { MULTITENANCY_COLLECTION, deleteVectorItems, insertVectorItems, listChunks, purgeVectorIndex } from '../vector-backend/index.js';
+import { getModelFromSettings, searchPieceTokensOf, searchTokens } from '../embedding/index.js';
+import {
+    MULTITENANCY_COLLECTION, deleteVectorItems, insertVectorItems, listChunks, purgeVectorIndex, searchCollectionsTogether,
+} from '../vector-backend/index.js';
 import { getLoreBook, loadDecidedEntries } from './lorebase-books.js';
+import { POOL_SEATS } from './lorebase-jev-core.js';
 import { writingFailuresMessage } from './lorebase-keys-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn } from './lorebase-switch.js';
 import {
-    bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, loreBaseAccountCollection, loreBaseBookCollectionId,
-    pointBatches, storedPointsOf, uidsWithStoredVectors,
+    PARTS_PER_SEAT, bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, loreBaseAccountCollection,
+    loreBaseBookCollectionId, newestWithin, pointBatches, searchPool, searchTextsOf, storedPointsOf, uidsWithStoredVectors,
 } from './lorebase-vectors-core.js';
 
 // Similharity lists every point of a book, then returns at most this many: all of them.
@@ -151,6 +155,26 @@ export async function bookVectors(bookNames, settings) {
 export function uidsWithCurrentVectors(bookName, entries, stored, settings) {
     const modelKey = currentEmbeddingModelKey(settings);
     return new Set(entriesWithPoints(bookName, entries).filter(({ points }) => hasCurrentVectors(points, stored, modelKey)).map(({ uid }) => uid));
+}
+
+/**
+ * A reply's pool on Fast and Cheap [Jev] (§4.5): the user's last message and the message before it, each cut to its
+ * newest tokens within the embedding provider's piece size, embedded in one request, each searched in one request over
+ * every book taking part; the entries of the table of contents the searches rank best (searchPool).
+ * @param {Array<{bookName: string}>} books - The books taking part
+ * @param {Array<{number: number, bookName: string, uid: number}>} contents - Their table of contents
+ * @param {Array<{text: string}>} messages - The scene's messages, oldest first, the user's last
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<Array<{number: number, bookName: string, uid: number}>>} At most POOL_SEATS items of `contents`, in
+ *   its order
+ * @throws {Error} When the embedding or a search fails
+ */
+export async function searchReplyPool(books, contents, messages, settings) {
+    const pieceTokens = searchPieceTokensOf(settings);
+    const texts = searchTextsOf(messages).map(text => newestWithin(text, pieceTokens, searchTokens)).filter(Boolean);
+    const collectionIds = books.map(book => bookCollectionIdOf(book.bookName));
+    const searches = await searchCollectionsTogether(collectionIds, texts, POOL_SEATS * PARTS_PER_SEAT, vectorSettings(settings));
+    return searchPool(searches, contents, POOL_SEATS);
 }
 
 /** A point as the vector API inserts it: its own ID and hash, its text, and the book, entry and part it belongs to. */

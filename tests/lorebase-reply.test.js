@@ -6,7 +6,9 @@
  * character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore a failed
  * call could not get, with the toast for it (D14); says, once per chat and again when their number changes, which
  * selected entries a reply leaves out for not being ready, with no keys (D17) or no vectors from the embedding model set
- * now (§4.4 of lorebook-multi-vector.md); holds a reply's picks for the World Info scan that follows once
+ * now (§4.4 of lorebook-multi-vector.md); on Fast and Cheap [Jev] searches above 100 entries and sends Jev's picks
+ * within the lore budget (§5), a search failed on the embedding setup raising the sticky popup; holds a reply's picks
+ * for the World Info scan that follows once
  * the retrieval beside them is done, where a generation with no pick sends no selected entry (§5.7, §6.8); and hands
  * each reply's outcome to the tester, with what that scan reads (§5.10).
  */
@@ -109,6 +111,10 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
     }),
     uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid))
         .filter(uid => !host.unvectorizedUids.has(`${bookName}/${uid}`)))),
+    searchReplyPool: vi.fn(async (books, contents) => {
+        if (host.searchError) throw host.searchError;
+        return contents.slice(-2);
+    }),
 }));
 vi.mock('../src/features/lorebase/lorebase-routes.js', () => ({ postLoreBaseRoute: vi.fn() }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
@@ -131,6 +137,7 @@ const { choicePopup } = await import('../src/sillytavern/popup.js');
 const { turnOffVectorStorageWorldInfo } = await import('../src/sillytavern/vector-storage.js');
 const { initializeLoreBaseTester, keepReplyScan, recordReplyReport } = await import('../src/features/lorebase/lorebase-tester.js');
 const { askJev } = await import('../src/features/lorebase/lorebase-jev.js');
+const { searchReplyPool } = await import('../src/features/lorebase/lorebase-vectors.js');
 const { initializeLoreBase, prepareLoreBesideRetrieval, prepareLoreForReply, tryLoreBasePick } = await import('../src/features/lorebase/lorebase-reply.js');
 
 initializeLoreBase();
@@ -180,6 +187,7 @@ beforeEach(() => {
     host.keysReadError = null;
     host.unvectorizedUids = new Set();
     host.vectorsReadError = null;
+    host.searchError = null;
     host.jevConnection = { ok: true, fields: { source: 'openrouter', model: 'typesafe/jev-1.14', secret_id: 'or-jev' } };
     host.jevAnswer = { yes: { e1: 0.64, e2: 0.2 }, inputTokens: 40, usd: 0.00002 };
     // A fresh generation record for each test: a plain reply.
@@ -264,6 +272,62 @@ describe('Fast and Cheap [Jev] (D16)', () => {
         expect(Object.keys(questions)).toEqual(['e1', 'e2']);
         expect(lore.picks.map(pick => [pick.title, pick.yes])).toEqual([['Lighthouse of Vell', 0.64]]);
         expect(lore.reviewedPicks.map(({ title, uses, sentParts }) => ({ title, uses, sentParts }))).toEqual([{ title: 'Lighthouse of Vell', uses: 'whole', sentParts: [1, 2] }]);
+    });
+
+    it('searches nothing at 100 entries or fewer, and sends no more than the lore budget holds', async () => {
+        // Two long entries, each under 1,000 tokens, together over it.
+        const words = count => Array.from({ length: count }, (_, index) => `word${index}`).join(' ');
+        host.books['Harbor Atlas'] = { entries: { 0: { ...LIGHTHOUSE, content: words(600) }, 1: { ...TIDEWARDENS, content: words(500) } } };
+        host.jevAnswer = { yes: { e1: 0.64, e2: 0.5 } };
+        const roomy = await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' });
+        expect(searchReplyPool).not.toHaveBeenCalled();
+        expect(roomy.picks.map(pick => pick.title)).toEqual(['Lighthouse of Vell', 'Tidewardens']);
+        expect(roomy.search).toEqual({ seats: 100, poolCount: null, seconds: null });
+
+        // At the least budget, which a saved value below it reads as, the lighthouse, rated best, goes alone.
+        const tight = await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast', lorebase_lore_budget_tokens: 1 });
+        expect(tight.picks.map(pick => pick.title)).toEqual(['Lighthouse of Vell']);
+    });
+
+    describe('above 100 entries', () => {
+        beforeEach(() => {
+            const many = Object.fromEntries(Array.from({ length: 101 }, (_, uid) => [uid, { uid, comment: `Entry ${uid}`, content: `Text of entry ${uid}.` }]));
+            host.books['Harbor Atlas'] = { entries: many };
+            host.settings.vectfox.lorebase_books['Harbor Atlas'].selectedUids = Object.keys(many);
+        });
+
+        it("asks Jev only about the search's pool, the search given the books, the table and the scene's messages", async () => {
+            host.jevAnswer = { yes: { e100: 0.9, e101: 0.1 } };
+            const fast = { ...settings, lorebase_accuracy: 'fast' };
+            const lore = await prepareLoreForReply('normal', fast);
+
+            expect(searchReplyPool).toHaveBeenCalledTimes(1);
+            const [books, contents, messages, searchSettings] = searchReplyPool.mock.calls[0];
+            expect(books.map(book => book.bookName)).toEqual(['Harbor Atlas']);
+            expect(contents).toHaveLength(101);
+            expect(messages).toEqual([{ name: 'Keeper Orrin', text: 'The lamp is lit.' }, { name: 'Wren', text: 'Who keeps it tonight?' }]);
+            expect(searchSettings).toBe(fast);
+            expect(Object.keys(askJev.mock.calls[0][2])).toEqual(['e100', 'e101']);
+            expect(lore.picks.map(pick => pick.title)).toEqual(['Entry 99']);
+            expect(lore.search).toMatchObject({ seats: 100, poolCount: 2 });
+        });
+
+        it('leaves every selected entry out when the search fails, with the toast that asks to regenerate', async () => {
+            host.searchError = new Error('[Qdrant] Hybrid query of 1 collections in vf_lorebase_rabbit failed: 500');
+            const lore = await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' });
+            expect(askJev).not.toHaveBeenCalled();
+            expect(lore.picks).toEqual([]);
+            expect(globalThis.toastr.warning).toHaveBeenCalledTimes(1);
+            expect(globalThis.toastr.warning.mock.calls[0][0]).toMatch(/^LoreBase could not pick the lore for this reply, so none of the entries selected for LoreBase go in\. Regenerate the message to try again\. Details: the search failed: \[Qdrant\] Hybrid query/u);
+            expect(notifyInvalidModel).not.toHaveBeenCalled();
+        });
+
+        it('raises the sticky popup, and no toast, when the search fails on the embedding setup', async () => {
+            host.searchError = Object.assign(new Error('Embedding: the model "baai/bge-m9" is not known.'), { code: 'invalid_model_config' });
+            await prepareLoreForReply('normal', { ...settings, lorebase_accuracy: 'fast' });
+            expect(notifyInvalidModel).toHaveBeenCalledWith('Embedding: the model "baai/bge-m9" is not known.');
+            expect(globalThis.toastr.warning).not.toHaveBeenCalled();
+        });
     });
 
     it('says where to choose Jev\'s profile when none can run, and sends no selected entry', async () => {
