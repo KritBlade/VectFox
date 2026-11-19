@@ -8,12 +8,12 @@
  * The books card: it draws the open chat's books with their selected counts and locks, then how many of each book's
  * selected entries have keys and vectors, and opens LoreBase's selection screen on the book a row names, or on the
  * chat's first book from the card's own button, drawing the list again once the screen closes and saying what the
- * selection lacks of each kind, LoreBase on or off. Generate keys and Generate vectors write what the selected entries
- * of every book lack of their kind, and Generate all both; Delete all, once confirmed, deletes every key and vector the
- * user has and turns LoreBase off (D17). Each goes through LoreBase's storage module. The card's status line says how
- * each went, and shows every writing run on the progress panel, whichever started it: the entries being written, then
- * what was written and the books the run locked to its chat (§6.1 of lorebook-multi-vector.md), a line that goes once
- * another chat is open.
+ * selection lacks of each kind, LoreBase on or off, and while it is on which Generate button writes it. Generate keys
+ * and Generate vectors write what the selected entries of every book lack of their kind, and Generate all both; Delete
+ * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17). Each goes through
+ * LoreBase's storage module. The card's status line says how each went, and shows every writing run on the progress
+ * panel, whichever started it: the entries being written, then what was written and the books the run locked to its
+ * chat (§6.1 of lorebook-multi-vector.md), a line that goes once another chat is open.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
@@ -25,7 +25,7 @@ import {
 import { loreBaseBooksMarkup } from './worldinfo-page-markup.js';
 
 const SWITCH_ID = 'VectFox_lorebase_enabled';
-// Each Generate button, the kinds it writes, and its name in the console.
+// Each Generate button, the kinds it writes, and its name, which the console and the status line give it.
 const GENERATE_BUTTONS = [
     { id: 'VectFox_lorebase_generate_keys', kinds: [KEYS], name: 'Generate keys' },
     { id: 'VectFox_lorebase_generate_vectors', kinds: [VECTORS], name: 'Generate vectors' },
@@ -159,7 +159,7 @@ function showRunOutcome(outcome, kinds = BOTH_KINDS) {
  */
 function showWritingRun({ count, outcome }) {
     if (outcome) showRunOutcome(outcome);
-    else showBooksStatus(`Writing what ${counted(count, 'selected entry lacks', 'selected entries lack')}; the progress panel counts them.`);
+    else showBooksStatus(`Writing what ${counted(count, 'selected entry lacks', 'selected entries lack')}; the progress panel counts ${count === 1 ? 'it' : 'them'}.`);
 }
 
 /**
@@ -269,10 +269,22 @@ function missingText({ missingKeyCount, missingVectorCount }) {
 }
 
 /**
+ * The Generate button that writes what the selection lacks: Generate keys or Generate vectors when it lacks one kind,
+ * Generate all when it lacks both.
+ * @param {{missingKeyCount: number, missingVectorCount: number}} chosen - From openLoreBaseSelection, lacking either
+ * @returns {string} The button's name
+ */
+function generateButtonNameFor({ missingKeyCount, missingVectorCount }) {
+    const lacked = [missingKeyCount && KEYS, missingVectorCount && VECTORS].filter(Boolean);
+    return GENERATE_BUTTONS.find(button => button.kinds.join() === lacked.join()).name;
+}
+
+/**
  * What the selection lacks once the selection screen closed, LoreBase on or off: nothing, or how many entries have no
- * keys and how many no vectors yet, which wait while LoreBase is on and are written by turning it on while it is off;
- * with nothing selected, the line goes, or calls to choose entries while LoreBase is on; with the keys and vectors
- * unread, the line goes. A run started on the screen's question writes its own lines (showWritingRun).
+ * keys and how many no vectors yet, which LoreBase leaves out while it is on, until the Generate button for what they
+ * lack writes it (generateButtonNameFor), and which turning it on writes while it is off; with nothing selected, the
+ * line goes, or calls to choose entries while LoreBase is on; with the keys and vectors unread, the line goes. A run
+ * started on the screen's question writes its own lines (showWritingRun).
  * @param {{missingCount: number, missingKeyCount: number, missingVectorCount: number, decidedCount: number,
  *   isWriting: boolean}|null} chosen - From openLoreBaseSelection
  */
@@ -282,8 +294,9 @@ function showChosenSelection(chosen) {
         showBooksStatus(chosen && isLoreBaseSwitchedOn() && !selectedLoreBookNames().length ? NOTHING_SELECTED_TEXT : '');
     } else if (chosen.missingCount) {
         const missing = missingText(chosen);
+        const leftOut = chosen.missingCount === 1 ? 'it' : 'them';
         showBooksStatus(isLoreBaseSwitchedOn()
-            ? `${missing} LoreBase leaves them out until Generate all writes them.`
+            ? `${missing} LoreBase leaves ${leftOut} out until ${generateButtonNameFor(chosen)} writes them.`
             : `${missing} Turn on Use LoreBase to write them.`);
     } else {
         showBooksStatus(chosen.decidedCount === 1

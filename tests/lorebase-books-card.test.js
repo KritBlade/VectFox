@@ -9,10 +9,11 @@
  * to choose entries next. The books card draws the open chat's books, then how many of each book's selected entries
  * have keys and vectors, opens the selection screen on the book a row names or, from the card's own button, on the
  * chat's first book, and draws the list again once the screen closes, a screen that failed included, saying what the
- * selection lacks of each kind. Generate keys, Generate vectors and Generate all write the missing ones of their kinds,
- * or say why they cannot; Delete all asks first, and once it has deleted both turns LoreBase off; the status line says
- * how each went, and names the books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md), "this chat" while it is open, a line that goes once another chat is open.
+ * selection lacks of each kind and, while LoreBase is on, which Generate button writes it. Generate keys, Generate
+ * vectors and Generate all write the missing ones of their kinds, or say why they cannot; Delete all asks first, and
+ * once it has deleted both turns LoreBase off; the status line says how each went, one entry as one, and names the
+ * books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md),
+ * "this chat" while it is open, a line that goes once another chat is open.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -233,7 +234,7 @@ describe('the LoreBase books card', () => {
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('could not be counted'), failure);
     });
 
-    it('says what the selection lacks once the screen closes, LoreBase on or off, and drops the line with nothing selected', async () => {
+    it('says what the selection lacks once the screen closes, and the Generate button that writes it while LoreBase is on, and drops the line with nothing selected', async () => {
         const status = () => document.getElementById('VectFox_lorebase_books_status');
         const closeWith = async chosen => {
             opener('Harbor Atlas').click();
@@ -253,8 +254,11 @@ describe('the LoreBase books card', () => {
         // A run the screen's question started writes its own lines.
         await closeWith(lacking(12, 5, { isWriting: true }));
         expect(status().textContent).toBe(twelveAndFive);
+        // Lacking one kind names its own Generate button, one entry as one.
         await closeWith(lacking(3, 0));
-        await vi.waitFor(() => expect(status().textContent).toBe('3 selected entries have no keys yet. LoreBase leaves them out until Generate all writes them.'));
+        await vi.waitFor(() => expect(status().textContent).toBe('3 selected entries have no keys yet. LoreBase leaves them out until Generate keys writes them.'));
+        await closeWith(lacking(0, 1));
+        await vi.waitFor(() => expect(status().textContent).toBe('1 selected entry has no vectors yet. LoreBase leaves it out until Generate vectors writes them.'));
         // While LoreBase is off, turning it on writes them.
         host.isOn = false;
         await closeWith(lacking(0, 1));
@@ -404,13 +408,15 @@ describe('the Generate buttons and Delete all', () => {
         expect(turnLoreBaseOff).not.toHaveBeenCalled();
     });
 
-    it('shows what turning LoreBase on writes in place of the delete: the entries being written, then what was written', async () => {
+    it('shows what turning LoreBase on writes in place of the delete: the entries being written, one as one, then what was written', async () => {
         remove().click();
         await vi.waitFor(() => expect(status().textContent).toBe(deletedText));
         host.writingRunListener({ count: 311, outcome: null });
         expect(status().textContent).toBe('Writing what 311 selected entries lack; the progress panel counts them.');
         host.writingRunListener({ count: 311, outcome: outcomeOf({ keysWritten: 309, vectorsWritten: 309, failed: 2 }) });
         expect(status().textContent).toBe('Wrote the keys of 309 entries and the vectors of 309 entries. 2 entries failed, as the toast says.');
+        host.writingRunListener({ count: 1, outcome: null });
+        expect(status().textContent).toBe('Writing what 1 selected entry lacks; the progress panel counts it.');
     });
 
     it('names the books a run locked to this chat, draws the list again, and drops the line once another chat is open', async () => {
