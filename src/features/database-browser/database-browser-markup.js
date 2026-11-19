@@ -9,7 +9,8 @@
  * carry data-* hooks: `data-browser-action` for a page's buttons,
  * `data-collection-action` with `data-collection-key` for a collection's,
  * `data-collection-select` for its selection box, `data-lorebase-action` with
- * `data-lorebase-row` for a LoreBase row's, and `data-size-action` and
+ * `data-lorebase-row` for a LoreBase row's, `data-lorebase-flag` for a lorebook's
+ * ⚠, and `data-size-action` and
  * `data-size-page` for the Size Inspector's (size-inspector.js). A collection's row
  * and a lorebook's LoreBase rows are drawn from views (database-browser.js
  * collectionRowView, loreBaseBookView) holding only plain values. Every value is
@@ -61,8 +62,6 @@ const KEYWORD_TAG_LIMIT = 30;
 const SIZE_ENTRIES_PER_PAGE = 50;
 
 const HIDDEN = ' style="display:none;"';
-// Where LoreBase keeps every book's keys: one Qdrant collection of Similharity's (its lorebase-keys.js).
-const LOREBASE_KEYS_COLLECTION = 'vectfox_lorebase_keys';
 const SIMILHARITY_INSTALL_URL = 'https://github.com/KritBlade/VectFox/tree/Similharity-Plugin#step-2-install-plugin-via-git-recommended';
 
 // The icon for each collection type; a type not listed gets a cube (collectionTypeIcon).
@@ -235,7 +234,7 @@ export function collectionEntryMarkup(view) {
         name: view.name,
         sub: [
             { text: 'Chunks', name: view.chunkCount },
-            view.backend ? { text: 'Stored in', name: view.source ? `${view.backend}, embedded by ${view.source}` : view.backend } : null,
+            view.backend ? { text: 'Stored in', name: view.embedding ? `${view.backend}, embedded by ${view.embedding}` : view.backend } : null,
             { text: 'ID', name: view.id },
             view.activeHereLine ? { name: view.activeHereLine } : null,
         ],
@@ -252,27 +251,21 @@ export function collectionEntryMarkup(view) {
 }
 
 /**
- * One branch of a lorebook's LoreBase rows: its keys, or the vectors one collection holds of it, with the actions the
- * view allows.
+ * One branch of a lorebook's LoreBase rows, in one line as a StoryArc links row is: its keys, or the vectors one
+ * collection holds of it, with the actions the view allows.
  *
- * @param {{key: string, kind: string, count: number, storedIn: string, embedding: string, tenant: string|null,
- *   isElsewhere: boolean, canExport: boolean, canImport: boolean, canDelete: boolean}} row
+ * @param {{key: string, kind: string, line: string, isElsewhere: boolean, canExport: boolean, canImport: boolean,
+ *   canDelete: boolean}} row - line: what it holds, in words
  * @returns {string}
  */
 function loreBaseRowMarkup(row) {
     const isKeys = row.kind === 'keys';
     const words = isKeys ? 'keys' : 'vectors';
     const data = action => ({ 'lorebase-action': action, 'lorebase-row': row.key });
-    const storedIn = isKeys ? LOREBASE_KEYS_COLLECTION : row.storedIn;
     return listRow({
         icon: isKeys ? 'fa-key' : 'fa-vector-square',
         text: isKeys ? 'LoreBase keys' : 'LoreBase vectors',
-        sub: [
-            isKeys ? { text: 'Entries with keys', name: row.count } : { text: 'Parts', name: row.count },
-            { text: 'Stored in', name: row.embedding ? `${storedIn}, embedded by ${row.embedding}` : storedIn },
-            row.tenant ? { text: 'ID', name: row.tenant } : null,
-            row.isElsewhere ? { text: 'LoreBase reads its vectors from another collection now, so it does not read these.' } : null,
-        ],
+        sub: { name: row.line },
         pills: row.isElsewhere ? [statusPill({ text: 'Not read', status: 'warning' })] : [],
         actions: [
             row.canExport ? iconButton({ icon: 'fa-file-export', title: `Export ${words}`, data: data('export') }) : '',
@@ -283,24 +276,54 @@ function loreBaseRowMarkup(row) {
     });
 }
 
+// Where a collection's tick box sits, kept empty beside a lorebook's row, so the two line up.
+const BLANK_PICK_CHECK = '<span class="vfx-pick-check is-blank" aria-hidden="true"><input type="checkbox" class="vfx-check" tabindex="-1" disabled></span>';
+
 /**
- * One lorebook's LoreBase rows (§3.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): a row
- * naming the book, then a branch for its keys and one for each collection holding its vectors. No tick box, lock,
- * pause, rename or View chunks, none of which means anything for them.
+ * One lorebook's LoreBase rows (§3.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), shaped as a
+ * chat collection's: the lorebook's row, in the collections' column, with its selected entries, where its vectors are
+ * stored and their ID, and the ⚠ flag when the view gives one, then a branch for its keys and one for each collection
+ * holding its vectors. No tick box, lock, pause, rename or View chunks, none of which means anything for them.
  *
- * @param {{key: string, name: string, isInSillyTavern: boolean, rows: object[]}} view - rows: as loreBaseRowMarkup takes them
+ * @param {{key: string, name: string, isInSillyTavern: boolean, selectedCount: number|null, storedIn: string, id: string,
+ *   flag: string, isFlagOpen: boolean, rows: object[]}} view - selectedCount: null leaves its line out; flag: the ⚠'s
+ *   words, '' for none; rows: as loreBaseRowMarkup takes them
  * @returns {string}
  */
 export function loreBaseBookMarkup(view) {
     const bookRow = listRow({
-        icon: 'fa-book-open',
+        icon: collectionTypeIcon('lorebook'),
         name: view.name,
-        sub: { text: 'LoreBase lorebook' },
+        sub: [
+            view.selectedCount === null ? null : { text: 'Selected entries', name: view.selectedCount },
+            { text: 'Stored in', name: view.storedIn },
+            { text: 'ID', name: view.id },
+        ],
         pills: view.isInSillyTavern ? [] : [statusPill({ text: 'Not in SillyTavern', status: 'warning' })],
+        flag: view.flag ? { title: view.flag, isOpen: view.isFlagOpen, data: { 'lorebase-flag': view.key } } : null,
     });
-    return `<div class="vfx-pick-row" data-lorebase-book="${escape(view.key)}"><div class="vfx-pick-body">`
+    return `<div class="vfx-pick-row" data-lorebase-book="${escape(view.key)}">${BLANK_PICK_CHECK}<div class="vfx-pick-body">`
         + bookRow + view.rows.map(loreBaseRowMarkup).join('')
         + '</div></div>';
+}
+
+/**
+ * Show leftovers, under the list, and, while it is open, the LoreBase leftovers: what LoreBase cannot use here, each
+ * lorebook's rows as loreBaseBookMarkup draws them.
+ *
+ * @param {{lorebookCount: number, isOpen: boolean, booksMarkup: string}} view
+ * @returns {string}
+ */
+export function loreBaseLeftoversMarkup({ lorebookCount, isOpen, booksMarkup }) {
+    const toggle = controlRow([
+        button({ text: isOpen ? 'Hide leftovers' : 'Show leftovers', icon: 'fa-box-archive', data: { 'browser-action': 'toggle-leftovers' } }),
+        statusPill({ name: counted(lorebookCount, 'lorebook'), status: 'warning' }),
+    ]);
+    if (!isOpen) return `<div class="vfx-list" data-lorebase-leftovers="">${toggle}</div>`;
+    return `<div class="vfx-list" data-lorebase-leftovers="">${toggle}`
+        + groupTitle({ icon: 'fa-box-archive', text: 'LoreBase leftovers' })
+        + hint({ text: 'Keys and vectors LoreBase cannot use here. Export them to keep a copy, or delete them.' })
+        + booksMarkup + '</div>';
 }
 
 /**

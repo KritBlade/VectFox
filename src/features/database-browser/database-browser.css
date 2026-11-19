@@ -1,10 +1,16 @@
 /* database-browser.css — the Database Browser's own rules beside the GUI-DNA (database-browser-markup.js and
- * chunk-visualizer-markup.js): the StoryArc links row drawn as a branch under a collection, and the open chunk's row.
- * The tick box beside each row is in shared/gui-dna/pick-rows.css; the Chunk Visualizer's title and phone layout are
- * in shared/gui-dna/workbench.css. */
+ * chunk-visualizer-markup.js): the StoryArc links row and a lorebook's keys and vectors rows drawn as branches under
+ * their row, the empty place beside a lorebook's row where a collection's tick box sits, and the open chunk's row. The
+ * tick box beside each row is in shared/gui-dna/pick-rows.css; the Chunk Visualizer's title and phone layout are in
+ * shared/gui-dna/workbench.css. */
 
 .vfx-ui .vfx-pick-body > .vfx-row + .vfx-row {
     margin-left: 24px;
+}
+
+/* A lorebook's row has no tick box: the box stays, unseen, so the row sits in the collections' column. */
+.vfx-ui .vfx-pick-check.is-blank {
+    visibility: hidden;
 }
 
 /* The chunk open in the Chunk Visualizer's form, edged in the accent. */

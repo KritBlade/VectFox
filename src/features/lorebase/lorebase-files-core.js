@@ -2,8 +2,8 @@
  * LoreBase's files (§3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), with no host imports:
  * a book's keys file and a book tenant's vectors file, each opening with the header every VectFox file has, and what
  * a file would write to a book before anything is written: the keys of the entries whose number and title both match,
- * selected or not, and the vectors of the parts of the selected entries LoreBase decides now. The Database Browser's
- * words for an export, an import and a delete are here too.
+ * selected or not, and the vectors of the parts of the entries LoreBase would decide now, selected or not. The Database
+ * Browser's words for an export, an import and a delete are here too.
  */
 import { counted } from '../../shared/counted.js';
 import { KEYS, VECTORS } from './lorebase-storage-core.js';
@@ -132,27 +132,30 @@ export function vectorsFileOf({ book, header, points }) {
 
 /**
  * What a vectors file would write to a book, without writing it: each of its points whose hash, made again from its uid
- * and text, is a part of a selected entry LoreBase decides in the book now, as an unselected entry's vectors are
- * deleted; how many of those replace a part the book has; and how many of the file's points are no such part, or are
- * damaged or listed twice. When the file's embedding model is not the one set now its vectors cannot go in, and the
- * matched entries are embedded again, as Generate vectors embeds them.
+ * and text, is a part of an entry LoreBase would decide in the book now, selected or not; how many of those replace a
+ * part the book has; how many belong to an entry not selected, which the book's next vectors write erases; and how many
+ * of the file's points are no such part, or are damaged or listed twice. When the file's embedding model is not the one
+ * set now its vectors cannot go in, and the selected entries' matched parts are embedded again, as Generate vectors
+ * embeds them; an unselected entry's are skipped, as that write would erase them, and counted.
  * @param {unknown} file - Parsed JSON
- * @param {{decided: Array<{uid: string, points: Array<{hash: number, uid: string}>}>, stored: Map<number, object>, modelKey: string}} book
- *   decided: the selected entries LoreBase decides now, with their points (entriesWithPoints); stored: what Qdrant holds
- *   for the book, by hash; modelKey: the embedding model set now (embeddingModelKey)
- * @returns {{writes: Array<{point: object, vector: number[]}>, uids: string[], replaceCount: number, unmatchedCount: number,
- *   damagedCount: number, embedding: {source: string, model: string, dimension: number}, needsEmbedding: boolean}}
+ * @param {{candidates: Array<{uid: string, points: Array<{hash: number, uid: string}>}>, selectedUids: Set<string>,
+ *   stored: Map<number, object>, modelKey: string}} book - candidates: the entries LoreBase would decide, selected or
+ *   not, with their points (entriesWithPoints); selectedUids: the book's selected entries; stored: what Qdrant holds for
+ *   the book, by hash; modelKey: the embedding model set now (embeddingModelKey)
+ * @returns {{writes: Array<{point: object, vector: number[]}>, uids: string[], replaceCount: number, unselectedCount: number,
+ *   unmatchedCount: number, damagedCount: number, embedding: {source: string, model: string, dimension: number},
+ *   needsEmbedding: boolean}} unselectedCount: the parts of entries not selected, written, or skipped when embedding
  * @throws {Error} When it is not a LoreBase vectors file
  */
-export function planVectorsImport(file, { decided, stored, modelKey }) {
+export function planVectorsImport(file, { candidates, selectedUids, stored, modelKey }) {
     if (file?.type !== LOREBASE_VECTORS_FILE_TYPE || !Array.isArray(file.points)) throw new Error(NOT_A_FILE[VECTORS]);
     const embedding = {
         source: String(file.embedding?.source ?? ''),
         model: String(file.embedding?.model ?? ''),
         dimension: Number(file.embedding?.dimension) || 0,
     };
-    const parts = new Map(decided.flatMap(entry => entry.points.map(point => [point.hash, point])));
-    const writes = [];
+    const parts = new Map(candidates.flatMap(entry => entry.points.map(point => [point.hash, point])));
+    const matched = [];
     const written = new Set();
     let unmatchedCount = 0;
     let damagedCount = 0;
@@ -168,17 +171,21 @@ export function planVectorsImport(file, { decided, stored, modelKey }) {
             damagedCount += 1;
         } else {
             written.add(part.hash);
-            writes.push({ point: part, vector: filePoint.vector });
+            matched.push({ point: part, vector: filePoint.vector });
         }
     }
+    const needsEmbedding = embeddingModelKey(embedding.source, embedding.model) !== modelKey;
+    const isSelected = write => selectedUids.has(String(write.point.uid));
+    const writes = needsEmbedding ? matched.filter(isSelected) : matched;
     return {
         writes,
         uids: [...new Set(writes.map(write => write.point.uid))],
         replaceCount: writes.filter(write => stored.has(write.point.hash)).length,
+        unselectedCount: matched.filter(write => !isSelected(write)).length,
         unmatchedCount,
         damagedCount,
         embedding,
-        needsEmbedding: embeddingModelKey(embedding.source, embedding.model) !== modelKey,
+        needsEmbedding,
     };
 }
 
@@ -202,17 +209,27 @@ export function describeExport(kind, { count, leftOutCount }) {
     return `Exported the vectors of ${counted(count, 'part')}${leftOut}`;
 }
 
-function skippedSentence({ unmatchedCount, damagedCount }, one, many, unmatchedWhy) {
+function skippedSentence({ unmatchedCount, damagedCount }, one, many, unmatchedWhy, otherReasons = []) {
+    const why = typeof unmatchedWhy === 'function' ? unmatchedWhy(unmatchedCount) : unmatchedWhy;
     const skipped = [
-        unmatchedCount ? `${counted(unmatchedCount, one, many)} ${unmatchedWhy}` : '',
+        ...otherReasons,
+        unmatchedCount ? `${counted(unmatchedCount, one, many)} ${why}` : '',
         damagedCount ? `${counted(damagedCount, one, many)} the file holds damaged or twice` : '',
     ].filter(Boolean);
     return skipped.length ? `It skips ${skipped.join(', and ')}.` : '';
 }
 
+/** What becomes of the parts of entries not selected that a vectors import writes, in a sentence. */
+function unselectedPartsSentence(count) {
+    return count === 1
+        ? "1 of them belongs to an entry not selected, so the next write of this lorebook's vectors erases it unless you select that entry first."
+        : `${count} of them belong to entries not selected, so the next write of this lorebook's vectors erases them unless you select those entries first.`;
+}
+
 /**
  * What an import would write, in sentences for its confirm: how much, how much of it replaces what the book has, what it
- * skips, and for vectors whether the file's vectors go in or the parts are embedded again with the model set now.
+ * skips, and for vectors what becomes of the parts of entries not selected, and whether the file's vectors go in or the
+ * parts are embedded again with the model set now.
  * @param {string} kind - KEYS or VECTORS
  * @param {object} plan - From planKeysImport or planVectorsImport
  * @param {{source: string, model: string}} [current] - The embedding model set now, for vectors
@@ -229,9 +246,13 @@ export function describeImport(kind, plan, current = { source: '', model: '' }) 
     }
     const replacing = replaceCount ? `, ${replaceCount} of them replacing ${replaceCount === 1 ? 'a part' : 'parts'} this lorebook has` : '';
     const fileModel = modelWords(plan.embedding.source, plan.embedding.model);
+    const unselectedSkipped = plan.needsEmbedding && plan.unselectedCount
+        ? `${counted(plan.unselectedCount, 'part')} of entries not selected, as only a selected entry's parts are embedded again`
+        : '';
     return [
-        `It writes the vectors of ${counted(writes.length, 'part')} of ${counted(plan.uids.length, 'selected entry', 'selected entries')}${replacing}.`,
-        skippedSentence(plan, 'part', 'parts', 'that are no part of a selected entry here now'),
+        `It writes the vectors of ${counted(writes.length, 'part')} of ${counted(plan.uids.length, 'entry', 'entries')}${replacing}.`,
+        !plan.needsEmbedding && plan.unselectedCount ? unselectedPartsSentence(plan.unselectedCount) : '',
+        skippedSentence(plan, 'part', 'parts', count => `that ${count === 1 ? 'is' : 'are'} no part of an entry here now`, [unselectedSkipped]),
         plan.needsEmbedding
             ? `The file's vectors were made by ${fileModel} and yours by ${modelWords(current.source, current.model)}, so the parts are embedded`
                 + ` again with yours, as Generate vectors embeds them. To use the saved vectors, switch to ${fileModel} first.`
@@ -255,17 +276,22 @@ export function describeImported(kind, { written, failed, isEmbedded }, bookName
 }
 
 /**
- * Why an import wrote nothing, in a line: nothing in the file matched this lorebook.
+ * Why an import wrote nothing, in a line: nothing in the file matched this lorebook, or, for a vectors file of another
+ * embedding model, only entries not selected did, whose parts are not embedded again.
  * @param {string} kind - KEYS or VECTORS
  * @param {object} plan - From planKeysImport or planVectorsImport
  * @param {string} bookName
  * @returns {string}
  */
 export function nothingToImportText(kind, plan, bookName) {
-    const total = plan.writes.length + plan.unmatchedCount + plan.damagedCount;
-    return kind === KEYS
-        ? `None of this file's ${counted(total, 'entry', 'entries')} matches an entry of ${bookName} by number and title, so nothing was written.`
-        : `None of this file's ${counted(total, 'part')} is a part of a selected entry of ${bookName} now, so nothing was written.`;
+    const skippedUnselected = plan.needsEmbedding ? plan.unselectedCount : 0;
+    const total = plan.writes.length + plan.unmatchedCount + plan.damagedCount + skippedUnselected;
+    if (kind === KEYS) return `None of this file's ${counted(total, 'entry', 'entries')} matches an entry of ${bookName} by number and title, so nothing was written.`;
+    if (skippedUnselected) {
+        return `This file's vectors were made by another embedding model, and the parts of ${bookName} it matches belong to entries`
+            + ' not selected, so nothing was embedded again. Select those entries first, or switch to the model the file names.';
+    }
+    return `None of this file's ${counted(total, 'part')} is a part of an entry of ${bookName} now, so nothing was written.`;
 }
 
 /**

@@ -43,7 +43,7 @@ const VIEW = {
     isSelected: false,
     scope: 'chat',
     backend: 'Qdrant',
-    source: 'openrouter',
+    embedding: 'openrouter/qwen3-embedding-8b',
     model: '',
     hasMultipleModels: false,
     activeHereLine: '',
@@ -104,7 +104,7 @@ describe('a collection in the list', () => {
         expect(entry.querySelector('.vfx-row-name').textContent).toBe('Mira\'s road');
         expect(entry.textContent).toContain('Chunks: 14');
         expect(entry.textContent).toContain(`ID: ${VIEW.id}`);
-        expect(entry.textContent).toContain('Stored in: Qdrant, embedded by openrouter');
+        expect(entry.textContent).toContain('Stored in: Qdrant, embedded by openrouter/qwen3-embedding-8b');
         expect(pillsOf(entry)).toEqual(['Chat']);
     });
 

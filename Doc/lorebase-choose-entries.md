@@ -40,21 +40,27 @@ You don't have to keep them up to date. Edit an entry in World Info, and VectFox
 
 ## Saving them, putting them back, deleting one book
 
-The Database Browser lists every lorebook LoreBase keeps something for, under the type LoreBase. Each book gets a keys row and a vectors row, like `Entries with keys: 313` and `Parts: 504`. So you see what a book holds without opening anything.
+The Database Browser lists every lorebook you use with LoreBase, under the type LoreBase, right after your chat collections. Each one looks like a chat collection: a row with the book's name, how many entries you selected, and where its vectors are stored. Under it sit 2 rows, its keys and its vectors, like `313 entries with keys` and `504 parts`. So you see what a book holds without opening anything.
+
+See a ⚠ next to a book's name? None of its entries are selected, so LoreBase leaves the whole book out of your replies. Its keys stay. Its vectors don't: the next write erases them, like the next time you change its selection, unless you select their entries first. Hover the ⚠ and it tells you the same. On a phone, tap it.
 
 Each row has its own Export, Import and Delete. Export saves that one kind to a file. Import puts a file back. Delete removes that kind, of that book, and nothing else. Your selections stay, LoreBase stays on, and those entries just sit out of your replies until Generate keys or Generate vectors writes them again.
 
 This matters MOST for keys. They cost a LoreBase model call for every entry, so a book of 313 entries is 313 calls. Export them once, and after a reinstall, a new PC or a Delete you regret, Import brings them all back with no LLM call at all. Vectors work the same way, and Import puts them back with no embedding call.
 
-Import only writes what still matches. A keys file goes onto an entry only when its number AND its title match, because every book numbers its entries 0, 1, 2. That's what keeps another book's keys off your entries. A vectors file goes onto a part only when that part still has the same text, in an entry you have on.
+Import only writes what still matches. A keys file goes onto an entry only when its number AND its title match, because every book numbers its entries 0, 1, 2. That's what keeps another book's keys off your entries. A vectors file goes onto a part only when that part still has the same text. Both go onto an entry whether you selected it or not. Vectors of an entry you didn't select get erased on the next write, though, so Import tells you how many of those there are.
 
 Before it writes, Import tells you how many it writes, how many of those replace what the book has, and how many it skips. Say Cancel, and nothing changes.
 
-If you switched your embedding model since the export, Import says so, and embeds those parts again with your current model, the same as Generate vectors. To use the saved vectors as they are, switch back to the model the file names first.
+If you switched your embedding model since the export, Import says so, and embeds those parts again with your current model, the same as Generate vectors. Only your selected entries get embedded. To use the saved vectors as they are, switch back to the model the file names first.
 
-A book you deleted from SillyTavern still shows its rows, so you can export or delete what is left. You just can't import into it, since there is no entry left to match. Vectors marked "Not read" are the same kind of leftover: they sit in the other collection from before you switched One shared collection, and LoreBase doesn't read them anymore.
+A book isn't in the list at all when it has nothing stored and you never opened its selection screen, like after a fresh install. Use **Import a collection**, at the top of the list. Give it a keys or vectors file, and it puts it into the lorebook the file names, with the same check before it writes. The book shows up in the list right after, with its ⚠ until you select entries. So after a fresh install:
 
-Import a collection, at the top of the list, takes collection files only. Give it a keys or vectors file, and it tells you which row's Import takes it.
+1. Bring the lorebook into SillyTavern, as always.
+2. Import its keys file, then its vectors file, with Import a collection.
+3. Select its entries. The ones you had before already have their keys and vectors, so nothing gets written for them, and no model gets called.
+
+Some keys and vectors LoreBase can't use here at all: those of a book you deleted from SillyTavern, vectors marked "Not read" that sit in the other collection from before you switched One shared collection, and points that name no book. They wait behind **Show leftovers**, under the list, which only shows up when there are some. Each has Export and Delete, so you can keep a copy and clean up. There's no Import there, since nothing here could take it.
 
 ## Ticked is NOT on
 

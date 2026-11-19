@@ -1282,6 +1282,31 @@
     overflow-wrap: anywhere;
 }
 
+/* A flag after a row's name, in its status's ink, and the words it opens under the name. */
+.vfx-ui .vfx-row-flag {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    margin: 0 0 0 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    vertical-align: -0.15em;
+    font: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+
+.vfx-ui :is(.vfx-row-flag, .vfx-row-flag-words).is-warning {
+    color: var(--vfx-warning-ink);
+}
+
+.vfx-ui :is(.vfx-row-flag, .vfx-row-flag-words).is-danger {
+    color: var(--vfx-danger-ink);
+}
+
 .vfx-ui .vfx-row-pills,
 .vfx-ui .vfx-row-actions {
     display: flex;

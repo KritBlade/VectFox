@@ -49,6 +49,18 @@ export async function loadDecidedEntries(bookName, record = getLoreBook(bookName
 }
 
 /**
+ * Every entry LoreBase would decide in a book were it selected, as SillyTavern loads it now (decidedEntries with each
+ * entry selected): what a vectors file matches, selected or not. None when SillyTavern has no such book.
+ * @param {string} bookName
+ * @returns {Promise<object[]>}
+ * @throws {Error} When SillyTavern cannot load the book
+ */
+export async function loadDecidableEntries(bookName) {
+    const book = await loadWorldInfo(bookName);
+    return decidedEntries(book, { selectedUids: Object.values(book?.entries ?? {}).map(entry => String(entry.uid)) });
+}
+
+/**
  * Every entry of a book as SillyTavern loads it now, selected or not: what a keys file matches by uid and title. None
  * when SillyTavern has no such book.
  * @param {string} bookName
@@ -65,6 +77,16 @@ export async function loadBookEntries(bookName) {
  */
 export function recordedLoreBookNames() {
     return Object.keys(extension_settings.vectfox[BOOKS_KEY] ?? {});
+}
+
+/**
+ * Every book with a record, by name, and how many entries it selects for LoreBase: the Database Browser's lorebooks
+ * with a record, and which of them selects none.
+ * @returns {Record<string, number>}
+ */
+export function loreBookSelectedCounts() {
+    return Object.fromEntries(Object.entries(extension_settings.vectfox[BOOKS_KEY] ?? {})
+        .map(([bookName, record]) => [bookName, record?.selectedUids?.length ?? 0]));
 }
 
 /**

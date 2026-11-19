@@ -2,8 +2,8 @@
  * The rules of LoreBase's storage module (lorebase-storage.js, §3.1 of InternalProject/Vectfox/plans/
  * vectfox-multi-collection-per-chat.md), with no host imports: the two kinds LoreBase stores for each selected entry,
  * what of the selection's lack a run of some kinds writes, the progress panel's title and closing line for it, how many
- * of a book's selected entries have each kind, and the Database Browser's rows of each book's keys and vectors (§3.2).
- * Its files are lorebase-files-core.js's.
+ * of a book's selected entries have each kind, and the Database Browser's rows of each book's keys and vectors, the
+ * list's and the leftovers' (§3.2). Its files are lorebase-files-core.js's.
  */
 
 /** An entry's keys, which LoreBase's model writes. */
@@ -93,29 +93,54 @@ export function storedCountsOf(decidedEntries, keysOfBook, uidsWithVectors) {
 }
 
 /**
- * A row of the Database Browser's LoreBase rows: a book's keys, or one tenant of its vectors.
- * @typedef {{key: string, kind: 'keys', book: string, hasRecord: boolean, isInSillyTavern: boolean, entryCount: number}} KeysRow
- * @typedef {{key: string, kind: 'vectors', book: string|null, hasRecord: boolean, isInSillyTavern: boolean, collection: string,
- *   tenant: string|null, isHere: boolean, pointCount: number, embeddingSource: string, embeddingModel: string}} VectorsRow
+ * What every row of a book knows of it: its name, whether it has a LoreBase record and how many entries that selects,
+ * whether SillyTavern has it, and whether the row is a leftover, one LoreBase cannot use here.
+ * @typedef {{book: string|null, hasRecord: boolean, selectedCount: number, isInSillyTavern: boolean, isLeftover: boolean}} BookFacts
  */
 
 /**
- * The Database Browser's LoreBase rows (§3.2 of vectfox-multi-collection-per-chat.md), books by name. Every book that
- * has a LoreBase record, keys or vectors gets its Keys row, then its Vectors row in the collection LoreBase reads now,
- * at 0 when none are there, then a Vectors row for each of its tenants left in another collection; a tenant whose points
- * name no book gets a Vectors row of its own. Each row knows whether its book has a LoreBase record and whether
- * SillyTavern has the book.
+ * A row of the Database Browser's LoreBase rows: a book's keys, or one tenant of its vectors.
+ * @typedef {BookFacts & {key: string, kind: 'keys', entryCount: number}} KeysRow
+ * @typedef {BookFacts & {key: string, kind: 'vectors', collection: string, tenant: string|null, isHere: boolean,
+ *   pointCount: number, embeddingSource: string, embeddingModel: string}} VectorsRow
+ */
+
+const keysRowOf = (facts, entryCount) => ({ key: `${KEYS}|${facts.book}`, kind: KEYS, ...facts, entryCount });
+
+/**
+ * A row to import a file onto in a book that has none, as the list draws it at 0: its Keys row, or its Vectors row in
+ * the collection LoreBase reads now (§3.3 of vectfox-multi-collection-per-chat.md).
+ * @param {string} kind - KEYS or VECTORS
+ * @param {{book: string, hasRecord: boolean, selectedCount: number}} book - A book SillyTavern has
+ * @param {string} hereCollection - The Qdrant collection LoreBase reads this account's vectors in now
+ * @returns {KeysRow|VectorsRow}
+ */
+export function emptyRowOf(kind, book, hereCollection) {
+    const facts = { ...book, isInSillyTavern: true, isLeftover: false };
+    if (kind === KEYS) return keysRowOf(facts, 0);
+    return {
+        key: `${VECTORS}|${hereCollection}|${facts.book}`, kind: VECTORS, ...facts, collection: hereCollection, tenant: null,
+        isHere: true, pointCount: 0, embeddingSource: '', embeddingModel: '',
+    };
+}
+
+/**
+ * The Database Browser's LoreBase rows (§3.2 of vectfox-multi-collection-per-chat.md): first the list, then the
+ * leftovers, each by book name. The list holds every book SillyTavern has with a LoreBase record, keys, or vectors in
+ * the collection LoreBase reads now: its Keys row, then that collection's Vectors row, either at 0 when nothing is
+ * there. The leftovers hold what LoreBase cannot use here, each row holding something: a book's vectors in the other
+ * collection, every row of a book SillyTavern no longer has, and each tenant whose points name no book, last.
  * @param {{listing: {keys: Array<{book: string, entryCount: number}>, vectors: Array<{collection: string, tenant: string,
- *   book: string|null, pointCount: number, embeddingSource: string, embeddingModel: string}>}, recordedBookNames: string[],
- *   hereCollection: string, sillyTavernBookNames: string[]}} parts - listing: Similharity's /lorebase/books; hereCollection:
- *   the Qdrant collection LoreBase reads this account's vectors in now
+ *   book: string|null, pointCount: number, embeddingSource: string, embeddingModel: string}>},
+ *   selectedCounts: Record<string, number>, hereCollection: string, sillyTavernBookNames: string[]}} parts - listing:
+ *   Similharity's /lorebase/books; selectedCounts: each book with a LoreBase record, by name, and how many entries it
+ *   selects; hereCollection: the Qdrant collection LoreBase reads this account's vectors in now
  * @returns {Array<KeysRow|VectorsRow>}
  */
-export function storageRowsOf({ listing, recordedBookNames, hereCollection, sillyTavernBookNames }) {
-    const recorded = new Set(recordedBookNames);
+export function storageRowsOf({ listing, selectedCounts, hereCollection, sillyTavernBookNames }) {
     const inSillyTavern = new Set(sillyTavernBookNames);
     const bookNames = new Set([
-        ...recordedBookNames,
+        ...Object.keys(selectedCounts),
         ...listing.keys.map(row => row.book),
         ...listing.vectors.map(row => row.book).filter(book => book !== null),
     ]);
@@ -130,22 +155,31 @@ export function storageRowsOf({ listing, recordedBookNames, hereCollection, sill
         embeddingSource: tenant.embeddingSource,
         embeddingModel: tenant.embeddingModel,
     });
-    const rows = [];
+    const listed = [];
+    const leftovers = [];
     for (const book of [...bookNames].sort((first, second) => first.localeCompare(second))) {
-        const facts = { book, hasRecord: recorded.has(book), isInSillyTavern: inSillyTavern.has(book) };
-        rows.push({ key: `${KEYS}|${book}`, kind: KEYS, ...facts, entryCount: listing.keys.find(row => row.book === book)?.entryCount ?? 0 });
+        const hasRecord = Object.hasOwn(selectedCounts, book);
+        const facts = { book, hasRecord, selectedCount: selectedCounts[book] ?? 0, isInSillyTavern: inSillyTavern.has(book) };
+        const leftoverFacts = { ...facts, isLeftover: true };
+        const entryCount = listing.keys.find(row => row.book === book)?.entryCount ?? 0;
         const tenants = listing.vectors.filter(row => row.book === book);
         const here = tenants.filter(row => row.collection === hereCollection);
-        if (!here.length) {
-            rows.push({
-                key: `${VECTORS}|${hereCollection}|${book}`, kind: VECTORS, ...facts, collection: hereCollection, tenant: null,
-                isHere: true, pointCount: 0, embeddingSource: '', embeddingModel: '',
-            });
+        const elsewhere = tenants.filter(row => row.collection !== hereCollection);
+        if (!facts.isInSillyTavern) {
+            if (entryCount) leftovers.push(keysRowOf(leftoverFacts, entryCount));
+            for (const tenant of [...here, ...elsewhere]) leftovers.push(tenantRow(tenant, leftoverFacts));
+            continue;
         }
-        for (const tenant of [...here, ...tenants.filter(row => row.collection !== hereCollection)]) rows.push(tenantRow(tenant, facts));
+        if (hasRecord || entryCount || here.length) {
+            const listedFacts = { ...facts, isLeftover: false };
+            listed.push(keysRowOf(listedFacts, entryCount));
+            if (here.length) for (const tenant of here) listed.push(tenantRow(tenant, listedFacts));
+            else listed.push(emptyRowOf(VECTORS, facts, hereCollection));
+        }
+        for (const tenant of elsewhere) leftovers.push(tenantRow(tenant, leftoverFacts));
     }
     for (const tenant of listing.vectors.filter(row => row.book === null)) {
-        rows.push(tenantRow(tenant, { book: null, hasRecord: false, isInSillyTavern: false }));
+        leftovers.push(tenantRow(tenant, { book: null, hasRecord: false, selectedCount: 0, isInSillyTavern: false, isLeftover: true }));
     }
-    return rows;
+    return [...listed, ...leftovers];
 }

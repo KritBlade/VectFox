@@ -3,8 +3,8 @@
  * vectfox-multi-collection-per-chat.md): a book's keys file, each title from SillyTavern's book or the one stored with
  * its keys, an entry with neither left out; a keys file's import matching by number and title together, selected or not;
  * a tenant's vectors file of one embedding model; a vectors file's import matching each point's hash, made again, to a
- * part of a selected entry, embedding again when the file's model is not the one set now; a damaged or another kind's
- * file; and the Database Browser's words for each.
+ * part of an entry selected or not, counting the unselected entries' parts, and embedding a selected entry's again when
+ * the file's model is not the one set now; a damaged or another kind's file; and the Database Browser's words for each.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -93,12 +93,14 @@ describe('a vectors file', () => {
     });
 
     const BOOK_ID = core.loreBaseBookCollectionId(BOOK, 'rabbit');
-    const decided = [lighthouse, pier].map(entry => ({ uid: String(entry.uid), points: core.entryPoints(entry, BOOK_ID) }));
-    const [lighthousePart] = decided[0].points;
-    const [pierPart] = decided[1].points;
+    // Both entries LoreBase would decide; only the lighthouse is selected.
+    const candidates = [lighthouse, pier].map(entry => ({ uid: String(entry.uid), points: core.entryPoints(entry, BOOK_ID) }));
+    const selectedUids = new Set(['0']);
+    const [lighthousePart] = candidates[0].points;
+    const [pierPart] = candidates[1].points;
     const fileOf = (points, source = 'openrouter') => ({ type: files.LOREBASE_VECTORS_FILE_TYPE, embedding: { source, model: 'baai/bge-m3', dimension: 2 }, points });
 
-    it("imports each point whose hash, made again from its uid and text, is a part of a selected entry, under this book's point ID", () => {
+    it("imports each point whose hash, made again from its uid and text, is a part of an entry here, selected or not, under this book's point ID", () => {
         const plan = files.planVectorsImport(fileOf([
             { uid: '0', partNumber: 0, text: lighthousePart.text, vector: [0.1, 0.2], hash: 1 },
             { uid: '3', partNumber: 0, text: pierPart.text, vector: [0.3, 0.4] },
@@ -106,20 +108,24 @@ describe('a vectors file', () => {
             { uid: '0', partNumber: 0, text: lighthousePart.text, vector: [0.7, 0.8] },
             { uid: '0', partNumber: 0, text: lighthousePart.text, vector: [0.1, 0.2, 0.3] },
             { uid: '3', partNumber: 0, text: pierPart.text, vector: [0.1, Number.NaN] },
-        ]), { decided, stored: new Map([[lighthousePart.hash, { uid: '0', modelKey: MODEL }]]), modelKey: MODEL });
+        ]), { candidates, selectedUids, stored: new Map([[lighthousePart.hash, { uid: '0', modelKey: MODEL }]]), modelKey: MODEL });
         expect(plan.writes).toEqual([{ point: lighthousePart, vector: [0.1, 0.2] }, { point: pierPart, vector: [0.3, 0.4] }]);
         expect(plan.writes[0].point.id).toBe(core.pointId(BOOK_ID, lighthousePart.hash));
-        expect([plan.uids, plan.replaceCount, plan.unmatchedCount, plan.damagedCount, plan.needsEmbedding]).toEqual([['0', '3'], 1, 1, 3, false]);
+        expect([plan.uids, plan.replaceCount, plan.unselectedCount, plan.unmatchedCount, plan.damagedCount, plan.needsEmbedding])
+            .toEqual([['0', '3'], 1, 1, 1, 3, false]);
     });
 
-    it('embeds the matched entries again when the file was made by another model than the one set now', () => {
-        const plan = files.planVectorsImport(fileOf([{ uid: '3', partNumber: 0, text: pierPart.text, vector: [0.3, 0.4] }], 'custom'),
-            { decided, stored: new Map(), modelKey: MODEL });
-        expect([plan.uids, plan.needsEmbedding, plan.embedding]).toEqual([['3'], true, { source: 'custom', model: 'baai/bge-m3', dimension: 2 }]);
+    it("embeds a selected entry's matched parts again when the file was made by another model, and skips an unselected entry's", () => {
+        const plan = files.planVectorsImport(fileOf([
+            { uid: '3', partNumber: 0, text: pierPart.text, vector: [0.3, 0.4] },
+            { uid: '0', partNumber: 0, text: lighthousePart.text, vector: [0.1, 0.2] },
+        ], 'custom'), { candidates, selectedUids, stored: new Map(), modelKey: MODEL });
+        expect([plan.uids, plan.unselectedCount, plan.needsEmbedding, plan.embedding])
+            .toEqual([['0'], 1, true, { source: 'custom', model: 'baai/bge-m3', dimension: 2 }]);
     });
 
     it('refuses a file that is not a vectors file', () => {
-        expect(() => files.planVectorsImport({ type: files.LOREBASE_KEYS_FILE_TYPE, entries: [] }, { decided, stored: new Map(), modelKey: MODEL }))
+        expect(() => files.planVectorsImport({ type: files.LOREBASE_KEYS_FILE_TYPE, entries: [] }, { candidates, selectedUids, stored: new Map(), modelKey: MODEL }))
             .toThrow("This is not a LoreBase vectors file. Export on a lorebook's vectors row in the Database Browser makes one.");
     });
 });
@@ -138,15 +144,33 @@ describe("the Database Browser's words", () => {
             'It writes the keys of 2 entries.',
             'It skips 1 entry the file holds damaged or twice.',
         ]);
-        const vectors = { writes: [{}, {}, {}], uids: ['0', '3'], replaceCount: 1, unmatchedCount: 2, damagedCount: 0, embedding: { source: 'custom', model: 'baai/bge-m3' } };
+        const vectors = {
+            writes: [{}, {}, {}], uids: ['0', '3'], replaceCount: 1, unselectedCount: 0, unmatchedCount: 2, damagedCount: 0,
+            embedding: { source: 'custom', model: 'baai/bge-m3' },
+        };
         expect(files.describeImport('vectors', { ...vectors, needsEmbedding: false })).toEqual([
-            'It writes the vectors of 3 parts of 2 selected entries, 1 of them replacing a part this lorebook has.',
-            'It skips 2 parts that are no part of a selected entry here now.',
+            'It writes the vectors of 3 parts of 2 entries, 1 of them replacing a part this lorebook has.',
+            'It skips 2 parts that are no part of an entry here now.',
             "The file's vectors were made by custom/baai/bge-m3, the model set now, so they go in as they are, with no embedding call.",
         ]);
         expect(files.describeImport('vectors', { ...vectors, needsEmbedding: true }, { source: 'openrouter', model: 'baai/bge-m3' })[2])
             .toBe("The file's vectors were made by custom/baai/bge-m3 and yours by openrouter/baai/bge-m3, so the parts are embedded again with yours,"
                 + ' as Generate vectors embeds them. To use the saved vectors, switch to custom/baai/bge-m3 first.');
+    });
+
+    it("says that an unselected entry's parts are erased on the next write, or skipped when they would be embedded again", () => {
+        const vectors = { writes: [{}, {}], uids: ['0', '3'], replaceCount: 0, unmatchedCount: 0, damagedCount: 0, embedding: { source: 'custom', model: 'baai/bge-m3' } };
+        expect(files.describeImport('vectors', { ...vectors, unselectedCount: 1, needsEmbedding: false })[1])
+            .toBe("1 of them belongs to an entry not selected, so the next write of this lorebook's vectors erases it unless you select that entry first.");
+        expect(files.describeImport('vectors', { ...vectors, unselectedCount: 2, needsEmbedding: false })[1])
+            .toBe("2 of them belong to entries not selected, so the next write of this lorebook's vectors erases them unless you select those entries first.");
+        expect(files.describeImport('vectors', { ...vectors, unselectedCount: 3, unmatchedCount: 1, needsEmbedding: true }, { source: 'openrouter', model: 'baai/bge-m3' })[1])
+            .toBe("It skips 3 parts of entries not selected, as only a selected entry's parts are embedded again, and 1 part that is no part of an entry here now.");
+        expect(files.nothingToImportText('vectors', { ...vectors, writes: [], unselectedCount: 2, needsEmbedding: true }, BOOK))
+            .toBe("This file's vectors were made by another embedding model, and the parts of Harbor Atlas it matches belong to entries not selected,"
+                + ' so nothing was embedded again. Select those entries first, or switch to the model the file names.');
+        expect(files.nothingToImportText('vectors', { ...vectors, writes: [], unselectedCount: 0, unmatchedCount: 3, needsEmbedding: false }, BOOK))
+            .toBe("None of this file's 3 parts is a part of an entry of Harbor Atlas now, so nothing was written.");
     });
 
     it('says what an import wrote, and why one wrote nothing', () => {

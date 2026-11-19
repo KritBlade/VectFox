@@ -6,8 +6,9 @@
  * each book's selected entries have (storedCountsOfBooks); runs the progress panel's writing of keys, vectors or both
  * (writeMissing), and Regenerate keys, one run at a time, brought to the front with its Stop, which drops what is not
  * yet sent; and deletes every book's keys or vectors (deleteStored). For the Database Browser it reads a Keys row and
- * Vectors rows for each book (loreBaseStorageRows, §3.2), exports a row as a file, plans and writes a file's import
- * onto what matches (§3.3), and deletes one row. One guard refuses a run, an import or a delete while LoreBase writes. A
+ * Vectors rows for each book, the list's and the leftovers' (loreBaseStorageRows, §3.2), exports a row as a file, finds
+ * the row a file the global Import takes goes to (loreBaseImportRow), plans and writes a file's import onto what matches
+ * (§3.3), and deletes one row. One guard refuses a run, an import or a delete while LoreBase writes. A
  * run that writes missing keys locks each book it wrote keys for to the chat it started in (§6.1 of InternalProject/
  * Vectfox/plans/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock nothing. The keys
  * and vectors themselves are written, read and kept for the session by lorebase-keys.js and lorebase-vectors.js.
@@ -18,7 +19,10 @@ import { counted } from '../../shared/counted.js';
 import { exportFileHeader } from '../../shared/export-file-header.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
-import { loadBookEntries, loadDecidedEntries, recordedLoreBookNames, selectedLoreBookNames } from './lorebase-books.js';
+import {
+    getLoreBook, loadBookEntries, loadDecidableEntries, loadDecidedEntries, loreBookSelectedCounts, recordedLoreBookNames,
+    selectedLoreBookNames,
+} from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
 import {
@@ -26,7 +30,9 @@ import {
     writeImportedKeys, writeKeys,
 } from './lorebase-keys.js';
 import { postLoreBaseRoute } from './lorebase-routes.js';
-import { KEYS, VECTORS, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary } from './lorebase-storage-core.js';
+import {
+    KEYS, VECTORS, emptyRowOf, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
+} from './lorebase-storage-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
     bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, importBookPoints,
@@ -290,8 +296,9 @@ export async function deleteStored(kinds, settings) {
 
 /**
  * The Database Browser's LoreBase rows (§3.2): this account's books with keys or vectors, from Similharity's listing
- * (`/lorebase/books`), with every book that has a LoreBase record, each knowing whether SillyTavern still has the book
- * (storageRowsOf). Off Qdrant, where LoreBase keeps nothing, there are none.
+ * (`/lorebase/books`), with every book that has a LoreBase record, the list's first, then the leftovers'; each knows
+ * how many entries its book selects and whether SillyTavern still has the book (storageRowsOf). Off Qdrant, where
+ * LoreBase keeps nothing, there are none.
  * @param {object} settings - VectFox settings
  * @returns {Promise<object[]>}
  * @throws {Error} When Similharity cannot list them
@@ -301,10 +308,34 @@ export async function loreBaseStorageRows(settings) {
     const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
     return storageRowsOf({
         listing,
-        recordedBookNames: recordedLoreBookNames(),
+        selectedCounts: loreBookSelectedCounts(),
         hereCollection: loreBaseVectorsCollection(settings),
         sillyTavernBookNames: world_names,
     });
+}
+
+/**
+ * The row the Database Browser's global Import plans a keys or vectors file against (§3.3): the book's own row in the
+ * list, or, for a book SillyTavern has that shows none, the row it would have at 0, so the import brings the book back.
+ * @param {string} kind - KEYS or VECTORS
+ * @param {string} bookName - The book the file names
+ * @param {object[]} rows - The rows last read, from loreBaseStorageRows
+ * @param {object} settings - VectFox settings
+ * @returns {object} A row planImport takes
+ * @throws {Error} Off Qdrant, or when SillyTavern has no book of that name
+ */
+export function loreBaseImportRow(kind, bookName, rows, settings) {
+    const problem = writingProblem(settings, [VECTORS]);
+    if (problem) throw new Error(problem);
+    const listed = rows.find(row => row.kind === kind && row.book === bookName && !row.isLeftover && (kind === KEYS || row.isHere));
+    if (listed) return listed;
+    if (!world_names.includes(bookName)) {
+        throw new Error(`SillyTavern has no lorebook named "${bookName}". Bring the lorebook into SillyTavern first, or use `
+            + `Import on the ${kind === KEYS ? 'keys' : 'vectors'} row of the lorebook you want this file in.`);
+    }
+    const record = getLoreBook(bookName);
+    return emptyRowOf(kind, { book: bookName, hasRecord: record !== null, selectedCount: record?.selectedUids?.length ?? 0 },
+        loreBaseVectorsCollection(settings));
 }
 
 /**
@@ -328,8 +359,9 @@ export async function exportStored(row, settings) {
 
 /**
  * What a file would write to a row's book, without writing it (§3.3): for keys, the entries of SillyTavern's book whose
- * number and title match, selected or not; for vectors, the parts of its selected entries LoreBase decides now, read
- * against what Qdrant holds now. The plan carries what writeImport needs.
+ * number and title match, selected or not; for vectors, the parts of the entries LoreBase would decide in it now,
+ * selected or not, read against what Qdrant holds now. The plan carries what writeImport needs, the book's selected
+ * entries LoreBase decides among it.
  * @param {object} row - A row of a book SillyTavern has; a Vectors row in the collection LoreBase reads now
  * @param {unknown} fileData - Parsed JSON
  * @param {object} settings - VectFox settings
@@ -342,9 +374,13 @@ export async function planImport(row, fileData, settings) {
         const storedKeys = (await readBookKeys([row.book]))[row.book] ?? {};
         return { row, ...planKeysImport(fileData, { entries, storedKeys }) };
     }
-    const decidedEntries = await loadDecidedEntries(row.book);
+    const decidableEntries = await loadDecidableEntries(row.book);
+    const selectedUids = new Set(getLoreBook(row.book)?.selectedUids ?? []);
+    const decidedEntries = decidableEntries.filter(entry => selectedUids.has(uidOf(entry)));
     const stored = (await readBookVectors([row.book], settings)).get(row.book);
-    const plan = planVectorsImport(fileData, { decided: entriesWithPoints(row.book, decidedEntries), stored, modelKey: currentEmbeddingModelKey(settings) });
+    const plan = planVectorsImport(fileData, {
+        candidates: entriesWithPoints(row.book, decidableEntries), selectedUids, stored, modelKey: currentEmbeddingModelKey(settings),
+    });
     return { row, decidedEntries, ...plan };
 }
 

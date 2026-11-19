@@ -57,7 +57,8 @@ export const EXPORT_FILE_EXTENSION = '.vectfox.json';
 /**
  * What an export file holds: 'collection' for a collection export, of one collection or several (`type: 'multi'`),
  * or the `type` a row's own file names, as a StoryArc links file and LoreBase's keys and vectors files do. The
- * Database Browser's Import a collection takes collection files alone and names the row that takes any other.
+ * Database Browser's Import a collection takes a collection file, and a LoreBase file into the lorebook it names, and
+ * names the row that takes a StoryArc links file.
  * @param {unknown} data - Parsed JSON
  * @returns {string}
  */

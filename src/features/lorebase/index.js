@@ -10,7 +10,8 @@
 // character, and pins section names; the WorldInfo page lists the open chat's books with their selections and locks,
 // and opens the screen, and writes the keys, the vectors or both of every selected entry, or deletes them all, through
 // LoreBase's storage module, which every page that counts, writes or deletes them calls; the Database Browser lists
-// each book's keys and vectors as rows through it too, and exports, imports and deletes them a row at a time. Each
+// each book's keys and vectors as rows through it too, what LoreBase cannot use here among its leftovers, and exports,
+// imports and deletes them a row at a time, a file its global Import takes going to the book the file names. Each
 // selected entry's vectors, one point per part, live in Qdrant, every book of an account a tenant of one collection,
 // and an entry takes part once it has its keys and vectors. The tester keeps this session's reports of each reply, what
 // Luna picked and why, what each review kept and left out, the tokens against what SillyTavern's keys would send, and
@@ -36,8 +37,8 @@ export {
     nothingToImportText,
 } from './lorebase-files-core.js';
 export {
-    deleteStored, deleteStoredRow, exportStored, loreBaseStorageRows, onWritingRunChange, planImport, storedCountsOfBooks, writeImport,
-    writeMissing, writingProblem,
+    deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingRunChange, planImport,
+    storedCountsOfBooks, writeImport, writeMissing, writingProblem,
 } from './lorebase-storage.js';
 export { BOTH_KINDS, KEYS, VECTORS } from './lorebase-storage-core.js';
 export { entryTitle } from './lorebase-splitter.js';
