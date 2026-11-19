@@ -6,7 +6,16 @@ This screen is where you tell LoreBase which lorebook entries it decides. Every 
 
 You open it from VectFox's **WorldInfo** page. In the **LoreBase books** card, **Choose entries** opens the first book of your chat, and the list button on a book's row opens that book.
 
-4 things have to be set first. **Use LoreBase** is on, the **LoreBase model** card has a model, VectFox's embedding model works (**Core** > **Embedding**, the same one your chat memory uses), and SillyTavern's Vector Storage has **Enabled for World Info** off. VectFox asks about that last one when you turn LoreBase on.
+A few things have to be set first:
+
+- **Use LoreBase** is on.
+- VectFox runs on Qdrant, the vector backend you pick on the **Core** page. LoreBase keeps every entry's keys and vectors there.
+- VectFox's embedding model works (**Core** > **Embedding**, the same one your chat memory uses).
+- The **LoreBase model** card has a model. It writes the keys, whichever way LoreBase picks.
+- On Fast and Cheap [Jev], the card's Jev group has a profile for Jev too.
+- SillyTavern's Vector Storage has **Enabled for World Info** off. VectFox asks about that one when you turn LoreBase on.
+
+If Qdrant or one of the models is missing, the notice at the top of the model card names it.
 
 ## A book your chat doesn't load yet
 
@@ -27,19 +36,17 @@ A group chat has no one character, so it only gets **Add to all chats**.
 
 ## What turning an entry on does
 
-An entry you turn on goes in only when the LoreBase model picks it, and only with the parts of it the next reply needs.
+An entry you turn on goes in only when LoreBase picks it for the next reply. On High Accuracy, only with the parts of it the reply needs.
 
 Say your book Harbor Atlas has an entry Lighthouse of Vell, 1,500 tokens, with the key "lighthouse". With SillyTavern's keys, every time someone says "lighthouse", all 1,500 tokens go in. Even when Wren only says "I can see the lighthouse from here".
 
-Turn it on, and its keys stop firing it. Before each reply, the LoreBase model reads the titles of every entry you turned on, next to the last few messages, and picks the ones the reply needs. Then it reads each picked entry and leaves out the parts the reply won't use. So when Keeper Orrin is about to tell the lighthouse's history, the history part goes in. When nobody needs it, nothing goes in.
+Turn it on, and its keys stop firing it. Before each reply, LoreBase reads the last few messages and picks the entries the reply needs. So when Keeper Orrin is about to tell the lighthouse's history, Lighthouse of Vell goes in, and on High Accuracy only its history part. When nobody needs it, nothing goes in. The exact steps are in **How LoreBase works**, at the end.
 
-It's like asking a librarian instead of a search box. The search box gives you every book with "lighthouse" on its cover, whole. The librarian asks what you are working on, and hands you the 2 chapters you need.
+It's like asking a librarian instead of a search box. The search box gives you every book with "lighthouse" on its cover, whole. The librarian asks what you are working on, and hands you the 2 books you need.
 
 On one of my test chats, the keys fired 8 of the entries I gave LoreBase, 5,729 tokens. LoreBase sent 2 of them, cut down to 1,162 tokens.
 
-In the prompt, everything LoreBase sends sits inside one `<VectLorebook>` block, each entry in a tag named after it, like `<Lighthouse_of_Vell>`. So you can tell it apart from SillyTavern's own entries, and so can the AI.
-
-The screen calls the LoreBase model "Luna", since GPT-6 Luna is the model I tested it on.
+In the prompt, everything LoreBase sends sits inside a `<VectLorebook>` block, each entry in a tag named after it, like `<Lighthouse_of_Vell>`. So you can tell it apart from SillyTavern's own entries, and so can the AI.
 
 ## Keys and vectors
 
@@ -138,9 +145,11 @@ Nothing is saved per category. An entry you add to [Places] later shows up off, 
 
 ## Pinned sections
 
-Big entries get cut into parts by their headings, like a character entry with Appearance, History and Speech Style. Those headings are the sections. LoreBase sends the parts the reply needs, so sometimes Speech Style is left out.
+Big entries get cut into parts by their headings, like a character entry with Appearance, History and Speech Style. Those headings are the sections. On High Accuracy, LoreBase sends only the parts the reply needs, so sometimes Speech Style is left out.
 
-If a section should ALWAYS go in when its entry is picked, tick it under **Pinned sections**. Pin Speech Style, and every picked entry with a Speech Style section brings it along, no matter what the LoreBase model said.
+If a section should ALWAYS go in when its entry is picked, tick it under **Pinned sections**. Pin Speech Style, and every picked entry with a Speech Style section brings it along, even when the review left it out. The one exception is an entry the review says the reply uses none of. That one sends nothing at all.
+
+Fast and Cheap [Jev] sends every picked entry whole, so pins only matter on High Accuracy.
 
 The list shows the section names in the entries you turned on, the most common first, each with how many entries hold it. It stays empty until you turn on an entry with sections. Pins are per book.
 
@@ -163,7 +172,7 @@ One thing to watch. A tick stays when a filter hides its row. If you tick 10 ent
 
 The list draws 100 entries at a time. **Show more** draws the next 100.
 
-At the bottom, a line says what your entries cost each reply. On High Accuracy, it's how many titles the LoreBase model reads from this book, and about how many tokens that adds to every pick. Every entry you turn on is one more title it reads before every single reply. On Fast and Cheap [Jev], it's how many entries Jev is asked about: every one while the books locked to this chat have 100 or fewer turned on, and above that the 100 a search finds best. If this book isn't locked to the chat, the line says it takes no part here.
+At the bottom, a line says what your entries cost each reply. On High Accuracy, it's how many titles the LoreBase model reads from this book, each with its keys, and about how many tokens that adds to every pick. Every entry you turn on is one more line it reads before every single reply. On Fast and Cheap [Jev], it's how many entries Jev is asked about: every one while the books locked to this chat have 100 or fewer turned on, and above that the 100 a search finds best. If this book isn't locked to the chat, the line says it takes no part here.
 
 ## The pills on a row
 
@@ -179,9 +188,9 @@ Some pills say why an entry can't be turned on. The rest are there to help you c
 | Mostly code | At least half of it is template code. |
 | Engine | A game engine's entry, like MVU's state entries. |
 | Code keys | Every key looks like a code, such as `#0765792`, not a word. |
-| No keys | Fine for LoreBase, the pick doesn't need keys. Turned on, LoreBase can even send an entry no key ever fired. |
-| Long | 1,000 tokens or more. This is where LoreBase saves the most, since it leaves out the parts of a long entry the reply doesn't need. |
-| No title | The LoreBase model picks by title, so an entry with no title is never picked. Give it a title in World Info first. |
+| No keys | Fine for LoreBase. It reads the title and the keys its own model writes, not SillyTavern's. Turned on, LoreBase can even send an entry no key ever fired. |
+| Long | 1,000 tokens or more. On High Accuracy, this is where LoreBase saves the most, since it leaves out the parts the reply doesn't need. On Fast and Cheap [Jev] it goes in whole, so it takes a big bite of the lore budget. |
+| No title | The pick sees it only as "entry" and its UID, with its keys, so it has way less to go on. Give it a title in World Info first. |
 
 Engine, Code keys and Mostly code are what I call engine entries. They drive a game rather than tell lore, so Tick all matching, Invert and a category's wand skip them. You can still turn one on with its own wand, or tick it by hand.
 
@@ -199,7 +208,7 @@ I go through a book in the same order every time. Even a book of 300+ entries is
 
 **5. Leave the main character to SillyTavern.** I mean the one every reply is about, usually the one you play. Their sheet is needed in most replies, so it works like a rule. In my test the main character's sheet was needed in 7 of 12 replies, and LoreBase picked it in only 2 of those.
 
-**6. Turn on the small ones too.** Monster and item entries are often 100 tokens or so, but their keys are common words like "King" or "dog". With keys, they ride along on lots of replies just because someone said the word. Turned on, they go in only when the scene is about them. On High Accuracy, each one costs a title on every pick, about 4 tokens, and the line at the bottom of the screen adds them up for you.
+**6. Turn on the small ones too.** Monster and item entries are often 100 tokens or so, but their keys are common words like "King" or "dog". With keys, they ride along on lots of replies just because someone said the word. Turned on, they go in only when the scene is about them. On High Accuracy, each one adds its title and keys to every pick, about 30 tokens on my test book, and the line at the bottom of the screen adds them up for you.
 
 **7. Try it on one chat first.** Writing the keys locks the book to the chat you're in, and only that one. Play 10 replies or so there, and open the **LoreBase tester** card on the WorldInfo page. It shows what was picked and why, which parts went in, and the tokens next to what SillyTavern's keys would have sent. Happy with it? Lock the book to the character too.
 
@@ -211,20 +220,72 @@ But picky cuts both ways. LoreBase sends what it is sure the next reply needs, a
 
 If you play in another language than your book, like Chinese against an English book, turn on more. Keys miss across languages, the LoreBase model doesn't.
 
-Basically, turn on the lore, leave the rules, the overviews and the main character to SillyTavern, and let the LoreBase model decide what goes in. Everything you don't turn on keeps working the old way.
+Basically, turn on the lore, leave the rules, the overviews and the main character to SillyTavern, and let LoreBase decide what goes in. Everything you don't turn on keeps working the old way.
 
+## How LoreBase works
 
-##  how lowerbase works now
+LoreBase picks the lore for a reply in one of 2 ways, and you choose which on the **LoreBase model** card: **Fast and Cheap [Jev]**, the default, or **High Accuracy**. Both start the same way and end the same way. Only the middle is different.
 
-**Today: how LoreBase works now**
+Think of the librarian from before, working 2 different ways. On High Accuracy, the librarian goes down the list of titles, takes the books you need off the shelf, and reads them, so you only get the chapters you need. On Fast and Cheap, an assistant goes down the same list asking "does this one help?", and hands you the likely books whole, the best first, until your bag is full.
 
-On each reply, Luna works in two steps:
-1. **Pick.** Luna sees one line per entry, a number and the title only, and picks up to 6 entries:
+### What both do first
+
+This runs before every send, swipe, regenerate and continue. Never on impersonate.
+
+1. **It reads the scene.** That's the last 6 messages, up to and including yours. Hidden messages are skipped, and each one goes through your **Text Cleaning** first, with the AI's thinking and any game-system blocks taken out.
+2. **It gathers the ready entries.** Those are the entries you turned on, in the books locked to this chat or its character, that have their keys and vectors. The rest sit out, and a toast tells you how many, once per chat and again when that number changes.
+
+### Fast and Cheap [Jev]
+
+Jev is a small model that only answers yes or no questions, with how sure it is. It runs on the profile you pick for it in the model card's Jev group: an OpenRouter one with `typesafe/jev-1.14`, or a Custom one on Typesafe's own URL with `jev-1.14.0`.
+
+1. **The search, only above 100 entries.** When the books locked here have more than 100 ready entries in all, a search narrows them down to 100 first. It searches with 2 texts: your last message, and the message before it, usually the AI's last reply. A message too long for your embedding model keeps only its end. Both go to your embedding model in 1 request, and each one is searched against the vectors of every book locked here at once. An entry scores by its best part, and the 100 best entries stay. With 100 entries or fewer, there's no search, and Jev gets all of them.
+2. **Jev's questions.** Jev reads the scene, and one question per entry, made from its title and its keys:
    ```
-   12. battle
+   Does the next reply need the lorebook entry "Lighthouse of Vell" (about: lighthouse, Vell, keeper)?
    ```
-2. **Review.** For each picked entry, Luna reads its text, cut into numbered parts, and says which parts the reply doesn't need. The parts come from VectFox's splitter: the author's own headings, otherwise windows of about 300 tokens. Only the kept parts are sent.
+   It answers every question with its chance of yes, from 0 to 1, all in 1 call.
+3. **The cut.** Every entry Jev rates above 0.25 is a candidate. The rest are out.
+4. **The lore budget.** The candidates go in WHOLE, the best first, with no review, until the lore budget is full. That's 3,000 tokens by default, and **Lore budget** on the model card takes 1,000 to 12,000 tokens. The best one always goes in, even when it's bigger than the budget. After that, an entry that doesn't fit is skipped, and the next one gets its turn.
 
-"Today asked again" is the same thing run a second time, to show how much the numbers move from luck alone.
+Say Jev rated these 4 above 0.25, with the budget at 3,000 tokens:
 
+| Entry | Jev's rating | Size | What happens |
+|---|---|---|---|
+| Lighthouse of Vell | 0.9 | 1,200 tokens | Goes in, 1,200 tokens so far |
+| Keeper Orrin | 0.7 | 900 tokens | Goes in, 2,100 tokens so far |
+| Harbor Tides | 0.4 | 1,500 tokens | Skipped, it would make 3,600 tokens |
+| Vell Market | 0.3 | 400 tokens | Goes in, 2,500 tokens in all |
 
+So a reply on Fast and Cheap is 1 call to Jev, plus the search when the books have more than 100 ready entries.
+
+### High Accuracy
+
+On High Accuracy, the LoreBase model does 2 jobs. It picks the entries, and then it reads them.
+
+1. **The pick.** The LoreBase model reads a list of every ready entry, one line each, with its number, its title and the keys it wrote for it:
+   ```
+   12. Lighthouse of Vell (lighthouse, Vell, keeper)
+   ```
+   Next to the scene, it picks the entries the next reply needs, most needed first, at most 6, or none. For each one it says why, and what in it the reply needs.
+2. **The cache.** The list sits at the very end of the pick's system prompt, and it's the exact same text every reply, until your selection, a title or the keys change. So after the first reply, a provider that caches reads it from its cache, which costs way less. The **LoreBase tester** shows how much, like `Pick read from the cache: 10,141 of the pick's 15,070 prompt tokens`.
+3. **The reviews.** Then the LoreBase model reads each picked entry, 1 call per entry, all at the same time. It gets the entry cut into numbered parts: by the author's own headings first, and into pieces of about 300 tokens where a section is still too long. It says how much of the entry the reply will use, "most", "some" or "none", and which parts are of no use right now. An entry of only 1 part, or one with template code, skips its review and goes in whole.
+4. **What it sends.** Every part the review didn't leave out, in the entry's own order, plus every part of a pinned section. An entry the review says the reply uses none of sends nothing.
+
+So a reply on High Accuracy is 1 pick and up to 6 reviews, all at low reasoning effort.
+
+High Accuracy never searches, so it never uses the vectors. Every entry still needs them, though, so you can switch between the 2 any time and no entry drops out.
+
+### What both do last
+
+The picks go into the prompt inside a `<VectLorebook>` block, the most needed first. The block goes where those entries would go by their World Info position, and picks set to different positions get a block each.
+
+When something fails, the reply goes on without that lore, and a toast tells you what happened. A failed search, Jev call or pick leaves out every entry you turned on, for that reply. A failed review leaves out only its own entry. Jev and the LoreBase model get 30 seconds to answer each call, and regenerating the message tries again.
+
+### Which one to choose
+
+On my test book of 313 entries, Fast and Cheap cost about $0.0004 a reply, and the whole step took about 1.8 seconds. The search was 1.3 seconds of that. High Accuracy cost about $0.0018 a reply once the cache kicked in, and the reply waited about 7 seconds for its pick and reviews.
+
+But High Accuracy sends way less, since it cuts entries down to what the reply needs. On that book it sent about 1,400 lore tokens a reply, where Fast and Cheap sent about 3,000 lore tokens. Your chat model reads every one of those tokens. So with a chat model of $1 per million input tokens or more, High Accuracy came out the cheaper one in all.
+
+Basically, Fast and Cheap is the quick one, and it costs about the same on a small book or a huge one. High Accuracy is slower, but it cuts long entries down, so your prompt stays lean.

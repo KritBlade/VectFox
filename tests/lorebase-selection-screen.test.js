@@ -579,6 +579,24 @@ describe('showing an entry', () => {
             icon: 'fa-lock', text: '@@dont_activate: this line at its top keeps SillyTavern from ever sending it, so LoreBase cannot decide it.',
         });
     });
+
+    it('says what the pick sees of an entry with no title, keys or review, true on both choices', async () => {
+        host.books['Harbor Atlas'].entries[5] = { uid: 5, comment: '', key: [], content: `<% if (tide) { %>${'The harbor tide rises at dusk. '.repeat(400)}<% } %>`, disable: true };
+        await openScreen();
+        expect($id('vectfox_lorebase_entries_notice').textContent.trim())
+            .toBe('The pick sees an entry with no title only as "entry" and its UID, with its keys. Give it a title in World Info.');
+        actionButton('show-entry', '[data-lorebase-uid="5"]').click();
+        await vi.waitFor(() => expect(host.noticePopup).toHaveBeenCalledTimes(1));
+        const lines = host.noticePopup.mock.calls[0][0];
+        expect(lines).toEqual(expect.arrayContaining([
+            { icon: 'fa-power-off', text: 'Disabled in SillyTavern: it is never sent, and LoreBase never picks it.' },
+            { icon: 'fa-code', text: 'Template code: when it is picked, LoreBase sends it whole, never trimmed.' },
+            { icon: 'fa-key', text: 'No keys: LoreBase needs none, as it reads the title and the keys its own model writes.' },
+            { icon: 'fa-ruler-horizontal', text: 'Long: on High Accuracy, the review saves the most tokens on an entry this size. Fast and Cheap [Jev] sends it whole, within the lore budget.' },
+            { icon: 'fa-heading', text: 'No title: the pick sees it only as "entry" and its UID, with its keys. Give it a title in World Info.' },
+        ]));
+        expect(JSON.stringify(lines)).not.toContain('Luna');
+    });
 });
 
 describe('locks, pins and books', () => {

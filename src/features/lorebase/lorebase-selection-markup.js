@@ -88,13 +88,13 @@ const UNDECIDABLE_LABELS = {
 
 // What each badge and each reason LoreBase cannot decide an entry means, as the entry's dialog says it.
 const BADGE_NOTES = {
-    [BADGES.templateCode]: 'Template code: when Luna picks it, LoreBase sends it whole, never trimmed.',
-    [BADGES.mostlyCode]: 'Mostly code: template code fills at least half of it. When Luna picks it, LoreBase sends it whole.',
+    [BADGES.templateCode]: 'Template code: when it is picked, LoreBase sends it whole, never trimmed.',
+    [BADGES.mostlyCode]: 'Mostly code: template code fills at least half of it. When it is picked, LoreBase sends it whole.',
     [BADGES.enginePrefix]: "Engine: its comment marks it as a game engine's entry, not lore.",
     [BADGES.machineKey]: 'Code keys: every key reads as a code, not a word.',
-    [BADGES.keyless]: 'No keys: Luna picks by title, so it needs none.',
-    [BADGES.long]: "Long: Luna's review saves the most tokens on an entry this size.",
-    [BADGES.noTitle]: 'No title: Luna picks by title alone, so it is never picked.',
+    [BADGES.keyless]: 'No keys: LoreBase needs none, as it reads the title and the keys its own model writes.',
+    [BADGES.long]: 'Long: on High Accuracy, the review saves the most tokens on an entry this size. Fast and Cheap [Jev] sends it whole, within the lore budget.',
+    [BADGES.noTitle]: 'No title: the pick sees it only as "entry" and its UID, with its keys. Give it a title in World Info.',
 };
 const UNDECIDABLE_NOTES = {
     constant: 'Constant: SillyTavern sends it on every reply, so LoreBase cannot decide it.',
@@ -402,7 +402,7 @@ export function entryDetailLines(row, entry) {
         { text: 'Tokens:', name: formatCount(row.tokens) },
         row.undecidableReason ? { icon: 'fa-lock', text: UNDECIDABLE_NOTES[row.undecidableReason] } : null,
         row.undecidableReason && row.isSelected ? { icon: 'fa-lock', text: 'It was selected before, but SillyTavern still decides it.' } : null,
-        row.isDisabled ? { icon: 'fa-power-off', text: 'Disabled in SillyTavern: it is never sent, and Luna never picks it.' } : null,
+        row.isDisabled ? { icon: 'fa-power-off', text: 'Disabled in SillyTavern: it is never sent, and LoreBase never picks it.' } : null,
         ...row.badges.map(badge => ({ icon: BADGE_LABELS[badge].icon, text: BADGE_NOTES[badge] })),
         isEngineLike(row) && !row.undecidableReason
             ? { icon: 'fa-circle-info', text: "Tick all matching and a category's toggle skip it: turn it on with its own toggle." }
@@ -452,7 +452,7 @@ export function noMatchingEntriesMarkup() {
 
 /** The note shown while the list holds an entry with no title. */
 export function noTitleNoticeMarkup() {
-    return notice({ status: 'info', text: 'Luna picks by title alone, so an entry with no title is never picked.' });
+    return notice({ status: 'info', text: 'The pick sees an entry with no title only as "entry" and its UID, with its keys. Give it a title in World Info.' });
 }
 
 /**
