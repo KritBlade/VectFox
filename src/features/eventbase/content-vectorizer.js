@@ -17,7 +17,7 @@ import { log } from '../../sillytavern/log.js';
 import { validateLLMConfig } from '../llm-provider/index.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
-import { buildArchiveEventCollectionId, getChatUUID } from '../../shared/collection-ids.js';
+import { buildArchiveEventCollectionId, buildRegistryKey, getChatUUID } from '../../shared/collection-ids.js';
 import { chooseCleaningPreset, cleaningPresetChoices, getCleaningSettings, openTextCleaningDialog } from '../text-cleaning/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
@@ -35,7 +35,7 @@ import {
 } from './content-vectorizer-core.js';
 import { CHAT_TYPE_ID, contentVectorizerMarkup, cvId, cvPageId, loadedSourceMarkup } from './content-vectorizer-markup.js';
 import { runEventBaseOnOpenChat } from './eventbase-chat-sync.js';
-import { checkWindowSizeChanged, getVectorizationTip, prepareForFreshExtraction, setLastUsedWindowSize } from './eventbase-store.js';
+import { checkWindowSizeChanged, getVectorizationTip, prepareForFreshExtraction, readEventBaseProgress, resolveEventBaseRunTarget, setLastUsedWindowSize } from './eventbase-store.js';
 import { countUnfinishedWindows, getChatAutoSyncStatus, notifyUnfinishedWindows, runEventBaseIngestion } from './eventbase-workflow.js';
 
 /** How many windows EventBase reads at once when the dialog does not say. */
@@ -273,9 +273,9 @@ async function startVectorization() {
     }
     if (!hasLlmConfig()) return;
     // Resume adds only what is new.
-    const chatUUID = source.type === 'file' ? source.archiveUUID : getChatUUID();
+    const registryKey = registryKeyOfRun(source, extension_settings.vectfox || {});
     const startFromMessage = startFromMessageOf(controlOf('start_from').value);
-    if (await hasPriorExtractionState(chatUUID)) {
+    if (hasPriorExtractionState(registryKey)) {
         const isConfirmed = await confirmPopup([
             { text: 'Read this chat again from the start?' },
             { text: 'From message:', name: String(startFromMessage) },
@@ -308,14 +308,34 @@ async function resumeChat() {
 const parallelWindowsOfPage = () => parseInt(controlOf('parallel_windows')?.value, 10) || DEFAULT_PARALLEL_WINDOWS;
 
 /**
- * Whether EventBase has read this chat before: windows it remembers, or a vectorization tip. A chat with neither has
- * nothing to reset, so Vectorize does not ask.
+ * The registry key ("backend:id") of the collection a run on the source reads into: an uploaded chat's archive
+ * collection, or the open chat's (resolveEventBaseRunTarget). Null when no chat is open.
+ *
+ * @param {{type: string, archiveUUID?: string, filenameCharName?: string}} source
+ * @param {object} settings - extension_settings.vectfox
+ * @returns {string|null}
  */
-async function hasPriorExtractionState(chatUUID) {
-    if (!chatUUID) return false;
-    const windows = extension_settings?.vectfox?.eventbase_extracted_windows?.[chatUUID];
+function registryKeyOfRun(source, settings) {
+    if (source.type === 'file') {
+        const archiveCollectionId = buildArchiveEventCollectionId({ filenameCharName: source.filenameCharName, archiveUUID: source.archiveUUID, backend: settings.vector_backend });
+        return buildRegistryKey(archiveCollectionId, settings);
+    }
+    const chatUUID = getChatUUID();
+    return chatUUID ? resolveEventBaseRunTarget(settings, chatUUID).registryKey : null;
+}
+
+/**
+ * Whether EventBase has read the chat into the collection before: windows it remembers, or a vectorization tip. A
+ * collection with neither has nothing to reset, so Vectorize does not ask.
+ *
+ * @param {string|null} registryKey - The collection's registry key ("backend:id")
+ * @returns {boolean}
+ */
+function hasPriorExtractionState(registryKey) {
+    if (!registryKey) return false;
+    const windows = readEventBaseProgress(registryKey).extractedWindows;
     if (Array.isArray(windows) && windows.length > 0) return true;
-    return typeof getVectorizationTip(chatUUID) === 'number';
+    return typeof getVectorizationTip(registryKey) === 'number';
 }
 
 /**
@@ -353,7 +373,7 @@ async function runEventBaseBackfill({ source, startFromMessage, parallelWindows,
             const collectionIdOverride = buildArchiveEventCollectionId({ filenameCharName: source.filenameCharName, archiveUUID: chatUUID, backend: settings.vector_backend });
             // As on the open chat: Vectorize forgets what was read, and skipTipFallback keeps the Qdrant tip from
             // fast-forwarding past it.
-            if (resetCaches && chatUUID) await prepareForFreshExtraction(chatUUID);
+            if (resetCaches) await prepareForFreshExtraction(buildRegistryKey(collectionIdOverride, settings));
             log.lifecycle(`[EventBase] Archive upload route — collection: ${collectionIdOverride}, messages: ${messages.length}`);
 
             result = await runEventBaseIngestion({ messages, startFromMessage, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride, skipTipFallback: resetCaches });
@@ -425,15 +445,16 @@ async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCac
         toastr.warning('The open chat has no messages to read.', 'EventBase');
         return null;
     }
-    const chatUUID = getChatUUID();
+    // The collection the run reads into: its pointer says how far the chat was read.
+    const registryKey = registryKeyOfRun({ type: 'current' }, settings);
     // Vectorize forgets what was read of the chat, so ingestion starts from startFromMessage instead of fast-forwarding
     // past a tip a deleted collection left; skipTipFallback below keeps the workflow from finding that tip in Qdrant.
-    if (resetCaches && chatUUID) await prepareForFreshExtraction(chatUUID);
+    if (resetCaches && registryKey) await prepareForFreshExtraction(registryKey);
 
     const messageCount = context.chat.filter(message => message.mes && message.mes.trim().length > 0).length;
     // EventBase remembers the windows it read by their size, so a new size reads the whole chat again, paying for every
     // window. Ask first. checkWindowSizeChanged and prepareForFreshExtraction are the one rule for it.
-    const sizeCheck = checkWindowSizeChanged(chatUUID, Math.max(2, settings.eventbase_window_size || 2));
+    const sizeCheck = checkWindowSizeChanged(registryKey, Math.max(2, settings.eventbase_window_size || 2));
     let freshExtraction = null;
     if (sizeCheck.changed) {
         const isConfirmed = await confirmPopup([
@@ -448,9 +469,9 @@ async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCac
             return null;
         }
         // Stamped now, as the answer, not at the run's end: a run that fails midway would ask again otherwise.
-        setLastUsedWindowSize(chatUUID, sizeCheck.newSize);
-        log.lifecycle(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${chatUUID} (user intent locked in regardless of run outcome)`);
-        freshExtraction = await prepareForFreshExtraction(chatUUID);
+        setLastUsedWindowSize(registryKey, sizeCheck.newSize);
+        log.lifecycle(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${registryKey} (user intent locked in regardless of run outcome)`);
+        freshExtraction = await prepareForFreshExtraction(registryKey);
     }
 
     return runEventBaseOnOpenChat(settings, signal, {
@@ -512,7 +533,7 @@ export async function syncOpenChat() {
         return { ran: false, reason: 'ahead' };
     }
     const messageCount = status.chatMessageCount ?? 0;
-    const readCount = status.vectorizationTip ?? getVectorizationTip(getChatUUID()) ?? null;
+    const readCount = status.vectorizationTip ?? getVectorizationTip(status.registryKey) ?? null;
     const unreadMessages = Math.max(0, messageCount - (readCount ?? 0));
     const unfinishedWindows = status.unfinishedWindowCount ?? 0;
     // Up to date is the AutoSync page's verdict: the last full window read and none failed. Messages past it wait for

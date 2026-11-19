@@ -19,9 +19,6 @@ vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({})
 vi.mock('../src/features/collections/collection-loader.js', () => ({
     discoverExistingCollections: vi.fn(async () => []),
 }));
-vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
-    pruneOrphanedEventBaseChatMaps: vi.fn(),
-}));
 vi.mock('../src/features/lorebase/index.js', () => ({
     deleteOldLorebookCollections: vi.fn(),
 }));

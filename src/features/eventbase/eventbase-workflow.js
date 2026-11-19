@@ -13,7 +13,6 @@
 
 import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-injection.js';
 import { getCurrentChatId, substituteParams, getContext } from '../../sillytavern/chat.js';
-import { extension_settings } from '../../sillytavern/settings.js';
 import { getChatUUID, parseRegistryKey, COLLECTION_PREFIXES, buildRegistryKey } from '../../shared/collection-ids.js';
 import {
     getCollectionRegistry,
@@ -30,7 +29,7 @@ import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCachesForChat, buildEventBaseCollectionId, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, createWindowReplacement } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, resolveEventBaseRunTarget, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, setLastUsedWindowSize } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
@@ -195,9 +194,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Trusting the registry instead of recomputing the ID is the rule in
     // Doc/collection_helper.md — the registry is the source of truth for which
     // collection holds a chat's data.
-    const collectionId = collectionIdOverride
-        || resolveEventBaseWriteTarget(settings, uuid)?.collectionId
-        || buildEventBaseCollectionId(uuid, settings?.vector_backend);
+    const collectionId = collectionIdOverride || resolveEventBaseRunTarget(settings, uuid).collectionId;
+    // The collection's record holds its locks and its pointer (how far it has read the chat), under this key.
+    const registryKey = buildRegistryKey(collectionId, settings);
 
     // Lock to current chat at start so the index is populated even if vectorization is interrupted.
     // Archive collections are excluded — they are locked manually by the user.
@@ -209,13 +208,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // a different bucket and get nuked by the orphan-cleanup pass.
     const _startChatId = getCurrentChatId();
     if (_startChatId && !collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) {
-        const _startRegistryKey = buildRegistryKey(collectionId, settings);
-        setCollectionLock(_startRegistryKey, _startChatId);
-        setCollectionMeta(_startRegistryKey, { scope: 'chat' });
+        setCollectionLock(registryKey, _startChatId);
+        setCollectionMeta(registryKey, { scope: 'chat' });
     }
 
     const candidateKeys = [
-        buildRegistryKey(collectionId, settings),
+        registryKey,
         collectionId,  // fallback for bare-ID entries written by older versions
     ].filter(Boolean);
     const disabledKey = candidateKeys.find(key => key && !isCollectionEnabled(key));
@@ -251,9 +249,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const storyLanguage = readStoryLanguage(messages, settings);
     log.lifecycle(`[EventBase] Story language: ${storyLanguage.isCjkStory ? 'CJK' : 'not CJK'}; the "${storyLanguage.promptMode}" extraction prompt (CJK tokenizer mode "${settings.cjk_tokenizer_mode || 'intl'}")`);
 
-    // If the fingerprint cache says windows were extracted but Qdrant has no data
-    // (e.g. collection was deleted externally), reset the cache so we start fresh.
-    const cacheEntries = extension_settings?.vectfox?.eventbase_extracted_windows?.[uuid];
+    // If the window record says windows were extracted but Qdrant has no data
+    // (e.g. collection was deleted externally), reset the record so we start fresh.
+    const cacheEntries = readEventBaseProgress(registryKey).extractedWindows;
     if (Array.isArray(cacheEntries) && cacheEntries.length > 0) {
         try {
             const existingHashes = collectionId ? await getSavedHashes(collectionId, settings) : [];
@@ -264,7 +262,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 // deleted collection) and skipping every window — the "0 events,
                 // N skipped" re-vectorize bug. ensureVectorizationTip only re-probes
                 // the backend on a cache MISS, so the tip has to be evicted here too.
-                clearExtractionCachesForChat(uuid);
+                clearExtractionCaches(registryKey);
             }
         } catch (err) {
             log.warn('[EventBase] Empty-collection check failed — keeping extraction caches:', err);
@@ -292,9 +290,9 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     const commitBoundary = isAutoSync ? getCommitBoundary(messages, settings) : messages.length;
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
 
-    const unfinishedFingerprints = getUnfinishedWindowFingerprints(uuid, windowSize);
+    const unfinishedFingerprints = getUnfinishedWindowFingerprints(registryKey, windowSize);
     const shouldSendUnfinishedWindows = !isAutoSync && unfinishedFingerprints.size > 0;
-    if (!shouldSendUnfinishedWindows && isLastWindowExtracted(committedMessages, windowSize, step, uuid, hashSourceMessage)) {
+    if (!shouldSendUnfinishedWindows && isLastWindowExtracted(committedMessages, windowSize, step, registryKey, hashSourceMessage)) {
         log.lifecycle(`[EventBase] Quick-exit: last committed window already extracted, nothing new`);
         return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
     }
@@ -311,8 +309,8 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     if (shouldSendUnfinishedWindows) {
         const chatFingerprints = new Set(windows.map(win => windowFingerprint(win.msgs.map(hashSourceMessage))));
-        forgetUnfinishedWindowsNotInChat(uuid, windowSize, chatFingerprints);
-        log.lifecycle(`[EventBase] ${getUnfinishedWindowFingerprints(uuid, windowSize).size} unfinished window(s) on record for this chat`);
+        forgetUnfinishedWindowsNotInChat(registryKey, windowSize, chatFingerprints);
+        log.lifecycle(`[EventBase] ${getUnfinishedWindowFingerprints(registryKey, windowSize).size} unfinished window(s) on record for this collection`);
     }
 
     // A run from a later message starts at the window that holds it. Its windows keep the chat's
@@ -342,8 +340,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // so the next legitimate window starts exactly AT marker. `>` would
     // skip the first new window (extraction gap).
     if (isAutoSync) {
-        const { getAutoSyncMarker } = await import('./eventbase-store.js');
-        const marker = getAutoSyncMarker(uuid);
+        const marker = getAutoSyncMarker(registryKey);
         if (typeof marker === 'number') {
             const before = windows.length;
             windows = windows.filter(w => w.start >= marker);
@@ -388,7 +385,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     while (fastForwardSkipped < windows.length) {
         const win = windows[fastForwardSkipped];
         const hashes = win.msgs.map(hashSourceMessage);
-        const isDone = await isWindowAlreadyExtracted(hashes, null, settings, uuid);
+        const isDone = isWindowAlreadyExtracted(hashes, registryKey);
         if (!isDone) break;
         fastForwardSkipped++;
     }
@@ -404,20 +401,20 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         skipTipFallback,
         fastForwardSkipped,
         hasCollection: !!collectionId,
-        hasUnfinishedWindows: getUnfinishedWindowFingerprints(uuid, windowSize).size > 0,
+        hasUnfinishedWindows: getUnfinishedWindowFingerprints(registryKey, windowSize).size > 0,
     });
     if (!useTipFallback && skipTipFallback) {
         log.lifecycle('[EventBase] shouldUseTipFallback=false — caller explicitly opted out (skipTipFallback=true)');
     }
     if (useTipFallback) {
         try {
-            const tip = await ensureVectorizationTip(uuid, collectionId, settings);
+            const tip = await ensureVectorizationTip(registryKey, settings);
             if (typeof tip === 'number' && tip > 0) {
                 let i = 0;
                 while (i < windows.length && windows[i].end < tip) {
                     const win = windows[i];
                     const hashes = win.msgs.map(hashSourceMessage);
-                    markWindowExtracted(hashes, uuid);
+                    markWindowExtracted(hashes, registryKey);
                     i++;
                 }
                 if (i > 0) {
@@ -436,7 +433,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     // A window this run extracts again replaces the events it holds from earlier extractions.
-    const windowReplacement = createWindowReplacement({ collectionId, settings, tipAtRunStart: getVectorizationTip(uuid) });
+    const windowReplacement = createWindowReplacement({ collectionId, settings, tipAtRunStart: getVectorizationTip(registryKey) });
 
     // Auto-sync popup: shown once per ingestion call, and only when windows are left
     // to extract. Passing the quick-exit does not guarantee that — the start-marker
@@ -517,12 +514,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 const sourceHashes = win.msgs.map(hashSourceMessage);
 
                 // Skip if already extracted
-                const alreadyDone = await isWindowAlreadyExtracted(
-                    sourceHashes,
-                    win.msgs.map((_, i) => win.start + i),
-                    settings,
-                    uuid,
-                );
+                const alreadyDone = isWindowAlreadyExtracted(sourceHashes, registryKey);
                 if (alreadyDone) {
                     // Per-window skip log removed — the "Ingestion complete: skipped=N"
                     // summary at the end already conveys this. For a 720-message chat
@@ -689,7 +681,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     /**
-     * Puts a failed window on the chat's unfinished record and, the first time it
+     * Puts a failed window on the collection's unfinished record and, the first time it
      * fails, queues it for this run's next pass. A window already on the record when
      * the run began gets one send per run, so one that always fails (a refused
      * prompt, say) does not cost three calls on every later run.
@@ -700,7 +692,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
      */
     function _recordUnfinishedWindow(win, wasTimedOut, tally) {
         const sourceHashes = win.msgs.map(hashSourceMessage);
-        markWindowUnfinished(sourceHashes, uuid);
+        markWindowUnfinished(sourceHashes, registryKey);
         if (!unfinishedFingerprints.has(windowFingerprint(sourceHashes))) {
             tally.windowsToResend.push({ win, wasTimedOut });
         }
@@ -727,10 +719,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         // re-extract them next run). Same rule as the pre-pipeline loop.
         if (!abortSignal?.aborted) {
             for (const winHashes of hashesToMark) {
-                markWindowExtracted(winHashes, uuid);
+                markWindowExtracted(winHashes, registryKey);
             }
             for (const end of endsExtracted) {
-                setVectorizationTip(uuid, end + 1);
+                setVectorizationTip(registryKey, end + 1);
             }
             if (allEvents.length > 0) await windowReplacement.replaceEarlierEvents(allEvents);
         }
@@ -1062,14 +1054,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     log.lifecycle(`[EventBase] Ingestion complete: extracted=${eventsExtracted}, processed=${windowsProcessed}, skipped=${windowsSkipped}, timedOut=${windowsTimedOut}, failed=${windowsFailed}`);
 
-    // Record the window size used for this successful run. Vectorize Content →
-    // Continue compares against this on the next click to detect window-size
-    // changes that would trigger a full re-extraction, and warns the user.
-    // Stamp only when extraction actually ran — pure-skip runs don't reset it.
-    if (uuid && windowsProcessed > 0) {
-        const { setLastUsedWindowSize } = await import('./eventbase-store.js');
-        setLastUsedWindowSize(uuid, windowSize);
-    }
+    // Record the window size this run read the collection with. Vectorize Content compares
+    // against it on the next run to detect window-size changes that would trigger a full
+    // re-extraction, and warns the user. Stamp only when extraction actually ran — pure-skip
+    // runs don't reset it.
+    if (windowsProcessed > 0) setLastUsedWindowSize(registryKey, windowSize);
 
     // StoryArc links that went to events this run replaced now point at the events that replaced them.
     await windowReplacement.moveLinksOffReplacedEvents();
@@ -1375,17 +1364,17 @@ function _estimateProcessedLegacyChunks({ coveredMessages, totalMessages, totalC
 
 /**
  * Returns true if the last complete window of the given messages has already been
- * extracted for this chat and no window is on its unfinished record. Uses the same
+ * extracted into the collection and no window is on its unfinished record. Uses the same
  * hash + window parameters as the main ingestion loop so the result is authoritative.
  *
  * Returns false when messages.length < windowSize (nothing extractable yet).
  *
  * @param {object[]} messages  - Filtered chat messages (non-empty)
  * @param {object}   settings  - VectFox settings
- * @param {string}   chatUUID  - Current chat UUID
+ * @param {string}   registryKey - The registry key ("backend:id") of the chat's collection
  * @returns {boolean}
  */
-export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOverride = undefined, windowOverlapOverride = undefined) {
+export function isChatFullyVectorized(messages, settings, registryKey, windowSizeOverride = undefined, windowOverlapOverride = undefined) {
     const windowSize = windowSizeOverride != null
         ? Math.max(2, windowSizeOverride)
         : Math.max(2, settings.eventbase_window_size || 6);
@@ -1393,15 +1382,15 @@ export function isChatFullyVectorized(messages, settings, chatUUID, windowSizeOv
         ? Math.max(0, Math.min(windowSize - 1, windowOverlapOverride))
         : Math.max(0, Math.min(windowSize - 1, settings.eventbase_window_overlap ?? 0));
     const step = windowSize - windowOverlap;
-    return getUnfinishedWindowFingerprints(chatUUID, windowSize).size === 0
-        && isLastWindowExtracted(messages, windowSize, step, chatUUID, hashSourceMessage);
+    return getUnfinishedWindowFingerprints(registryKey, windowSize).size === 0
+        && isLastWindowExtracted(messages, windowSize, step, registryKey, hashSourceMessage);
 }
 
 /**
  * Evaluate chat auto-sync state for the current chat. Used by the AutoSync page's
  * switch and status, and by the switch's enable flow.
  *
- * Reads the registry, the eventbase window cache, and extension_settings. The one
+ * Reads the registry and the collection's pointer, in its record. The one
  * backend call is the vectorization-tip probe (ensureVectorizationTip), which runs
  * when the tip is not cached yet or is far behind the chat. Passive refreshes while VectFox is disabled
  * pass `shouldProbeBackend: false` (report the cached tip alone, never call the
@@ -1452,7 +1441,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
         : [];
     const chatMessageCount = messages.length;
 
-    // Read the auto-sync marker (per-chat message-index threshold). When this
+    // Read the auto-sync marker (the collection's message-index threshold). When this
     // is past the chat tail, the marker filter in runEventBaseIngestion will
     // reject every window — extraction is effectively frozen until the chat
     // catches up. Surface that as a distinct UI state so the user understands
@@ -1462,7 +1451,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     // The marker may be undefined when auto-sync was never enabled — in that
     // case we don't have enough info to detect the ahead-of-chat condition,
     // so fall through to the existing partial / fully-vectorized branch.
-    const markerValue = extension_settings?.vectfox?.eventbase_autosync_start_marker?.[uuid];
+    const markerValue = getAutoSyncMarker(match.registryKey);
     if (typeof markerValue === 'number' && markerValue > chatMessageCount) {
         return {
             state: 'vectorization-ahead',
@@ -1485,7 +1474,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     // both modes stay consistent. See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const commitBoundary = getCommitBoundary(messages, settings);
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
-    const fullyVectorized = isChatFullyVectorized(committedMessages, settings, uuid, getAutoSyncWindowSize(settings), 0);
+    const fullyVectorized = isChatFullyVectorized(committedMessages, settings, match.registryKey, getAutoSyncWindowSize(settings), 0);
 
     // Cache-first read; one-time probe on cold cache populates from Qdrant, and a
     // far-behind tip gets one check per page load. After first session-warmup, the
@@ -1493,8 +1482,8 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     // See eventbase-store.js for the cache lifecycle docs. Without the probe, a cold
     // cache reports no tip.
     const vectorizationTip = shouldProbeBackend
-        ? await ensureVectorizationTip(uuid, match.collectionId, settings, { commitBoundary, windowSize: getAutoSyncWindowSize(settings) })
-        : getVectorizationTip(uuid);
+        ? await ensureVectorizationTip(match.registryKey, settings, { commitBoundary, windowSize: getAutoSyncWindowSize(settings) })
+        : getVectorizationTip(match.registryKey);
 
     return {
         state: fullyVectorized ? 'fully-vectorized' : 'partial',
@@ -1502,7 +1491,7 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
         registryKey: match.registryKey,
         chatMessageCount,
         commitBoundary,
-        unfinishedWindowCount: getUnfinishedWindowFingerprints(uuid, getAutoSyncWindowSize(settings)).size,
+        unfinishedWindowCount: getUnfinishedWindowFingerprints(match.registryKey, getAutoSyncWindowSize(settings)).size,
         markerValue: typeof markerValue === 'number' ? markerValue : undefined,
         vectorizationTip: typeof vectorizationTip === 'number' ? vectorizationTip : undefined,
     };

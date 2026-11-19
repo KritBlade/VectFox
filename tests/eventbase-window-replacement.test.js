@@ -78,9 +78,11 @@ vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn() }));
 vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
-vi.mock('../src/features/collections/collection-metadata.js', () => ({
+// The real records, where each collection keeps its pointer; locks and pauses are left out.
+vi.mock('../src/features/collections/collection-metadata.js', async (importOriginal) => ({
+    ...(await importOriginal()),
     isCollectionEnabled: () => true, isCollectionActiveForContextAnyKey: () => true,
-    setCollectionLock: vi.fn(), setCollectionMeta: vi.fn(), getChatLockedCollections: () => [],
+    setCollectionLock: vi.fn(), getChatLockedCollections: () => [],
 }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: new Proxy({}, { get: () => () => {} }) }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(), warn: vi.fn(), error: vi.fn(), domain: vi.fn(), enabled: () => false } }));
@@ -93,7 +95,7 @@ vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
 
 const { runEventBaseIngestion } = await import('../src/features/eventbase/eventbase-workflow.js');
-const { clearExtractionCachesForChat, markWindowExtracted, setVectorizationTip } = await import('../src/features/eventbase/eventbase-store.js');
+const { clearExtractionCaches, markWindowExtracted, setVectorizationTip } = await import('../src/features/eventbase/eventbase-store.js');
 const { hashSourceMessage } = await import('../src/features/eventbase/eventbase-message-hash.js');
 const { deleteVectorItems } = await import('../src/features/vector-backend/vector-api.js');
 const { log } = await import('../src/sillytavern/log.js');
@@ -115,10 +117,13 @@ const withNextTurn = chat => [...chat, ...buildChat(chat.length + 2).slice(chat.
 
 let chatNumber = 0;
 const newChatUUID = () => `replace-uuid-${++chatNumber}`;
+/** Each chat reads into a collection of its own, so no test sees another's pointer. */
+const collectionIdOf = chatUUID => `vf_eventbase_replace_${chatUUID}`;
+const collectionKeyOf = chatUUID => `qdrant:${collectionIdOf(chatUUID)}`;
 
 const run = (messages, chatUUID, options = {}) => runEventBaseIngestion({
     messages, chatUUID, settings: SETTINGS, isAutoSync: false, parallelWindows: 8,
-    collectionIdOverride: 'vf_eventbase_replace', ...options,
+    collectionIdOverride: collectionIdOf(chatUUID), ...options,
 });
 
 const listedPoints = () => ({ items: state.points.map(point => ({ hash: point.hash, text: point.text, metadata: point.metadata })) });
@@ -172,7 +177,7 @@ describe('a window extracted again', () => {
         const chat = buildChat(6);
         await run(chat, chatUUID);
 
-        clearExtractionCachesForChat(chatUUID);
+        clearExtractionCaches(collectionKeyOf(chatUUID));
         await run(chat, chatUUID, { skipTipFallback: true });
 
         expect(state.points).toHaveLength(3);
@@ -186,7 +191,7 @@ describe('a window extracted again', () => {
         await run(chat, chatUUID);
         const firstEventsOfWindow0 = eventIdsOfWindow(0);
 
-        clearExtractionCachesForChat(chatUUID);
+        clearExtractionCaches(collectionKeyOf(chatUUID));
         await run(chat, chatUUID, { skipTipFallback: true, startFromMessage: 3 });
 
         expect(callsByWindow()).toEqual({ 0: 1, 2: 1, 4: 1, 6: 1 });
@@ -240,9 +245,9 @@ describe('a window extracted again', () => {
         const chat = buildChat(6);
         await run(chat, chatUUID);
         // A tab left open saves the settings file it loaded, whose record and tip end at window 0.
-        clearExtractionCachesForChat(chatUUID);
-        markWindowExtracted(chat.slice(0, 2).map(hashSourceMessage), chatUUID);
-        setVectorizationTip(chatUUID, 2);
+        clearExtractionCaches(collectionKeyOf(chatUUID));
+        markWindowExtracted(chat.slice(0, 2).map(hashSourceMessage), collectionKeyOf(chatUUID));
+        setVectorizationTip(collectionKeyOf(chatUUID), 2);
 
         // One window per batch: window 2 sits at that tip, and only window 4 shows the run reads windows again.
         await run(withNextTurn(chat), chatUUID, { parallelWindows: 1 });

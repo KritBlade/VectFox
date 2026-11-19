@@ -4,7 +4,7 @@
 //
 // src/index.js runs the reply step (runEventBaseReplyStep) from the manifest's generation interceptor and auto-sync
 // (synchronizeChat) on chat events, and hands clearCachesForDeletedOrImportedCollection to collection deletion and
-// import; src/app/ runs ensureEventBaseIndexes and pruneOrphanedEventBaseChatMaps at startup. The settings panel opens
+// import; src/app/ runs ensureEventBaseIndexes at startup. The settings panel opens
 // Vectorize Content and runs Sync chat and the auto-sync catch-up. The Database Browser runs a collection's StoryArc
 // link actions and Compact collection here.
 //
@@ -26,7 +26,7 @@ export {
     ensureEventBaseIndexes,
     eventPointHash,
     getVectorizationTip,
-    pruneOrphanedEventBaseChatMaps,
+    resolveEventBaseWriteTarget,
     stampAutoSyncMarker,
 } from './eventbase-store.js';
 export {

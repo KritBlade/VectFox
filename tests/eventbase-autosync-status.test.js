@@ -36,7 +36,8 @@ vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({ extractEven
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: {}, generationRateLimitSettings: {} }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(), getUnfinishedWindowFingerprints: vi.fn(() => new Set()),
-    clearExtractionCachesForChat: vi.fn(), buildEventBaseCollectionId: vi.fn(), isLastWindowExtracted: vi.fn(() => false),
+    clearExtractionCaches: vi.fn(), resolveEventBaseRunTarget: vi.fn(), isLastWindowExtracted: vi.fn(() => false),
+    readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(), setLastUsedWindowSize: vi.fn(),
     getVectorizationTip: mocks.getVectorizationTip, setVectorizationTip: vi.fn(),
     ensureVectorizationTip: mocks.ensureVectorizationTip, shouldUseTipFallback: vi.fn(),
     resolveEventBaseWriteTarget: mocks.resolveEventBaseWriteTarget,
@@ -69,14 +70,14 @@ beforeEach(() => {
 describe('getChatAutoSyncStatus — vectorization tip source', () => {
     it('probes the backend by default', async () => {
         const status = await getChatAutoSyncStatus({});
-        expect(mocks.ensureVectorizationTip).toHaveBeenCalledWith('uuid-1', 'vf_eventbase_c1', {}, { commitBoundary: 2, windowSize: 2 });
+        expect(mocks.ensureVectorizationTip).toHaveBeenCalledWith('qdrant:vf_eventbase_c1', {}, { commitBoundary: 2, windowSize: 2 });
         expect(status.vectorizationTip).toBe(4);
     });
 
     it('reads only the cached tip when probing is off', async () => {
         const status = await getChatAutoSyncStatus({}, { shouldProbeBackend: false });
         expect(mocks.ensureVectorizationTip).not.toHaveBeenCalled();
-        expect(mocks.getVectorizationTip).toHaveBeenCalledWith('uuid-1');
+        expect(mocks.getVectorizationTip).toHaveBeenCalledWith('qdrant:vf_eventbase_c1');
         expect(status.vectorizationTip).toBe(2);
     });
 

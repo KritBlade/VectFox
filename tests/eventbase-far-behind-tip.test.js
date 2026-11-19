@@ -6,7 +6,8 @@
  * otherwise never re-read, so the panel shows the old number, ticking Auto-sync offers to re-extract
  * a backlog that does not exist, and ghosting blanks only the messages below it.
  *
- * Runs the real ensureVectorizationTip and the real records, with only the backend and the host faked.
+ * Runs the real ensureVectorizationTip and the real pointer, kept in each collection's record, with only the backend
+ * and the host faked.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -50,19 +51,22 @@ import {
     setVectorizationTip,
 } from '../src/features/eventbase/eventbase-store.js';
 
-const COLLECTION_ID = 'vf_eventbase_qdrant_rabbit_kagami_test';
 const SETTINGS = { vector_backend: 'qdrant' };
 const SYNC_PROGRESS = { commitBoundary: 2620, windowSize: 2 };
 const OLD_WINDOW = [11, 22];
 
-let chatCount = 0;
+let collectionCount = 0;
 
-/** A chat whose saved records stop at this tip. Each test takes its own: the check runs once per chat per page load. */
-function chatWithSavedTip(tip) {
-    const chatUUID = `chat-${++chatCount}`;
-    markWindowExtracted(OLD_WINDOW, chatUUID);
-    setVectorizationTip(chatUUID, tip);
-    return chatUUID;
+/** The registry key of a collection no test used yet: the check runs once per collection per page load. */
+const freshCollectionKey = () => `qdrant:vf_eventbase_qdrant_rabbit_kagami_chat-${++collectionCount}`;
+const collectionIdOf = registryKey => registryKey.slice('qdrant:'.length);
+
+/** A collection whose pointer stops at this tip. */
+function collectionWithSavedTip(tip) {
+    const registryKey = freshCollectionKey();
+    markWindowExtracted(OLD_WINDOW, registryKey);
+    setVectorizationTip(registryKey, tip);
+    return registryKey;
 }
 
 function backendHolding(events) {
@@ -80,11 +84,11 @@ function eventsOfOneRun(lastEnd, startTime = 1000) {
     return events;
 }
 
-async function recordsOf(chatUUID) {
+function pointerOf(registryKey) {
     return {
-        tip: getVectorizationTip(chatUUID),
-        savedTip: extension_settings.vectfox.eventbase_vectorization_tip?.[chatUUID],
-        isWindowRemembered: await isWindowAlreadyExtracted(OLD_WINDOW, null, SETTINGS, chatUUID),
+        tip: getVectorizationTip(registryKey),
+        savedTip: extension_settings.vectfox.collections?.[registryKey]?.eventbaseProgress?.vectorizationTip,
+        isWindowRemembered: isWindowAlreadyExtracted(OLD_WINDOW, registryKey),
     };
 }
 
@@ -108,24 +112,24 @@ describe('countWindowsBehind', () => {
 describe('a tip far behind the chat', () => {
     it('is raised to what the collection holds, and the window record goes with it', async () => {
         backendHolding(eventsOfOneRun(2619));
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        const tip = await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS);
+        const tip = await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS);
 
         expect(tip).toBe(2620);
-        expect(await recordsOf(chatUUID)).toEqual({ tip: 2620, savedTip: 2620, isWindowRemembered: false });
+        expect(pointerOf(registryKey)).toEqual({ tip: 2620, savedTip: 2620, isWindowRemembered: false });
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('224'));
     });
 
     it('is checked from exactly the far-behind line, at this Auto-sync window size', async () => {
         const listChunks = backendHolding(eventsOfOneRun(2619));
 
-        const fourWindowsBehind = chatWithSavedTip(2620 - 2 * (FAR_BEHIND_WINDOW_COUNT - 1));
-        expect(await ensureVectorizationTip(fourWindowsBehind, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(2612);
+        const fourWindowsBehind = collectionWithSavedTip(2620 - 2 * (FAR_BEHIND_WINDOW_COUNT - 1));
+        expect(await ensureVectorizationTip(fourWindowsBehind, SETTINGS, SYNC_PROGRESS)).toBe(2612);
         expect(listChunks).not.toHaveBeenCalled();
 
-        const fiveWindowsBehind = chatWithSavedTip(2620 - 2 * FAR_BEHIND_WINDOW_COUNT);
-        expect(await ensureVectorizationTip(fiveWindowsBehind, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(2620);
+        const fiveWindowsBehind = collectionWithSavedTip(2620 - 2 * FAR_BEHIND_WINDOW_COUNT);
+        expect(await ensureVectorizationTip(fiveWindowsBehind, SETTINGS, SYNC_PROGRESS)).toBe(2620);
         expect(listChunks).toHaveBeenCalledTimes(1);
     });
 
@@ -133,82 +137,82 @@ describe('a tip far behind the chat', () => {
         const listChunks = backendHolding(eventsOfOneRun(2619));
         const tenMessageWindows = { commitBoundary: 2620, windowSize: 10 };
 
-        const fortyMessagesBehind = chatWithSavedTip(2580);
-        await ensureVectorizationTip(fortyMessagesBehind, COLLECTION_ID, SETTINGS, tenMessageWindows);
+        const fortyMessagesBehind = collectionWithSavedTip(2580);
+        await ensureVectorizationTip(fortyMessagesBehind, SETTINGS, tenMessageWindows);
         expect(listChunks).not.toHaveBeenCalled();
 
-        const fiftyMessagesBehind = chatWithSavedTip(2570);
-        await ensureVectorizationTip(fiftyMessagesBehind, COLLECTION_ID, SETTINGS, tenMessageWindows);
+        const fiftyMessagesBehind = collectionWithSavedTip(2570);
+        await ensureVectorizationTip(fiftyMessagesBehind, SETTINGS, tenMessageWindows);
         expect(listChunks).toHaveBeenCalledTimes(1);
     });
 
     it('stays when the collection agrees, because the backlog is real', async () => {
         backendHolding(eventsOfOneRun(223));
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(224);
-        expect(await recordsOf(chatUUID)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(224);
+        expect(pointerOf(registryKey)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
         expect(log.warn).not.toHaveBeenCalled();
     });
 
     it('is never lowered, because windows with no events leave nothing in the collection', async () => {
         backendHolding(eventsOfOneRun(99));
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(224);
-        expect(await recordsOf(chatUUID)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(224);
+        expect(pointerOf(registryKey)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
     });
 
-    it('is read once per chat per page load', async () => {
+    it('is read once per collection per page load', async () => {
         const listChunks = backendHolding(eventsOfOneRun(223));
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS);
-        await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS);
+        await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS);
+        await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS);
 
         expect(listChunks).toHaveBeenCalledTimes(1);
     });
 
     it('is read once when two status refreshes overlap', async () => {
         const listChunks = backendHolding(eventsOfOneRun(2619));
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
         await Promise.all([
-            ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS),
-            ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS),
+            ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS),
+            ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS),
         ]);
 
         expect(listChunks).toHaveBeenCalledTimes(1);
-        expect(getVectorizationTip(chatUUID)).toBe(2620);
+        expect(getVectorizationTip(registryKey)).toBe(2620);
     });
 
     it('is kept with a warning when the read fails, and the next status read tries again', async () => {
         const failure = new Error('backend down');
         getBackend.mockResolvedValue({ listChunks: vi.fn().mockRejectedValue(failure) });
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(224);
-        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining(COLLECTION_ID), failure);
-        expect(await recordsOf(chatUUID)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(224);
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining(collectionIdOf(registryKey)), failure);
+        expect(pointerOf(registryKey)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
 
         backendHolding(eventsOfOneRun(2619));
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(2620);
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(2620);
     });
 
     it('stays when the backend lists no positions, as Standard does without the plugin', async () => {
         const listChunks = vi.fn().mockResolvedValue({ items: [{ hash: 1 }, { hash: 2 }] });
         getBackend.mockResolvedValue({ listChunks });
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(224);
-        expect(await recordsOf(chatUUID)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(224);
+        expect(pointerOf(registryKey)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
     });
 
     it('is raised when older events carry no time', async () => {
         backendHolding(eventsOfOneRun(2619).map(({ end }) => ({ end })));
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(2620);
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(2620);
     });
 });
 
@@ -220,43 +224,45 @@ describe('a Vectorize stopped part way', () => {
 
     it('keeps its tip and window record', async () => {
         backendHolding([...olderEvents, ...eventsOfOneRun(223, 9000)]);
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(224);
-        expect(await recordsOf(chatUUID)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(224);
+        expect(pointerOf(registryKey)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
     });
 
     it('keeps them when the page died before the last batch was saved', async () => {
         backendHolding([...olderEvents, ...eventsOfOneRun(239, 9000)]);
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS, SYNC_PROGRESS)).toBe(224);
-        expect(await recordsOf(chatUUID)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
+        expect(await ensureVectorizationTip(registryKey, SETTINGS, SYNC_PROGRESS)).toBe(224);
+        expect(pointerOf(registryKey)).toEqual({ tip: 224, savedTip: 224, isWindowRemembered: true });
     });
 });
 
 describe('reads that give no sync progress', () => {
     it('trust a known tip and stay off the backend', async () => {
         const listChunks = backendHolding(eventsOfOneRun(2619));
-        const chatUUID = chatWithSavedTip(224);
+        const registryKey = collectionWithSavedTip(224);
 
-        expect(await ensureVectorizationTip(chatUUID, COLLECTION_ID, SETTINGS)).toBe(224);
+        expect(await ensureVectorizationTip(registryKey, SETTINGS)).toBe(224);
         expect(listChunks).not.toHaveBeenCalled();
     });
 
-    it('still probe a cold chat once, keeping the result in memory only', async () => {
+    it('still probe a cold collection once, keeping the result in memory only', async () => {
         const listChunks = backendHolding(eventsOfOneRun(2619));
+        const coldKey = freshCollectionKey();
 
-        expect(await ensureVectorizationTip('cold-chat', COLLECTION_ID, SETTINGS)).toBe(2620);
-        expect(await ensureVectorizationTip('cold-chat', COLLECTION_ID, SETTINGS)).toBe(2620);
+        expect(await ensureVectorizationTip(coldKey, SETTINGS)).toBe(2620);
+        expect(await ensureVectorizationTip(coldKey, SETTINGS)).toBe(2620);
 
         expect(listChunks).toHaveBeenCalledTimes(1);
-        expect(extension_settings.vectfox.eventbase_vectorization_tip?.['cold-chat']).toBeUndefined();
+        expect(listChunks).toHaveBeenCalledWith(collectionIdOf(coldKey), SETTINGS, expect.anything());
+        expect(extension_settings.vectfox.collections?.[coldKey]).toBeUndefined();
     });
 
-    it('report no tip for a cold chat whose collection is empty', async () => {
+    it('report no tip for a cold collection that is empty', async () => {
         backendHolding([]);
 
-        expect(await ensureVectorizationTip('empty-chat', COLLECTION_ID, SETTINGS)).toBeNull();
+        expect(await ensureVectorizationTip(freshCollectionKey(), SETTINGS)).toBeNull();
     });
 });

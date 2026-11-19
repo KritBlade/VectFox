@@ -28,6 +28,7 @@ import { migration_embedding_source_key } from './app/settings-migration-embeddi
 import { migration_remove_semantic_world_info_settings } from './app/settings-migration-semantic-world-info-settings.js';
 import { migration_remove_chunkbase_settings } from './app/settings-migration-chunkbase-settings.js';
 import { migration_remove_retired_collection_fields } from './app/settings-migration-collection-retired-fields.js';
+import { migration_eventbase_progress_into_collections } from './app/settings-migration-eventbase-progress.js';
 import { log } from './sillytavern/log.js';
 import {
     CONNECTION_PROFILE_PROVIDER,
@@ -266,23 +267,6 @@ const defaultSettings = {
     // tip is extracted before it could be wiped.
     eventbase_ghost_enabled: false,
     eventbase_ghost_keep_recent: 10,              // recent messages kept verbatim; everything older that's vectorized is wiped. range 1-50 (summarizer injects ~20 events to cover the wiped span)
-    // Per-chat marker: auto-sync only processes windows whose start >= marker.
-    // Stamped at "max(source_window_end across existing events) + 1" when auto-sync
-    // is enabled on a non-empty collection, or at current chat length when collection
-    // is empty. Prevents the windowFingerprint cache from triggering a full re-extraction
-    // when the user changes window_size before enabling auto-sync.
-    // Keyed by chat UUID.
-    eventbase_autosync_start_marker: {},
-    // Per-chat record of the window_size that was last used for a successful extraction
-    // run. Used by the Vectorize Content → Continue path to detect window-size changes
-    // and warn the user before triggering a full re-extraction.
-    // Keyed by chat UUID.
-    eventbase_last_used_window_size: {},
-    // Per-chat persisted vectorization tip (= max(source_window_end)+1, the first
-    // uncovered message). Persisted so the "N msgs vectorized" display is correct
-    // immediately after a reload WITHOUT a backend probe — benefits standard+plugin
-    // and qdrant+plugin users. Keyed by chat UUID. See src/features/eventbase/eventbase-store.js.
-    eventbase_vectorization_tip: {},
     eventbase_min_importance_store: 3,            // Drop events below this importance before storing
     eventbase_max_events_per_window: 3,           // Hard cap on events returned per LLM call
     eventbase_retrieval_top_k: 10,                // Events to retrieve per generation
@@ -517,6 +501,16 @@ jQuery(async () => {
     const _collectionFieldRemoval = migration_remove_retired_collection_fields(extension_settings.vectfox);
     if (_chunkBaseRemoval.migrated > 0 || _collectionFieldRemoval.migrated > 0) {
         log.lifecycle(`VectFox: Removed ${_chunkBaseRemoval.keys.length} ChunkBase setting(s) (${_chunkBaseRemoval.keys.join(', ')}), ${_chunkBaseRemoval.chunkMetadataCount} per-chunk metadata key(s), and ${_collectionFieldRemoval.migrated} retired field(s) from ${_collectionFieldRemoval.collectionCount} collection(s)`);
+        const { saveSettings } = await import('./sillytavern/settings.js');
+        await saveSettings();
+    }
+
+    // Copy how far EventBase has read each chat, stored per chat until now, into the record of each of the chat's
+    // collections, before anything reads it; an empty registry waits for the next start. Idempotent. See
+    // src/app/settings-migration-eventbase-progress.js.
+    const _eventBaseProgressCopy = migration_eventbase_progress_into_collections(extension_settings.vectfox);
+    if (_eventBaseProgressCopy.storeCount > 0) {
+        log.lifecycle(`VectFox: Copied EventBase's pointer of ${_eventBaseProgressCopy.chatCount} chat(s) onto ${_eventBaseProgressCopy.migrated} collection(s), dropped ${_eventBaseProgressCopy.droppedChatCount} chat(s) no collection holds, and deleted ${_eventBaseProgressCopy.storeCount} per-chat store(s)`);
         const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }

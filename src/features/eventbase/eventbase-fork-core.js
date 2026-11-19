@@ -7,10 +7,10 @@
  * own. Forking copies the parent's events for the shared messages into one.
  *
  * The parent is found by message content, not by chat file: every extracted
- * window is recorded as the hashes of its source messages (the local window
- * record, and `source_message_hashes` on every stored event). The parent is the
- * chat whose recorded hashes match the longest run of this chat's opening
- * messages; that run's length is the split point. Only events whose source
+ * window is recorded as the hashes of its source messages (the window record in
+ * each collection's pointer, and `source_message_hashes` on every stored event).
+ * The parent is the collection whose recorded hashes match the longest run of this
+ * chat's opening messages; that run's length is the split point. Only events whose source
  * window ends before the split point are copied — everything after it belongs to
  * the parent's own continuation.
  *
@@ -33,34 +33,39 @@ export function measureSharedPrefix(branchHashes, knownHashes) {
 }
 
 /**
- * Rank the chats in the local window record as fork sources for this chat.
+ * Rank collections as fork sources for this chat by their window records: the windows
+ * each has read, kept in its pointer.
  *
  * A candidate needs at least one recorded window made entirely of shared
  * messages — otherwise nothing before the split point was ever extracted. This
  * also rules out unrelated chats of the same character, which typically share
  * only the greeting.
  *
- * @param {Object<string, string[]>} windowRecord - `eventbase_extracted_windows`:
- *   chat UUID → window fingerprints (each the window's source hashes, sorted, comma-joined)
+ * @param {Array<{ registryKey: string, collectionId: string, windowFingerprints: string[], isLockedToParentChat: boolean }>} candidates -
+ *   Collections of other chats, each with its window record (each fingerprint the window's source hashes, sorted,
+ *   comma-joined) and whether it is locked to the branch's parent chat
  * @param {Array<number|string>} branchHashes - This chat's message hashes, in order
- * @param {string} currentChatUUID - Excluded from the candidates
- * @returns {Array<{ chatUUID: string, sharedPrefixLength: number, coveredWindowCount: number }>}
- *   Longest shared prefix first; ties go to the chat with more covered windows.
+ * @returns {Array<{ registryKey: string, collectionId: string, sharedPrefixLength: number, coveredWindowCount: number }>}
+ *   Longest shared prefix first; of two that share as many messages, the one locked to the parent chat, then the one
+ *   with more covered windows.
  */
-export function rankForkSourcesFromWindowRecord(windowRecord, branchHashes, currentChatUUID) {
+export function rankForkSourcesFromWindowRecords(candidates, branchHashes) {
     const ranked = [];
-    for (const [chatUUID, fingerprints] of Object.entries(windowRecord || {})) {
-        if (chatUUID === currentChatUUID || !Array.isArray(fingerprints)) continue;
-        const windows = fingerprints.map(fingerprint => String(fingerprint).split(','));
+    for (const { registryKey, collectionId, windowFingerprints, isLockedToParentChat } of candidates) {
+        if (!Array.isArray(windowFingerprints)) continue;
+        const windows = windowFingerprints.map(fingerprint => String(fingerprint).split(','));
         const sharedPrefixLength = measureSharedPrefix(branchHashes, new Set(windows.flat()));
         if (sharedPrefixLength === 0) continue;
         const prefixHashes = new Set(branchHashes.slice(0, sharedPrefixLength).map(String));
         const coveredWindowCount = windows.filter(window => window.every(hash => prefixHashes.has(hash))).length;
         if (coveredWindowCount === 0) continue;
-        ranked.push({ chatUUID, sharedPrefixLength, coveredWindowCount });
+        ranked.push({ registryKey, collectionId, sharedPrefixLength, coveredWindowCount, isLockedToParentChat: Boolean(isLockedToParentChat) });
     }
-    return ranked.sort((a, b) =>
-        (b.sharedPrefixLength - a.sharedPrefixLength) || (b.coveredWindowCount - a.coveredWindowCount));
+    ranked.sort((a, b) => (b.sharedPrefixLength - a.sharedPrefixLength)
+        || (Number(b.isLockedToParentChat) - Number(a.isLockedToParentChat))
+        || (b.coveredWindowCount - a.coveredWindowCount));
+    return ranked.map(({ registryKey, collectionId, sharedPrefixLength, coveredWindowCount }) =>
+        ({ registryKey, collectionId, sharedPrefixLength, coveredWindowCount }));
 }
 
 /**

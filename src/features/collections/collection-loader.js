@@ -232,8 +232,8 @@ export function unregisterCollection(collectionId) {
     }
 }
 
-// What deleteCollection() and importCollection() run last, to clear the per-chat state a feature
-// above this one keeps for a collection whose events are gone or replaced. index.js sets it at startup.
+// What deleteCollection() and importCollection() run last, to clear what a feature above this one
+// holds in memory of a collection whose events are gone or replaced. index.js sets it at startup.
 let deletedOrImportedCollectionCleanup = null;
 
 /**
@@ -245,9 +245,9 @@ export function setDeletedOrImportedCollectionCleanup(cleanup) {
 }
 
 /**
- * Clears the per-chat state kept for a collection that was deleted or imported (EventBase's
- * extraction caches). A failure is logged and goes no further: a cache clear never fails a delete
- * or an import.
+ * Clears what is held in memory of a collection that was deleted or imported (EventBase's tip), so
+ * the next read takes it from the collection's record. A failure is logged and goes no further: a
+ * cache clear never fails a delete or an import.
  * @param {string} collectionId - the collection's bare ID
  */
 export function clearStateOfDeletedOrImportedCollection(collectionId) {
@@ -255,7 +255,7 @@ export function clearStateOfDeletedOrImportedCollection(collectionId) {
         if (!deletedOrImportedCollectionCleanup) throw new Error('no cleanup set: index.js calls setDeletedOrImportedCollectionCleanup() at startup');
         deletedOrImportedCollectionCleanup(collectionId);
     } catch (error) {
-        log.warn(`VectFox: Failed to clear per-chat state for ${collectionId}:`, error);
+        log.warn(`VectFox: Failed to clear what is held in memory of ${collectionId}:`, error);
     }
 }
 
@@ -324,7 +324,7 @@ export async function deleteCollection(collectionId, settings, registryKey = nul
         log.warn(`VectFox: ✗ Failed to delete metadata for ${collectionId}:`, error.message);
     }
 
-    // Step 4: Clear the per-chat state kept for this collection.
+    // Step 4: Clear what is held in memory of this collection.
     clearStateOfDeletedOrImportedCollection(collectionId);
 
     const success = vectorsDeleted && registryDeleted && metadataDeleted;

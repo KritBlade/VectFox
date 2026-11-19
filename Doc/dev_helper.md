@@ -10,7 +10,7 @@ Lorebooks are not in it. LoreBase (`src/features/lorebase/`), while its switch o
 
 Two kinds of collection that nothing searches are deleted once collection discovery has filled the registry and SillyTavern has loaded. `deleteRetiredCollections` in `src/app/retired-collections.js`, which network start-up runs, deletes both and shows one notice with both parts' lines. A collection that could not be deleted is tried again at the next start.
 
-- **Old lorebook collections** (`vf_lorebook_*`, vectorized before LoreBase; `lorebase-old-collections.js`): each one's chat and character locks move to the record of its book, which its ID names, and the notice names the books, says nothing needs vectorizing again, and gives the steps to have LoreBase decide a book's entries, the lock among them.
+- **Old lorebook collections** (`vf_lorebook_*`, vectorized before LoreBase; `lorebase-old-collections.js`): each one's chat and character locks move to the record of its book, which its ID names, and the notice names the books, says LoreBase writes its own keys and vectors for the entries chosen, and gives the steps to have LoreBase decide a book's entries, ending with Write keys and vectors, which locks the book to the chat.
 - **Collections of sources Vectorize Content does not read** (`retired-content-collections.js`): `vf_character_*`, `vf_document_*`, and any other collection whose stored `contentType` names a character card, a document, a web page, a wiki or YouTube (`retiredContentKindOf` in `retired-content-collections-core.js`). The notice counts them, and `validateImportData` refuses an export of one.
 
 ### Archive Chat History
@@ -23,26 +23,26 @@ A chat file chosen as Vectorize Content's Source is extracted like the live chat
 
 ### How it works (O(1), no DB query)
 
-Two-tier storage:
+The windows a collection has read are part of its pointer, kept in its record ([Doc/collection_helper.md](collection_helper.md), "The pointer"). Two-tier storage:
 
-| Tier          | Where                                                              | Shape                          | When built                                                                                  |
-| ------------- | ------------------------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------- |
-| **Persisted** | `extension_settings.vectfox.eventbase_extracted_windows[chatUUID]` | Flat`string[]` of fingerprints | Written each time a window is marked;`saveSettingsDebounced()` flushes to disk              |
-| **In-memory** | `_windowCacheSet` (module-scope `Map<chatUUID, Set<fingerprint>>`) | `Set<string>` per chat         | Lazily built on first access from the persisted array; mutated in-place on subsequent marks |
+| Tier          | Where                                                                                       | Shape                          | When built                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------- |
+| **Persisted** | `extension_settings.vectfox.collections[<registry key>].eventbaseProgress.extractedWindows` | Flat`string[]` of fingerprints | A new array each time a window is marked; the settings save debounced                       |
+| **In-memory** | `_extractedWindowSets` (module-scope `WeakMap<array, Set<fingerprint>>`)                    | `Set<string>` per array        | Built on first access to an array; carried to the new array a mark writes                   |
 
-The persisted array is what survives a reload. The `Set` is what makes the lookup actually O(1) — `array.includes` would be O(N) and chats with thousands of windows would degrade.
+The persisted array is what survives a reload. The `Set` is what makes the lookup actually O(1) — `array.includes` would be O(N) and chats with thousands of windows would degrade. Keyed by the array itself, the Set never outlives it: a record whose array is replaced, as an import replaces it, is read again.
 
 - **Fingerprint format:** sorted source hashes joined by comma, e.g. `"123,456,789"` (built by `windowFingerprint(hashes)`)
-- **On extraction:** `markWindowExtracted(sourceHashes, chatUUID)` — adds the fingerprint to both the in-memory Set AND the persisted array, then calls `saveSettingsDebounced()`. Called in `eventbase-workflow.js` after each successful `insertEvents`.
-- **On dedup check:** `isWindowAlreadyExtracted(sourceHashes, messageIds, settings, chatUUID)` — async signature (kept for API compat; `messageIds` and `settings` are ignored). Returns `set.has(fp)` from the in-memory Set — synchronous, O(1).
-- **Quick-exit check:** `isLastWindowExtracted(messages, windowSize, step, chatUUID, hashFn)` — checks just the *last* window. Avoids building the full window list when nothing needs work. Used as a pre-flight gate before the per-window loop. A hit says nothing about earlier windows, because a run carries on past a failed one.
-- **Failed windows:** `markWindowUnfinished(sourceHashes, chatUUID)` writes the fingerprint to `extension_settings.vectfox.eventbase_unfinished_windows[chatUUID]`, and `markWindowExtracted` takes it off. `getUnfinishedWindowFingerprints(chatUUID, windowSize)` reads the windows of one size, counting the hashes in each fingerprint. The re-send rules are in [Doc/collection_helper.md](collection_helper.md), under "When a window fails".
-- **Cache invalidation:** `clearWindowCacheForChat(chatUUID)` drops the in-memory Set entry, the persisted array and the unfinished record for one chat. `clearExtractionCachesForChat` clears it together with the vectorization tip, and runs when an EventBase collection is deleted or imported (`clearCachesForDeletedOrImportedCollection`), so the next read and the next vectorization run go by what the collection holds now.
+- **On extraction:** `markWindowExtracted(sourceHashes, registryKey)` — writes the collection's window list with the fingerprint added, and the Set with it. Called in `eventbase-workflow.js` after each successful `insertEvents`.
+- **On dedup check:** `isWindowAlreadyExtracted(sourceHashes, registryKey)` — returns `set.has(fp)` from the array's Set — synchronous, O(1).
+- **Quick-exit check:** `isLastWindowExtracted(messages, windowSize, step, registryKey, hashFn)` — checks just the *last* window. Avoids building the full window list when nothing needs work. Used as a pre-flight gate before the per-window loop. A hit says nothing about earlier windows, because a run carries on past a failed one.
+- **Failed windows:** `markWindowUnfinished(sourceHashes, registryKey)` writes the fingerprint to the collection's `unfinishedWindows`, and `markWindowExtracted` takes it off. `getUnfinishedWindowFingerprints(registryKey, windowSize)` reads the windows of one size, counting the hashes in each fingerprint. The re-send rules are in [Doc/collection_helper.md](collection_helper.md), under "When a window fails".
+- **Cache invalidation:** `clearWindowCache(registryKey)` drops the collection's window list and unfinished record. `clearExtractionCaches` clears them together with the vectorization tip, as Vectorize does before reading a chat again. Deleting the collection deletes its record, and `clearCachesForDeletedOrImportedCollection` forgets its tip in memory, so the next read and the next vectorization run go by what the collection holds now.
 - **Why NOT chat_metadata:** `chat_metadata` is only saved to disk when ST saves the chat (e.g. when a message is generated). Stopping mid-vectorization and reloading Chrome would lose all fingerprints written during that run. `extension_settings` + `saveSettingsDebounced` persists immediately.
 
 ### Key files
 
-- `src/features/eventbase/eventbase-store.js` — `markWindowExtracted`, `markWindowUnfinished`, `getUnfinishedWindowFingerprints`, `forgetUnfinishedWindowsNotInChat`, `isWindowAlreadyExtracted`, `isLastWindowExtracted`, `clearWindowCacheForChat`, `windowFingerprint`, plus the private `_windowCacheSet` map
+- `src/features/eventbase/eventbase-store.js` — `readEventBaseProgress`, `writeEventBaseProgress`, `markWindowExtracted`, `markWindowUnfinished`, `getUnfinishedWindowFingerprints`, `forgetUnfinishedWindowsNotInChat`, `isWindowAlreadyExtracted`, `isLastWindowExtracted`, `clearWindowCache`, `windowFingerprint`, plus the private `_extractedWindowSets` map
 - `src/features/eventbase/eventbase-workflow.js` — calls `isLastWindowExtracted` as the pre-flight gate, `isWindowAlreadyExtracted` per-window inside the loop, `markWindowExtracted` after `insertEvents` succeeds, and `markWindowUnfinished` for each window that fails
 
 ---

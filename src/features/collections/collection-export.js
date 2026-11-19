@@ -224,6 +224,8 @@ export async function exportCollection(collectionId, settings, collectionInfo = 
                 // StoryArc's merged entity names, and the names its Entity tab hides
                 storyEntityMerges: collectionMeta.storyEntityMerges || {},
                 storyEntityHiddenNames: collectionMeta.storyEntityHiddenNames || [],
+                // EventBase's pointer, how far it has read the chat into this collection, so its import carries on from there
+                ...(collectionMeta.eventbaseProgress ? { eventbaseProgress: collectionMeta.eventbaseProgress } : {}),
             },
 
             // Chunks (text + metadata + vectors)
@@ -489,8 +491,8 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
 /**
  * Imports a collection from export data
  * Uses pre-computed vectors if available and settings match, otherwise re-embeds
- * Also clears the per-chat state kept for the collection, so its chat's next read reports what the
- * collection holds now.
+ * The collection's EventBase pointer goes first; a whole import writes the file's, so the collection carries on
+ * from it, and a file with none leaves none, so its next read reports what the collection holds now.
  *
  * @param {object} exportData - Single collection export data (or one item from multi-export)
  * @param {object} settings - VectFox settings
@@ -587,9 +589,20 @@ export async function importCollection(exportData, settings, options = {}) {
 
     const errors = [];
 
+    // Metadata is keyed by the registry-key form ("backend:id") — same key
+    // used by setCollectionLock, cleanupOrphanedMeta, and the loader's
+    // ensureCollectionMeta. Writing at the bare ID would land in a different
+    // bucket that the orphan-cleanup pass would immediately remove.
+    const registryKey = buildRegistryKey(collectionId, settings);
+
     try {
         // Step 1: Handle existing collection
         progressTracker.updateProgress(1, 'Preparing collection...');
+
+        // The record a replaced collection left keeps its fields through setCollectionMeta's merge, but its
+        // EventBase pointer describes events this import replaces: it goes now, and only a whole import writes the
+        // file's.
+        if (getCollectionMeta(registryKey).eventbaseProgress) setCollectionMeta(registryKey, { eventbaseProgress: undefined });
 
         if (options.overwrite) {
             try {
@@ -645,12 +658,6 @@ export async function importCollection(exportData, settings, options = {}) {
         // Step 4: Save metadata
         progressTracker.updateProgress(4, 'Saving metadata...');
 
-        // Metadata is keyed by the registry-key form ("backend:id") — same key
-        // used by setCollectionLock, cleanupOrphanedMeta, and the loader's
-        // ensureCollectionMeta. Writing at the bare ID would land in a different
-        // bucket that the orphan-cleanup pass would immediately remove.
-        const registryKey = buildRegistryKey(collectionId, settings);
-
         // Import is treated as a conversion → activation state must start fresh.
         // Clear any chat locks from a prior collection with the same ID first so the
         // chat_lock_index reverse map stays consistent; lockedToCharacterIds + autoSync
@@ -692,6 +699,11 @@ export async function importCollection(exportData, settings, options = {}) {
                 storyEntityMerges: exportData.settings.storyEntityMerges || {},
                 storyEntityHiddenNames: exportData.settings.storyEntityHiddenNames || [],
             });
+            // Every chunk is in, so the collection carries on from the file's pointer. A file made before
+            // EventBase's pointer was exported has none: the collection's first run then carries on from the
+            // furthest window stored.
+            const eventbaseProgress = eventBaseProgressOfFile(exportData.settings.eventbaseProgress);
+            if (eventbaseProgress) importedMeta.eventbaseProgress = eventbaseProgress;
         }
 
         setCollectionMeta(registryKey, importedMeta);
@@ -731,8 +743,8 @@ export async function importCollection(exportData, settings, options = {}) {
         }
         throw error;
     } finally {
-        // Whatever the outcome, the collection no longer holds what its chat's records describe:
-        // overwrite purged it, and a failed or stopped import leaves it empty or partial.
+        // Whatever the outcome, what is held in memory of the collection no longer matches it: its record
+        // holds the file's pointer after a whole import, and none after a failed or stopped one.
         clearStateOfDeletedOrImportedCollection(collectionId);
         progressTracker.clearCancelHandler();
     }
@@ -741,6 +753,28 @@ export async function importCollection(exportData, settings, options = {}) {
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+const isWindowFingerprintList = value => Array.isArray(value) && value.every(fingerprint => typeof fingerprint === 'string');
+const isMessageCount = value => Number.isInteger(value) && value >= 0;
+
+/**
+ * The parts of an EventBase pointer a file carries that have their shape (the parts of `eventbaseProgress` in
+ * eventbase-store.js): message counts for the tip, the auto-sync marker and the window size, and lists of window
+ * fingerprints for the windows read and those that failed. Anything else in the file is left out.
+ *
+ * @param {unknown} value - `settings.eventbaseProgress` of an export file
+ * @returns {object|undefined} The pointer to write, or undefined when the file has none
+ */
+function eventBaseProgressOfFile(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const progress = {};
+    if (isMessageCount(value.vectorizationTip)) progress.vectorizationTip = value.vectorizationTip;
+    if (isWindowFingerprintList(value.extractedWindows)) progress.extractedWindows = [...value.extractedWindows];
+    if (isWindowFingerprintList(value.unfinishedWindows) && value.unfinishedWindows.length) progress.unfinishedWindows = [...value.unfinishedWindows];
+    if (isMessageCount(value.autoSyncStartMarker)) progress.autoSyncStartMarker = value.autoSyncStartMarker;
+    if (Number.isInteger(value.windowSize) && value.windowSize > 0) progress.windowSize = value.windowSize;
+    return Object.keys(progress).length ? progress : undefined;
+}
 
 /**
  * Detects content type from collection ID pattern

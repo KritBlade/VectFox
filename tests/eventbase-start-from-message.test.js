@@ -25,7 +25,7 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'start-from-uuid', parseRegistryKey: (k) => ({ collectionId: k }),
     COLLECTION_PREFIXES: { VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_', VECTFOX_EVENTBASE: 'vf_eventbase_' },
     buildRegistryKey: (id) => `qdrant:${id}`, buildEventBaseCollectionId: () => 'vf_eventbase_start_from', getRegistryBackend: () => 'qdrant',
-    buildChatSearchPatterns: () => [], matchesPatterns: () => false,
+    buildChatSearchPatterns: () => [], matchesPatterns: () => false, parseCollectionId: () => ({ scope: 'chat' }),
 }));
 vi.mock('../src/features/collections/collection-loader.js', () => ({ getCollectionRegistry: () => [], registerCollection: vi.fn(), getCollectionListing: vi.fn() }));
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({
@@ -74,9 +74,11 @@ vi.mock('../src/features/vector-backend/backend-registry.js', () => ({
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn() }));
 vi.mock('../src/features/eventbase/eventbase-injection.js', () => ({ formatEventsForInjectionDetailed: vi.fn() }));
-vi.mock('../src/features/collections/collection-metadata.js', () => ({
+// The real records, where each collection keeps its pointer; locks and pauses are left out.
+vi.mock('../src/features/collections/collection-metadata.js', async (importOriginal) => ({
+    ...(await importOriginal()),
     isCollectionEnabled: () => true, isCollectionActiveForContextAnyKey: () => true,
-    setCollectionLock: vi.fn(), setCollectionMeta: vi.fn(), getChatLockedCollections: () => [],
+    setCollectionLock: vi.fn(), getChatLockedCollections: () => [],
 }));
 vi.mock('../src/shared/progress-tracker.js', () => ({
     progressTracker: new Proxy({}, { get: (methods, name) => (methods[name] ??= vi.fn()) }),
@@ -91,7 +93,7 @@ vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
 
 const { runEventBaseIngestion } = await import('../src/features/eventbase/eventbase-workflow.js');
-const { clearWindowCacheForChat, getUnfinishedWindowFingerprints, getVectorizationTip, markWindowUnfinished, windowFingerprint } = await import('../src/features/eventbase/eventbase-store.js');
+const { clearWindowCache, getUnfinishedWindowFingerprints, getVectorizationTip, markWindowUnfinished, windowFingerprint } = await import('../src/features/eventbase/eventbase-store.js');
 const { hashSourceMessage } = await import('../src/features/eventbase/eventbase-message-hash.js');
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
 const { progressTracker } = await import('../src/shared/progress-tracker.js');
@@ -104,10 +106,13 @@ const buildChat = (count) => Array.from({ length: count }, (_, i) => ({
 
 let chatNumber = 0;
 const newChatUUID = () => `start-from-uuid-${++chatNumber}`;
+/** Each chat reads into a collection of its own, so no test sees another's pointer. */
+const collectionIdOf = chatUUID => `vf_eventbase_start_from_${chatUUID}`;
+const collectionKeyOf = chatUUID => `qdrant:${collectionIdOf(chatUUID)}`;
 
 const run = (messages, chatUUID, options = {}) => runEventBaseIngestion({
     messages, chatUUID, settings: SETTINGS, isAutoSync: false, parallelWindows: 8,
-    collectionIdOverride: 'vf_eventbase_start_from', ...options,
+    collectionIdOverride: collectionIdOf(chatUUID), ...options,
 });
 
 /** The first message of each window sent to the extractor, counted from 0. */
@@ -131,7 +136,7 @@ describe('a run from a later message', () => {
         expect(windowsSent()).toEqual([2, 4, 6]);
         const eventOfWindow2 = state.points.find(point => point.metadata.source_window_start === 2).metadata;
         expect(eventOfWindow2.source_message_hashes).toEqual(chat.slice(2, 4).map(hashSourceMessage));
-        expect(getVectorizationTip(chatUUID)).toBe(8);
+        expect(getVectorizationTip(collectionKeyOf(chatUUID))).toBe(8);
     });
 
     it('skips by the tip only the windows before it', async () => {
@@ -139,7 +144,7 @@ describe('a run from a later message', () => {
         const chat = buildChat(10);
         await run(chat.slice(0, 6), chatUUID);
         // The record is lost, as an older settings file can lose it, and the tip stays at message 6.
-        clearWindowCacheForChat(chatUUID);
+        clearWindowCache(collectionKeyOf(chatUUID));
         extractEvents.mockClear();
 
         await run(chat, chatUUID, { startFromMessage: 3 });
@@ -151,12 +156,12 @@ describe('a run from a later message', () => {
         const chatUUID = newChatUUID();
         const chat = buildChat(8);
         const firstWindowHashes = chat.slice(0, 2).map(hashSourceMessage);
-        markWindowUnfinished(firstWindowHashes, chatUUID);
+        markWindowUnfinished(firstWindowHashes, collectionKeyOf(chatUUID));
 
         await run(chat, chatUUID, { startFromMessage: 3 });
 
         expect(windowsSent()).toEqual([2, 4, 6]);
-        expect(getUnfinishedWindowFingerprints(chatUUID, 2)).toEqual(new Set([windowFingerprint(firstWindowHashes)]));
+        expect(getUnfinishedWindowFingerprints(collectionKeyOf(chatUUID), 2)).toEqual(new Set([windowFingerprint(firstWindowHashes)]));
     });
 
     it('counts its chunk progress from the chat\'s first message, as the planned chunks are', async () => {

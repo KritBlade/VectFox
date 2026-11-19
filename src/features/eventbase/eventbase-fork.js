@@ -14,12 +14,13 @@
  */
 
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
-import { extension_settings } from '../../sillytavern/settings.js';
 import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from '../../shared/collection-ids.js';
 import {
+    getCollectionListing,
     getCollectionMeta,
     registerCollection,
     getChatLockedCollections,
+    isCollectionLockedToChat,
     removeCollectionLock,
     setCollectionLock,
     setCollectionMeta,
@@ -28,11 +29,11 @@ import {
 } from '../collections/index.js';
 import { purgeVectorIndex } from '../vector-backend/index.js';
 import { getModelFromSettings } from '../embedding/index.js';
-import { resolveActiveEventBaseCollection, markWindowExtracted, setVectorizationTip, getLastUsedWindowSize, setLastUsedWindowSize } from './eventbase-store.js';
+import { markWindowExtracted, readEventBaseProgress, setVectorizationTip, getLastUsedWindowSize, setLastUsedWindowSize } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import {
     measureSharedPrefix,
-    rankForkSourcesFromWindowRecord,
+    rankForkSourcesFromWindowRecords,
     collectSourceMessageHashes,
     selectChunksBeforeSplit,
     toBranchChunk,
@@ -47,7 +48,6 @@ import { log } from '../../sillytavern/log.js';
  * @property {'window-record'|'locked-collection'} origin - How the parent was identified
  * @property {string} collectionId - The parent's EventBase collection (bare ID)
  * @property {string} registryKey - Same collection, "backend:id" form
- * @property {string|null} sourceChatUUID - The parent chat's UUID (window-record origin only)
  * @property {number} sharedPrefixLength - Split point: messages shared with the parent
  * @property {number} chatMessageCount - Messages in this chat
  * @property {Array|null} chunks - The parent's chunks when already read (locked-collection origin)
@@ -57,10 +57,12 @@ import { log } from '../../sillytavern/log.js';
  * Find the collection this chat can fork its EventBase from.
  *
  * Only branches and checkpoints qualify — SillyTavern sets `main_chat` in their
- * metadata. The parent is identified from the local window record first (no
- * backend reads); when that finds nothing, each EventBase collection of another
- * chat that is locked to this chat is read and matched by its events' stored
- * source hashes.
+ * metadata. The parent is identified first from the window records of the
+ * current persona's EventBase collections of other chats on the current backend
+ * (no backend reads); of two that share as many messages, the one locked to the
+ * parent chat (`main_chat`) wins. When that finds nothing, each EventBase
+ * collection of another chat that is locked to this chat is read and matched by
+ * its events' stored source hashes.
  *
  * @param {object} settings - extension_settings.vectfox
  * @returns {Promise<EventBaseForkSource|null>} null when nothing can be forked
@@ -78,18 +80,24 @@ export async function findEventBaseForkSource(settings) {
     const branchHashes = messages.map(hashSourceMessage);
     const backend = getRegistryBackend(settings?.vector_backend);
 
-    const ranked = rankForkSourcesFromWindowRecord(
-        extension_settings?.vectfox?.eventbase_extracted_windows, branchHashes, chatUUID);
-    for (const candidate of ranked) {
-        const collection = resolveActiveEventBaseCollection(settings, candidate.chatUUID, { shouldLogResolution: false });
-        if (!collection || parseRegistryKey(collection.registryKey).backend !== backend) continue;
-        log.lifecycle(`[EventBase][fork] source from window record: chat ${candidate.chatUUID} → ${collection.collectionId}, shares ${candidate.sharedPrefixLength}/${messages.length} messages (${candidate.coveredWindowCount} windows)`);
+    const parentChatId = context.chatMetadata.main_chat;
+    const candidates = getCollectionListing(settings)
+        .filter(entry => entry.isOwn && entry.backend === backend
+            && entry.collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE) && !entry.collectionId.endsWith(chatUUID))
+        .map(entry => ({
+            registryKey: entry.registryKey,
+            collectionId: entry.collectionId,
+            windowFingerprints: readEventBaseProgress(entry.registryKey).extractedWindows ?? [],
+            isLockedToParentChat: isCollectionLockedToChat(entry.registryKey, parentChatId),
+        }));
+    const [best] = rankForkSourcesFromWindowRecords(candidates, branchHashes);
+    if (best) {
+        log.lifecycle(`[EventBase][fork] source from window record: ${best.collectionId}, shares ${best.sharedPrefixLength}/${messages.length} messages (${best.coveredWindowCount} windows)`);
         return {
             origin: 'window-record',
-            collectionId: collection.collectionId,
-            registryKey: collection.registryKey,
-            sourceChatUUID: candidate.chatUUID,
-            sharedPrefixLength: candidate.sharedPrefixLength,
+            collectionId: best.collectionId,
+            registryKey: best.registryKey,
+            sharedPrefixLength: best.sharedPrefixLength,
             chatMessageCount: messages.length,
             chunks: null,
         };
@@ -108,14 +116,13 @@ export async function findEventBaseForkSource(settings) {
             origin: 'locked-collection',
             collectionId,
             registryKey: buildRegistryKey(collectionId, backend),
-            sourceChatUUID: null,
             sharedPrefixLength,
             chatMessageCount: messages.length,
             chunks,
         };
     }
 
-    log.lifecycle(`[EventBase][fork] no fork source for chat ${chatUUID} (${ranked.length} window-record candidate(s), none with a usable collection on ${backend})`);
+    log.lifecycle(`[EventBase][fork] no fork source for chat ${chatUUID} (${candidates.length} collection(s) on ${backend} searched by window record)`);
     return null;
 }
 
@@ -123,8 +130,8 @@ export async function findEventBaseForkSource(settings) {
  * Copy the source's events for the shared messages into this chat's own
  * EventBase collection, then make that collection the chat's active one: locked
  * here, the source unlocked here (its later events belong to the parent's story),
- * and the tip, window record and window size carried over so auto-sync resumes
- * at the split point.
+ * and its pointer set from what was copied — the copied windows and their tip —
+ * with the source collection's window size, so auto-sync resumes at the split point.
  *
  * Shows the progress panel and can be stopped from it. On failure or stop during
  * the copy, the partially written collection is purged.
@@ -193,10 +200,10 @@ export async function forkEventBaseFromSource(settings, source) {
         }
 
         const { tip, sourceHashLists } = summarizeCopiedWindows(copiedChunks);
-        for (const sourceHashes of sourceHashLists) markWindowExtracted(sourceHashes, chatUUID);
-        setVectorizationTip(chatUUID, tip);
-        const sourceWindowSize = source.sourceChatUUID ? getLastUsedWindowSize(source.sourceChatUUID) : undefined;
-        if (typeof sourceWindowSize === 'number') setLastUsedWindowSize(chatUUID, sourceWindowSize);
+        for (const sourceHashes of sourceHashLists) markWindowExtracted(sourceHashes, targetRegistryKey);
+        setVectorizationTip(targetRegistryKey, tip);
+        const sourceWindowSize = getLastUsedWindowSize(source.registryKey);
+        if (typeof sourceWindowSize === 'number') setLastUsedWindowSize(targetRegistryKey, sourceWindowSize);
 
         log.lifecycle(`[EventBase][fork] copied ${copiedChunks.length} event(s) from ${source.collectionId} into ${targetCollectionId}; tip=${tip}, split=${source.sharedPrefixLength}`);
         progressTracker.complete(true, `Forked ${copiedChunks.length} events from the parent chat`);

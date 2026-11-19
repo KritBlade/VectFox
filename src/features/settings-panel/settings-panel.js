@@ -427,12 +427,10 @@ function bindSettingsEvents(settings, callbacks) {
                 let markerFloorOverride; // undefined → smart placement (catch up to tip)
                 try {
                     const { FAR_BEHIND_WINDOW_COUNT, countWindowsBehind, getAutoSyncWindowSize, getVectorizationTip } = await import('../eventbase/index.js');
-                    const { getChatUUID } = await import('../../shared/collection-ids.js');
-                    const uuid = getChatUUID();
                     const chatMsgCount = typeof status.chatMessageCount === 'number'
                         ? status.chatMessageCount
                         : (getContext()?.chat || []).filter(m => m.mes && m.mes.trim().length > 0).length;
-                    const tip = getVectorizationTip(uuid) ?? 0;
+                    const tip = getVectorizationTip(lockKey) ?? 0;
                     const windowSize = Math.max(1, getAutoSyncWindowSize(settings));
                     // Clamp the backlog to the commit boundary — the active last turn is
                     // held back by the settle-lag and settles on its own, so it isn't
@@ -473,7 +471,7 @@ function bindSettingsEvents(settings, callbacks) {
                 setCollectionLock(lockKey, chatId);
                 setCollectionAutoSync(lockKey, true);
 
-                // Stamp the auto-sync start marker for this chat. Prevents the
+                // Stamp the collection's auto-sync start marker. Prevents the
                 // window-fingerprint dedup cache from triggering a full chat
                 // re-extraction when the user changed window_size before enabling
                 // auto-sync. See InternalProject/Vectfox/plans/executed/autosync-independent-window-and-last-n-injection.md §9.
@@ -483,9 +481,7 @@ function bindSettingsEvents(settings, callbacks) {
                 // forces from-now-on when the user chose "just keep up from here".
                 try {
                     const { stampAutoSyncMarker } = await import('../eventbase/index.js');
-                    const { getChatUUID } = await import('../../shared/collection-ids.js');
-                    const uuid = getChatUUID();
-                    if (uuid) await stampAutoSyncMarker(uuid, settings, markerFloorOverride ? { floor: markerFloorOverride } : {});
+                    await stampAutoSyncMarker(lockKey, settings, markerFloorOverride ? { floor: markerFloorOverride } : {});
                 } catch (err) {
                     log.warn('[VectFox] Failed to stamp auto-sync marker on enable:', err?.message || err);
                 }
@@ -507,9 +503,7 @@ function bindSettingsEvents(settings, callbacks) {
                     // against whatever collection state exists at that time.
                     try {
                         const { clearAutoSyncMarker } = await import('../eventbase/index.js');
-                        const { getChatUUID } = await import('../../shared/collection-ids.js');
-                        const uuid = getChatUUID();
-                        if (uuid) clearAutoSyncMarker(uuid);
+                        clearAutoSyncMarker(lockKey);
                     } catch (err) {
                         log.warn('[VectFox] Failed to clear auto-sync marker on disable:', err?.message || err);
                     }
@@ -1191,18 +1185,19 @@ function bindSettingsEvents(settings, callbacks) {
     // Query depth (how many recent messages to include in search query)
     bindNumberSetting(settings, { id: 'VectFox_query_depth', key: 'query', initial: settings.query || 2, isInteger: true });
 
-    // Auto-sync window (AutoSync page), in turns. A new size re-stamps the chat's auto-sync
-    // marker, so auto-sync starts from the current tip instead of re-extracting the chat.
+    // Auto-sync window (AutoSync page), in turns. A new size re-stamps the auto-sync marker of the
+    // chat's collection, so auto-sync starts from the current tip instead of re-extracting the chat.
     bindNumberSetting(settings, { id: 'VectFox_eventbase_autosync_window_turns', key: 'eventbase_autosync_window_turns', initial: settings.eventbase_autosync_window_turns ?? 1, isInteger: true });
     let _stampedWindowTurns = settings.eventbase_autosync_window_turns ?? 1;
     $('#VectFox_eventbase_autosync_window_turns').on('change', async () => {
         if (settings.eventbase_autosync_window_turns === _stampedWindowTurns) return;
         _stampedWindowTurns = settings.eventbase_autosync_window_turns;
         try {
-            const { stampAutoSyncMarker } = await import('../eventbase/index.js');
+            const { resolveEventBaseWriteTarget, stampAutoSyncMarker } = await import('../eventbase/index.js');
             const { getChatUUID } = await import('../../shared/collection-ids.js');
             const uuid = getChatUUID();
-            if (uuid) await stampAutoSyncMarker(uuid, extension_settings.vectfox);
+            const collection = uuid ? resolveEventBaseWriteTarget(extension_settings.vectfox, uuid) : null;
+            if (collection) await stampAutoSyncMarker(collection.registryKey, extension_settings.vectfox);
         } catch (err) {
             log.warn('[VectFox] Failed to re-stamp marker on auto-sync window change:', err?.message || err);
         }

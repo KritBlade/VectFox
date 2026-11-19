@@ -1823,10 +1823,10 @@ test('TEST 013 — Synthetic E2E qdrant: EventBase round-trip', async () => {
 //   the beginning of chat — burning LLM tokens and duplicating events.
 //
 //   This is the "smart marker" that makes auto-sync safe: each completed
-//   window's hashes are joined into a fingerprint string and stored in
-//   `_windowCacheSet` (in-memory Set) + `extension_settings.vectfox
-//   .eventbase_extracted_windows[uuid]` (persisted array). On the next
-//   ingestion call, isLastWindowExtracted does a quick-exit, and
+//   window's hashes are joined into a fingerprint string and stored in the
+//   collection's pointer (`extension_settings.vectfox.collections[<registry
+//   key>].eventbaseProgress.extractedWindows`, read through an in-memory Set).
+//   On the next ingestion call, isLastWindowExtracted does a quick-exit, and
 //   isWindowAlreadyExtracted gates each window. Already-done windows are
 //   skipped.
 //
@@ -1843,8 +1843,7 @@ test('TEST 013 — Synthetic E2E qdrant: EventBase round-trip', async () => {
 //   straight into their collections.
 //
 // What this test proves:
-//   - markWindowExtracted writes to BOTH the in-memory Set and the
-//     persisted array.
+//   - markWindowExtracted writes the window into the collection's record.
 //   - isWindowAlreadyExtracted correctly reports true for marked windows
 //     and false for unmarked ones (the per-window dedup gate).
 //   - isLastWindowExtracted returns false when the last window is unmarked
@@ -1853,13 +1852,12 @@ test('TEST 013 — Synthetic E2E qdrant: EventBase round-trip', async () => {
 //   - The persisted array length equals the expected window count
 //     (survives page reload — key correctness property for auto-sync
 //     across browser restarts).
-//   - clearWindowCacheForChat wipes both tiers (cleanup contract).
+//   - clearWindowCache wipes the window record (cleanup contract).
 //
 // Boundary rules (same as TEST 009):
 //   ✗ DO NOT mutate extension_settings.vectfox at a global level beyond
-//     the synthetic test UUID's cache entry (cleaned up in finally).
-//   ✓ DO use a synthetic chat UUID prefixed with __vf_playwright_test_
-//     so beforeAll cleanup catches any leftover from a crashed run.
+//     the synthetic test collection's record (deleted in finally).
+//   ✓ DO use a synthetic collection ID holding __vf_playwright_test_.
 test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate windows', async () => {
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 014 [AutoSyncDedup]';
@@ -1868,13 +1866,13 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
             markWindowExtracted,
             isWindowAlreadyExtracted,
             isLastWindowExtracted,
-            clearWindowCacheForChat,
+            clearWindowCache,
         } = await import(base + 'src/features/eventbase/eventbase-store.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
-        // Synthetic test UUID — never collides with real chats. Marker prefix
-        // matches beforeAll's cleanup pattern so a crashed run leaves no orphans.
-        const testUUID = '__vf_playwright_test_014__autosync_dedup';
+        // Synthetic test collection — never collides with a real one. Its record holds the pointer the test writes.
+        const testKey = 'qdrant:vf_eventbase_qdrant_playwright___vf_playwright_test_014__autosync_dedup';
         const windowSize = 2;
         const step = 2;
 
@@ -1898,9 +1896,9 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
         try {
             // ═══ Phase 1 — initial state: chat at 2 messages, window [0-1] done ═══
             console.log(`${TEST} Phase 1: simulating initial vectorization (2 messages → window [0-1])`);
-            markWindowExtracted(win01, testUUID);
+            markWindowExtracted(win01, testKey);
 
-            const phase1WindowDone = await isWindowAlreadyExtracted(win01, null, {}, testUUID);
+            const phase1WindowDone = isWindowAlreadyExtracted(win01, testKey);
             if (!phase1WindowDone) {
                 console.error(`${TEST} [FAIL] Phase 1: marked window [0-1] reads back as NOT extracted — markWindowExtracted broken`);
                 return;
@@ -1909,8 +1907,8 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 
             // ═══ Phase 2 — chat grows to 6 messages, NEW windows not yet marked ═══
             console.log(`${TEST} Phase 2: chat grew to 6 messages — verifying new windows [2-3] and [4-5] are NOT in cache`);
-            const phase2Win23 = await isWindowAlreadyExtracted(win23, null, {}, testUUID);
-            const phase2Win45 = await isWindowAlreadyExtracted(win45, null, {}, testUUID);
+            const phase2Win23 = isWindowAlreadyExtracted(win23, testKey);
+            const phase2Win45 = isWindowAlreadyExtracted(win45, testKey);
             if (phase2Win23) {
                 console.error(`${TEST} [FAIL] Phase 2: window [2-3] reads as extracted but was never marked — false positive in dedup gate`);
                 return;
@@ -1926,7 +1924,7 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
             // returned true here, auto-sync would no-op even though 4 messages
             // are unprocessed — exactly the bug the smart marker prevents.
             console.log(`${TEST} Phase 3: isLastWindowExtracted should return false (last window [4-5] unmarked → work to do)`);
-            const quickExitBefore = isLastWindowExtracted(messages, windowSize, step, testUUID, hashFn);
+            const quickExitBefore = isLastWindowExtracted(messages, windowSize, step, testKey, hashFn);
             if (quickExitBefore) {
                 console.error(`${TEST} [FAIL] Phase 3: quick-exit returned true despite last window [4-5] being unmarked — auto-sync would skip the 4-message backfill`);
                 return;
@@ -1935,11 +1933,11 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 
             // ═══ Phase 4 — simulate the auto-sync ingestion marking the 2 new windows ═══
             console.log(`${TEST} Phase 4: simulating auto-sync sweep — marking windows [2-3] and [4-5]`);
-            markWindowExtracted(win23, testUUID);
-            markWindowExtracted(win45, testUUID);
+            markWindowExtracted(win23, testKey);
+            markWindowExtracted(win45, testKey);
 
-            const phase4Win23 = await isWindowAlreadyExtracted(win23, null, {}, testUUID);
-            const phase4Win45 = await isWindowAlreadyExtracted(win45, null, {}, testUUID);
+            const phase4Win23 = isWindowAlreadyExtracted(win23, testKey);
+            const phase4Win45 = isWindowAlreadyExtracted(win45, testKey);
             if (!phase4Win23 || !phase4Win45) {
                 console.error(`${TEST} [FAIL] Phase 4: after marking, windows [2-3] (${phase4Win23}) or [4-5] (${phase4Win45}) still report as not-extracted`);
                 return;
@@ -1952,18 +1950,18 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
             // every chat message would re-extract the entire chat — burning
             // LLM tokens linearly with each new message.
             console.log(`${TEST} Phase 5: isLastWindowExtracted should return true (all windows marked → next trigger no-ops)`);
-            const quickExitAfter = isLastWindowExtracted(messages, windowSize, step, testUUID, hashFn);
+            const quickExitAfter = isLastWindowExtracted(messages, windowSize, step, testKey, hashFn);
             if (!quickExitAfter) {
                 console.error(`${TEST} [FAIL] Phase 5: quick-exit returned false despite all 3 windows marked — next auto-sync would re-process work`);
                 return;
             }
             console.log(`${TEST} Phase 5 ✓ quick-exit correctly reports nothing pending`);
 
-            // ═══ Phase 6 — persisted array matches in-memory state ═══
+            // ═══ Phase 6 — the record's array matches what the Set reports ═══
             // The Set is rebuilt from this array on the next page load, so
             // length-correctness here is what makes auto-sync survive a reload.
-            console.log(`${TEST} Phase 6: verifying persisted array on disk matches the in-memory Set`);
-            const persisted = extension_settings?.vectfox?.eventbase_extracted_windows?.[testUUID];
+            console.log(`${TEST} Phase 6: verifying the window record in the collection's record`);
+            const persisted = extension_settings?.vectfox?.collections?.[testKey]?.eventbaseProgress?.extractedWindows;
             if (!Array.isArray(persisted)) {
                 console.error(`${TEST} [FAIL] Phase 6: persisted entry is not an array — type=${typeof persisted}`);
                 return;
@@ -1976,15 +1974,16 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 
             console.log(`${TEST} [PASS] Fingerprint cache correctly gates auto-sync — 2-msg → 6-msg backfill processes only the 4 new messages, never the original 2`);
         } finally {
-            // Wipe the in-memory Set entry AND the persisted array for testUUID.
-            // Real user data is never touched — testUUID is synthetic and unique.
+            // Wipe the window record, then the synthetic collection's record.
+            // Real user data is never touched — testKey is synthetic and unique.
             try {
-                clearWindowCacheForChat(testUUID);
-                const after = extension_settings?.vectfox?.eventbase_extracted_windows?.[testUUID];
+                clearWindowCache(testKey);
+                const after = extension_settings?.vectfox?.collections?.[testKey]?.eventbaseProgress?.extractedWindows;
+                deleteCollectionMeta(testKey);
                 if (after !== undefined) {
-                    console.warn(`${TEST} [WARN] clearWindowCacheForChat left a stale entry: ${JSON.stringify(after)}`);
+                    console.warn(`${TEST} [WARN] clearWindowCache left a stale entry: ${JSON.stringify(after)}`);
                 } else {
-                    console.log(`${TEST} Cleanup ✓ fingerprint cache cleared for ${testUUID}`);
+                    console.log(`${TEST} Cleanup ✓ window record cleared for ${testKey}`);
                 }
             } catch (cleanupErr) {
                 console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
@@ -2010,7 +2009,7 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 //
 //   The AUTO-SYNC START MARKER prevents this. When the user enables
 //   auto-sync, `stampAutoSyncMarker` records a message-index threshold in
-//   `extension_settings.vectfox.eventbase_autosync_start_marker[chatUUID]`.
+//   the collection's pointer (`eventbaseProgress.autoSyncStartMarker`).
 //   On every auto-sync run, `runEventBaseIngestion` filters its window
 //   list with `windows.filter(w => w.start >= marker)` — only windows that
 //   START at or after the marker get processed. Windows from the
@@ -2031,8 +2030,8 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 //     Layer 2 (TEST 015) — start marker:      window-size-change protection
 //
 // What this test proves:
-//   - getAutoSyncMarker returns undefined for un-stamped chats.
-//   - The marker round-trips through extension_settings storage correctly.
+//   - getAutoSyncMarker returns undefined for an un-stamped collection.
+//   - The marker round-trips through the collection's record correctly.
 //   - The window-filter pattern `w.start >= marker` excludes obsolete
 //     pre-marker windows and keeps post-marker windows. This is the EXACT
 //     filter used inside runEventBaseIngestion at the auto-sync marker
@@ -2042,8 +2041,8 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 //
 // Boundary rules:
 //   ✗ DO NOT mutate extension_settings.vectfox at a global level beyond
-//     the synthetic test UUID's marker entry (cleaned up in finally).
-//   ✓ DO use a synthetic chat UUID prefixed with __vf_playwright_test_.
+//     the synthetic test collection's record (deleted in finally).
+//   ✓ DO use a synthetic collection ID holding __vf_playwright_test_.
 test('TEST 015 — Auto-sync window-size change: start marker filters obsolete windows', async () => {
     const logs = await runTestInPage(async () => {
         const TEST = 'TEST 015 [AutoSyncMarker]';
@@ -2051,20 +2050,21 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
         const {
             getAutoSyncMarker,
             clearAutoSyncMarker,
+            writeEventBaseProgress,
         } = await import(base + 'src/features/eventbase/eventbase-store.js');
-        const { extension_settings } = await import('/scripts/extensions.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
 
-        const testUUID = '__vf_playwright_test_015__autosync_marker';
+        const testKey = 'qdrant:vf_eventbase_qdrant_playwright___vf_playwright_test_015__autosync_marker';
 
         try {
-            // ═══ Phase 1 — fresh UUID, no marker stamped ═══
-            console.log(`${TEST} Phase 1: getAutoSyncMarker on fresh UUID should return undefined`);
-            const initial = getAutoSyncMarker(testUUID);
+            // ═══ Phase 1 — fresh collection, no marker stamped ═══
+            console.log(`${TEST} Phase 1: getAutoSyncMarker on a fresh collection should return undefined`);
+            const initial = getAutoSyncMarker(testKey);
             if (initial !== undefined) {
-                console.error(`${TEST} [FAIL] Phase 1: unmarked UUID returned ${initial} instead of undefined`);
+                console.error(`${TEST} [FAIL] Phase 1: unmarked collection returned ${initial} instead of undefined`);
                 return;
             }
-            console.log(`${TEST} Phase 1 ✓ no marker on fresh UUID`);
+            console.log(`${TEST} Phase 1 ✓ no marker on a fresh collection`);
 
             // ═══ Phase 2 — stamp marker, simulating the smart-placement output ═══
             // Scenario: user vectorized chat at length=2 with windowSize=2.
@@ -2075,12 +2075,9 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
             // We simulate the result directly (the math itself is trivial;
             // what we're testing here is the get/filter contract).
             const stampedValue = 2;
-            if (!extension_settings.vectfox.eventbase_autosync_start_marker) {
-                extension_settings.vectfox.eventbase_autosync_start_marker = {};
-            }
-            extension_settings.vectfox.eventbase_autosync_start_marker[testUUID] = stampedValue;
+            writeEventBaseProgress(testKey, { autoSyncStartMarker: stampedValue });
 
-            const readBack = getAutoSyncMarker(testUUID);
+            const readBack = getAutoSyncMarker(testKey);
             if (readBack !== stampedValue) {
                 console.error(`${TEST} [FAIL] Phase 2: getAutoSyncMarker returned ${readBack}, expected ${stampedValue}`);
                 return;
@@ -2105,7 +2102,7 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
                 { start: 0, end: 3, msgs: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }] },
                 { start: 4, end: 7, msgs: [{ id: 4 }, { id: 5 }, { id: 6 }, { id: 7 }] },
             ];
-            const marker = getAutoSyncMarker(testUUID);
+            const marker = getAutoSyncMarker(testKey);
             const filtered = windowsAtNewSize.filter(w => w.start >= marker);
 
             if (filtered.length !== 1) {
@@ -2144,8 +2141,8 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
             // Called when auto-sync is disabled, so re-enabling later
             // re-computes a fresh marker for the current chat state.
             console.log(`${TEST} Phase 5: clearAutoSyncMarker removes the entry`);
-            clearAutoSyncMarker(testUUID);
-            const cleared = getAutoSyncMarker(testUUID);
+            clearAutoSyncMarker(testKey);
+            const cleared = getAutoSyncMarker(testKey);
             if (cleared !== undefined) {
                 console.error(`${TEST} [FAIL] Phase 5: clearAutoSyncMarker left value ${cleared} — should be undefined after clear`);
                 return;
@@ -2155,12 +2152,13 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
             console.log(`${TEST} [PASS] Auto-sync start marker correctly gates the window filter — windowSize-change protection holds: obsolete pre-marker windows excluded, post-marker windows pass through, boundary at start === marker included`);
         } finally {
             try {
-                clearAutoSyncMarker(testUUID);
-                const after = getAutoSyncMarker(testUUID);
+                clearAutoSyncMarker(testKey);
+                const after = getAutoSyncMarker(testKey);
+                deleteCollectionMeta(testKey);
                 if (after !== undefined) {
                     console.warn(`${TEST} [WARN] clearAutoSyncMarker left a stale value: ${after}`);
                 } else {
-                    console.log(`${TEST} Cleanup ✓ marker cleared for ${testUUID}`);
+                    console.log(`${TEST} Cleanup ✓ marker cleared for ${testKey}`);
                 }
             } catch (cleanupErr) {
                 console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`);
@@ -2176,13 +2174,13 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
 //
 //  TEST 015 covered the marker get/clear contract and the workflow filter
 //  using simulated data. TEST 016 exercises the *production* function that
-//  actually computes the marker — `stampAutoSyncMarker(chatUUID, settings)`
+//  actually computes the marker — `stampAutoSyncMarker(registryKey, settings)`
 //  in src/features/eventbase/eventbase-store.js — across its decision branches:
 //
-//    Branch A: no chatUUID                        → returns 0, no persistence
-//    Branch B: no candidates in registry          → marker = chatLength
-//    Branch C: candidates exist, no readable data → marker = chatLength (fallback)
-//    Branch D: candidates exist with source_window_end metadata
+//    Branch A: no registry key                    → returns 0, no persistence
+//    Branch B: a collection the backend lacks     → marker = chatLength
+//    Branch C: a registered collection, no events → marker = chatLength (fallback)
+//    Branch D: a collection with source_window_end metadata
 //                                                 → marker = max(end) + 1
 //
 //  Branches A/B/C run in every environment. Branch D requires a backend that
@@ -2196,19 +2194,15 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
 //  overwrite) are what real regressions hit.
 //
 //  Phases:
-//    1. Branch A — empty chatUUID returns 0 sentinel, no write.
-//    2. Branch B — fresh UUID with no registered EventBase collection.
-//       Marker should equal getContext().chat.length and persist.
-//    3. Branch C — synthetic vf_eventbase_<…>_<uuid> registered, no chunks
-//       on disk. stampAutoSyncMarker reads events only from the chat's write
-//       target (resolveEventBaseWriteTarget: the UUID, the current backend's
-//       registry label, and a lock or ownership). The synthetic registration
-//       is normally not one; when it is (a superadmin on Qdrant), its
-//       listChunks returns nothing or throws, caught. Either way the marker
-//       falls back to chatLength.
+//    1. Branch A — empty registry key returns 0 sentinel, no write.
+//    2. Branch B — a key naming a collection the backend does not have.
+//       Its listChunks returns nothing or throws, caught, so the marker
+//       equals getContext().chat.length, and persists.
+//    3. Branch C — synthetic vf_eventbase_<…> registered, no chunks on disk.
+//       The marker falls back to chatLength the same way.
 //    4. Re-stamp idempotency — second call overwrites the persisted value.
 //    5. Floor override — { floor: 'chatLength' } stamps chat length directly.
-//    Cleanup — clear the markers, delete the synthetic collection.
+//    Cleanup — clear the markers, delete the synthetic collection and records.
 
 test('TEST 016 — stampAutoSyncMarker smart placement (production-function smoke)', async () => {
     const logs = await runTestInPage(async () => {
@@ -2218,74 +2212,62 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             stampAutoSyncMarker,
             getAutoSyncMarker,
             clearAutoSyncMarker,
-            findEventBaseCollectionsForChat,
+            writeEventBaseProgress,
         } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { registerCollection, deleteCollection } = await import(base + 'src/features/collections/collection-loader.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
         const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
         const settings = extension_settings?.vectfox || {};
         const backend = (settings.vector_backend || 'standard').toLowerCase();
+        const registryBackend = backend === 'standard' ? 'vectra' : backend;
 
-        // Two distinct UUIDs so Phase 2 (no candidates) and Phase 3 (synthetic
-        // candidate) don't pollute each other's registry lookups.
-        const uuidBranchB = '__vf_playwright_test_016__no_candidate';
-        const uuidBranchC = '__vf_playwright_test_016__empty_candidate';
-        const syntheticCollectionId = `vf_eventbase_${backend}_playwright_test_016_${uuidBranchC}`;
-        const syntheticRegistryKey  = `${backend}:${syntheticCollectionId}`;
+        // Two distinct collections so Phase 2 (no collection) and Phase 3 (a
+        // registered one) don't pollute each other's records.
+        const keyBranchB = `${registryBackend}:vf_eventbase_${backend}_playwright___vf_playwright_test_016__no_candidate`;
+        const syntheticCollectionId = `vf_eventbase_${backend}_playwright___vf_playwright_test_016__empty_candidate`;
+        const syntheticRegistryKey  = `${registryBackend}:${syntheticCollectionId}`;
 
         try {
-            // ═══ Phase 1 — Branch A: empty chatUUID returns 0, no write ═══
-            console.log(`${TEST} Phase 1: stampAutoSyncMarker('') should return 0 and NOT touch the marker store`);
-            // Capture any pre-existing keys so we can prove no spurious write happened.
-            const storeBefore = extension_settings?.vectfox?.eventbase_autosync_start_marker || {};
-            const keysBefore  = Object.keys(storeBefore).slice().sort();
+            // ═══ Phase 1 — Branch A: empty registry key returns 0, no write ═══
+            console.log(`${TEST} Phase 1: stampAutoSyncMarker('') should return 0 and NOT touch the records`);
+            // Capture the records so we can prove no spurious write happened.
+            const recordsBefore = JSON.stringify(extension_settings?.vectfox?.collections || {});
 
             const sentinel = await stampAutoSyncMarker('', settings);
             if (sentinel !== 0) {
-                console.error(`${TEST} [FAIL] Phase 1: empty UUID returned ${sentinel} instead of 0`);
+                console.error(`${TEST} [FAIL] Phase 1: empty key returned ${sentinel} instead of 0`);
                 return;
             }
-            const storeAfter = extension_settings?.vectfox?.eventbase_autosync_start_marker || {};
-            const keysAfter  = Object.keys(storeAfter).slice().sort();
-            if (keysBefore.length !== keysAfter.length ||
-                keysBefore.some((k, i) => k !== keysAfter[i])) {
-                console.error(`${TEST} [FAIL] Phase 1: marker store was mutated by an empty-UUID call. Before=${JSON.stringify(keysBefore)} After=${JSON.stringify(keysAfter)}`);
+            const recordsAfter = JSON.stringify(extension_settings?.vectfox?.collections || {});
+            if (recordsBefore !== recordsAfter) {
+                console.error(`${TEST} [FAIL] Phase 1: the collection records were changed by an empty-key call`);
                 return;
             }
             console.log(`${TEST} Phase 1 ✓ Branch A early-exit: returned 0, no persistence`);
 
-            // ═══ Phase 2 — Branch B: no candidates → marker = chatLength ═══
-            console.log(`${TEST} Phase 2: Branch B — fresh UUID, no registered EventBase collection → marker should equal chat length`);
+            // ═══ Phase 2 — Branch B: a collection the backend lacks → marker = chatLength ═══
+            console.log(`${TEST} Phase 2: Branch B — a collection the backend does not have → marker should equal chat length`);
             const chatLengthB = ctx?.chat?.length ?? 0;
-            const markerB = await stampAutoSyncMarker(uuidBranchB, settings);
+            const markerB = await stampAutoSyncMarker(keyBranchB, settings);
             if (markerB !== chatLengthB) {
                 console.error(`${TEST} [FAIL] Phase 2: marker=${markerB}, expected chatLength=${chatLengthB}`);
                 return;
             }
-            const persistedB = getAutoSyncMarker(uuidBranchB);
+            const persistedB = getAutoSyncMarker(keyBranchB);
             if (persistedB !== markerB) {
                 console.error(`${TEST} [FAIL] Phase 2: persisted value ${persistedB} does not match returned ${markerB}`);
                 return;
             }
             console.log(`${TEST} Phase 2 ✓ Branch B: marker=${markerB} (chatLength=${chatLengthB}) persisted via getAutoSyncMarker`);
 
-            // ═══ Phase 3 — Branch C: synthetic candidate, no data → fallback ═══
+            // ═══ Phase 3 — Branch C: a registered collection, no events → fallback ═══
             console.log(`${TEST} Phase 3: Branch C — registering synthetic ${syntheticRegistryKey} with no events → marker should fall back to chat length`);
             registerCollection(syntheticRegistryKey);
 
-            // Sanity: confirm the synthetic registration is actually visible
-            // to findEventBaseCollectionsForChat so the test exercises the
-            // intended branch (`candidates.length > 0`). If this fails the
-            // test would silently degrade into another Branch B run.
-            const candidates = findEventBaseCollectionsForChat(uuidBranchC, backend);
-            if (candidates.length === 0) {
-                console.error(`${TEST} [FAIL] Phase 3: synthetic registration didn't surface in findEventBaseCollectionsForChat — would silently re-test Branch B. Registry key was ${syntheticRegistryKey}.`);
-                return;
-            }
-
             const chatLengthC = ctx?.chat?.length ?? 0;
-            const markerC = await stampAutoSyncMarker(uuidBranchC, settings);
+            const markerC = await stampAutoSyncMarker(syntheticRegistryKey, settings);
             if (markerC !== chatLengthC) {
                 console.error(`${TEST} [FAIL] Phase 3: marker=${markerC}, expected chatLength=${chatLengthC} (the candidate holds no source_window_end, so the marker should have fallen back). Branch C fallback may be broken.`);
                 return;
@@ -2293,25 +2275,25 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             console.log(`${TEST} Phase 3 ✓ Branch C: marker=${markerC} (chatLength=${chatLengthC}) — fallback held; candidate present but no readable source_window_end`);
 
             // ═══ Phase 4 — Re-stamp idempotency ═══
-            console.log(`${TEST} Phase 4: re-stamping Branch B UUID overwrites the persisted value cleanly`);
+            console.log(`${TEST} Phase 4: re-stamping Branch B's collection overwrites the persisted value cleanly`);
             // Mutate the persisted value to a sentinel so we can prove the
             // re-stamp actually wrote (not just left a stale equal value).
-            extension_settings.vectfox.eventbase_autosync_start_marker[uuidBranchB] = -999;
+            writeEventBaseProgress(keyBranchB, { autoSyncStartMarker: -999 });
             // Read back the sentinel via the canonical getter — if this fails,
-            // the pre-condition wasn't met (frozen object, missing nested key)
-            // and the rest of Phase 4 would silently pass on a no-op overwrite.
-            const sentinelReadBack = getAutoSyncMarker(uuidBranchB);
+            // the pre-condition wasn't met and the rest of Phase 4 would
+            // silently pass on a no-op overwrite.
+            const sentinelReadBack = getAutoSyncMarker(keyBranchB);
             if (sentinelReadBack !== -999) {
                 console.error(`${TEST} [FAIL] Phase 4 pre-condition: sentinel write didn't land — getAutoSyncMarker reads ${sentinelReadBack} instead of -999. Re-stamp overwrite assertion below would be meaningless.`);
                 return;
             }
-            const reStamped = await stampAutoSyncMarker(uuidBranchB, settings);
+            const reStamped = await stampAutoSyncMarker(keyBranchB, settings);
             if (reStamped !== chatLengthB) {
                 console.error(`${TEST} [FAIL] Phase 4: re-stamp returned ${reStamped}, expected ${chatLengthB}`);
                 return;
             }
-            if (getAutoSyncMarker(uuidBranchB) !== chatLengthB) {
-                console.error(`${TEST} [FAIL] Phase 4: re-stamp did not overwrite — getAutoSyncMarker still reads ${getAutoSyncMarker(uuidBranchB)} after re-stamp`);
+            if (getAutoSyncMarker(keyBranchB) !== chatLengthB) {
+                console.error(`${TEST} [FAIL] Phase 4: re-stamp did not overwrite — getAutoSyncMarker still reads ${getAutoSyncMarker(keyBranchB)} after re-stamp`);
                 return;
             }
             console.log(`${TEST} Phase 4 ✓ re-stamp overwrites prior value (sentinel -999 → ${chatLengthB})`);
@@ -2321,35 +2303,36 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             // chat length directly (skipping the coverage scan) regardless of state.
             console.log(`${TEST} Phase 5: stampAutoSyncMarker(..., { floor: 'chatLength' }) stamps chat length directly`);
             const chatLenNow = ctx?.chat?.length ?? 0;
-            extension_settings.vectfox.eventbase_autosync_start_marker[uuidBranchB] = -777;
-            const floored = await stampAutoSyncMarker(uuidBranchB, settings, { floor: 'chatLength' });
+            writeEventBaseProgress(keyBranchB, { autoSyncStartMarker: -777 });
+            const floored = await stampAutoSyncMarker(keyBranchB, settings, { floor: 'chatLength' });
             if (floored !== chatLenNow) {
                 console.error(`${TEST} [FAIL] Phase 5: floor override returned ${floored}, expected chatLength=${chatLenNow}`);
                 return;
             }
-            if (getAutoSyncMarker(uuidBranchB) !== chatLenNow) {
-                console.error(`${TEST} [FAIL] Phase 5: floor override did not persist chatLength — getAutoSyncMarker reads ${getAutoSyncMarker(uuidBranchB)} (sentinel -777 not overwritten)`);
+            if (getAutoSyncMarker(keyBranchB) !== chatLenNow) {
+                console.error(`${TEST} [FAIL] Phase 5: floor override did not persist chatLength — getAutoSyncMarker reads ${getAutoSyncMarker(keyBranchB)} (sentinel -777 not overwritten)`);
                 return;
             }
             console.log(`${TEST} Phase 5 ✓ floor override stamps chatLength (${chatLenNow}), overwriting sentinel -777`);
 
-            console.log(`${TEST} [PASS] stampAutoSyncMarker smart placement holds — Branch A early-exit, Branch B no-candidate falls to chatLength, Branch C empty-candidate falls to chatLength, re-stamp overwrites, floor override forces chatLength. Branch D (max(source_window_end)+1) is not asserted by this test because env-1/2 standard-backend inserts strip metadata; the one-line reducer is trivial.`);
+            console.log(`${TEST} [PASS] stampAutoSyncMarker smart placement holds — Branch A early-exit, Branch B missing collection falls to chatLength, Branch C empty collection falls to chatLength, re-stamp overwrites, floor override forces chatLength. Branch D (max(source_window_end)+1) is not asserted by this test because env-1/2 standard-backend inserts strip metadata; the one-line reducer is trivial.`);
         } finally {
-            // Cleanup — the markers, then the synthetic collection. deleteCollection
-            // purges its vectors before it unregisters it and deletes its metadata
-            // (registry key and bare ID), so anything a backend call left on disk
-            // for it is gone before the registration: a folder left behind would be
-            // re-discovered by loadAllCollections on the next ST page load as a ghost
+            // Cleanup — the markers, then the synthetic collection and Branch B's record.
+            // deleteCollection purges its vectors before it unregisters it and deletes
+            // its metadata (registry key and bare ID), so anything a backend call left
+            // on disk for it is gone before the registration: a folder left behind would
+            // be re-discovered by loadAllCollections on the next ST page load as a ghost
             // `vf_eventbase_…playwright_test_016__empty_candidate` entry visible to
             // live retrieval. Deleting a collection with nothing on disk is harmless,
             // so it runs unconditionally, as the beforeAll cleanup deletes leftovers.
             try {
-                clearAutoSyncMarker(uuidBranchB);
-                clearAutoSyncMarker(uuidBranchC);
-                if (getAutoSyncMarker(uuidBranchB) !== undefined ||
-                    getAutoSyncMarker(uuidBranchC) !== undefined) {
-                    console.warn(`${TEST} [WARN] clearAutoSyncMarker left stale values: B=${getAutoSyncMarker(uuidBranchB)} C=${getAutoSyncMarker(uuidBranchC)}`);
+                clearAutoSyncMarker(keyBranchB);
+                clearAutoSyncMarker(syntheticRegistryKey);
+                if (getAutoSyncMarker(keyBranchB) !== undefined ||
+                    getAutoSyncMarker(syntheticRegistryKey) !== undefined) {
+                    console.warn(`${TEST} [WARN] clearAutoSyncMarker left stale values: B=${getAutoSyncMarker(keyBranchB)} C=${getAutoSyncMarker(syntheticRegistryKey)}`);
                 }
+                deleteCollectionMeta(keyBranchB);
                 try { await deleteCollection(syntheticCollectionId, settings, syntheticRegistryKey); } catch (cleanupError) { console.warn('[e2e cleanup] deleteCollection failed:', cleanupError); }
                 console.log(`${TEST} Cleanup ✓ markers cleared, disk artifacts deleted, meta removed, synthetic registration unregistered`);
             } catch (cleanupErr) {
@@ -2758,10 +2741,11 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
         const TEST = 'TEST 023 [SettleLag]';
         const base = '/scripts/extensions/third-party/VectFox/';
         const { getCommitBoundary, getAutoSyncWindowSize } = await import(base + 'src/features/eventbase/eventbase-workflow.js');
-        const { markWindowExtracted, isLastWindowExtracted, clearWindowCacheForChat } = await import(base + 'src/features/eventbase/eventbase-store.js');
+        const { markWindowExtracted, isLastWindowExtracted, clearWindowCache } = await import(base + 'src/features/eventbase/eventbase-store.js');
+        const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
         const { extension_settings } = await import('/scripts/extensions.js');
 
-        const testUUID = '__vf_playwright_test_023__settle_lag';
+        const testKey = 'qdrant:vf_eventbase_qdrant_playwright___vf_playwright_test_023__settle_lag';
         const windowSize = 2, step = 2;
 
         // 8-message chat (4 turns). hashes are arbitrary-but-stable per message.
@@ -2788,10 +2772,10 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
 
             // ═══ Phase 2 — committed windows extracted → quick-exit reports DONE ═══
             // The held-back turn [4-5] is intentionally NOT marked.
-            markWindowExtracted([hashes[0], hashes[1]], testUUID);
-            markWindowExtracted([hashes[2], hashes[3]], testUUID);
+            markWindowExtracted([hashes[0], hashes[1]], testKey);
+            markWindowExtracted([hashes[2], hashes[3]], testKey);
             const committed6 = chat6.slice(0, boundary6); // msgs 0..3
-            if (!isLastWindowExtracted(committed6, windowSize, step, testUUID, hashFn)) {
+            if (!isLastWindowExtracted(committed6, windowSize, step, testKey, hashFn)) {
                 console.error(`${TEST} [FAIL] Phase 2: committed quick-exit reports work pending, but all committed windows are marked → LED would stick yellow`); return;
             }
             console.log(`${TEST} Phase 2 ✓ committed slice fully extracted → quick-exit DONE (LED green)`);
@@ -2805,7 +2789,7 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
             const boundaryAfterSwipe = getCommitBoundary(messages.slice(0, 6), {});
             if (boundaryAfterSwipe !== 4) { console.error(`${TEST} [FAIL] Phase 3: boundary changed to ${boundaryAfterSwipe} after swipe, expected still 4`); return; }
             const committedAfterSwipe = messages.slice(0, 6).slice(0, boundaryAfterSwipe);
-            if (!isLastWindowExtracted(committedAfterSwipe, windowSize, step, testUUID, hashFn)) {
+            if (!isLastWindowExtracted(committedAfterSwipe, windowSize, step, testKey, hashFn)) {
                 console.error(`${TEST} [FAIL] Phase 3: swipe on the active turn flipped committed quick-exit to "work pending" — it would re-extract a discarded generation`); return;
             }
             console.log(`${TEST} Phase 3 ✓ swipe on active turn leaves committed slice unchanged → NO re-extraction`);
@@ -2817,7 +2801,7 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
             const boundary8 = getCommitBoundary(messages, {});
             if (boundary8 !== 6) { console.error(`${TEST} [FAIL] Phase 4: commitBoundary=${boundary8} for 8 msgs, expected 6`); return; }
             const committed8 = messages.slice(0, boundary8); // msgs 0..5 — now includes the kept turn
-            if (isLastWindowExtracted(committed8, windowSize, step, testUUID, hashFn)) {
+            if (isLastWindowExtracted(committed8, windowSize, step, testKey, hashFn)) {
                 console.error(`${TEST} [FAIL] Phase 4: after superseding, committed quick-exit reports DONE — the kept turn [4-5] would never extract`); return;
             }
             console.log(`${TEST} Phase 4 ✓ superseded turn now inside boundary → quick-exit reports the kept turn pending`);
@@ -2825,10 +2809,11 @@ test('TEST 023 — Auto-sync settle/commit lag: swipes on active turn never extr
             console.log(`${TEST} [PASS] Settle-lag holds the active turn: swipes never extract, the kept turn extracts once superseded`);
         } finally {
             try {
-                clearWindowCacheForChat(testUUID);
-                const after = extension_settings?.vectfox?.eventbase_extracted_windows?.[testUUID];
-                if (after !== undefined) console.warn(`${TEST} [WARN] clearWindowCacheForChat left a stale entry: ${JSON.stringify(after)}`);
-                else console.log(`${TEST} Cleanup ✓ fingerprint cache cleared for ${testUUID}`);
+                clearWindowCache(testKey);
+                const after = extension_settings?.vectfox?.collections?.[testKey]?.eventbaseProgress?.extractedWindows;
+                deleteCollectionMeta(testKey);
+                if (after !== undefined) console.warn(`${TEST} [WARN] clearWindowCache left a stale entry: ${JSON.stringify(after)}`);
+                else console.log(`${TEST} Cleanup ✓ window record cleared for ${testKey}`);
             } catch (cleanupErr) { console.warn(`${TEST} [WARN] Cleanup failed: ${cleanupErr.message}`); }
         }
     });

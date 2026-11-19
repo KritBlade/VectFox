@@ -22,7 +22,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { getWorldInfoSettings, getSortedEntries } from '../../sillytavern/world-info.js';
 import { getBackend } from '../vector-backend/index.js';
 import { getChatUUID } from '../../shared/collection-ids.js';
-import { resolveActiveEventBaseCollection, getVectorizationTip } from './eventbase-store.js';
+import { resolveActiveEventBaseCollection, resolveEventBaseWriteTarget, getVectorizationTip } from './eventbase-store.js';
 import { SUMMARIZER_PROMPT_TAG } from '../../shared/constants.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { log } from '../../sillytavern/log.js';
@@ -183,8 +183,11 @@ export function applyGhosting(chat, settings) {
 
     const keepRecent = Math.max(0, Math.floor(Number(settings.eventbase_ghost_keep_recent) || 0));
     const uuid = getChatUUID();
-    // tip = highest extracted message index + 1, in FULL-chat index space.
-    const tip = uuid ? getVectorizationTip(uuid) : undefined;
+    // tip = highest extracted message index + 1, in FULL-chat index space: the tip of the chat's own
+    // collection, the one auto-sync writes. A collection of another chat locked in here counts that
+    // chat's messages.
+    const ownCollection = uuid ? resolveEventBaseWriteTarget(settings, uuid, { shouldLogResolution: false }) : null;
+    const tip = ownCollection ? getVectorizationTip(ownCollection.registryKey) : undefined;
 
     if (Array.isArray(chat) && chat.length > 0 && typeof tip === 'number' && tip > 0) {
         // INDEX-SPACE FIX: `tip` indexes the full chat (incl. is_system messages), but the

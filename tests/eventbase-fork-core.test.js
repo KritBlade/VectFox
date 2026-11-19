@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { hashSourceMessage } from '../src/features/eventbase/eventbase-message-hash.js';
 import {
     measureSharedPrefix,
-    rankForkSourcesFromWindowRecord,
+    rankForkSourcesFromWindowRecords,
     collectSourceMessageHashes,
     selectChunksBeforeSplit,
     toBranchChunk,
@@ -74,38 +74,46 @@ describe('measureSharedPrefix', () => {
     });
 });
 
-describe('rankForkSourcesFromWindowRecord', () => {
-    it('finds the parent and the split point from the window record alone', () => {
-        const windowRecord = { 'parent-uuid': windowsOf(parentHashes, 2).map(fingerprint) };
-        expect(rankForkSourcesFromWindowRecord(windowRecord, branchHashes, 'branch-uuid')).toEqual([
-            { chatUUID: 'parent-uuid', sharedPrefixLength: 8, coveredWindowCount: 4 },
+describe('rankForkSourcesFromWindowRecords', () => {
+    const collection = (name, windowFingerprints, isLockedToParentChat = false) =>
+        ({ registryKey: `qdrant:vf_eventbase_qdrant_wren_harbor_${name}`, collectionId: `vf_eventbase_qdrant_wren_harbor_${name}`, windowFingerprints, isLockedToParentChat });
+
+    it('finds the parent collection and the split point from its window record alone', () => {
+        const parent = collection('parent-uuid', windowsOf(parentHashes, 2).map(fingerprint));
+        expect(rankForkSourcesFromWindowRecords([parent], branchHashes)).toEqual([
+            { registryKey: parent.registryKey, collectionId: parent.collectionId, sharedPrefixLength: 8, coveredWindowCount: 4 },
         ]);
     });
 
     it('stops at the parent\'s extraction tip when auto-sync was off for its later messages', () => {
-        const windowRecord = { 'parent-uuid': windowsOf(parentHashes.slice(0, 4), 2).map(fingerprint) };
-        expect(rankForkSourcesFromWindowRecord(windowRecord, branchHashes, 'branch-uuid')[0])
+        const parent = collection('parent-uuid', windowsOf(parentHashes.slice(0, 4), 2).map(fingerprint));
+        expect(rankForkSourcesFromWindowRecords([parent], branchHashes)[0])
             .toMatchObject({ sharedPrefixLength: 4, coveredWindowCount: 2 });
     });
 
-    it('ignores a chat that shares only the greeting', () => {
+    it('ignores a collection that shares only the greeting, and one with no window record', () => {
         const unrelated = [parentMessages[0], message('User', 'a different opening'), message('Char', 'reply')];
-        const windowRecord = { 'other-uuid': [fingerprint(unrelated.slice(0, 2).map(hashSourceMessage))] };
-        expect(rankForkSourcesFromWindowRecord(windowRecord, branchHashes, 'branch-uuid')).toEqual([]);
-    });
-
-    it('never offers the chat itself', () => {
-        const windowRecord = { 'branch-uuid': windowsOf(branchHashes, 2).map(fingerprint) };
-        expect(rankForkSourcesFromWindowRecord(windowRecord, branchHashes, 'branch-uuid')).toEqual([]);
+        const candidates = [collection('other-uuid', [fingerprint(unrelated.slice(0, 2).map(hashSourceMessage))]), collection('empty-uuid', [])];
+        expect(rankForkSourcesFromWindowRecords(candidates, branchHashes)).toEqual([]);
     });
 
     it('ranks the longest shared prefix first', () => {
-        const windowRecord = {
-            'grandparent-uuid': windowsOf(parentHashes.slice(0, 4), 2).map(fingerprint),
-            'parent-uuid': windowsOf(parentHashes, 2).map(fingerprint),
-        };
-        expect(rankForkSourcesFromWindowRecord(windowRecord, branchHashes, 'branch-uuid').map(c => c.chatUUID))
-            .toEqual(['parent-uuid', 'grandparent-uuid']);
+        const candidates = [
+            collection('grandparent-uuid', windowsOf(parentHashes.slice(0, 4), 2).map(fingerprint)),
+            collection('parent-uuid', windowsOf(parentHashes, 2).map(fingerprint)),
+        ];
+        expect(rankForkSourcesFromWindowRecords(candidates, branchHashes).map(c => c.collectionId))
+            .toEqual(['vf_eventbase_qdrant_wren_harbor_parent-uuid', 'vf_eventbase_qdrant_wren_harbor_grandparent-uuid']);
+    });
+
+    it('puts the one locked to the parent chat first of two that share as many messages, before more covered windows', () => {
+        // Both share the 8 messages: one read in windows of 2 (4 covered), the locked one in windows of 4 (2 covered).
+        const candidates = [
+            collection('parent-uuid', windowsOf(parentHashes.slice(0, 8), 2).map(fingerprint)),
+            collection('parent-uuid_mh3k2x1a', windowsOf(parentHashes.slice(0, 8), 4).map(fingerprint), true),
+        ];
+        expect(rankForkSourcesFromWindowRecords(candidates, branchHashes).map(c => [c.collectionId, c.coveredWindowCount]))
+            .toEqual([['vf_eventbase_qdrant_wren_harbor_parent-uuid_mh3k2x1a', 2], ['vf_eventbase_qdrant_wren_harbor_parent-uuid', 4]]);
     });
 });
 

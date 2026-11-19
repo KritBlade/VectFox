@@ -59,6 +59,8 @@ vi.mock('../src/features/eventbase/eventbase-chat-sync.js', () => ({
 }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     getVectorizationTip: () => (host.priorWindows ? 120 : undefined),
+    readEventBaseProgress: () => ({}),
+    resolveEventBaseRunTarget: (settings, chatUUID) => ({ collectionId: `vf_eventbase_${chatUUID}`, registryKey: `qdrant:vf_eventbase_${chatUUID}` }),
     prepareForFreshExtraction: vi.fn(async () => ({ skipTipFallback: true })),
     checkWindowSizeChanged: () => ({ changed: false }),
     setLastUsedWindowSize: vi.fn(),
@@ -74,6 +76,7 @@ vi.mock('../src/shared/api-keys.js', () => ({ getOpenRouterApiKey: () => '' }));
 vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'chat-uuid',
     buildArchiveEventCollectionId: ({ filenameCharName, archiveUUID }) => `vf_archiveevent_${filenameCharName}_${archiveUUID}`,
+    buildRegistryKey: collectionId => `qdrant:${collectionId}`,
 }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({
     cleaningPresetChoices: () => [

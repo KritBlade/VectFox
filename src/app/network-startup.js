@@ -39,7 +39,6 @@
  */
 
 import { discoverExistingCollections } from '../features/collections/index.js';
-import { pruneOrphanedEventBaseChatMaps } from '../features/eventbase/index.js';
 import { deleteRetiredCollections } from './retired-collections.js';
 import { checkPluginAvailable, PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../shared/similharity-plugin.js';
 import { retry } from '../shared/retry.js';
@@ -129,14 +128,6 @@ export function runNetworkStartup(startupSettings) {
                 );
                 if (collections.length > 0) {
                     log.lifecycle(`VectFox: Discovered ${collections.length} existing collections`);
-                }
-                // Discovery succeeded → registry reflects reality. Sweep stale per-chat
-                // EventBase settings (marker / last-window-size / tip) for chats whose
-                // collection no longer exists. Skipped automatically on an empty registry.
-                try {
-                    pruneOrphanedEventBaseChatMaps();
-                } catch (pruneError) {
-                    log.warn('VectFox: Orphan-sweep of per-chat EventBase settings failed (non-fatal):', pruneError?.message || pruneError);
                 }
                 // The collections VectFox no longer reads go, under one notice: the old vectorized lorebooks LoreBase
                 // replaced, and those Vectorize Content made from sources it no longer reads. It needs the registry
