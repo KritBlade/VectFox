@@ -72,11 +72,12 @@ describe('the progress panel', () => {
 describe("a book's selected entries, by what they have", () => {
     const standing = (hasKeys, vectorStatus, failure = null) => ({ hasKeys, vectorStatus, failure });
 
-    it('counts those with keys and with vectors from the model set now, those ready with both, and what the rest lack', () => {
+    it('counts the entries it decides, those with keys and with vectors from the model set now, those ready with both, and what the rest lack', () => {
         expect(storedCountsOf([standing(true, 'ready'), standing(true, 'missing'), standing(false, 'ready'), standing(false, 'writing')])).toEqual({
-            keyCount: 2, vectorCount: 2, readyCount: 1, missingKeyCount: 2, missingVectorCount: 2, otherModelCount: 0, failedCount: 0, firstFailure: null,
+            decidedCount: 4, keyCount: 2, vectorCount: 2, readyCount: 1, missingKeyCount: 2, missingVectorCount: 2, otherModelCount: 0, failedCount: 0,
+            firstFailure: null,
         });
-        expect(storedCountsOf([])).toMatchObject({ keyCount: 0, vectorCount: 0, readyCount: 0 });
+        expect(storedCountsOf([])).toMatchObject({ decidedCount: 0, keyCount: 0, vectorCount: 0, readyCount: 0 });
     });
 
     it("counts the entries holding another embedding model's vectors as lacking vectors", () => {

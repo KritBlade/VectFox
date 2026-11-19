@@ -46,11 +46,14 @@ describe("what LoreBase's setup lacks", () => {
         expect(loreBaseSetupProblem(READY)).toBe(NO_JEV);
     });
 
-    it("asks for Jev's profile on Fast and Cheap [Jev] alone, and keeps the full stop an embedding problem ends on", () => {
+    it("asks for Jev's profile on Fast and Cheap [Jev] alone, keeps the full stop an embedding problem ends on, and names the Core page once", () => {
         host.jev = { ok: false, problem: NO_JEV };
         expect(loreBaseSetupProblem({ ...READY, lorebase_accuracy: 'high' })).toBe('');
         host.embeddingProblem = 'The profile "Harbor Ollama" was deleted in SillyTavern.';
         expect(loreBaseSetupProblem(READY)).toBe(
             'VectFox\'s embedding model writes LoreBase\'s vectors, and it cannot run yet: The profile "Harbor Ollama" was deleted in SillyTavern. Set it on the Core page.');
+        host.embeddingProblem = 'Embedding: no connection profile is chosen. Choose one on the Core page.';
+        expect(loreBaseSetupProblem(READY)).toBe(
+            "VectFox's embedding model writes LoreBase's vectors, and it cannot run yet: Embedding: no connection profile is chosen. Choose one on the Core page.");
     });
 });

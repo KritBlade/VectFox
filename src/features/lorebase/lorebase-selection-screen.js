@@ -52,7 +52,8 @@ const byId = (root, id) => root.querySelector(`#${id}`);
 const entryElementOf = (root, uid) => [...root.querySelectorAll('[data-lorebase-entry]')].find(element => element.dataset.lorebaseEntry === uid);
 const recordsOf = names => Object.fromEntries(names.map(name => [name, getLoreBook(name)]).filter(([, record]) => record));
 const selectedUidsOf = session => session.rows.filter(row => row.isSelected).map(row => row.uid);
-const isDecidedRow = row => row.isSelected && !row.undecidableReason;
+// A selected row LoreBase decides, as isDecidedEntry: one disabled in SillyTavern is skipped until it is enabled again.
+const isDecidedRow = row => row.isSelected && !row.undecidableReason && !row.isDisabled;
 
 /**
  * A selected row's keys and vectors as this session knows them (entryReadiness); a row LoreBase does not decide shows

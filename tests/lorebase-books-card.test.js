@@ -70,9 +70,10 @@ const { worldInfoPageMarkup } = await import('../src/features/settings-panel/wor
 const { bindLoreBaseBooksCard, refreshLoreBaseBooks } = await import('../src/features/settings-panel/lorebase-books-card.js');
 
 const outcomeOf = fields => ({ keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks: 0, chatLock: null, ...fields });
-// A book's counts as storedCountsOfBooks gives them.
+// A book's counts as storedCountsOfBooks gives them: Harbor Atlas's, whose 2 selected entries LoreBase both decides.
 const countsOf = fields => ({
-    keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null, ...fields,
+    decidedCount: 2, keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0,
+    firstFailure: null, ...fields,
 });
 const HARBOR = { bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: true, isLockedToCharacter: false };
 const KEEPER = { bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false };

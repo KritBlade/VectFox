@@ -242,8 +242,8 @@ describe("each book's keys and vectors, counted", () => {
             ...fields,
         });
         expect(await storage.storedCountsOfBooks([BOOK, 'Desert Atlas'], QDRANT)).toEqual(new Map([
-            [BOOK, counts({ keyCount: 1, vectorCount: 1, readyCount: 1, missingKeyCount: 1, missingVectorCount: 1 })],
-            ['Desert Atlas', counts({ vectorCount: 1, missingKeyCount: 1 })],
+            [BOOK, counts({ decidedCount: 2, keyCount: 1, vectorCount: 1, readyCount: 1, missingKeyCount: 1, missingVectorCount: 1 })],
+            ['Desert Atlas', counts({ decidedCount: 1, vectorCount: 1, missingKeyCount: 1 })],
         ]));
     });
 

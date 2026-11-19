@@ -79,19 +79,21 @@ export function writtenSummary({ keysWritten, vectorsWritten, failed, stopped })
 
 /**
  * Where a book's selected entries LoreBase decides stand, for its row on the books card (§7.1 of
- * lorebook-multi-vector.md): how many have keys, an empty list the model found counted; how many have vectors from the
- * embedding model set now; how many have both, and are ready; how many lack keys and how many lack vectors, an entry
- * lacking both counted in each; how many hold only another embedding model's vectors; and how many of those not ready
- * failed in this session, with the first one's reason.
+ * lorebook-multi-vector.md): how many it decides, so a selected entry it skips, as a disabled one, needs nothing; how
+ * many have keys, an empty list the model found counted; how many have vectors from the embedding model set now; how
+ * many have both, and are ready; how many lack keys and how many lack vectors, an entry lacking both counted in each;
+ * how many hold only another embedding model's vectors; and how many of those not ready failed in this session, with
+ * the first one's reason.
  * @param {Array<{hasKeys: boolean, vectorStatus: string, failure: string|null}>} entries - Each selected entry LoreBase
  *   decides: whether it has keys, its vectors' status (vectorStateOf in lorebase-vectors.js), and what the last failed
  *   writing of its keys or vectors reported, or null
- * @returns {{keyCount: number, vectorCount: number, readyCount: number, missingKeyCount: number,
+ * @returns {{decidedCount: number, keyCount: number, vectorCount: number, readyCount: number, missingKeyCount: number,
  *   missingVectorCount: number, otherModelCount: number, failedCount: number, firstFailure: string|null}}
  */
 export function storedCountsOf(entries) {
     const counts = {
-        keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null,
+        decidedCount: entries.length, keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0,
+        otherModelCount: 0, failedCount: 0, firstFailure: null,
     };
     for (const { hasKeys, vectorStatus, failure } of entries) {
         const hasVectors = vectorStatus === 'ready';

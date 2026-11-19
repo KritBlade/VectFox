@@ -9,18 +9,23 @@ import { resolveJevConnection } from './lorebase-jev.js';
 import { FAST_AND_CHEAP, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 
+const CORE_PAGE = 'Core page';
+
 /**
  * The first thing LoreBase's setup lacks: Qdrant, where its keys and vectors live; VectFox's embedding model, which
- * writes the vectors; LoreBase's own model, which writes the keys; and on Fast and Cheap [Jev], Jev's profile.
+ * writes the vectors; LoreBase's own model, which writes the keys; and on Fast and Cheap [Jev], Jev's profile. The
+ * embedding's problem says where it is set only when its own words do not: a connection profile's already name the
+ * Core page.
  * @param {object} settings - VectFox settings
  * @returns {string} '' when nothing is missing
  */
 export function loreBaseSetupProblem(settings) {
-    if (!isLoreBaseBackend(settings)) return "LoreBase keeps each entry's keys and vectors in Qdrant. Choose Qdrant as the vector backend on the Core page.";
+    if (!isLoreBaseBackend(settings)) return `LoreBase keeps each entry's keys and vectors in Qdrant. Choose Qdrant as the vector backend on the ${CORE_PAGE}.`;
     const embeddingProblem = embeddingSetupProblem(settings);
     if (embeddingProblem) {
         const sentence = /[.!?]$/.test(embeddingProblem) ? embeddingProblem : `${embeddingProblem}.`;
-        return `VectFox's embedding model writes LoreBase's vectors, and it cannot run yet: ${sentence} Set it on the Core page.`;
+        const where = sentence.includes(CORE_PAGE) ? '' : ` Set it on the ${CORE_PAGE}.`;
+        return `VectFox's embedding model writes LoreBase's vectors, and it cannot run yet: ${sentence}${where}`;
     }
     const connection = resolveLoreBaseLlmConfig(settings);
     if (!connection.ok) return describeLoreBaseConnectionProblem(connection.reason, connection.problem);

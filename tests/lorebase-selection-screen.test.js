@@ -688,6 +688,18 @@ describe('vectors on each row, the readiness filter, and the footer on Fast and 
         expect(rowUids()).toEqual(['0', '1', '2', '3', '4']);
     });
 
+    it('gives a selected entry disabled in SillyTavern no keys or vectors to wait for, as LoreBase skips it, in its row, the summary and the filter', async () => {
+        host.books['Harbor Atlas'].entries[1].disable = true;
+        selectHarbor(['0', '1']);
+        host.keyStates.set('Harbor Atlas/0', { status: 'ready', keys: ['lighthouse'] });
+        await openScreen();
+        expect(rowText('1')).toContain('Disabled');
+        expect(rowText('1')).not.toMatch(/No keys|yet|Vectorizing|failed|another model/);
+        expect($id('vectfox_lorebase_summary').textContent).toContain('Keys and vectors: 1 ready.');
+        change($id('vectfox_lorebase_readiness'), 'not-ready');
+        expect(rowUids()).toEqual([]);
+    });
+
     it("says on Fast and Cheap [Jev] how many selected entries taking part in this chat Jev is asked about, or that this book takes no part", async () => {
         host.settings.vectfox.lorebase_accuracy = 'fast';
         selectHarbor(['0', '1'], { lockedToChatIds: ['chat-harbor'] });

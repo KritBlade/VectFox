@@ -182,8 +182,8 @@ describe('loreBaseBooksMarkup', () => {
 
     describe("each book's state, once its keys and vectors are read (§7.1 of lorebook-multi-vector.md)", () => {
         const book = fields => ({
-            bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false, keyCount: 40, vectorCount: 40, readyCount: 40,
-            missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null, writing: null, ...fields,
+            bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false, decidedCount: 40, keyCount: 40, vectorCount: 40,
+            readyCount: 40, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null, writing: null, ...fields,
         });
         const TONES = ['success', 'warning', 'danger', 'accent', 'neutral'];
         const stateOf = fields => {
@@ -201,6 +201,14 @@ describe('loreBaseBooksMarkup', () => {
             expect(stateOf({ keyCount: 30, readyCount: 30, missingKeyCount: 10 }).state).toBe('10 need keys (warning)');
             expect(stateOf({ vectorCount: 1, readyCount: 1, missingVectorCount: 39 }).state).toBe('39 need vectors (warning)');
             expect(stateOf({ keyCount: 35, vectorCount: 30, readyCount: 25, missingKeyCount: 5, missingVectorCount: 10 }).state).toBe('15 need keys or vectors (warning)');
+        });
+
+        it('counts only the entries LoreBase decides, so selected ones it skips, as disabled entries, never keep a book from ready', () => {
+            expect(stateOf({ selectedCount: 75, decidedCount: 23, keyCount: 23, vectorCount: 23, readyCount: 23 })).toEqual({
+                state: 'Ready (success)', lines: ['75 selected, 23 with keys, 23 with vectors'],
+            });
+            expect(stateOf({ selectedCount: 75, decidedCount: 23, keyCount: 13, vectorCount: 23, readyCount: 13, missingKeyCount: 10 }).state)
+                .toBe('10 need keys (warning)');
         });
 
         it('says another embedding model made its vectors, and how many failed with the first reason on a line of its own', () => {
@@ -232,11 +240,12 @@ describe('loreBaseBooksMarkup', () => {
                 return document.querySelector('.vfx-list + .vfx-hint')?.textContent ?? null;
             };
             expect(lineOf([
-                book({ bookName: 'Harbor Atlas', selectedCount: 312, readyCount: 312 }),
-                book({ bookName: 'Keeper Notes', selectedCount: 40, readyCount: 0, isLockedToChat: false, isLockedToCharacter: true }),
-                book({ bookName: 'Tide Tables', selectedCount: 9, readyCount: 9, isLockedToChat: false }),
+                book({ bookName: 'Harbor Atlas', selectedCount: 312, decidedCount: 312, readyCount: 312 }),
+                book({ bookName: 'Keeper Notes', selectedCount: 52, decidedCount: 40, readyCount: 0, isLockedToChat: false, isLockedToCharacter: true }),
+                book({ bookName: 'Tide Tables', selectedCount: 9, decidedCount: 9, readyCount: 9, isLockedToChat: false }),
             ])).toBe('2 books locked here: 312 entries ready, 40 entries waiting for keys or vectors.');
-            expect(lineOf([book({ selectedCount: 1, readyCount: 1 })])).toBe('1 book locked here: 1 entry ready.');
+            expect(lineOf([book({ selectedCount: 1, decidedCount: 1, readyCount: 1 })])).toBe('1 book locked here: 1 entry ready.');
+            expect(lineOf([book({ selectedCount: 75, decidedCount: 23, readyCount: 23 })])).toBe('1 book locked here: 23 entries ready.');
             expect(lineOf([book({ isLockedToChat: false })])).toBe('No book with selected entries is locked here, so LoreBase sends none of them.');
             expect(lineOf([{ bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false }])).toBeNull();
         });

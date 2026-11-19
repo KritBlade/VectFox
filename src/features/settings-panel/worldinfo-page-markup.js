@@ -176,9 +176,9 @@ function selectedLine(selectedCount, keyCount, vectorCount) {
     return `${line}, ${formatCount(keyCount)} with keys, ${formatCount(vectorCount)} with vectors`;
 }
 
-// What the selected entries lack, as one state: each lacking entry once, by the kinds they lack.
-function needLine({ readyCount, selectedCount, missingKeyCount, missingVectorCount }) {
-    const lacking = selectedCount - readyCount;
+// What the entries LoreBase decides lack, as one state: each lacking entry once, by the kinds they lack.
+function needLine({ readyCount, decidedCount, missingKeyCount, missingVectorCount }) {
+    const lacking = decidedCount - readyCount;
     let kinds = 'keys or vectors';
     if (missingKeyCount === lacking && missingVectorCount === lacking) kinds = 'keys and vectors';
     else if (!missingVectorCount) kinds = 'keys';
@@ -189,16 +189,17 @@ function needLine({ readyCount, selectedCount, missingKeyCount, missingVectorCou
 /**
  * A book's one state (§7.1 of lorebook-multi-vector.md), once its keys and vectors are read: the run writing its keys
  * or vectors now, with its entries done of those it writes; the entries that failed; vectors another embedding model
- * made; what the rest lack; or ready.
+ * made; what the rest lack; or ready. Each counts the entries LoreBase decides, so a selected entry it skips, as a
+ * disabled one, never keeps a book from ready.
  */
 function bookStatePill(book) {
-    const { writing, readyCount, selectedCount, failedCount, otherModelCount } = book;
+    const { writing, readyCount, decidedCount, failedCount, otherModelCount } = book;
     if (writing) {
         const step = writing.isKeys ? 'Writing keys' : 'Vectorizing';
         return statusPill({ name: `${step}, ${formatCount(writing.done)} of ${formatCount(writing.total)}`, icon: writing.isKeys ? 'fa-pen-nib' : 'fa-vector-square', status: 'accent' });
     }
     if (failedCount) return statusPill({ name: `${formatCount(failedCount)} failed`, icon: 'fa-triangle-exclamation', status: 'danger' });
-    if (readyCount === selectedCount) return statusPill({ text: 'Ready', icon: 'fa-check', status: 'success' });
+    if (readyCount === decidedCount) return statusPill({ text: 'Ready', icon: 'fa-check', status: 'success' });
     if (otherModelCount) return statusPill({ text: 'Vectors from another embedding model', icon: 'fa-vector-square', status: 'warning' });
     return statusPill({ name: needLine(book), icon: 'fa-key', status: 'warning' });
 }
@@ -226,8 +227,8 @@ export function loreBaseBookRow(book) {
 
 /**
  * The line under the book list (§7.1): the ready entries of the books taking part in this chat, locked to it or its
- * character, and those still waiting for keys or vectors, so a book that waits shows while LoreBase goes on with the
- * rest; or that no book with selected entries is locked here. Nothing before the counts are read.
+ * character, and those LoreBase decides still waiting for keys or vectors, so a book that waits shows while LoreBase
+ * goes on with the rest; or that no book with selected entries is locked here. Nothing before the counts are read.
  */
 function readyLine(books) {
     const selected = books.filter(book => book.selectedCount && book.readyCount !== undefined);
@@ -235,7 +236,7 @@ function readyLine(books) {
     const takingPart = selected.filter(book => book.isLockedToChat || book.isLockedToCharacter);
     if (!takingPart.length) return hint({ text: 'No book with selected entries is locked here, so LoreBase sends none of them.' });
     const ready = takingPart.reduce((sum, book) => sum + book.readyCount, 0);
-    const waiting = takingPart.reduce((sum, book) => sum + book.selectedCount - book.readyCount, 0);
+    const waiting = takingPart.reduce((sum, book) => sum + book.decidedCount - book.readyCount, 0);
     const lockedBooks = `${formatCount(takingPart.length)} ${takingPart.length === 1 ? 'book' : 'books'} locked here`;
     const entries = count => `${formatCount(count)} ${count === 1 ? 'entry' : 'entries'}`;
     return hint({ text: `${lockedBooks}: ${entries(ready)} ready${waiting ? `, ${entries(waiting)} waiting for keys or vectors` : ''}.` });
