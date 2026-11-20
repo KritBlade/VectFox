@@ -26,7 +26,7 @@ Pick the book, then one of the 2 buttons:
 - **Add to this character** puts it in the character's Additional Lorebooks. It loads in every chat with this character, and LoreBase locks it to the character.
 - **Add to all chats** turns it on in SillyTavern's global list. It loads in EVERY chat you have, and LoreBase locks it to this chat only.
 
-Both use SillyTavern's own lists, so SillyTavern's World Info panel shows the book there too. To take it out again, do it in that panel, like any other book. **Remove from LoreBase**, the trash button on the book's row, deletes what LoreBase keeps for it, but your chat still loads the book until you take it out there.
+Both use SillyTavern's own lists, so SillyTavern's World Info panel shows the book there too. To take it out again, press **Remove from LoreBase**, the trash button on the book's row. It takes the book back out of the list it went into AND deletes what LoreBase keeps for it. Taking it out in the World Info panel works too, like any other book, but then LoreBase keeps what it had for the book.
 
 Right after, this screen opens on the new book, with nothing turned on. You pick its entries like any other book's.
 
@@ -74,7 +74,9 @@ Each row has its own Export, Import and Delete. Export saves that one kind to a 
 
 Want the whole book gone from LoreBase, not just one kind? Press the trash button on the book's own row, **Remove from LoreBase**. It deletes everything LoreBase keeps for that book: your selected entries, pinned sections and locks, its keys AND its vectors. It asks first and names each part, so you see what goes before it goes.
 
-The book itself stays in SillyTavern. So its entries just fire by their keys again, like any book LoreBase doesn't use. The **LoreBase books** card on the WorldInfo page has the same button on each book LoreBase keeps something for, and it does the exact same thing. Leftovers don't get it: you clean those up one row at a time.
+The book itself stays in SillyTavern. So its entries just fire by their keys again, like any book LoreBase doesn't use. Leftovers don't get the button: you clean those up one row at a time.
+
+The **LoreBase books** card on the WorldInfo page has the same button, on each book LoreBase keeps something for or that the chat loads through the character's Additional Lorebooks or the global list. That one goes a step further. It also takes the book out of the character's Additional Lorebooks, or out of SillyTavern's global list, so it's gone from the card too. Careful with the global list: a book there loads in EVERY chat, so it leaves all of them. A book that's the character's own lorebook, the chat's or your persona's stays where it is, and the card tells you to take it out in SillyTavern.
 
 The vectors row also has **View chunks**, the eye button. It opens the book's chunks the way a chat collection's open, one chunk for each part of an entry: the entry's title, then that part's text. They're listed by entry and part, and you can search them.
 

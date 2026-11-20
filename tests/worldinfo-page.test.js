@@ -180,12 +180,12 @@ describe('loreBaseBooksMarkup', () => {
         })[0].sub).toBe('1,234 selected, 1,200 with keys, 0 with vectors');
     });
 
-    it('offers Remove from LoreBase on the row of a book LoreBase has a record of, and on no other', () => {
+    it('offers Remove from LoreBase on the row of a book it has something to do for, and on no other', () => {
         document.body.innerHTML = loreBaseBooksMarkup({
             hasChat: true,
             books: [
-                { bookName: 'Harbor Atlas', selectedCount: 18, isLockedToChat: false, isLockedToCharacter: true, hasRecord: true },
-                { bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, hasRecord: false },
+                { bookName: 'Harbor Atlas', selectedCount: 18, isLockedToChat: false, isLockedToCharacter: true, canRemove: true },
+                { bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, canRemove: false },
             ],
         });
         const removers = [...document.querySelectorAll('.vfx-row-actions [data-lorebase-remove]')];

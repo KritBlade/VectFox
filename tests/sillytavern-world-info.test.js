@@ -6,21 +6,24 @@
  * charUpdateAddAuxWorld, by the character's avatar file name; and to the global list every chat loads through the World
  * Info panel's own list, whose change handler sets the global books, as SillyTavern's does: the book goes on beside
  * those already on, whatever its name holds, and a book SillyTavern lacks, or a page without the panel, is refused.
+ * Taking a lorebook out of them again: the character's Additional Lorebooks set without it through charSetAuxWorlds,
+ * by the character's file name, and the global list through the panel's list, the other books kept on.
  * Saving one entry's title and text as SillyTavern's World Info commands do: the loaded copy changed, saved at once,
  * and the World Info editor drawn again; a book or entry SillyTavern lacks is refused, saving nothing.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ worldNames: [], globalBooks: [], books: {} }));
+const host = vi.hoisted(() => ({ worldNames: [], globalBooks: [], books: {}, charLore: [] }));
 
 // SillyTavern's world-info.js, /scripts/world-info.js, as this folder reaches it when served beside src/.
 vi.mock('../../../../world-info.js', () => ({
     METADATA_KEY: 'world_info',
+    charSetAuxWorlds: vi.fn(),
     charUpdateAddAuxWorld: vi.fn(async () => {}),
     checkWorldInfo: vi.fn(),
     getSortedEntries: vi.fn(),
-    getWorldInfoSettings: vi.fn(),
+    getWorldInfoSettings: vi.fn(() => ({ world_info: { charLore: host.charLore } })),
     // SillyTavern hands out a copy of its cached book.
     loadWorldInfo: vi.fn(async bookName => (host.books[bookName] ? structuredClone(host.books[bookName]) : null)),
     reloadEditor: vi.fn(),
@@ -31,8 +34,10 @@ vi.mock('../../../../world-info.js', () => ({
     world_names: host.worldNames,
 }));
 
-const { charUpdateAddAuxWorld, reloadEditor, saveWorldInfo } = await import('../../../../world-info.js');
-const { addCharacterLorebook, addGlobalLorebook, saveLorebookEntry } = await import('../src/sillytavern/world-info.js');
+const { charSetAuxWorlds, charUpdateAddAuxWorld, reloadEditor, saveWorldInfo } = await import('../../../../world-info.js');
+const {
+    addCharacterLorebook, addGlobalLorebook, removeCharacterLorebook, removeGlobalLorebook, saveLorebookEntry,
+} = await import('../src/sillytavern/world-info.js');
 
 let changeCount = 0;
 
@@ -53,6 +58,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     host.worldNames.splice(0, host.worldNames.length, 'Harbor Atlas', 'Tide Tables', 'Voyage, Log', 'The <b>Old</b> "Keep"');
     host.globalBooks = ['Tide Tables'];
+    host.charLore = [{ name: 'keeper-orrin', extraBooks: ['Voyage, Log', 'Harbor Atlas'] }];
     changeCount = 0;
 });
 
@@ -114,5 +120,28 @@ describe('saveLorebookEntry', () => {
         await expect(saveLorebookEntry('Harbor Atlas', '9', { comment: '', content: '' })).rejects.toThrow('Lorebook "Harbor Atlas" has no entry 9 any more.');
         expect(saveWorldInfo).not.toHaveBeenCalled();
         expect(reloadEditor).not.toHaveBeenCalled();
+    });
+});
+
+describe('removeCharacterLorebook', () => {
+    it("sets the character's Additional Lorebooks without the book, by the character's file name, the others kept", () => {
+        removeCharacterLorebook('keeper-orrin', 'Voyage, Log');
+        expect(charSetAuxWorlds).toHaveBeenCalledWith('keeper-orrin', ['Harbor Atlas']);
+    });
+});
+
+describe('removeGlobalLorebook', () => {
+    it('turns the book off through one change of the panel list, the other books kept on', () => {
+        host.globalBooks = ['Tide Tables', 'Voyage, Log', 'Harbor Atlas'];
+        drawPanelList();
+        removeGlobalLorebook('Voyage, Log');
+        expect(changeCount).toBe(1);
+        expect(host.globalBooks).toEqual(['Harbor Atlas', 'Tide Tables']);
+    });
+
+    it('refuses a page without the panel, changing nothing', () => {
+        document.body.innerHTML = '';
+        expect(() => removeGlobalLorebook('Tide Tables')).toThrow("SillyTavern's World Info panel is not on the page.");
+        expect(host.globalBooks).toEqual(['Tide Tables']);
     });
 });

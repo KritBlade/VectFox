@@ -326,15 +326,29 @@ export function describeDelete(row) {
 
 const listWords = new Intl.ListFormat('en', { type: 'conjunction' });
 
+// The places SillyTavern loads a book from for the open chat, in words, by their names in lorebase-chat-books.js.
+const CHAT_BOOK_PLACE_WORDS = Object.freeze({
+    globalList: 'the global list every chat loads',
+    characterBooks: "this character's Additional Lorebooks",
+    characterOwnBook: "the character's own lorebook",
+    chatBook: "this chat's lorebook",
+    personaBook: "your persona's lorebook",
+});
+const placesInWords = places => listWords.format(places.map(place => CHAT_BOOK_PLACE_WORDS[place]));
+const stillLoadedSentence = places => `This chat still loads it through ${placesInWords(places)}: take it out there in SillyTavern.`;
+
 /**
  * Remove from LoreBase's confirm, the same on the Database Browser's lorebook row and the WorldInfo page's book row:
  * the book, each part of it that goes (its selected entries and pinned sections, its locks, its keys and its vectors in
- * every collection holding them), and what stays.
+ * every collection holding them), and what stays; on the WorldInfo page, the open chat's lists it is taken out of
+ * too, and the places that still load it there.
  * @param {{bookName: string, selectedCount: number, pinnedCount: number, chatLockCount: number, characterLockCount: number,
  *   keyCount: number, tenants: Array<{pointCount: number}>}} holdings - From loreBookHoldings in lorebase-storage.js
+ * @param {{takenOutOf: string[], stillLoadedBy: string[]}|null} [links] - chatBookLinks in lorebase-chat-books.js, on
+ *   the WorldInfo page
  * @returns {object[]} confirmPopup's lines
  */
-export function removalConfirmLines({ bookName, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }) {
+export function removalConfirmLines({ bookName, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }, links = null) {
     const partCount = tenants.reduce((sum, tenant) => sum + tenant.pointCount, 0);
     const listOrNone = parts => (parts.length ? listWords.format(parts) : 'none');
     const countedIfAny = (count, singular, plural) => (count ? counted(count, singular, plural) : '');
@@ -349,20 +363,26 @@ export function removalConfirmLines({ bookName, selectedCount, pinnedCount, chat
         { text: 'Locked to:', name: listOrNone(locks) },
         { text: 'Keys:', name: keyCount ? `the keys of ${counted(keyCount, 'entry', 'entries')}, those edited by hand included` : 'none' },
         { text: 'Vectors:', name: partCount ? `${counted(partCount, 'part')}${collections}` : 'none' },
+        links?.takenOutOf.length ? { text: 'Taken out of:', name: placesInWords(links.takenOutOf) } : null,
         { text: `The lorebook stays in SillyTavern, where every entry fires by its keys, as SillyTavern does.${keepCopy}` },
+        links?.stillLoadedBy.length ? { text: stillLoadedSentence(links.stillLoadedBy) } : null,
         { text: 'Remove deletes all of it. Cancel keeps it.' },
-    ];
+    ].filter(Boolean);
 }
 
 /**
- * What Remove from LoreBase deleted, in one line, each count with its unit.
- * @param {{bookName: string, keysDeleted: number, partsDeleted: number}} removed - From removeLoreBook in lorebase-storage.js
+ * What Remove from LoreBase deleted, each count with its unit, and on the WorldInfo page the open chat's lists the book
+ * went from and the places that still load it there.
+ * @param {{bookName: string, keysDeleted: number, partsDeleted: number, takenOutOf?: string[], stillLoadedBy?: string[]}} removed -
+ *   From removeLoreBookAfterConfirm in lorebase-removal.js
  * @returns {string}
  */
-export function describeRemovedLoreBook({ bookName, keysDeleted, partsDeleted }) {
+export function describeRemovedLoreBook({ bookName, keysDeleted, partsDeleted, takenOutOf = [], stillLoadedBy = [] }) {
     const stored = [
         keysDeleted ? `the keys of ${counted(keysDeleted, 'entry', 'entries')}` : '',
         partsDeleted ? `the vectors of ${counted(partsDeleted, 'part')}` : '',
     ].filter(Boolean);
-    return `Removed "${bookName}" from LoreBase${stored.length ? `, with ${listWords.format(stored)}` : ''}.`;
+    const removed = `Removed "${bookName}" from LoreBase${stored.length ? `, with ${listWords.format(stored)}` : ''}`;
+    const takenOut = takenOutOf.length ? `, and took it out of ${placesInWords(takenOutOf)}` : '';
+    return `${removed}${takenOut}.${stillLoadedBy.length ? ` ${stillLoadedSentence(stillLoadedBy)}` : ''}`;
 }

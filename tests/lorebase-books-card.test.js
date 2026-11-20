@@ -104,7 +104,7 @@ beforeEach(() => {
     host.counts = new Map([['Harbor Atlas', countsOf({ keyCount: 2, vectorCount: 1, readyCount: 1, missingVectorCount: 1 })]]);
     host.add = { bookNames: ['Tide Tables', 'Voyage Log'], canAddToCharacter: true };
     host.added = { characterAvatar: 'keeper-orrin.png' };
-    host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5 };
+    host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5, takenOutOf: ['characterBooks'], stillLoadedBy: [] };
     bindLoreBaseBooksCard(host.settings);
 });
 
@@ -612,17 +612,17 @@ describe("each book's state on the card (§7.1 of lorebook-multi-vector.md)", ()
 
 describe('Remove from LoreBase on a book row', () => {
     beforeEach(() => {
-        host.status = { hasChat: true, books: [{ ...HARBOR, hasRecord: true }, { ...KEEPER, hasRecord: false }] };
+        host.status = { hasChat: true, books: [{ ...HARBOR, canRemove: true }, { ...KEEPER, canRemove: false }] };
     });
 
-    it('removes the book once confirmed, says what went and that the chat still loads it, and draws the list again', async () => {
+    it("removes the book once confirmed and takes it out of the chat's lists, says what went, and draws the list again", async () => {
         await refreshLoreBaseBooks();
         expect(remover('Keeper Notes')).toBeNull();
         chatBookLocks.mockClear();
         remover('Harbor Atlas').click();
         await vi.waitFor(() => expect(status().textContent).toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 2 entries and the '
-            + 'vectors of 5 parts. This chat still loads it in SillyTavern, so it stays listed here, with nothing selected.'));
-        expect(removeLoreBookAfterConfirm).toHaveBeenCalledWith('Harbor Atlas', host.settings);
+            + "vectors of 5 parts, and took it out of this character's Additional Lorebooks."));
+        expect(removeLoreBookAfterConfirm).toHaveBeenCalledWith('Harbor Atlas', host.settings, { isTakenOutOfChat: true });
         await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(1));
     });
 

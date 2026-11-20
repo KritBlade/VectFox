@@ -3,18 +3,22 @@
  * plan §5.2 and D11 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): each book
  * SillyTavern loads here and has, in the order its scan loads them, with how many of its selected entries LoreBase
  * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded,
- * whether it is locked to this chat or to the character, by the character's avatar file name, and whether LoreBase has
- * its record, which its row's Remove from LoreBase deletes. And the lock a key run
+ * whether it is locked to this chat or to the character, by the character's avatar file name, and whether its row's
+ * Remove from LoreBase has anything to do: a LoreBase record of the book, or a list Remove takes books out of loading
+ * it. And the lock a key run
  * makes (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): where, read as the run starts, and which of
  * the books it wrote keys for lock to that chat. And Add a lorebook (§6 of lorebook-multi-vector.md): the books the
  * chat does not load, each added to the character or to all chats through SillyTavern's own lists and locked where it
- * went, or refused, linking and locking nothing.
+ * went, or refused, linking and locking nothing. And taking a book out of the chat's lists for the WorldInfo page's
+ * Remove from LoreBase (§3.6 of vectfox-multi-collection-per-chat.md): where the chat loads it from, out of the
+ * character's Additional Lorebooks and the global list, the character's own, the chat's and the persona's left to
+ * SillyTavern, and the global list said to load it still when SillyTavern's World Info panel is not on the page.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
     worldNames: [], globalBooks: [], charLore: [], context: null, chatId: 'chat-harbor', settings: { vectfox: {} }, books: {},
-    isLinkMade: true,
+    isLinkMade: true, isPanelShown: true,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn() } }));
@@ -32,6 +36,14 @@ vi.mock('../src/sillytavern/world-info.js', () => ({
     addGlobalLorebook: vi.fn(bookName => {
         if (host.isLinkMade) host.globalBooks.push(bookName);
     }),
+    removeCharacterLorebook: vi.fn((characterFileName, bookName) => {
+        const item = host.charLore.find(candidate => candidate.name === characterFileName);
+        if (item) item.extraBooks = item.extraBooks.filter(name => name !== bookName);
+    }),
+    removeGlobalLorebook: vi.fn(bookName => {
+        if (!host.isPanelShown) throw new Error("SillyTavern's World Info panel is not on the page.");
+        host.globalBooks.splice(host.globalBooks.indexOf(bookName), 1);
+    }),
     getWorldInfoSettings: () => ({ world_info: { charLore: host.charLore } }),
     loadWorldInfo: vi.fn(async bookName => {
         if (host.books[bookName] instanceof Error) throw host.books[bookName];
@@ -45,17 +57,20 @@ vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: id => (i
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 
 const { log } = await import('../src/sillytavern/log.js');
-const { addCharacterLorebook, addGlobalLorebook, loadWorldInfo } = await import('../src/sillytavern/world-info.js');
 const {
-    ADD_TO_ALL_CHATS, ADD_TO_CHARACTER, addLoreBookToChat, booksToAdd, chatBookLocks, keyRunLockPlace, lockKeyedBooks,
+    addCharacterLorebook, addGlobalLorebook, loadWorldInfo, removeCharacterLorebook, removeGlobalLorebook,
+} = await import('../src/sillytavern/world-info.js');
+const {
+    ADD_TO_ALL_CHATS, ADD_TO_CHARACTER, addLoreBookToChat, booksToAdd, chatBookLinks, chatBookLocks, chatBookNames, keyRunLockPlace,
+    lockKeyedBooks, takeLoreBookOutOfChat,
 } = await import('../src/features/lorebase/lorebase-chat-books.js');
 const { loreBaseBooksMarkup } = await import('../src/features/settings-panel/worldinfo-page-markup.js');
 
 const recordOf = ({ selected = [], chats = [], characters = [] } = {}) => ({
     selectedUids: selected, pinnedSections: [], lockedToChatIds: chats, lockedToCharacterAvatars: characters,
 });
-const bookOf = (bookName, selectedCount, isLockedToChat, isLockedToCharacter, hasRecord) => ({
-    bookName, selectedCount, isLockedToChat, isLockedToCharacter, hasRecord,
+const bookOf = (bookName, selectedCount, isLockedToChat, isLockedToCharacter, canRemove) => ({
+    bookName, selectedCount, isLockedToChat, isLockedToCharacter, canRemove,
 });
 const bookWith = (...uids) => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, content: `Entry ${uid}.` }])) });
 
@@ -73,11 +88,12 @@ beforeEach(() => {
     host.settings.vectfox = {};
     host.books = { 'Harbor Atlas': bookWith(0, 1), 'Keeper Notes': bookWith(7), 'Tide Tables': bookWith(2), 'Voyage Log': bookWith(5) };
     host.isLinkMade = true;
+    host.isPanelShown = true;
     vi.clearAllMocks();
 });
 
 describe('chatBookLocks', () => {
-    it("lists the books this chat loads in the scan's order, each with its selected count, its locks here and its record", async () => {
+    it("lists the books this chat loads in the scan's order, each with its selected count, its locks here and Remove", async () => {
         host.settings.vectfox.lorebase_books = {
             'Harbor Atlas': recordOf({ selected: ['0', '1'], chats: ['chat-harbor'] }),
             'Keeper Notes': recordOf({ selected: ['7'], characters: ['keeper-orrin.png'] }),
@@ -94,9 +110,10 @@ describe('chatBookLocks', () => {
         });
     });
 
-    it('counts nothing selected and no lock for a book LoreBase has no record of, and says it has none, loading no book', async () => {
+    it('counts nothing selected and no lock for a book LoreBase has no record of, offering Remove where a list it empties loads it, loading no book', async () => {
+        // The global list's book can be taken out; the character's own lorebook and the chat's are SillyTavern's to change.
         expect((await chatBookLocks()).books).toEqual([
-            bookOf('Tide Tables', 0, false, false, false), bookOf('Keeper Notes', 0, false, false, false), bookOf('Harbor Atlas', 0, false, false, false),
+            bookOf('Tide Tables', 0, false, false, true), bookOf('Keeper Notes', 0, false, false, false), bookOf('Harbor Atlas', 0, false, false, false),
         ]);
         expect(loadWorldInfo).not.toHaveBeenCalled();
     });
@@ -128,7 +145,7 @@ describe('chatBookLocks', () => {
         host.chatId = undefined;
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
 
-        expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false, false)] });
+        expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false, true)] });
     });
 });
 
@@ -242,5 +259,37 @@ describe('Add a lorebook', () => {
     it("the WorldInfo page's Add buttons carry the places it takes", () => {
         const markup = loreBaseBooksMarkup({ hasChat: true, books: [], add: { bookNames: ['Voyage Log'], canAddToCharacter: true } });
         expect([...markup.matchAll(/data-lorebase-add="([^"]+)"/g)].map(match => match[1])).toEqual([ADD_TO_CHARACTER, ADD_TO_ALL_CHATS]);
+    });
+});
+
+describe("taking a book out of the chat's lists, for the WorldInfo page's Remove from LoreBase", () => {
+    it('says which of the lists loading a book Remove takes it out of, and which places keep loading it', () => {
+        host.charLore[0].extraBooks.push('Voyage Log');
+        host.context.powerUserSettings = { persona_description_lorebook: 'Voyage Log' };
+        expect(chatBookLinks('Voyage Log')).toEqual({ takenOutOf: ['characterBooks'], stillLoadedBy: ['personaBook'] });
+        expect(chatBookLinks('Tide Tables')).toEqual({ takenOutOf: ['globalList'], stillLoadedBy: [] });
+        expect(chatBookLinks('Keeper Notes')).toEqual({ takenOutOf: [], stillLoadedBy: ['characterOwnBook'] });
+        expect(chatBookLinks('Harbor Atlas')).toEqual({ takenOutOf: [], stillLoadedBy: ['chatBook'] });
+    });
+
+    it("takes a book out of this character's Additional Lorebooks and the global list, so the chat loads it no more", () => {
+        host.charLore[0].extraBooks.push('Tide Tables');
+        expect(takeLoreBookOutOfChat('Tide Tables')).toEqual({ takenOutOf: ['globalList', 'characterBooks'], stillLoadedBy: [] });
+        expect(removeCharacterLorebook).toHaveBeenCalledWith('keeper-orrin', 'Tide Tables');
+        expect(removeGlobalLorebook).toHaveBeenCalledWith('Tide Tables');
+        expect(chatBookNames()).not.toContain('Tide Tables');
+    });
+
+    it("leaves the character's own lorebook, the chat's and the persona's to SillyTavern, and says what still loads it", () => {
+        expect(takeLoreBookOutOfChat('Keeper Notes')).toEqual({ takenOutOf: [], stillLoadedBy: ['characterOwnBook'] });
+        expect(takeLoreBookOutOfChat('Harbor Atlas')).toEqual({ takenOutOf: [], stillLoadedBy: ['chatBook'] });
+        expect(removeCharacterLorebook).not.toHaveBeenCalled();
+        expect(removeGlobalLorebook).not.toHaveBeenCalled();
+    });
+
+    it("says the global list still loads a book when SillyTavern's World Info panel is not on the page, and logs why", () => {
+        host.isPanelShown = false;
+        expect(takeLoreBookOutOfChat('Tide Tables')).toEqual({ takenOutOf: [], stillLoadedBy: ['globalList'] });
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("global list"), expect.any(Error));
     });
 });

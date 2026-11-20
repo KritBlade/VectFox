@@ -15,11 +15,11 @@
  * and opens the selection screen on it, the status line saying where it went or why it was not added. Generate keys
  * and Generate vectors write what the selected entries of every book lack of their kind, and Generate all both; Delete
  * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17); Remove from LoreBase, on
- * a book's row, runs LoreBase's one confirm and removal of the book (removeLoreBookAfterConfirm), whose record, keys
- * and vectors go while the chat still loads the book in SillyTavern. Each goes through LoreBase's storage module. The
- * card's status line says how each went, and shows every writing run on the progress panel, whichever started it: the
- * entries being written, then what was written and the books the run locked to its chat (§6.1 of
- * lorebook-multi-vector.md), a line that goes once another chat is open.
+ * a book's row, runs LoreBase's one confirm and removal of the book (removeLoreBookAfterConfirm), its record, keys and
+ * vectors, and takes it out of the chat's lists Add a lorebook links books through. Each goes through LoreBase's
+ * storage module. The card's status line says how each went, and shows every writing run on the progress panel,
+ * whichever started it: the entries being written, then what was written and the books the run locked to its chat
+ * (§6.1 of lorebook-multi-vector.md), a line that goes once another chat is open.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
@@ -274,9 +274,10 @@ async function deleteAll(settings, button) {
 }
 
 /**
- * Remove from LoreBase on a book's row (removeLoreBookAfterConfirm): once confirmed and done, the status line says what
- * went, and that the book stays listed while the chat loads it in SillyTavern; the list is drawn again. Cancel says
- * nothing; a refusal says why. The button waits while it runs.
+ * Remove from LoreBase on a book's row (removeLoreBookAfterConfirm), taking the book out of the open chat's lists Add a
+ * lorebook links books through as well: once confirmed and done, the status line says what went, and what still loads
+ * the book in this chat, and the list is drawn again. Cancel says nothing; a refusal says why. The button waits while
+ * it runs.
  * @param {HTMLButtonElement} button - The row's Remove from LoreBase, naming its book
  * @returns {Promise<void>}
  */
@@ -284,9 +285,9 @@ async function removeBook(button) {
     const bookName = button.dataset.lorebaseRemove;
     button.disabled = true;
     try {
-        const removed = await removeLoreBookAfterConfirm(bookName, cardSettings);
+        const removed = await removeLoreBookAfterConfirm(bookName, cardSettings, { isTakenOutOfChat: true });
         if (!removed) return;
-        showBooksStatus(`${describeRemovedLoreBook(removed)} This chat still loads it in SillyTavern, so it stays listed here, with nothing selected.`);
+        showBooksStatus(describeRemovedLoreBook(removed));
         void refreshLoreBaseBooks();
     } catch (error) {
         log.warn(`LoreBase: lorebook "${bookName}" could not be removed:`, error);

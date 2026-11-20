@@ -4,32 +4,94 @@
  * plans/lorebook-semantic-overhaul-passage-index.md). The reply, the selection screen and the WorldInfo page read them,
  * and a key run locks the books it writes keys for to the chat it started in (§6.1 of InternalProject/Vectfox/plans/
  * lorebook-multi-vector.md). Add a lorebook adds a book the chat does not load, through SillyTavern's own lists, and
- * locks it where it was added (§6 of lorebook-multi-vector.md).
+ * locks it where it was added (§6 of lorebook-multi-vector.md); the WorldInfo page's Remove from LoreBase takes a book
+ * out of those lists again (§3.6 of vectfox-multi-collection-per-chat.md).
  */
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getCharaFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import {
-    METADATA_KEY, addCharacterLorebook, addGlobalLorebook, getWorldInfoSettings, selected_world_info, world_names,
+    METADATA_KEY, addCharacterLorebook, addGlobalLorebook, getWorldInfoSettings, removeCharacterLorebook, removeGlobalLorebook,
+    selected_world_info, world_names,
 } from '../../sillytavern/world-info.js';
 import { getLoreBook, isLoreBookLocked, loadDecidedEntries, setLoreBookLock } from './lorebase-books.js';
 import { activeBookNames } from './lorebase-reply-core.js';
+
+// The places SillyTavern's World Info scan loads the open chat's books from, in its order, and the two Add a lorebook
+// links a book through, which the WorldInfo page's Remove from LoreBase takes a book out of.
+const CHAT_BOOK_PLACES = ['globalList', 'characterBooks', 'characterOwnBook', 'chatBook', 'personaBook'];
+const ADDED_BOOK_PLACES = new Set(['globalList', 'characterBooks']);
+
+/**
+ * The books each place loads for the open chat: the global list, the character's Additional Lorebooks and own book, the
+ * chat's and the persona's; and the character's file name, which keys its Additional Lorebooks.
+ */
+function chatBookPlaces() {
+    const context = getContext();
+    const character = context.characters?.[context.characterId];
+    const characterFileName = getCharaFilename(context.characterId);
+    return {
+        characterFileName,
+        globalList: [...selected_world_info],
+        characterBooks: getWorldInfoSettings().world_info?.charLore?.find(item => item.name === characterFileName)?.extraBooks ?? [],
+        characterOwnBook: character?.data?.extensions?.world || null,
+        chatBook: context.chatMetadata?.[METADATA_KEY] || null,
+        personaBook: context.powerUserSettings?.persona_description_lorebook || null,
+    };
+}
 
 /**
  * The books SillyTavern loads for the open chat, each once, in the order its scan loads them.
  * @returns {string[]}
  */
 export function chatBookNames() {
-    const context = getContext();
-    const character = context.characters?.[context.characterId];
-    const fileName = getCharaFilename(context.characterId);
-    const extraBooks = getWorldInfoSettings().world_info?.charLore?.find(item => item.name === fileName)?.extraBooks ?? [];
+    const places = chatBookPlaces();
     return activeBookNames({
-        globalBooks: [...selected_world_info],
-        characterBooks: [character?.data?.extensions?.world, ...extraBooks].filter(Boolean),
-        chatBook: context.chatMetadata?.[METADATA_KEY] || null,
-        personaBook: context.powerUserSettings?.persona_description_lorebook || null,
+        globalBooks: places.globalList,
+        characterBooks: [places.characterOwnBook, ...places.characterBooks].filter(Boolean),
+        chatBook: places.chatBook,
+        personaBook: places.personaBook,
     });
+}
+
+/** The places that load a book for the open chat, in the scan's order. */
+function placesLoading(bookName) {
+    const places = chatBookPlaces();
+    return CHAT_BOOK_PLACES.filter(place => (Array.isArray(places[place]) ? places[place].includes(bookName) : places[place] === bookName));
+}
+
+/**
+ * What the WorldInfo page's Remove from LoreBase does to the open chat's lists for a book (§3.6 of
+ * vectfox-multi-collection-per-chat.md): the places it takes the book out of, the two Add a lorebook links a book
+ * through, and those it leaves to SillyTavern, which keep loading it: the character's own lorebook, the chat's and the
+ * persona's. Each place by its name in CHAT_BOOK_PLACES.
+ * @param {string} bookName
+ * @returns {{takenOutOf: string[], stillLoadedBy: string[]}}
+ */
+export function chatBookLinks(bookName) {
+    const loading = placesLoading(bookName);
+    return { takenOutOf: loading.filter(place => ADDED_BOOK_PLACES.has(place)), stillLoadedBy: loading.filter(place => !ADDED_BOOK_PLACES.has(place)) };
+}
+
+/**
+ * Take a book out of the open character's Additional Lorebooks and SillyTavern's global list, wherever the open chat
+ * loads it from them (chatBookLinks), through SillyTavern's own lists. A list SillyTavern did not take it out of is
+ * among the places that still load it, and the console says why.
+ * @param {string} bookName
+ * @returns {{takenOutOf: string[], stillLoadedBy: string[]}} The places it went from, and those still loading it
+ */
+export function takeLoreBookOutOfChat(bookName) {
+    const { takenOutOf: places } = chatBookLinks(bookName);
+    if (places.includes('characterBooks')) removeCharacterLorebook(chatBookPlaces().characterFileName, bookName);
+    if (places.includes('globalList')) {
+        try {
+            removeGlobalLorebook(bookName);
+        } catch (error) {
+            log.warn(`LoreBase: lorebook "${bookName}" could not be taken out of SillyTavern's global list:`, error);
+        }
+    }
+    const stillLoadedBy = placesLoading(bookName);
+    return { takenOutOf: places.filter(place => !stillLoadedBy.includes(place)), stillLoadedBy };
 }
 
 /**
@@ -143,9 +205,10 @@ async function decidedCountOf(bookName) {
 /**
  * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, how many of its
  * selected entries LoreBase decides, whether it is locked to this chat or to its character, where LoreBase decides
- * them (D11), and whether LoreBase has its record, which its row's Remove from LoreBase deletes.
+ * them (D11), and whether its row's Remove from LoreBase has anything to do: a LoreBase record of the book to delete,
+ * or a list Remove takes books out of loading it here (chatBookLinks).
  * @returns {Promise<{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean, hasRecord: boolean}>}>}
+ *   isLockedToCharacter: boolean, canRemove: boolean}>}>}
  */
 export async function chatBookLocks() {
     const { chatId, characterAvatar } = lockTarget();
@@ -159,7 +222,7 @@ export async function chatBookLocks() {
             selectedCount: counts[index],
             isLockedToChat: Boolean(chatId) && isLoreBookLocked(bookName, { chatId }),
             isLockedToCharacter: Boolean(characterAvatar) && isLoreBookLocked(bookName, { characterAvatar }),
-            hasRecord: getLoreBook(bookName) !== null,
+            canRemove: getLoreBook(bookName) !== null || chatBookLinks(bookName).takenOutOf.length > 0,
         })),
     };
 }
