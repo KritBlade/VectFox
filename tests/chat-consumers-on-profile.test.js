@@ -51,6 +51,12 @@ describe('EventBase extraction on a profile', () => {
             .rejects.toMatchObject({ code: 'invalid_model_config', message: expect.stringContaining('provider "claude" is not one VectFox knows') });
         expect(calls.post).not.toHaveBeenCalled();
     });
+
+    it('stops the run on Disabled as a setup problem, and calls nothing', async () => {
+        await expect(extractEvents({ ...WINDOW, settings: { chat_provider: 'disabled', chat_model: 'm' } }))
+            .rejects.toMatchObject({ code: 'invalid_model_config', message: 'EventBase: its provider is set to Disabled. Choose a provider in Core → EventBase model.' });
+        expect(calls.post).not.toHaveBeenCalled();
+    });
 });
 
 describe('the check before a Vectorize Content run', () => {
@@ -62,5 +68,10 @@ describe('the check before a Vectorize Content run', () => {
         expect(validateLLMConfig({ ...onProfile, chat_connection_profile_id: '' }))
             .toEqual({ ok: false, reason: 'EventBase: no connection profile is chosen. Choose one on the Core page.' });
         expect(validateLLMConfig({ ...onProfile, chat_connection_profile_id: 'profile-gone' }).reason).toContain('was deleted in SillyTavern');
+    });
+
+    it('says the provider is set to Disabled, ahead of a model or key it would read', () => {
+        expect(validateLLMConfig({ chat_provider: 'disabled', chat_model: '' }))
+            .toEqual({ ok: false, reason: 'EventBase: its provider is set to Disabled. Choose a provider in Core → EventBase model.' });
     });
 });

@@ -555,6 +555,8 @@ You need 2 profiles: one for embedding, and one for the model that writes events
 
 **Manual OpenRouter and vLLM are going away.** They are still in the Provider dropdowns and work like before, with their own key boxes. But a VectFox release 3 months after the one that brought SillyTavern profiles removes them. If you still use one, VectFox tells you once, and lists every dropdown to move.
 
+**Disabled** is the last choice in the Provider dropdown of each model: EventBase model, Agent Mode, StoryArc and LoreBase. Pick it when you don't want that model called at all. Anything that needs the model then stops and says its provider is set to Disabled, the same way it does when no profile is chosen.
+
 ---
 
 ## 🔄 Auto-Updates

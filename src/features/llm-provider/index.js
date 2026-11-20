@@ -8,7 +8,7 @@ export { resolveConnectionProfileId } from './connection-profile-core.js';
 export { CONNECTION_TEST_MAX_TOKENS, CONNECTION_TEST_PROMPT, CONNECTION_TEST_TIMEOUT_MS, sendConnectionTest } from './connection-test.js';
 export { resolveInheritedConnection } from './inherited-connection.js';
 export { describeConnectionProblem, resolveLlmConnection, shownVllmUrl } from './llm-connection.js';
-export { validateLLMConfig } from './llm-config-validation.js';
+export { EVENTBASE_DISABLED_PROBLEM, validateLLMConfig } from './llm-config-validation.js';
 export {
     LlmCallError,
     describeChatConnectionProfile,

@@ -5,8 +5,11 @@
  */
 
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
-import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
+import { CONNECTION_PROFILE_PROVIDER, DISABLED_PROVIDER } from '../../shared/constants.js';
 import { checkConnectionProfile } from './llm-provider-call.js';
+
+/** Why EventBase cannot run while its provider is set to Disabled, and where to choose one. */
+export const EVENTBASE_DISABLED_PROBLEM = 'EventBase: its provider is set to Disabled. Choose a provider in Core → EventBase model.';
 
 /**
  * Validate that the LLM configuration (provider, model, credentials) is filled in.
@@ -18,6 +21,7 @@ import { checkConnectionProfile } from './llm-provider-call.js';
  */
 export function validateLLMConfig(settings = {}) {
     const provider = (settings?.chat_provider || 'openrouter').toLowerCase();
+    if (provider === DISABLED_PROVIDER) return { ok: false, reason: EVENTBASE_DISABLED_PROBLEM };
     if (provider === CONNECTION_PROFILE_PROVIDER) {
         const check = checkConnectionProfile(settings?.chat_connection_profile_id, { feature: 'EventBase', page: 'Core' });
         return check.ok ? { ok: true } : { ok: false, reason: check.reason };

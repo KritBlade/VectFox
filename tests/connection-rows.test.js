@@ -3,7 +3,8 @@
  *
  * The Provider dropdowns of the EventBase model, Agent Mode, StoryArc, LoreBase and embedding, on their real page
  * markup (src/features/settings-panel/connection-rows.js, connection plan §1 and §3): each offers a SillyTavern
- * profile first, after Same as EventBase model where it has that; choosing it shows a Profile dropdown of the profiles
+ * profile first, after Same as EventBase model where it has that, and each LLM consumer's offers Disabled last, which
+ * hides its manual rows and its Profile rows; choosing a profile shows a Profile dropdown of the profiles
  * SillyTavern can use and a readout, and hides the rows a profile supplies; a deleted profile and the Connection
  * Manager switched off say so in the dropdown; the dropdowns repaint when SillyTavern makes, saves or deletes a profile;
  * Agent Mode on Same as EventBase model names the EventBase model's profile; embedding never stores the profile option
@@ -146,12 +147,33 @@ describe('a chat consumer\'s Provider dropdown', () => {
     it('lists SillyTavern profile first on all five dropdowns, after Same as EventBase model on Agent Mode\'s, the one that has it', () => {
         mount(baseSettings());
         const valuesOf = id => optionsOf(id).map(option => option.value);
-        expect(valuesOf('VectFox_summarize_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
-        expect(valuesOf('VectFox_story_arc_link_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
-        expect(valuesOf('VectFox_lorebase_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
+        expect(valuesOf('VectFox_summarize_provider')).toEqual(['connection_profile', 'openrouter', 'vllm', 'disabled']);
+        expect(valuesOf('VectFox_story_arc_link_provider')).toEqual(['connection_profile', 'openrouter', 'vllm', 'disabled']);
+        expect(valuesOf('VectFox_lorebase_provider')).toEqual(['connection_profile', 'openrouter', 'vllm', 'disabled']);
         expect(valuesOf('VectFox_source')).toEqual(['connection_profile', 'transformers', 'ollama', 'openrouter', 'vllm']);
-        expect(valuesOf('VectFox_agentic_provider')).toEqual(['', 'connection_profile', 'openrouter', 'vllm']);
+        expect(valuesOf('VectFox_agentic_provider')).toEqual(['', 'connection_profile', 'openrouter', 'vllm', 'disabled']);
         expect(PROVIDER_SELECTS.map(id => optionsOf(id).find(option => option.value === 'connection_profile').text)).toEqual(Array(5).fill('SillyTavern profile'));
+        expect(PROVIDER_SELECTS.slice(0, 4).map(id => optionsOf(id).at(-1).text)).toEqual(Array(4).fill('Disabled'));
+    });
+
+    it("saves Disabled on each LLM consumer, hiding its model, its manual rows and its Profile rows, and Agent Mode's on Same as EventBase model too", () => {
+        const settings = mount({ ...baseSettings(), chat_provider: 'vllm', agent_provider: '' });
+        for (const id of PROVIDER_SELECTS.slice(0, 4)) choose(id, 'disabled');
+        expect(settings).toMatchObject({ chat_provider: 'disabled', agent_provider: 'disabled', story_arc_link_provider: 'disabled', lorebase_provider: 'disabled' });
+        expect(isShown(element('VectFox_summarize_settings'))).toBe(false);
+        expect(isShown(element('VectFox_summarize_vllm_url_row'))).toBe(false);
+        for (const prefix of ['VectFox_summarize', 'VectFox_agentic', 'VectFox_story_arc_link', 'VectFox_lorebase']) {
+            expect(isShown(element(`${prefix}_connection_profile_rows`))).toBe(false);
+        }
+        for (const model of ['VectFox_agentic_model', 'VectFox_story_arc_link_model', 'VectFox_lorebase_model']) expect(isFieldShown(model)).toBe(false);
+        expect(isShown(element('VectFox_agentic_provider_hint'))).toBe(false);
+
+        // Agent Mode on Same as EventBase model runs on the EventBase model's Disabled.
+        choose('VectFox_agentic_provider', '');
+        expect(isFieldShown('VectFox_agentic_model')).toBe(false);
+        expect(isShown(element('VectFox_agentic_inherited_profile_readout'))).toBe(false);
+        choose('VectFox_summarize_provider', 'openrouter');
+        expect(isFieldShown('VectFox_agentic_model')).toBe(true);
     });
 
     it('shows the Profile rows on the EventBase model in place of its model, key and URL', () => {

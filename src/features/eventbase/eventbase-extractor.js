@@ -12,11 +12,12 @@
  */
 
 import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
-import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
+import { CONNECTION_PROFILE_PROVIDER, DISABLED_PROVIDER } from '../../shared/constants.js';
 import {
     CONNECTION_TEST_MAX_TOKENS,
     CONNECTION_TEST_PROMPT,
     CONNECTION_TEST_TIMEOUT_MS,
+    EVENTBASE_DISABLED_PROBLEM,
     LlmCallError,
     parseJsonArrayFromLlm,
     postChatCompletion,
@@ -255,8 +256,8 @@ async function _callConnectionProfile(prompt, settings, windowIndex) {
 const CALL_OF_PROVIDER = { openrouter: _callOpenRouter, vllm: _callVLLM, [CONNECTION_PROFILE_PROVIDER]: _callConnectionProfile };
 
 /**
- * The call for the provider chosen in Core → EventBase model. One VectFox does not know stops the run, rather than
- * running on OpenRouter unasked.
+ * The call for the provider chosen in Core → EventBase model. Disabled stops the run as a setup problem, and so does one
+ * VectFox does not know, rather than running on OpenRouter unasked.
  *
  * @param {object} settings
  * @returns {(prompt: string, settings: object, windowIndex: number) => Promise<string>}
@@ -264,6 +265,7 @@ const CALL_OF_PROVIDER = { openrouter: _callOpenRouter, vllm: _callVLLM, [CONNEC
  */
 function _callOfChosenProvider(settings) {
     const provider = (settings.chat_provider || 'openrouter').toLowerCase();
+    if (provider === DISABLED_PROVIDER) throw new EventBaseFatalError(EVENTBASE_DISABLED_PROBLEM, 'invalid_model_config');
     const callProvider = CALL_OF_PROVIDER[provider];
     if (!callProvider) {
         throw new EventBaseFatalError(
