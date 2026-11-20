@@ -339,9 +339,10 @@ const stillLoadedSentence = places => `This chat still loads it through ${places
 
 /**
  * Remove from LoreBase's confirm, the same on the Database Browser's lorebook row and the WorldInfo page's book row:
- * the book, each part of it that goes (its selections, when it has more than one, the entries they select and their
- * pinned sections, their locks, its keys and its vectors in every collection holding them), and what stays; on the
- * WorldInfo page, the open chat's lists it is taken out of too, and the places that still load it there.
+ * its question in red, as it deletes the whole book; with more than one selection, a green line naming Choose entries,
+ * which deletes one; the book, each part of it that goes (its selections, when it has more than one, the entries they
+ * select and their pinned sections, their locks, its keys and its vectors in every collection holding them), and what
+ * stays; on the WorldInfo page, the open chat's lists it is taken out of too, and the places that still load it there.
  * @param {{bookName: string, selectionCount: number, selectedCount: number, pinnedCount: number, chatLockCount: number,
  *   characterLockCount: number, keyCount: number, tenants: Array<{pointCount: number}>}} holdings - From loreBookHoldings
  *   in lorebase-storage.js
@@ -362,7 +363,8 @@ export function removalConfirmLines({ bookName, selectionCount, selectedCount, p
     const collections = tenants.length > 1 ? ` in ${counted(tenants.length, 'collection')}` : '';
     const keepCopy = keyCount || partCount ? ' Export its keys and vectors in the Database Browser first to keep a copy.' : '';
     return [
-        { text: 'Remove this lorebook from LoreBase?' },
+        { text: 'Remove ALL of this lorebook from LoreBase?', status: 'danger' },
+        isSeveral ? { text: 'To delete one selection only, use Choose entries on the WorldInfo page.', status: 'success' } : null,
         { text: 'Lorebook:', name: bookName },
         { text: isSeveral ? 'Selections:' : 'Selection:', name: listOrNone(selection) },
         { text: 'Locked to:', name: listOrNone(locks) },

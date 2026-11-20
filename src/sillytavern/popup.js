@@ -7,9 +7,9 @@
 // "the user said yes".
 import { POPUP_RESULT, POPUP_TYPE, Popup, getTopmostModalLayer } from '../../../../../popup.js';
 import { log } from './log.js';
-import { dialogLineSegments } from './popup-core.js';
+import { dialogLineSegments, dialogLineStatus } from './popup-core.js';
 
-/** A dialog's lines as paragraphs (popup-core.js). */
+/** A dialog's lines as paragraphs (popup-core.js), each with a status in that status's ink. */
 function dialogTextBlock(lines) {
     const block = document.createElement('div');
     block.className = 'vfx-dialog-text';
@@ -17,6 +17,8 @@ function dialogTextBlock(lines) {
         const segments = dialogLineSegments(line);
         if (!segments.length) continue;
         const paragraph = document.createElement('p');
+        const status = dialogLineStatus(line);
+        if (status) paragraph.classList.add(`is-${status}`);
         for (const segment of segments) {
             if (segment.icon) {
                 const icon = document.createElement('i');

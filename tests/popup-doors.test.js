@@ -48,6 +48,13 @@ describe('confirmPopup', () => {
         expect(host.opened[0].dialog.classList.contains('vfx-popup')).toBe(true);
     });
 
+    it("draws a line with a status in that status's ink, and the rest plain", async () => {
+        await confirmPopup([
+            { text: 'Remove ALL of it?', status: 'danger' }, { text: 'Delete one instead.', status: 'success' }, { text: 'Lorebook:', name: 'Harbor Atlas' },
+        ], { okButton: 'Remove', isDestructive: true });
+        expect([...host.opened[0].content.querySelectorAll('p')].map(paragraph => paragraph.className)).toEqual(['is-danger', 'is-success', '']);
+    });
+
     it('opens any other question on its action', async () => {
         await confirmPopup([{ text: 'Merge these names?' }], { okButton: 'Merge' });
         expect(host.opened[0].options.defaultResult).toBe(1);

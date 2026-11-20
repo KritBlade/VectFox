@@ -1573,6 +1573,15 @@ dialog.vfx-ui.vfx-dialog::backdrop {
     font-weight: 600;
 }
 
+/* A line in a status's ink: danger for words that say a whole thing goes, success for the way to a smaller step. */
+.vfx-ui .vfx-dialog-text > p.is-danger {
+    color: var(--vfx-danger-ink);
+}
+
+.vfx-ui .vfx-dialog-text > p.is-success {
+    color: var(--vfx-success-ink);
+}
+
 .vfx-ui .vfx-dialog-value {
     font-weight: 600;
 }

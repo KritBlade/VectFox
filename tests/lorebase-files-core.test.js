@@ -219,7 +219,7 @@ describe("Remove from LoreBase's words, the same on both pages", () => {
 
     it('names each part of the book that goes, and that the lorebook stays in SillyTavern', () => {
         expect(sentencesOf(files.removalConfirmLines(holdingsOf()))).toEqual([
-            'Remove this lorebook from LoreBase?',
+            'Remove ALL of this lorebook from LoreBase?',
             'Lorebook:', BOOK,
             'Selection:', '313 selected entries and 2 pinned sections',
             'Locked to:', '1 chat',
@@ -239,7 +239,7 @@ describe("Remove from LoreBase's words, the same on both pages", () => {
 
         const blank = holdingsOf({ selectedCount: 18, pinnedCount: 0, chatLockCount: 0, characterLockCount: 1, keyCount: 0, tenants: [] });
         expect(sentencesOf(files.removalConfirmLines(blank))).toEqual([
-            'Remove this lorebook from LoreBase?',
+            'Remove ALL of this lorebook from LoreBase?',
             'Lorebook:', BOOK,
             'Selection:', '18 selected entries',
             'Locked to:', '1 character',
@@ -250,9 +250,17 @@ describe("Remove from LoreBase's words, the same on both pages", () => {
         ]);
     });
 
-    it("counts a book's selections once it has more than one, with the entries and pins they hold and every lock on them", () => {
+    it('asks in red, as the whole book goes, and with one selection says nothing of deleting one', () => {
+        const lines = files.removalConfirmLines(holdingsOf());
+        expect(lines[0]).toEqual({ text: 'Remove ALL of this lorebook from LoreBase?', status: 'danger' });
+        expect(lines.filter(line => line.status)).toEqual([lines[0]]);
+    });
+
+    it("counts a book's selections once it has more than one, with the entries and pins they hold and every lock on them, and says in green where one is deleted", () => {
         const several = holdingsOf({ selectionCount: 3, chatLockCount: 2, characterLockCount: 1 });
-        expect(sentencesOf(files.removalConfirmLines(several)).slice(3, 7))
+        const lines = files.removalConfirmLines(several);
+        expect(lines[1]).toEqual({ text: 'To delete one selection only, use Choose entries on the WorldInfo page.', status: 'success' });
+        expect(sentencesOf(lines).slice(4, 8))
             .toEqual(['Selections:', '3 selections, 313 selected entries, and 2 pinned sections', 'Locked to:', '2 chats and 1 character']);
     });
 

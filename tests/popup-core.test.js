@@ -3,7 +3,17 @@
  * value comes out as written.
  */
 import { describe, it, expect } from 'vitest';
-import { dialogLineSegments } from '../src/sillytavern/popup-core.js';
+import { dialogLineSegments, dialogLineStatus } from '../src/sillytavern/popup-core.js';
+
+describe('dialogLineStatus', () => {
+    it('gives a danger or success line its status, and any other line none', () => {
+        expect(dialogLineStatus({ text: 'Remove ALL of it?', status: 'danger' })).toBe('danger');
+        expect(dialogLineStatus({ text: 'Delete one instead.', status: 'success' })).toBe('success');
+        expect(dialogLineStatus({ text: 'x', status: 'warning" onclick="y' })).toBeNull();
+        expect(dialogLineStatus({ text: 'x' })).toBeNull();
+        expect(dialogLineStatus(null)).toBeNull();
+    });
+});
 
 describe('dialogLineSegments', () => {
     it('a fixed sentence is one key', () => {

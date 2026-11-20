@@ -8,10 +8,22 @@
 //   { parts: [...] }  segments in order, each { text } or { name }, for a line that mixes fixed words and values.
 // Any of them may lead with `icon`, a Font Awesome solid icon's class (`fa-circle-exclamation`). A line with nothing
 // else to show shows no icon.
+// Any of them may carry `status`, drawn in that status's ink (GUI-DNA's dialog text): 'danger' for words that say a
+// whole thing goes, 'success' for the way to a smaller step.
 // A fixed word is never built from a value, so the locale pass can translate it; a value is never translated.
 
 const isShown = (value) => value !== undefined && value !== null && String(value) !== '';
 const ICON_CLASS = /^fa-[a-z0-9-]+$/;
+const LINE_STATUSES = ['danger', 'success'];
+
+/**
+ * The status a line is drawn in, or null for one with none or another value.
+ * @param {object} line
+ * @returns {'danger'|'success'|null}
+ */
+export function dialogLineStatus(line) {
+    return LINE_STATUSES.includes(line?.status) ? line.status : null;
+}
 
 /**
  * The segments a line shows, in order: { icon } for its leading icon, { key } for a fixed word, { value, isStrong }

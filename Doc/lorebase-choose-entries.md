@@ -72,7 +72,7 @@ See a ⚠ next to a book's name? None of its selections has an entry on, so Lore
 
 Each row has its own Export, Import and Delete. Export saves that one kind to a file. Import puts a file back. Delete removes that kind, of that book, and nothing else. Your selections stay, LoreBase stays on, and those entries just sit out of your replies until Generate keys or Generate vectors writes them again.
 
-Want the whole book gone from LoreBase, not just one kind? Press the trash button on the book's own row, **Remove from LoreBase**. It deletes everything LoreBase keeps for that book: all its selections, with their entries, pinned sections and locks, its keys AND its vectors. It asks first and names each part, so you see what goes before it goes.
+Want the whole book gone from LoreBase, not just one kind? Press the trash button on the book's own row, **Remove from LoreBase**. It deletes everything LoreBase keeps for that book: all its selections, with their entries, pinned sections and locks, its keys AND its vectors. It asks first, in red, and names each part, so you see what goes before it goes. Only want 1 of its selections gone? That's **Delete** in **Choose entries**, and the question says so in green when the book has more than 1.
 
 The book itself stays in SillyTavern. So its entries just fire by their keys again, like any book LoreBase doesn't use. Leftovers don't get the button: you clean those up one row at a time.
 
