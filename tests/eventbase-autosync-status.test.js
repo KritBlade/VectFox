@@ -41,7 +41,7 @@ vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generat
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(), getUnfinishedWindowFingerprints: vi.fn(() => new Set()),
     clearExtractionCaches: vi.fn(), isLastWindowExtracted: vi.fn(() => false),
-    readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(), setLastUsedWindowSize: vi.fn(),
+    readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(),
     getVectorizationTip: mocks.getVectorizationTip, setVectorizationTip: vi.fn(),
     ensureVectorizationTip: mocks.ensureVectorizationTip, shouldUseTipFallback: vi.fn(),
     resolveEventBaseWriteTarget: mocks.resolveEventBaseWriteTarget,

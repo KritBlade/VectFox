@@ -306,7 +306,7 @@ How far EventBase has read a chat is kept per collection, in the collection's re
 | `extractedWindows` | The fingerprints of the windows read (the window record, below) |
 | `unfinishedWindows` | The fingerprints of the windows that failed |
 | `autoSyncStartMarker` | The message auto-sync started from (the start marker, below) |
-| `windowSize` | The window size the collection was last read with |
+| `windowSize` | The window size Vectorize reads it with: the dialog's at the chat's first read, at New collection and at Start over; Catch up reads with it, and no run changes it (the window size a collection keeps, below) |
 
 - **One pair of functions** in [eventbase-store.js](../src/features/eventbase/eventbase-store.js) reads and writes it: `readEventBaseProgress(registryKey)` and `writeEventBaseProgress(registryKey, parts)`, which merge inside `eventbaseProgress`, as `setCollectionMeta` replaces a record's fields whole. Every store function below that takes a `registryKey` reads or writes that collection's pointer. A run reads into its collection's key (`buildRegistryKey(collectionId, settings)`); the AutoSync page, Sync chat and ghosting read the chat's write target's (`status.registryKey`, `resolveEventBaseWriteTarget`).
 - **Deleting the collection** deletes its record, the pointer with it, and `clearCachesForDeletedOrImportedCollection` forgets the tip held in memory.
@@ -321,9 +321,9 @@ The record is the pointer's `extractedWindows`, read through [`src/features/even
 
 | Function | Role in auto-sync |
 |---|---|
-| `markWindowExtracted(sourceHashes, registryKey)` | Called by `runEventBaseIngestion` after each window is successfully extracted. Adds the fingerprint to the collection's `extractedWindows` and takes the window off its unfinished record; the settings save debounced. Survives page reload. |
+| `markWindowExtracted(sourceHashes, registryKey)` | Called by `runEventBaseIngestion` after each window is successfully extracted. Adds the fingerprint to the collection's `extractedWindows`, and takes off its unfinished record the window and every failed window whose messages have all been read now; the settings save debounced. Survives page reload. |
 | `markWindowUnfinished(sourceHashes, registryKey)` | Called by `runEventBaseIngestion` for each window that failed or timed out. Adds the fingerprint to the collection's `unfinishedWindows`. See "When a window fails" below. |
-| `isWindowAlreadyExtracted(sourceHashes, registryKey)` | Per-window dedup gate inside the ingestion loop. A Set lookup, O(1): each `extractedWindows` array's Set is built once and kept for that array, so a record whose array is replaced (an import) is read again. |
+| `isWindowAlreadyExtracted(sourceHashes, registryKey)` | Per-window dedup gate inside the ingestion loop: true when the window's fingerprint is on the record, or every message in it is in a window read already, of any size, so no message is read twice (§2.7 of `vectfox-multi-collection-per-chat.md`). Set lookups: each `extractedWindows` array's fingerprints and message hashes are built into Sets once and kept for that array, so a record whose array is replaced (an import) is read again. |
 | `isLastWindowExtracted(messages, windowSize, step, registryKey, hashFn)` | Quick-exit gate at the top of `runEventBaseIngestion`. If the last possible window for the current message count is already on the record, ingestion no-ops immediately without building the window list. This is the cheapest possible "is there anything new?" check. It says nothing about earlier windows, because a run carries on past a failed one. |
 
 User scenario the cache makes safe:
@@ -340,7 +340,7 @@ User scenario the cache makes safe:
 1. **Same run.** A window that fails or times out goes on the record and the run carries on. A provider rejection, a parse failure, a reply cut at the token limit, and a reply with no valid event all count as failing. When all windows are through, the run sends the failed ones again, up to 2 more passes, after 5s and 10s. It stops early when a pass got nothing through and more than 8 windows failed, because that points at the provider rather than at those windows.
 2. **Still failing.** The window stays on the record. The progress panel and a sticky toast report it, and the auto-sync status on the AutoSync page names it.
 3. **Later runs.** A manual run does not take the quick-exit while its window size has windows on the record, so Resume reaches them. Auto-sync keeps the quick-exit and sends them when the next turn commits, but only those at or after its start marker. Neither run uses the tip fallback while the record has such windows. A window already on the record when a run begins gets one send in that run, so one that always fails does not cost three calls every time.
-4. **Off the record.** Success takes a window off. A manual run also drops windows the chat no longer has, because a message in them was edited or deleted, and `clearExtractionCaches` drops the whole record.
+4. **Off the record.** Success takes a window off, and so does the read of every message in it, in other windows of any size. A manual run also drops windows the chat no longer has, because a message in them was edited or deleted, and `clearExtractionCaches` drops the whole record.
 
 A fatal error (bad key, bad model) stops the run with no re-send, but its window still goes on the record.
 
@@ -349,13 +349,13 @@ A fatal error (bad key, bad model) stops the run with no re-send, but its window
 1. **When.** `createWindowReplacement` in `eventbase-store.js` removes them after each batch is stored. At the end of the run, StoryArc links that went to them point at the window's first new event.
 2. **What it reads.** The collection, once per run, and only when a window can hold earlier events: one before the tip, any window when no tip is known, or any run that extracts more than one window. A run that extracts only the window after the newest, as an ordinary turn does, reads nothing more.
 3. **Which window is the same.** Every run numbers its windows from the chat's first message. A run from a later message (`startFromMessage` in `runEventBaseIngestion`) keeps that numbering and starts at the window that holds the message, so a window has the same first and last message in every run, and the tip and StoryArc's message numbers count from the chat's start.
-4. **What stays.** A window whose new reading found no events keeps its earlier ones. A window at another size has another first and last message, so a window-size change still leaves events at both sizes. An event of other messages stored under the window's number stays when it shares no message with the new extraction, as a message deleted or added earlier in the chat can leave them. That check is loose: a message repeated word for word has the same hash wherever it sits.
+4. **What stays.** A window whose new reading found no events keeps its earlier ones. A window at another size has another first and last message: one whose messages were all read is not read at all, and one holding messages read and unread leaves the read messages' events at both sizes. An event of other messages stored under the window's number stays when it shares no message with the new extraction, as a message deleted or added earlier in the chat can leave them. That check is loose: a message repeated word for word has the same hash wherever it sits.
 
 **Test coverage**: see TEST 014 in `tests/Eventbase-test.spec.js`, `tests/eventbase-progress.test.js` for the pointer itself, `tests/eventbase-window-resend.test.js` for failed windows, `tests/eventbase-window-replacement.test.js` for windows extracted again, and `tests/eventbase-start-from-message.test.js` for a run from a later message. The full storage shape (the record's array + an in-memory Set) and the rationale for *why* it has two tiers is in [Doc/dev_helper.md §4](dev_helper.md).
 
-### Second safety layer — the start marker (window-size-change protection)
+### Second safety layer — the start marker (windows holding messages read)
 
-The window record above is **window-size-dependent**: a window's fingerprint includes the message hashes it covers, so the fingerprint for `[0-1]` at `windowSize=2` does NOT match `[0-3]` at `windowSize=4`. If a user vectorized a long chat at one window size and then changes the setting before enabling auto-sync, every fingerprint silently misses and the record devolves into "extract everything from message 0 again" — exactly the failure mode the record exists to prevent.
+The window record above skips a window of any size once every message in it was read. A window that holds messages read and unread is read whole: after `[0-1]` was read at `windowSize=2`, auto-sync's `[0-3]` at `windowSize=4` would read messages 0 and 1 again with 2 and 3.
 
 The **auto-sync start marker** is the second gate that catches this case. It's a message-index threshold per collection, the pointer's `autoSyncStartMarker`, that says "auto-sync should only process windows whose `start >= marker`." Three functions in [`src/features/eventbase/eventbase-store.js`](../src/features/eventbase/eventbase-store.js):
 
@@ -388,9 +388,9 @@ Auto-sync **catches up the whole gap** (tip → now) on its next trigger — it 
    - *Keep up from here* → `stampAutoSyncMarker(status.registryKey, settings, { floor: 'chatLength' })` skips the backlog.
 3. Below threshold → enable silently (a small gap catches up on the next trigger).
 
-The catch-up backfill runs at `eventbase_window_size` while auto-sync runs at `getAutoSyncWindowSize` — **safe** because the marker/tip gate is index-based: catch-up advances the tip, the marker is stamped there, and auto-sync only processes windows *above* it at its own size. No fingerprint collision, no duplicate coverage. Floor-override behavior is asserted by TEST 016 Phase 5.
+The catch-up backfill runs at the collection's window size (`getCollectionWindowSize`) while auto-sync runs at `getAutoSyncWindowSize` — **safe** because the marker/tip gate is index-based: catch-up advances the tip, the marker is stamped there, and auto-sync only processes windows *above* it at its own size. No fingerprint collision, no duplicate coverage. Floor-override behavior is asserted by TEST 016 Phase 5.
 
-**Why the manual path ignores the marker:** the filter only applies when `isAutoSync === true`. A user manually clicking Vectorize Content can refill historical gaps at a new window size on purpose; the marker is an auto-sync-only safety, not a global "don't re-process" gate.
+**Why the manual path ignores the marker:** the filter only applies when `isAutoSync === true`. Vectorize Content's Catch up fills historical gaps on purpose, such as one left by Keep up from here, and the window record keeps it from reading a window whose messages were all read; the marker is an auto-sync-only safety, not a global "don't re-process" gate.
 
 User scenario the marker makes safe:
 
@@ -400,7 +400,7 @@ User scenario the marker makes safe:
 4. `stampAutoSyncMarker` reads the collection: `max(source_window_end)=1` → marker stamped as `2`.
 5. Next auto-sync trigger: `runEventBaseIngestion` builds windows at `windowSize=4` → `[0-3]` and `[4-7]`.
 6. Marker filter: `[0-3]` (start=0 < 2) excluded; `[4-7]` (start=4 ≥ 2) kept. Only legitimate new content gets extracted.
-7. Without the marker, both windows would have unknown fingerprints (new window size → fresh fingerprints) and both would be re-extracted, including the duplicate of messages 0,1 inside `[0-3]`.
+7. Without the marker, `[0-3]` would be read, as messages 2 and 3 in it were never read, and messages 0 and 1 a second time with them.
 
 ### Third safety layer — the settle/commit lag (re-roll protection)
 
@@ -427,8 +427,8 @@ Because un-kept swipes only ever live on the active turn (which is past the boun
 
 | Layer | Helper | Catches | When |
 |---|---|---|---|
-| 1 | `isLastWindowExtracted` / `isWindowAlreadyExtracted` (window record) | Re-running the same windowing again | Same window size as the prior extraction |
-| 2 | `getAutoSyncMarker` + `windows.filter(w => w.start >= marker)` | Re-processing pre-marker history under a *different* window size | Window size changed between the prior extraction and auto-sync enable |
+| 1 | `isLastWindowExtracted` / `isWindowAlreadyExtracted` (window record) | Reading a window again, or one of any size whose messages were all read | Always |
+| 2 | `getAutoSyncMarker` + `windows.filter(w => w.start >= marker)` | Reading a window that starts before where auto-sync was turned on, which may hold messages read at another size | Auto-sync runs |
 | 3 | `getCommitBoundary` (settle/commit lag) | Embedding throwaway re-rolls/swipes of the active turn | Always, on auto-sync runs (default ON) |
 
 **Test coverage:** TEST 015 in `tests/Eventbase-test.spec.js` is a pure-function exercise of the marker contract — a fresh collection returns `undefined`, stamp/read round-trips through the canonical getter, the `>= marker` filter excludes obsolete pre-marker windows and keeps post-marker windows, the boundary `start === marker` is included, and `clearAutoSyncMarker` removes the entry cleanly. The settle-lag is covered by `tests/eventbase-settle-lag.test.js` (pure boundary math, runs in CI) and TEST 023 in the spec (swipe-on-active-turn never extracts; the kept turn extracts once superseded).
@@ -447,15 +447,14 @@ A saved tip can also be older than its collection, because SillyTavern saves the
 | `ensureVectorizationTip(registryKey, settings, syncProgress?)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Async. Returns the known tip at once (in memory or in the pointer), unless `syncProgress` (`{ commitBoundary, windowSize }`) shows it far behind, which checks it as above. With no known tip it probes the collection's events on the current backend once, caches the result in memory only, and returns it. Returns `null` when the collection has no events. Called by `getChatAutoSyncStatus`, which passes `syncProgress`, and by the ingestion fast-forward, which does not. |
 | `countWindowsBehind(commitBoundary, tip, windowSize)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Whole Auto-sync windows between a tip and the sync boundary, for the enable flow and the far-behind check. |
 
-### Last-used window size — window-size-change detection for Vectorize and Resume
+### The window size a collection keeps (§2.7 of `vectfox-multi-collection-per-chat.md`)
 
-The pointer's `windowSize`: the window size of the last ingestion run that extracted windows into the collection, or the one the window-size question settled. Vectorize Content's Vectorize and Resume check it, on the collection the run reads into (`resolveEventBaseRunTarget`), through `checkWindowSizeChanged` to warn before a window-size change re-extracts, and the branch fork carries the parent collection's over to the new collection.
+The pointer's `windowSize`: the Vectorize dialog's Window size at the chat's first read, at New collection and at Start over, which Catch up reads the collection with, as do Resume, Sync chat and the auto-sync switch's catch-up; a collection that keeps none is read at the dialog's, which it keeps from then on. No run changes it afterwards, and no question is asked when the dialog's size differs: the window record keeps a run at another size from reading a message twice. Auto-sync reads at its own size (`getAutoSyncWindowSize`). The branch fork carries the parent collection's over to the new collection.
 
 | Function | File | Notes |
 |---|---|---|
-| `getLastUsedWindowSize(registryKey)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Reads the pointer's `windowSize`. Returns `undefined` when no prior run. |
-| `setLastUsedWindowSize(registryKey, windowSize)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Stamped by `runEventBaseIngestion` after a successful run with `windowsProcessed > 0`, by the window-size question's Read again, and by the fork. |
-| `checkWindowSizeChanged(registryKey, currentSize)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Compares the current window size with the last-used one. Use it instead of comparing `getLastUsedWindowSize(…)` inline. |
+| `getCollectionWindowSize(registryKey)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Reads the pointer's `windowSize`; `undefined` when none is kept. |
+| `setCollectionWindowSize(registryKey, windowSize)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Set by Vectorize Content at a chat's first read and on a collection that keeps none, by New collection (`startNewChatCollection`), by Start over (`emptyEventBaseCollection`), and by the fork. |
 
 ### Collection resolver — find the EventBase collection for a chat
 
@@ -479,8 +478,12 @@ suffix after the UUID, the time a later collection of the chat was made
 | `resolveEventBaseWriteTarget(settings, chatUUID?, { shouldLogResolution? })` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `synchronizeChat`, `getChatAutoSyncStatus`, the AutoSync page's marker re-stamp and ghosting's tip. Returns `null` when no collection of the chat is locked to it on the current backend: on its first read, or with collections but none locked. |
 | `resolveEventBaseRunTarget(settings, chatUUID)` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | The collection a run on the chat reads into: the write target; `null` while the chat has own collections but none locked, so the run writes nothing; else the ID its first run builds with `buildEventBaseCollectionId`. Used by `runEventBaseIngestion` when it is handed no collection, which then throws, and by Vectorize Content to read and clear that collection's pointer. |
 | `chatOwnCollections(settings)` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | The open chat's own collections as the Database Browser lists them for this persona, on the current backend, each with its name, whether it is locked here and whether auto-sync is on: what the AutoSync page's Collection in use here and the question list. |
-| `askWhichChatCollection(settings)` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | Before Vectorize, Resume, Sync chat or the auto-sync switch writes a chat with collections but none locked: asks which one to use and puts it in use. |
+| `askWhichChatCollection(settings, { canMakeNew? })` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | Before Vectorize, Resume, Sync chat or the auto-sync switch writes a chat with collections but none locked: asks which one to use and puts it in use. The first three offer New collection last (`canMakeNew`), answered as `NEW_COLLECTION`, which puts nothing in use. |
+| `startNewChatCollection(settings, { windowSize })` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | New collection's collection: the chat's first ID with the time it was made in base 36 after it (`newTimeId`), named as the chat's first with the lowest number from 2 its collections leave (`numberedName`, both in `src/shared/new-group-member.js`), keeping the dialog's window size, scoped to chats and registered. Its run locks it to the chat as it starts, unlocking the chat's others there. Refuses a chat whose UUID its file name stands in for, as the suffix could not be told from it. |
+| `emptyEventBaseCollection(registryKey, settings, { windowSize })` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Start over's emptying: deletes every event of the collection, the StoryArc links stored on them with it, listing again after each delete until none is left; then clears its windows, failed windows and tip, keeps where auto-sync started, and keeps the window size given. A delete that fails, or leaves an event it was given, throws with the pointer as it was. |
 | `findEventBaseCollectionsForChat(uuid, preferredBackend)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Only when you genuinely need **every** candidate (e.g. pausing auto-sync on all of a chat's collections, or a has-data fallback probe). Returns `Array<{ collectionId, registryKey }>`, lock-ranked first. Pass `getRegistryBackend(settings.vector_backend)` as `preferredBackend`. **Do not** take `[0]` to mean "the active one" — call `resolveActiveEventBaseCollection` for that. Returns `[]` when no collection exists yet. |
+
+**Vectorize Content on a chat that has a collection** (§2.1 of `vectfox-multi-collection-per-chat.md`) asks, once one is in use: **Catch up** reads what it has not read, at the window size it keeps; **Start over**, after a red confirm counting its events, empties it (`emptyEventBaseCollection`) and reads the chat again from the Start from message at the dialog's window size; **New collection** reads the chat from the Start from message into a new collection (`startNewChatCollection`), and says once it is in use that auto-sync is off for it. A chat with no collection of its own is read into its first, asking nothing. Resume is the dialog's Catch up; Sync chat and the auto-sync switch's catch-up catch up too. The dialog opened on New collection (`openContentVectorizer({ isOnNewCollection: true })`, from Collection in use here or the question's New collection in Sync chat) makes one at Vectorize, asking nothing. A chat file is read into its archive collection, asking before it reads one again.
 
 #### Eligibility rules inside `resolveActiveEventBaseCollection` — on READS an explicit lock is a FULL override
 
@@ -514,7 +517,7 @@ Called internally by the ingestion loop. Do not call from application code; reim
 
 | Function | File | Notes |
 |---|---|---|
-| `windowFingerprint(sourceHashes)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Deterministic sorted-join of message hashes. **Window-size dependent** — a fingerprint from `windowSize=2` never collides with one from `windowSize=4`, which is why the start marker is needed as a second safety layer. |
+| `windowFingerprint(sourceHashes)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Deterministic sorted-join of message hashes. A fingerprint from `windowSize=2` never equals one from `windowSize=4`; `isWindowAlreadyExtracted` also reads each message's hash out of the fingerprints, so a window whose messages were all read in windows of other sizes reads as read. A window holding messages read and unread does not, which is why the start marker is needed as a second safety layer. |
 | `clearWindowCache(registryKey)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Clears a collection's window record and unfinished record, so its next run reads every window again. The far-behind tip check calls it, and `clearExtractionCaches` with the tip. Do NOT call on window-size change — that would force full re-extraction; use `stampAutoSyncMarker` instead. |
 
 ### Auto-sync entry points
@@ -555,7 +558,7 @@ Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`**; whe
 - `vectfox:eventbase-synced` custom event (after an ingestion run completes)
 - Master switch toggle (OFF: shows the paused status; ON: after the network startup re-runs)
 
-Each refresh also draws **Collection in use here** at the top of the Auto-sync card (`autoSyncCollectionMarkup`, on the in-use switcher): the chat's own collections, the one locked here chosen, "None in use here" with none; nothing for a chat with no collection. A choice puts it in use through `useChatCollection` and draws the page again (`bindCollectionInUse` in `autosync-collection-in-use.js`). Opening a chat while auto-sync is on for its collections but none is locked to it shows a yellow toast naming them (`warnOfAutoSyncNotInUse`, on `CHAT_CHANGED` while VectFox is on).
+Each refresh also draws **Collection in use here** at the top of the Auto-sync card (`autoSyncCollectionMarkup`, on the in-use switcher): the chat's own collections, the one locked here chosen, "None in use here" with none, then New collection; nothing for a chat with no collection. A choice puts it in use through `useChatCollection` and draws the page again (`bindCollectionInUse` in `autosync-collection-in-use.js`); New collection opens Vectorize Content on New collection and puts nothing in use. Opening a chat while auto-sync is on for its collections but none is locked to it shows a yellow toast naming them (`warnOfAutoSyncNotInUse`, on `CHAT_CHANGED` while VectFox is on).
 
 While the master switch is off, `refreshAutoSyncCheckbox` reads only cached state and logs nothing (`shouldProbeBackend: false`, `shouldLogResolution: false`), and every has-collection state shows the paused status below. It still runs on chat change so the switch matches the current chat — the Summarizer Injection switch reads it.
 
@@ -629,7 +632,7 @@ UI elements that mirror lock state are pulled in two ways. The distinction matte
 
 | Event | Fired by | Listeners |
 |---|---|---|
-| `vectfox:collections-updated` | `editCollectionSettings` on a save or a lock change, the auto-sync switch | `refreshAutoSyncCheckbox` |
+| `vectfox:collections-updated` | `useChatCollection` when a lock changed, Collection in use here, `editCollectionSettings` on a save or a lock change, the auto-sync switch | `refreshAutoSyncCheckbox` |
 | `vectfox:eventbase-synced` | `runEventBaseIngestion` at end of run | `refreshAutoSyncCheckbox` |
 
 Plus ST's `CHAT_CHANGED` — the same refresh handler re-runs.

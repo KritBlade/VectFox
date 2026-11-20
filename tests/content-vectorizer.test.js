@@ -4,11 +4,14 @@
  * Vectorize Content's wiring (src/features/eventbase/content-vectorizer.js), driven as a user would: the dialog opens on
  * the Chat page with the open chat, or on a chat file when none is open; a chat file picked or dropped on the Source
  * card loads, a drop never reaching SillyTavern's own; the window sliders save VectFox's settings and Text cleaning sets
- * its one preset; a run says on its page what it needs; a chat's Vectorize asks before reading again; the dialog closes
- * after a clean read of something new and otherwise stays open saying why; Stop ends a run; the close is announced
- * once, after any run; the Action page's Sync chat reads what EventBase has not read once the user confirms, and says in
- * a dialog when there is nothing to read, the AutoSync page's Up to date included, or a run found nothing new; the
- * auto-sync catch-up reads the open chat's new messages with no dialog.
+ * its one preset; a run says on its page what it needs; a chat's Vectorize reads a chat with no collection into its
+ * first, and asks Catch up, Start over or New collection on one whose collection is in use (§2.1 of
+ * vectfox-multi-collection-per-chat.md), each read at the window size its collection keeps (§2.7), and a chat file's
+ * asks before reading it again; the dialog opened on New collection makes one; the dialog closes after a clean read of
+ * something new and otherwise stays open saying why; Stop ends a run; the close is announced once, after any run; the
+ * Action page's Sync chat reads what EventBase has not read once the user confirms, and says in a dialog when there is
+ * nothing to read, the AutoSync page's Up to date included, or a run found nothing new; the auto-sync catch-up reads
+ * the open chat's new messages with no dialog.
  */
 /* global document, window, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -27,6 +30,10 @@ const host = vi.hoisted(() => ({
     llmCheck: { ok: true },
     ownCollections: [],
     chosenCollection: null,
+    choice: null,
+    keptWindowSize: undefined,
+    savedHashes: [11, 12, 13],
+    emptyError: null,
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root, saveSettingsDebounced: vi.fn() }));
@@ -46,10 +53,18 @@ vi.mock('../src/sillytavern/popup.js', () => ({
         dialog.resolve();
     }),
     confirmPopup: vi.fn(async () => host.answer),
+    choicePopup: vi.fn(async () => host.choice),
     noticePopup: vi.fn(async () => {}),
 }));
 vi.mock('../src/features/eventbase/eventbase-chat-sync.js', () => ({
-    runEventBaseOnOpenChat: vi.fn(async (settings, signal) => {
+    runEventBaseOnOpenChat: vi.fn(async (settings, signal, run) => {
+        // A run into a new collection puts it in use as it starts (runEventBaseIngestion, through useChatCollection).
+        if (run?.collectionIdOverride) {
+            host.ownCollections = [
+                ...host.ownCollections.map(collection => ({ ...collection, isLockedHere: false })),
+                { registryKey: `qdrant:${run.collectionIdOverride}`, name: 'Harbor Keeper 2', isLockedHere: true },
+            ];
+        }
         if (host.runResult instanceof Error) throw host.runResult;
         // A run that goes on until stopped, then returns what it saved.
         if (host.runResult === 'until-stopped') {
@@ -63,15 +78,24 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     getVectorizationTip: () => (host.priorWindows ? 120 : undefined),
     readEventBaseProgress: () => ({}),
     prepareForFreshExtraction: vi.fn(async () => ({ skipTipFallback: true })),
-    checkWindowSizeChanged: () => ({ changed: false }),
-    setLastUsedWindowSize: vi.fn(),
+    getCollectionWindowSize: vi.fn(() => host.keptWindowSize),
+    setCollectionWindowSize: vi.fn(),
+    emptyEventBaseCollection: vi.fn(async () => {
+        if (host.emptyError) throw host.emptyError;
+        return host.savedHashes.length;
+    }),
 }));
-// The chat's own collections, and the question asked while none is locked to it (eventbase-collection-in-use.test.js).
+// The chat's own collections, the question asked while none is locked to it, and New collection's collection
+// (eventbase-collection-in-use.test.js).
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
+    NEW_COLLECTION: '+new',
     chatOwnCollections: () => host.ownCollections,
-    askWhichChatCollection: vi.fn(async () => host.chosenCollection),
+    // The one locked here, which the question answers without asking, else the answer given.
+    askWhichChatCollection: vi.fn(async () => host.ownCollections.find(collection => collection.isLockedHere)?.registryKey ?? host.chosenCollection),
     resolveEventBaseRunTarget: (settings, chatUUID) => ({ collectionId: `vf_eventbase_${chatUUID}`, registryKey: `qdrant:vf_eventbase_${chatUUID}` }),
+    startNewChatCollection: vi.fn(() => ({ registryKey: 'qdrant:vf_eventbase_chat-uuid_mh3k2x1a', collectionId: 'vf_eventbase_chat-uuid_mh3k2x1a', name: 'Harbor Keeper 2' })),
 }));
+vi.mock('../src/features/vector-backend/index.js', () => ({ getSavedHashes: vi.fn(async () => host.savedHashes) }));
 vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
     runEventBaseIngestion: vi.fn(),
     countUnfinishedWindows: () => 0,
@@ -84,6 +108,7 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'chat-uuid',
     buildArchiveEventCollectionId: ({ filenameCharName, archiveUUID }) => `vf_archiveevent_${filenameCharName}_${archiveUUID}`,
     buildRegistryKey: collectionId => `qdrant:${collectionId}`,
+    parseRegistryKey: registryKey => ({ backend: 'qdrant', collectionId: registryKey.replace(/^qdrant:/, '') }),
 }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({
     cleaningPresetChoices: () => [
@@ -102,10 +127,11 @@ vi.mock('../src/shared/pick-files.js', () => ({ pickFiles: vi.fn(async () => [])
 const { openContentVectorizer, backfillCurrentChatWithProgress, syncOpenChat } = await import('../src/features/eventbase/content-vectorizer.js');
 const { runEventBaseOnOpenChat } = await import('../src/features/eventbase/eventbase-chat-sync.js');
 const { runEventBaseIngestion } = await import('../src/features/eventbase/eventbase-workflow.js');
-const { askWhichChatCollection } = await import('../src/features/eventbase/eventbase-chat-collections.js');
+const { askWhichChatCollection, startNewChatCollection } = await import('../src/features/eventbase/eventbase-chat-collections.js');
+const { emptyEventBaseCollection, setCollectionWindowSize } = await import('../src/features/eventbase/eventbase-store.js');
 const { chooseCleaningPreset, openTextCleaningDialog } = await import('../src/features/text-cleaning/index.js');
 const { pickFiles } = await import('../src/shared/pick-files.js');
-const { confirmPopup, closePanelPopup, noticePopup } = await import('../src/sillytavern/popup.js');
+const { choicePopup, confirmPopup, closePanelPopup, noticePopup } = await import('../src/sillytavern/popup.js');
 const { saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 
 const $id = id => document.getElementById(id);
@@ -142,6 +168,10 @@ beforeEach(async () => {
     host.llmCheck = { ok: true };
     host.ownCollections = [];
     host.chosenCollection = null;
+    host.choice = null;
+    host.keptWindowSize = undefined;
+    host.savedHashes = [11, 12, 13];
+    host.emptyError = null;
     host.root.vectfox = { eventbase_window_size: 4, eventbase_window_overlap: 1 };
     host.context = {
         chatId: 'chat.jsonl',
@@ -244,6 +274,26 @@ describe('a chat file', () => {
         expect(runEventBaseIngestion.mock.calls[1][0].messages).toHaveLength(4);
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
+
+    it("asks before reading a file EventBase has read again, a window read again replacing its events, at the dialog's window size", async () => {
+        host.priorWindows = true;
+        host.answer = false;
+        openContentVectorizer();
+        dropOn($id('vectfox_cv_chat_source_card'), fileOf('harbor.jsonl', chatFile));
+        await vi.waitFor(() => expect(fileRegion().textContent).toContain('harbor.jsonl'));
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
+        expect(confirmPopup.mock.calls[0][0].map(line => line.text)).toContain('Each window it reads again replaces the events it had, so they do not repeat.');
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(runEventBaseIngestion).not.toHaveBeenCalled();
+
+        host.answer = true;
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runEventBaseIngestion).toHaveBeenCalledTimes(1));
+        expect(runEventBaseIngestion.mock.calls[0][0]).toMatchObject({ skipTipFallback: true, windowSizeOverride: 4, collectionIdOverride: 'vf_archiveevent_harbor_harbor-file' });
+        expect(setCollectionWindowSize).toHaveBeenCalledWith('qdrant:vf_archiveevent_harbor_harbor-file', 4);
+        expect(choicePopup).not.toHaveBeenCalled();
+    });
 });
 
 describe('the page\'s settings', () => {
@@ -291,65 +341,178 @@ describe('a run', () => {
 });
 
 describe('a chat\'s Vectorize', () => {
-    it('asks before reading a chat EventBase has read, and Cancel runs nothing', async () => {
-        host.priorWindows = true;
-        host.answer = false;
-        openContentVectorizer();
-        actionOn('vectorize').click();
-        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
-        await new Promise(resolve => setTimeout(resolve, 0));
-        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
-        expect(host.dialogs).toHaveLength(1);
-    });
+    const IN_USE = { registryKey: 'qdrant:vf_eventbase_chat-uuid', name: 'Harbor Keeper', isLockedHere: true };
+    const NEW_KEY = 'qdrant:vf_eventbase_chat-uuid_mh3k2x1a';
+    const runOptions = call => runEventBaseOnOpenChat.mock.calls[call][2];
 
-    it('says a window read again replaces its events, from a later message too', async () => {
-        const popupTexts = call => confirmPopup.mock.calls[call][0].map(line => line.text);
-        host.priorWindows = true;
-        host.answer = false;
-        openContentVectorizer();
-        actionOn('vectorize').click();
-        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
-        expect(popupTexts(0)).toContain('Each window it reads again replaces the events it had, so they do not repeat.');
-
-        change($id('vectfox_cv_chat_start_from'), '41');
-        actionOn('vectorize').click();
-        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(2));
-        expect(popupTexts(1)).toEqual(popupTexts(0));
-    });
-
-    it('reads it again on Read again, a message for each with words on the progress panel, then closes, announcing the close once the run is over', async () => {
-        host.priorWindows = true;
+    it("reads a chat with no collection yet into its first, asking nothing, at the dialog's window size, which the collection keeps; then closes, announcing the close once", async () => {
         host.context.chat.push({ mes: '   ' });
         openContentVectorizer();
         actionOn('vectorize').click();
         await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
-        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({
-            startFromMessage: 1, parallelWindows: 3, skipTipFallback: true,
+        expect(askWhichChatCollection).not.toHaveBeenCalled();
+        expect(choicePopup).not.toHaveBeenCalled();
+        expect(setCollectionWindowSize).toHaveBeenCalledWith(IN_USE.registryKey, 4);
+        expect(runOptions(0)).toMatchObject({
+            startFromMessage: 1, parallelWindows: 3, skipTipFallback: true, windowSizeOverride: 4, collectionIdOverride: null,
             progressPlan: { strategy: 'per_message', batchSize: 1, totalChunks: 2 },
         });
         await vi.waitFor(() => expect(host.dialogs).toHaveLength(0));
         await vi.waitFor(() => expect(closed).toEqual(['closed']));
     });
 
-    it("asks which collection to use while none of the chat's is locked to it, reading nothing on Cancel and the one chosen after", async () => {
-        host.ownCollections = [{ registryKey: 'qdrant:vf_eventbase_harbor' }, { registryKey: 'qdrant:vf_eventbase_harbor_2' }];
+    it('asks Catch up, Start over or New collection on a chat whose collection is in use, naming it and the message it reads from; Cancel runs nothing', async () => {
+        host.ownCollections = [IN_USE];
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_start_from'), '41');
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(choicePopup).toHaveBeenCalledTimes(1));
+        const [lines, { choices }] = choicePopup.mock.calls[0];
+        expect(lines).toEqual([
+            { text: 'This chat reads into:', name: 'Harbor Keeper' },
+            { text: 'Catch up reads the messages it has not read.' },
+            { text: 'Start over empties it, then reads the chat again from message 41.' },
+            { text: 'New collection reads the chat from message 41 into a new collection, and keeps this one.' },
+        ]);
+        expect(choices.map(choice => choice.text)).toEqual(['Catch up', 'Start over', 'New collection']);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+        expect(emptyEventBaseCollection).not.toHaveBeenCalled();
+        expect(startNewChatCollection).not.toHaveBeenCalled();
+        expect(host.dialogs).toHaveLength(1);
+    });
+
+    it('catches up at the window size the collection keeps, whatever the dialog says, forgetting nothing', async () => {
+        host.ownCollections = [IN_USE];
+        host.keptWindowSize = 6;
+        host.choice = 'catch-up';
+        openContentVectorizer();
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        expect(runOptions(0)).toMatchObject({ skipTipFallback: false, windowSizeOverride: 6, collectionIdOverride: null });
+        expect(setCollectionWindowSize).not.toHaveBeenCalled();
+    });
+
+    it("catches up on Resume, asking nothing, a collection that keeps no window size at the dialog's, which it keeps from then on", async () => {
+        host.ownCollections = [IN_USE];
+        openContentVectorizer();
+        actionOn('resume').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        expect(choicePopup).not.toHaveBeenCalled();
+        expect(setCollectionWindowSize).toHaveBeenCalledWith(IN_USE.registryKey, 4);
+        expect(runOptions(0)).toMatchObject({ skipTipFallback: false, windowSizeOverride: 4 });
+    });
+
+    it("starts over after a red confirm counting the events it deletes, empties the collection first, then reads it from the Start from message at the dialog's window size", async () => {
+        host.ownCollections = [IN_USE];
+        host.keptWindowSize = 6;
+        host.choice = 'start-over';
+        openContentVectorizer();
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        const [lines, options] = confirmPopup.mock.calls[0];
+        expect(lines.slice(0, 2)).toEqual([
+            { text: 'Start this collection over?', name: 'Harbor Keeper' },
+            { text: 'Events it deletes, with their StoryArc links:', name: '3' },
+        ]);
+        expect(options).toMatchObject({ okButton: 'Start over', isDestructive: true });
+        expect(emptyEventBaseCollection).toHaveBeenCalledWith(IN_USE.registryKey, host.root.vectfox, { windowSize: 4 });
+        expect(emptyEventBaseCollection.mock.invocationCallOrder[0]).toBeLessThan(runEventBaseOnOpenChat.mock.invocationCallOrder[0]);
+        expect(runOptions(0)).toMatchObject({ startFromMessage: 1, skipTipFallback: true, windowSizeOverride: 4, collectionIdOverride: null });
+    });
+
+    it('empties and reads nothing on Cancel, and says in red, reading nothing, when the collection could not be emptied', async () => {
+        host.ownCollections = [IN_USE];
+        host.choice = 'start-over';
+        host.answer = false;
+        openContentVectorizer();
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(emptyEventBaseCollection).not.toHaveBeenCalled();
+
+        host.answer = true;
+        host.emptyError = new Error('Qdrant refused the delete');
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(toastr.error).toHaveBeenCalledTimes(1));
+        expect(toastr.error.mock.calls[0][0]).toBe('Start over stopped: the collection could not be emptied (Qdrant refused the delete), so nothing was read again. Start over again to retry.');
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it("reads the chat into a new collection at the dialog's window size, which its run puts in use, then says auto-sync is off for it", async () => {
+        host.ownCollections = [IN_USE];
+        host.choice = 'new-collection';
+        openContentVectorizer();
+        change($id('vectfox_cv_chat_start_from'), '5');
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(toastr.info).toHaveBeenCalledTimes(1));
+        expect(startNewChatCollection).toHaveBeenCalledWith(host.root.vectfox, { windowSize: 4 });
+        expect(runOptions(0)).toMatchObject({ startFromMessage: 5, skipTipFallback: true, windowSizeOverride: 4, collectionIdOverride: 'vf_eventbase_chat-uuid_mh3k2x1a' });
+        expect(toastr.info).toHaveBeenCalledWith('"Harbor Keeper 2" is in use in this chat now. Auto-sync is off for it: turn it on on the AutoSync page.', 'EventBase', { timeOut: 12000 });
+    });
+
+    it('says in red, reading nothing, when the new collection could not be made', async () => {
+        host.ownCollections = [IN_USE];
+        host.choice = 'new-collection';
+        startNewChatCollection.mockImplementationOnce(() => { throw new Error('This chat has no UUID of its own.'); });
+        openContentVectorizer();
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(toastr.error).toHaveBeenCalledWith('New collection could not be made: This chat has no UUID of its own.', 'EventBase'));
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('says nothing of auto-sync when the new collection did not come into use, its run never starting', async () => {
+        host.ownCollections = [IN_USE];
+        host.choice = 'new-collection';
+        runEventBaseOnOpenChat.mockImplementationOnce(async () => null);
+        openContentVectorizer();
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(actionOn('vectorize').disabled).toBe(false));
+        expect(toastr.info).not.toHaveBeenCalled();
+    });
+
+    it("asks which collection to use while none of the chat's is locked to it, offering New collection: nothing on Cancel, the one chosen caught up, a new one read on New collection", async () => {
+        host.ownCollections = [{ ...IN_USE, isLockedHere: false }, { registryKey: 'qdrant:vf_eventbase_chat-uuid_2', name: 'Harbor Keeper 2', isLockedHere: false }];
+        host.runResult = { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
         openContentVectorizer();
         actionOn('vectorize').click();
         await vi.waitFor(() => expect(askWhichChatCollection).toHaveBeenCalledTimes(1));
+        expect(askWhichChatCollection.mock.calls[0][1]).toEqual({ canMakeNew: true });
         await new Promise(resolve => setTimeout(resolve, 0));
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
 
-        host.chosenCollection = 'qdrant:vf_eventbase_harbor_2';
+        host.chosenCollection = 'qdrant:vf_eventbase_chat-uuid_2';
         actionOn('resume').click();
         await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
-        expect(askWhichChatCollection).toHaveBeenCalledTimes(2);
+        expect(runOptions(0)).toMatchObject({ skipTipFallback: false, collectionIdOverride: null });
+        await vi.waitFor(() => expect(actionOn('resume').disabled).toBe(false));
+
+        host.chosenCollection = '+new';
+        actionOn('resume').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(2));
+        expect(runOptions(1)).toMatchObject({ skipTipFallback: true, collectionIdOverride: 'vf_eventbase_chat-uuid_mh3k2x1a' });
+        expect(choicePopup).not.toHaveBeenCalled();
+        expect(host.ownCollections.find(collection => collection.isLockedHere).registryKey).toBe(NEW_KEY);
     });
 
-    it('asks nothing about collections for a chat with none yet, which its first read makes', async () => {
+    it('reads into a new collection at once when opened on New collection, asking nothing, its run card saying so; an open dialog turns to it', async () => {
+        host.ownCollections = [IN_USE];
         openContentVectorizer();
+        expect(partOf('new-collection').hidden).toBe(true);
+        openContentVectorizer({ isOnNewCollection: true });
+        expect(partOf('new-collection').hidden).toBe(false);
+        expect(partOf('new-collection').textContent).toBe('Vectorize reads this chat into a new collection, from the Start from message.');
+        // A chat file reads into its archive collection, so the line goes while one is the source.
+        change($id('vectfox_cv_chat_source_choice'), 'file');
+        expect(partOf('new-collection').hidden).toBe(true);
+        change($id('vectfox_cv_chat_source_choice'), 'this');
+        expect(partOf('new-collection').hidden).toBe(false);
         actionOn('vectorize').click();
         await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
         expect(askWhichChatCollection).not.toHaveBeenCalled();
+        expect(choicePopup).not.toHaveBeenCalled();
+        expect(runOptions(0)).toMatchObject({ collectionIdOverride: 'vf_eventbase_chat-uuid_mh3k2x1a', windowSizeOverride: 4 });
     });
 
     it('closes without a run with one announcement', async () => {
@@ -420,9 +583,10 @@ describe('Sync chat', () => {
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
 
-    it('reads them on Sync as Resume does with the dialog\'s defaults, with no dialog and no close announced', async () => {
+    it("reads them on Sync as Resume does with the dialog's defaults, at the window size the collection keeps, with no dialog and no close announced", async () => {
+        host.keptWindowSize = 6;
         expect(await syncOpenChat()).toEqual({ ran: true });
-        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 3, skipTipFallback: false });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 3, skipTipFallback: false, windowSizeOverride: 6 });
         expect(host.dialogs).toHaveLength(0);
         expect(closed).toEqual([]);
         expect(noticePopup).not.toHaveBeenCalled();
@@ -437,6 +601,7 @@ describe('Sync chat', () => {
     it("asks which collection to use while none of the chat's is locked to it, then syncs the one chosen, and nothing on Cancel", async () => {
         host.syncStatus = { state: 'none-locked', collections: [] };
         expect(await syncOpenChat()).toEqual({ ran: false, reason: 'cancelled' });
+        expect(askWhichChatCollection.mock.calls[0][1]).toEqual({ canMakeNew: true });
         expect(confirmPopup).not.toHaveBeenCalled();
 
         askWhichChatCollection.mockImplementationOnce(async () => {
@@ -445,6 +610,16 @@ describe('Sync chat', () => {
         });
         expect(await syncOpenChat()).toEqual({ ran: true });
         expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("opens Vectorize Content on New collection for the question's New collection, reading nothing itself", async () => {
+        host.syncStatus = { state: 'none-locked', collections: [] };
+        askWhichChatCollection.mockImplementationOnce(async () => '+new');
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'new-collection' });
+        await vi.waitFor(() => expect(host.dialogs).toHaveLength(1));
+        expect(partOf('new-collection').hidden).toBe(false);
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
 
     it('opens Vectorize Content on the Chat page for a chat with nothing stored yet, and asks nothing', async () => {
@@ -498,9 +673,10 @@ describe('Sync chat', () => {
 });
 
 describe('the auto-sync catch-up', () => {
-    it('reads the open chat\'s new messages with no dialog, and announces no close', async () => {
+    it("reads the open chat's new messages at the window size its collection keeps, with no dialog, and announces no close", async () => {
+        host.keptWindowSize = 6;
         expect(await backfillCurrentChatWithProgress()).toEqual({ ran: true });
-        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 1, skipTipFallback: false });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, parallelWindows: 1, skipTipFallback: false, windowSizeOverride: 6 });
         expect(closed).toEqual([]);
     });
 });

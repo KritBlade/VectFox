@@ -161,7 +161,7 @@ const sliderField = (name, { label, min, max, step, title, hintText }) => field(
 function windowsCard() {
     const body = stack([
         sliderField('parallel_windows', { label: 'Windows at once', min: 1, max: 8, step: 1, title: 'Windows', hintText: 'How many windows EventBase reads at the same time.' }),
-        sliderField('window_size', { label: 'Window size', min: 2, max: 20, step: 1, title: 'Messages', hintText: 'Messages per window. Saved; a new size reads the chat again.' }),
+        sliderField('window_size', { label: 'Window size', min: 2, max: 20, step: 1, title: 'Messages', hintText: 'Messages per window, for a first read, New collection and Start over. Saved.' }),
         sliderField('window_overlap', { label: 'Window overlap', min: 0, max: 5, step: 1, title: 'Messages', hintText: 'Messages each window repeats from the one before. Saved.' }),
     ]);
     const header = cardHeader({ icon: 'fa-scissors', title: 'Windows', description: 'EventBase reads the chat in windows of messages and stores their events.' });
@@ -192,5 +192,9 @@ function runCard() {
         shownPart('stop', button({ text: 'Stop', icon: 'fa-stop', kind: 'danger', data: action('stop') }), false),
     ];
     const header = cardHeader({ icon: 'fa-bolt', title: 'Vectorize', description: 'Resume adds what EventBase has not read yet.', isCollapsible: false });
-    return card(cvId(CHAT_TYPE_ID, 'run_card'), header, controlRow([dynamicHint('', 'run-state'), ...actions]));
+    return card(cvId(CHAT_TYPE_ID, 'run_card'), header, stack([
+        // Opened on New collection (Collection in use here, the question's New collection), Vectorize makes one.
+        shownPart('new-collection', hint({ text: 'Vectorize reads this chat into a new collection, from the Start from message.' }), false),
+        controlRow([dynamicHint('', 'run-state'), ...actions]),
+    ]));
 }

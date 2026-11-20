@@ -487,10 +487,9 @@ function bindSettingsEvents(settings, callbacks) {
                 useChatCollection(lockKey);
                 setCollectionAutoSync(lockKey, true);
 
-                // Stamp the collection's auto-sync start marker. Prevents the
-                // window-fingerprint dedup cache from triggering a full chat
-                // re-extraction when the user changed window_size before enabling
-                // auto-sync. See InternalProject/Vectfox/plans/executed/autosync-independent-window-and-last-n-injection.md §9.
+                // Stamp the collection's auto-sync start marker, so auto-sync reads
+                // no window starting before it, which may hold messages read before
+                // at another window size. See InternalProject/Vectfox/plans/executed/autosync-independent-window-and-last-n-injection.md §9.
                 // Smart placement: stamps at max(source_window_end)+1 when events
                 // exist (backfills the gap at the new window size), or at current
                 // chat length when collection is empty. markerFloorOverride='chatLength'

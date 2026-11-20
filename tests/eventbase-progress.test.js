@@ -2,8 +2,8 @@
  * EventBase's pointer, how far it has read a chat into one collection, kept in that collection's record
  * (`collections[<registry key>].eventbaseProgress`, §2.3 of InternalProject/Vectfox/plans/
  * vectfox-multi-collection-per-chat.md): each part read and written through the store, two collections of one chat
- * never sharing one, the window records' in-memory Set following the record, and a deleted or imported collection
- * forgotten in memory.
+ * never sharing one, the window records' in-memory Sets following the record, no message read twice in windows of any
+ * size (§2.7), Start over's emptying (§2.6), and a deleted or imported collection forgotten in memory.
  *
  * Runs the real store and the real records, with only the host and the backend faked.
  */
@@ -29,6 +29,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({
     insertVectorItems: vi.fn(),
+    deleteVectorItems: vi.fn(),
     purgeVectorIndex: vi.fn(),
     encodeSparseVector: vi.fn(),
     getSavedHashes: vi.fn(),
@@ -38,19 +39,21 @@ vi.mock('../src/features/vector-backend/index.js', () => ({
 
 import { extension_settings } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
+import { deleteVectorItems, getSavedHashes } from '../src/features/vector-backend/index.js';
 import {
     clearAutoSyncMarker,
     clearCachesForDeletedOrImportedCollection,
     clearExtractionCaches,
+    emptyEventBaseCollection,
     getAutoSyncMarker,
-    getLastUsedWindowSize,
+    getCollectionWindowSize,
     getUnfinishedWindowFingerprints,
     getVectorizationTip,
     isWindowAlreadyExtracted,
     markWindowExtracted,
     markWindowUnfinished,
     readEventBaseProgress,
-    setLastUsedWindowSize,
+    setCollectionWindowSize,
     setVectorizationTip,
     stampAutoSyncMarker,
     windowFingerprint,
@@ -99,7 +102,7 @@ describe("a collection's pointer, in its record", () => {
 
     it('drops the pointer from the record once its last part goes', () => {
         const registryKey = freshCollectionKey();
-        setLastUsedWindowSize(registryKey, 4);
+        setCollectionWindowSize(registryKey, 4);
 
         writeEventBaseProgress(registryKey, { windowSize: undefined });
 
@@ -115,8 +118,8 @@ describe("a collection's pointer, in its record", () => {
         markWindowUnfinished(SECOND_WINDOW, first);
         setVectorizationTip(first, 2);
         writeEventBaseProgress(first, { autoSyncStartMarker: 2 });
-        setLastUsedWindowSize(first, 2);
-        setLastUsedWindowSize(second, 6);
+        setCollectionWindowSize(first, 2);
+        setCollectionWindowSize(second, 6);
 
         expect(isWindowAlreadyExtracted(FIRST_WINDOW, first)).toBe(true);
         expect(isWindowAlreadyExtracted(FIRST_WINDOW, second)).toBe(false);
@@ -126,8 +129,8 @@ describe("a collection's pointer, in its record", () => {
         expect(getVectorizationTip(second)).toBeUndefined();
         expect(getAutoSyncMarker(first)).toBe(2);
         expect(getAutoSyncMarker(second)).toBeUndefined();
-        expect(getLastUsedWindowSize(first)).toBe(2);
-        expect(getLastUsedWindowSize(second)).toBe(6);
+        expect(getCollectionWindowSize(first)).toBe(2);
+        expect(getCollectionWindowSize(second)).toBe(6);
     });
 
     it('takes a window read at last off the unfinished record, and keeps the windows read in order', () => {
@@ -184,6 +187,78 @@ describe("a collection's pointer, in its record", () => {
         expect(await stampAutoSyncMarker(registryKey, {})).toBe(10);
         expect(listChunks).toHaveBeenCalledWith(registryKey.slice('qdrant:'.length), {}, expect.anything());
         expect(getAutoSyncMarker(registryKey)).toBe(10);
+    });
+});
+
+describe('no message read twice (§2.7)', () => {
+    it('reads no window whose messages were all read in windows of another size, as a Catch up after auto-sync', () => {
+        const registryKey = freshCollectionKey();
+        for (const autoSyncWindow of [[1, 2], [3, 4], [5, 6]]) markWindowExtracted(autoSyncWindow, registryKey);
+
+        expect(isWindowAlreadyExtracted([1, 2, 3, 4], registryKey)).toBe(true);
+        expect(isWindowAlreadyExtracted([3, 4, 5, 6], registryKey)).toBe(true);
+        expect(isWindowAlreadyExtracted([5, 6, 7, 8], registryKey)).toBe(false);
+    });
+
+    it('reads nothing again once a deleted message or a changed overlap moves every later window', () => {
+        const registryKey = freshCollectionKey();
+        for (const window of [[1, 2], [3, 4], [5, 6]]) markWindowExtracted(window, registryKey);
+
+        // Message 3 deleted: the windows after it are [4, 5] and [6, 7].
+        expect(isWindowAlreadyExtracted([4, 5], registryKey)).toBe(true);
+        expect(isWindowAlreadyExtracted([6, 7], registryKey)).toBe(false);
+        // An overlap of 1: the windows are [1, 2], [2, 3], [3, 4]...
+        expect(isWindowAlreadyExtracted([2, 3], registryKey)).toBe(true);
+    });
+
+    it('takes a failed window off the unfinished record once its messages have all been read, in windows of any size', () => {
+        const registryKey = freshCollectionKey();
+        markWindowUnfinished([3, 4, 5, 6], registryKey);
+
+        markWindowExtracted([3, 4], registryKey);
+        expect(getUnfinishedWindowFingerprints(registryKey, 4).size).toBe(1);
+        markWindowExtracted([5, 6], registryKey);
+        expect(getUnfinishedWindowFingerprints(registryKey, 4).size).toBe(0);
+        expect(readEventBaseProgress(registryKey).unfinishedWindows).toBeUndefined();
+    });
+});
+
+describe("Start over's emptying (§2.6)", () => {
+    const pointerOf = (registryKey) => {
+        markWindowExtracted(FIRST_WINDOW, registryKey);
+        markWindowUnfinished(SECOND_WINDOW, registryKey);
+        setVectorizationTip(registryKey, 2);
+        writeEventBaseProgress(registryKey, { autoSyncStartMarker: 2, windowSize: 2 });
+        return readEventBaseProgress(registryKey);
+    };
+
+    it('deletes every event, listing again after each delete until none is left, then forgets the windows, the failed windows and the tip, keeping where auto-sync started, at the window size given', async () => {
+        const registryKey = freshCollectionKey();
+        pointerOf(registryKey);
+        getSavedHashes.mockResolvedValueOnce([11, 12, 13]).mockResolvedValueOnce([14]).mockResolvedValueOnce([]);
+
+        expect(await emptyEventBaseCollection(registryKey, {}, { windowSize: 6 })).toBe(4);
+        expect(deleteVectorItems.mock.calls).toEqual([
+            [registryKey.slice('qdrant:'.length), [11, 12, 13], {}],
+            [registryKey.slice('qdrant:'.length), [14], {}],
+        ]);
+        expect(readEventBaseProgress(registryKey)).toEqual({ autoSyncStartMarker: 2, windowSize: 6 });
+        expect(getVectorizationTip(registryKey)).toBeUndefined();
+    });
+
+    it('keeps the pointer as it was when a delete fails, or leaves an event it was given', async () => {
+        const registryKey = freshCollectionKey();
+        const pointer = pointerOf(registryKey);
+        getSavedHashes.mockResolvedValue([11, 12]);
+        deleteVectorItems.mockRejectedValueOnce(new Error('Qdrant refused the delete'));
+        await expect(emptyEventBaseCollection(registryKey, {}, { windowSize: 6 })).rejects.toThrow('Qdrant refused the delete');
+        expect(readEventBaseProgress(registryKey)).toEqual(pointer);
+
+        getSavedHashes.mockReset();
+        getSavedHashes.mockResolvedValueOnce([11, 12]).mockResolvedValueOnce([12]);
+        await expect(emptyEventBaseCollection(registryKey, {}, { windowSize: 6 })).rejects.toThrow('1 of the 2 events it was asked to delete are still stored');
+        expect(readEventBaseProgress(registryKey)).toEqual(pointer);
+        expect(getVectorizationTip(registryKey)).toBe(2);
     });
 });
 

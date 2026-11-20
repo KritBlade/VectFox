@@ -114,7 +114,9 @@ export async function synchronizeChat(settings, triggerEvent = null) {
  *
  * @param {object} settings - VectFox settings
  * @param {AbortSignal|null} abortSignal - Stops the run
- * @param {{startFromMessage?: number, parallelWindows?: number, progressPlan?: object|null, skipTipFallback?: boolean}} [run]
+ * @param {{startFromMessage?: number, parallelWindows?: number, progressPlan?: object|null, skipTipFallback?: boolean,
+ *   collectionIdOverride?: string|null, windowSizeOverride?: number}} [run] - collectionIdOverride: New collection's
+ *   collection, else the chat's run target; windowSizeOverride: the collection's window size
  * @returns {Promise<object|null>} runEventBaseIngestion's result, or null when the run could not start, having said why
  * @throws When the run fails, or the chat changes while it runs
  */
@@ -123,6 +125,8 @@ export async function runEventBaseOnOpenChat(settings, abortSignal = null, {
     parallelWindows = 1,
     progressPlan = null,
     skipTipFallback = false,
+    collectionIdOverride = null,
+    windowSizeOverride = undefined,
 } = {}) {
     const chatId = getCurrentChatId();
     if (!chatId) {
@@ -159,6 +163,8 @@ export async function runEventBaseOnOpenChat(settings, abortSignal = null, {
         parallelWindows,
         progressPlan,
         skipTipFallback,
+        collectionIdOverride,
+        windowSizeOverride,
     });
 
     if (chatId !== getCurrentChatId()) {

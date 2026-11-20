@@ -8,7 +8,7 @@
  * ============================================================================
  */
 
-import { insertVectorItems, deleteVectorItems, updateChunkMetadata, qdrantTarget } from '../vector-backend/index.js';
+import { insertVectorItems, deleteVectorItems, getSavedHashes, updateChunkMetadata, qdrantTarget } from '../vector-backend/index.js';
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
@@ -35,18 +35,20 @@ import { readErrorBody } from '../../shared/server-error-text.js';
 // (extension_settings.vectfox.collections[<registry key>].eventbaseProgress), so
 // two collections of one chat never share one:
 //   vectorizationTip     — one past the last message any extracted window covers
-//   extractedWindows     — the fingerprints of the windows read, so none is read twice
+//   extractedWindows     — the fingerprints of the windows read, so no message is read twice
 //   unfinishedWindows    — the fingerprints of the windows that failed, sent again
 //   autoSyncStartMarker  — the message auto-sync started from
-//   windowSize           — the window size of the last run that read a window
+//   windowSize           — the window size Vectorize read it with, which Catch up reads with too: set at
+//                          the chat's first read, by New collection and by Start over
 // Every function below that takes a registryKey reads or writes that collection's
 // pointer, and only through readEventBaseProgress and writeEventBaseProgress.
 // Deleting the collection deletes its record, the pointer with it.
 
-// Each extractedWindows array's fingerprints as a Set, for O(1) lookups. Keyed by the
-// array itself, so a record whose array is replaced (an import, a clear) is read
-// again from the new array.
+// Each extractedWindows array's fingerprints as a Set, and the hashes of the messages they
+// hold as another, for O(1) lookups. Keyed by the array itself, so a record whose array is
+// replaced (an import, a clear) is read again from the new array.
 const _extractedWindowSets = new WeakMap(); // extractedWindows array → Set<fingerprint>
+const _readMessageHashSets = new WeakMap(); // extractedWindows array → Set<message hash, as a string>
 
 // The tip, in memory: the pointer's tip once read, or a tip probed from the
 // collection's events (ensureVectorizationTip) that is not stored. The Auto-Sync page
@@ -101,6 +103,22 @@ function extractedWindowSetOf(windows) {
     }
     return fingerprints;
 }
+
+/**
+ * The hashes of every message an extractedWindows array's windows hold, as strings, built once per array: a fingerprint
+ * holds one hash per message (windowFingerprint).
+ */
+function readMessageHashSetOf(windows) {
+    let hashes = _readMessageHashSets.get(windows);
+    if (!hashes) {
+        hashes = new Set(windows.flatMap(fingerprint => fingerprint.split(',')));
+        _readMessageHashSets.set(windows, hashes);
+    }
+    return hashes;
+}
+
+/** Whether every message of a window, by its fingerprint, is in a window read already. */
+const isFingerprintRead = (fingerprint, readHashes) => fingerprint.split(',').every(hash => readHashes.has(hash));
 
 /**
  * Whole Auto-sync windows behind the sync boundary at which a chat counts as far behind: the
@@ -502,13 +520,14 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
 // AutoSync start-marker (per-chat) — see InternalProject/Vectfox/plans/executed/autosync-independent-window-and-last-n-injection.md §9
 // ---------------------------------------------------------------------------
 //
-// The window fingerprint dedup below is window-size-dependent: changing window
-// size invalidates every cached fingerprint and would trigger a full chat
-// re-extraction when auto-sync next runs. The marker is an additional gate
-// stamped at "everything before this message index is considered covered;
-// auto-sync should only process windows whose start >= marker." Stamped on
-// auto-sync enable and re-stamped whenever the auto-sync window size setting
-// changes (Phase 2 — see §9.8 of the linked plan).
+// The window record below skips a window only once every message in it was
+// read, in windows of any size (isWindowAlreadyExtracted), so a window of
+// auto-sync's size that holds messages read before at another size would read
+// them again. The marker is an additional gate stamped at "everything before
+// this message index is considered covered; auto-sync should only process
+// windows whose start >= marker." Stamped on auto-sync enable and re-stamped
+// whenever the auto-sync window size setting changes (Phase 2 — see §9.8 of
+// the linked plan).
 
 /**
  * A collection's auto-sync start marker.
@@ -585,21 +604,23 @@ export async function stampAutoSyncMarker(registryKey, settings, options = {}) {
 }
 
 /**
- * The window size a collection was last read with, by a run that read a window or by the answer to the window-size
- * question. Vectorize Content compares the dialog's size with it before a run (checkWindowSizeChanged).
+ * The window size a collection is read with (§2.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * the Vectorize dialog's size at the chat's first read, at New collection or at Start over, which Catch up reads with
+ * too. No run changes it afterwards; auto-sync reads at the AutoSync page's own size.
  * @param {string} registryKey - The collection's registry key ("backend:id")
  * @returns {number|undefined}
  */
-export function getLastUsedWindowSize(registryKey) {
+export function getCollectionWindowSize(registryKey) {
     return readEventBaseProgress(registryKey).windowSize;
 }
 
 /**
- * Record the window size a collection was read with.
+ * Set the window size a collection is read with: at the chat's first read, by New collection, by Start over, by a run
+ * on a collection that keeps none, and on a fork, from the collection the branch's events came from.
  * @param {string} registryKey - The collection's registry key ("backend:id")
  * @param {number} windowSize
  */
-export function setLastUsedWindowSize(registryKey, windowSize) {
+export function setCollectionWindowSize(registryKey, windowSize) {
     if (!Number.isFinite(windowSize)) return;
     writeEventBaseProgress(registryKey, { windowSize });
 }
@@ -607,31 +628,14 @@ export function setLastUsedWindowSize(registryKey, windowSize) {
 // ---------------------------------------------------------------------------
 // Re-extraction coordination helpers
 // ---------------------------------------------------------------------------
-// These three helpers are the single source of truth for:
-//   1. "Did the window size change since last extraction?"        → checkWindowSizeChanged()
-//   2. "Should the workflow apply its Qdrant-side tip fallback?"  → shouldUseTipFallback()
-//   3. "User asked for fresh extraction — prep the chat state"    → prepareForFreshExtraction()
+// These two helpers are the single source of truth for:
+//   1. "Should the workflow apply its Qdrant-side tip fallback?"  → shouldUseTipFallback()
+//   2. "User asked for fresh extraction — prep the chat state"    → prepareForFreshExtraction()
 //
 // Code that touches these concerns must use these helpers, not inline the logic: a
 // caller that clears the local cache while the Qdrant-side tip fallback still fires
 // gets a silent "0 events, X skipped" run. If a check needs new behavior, extend the
 // helper, don't fork it at a call site.
-
-/**
- * UI helper. Detect whether the current window size differs from the one the
- * collection was last read with. Single source of truth — callers MUST NOT
- * inline `getLastUsedWindowSize(...) !== currentSize`; use this helper instead so
- * any future refinement (e.g. tolerance, schema migration) applies uniformly.
- *
- * @param {string} registryKey - The collection's registry key ("backend:id")
- * @param {number} currentSize - The window size the next run would use
- * @returns {{ changed: boolean, oldSize: number|undefined, newSize: number }}
- */
-export function checkWindowSizeChanged(registryKey, currentSize) {
-    const oldSize = getLastUsedWindowSize(registryKey);
-    const changed = typeof oldSize === 'number' && oldSize !== currentSize;
-    return { changed, oldSize, newSize: currentSize };
-}
 
 /**
  * Workflow helper. Decide whether `runEventBaseIngestion` should perform its
@@ -674,9 +678,10 @@ export function shouldUseTipFallback({ skipTipFallback, fastForwardSkipped, hasC
  * silently fast-forwards past everything — the "0 events, X skipped" surprise.
  * Without step 1 the local fingerprints linger as dead-but-harmless entries.
  *
- * Call this whenever a popup promises to read the chat again from the start:
- * Vectorize, and Read again on the window-size question. If a third trigger is
- * ever added, route it through this helper too.
+ * Call this whenever a run promises to read from the Start from message whatever
+ * was read before: a chat's first read, Start over (after emptyEventBaseCollection),
+ * New collection, and a chat file's Vectorize. If another trigger is ever added,
+ * route it through this helper too.
  *
  * @param {string} registryKey - The registry key ("backend:id") of the collection the run reads into
  * @returns {Promise<{ skipTipFallback: true }>}
@@ -702,7 +707,8 @@ export function windowFingerprint(sourceHashes) {
 }
 
 /**
- * Marks a window as extracted in a collection's pointer, and takes it off its unfinished record.
+ * Marks a window as extracted in a collection's pointer, and takes off its unfinished record that window and every
+ * failed window whose messages have all been read now, in windows of any size.
  * Stored in the settings, so it survives page reloads without requiring a chat save.
  * @param {number[]} sourceHashes
  * @param {string} registryKey - The collection's registry key ("backend:id")
@@ -710,16 +716,19 @@ export function windowFingerprint(sourceHashes) {
 export function markWindowExtracted(sourceHashes, registryKey) {
     if (!sourceHashes?.length || !registryKey) return;
     const fingerprint = windowFingerprint(sourceHashes);
-    _keepUnfinishedWindows(registryKey, recordedFingerprint => recordedFingerprint !== fingerprint);
-
     const windows = readEventBaseProgress(registryKey).extractedWindows ?? [];
     const extracted = extractedWindowSetOf(windows);
-    if (extracted.has(fingerprint)) return;
-    // A new array, which the record then holds: the Set moves to it with the fingerprint added.
-    const nextWindows = [...windows, fingerprint];
-    extracted.add(fingerprint);
-    _extractedWindowSets.set(nextWindows, extracted);
-    writeEventBaseProgress(registryKey, { extractedWindows: nextWindows });
+    const readHashes = readMessageHashSetOf(windows);
+    if (!extracted.has(fingerprint)) {
+        // A new array, which the record then holds: both Sets move to it with the window added.
+        const nextWindows = [...windows, fingerprint];
+        extracted.add(fingerprint);
+        for (const hash of fingerprint.split(',')) readHashes.add(hash);
+        _extractedWindowSets.set(nextWindows, extracted);
+        _readMessageHashSets.set(nextWindows, readHashes);
+        writeEventBaseProgress(registryKey, { extractedWindows: nextWindows });
+    }
+    _keepUnfinishedWindows(registryKey, recorded => recorded !== fingerprint && !isFingerprintRead(recorded, readHashes));
 }
 
 /**
@@ -811,6 +820,38 @@ export function clearExtractionCaches(registryKey) {
 }
 
 /**
+ * Start over's emptying (§2.6 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): delete every event
+ * a collection holds, and with them the StoryArc links stored on them; only once none is left, forget the windows it
+ * read, the windows that failed and how far it read, and take the window size given. Where auto-sync started stays, as
+ * do the collection's ID, name, locks, auto-sync switch and StoryArc merges, and the collection itself, empty, so
+ * discovery keeps listing it. Deletes as many events as a listing gives at a time, until none is listed.
+ *
+ * @param {string} registryKey - The collection's registry key ("backend:id")
+ * @param {object} settings - VectFox settings
+ * @param {{windowSize: number}} reading - The window size the collection is read with from now on
+ * @returns {Promise<number>} How many events were deleted
+ * @throws {Error} When the backend refuses a delete, or a delete leaves events it was given; the pointer stays as it was
+ */
+export async function emptyEventBaseCollection(registryKey, settings, { windowSize }) {
+    const { collectionId } = parseRegistryKey(registryKey);
+    let deletedCount = 0;
+    let listed = await getSavedHashes(collectionId, settings);
+    while (listed.length) {
+        await deleteVectorItems(collectionId, listed, settings);
+        const deleted = new Set(listed);
+        const next = await getSavedHashes(collectionId, settings);
+        const keptCount = next.filter(hash => deleted.has(hash)).length;
+        if (keptCount) throw new Error(`${keptCount} of the ${listed.length} events it was asked to delete are still stored`);
+        deletedCount += listed.length;
+        listed = next;
+    }
+    clearExtractionCaches(registryKey);
+    setCollectionWindowSize(registryKey, windowSize);
+    log.lifecycle(`[EventBase] Start over emptied ${registryKey}: ${deletedCount} event(s) deleted, window size ${windowSize}`);
+    return deletedCount;
+}
+
+/**
  * Forgets what is held in memory of a collection that was deleted or imported, on any backend, so
  * the next read takes its pointer from its record: deleting the collection deleted its record, and an
  * import wrote the file's pointer into it, or none. index.js hands it to collection-loader's
@@ -857,7 +898,11 @@ export function isLastWindowExtracted(messages, windowSize, step, registryKey, h
 }
 
 /**
- * Whether a collection has read a window (O(1), no DB query), from its window record.
+ * Whether a collection has read a window (no DB query), from its window record: the window's fingerprint is on it, or
+ * every message in the window is in a window read already, of any size (§2.7 of
+ * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). So a Catch up after auto-sync read at another
+ * size reads only the unread messages, and a deleted message or a changed overlap, which move every later window,
+ * read nothing again.
  *
  * @param {number[]} sourceHashes
  * @param {string} registryKey - The collection's registry key ("backend:id")
@@ -867,7 +912,9 @@ export function isWindowAlreadyExtracted(sourceHashes, registryKey) {
     if (!sourceHashes?.length || !registryKey) return false;
     const windows = readEventBaseProgress(registryKey).extractedWindows;
     if (!Array.isArray(windows)) return false;
-    return extractedWindowSetOf(windows).has(windowFingerprint(sourceHashes));
+    if (extractedWindowSetOf(windows).has(windowFingerprint(sourceHashes))) return true;
+    const readHashes = readMessageHashSetOf(windows);
+    return sourceHashes.every(hash => readHashes.has(String(hash)));
 }
 
 /**

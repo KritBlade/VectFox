@@ -27,7 +27,7 @@ import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, setLastUsedWindowSize } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { NONE_IN_USE_TEXT, chatOwnCollections, resolveEventBaseRunTarget, useChatCollection } from './eventbase-chat-collections.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
@@ -159,9 +159,11 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
  * numbering and starts at the window that holds the message, so an event's window is the same in
  * every run, and a window read again replaces its events.
  *
- * Size and overlap come from settings.eventbase_window_size and eventbase_window_overlap. Auto-sync
- * passes its own (windowSizeOverride and windowOverlapOverride, from
- * settings.eventbase_autosync_window_turns), so its windows do not follow Vectorize Content's.
+ * The size is windowSizeOverride: Vectorize Content passes the collection's (getCollectionWindowSize in
+ * eventbase-store.js), and auto-sync its own, with its overlap (windowOverlapOverride, from
+ * settings.eventbase_autosync_window_turns); with none, settings.eventbase_window_size. The overlap is
+ * otherwise settings.eventbase_window_overlap. A window is not read again once every message in it has
+ * been read, in a window of any size (isWindowAlreadyExtracted).
  *
  * @param {object} params
  * @param {object[]} params.messages - The chat's messages from its first: message numbers count in this list
@@ -316,10 +318,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     // AutoSync start-marker gate. The marker says "everything before this
     // message index is considered covered by some prior extraction; auto-sync
-    // should only process windows whose start >= marker." This prevents the
-    // windowFingerprint cache from triggering a full chat re-extraction when
-    // the user changes window_size before enabling auto-sync (the fingerprints
-    // are window-size-dependent and silently miss after a size change).
+    // should only process windows whose start >= marker." The window record
+    // skips a window only once every message in it was read
+    // (isWindowAlreadyExtracted), so without the marker a window of auto-sync's
+    // size holding messages read before it was turned on, at another size,
+    // would read them again.
     //
     // Marker is stamped by settings-panel.js when auto-sync is enabled. See
     // stampAutoSyncMarker in eventbase-store.js for the placement logic.
@@ -1049,12 +1052,6 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     log.lifecycle(`[EventBase] Ingestion complete: extracted=${eventsExtracted}, processed=${windowsProcessed}, skipped=${windowsSkipped}, timedOut=${windowsTimedOut}, failed=${windowsFailed}`);
-
-    // Record the window size this run read the collection with. Vectorize Content compares
-    // against it on the next run to detect window-size changes that would trigger a full
-    // re-extraction, and warns the user. Stamp only when extraction actually ran — pure-skip
-    // runs don't reset it.
-    if (windowsProcessed > 0) setLastUsedWindowSize(registryKey, windowSize);
 
     // StoryArc links that went to events this run replaced now point at the events that replaced them.
     await windowReplacement.moveLinksOffReplacedEvents();

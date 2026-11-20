@@ -1849,6 +1849,10 @@ test('TEST 013 — Synthetic E2E qdrant: EventBase round-trip', async () => {
 //   - isLastWindowExtracted returns false when the last window is unmarked
 //     (work to do → ingestion runs) and true when every window is marked
 //     (quick-exit → ingestion no-ops).
+//   - isWindowAlreadyExtracted reports true for a window of another size
+//     whose messages were all read, and false for one holding an unread
+//     message: no message is read twice, in windows of any size (§2.7 of
+//     InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md).
 //   - The persisted array length equals the expected window count
 //     (survives page reload — key correctness property for auto-sync
 //     across browser restarts).
@@ -1972,6 +1976,16 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
             }
             console.log(`${TEST} Phase 6 ✓ persisted array has exactly 3 fingerprints`);
 
+            // ═══ Phase 7 — windows of another size follow the messages read ═══
+            console.log(`${TEST} Phase 7: window [1-2], its messages read in two windows, reads as extracted; window [5-6], message 6 unread, does not`);
+            const straddlingRead = isWindowAlreadyExtracted([hashes[1], hashes[2]], testKey);
+            const holdingUnread = isWindowAlreadyExtracted([hashes[5], 700], testKey);
+            if (!straddlingRead || holdingUnread) {
+                console.error(`${TEST} [FAIL] Phase 7: window [1-2] extracted=${straddlingRead} (want true), window [5-6] extracted=${holdingUnread} (want false)`);
+                return;
+            }
+            console.log(`${TEST} Phase 7 ✓ no message read twice, in windows of any size`);
+
             console.log(`${TEST} [PASS] Fingerprint cache correctly gates auto-sync — 2-msg → 6-msg backfill processes only the 4 new messages, never the original 2`);
         } finally {
             // Wipe the window record, then the synthetic collection's record.
@@ -1999,13 +2013,12 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 // ═══════════════════════════════════════════════════════════════════
 //
 // Why this test exists:
-//   The window fingerprint cache (covered by TEST 014) gives per-window
-//   dedup safety as long as the window size doesn't change. If the user
-//   vectorizes a chat at windowSize=2 and later changes to windowSize=4,
-//   the fingerprints don't match anymore (different size = different
-//   sorted-hash join), so the cache reports "not extracted" for every new
-//   window — auto-sync would naively re-process the entire chat at the new
-//   window size, duplicating events.
+//   The window record (covered by TEST 014) skips a window once every
+//   message in it was read, in windows of any size. A window of a new size
+//   that holds messages read and unread is read: if the user vectorizes a
+//   chat at windowSize=2 (messages 0-1) and auto-sync then reads at
+//   windowSize=4, its window [0-3] holds messages 0 and 1, which would be
+//   read again, duplicating their events.
 //
 //   The AUTO-SYNC START MARKER prevents this. When the user enables
 //   auto-sync, `stampAutoSyncMarker` records a message-index threshold in
@@ -2024,18 +2037,20 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 //       (auto-sync starts "from now on" — no full re-extraction of a long
 //       pre-existing chat that was never vectorized)
 //
-//   Together with TEST 014's fingerprint cache test, this proves the
+//   Together with TEST 014's window record test, this proves the
 //   two-layer safety story:
-//     Layer 1 (TEST 014) — fingerprint cache: per-window dedup at same size
-//     Layer 2 (TEST 015) — start marker:      window-size-change protection
+//     Layer 1 (TEST 014) — the window record: no window, and no window of
+//                          any size whose messages were all read, read twice
+//     Layer 2 (TEST 015) — start marker: auto-sync reads no window that
+//                          starts before it, as one may hold messages read
 //
 // What this test proves:
 //   - getAutoSyncMarker returns undefined for an un-stamped collection.
 //   - The marker round-trips through the collection's record correctly.
 //   - The window-filter pattern `w.start >= marker` excludes obsolete
 //     pre-marker windows and keeps post-marker windows. This is the EXACT
-//     filter used inside runEventBaseIngestion at the auto-sync marker
-//     block (eventbase-workflow.js ~line 170).
+//     filter used inside runEventBaseIngestion at its auto-sync marker
+//     block (eventbase-workflow.js).
 //   - clearAutoSyncMarker removes the entry cleanly so the next enable
 //     stamps a fresh value for the current chat state.
 //

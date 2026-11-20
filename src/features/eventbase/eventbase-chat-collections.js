@@ -4,7 +4,8 @@
  * at a time, the one locked to it. One lock function puts a collection in use (useChatCollection), on the rule LoreBase's
  * selections follow too (oneInUseLockChanges), so a reply never reads two versions of the same story. With none of its
  * collections locked, nothing is written for the chat: a run asks which one to use (askWhichChatCollection), auto-sync
- * passes it by, and opening it while auto-sync is on for one of them says so (warnOfAutoSyncNotInUse).
+ * passes it by, and opening it while auto-sync is on for one of them says so (warnOfAutoSyncNotInUse). New collection
+ * makes another collection of the chat (startNewChatCollection, §2.5).
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
@@ -13,15 +14,19 @@ import {
     parseRegistryKey,
 } from '../../shared/collection-ids.js';
 import { select, selectOption } from '../../shared/gui-dna/gui-dna-core.js';
+import { newTimeId, numberedName } from '../../shared/new-group-member.js';
 import { oneInUseLockChanges } from '../../shared/one-in-use-locks.js';
 import {
-    collectionNameOf, getCollectionListing, getCollectionLocks, isCollectionAutoSyncEnabled, removeCollectionLock, setCollectionLock,
-    setCollectionMeta,
+    collectionNameOf, getCollectionListing, getCollectionLocks, getCollectionRegistry, isCollectionAutoSyncEnabled, registerCollection,
+    removeCollectionLock, setCollectionLock, setCollectionMeta,
 } from '../collections/index.js';
-import { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget } from './eventbase-store.js';
+import { findEventBaseCollectionsForChat, resolveEventBaseWriteTarget, setCollectionWindowSize } from './eventbase-store.js';
 
 /** The question's dropdown, by its id. */
 const QUESTION_LIST_ID = 'vectfox_eventbase_collection_in_use';
+
+/** What the question answers when New collection is chosen: no registry key holds a "+". */
+export const NEW_COLLECTION = '+new';
 
 /** What a chat with collections but none locked to it is told: EventBase writes nothing there until one is chosen. */
 export const NONE_IN_USE_TEXT = 'No collection of this chat is locked to it, so EventBase writes nothing here.';
@@ -122,12 +127,15 @@ export function resolveEventBaseRunTarget(settings, chatUUID) {
 
 /**
  * Ask which of the open chat's own collections to use, when it has some and none is locked to it, and put the one
- * chosen in use (useChatCollection). Vectorize, Resume, Sync chat and the AutoSync page's switch ask it before writing.
+ * chosen in use (useChatCollection). Vectorize, Resume, Sync chat and the AutoSync page's switch ask it before writing;
+ * the first three offer New collection last, which puts nothing in use, as its run locks the collection it makes.
  * @param {object} settings - VectFox settings
+ * @param {{canMakeNew?: boolean}} [options] - canMakeNew: New collection is offered
  * @returns {Promise<string|null>} The registry key of the collection in use: the one locked already, the one chosen;
- *   null on Cancel, or when the chat has no own collection, which its first run makes
+ *   NEW_COLLECTION when New collection is chosen; null on Cancel, or when the chat has no own collection, which its
+ *   first run makes
  */
-export async function askWhichChatCollection(settings) {
+export async function askWhichChatCollection(settings, { canMakeNew = false } = {}) {
     const collections = chatOwnCollections(settings);
     const inUse = collections.find(collection => collection.isLockedHere);
     if (inUse || !collections.length) return inUse?.registryKey ?? null;
@@ -138,7 +146,10 @@ export async function askWhichChatCollection(settings) {
     form.innerHTML = select({
         id: QUESTION_LIST_ID,
         title: 'Collection to use',
-        options: collections.map((collection, index) => selectOption({ value: collection.registryKey, name: collection.name, isSelected: index === 0 })),
+        options: [
+            ...collections.map((collection, index) => selectOption({ value: collection.registryKey, name: collection.name, isSelected: index === 0 })),
+            ...(canMakeNew ? [selectOption({ value: NEW_COLLECTION, text: 'New collection' })] : []),
+        ],
     });
     const isChosen = await formPopup([
         { text: 'Which collection should this chat use?' },
@@ -147,8 +158,44 @@ export async function askWhichChatCollection(settings) {
     ], form, { okButton: 'Use', focusSelector: `#${QUESTION_LIST_ID}` });
     if (!isChosen) return null;
     const registryKey = form.querySelector(`#${QUESTION_LIST_ID}`).value;
+    if (registryKey === NEW_COLLECTION) return NEW_COLLECTION;
     useChatCollection(registryKey);
     return registryKey;
+}
+
+/**
+ * New collection's collection (§2.5 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the chat's
+ * first ID with the time it was made in base 36 after it, never made twice (newTimeId); named as the chat's first
+ * collection is, with the lowest number from 2 the names of its collections do not use (numberedName), as "Harbor Night
+ * 2"; read at the window size given; scoped to chats and listed at once. Its run locks it to the chat as it starts,
+ * unlocking the chat's others there (runEventBaseIngestion, through useChatCollection); auto-sync starts off for it.
+ * @param {object} settings - VectFox settings
+ * @param {{windowSize: number}} reading - The Vectorize dialog's window size, which the collection keeps
+ * @returns {{registryKey: string, collectionId: string, name: string}}
+ * @throws {Error} With no chat open, or one whose UUID its file name stands in for (getChatUUID's fallback), which a
+ *   later collection's suffix cannot be told from
+ */
+export function startNewChatCollection(settings, { windowSize }) {
+    const chatUUID = getChatUUID();
+    const firstId = chatUUID ? buildEventBaseCollectionId(chatUUID, settings?.vector_backend) : null;
+    if (!firstId) throw new Error('No chat is open.');
+    const laterPrefix = `${firstId}_`;
+    const takenSuffixes = getCollectionRegistry()
+        .map(key => parseRegistryKey(key).collectionId ?? '')
+        .filter(collectionId => collectionId.startsWith(laterPrefix))
+        .map(collectionId => collectionId.slice(laterPrefix.length));
+    const collectionId = `${laterPrefix}${newTimeId(takenSuffixes)}`;
+    if (parseCollectionId(collectionId).chatUUID !== chatUUID) {
+        throw new Error('This chat has no UUID of its own, so a second collection of it could not be told from its first.');
+    }
+    const registryKey = buildRegistryKey(collectionId, settings);
+    // The name its ID gives with no record yet: the chat's first collection's automatic name.
+    const name = numberedName(collectionNameOf(registryKey), chatOwnCollections(settings).map(collection => collection.name));
+    setCollectionMeta(registryKey, { displayName: name, scope: 'chat' });
+    setCollectionWindowSize(registryKey, windowSize);
+    registerCollection(registryKey);
+    log.lifecycle(`[EventBase] New collection ${registryKey}, "${name}", window size ${windowSize}`);
+    return { registryKey, collectionId, name };
 }
 
 /**

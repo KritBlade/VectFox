@@ -120,8 +120,8 @@ function stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount }) {
 
 /**
  * Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md): the open chat's own collections in the in-use
- * switcher, the one locked to it chosen, "None in use here" with none; nothing for a chat with no collection, which
- * keeps "Not vectorized yet.".
+ * switcher, the one locked to it chosen, "None in use here" with none, then New collection, which opens Vectorize
+ * Content on it; nothing for a chat with no collection, which keeps "Not vectorized yet.".
  * @param {Array<{registryKey: string, name: string, isLockedHere: boolean}>} collections - chatOwnCollections
  * @returns {string}
  */
@@ -134,6 +134,7 @@ export function autoSyncCollectionMarkup(collections) {
             title: 'Collection in use here',
             members: collections.map(collection => ({ id: collection.registryKey, name: collection.name })),
             inUseId: collections.find(collection => collection.isLockedHere)?.registryKey ?? null,
+            newText: 'New collection',
         }),
         hint({ text: 'The one EventBase reads and writes in this chat. The others stay as they are.' }),
     ]);

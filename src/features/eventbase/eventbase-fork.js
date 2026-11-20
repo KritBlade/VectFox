@@ -29,7 +29,7 @@ import {
 import { purgeVectorIndex } from '../vector-backend/index.js';
 import { getModelFromSettings } from '../embedding/index.js';
 import { useChatCollection } from './eventbase-chat-collections.js';
-import { markWindowExtracted, readEventBaseProgress, setVectorizationTip, getLastUsedWindowSize, setLastUsedWindowSize } from './eventbase-store.js';
+import { markWindowExtracted, readEventBaseProgress, setVectorizationTip, getCollectionWindowSize, setCollectionWindowSize } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import {
     measureSharedPrefix,
@@ -206,8 +206,8 @@ export async function forkEventBaseFromSource(settings, source) {
         const { tip, sourceHashLists } = summarizeCopiedWindows(copiedChunks);
         for (const sourceHashes of sourceHashLists) markWindowExtracted(sourceHashes, targetRegistryKey);
         setVectorizationTip(targetRegistryKey, tip);
-        const sourceWindowSize = getLastUsedWindowSize(source.registryKey);
-        if (typeof sourceWindowSize === 'number') setLastUsedWindowSize(targetRegistryKey, sourceWindowSize);
+        const sourceWindowSize = getCollectionWindowSize(source.registryKey);
+        if (typeof sourceWindowSize === 'number') setCollectionWindowSize(targetRegistryKey, sourceWindowSize);
 
         log.lifecycle(`[EventBase][fork] copied ${copiedChunks.length} event(s) from ${source.collectionId} into ${targetCollectionId}; tip=${tip}, split=${source.sharedPrefixLength}`);
         progressTracker.complete(true, `Forked ${copiedChunks.length} events from the parent chat`);

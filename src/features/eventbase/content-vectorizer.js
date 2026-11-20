@@ -4,20 +4,23 @@
  * ============================================================================
  * The dialog that runs EventBase over a chat: the open chat or an uploaded chat
  * file, read in windows of messages (content-vectorizer-markup.js draws it, and
- * content-vectorizer-core.js holds its rules). A run goes on with the dialog
- * closed, and the progress panel shows it. Sync chat and the auto-sync switch's
- * catch-up run here too, without the dialog.
+ * content-vectorizer-core.js holds its rules). On a chat that has a collection,
+ * Vectorize asks Catch up, Start over or New collection (§2.1 of
+ * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). A run goes
+ * on with the dialog closed, and the progress panel shows it. Sync chat and the
+ * auto-sync switch's catch-up run here too, without the dialog.
  * ============================================================================
  */
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getContext } from '../../sillytavern/chat.js';
-import { closePanelPopup, confirmPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { choicePopup, closePanelPopup, confirmPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { log } from '../../sillytavern/log.js';
 import { validateLLMConfig } from '../llm-provider/index.js';
+import { getSavedHashes } from '../vector-backend/index.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
-import { buildArchiveEventCollectionId, buildRegistryKey, getChatUUID } from '../../shared/collection-ids.js';
+import { buildArchiveEventCollectionId, buildRegistryKey, getChatUUID, parseRegistryKey } from '../../shared/collection-ids.js';
 import { chooseCleaningPreset, cleaningPresetChoices, getCleaningSettings, openTextCleaningDialog } from '../text-cleaning/index.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
@@ -35,8 +38,13 @@ import {
 } from './content-vectorizer-core.js';
 import { CHAT_TYPE_ID, contentVectorizerMarkup, cvId, cvPageId, loadedSourceMarkup } from './content-vectorizer-markup.js';
 import { runEventBaseOnOpenChat } from './eventbase-chat-sync.js';
-import { askWhichChatCollection, chatOwnCollections, resolveEventBaseRunTarget } from './eventbase-chat-collections.js';
-import { checkWindowSizeChanged, getVectorizationTip, prepareForFreshExtraction, readEventBaseProgress, setLastUsedWindowSize } from './eventbase-store.js';
+import {
+    NEW_COLLECTION, askWhichChatCollection, chatOwnCollections, resolveEventBaseRunTarget, startNewChatCollection,
+} from './eventbase-chat-collections.js';
+import {
+    emptyEventBaseCollection, getCollectionWindowSize, getVectorizationTip, prepareForFreshExtraction, readEventBaseProgress,
+    setCollectionWindowSize,
+} from './eventbase-store.js';
 import { countUnfinishedWindows, getChatAutoSyncStatus, notifyUnfinishedWindows, runEventBaseIngestion } from './eventbase-workflow.js';
 
 /** How many windows EventBase reads at once when the dialog does not say. */
@@ -44,7 +52,10 @@ const DEFAULT_PARALLEL_WINDOWS = 3;
 
 const formatCount = count => Number(count).toLocaleString('en-US');
 
-/** The open dialog: its root and the chat file it loaded. Null while closed. */
+/**
+ * The open dialog: its root, the chat file it loaded, and whether it was opened on New collection, so its Vectorize
+ * reads the open chat into a new collection. Null while closed.
+ */
 let session = null;
 
 /** The run in progress, from the dialog or without it: its abort controller and origin. Null when none runs. */
@@ -61,19 +72,25 @@ function currentChatView() {
 
 /**
  * Open Vectorize Content. Resolves once the dialog is open; a run started in it goes on after it closes.
+ * @param {{isOnNewCollection?: boolean}} [opening] - isOnNewCollection: opened on New collection, as the last choice of
+ *   Collection in use here and the question's New collection open it; an open dialog turns to it
  */
-export function openContentVectorizer() {
-    if (session) return;
+export function openContentVectorizer({ isOnNewCollection = false } = {}) {
+    if (session) {
+        if (isOnNewCollection) showNewCollectionChosen(true);
+        return;
+    }
     const cleaningPreset = getCleaningSettings().selectedPreset || 'custom';
     const template = document.createElement('template');
     template.innerHTML = contentVectorizerMarkup({ view: { chat: currentChatView(), cleaningPresets: cleaningPresetChoices(), cleaningPreset } });
     const root = template.content.firstElementChild;
-    session = { root, sourceData: null, isDialogOpen: true };
+    session = { root, sourceData: null, isDialogOpen: true, isOnNewCollection: false };
     setStartingValues();
     bindGeneBehaviours(root);
     bindVectorizer(root);
     syncSliders(root);
     showRunState();
+    showNewCollectionChosen(isOnNewCollection);
 
     const opened = session;
     void openPanelPopup(root).then(() => {
@@ -116,6 +133,16 @@ function paintFile(markup) {
     if (region) region.innerHTML = markup;
 }
 
+/**
+ * Whether the dialog's Vectorize reads the open chat into a new collection; the run card's line says so while the
+ * source is the open chat, as a chat file reads into its archive collection.
+ */
+function showNewCollectionChosen(isChosen) {
+    if (!session) return;
+    session.isOnNewCollection = isChosen;
+    showPart('new-collection', isChosen && sourceChoice() === 'this');
+}
+
 /** The values the sliders start with: the windows at once, and the saved window size and overlap. */
 function setStartingValues() {
     const settings = extension_settings.vectfox || {};
@@ -136,6 +163,7 @@ const sourceChoice = () => controlOf('source_choice')?.value ?? null;
 function chooseSource() {
     const choice = sourceChoice();
     for (const name of ['this', 'file']) showPart(name, name === choice);
+    showNewCollectionChosen(session.isOnNewCollection);
     session.sourceData = null;
     paintFile('');
 }
@@ -265,22 +293,30 @@ function stopRun() {
 const isStoppedError = error => error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('stopped by user');
 
 /**
- * Whether the open chat may be read now: one of its collections is locked to it, or it has none yet, which its first
- * read makes; with collections but none locked, the question asks which one to use and locks it (askWhichChatCollection).
- * @returns {Promise<boolean>} False on Cancel
+ * What a run of the open chat reads into: its first collection, which the run makes, while the chat has none of its
+ * own ('first'); the one locked to it ('in-use'), asked for while none is (askWhichChatCollection); or a new one
+ * ('new'), chosen there or by opening the dialog on New collection.
+ * @param {{canMakeNew: boolean, isNewCollectionChosen?: boolean}} options - canMakeNew: the question offers New
+ *   collection; isNewCollectionChosen: the dialog was opened on it
+ * @returns {Promise<'first'|'in-use'|'new'|null>} Null on Cancel
  */
-async function hasCollectionInUse() {
+async function collectionOfRun({ canMakeNew, isNewCollectionChosen = false }) {
     const settings = extension_settings.vectfox || {};
-    if (!chatOwnCollections(settings).length) return true;
-    return Boolean(await askWhichChatCollection(settings));
+    if (!chatOwnCollections(settings).length) return 'first';
+    if (isNewCollectionChosen) return 'new';
+    const answer = await askWhichChatCollection(settings, { canMakeNew });
+    if (answer === NEW_COLLECTION) return 'new';
+    return answer ? 'in-use' : null;
 }
 
 /**
- * The page's source once a run on it may start: no run going, a source chosen, the EventBase model set, and for the
- * open chat a collection in use (hasCollectionInUse). Null once the page or a dialog has said why not.
- * @returns {Promise<object|null>}
+ * The page's source once a run on it may start, with what the run reads into: no run going, a source chosen, the
+ * EventBase model set, and for the open chat its collection (collectionOfRun); a chat file reads into its archive
+ * collection ('file'). Null once the page or a dialog has said why not.
+ * @param {{canMakeNew: boolean, isNewCollectionChosen?: boolean}} options - As collectionOfRun takes them
+ * @returns {Promise<{source: object, collection: 'file'|'first'|'in-use'|'new'}|null>}
  */
-async function sourceReadyToRun() {
+async function sourceReadyToRun(options) {
     if (activeRun) return null;
     const { source, problem } = sourceOfPage();
     if (!source) {
@@ -288,40 +324,174 @@ async function sourceReadyToRun() {
         return null;
     }
     if (!hasLlmConfig()) return null;
-    if (source.type !== 'file' && !await hasCollectionInUse()) return null;
-    return source;
+    if (source.type === 'file') return { source, collection: 'file' };
+    const collection = await collectionOfRun(options);
+    return collection ? { source, collection } : null;
 }
 
-/** Vectorize: read the chat afresh from its Start From message, asking first when EventBase has read it before. */
+/** The run the page sets up: its source, the message it starts from, and how many windows it reads at once. */
+const runOfPage = source => ({ source, startFromMessage: startFromMessageOf(controlOf('start_from').value), parallelWindows: parallelWindowsOfPage() });
+
+/**
+ * Vectorize: a chat's first read into its first collection; on a chat that has a collection, Catch up, Start over or
+ * New collection (askVectorizeChoice); New collection at once when the dialog was opened on it or the question chose
+ * it; a chat file read afresh into its archive collection.
+ */
 async function startVectorization() {
-    const source = await sourceReadyToRun();
-    if (!source) return;
-    // Resume adds only what is new.
-    const registryKey = registryKeyOfRun(source, extension_settings.vectfox || {});
-    const startFromMessage = startFromMessageOf(controlOf('start_from').value);
+    const ready = await sourceReadyToRun({ canMakeNew: true, isNewCollectionChosen: Boolean(session?.isOnNewCollection) });
+    if (!ready) return;
+    const run = runOfPage(ready.source);
+    if (ready.collection === 'file') return vectorizeChatFile(run);
+    if (ready.collection === 'first') return readFirstCollection(run, { resetCaches: true });
+    if (ready.collection === 'new') return readIntoNewCollection(run);
+    const choice = await askVectorizeChoice(run.startFromMessage);
+    if (choice === 'catch-up') return catchUp(run);
+    if (choice === 'start-over') return startOver(run);
+    if (choice === 'new-collection') return readIntoNewCollection(run);
+    return undefined;
+}
+
+/** Resume: Catch up, the dialog's one click; a chat with no collection yet is read into its first. */
+async function resumeChat() {
+    const ready = await sourceReadyToRun({ canMakeNew: true });
+    if (!ready) return;
+    const run = runOfPage(ready.source);
+    if (ready.collection === 'first') return readFirstCollection(run, { resetCaches: false });
+    if (ready.collection === 'new') return readIntoNewCollection(run);
+    return catchUp(run);
+}
+
+/**
+ * Vectorize's question on a chat whose collection is in use (§2.1 of
+ * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md).
+ * @param {number} startFromMessage
+ * @returns {Promise<'catch-up'|'start-over'|'new-collection'|null>} Null on Cancel
+ */
+function askVectorizeChoice(startFromMessage) {
+    const inUse = chatOwnCollections(extension_settings.vectfox || {}).find(collection => collection.isLockedHere);
+    return choicePopup([
+        { text: 'This chat reads into:', name: inUse?.name ?? '' },
+        { text: 'Catch up reads the messages it has not read.' },
+        { text: `Start over empties it, then reads the chat again from message ${startFromMessage}.` },
+        { text: `New collection reads the chat from message ${startFromMessage} into a new collection, and keeps this one.` },
+    ], { choices: [
+        { text: 'Catch up', value: 'catch-up' },
+        { text: 'Start over', value: 'start-over' },
+        { text: 'New collection', value: 'new-collection' },
+    ] });
+}
+
+/** The dialog's Window size, which a chat's first read, New collection and Start over read with (§2.7). */
+const dialogWindowSize = () => Math.max(2, (extension_settings.vectfox || {}).eventbase_window_size || 2);
+
+/**
+ * The window size a run reads a collection with: the one the collection keeps, else the dialog's, which it keeps from
+ * then on.
+ * @param {string|null} registryKey
+ * @returns {number}
+ */
+function windowSizeKeptBy(registryKey) {
+    const kept = registryKey ? getCollectionWindowSize(registryKey) : undefined;
+    if (typeof kept === 'number') return kept;
+    const windowSize = dialogWindowSize();
+    if (registryKey) setCollectionWindowSize(registryKey, windowSize);
+    return windowSize;
+}
+
+/** Catch up: read the messages the collection in use has not read, at its window size. */
+function catchUp(run) {
+    const registryKey = registryKeyOfRun(run.source, extension_settings.vectfox || {});
+    return runEventBaseBackfill({ ...run, resetCaches: false, windowSize: windowSizeKeptBy(registryKey) });
+}
+
+/**
+ * A chat's first read into its first collection, at the dialog's window size, which the collection keeps. Vectorize
+ * forgets what a collection of that ID left behind; Resume carries on from it.
+ * @param {object} run
+ * @param {{resetCaches: boolean}} reading
+ */
+function readFirstCollection(run, { resetCaches }) {
+    const registryKey = registryKeyOfRun(run.source, extension_settings.vectfox || {});
+    const windowSize = dialogWindowSize();
+    if (registryKey) setCollectionWindowSize(registryKey, windowSize);
+    return runEventBaseBackfill({ ...run, resetCaches, windowSize });
+}
+
+/**
+ * A chat file's Vectorize: read it again into its archive collection, asking first when EventBase has read it before,
+ * at the dialog's window size, which the collection keeps.
+ */
+async function vectorizeChatFile(run) {
+    const registryKey = registryKeyOfRun(run.source, extension_settings.vectfox || {});
     if (hasPriorExtractionState(registryKey)) {
         const isConfirmed = await confirmPopup([
             { text: 'Read this chat again from the start?' },
-            { text: 'From message:', name: String(startFromMessage) },
+            { text: 'From message:', name: String(run.startFromMessage) },
             { text: 'Its progress resets, and EventBase reads it again, paying for each window.' },
             { text: 'Each window it reads again replaces the events it had, so they do not repeat.' },
             { text: 'Resume adds only the messages not read yet.' },
         ], { okButton: 'Read again', isDestructive: true });
         if (!isConfirmed) return;
     }
-    await runEventBaseBackfill({ source, startFromMessage, parallelWindows: parallelWindowsOfPage(), resetCaches: true });
+    const windowSize = dialogWindowSize();
+    setCollectionWindowSize(registryKey, windowSize);
+    await runEventBaseBackfill({ ...run, resetCaches: true, windowSize });
 }
 
-/** Add what EventBase has not read of the chat yet, keeping what it read. */
-async function resumeChat() {
-    const source = await sourceReadyToRun();
-    if (!source) return;
-    await runEventBaseBackfill({
-        source,
-        startFromMessage: startFromMessageOf(controlOf('start_from').value),
-        parallelWindows: parallelWindowsOfPage(),
-        resetCaches: false,
-    });
+/**
+ * Start over (§2.6): after a red confirm, empty the collection in use, its StoryArc links with its events, then read
+ * the chat again from the Start from message at the dialog's window size. A delete that fails leaves the collection's
+ * progress as it was, and says so.
+ */
+async function startOver(run) {
+    const settings = extension_settings.vectfox || {};
+    const registryKey = registryKeyOfRun(run.source, settings);
+    if (!registryKey) return;
+    const inUse = chatOwnCollections(settings).find(collection => collection.registryKey === registryKey);
+    let eventCount = null;
+    try {
+        eventCount = (await getSavedHashes(parseRegistryKey(registryKey).collectionId, settings)).length;
+    } catch (error) {
+        log.warn('[EventBase] Start over could not count the events it would delete:', error);
+    }
+    const isConfirmed = await confirmPopup([
+        { text: 'Start this collection over?', name: inUse?.name ?? '' },
+        ...(eventCount === null ? [] : [{ text: 'Events it deletes, with their StoryArc links:', name: formatCount(eventCount) }]),
+        { text: `EventBase then reads the chat again from message ${run.startFromMessage}, paying for each window.` },
+        { text: 'New collection keeps these events, and reads the chat into a new collection instead.' },
+    ], { okButton: 'Start over', isDestructive: true });
+    if (!isConfirmed) return;
+    const windowSize = dialogWindowSize();
+    try {
+        await emptyEventBaseCollection(registryKey, settings, { windowSize });
+    } catch (error) {
+        log.error('[EventBase] Start over could not empty the collection:', error);
+        toastr.error(`Start over stopped: the collection could not be emptied (${error.message}), so nothing was read again. Start over again to retry.`, 'EventBase');
+        return;
+    }
+    await runEventBaseBackfill({ ...run, resetCaches: true, windowSize });
+}
+
+/**
+ * New collection (§2.1, §2.5): read the open chat from the Start from message into a new collection of its own, at the
+ * dialog's window size; its run puts it in use, the chat's others unlocked there. Says once it is in use that auto-sync
+ * is off for it, as the collection it replaces may have had it on.
+ */
+async function readIntoNewCollection(run) {
+    const settings = extension_settings.vectfox || {};
+    const windowSize = dialogWindowSize();
+    let made;
+    try {
+        made = startNewChatCollection(settings, { windowSize });
+    } catch (error) {
+        log.error('[EventBase] New collection could not be made:', error);
+        toastr.error(`New collection could not be made: ${error.message}`, 'EventBase');
+        return;
+    }
+    showNewCollectionChosen(false);
+    await runEventBaseBackfill({ ...run, resetCaches: true, windowSize, collectionIdOverride: made.collectionId });
+    const isInUse = chatOwnCollections(settings).some(collection => collection.registryKey === made.registryKey && collection.isLockedHere);
+    if (isInUse) toastr.info(`"${made.name}" is in use in this chat now. Auto-sync is off for it: turn it on on the AutoSync page.`, 'EventBase', { timeOut: 12000 });
 }
 
 const parallelWindowsOfPage = () => parseInt(controlOf('parallel_windows')?.value, 10) || DEFAULT_PARALLEL_WINDOWS;
@@ -345,8 +515,8 @@ function registryKeyOfRun(source, settings) {
 }
 
 /**
- * Whether EventBase has read the chat into the collection before: windows it remembers, or a vectorization tip. A
- * collection with neither has nothing to reset, so Vectorize does not ask.
+ * Whether EventBase has read a chat file into its archive collection before: windows it remembers, or a vectorization
+ * tip. A collection with neither has nothing to reset, so the file's Vectorize does not ask.
  *
  * @param {string|null} registryKey - The collection's registry key ("backend:id")
  * @returns {boolean}
@@ -359,15 +529,18 @@ function hasPriorExtractionState(registryKey) {
 }
 
 /**
- * Run EventBase on the open chat or an uploaded chat file. resetCaches (Vectorize) forgets what it read of the chat,
- * so it reads again from startFromMessage; without it (Resume, the auto-sync catch-up) only the unread messages go.
+ * Run EventBase on the open chat or an uploaded chat file. resetCaches (a first read, Start over, New collection, a
+ * chat file's Vectorize) forgets what was read into the collection, so it reads again from startFromMessage; without
+ * it (Catch up, Resume, Sync chat, the auto-sync catch-up) only the unread messages go.
  *
- * @param {{source: object|null, startFromMessage: number, parallelWindows: number, resetCaches: boolean}} run - source
- *   null or of type current: the open chat; of type file: an uploaded chat
+ * @param {{source: object|null, startFromMessage: number, parallelWindows: number, resetCaches: boolean,
+ *   windowSize?: number, collectionIdOverride?: string|null}} run - source null or of type current: the open chat; of
+ *   type file: an uploaded chat. windowSize: the collection's (windowSizeKeptBy, dialogWindowSize).
+ *   collectionIdOverride: New collection's collection, else the chat's run target
  * @returns {Promise<{shouldClose: boolean, message: string, hasReadNothing: boolean}|null>} How the run ended
  *   (eventBaseRunEnding); null when it did not start or failed, having said why
  */
-async function runEventBaseBackfill({ source, startFromMessage, parallelWindows, resetCaches }) {
+async function runEventBaseBackfill({ source, startFromMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride = null }) {
     if (activeRun) return null;
     log.lifecycle(`[EventBase] runEventBaseBackfill: starting... (resetCaches=${resetCaches})`);
     const signal = startRun();
@@ -390,15 +563,15 @@ async function runEventBaseBackfill({ source, startFromMessage, parallelWindows,
                 return null;
             }
             const chatUUID = source.archiveUUID;
-            const collectionIdOverride = buildArchiveEventCollectionId({ filenameCharName: source.filenameCharName, archiveUUID: chatUUID, backend: settings.vector_backend });
+            const archiveCollectionId = buildArchiveEventCollectionId({ filenameCharName: source.filenameCharName, archiveUUID: chatUUID, backend: settings.vector_backend });
             // As on the open chat: Vectorize forgets what was read, and skipTipFallback keeps the Qdrant tip from
             // fast-forwarding past it.
-            if (resetCaches) await prepareForFreshExtraction(buildRegistryKey(collectionIdOverride, settings));
-            log.lifecycle(`[EventBase] Archive upload route — collection: ${collectionIdOverride}, messages: ${messages.length}`);
+            if (resetCaches) await prepareForFreshExtraction(buildRegistryKey(archiveCollectionId, settings));
+            log.lifecycle(`[EventBase] Archive upload route — collection: ${archiveCollectionId}, messages: ${messages.length}`);
 
-            result = await runEventBaseIngestion({ messages, startFromMessage, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride, skipTipFallback: resetCaches });
+            result = await runEventBaseIngestion({ messages, startFromMessage, chatUUID, settings, abortSignal: signal, parallelWindows, collectionIdOverride: archiveCollectionId, skipTipFallback: resetCaches, windowSizeOverride: windowSize });
         } else {
-            result = await runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches });
+            result = await runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride });
         }
         // No result: the run could not start, and said why.
         if (!result) return null;
@@ -452,13 +625,14 @@ async function runEventBaseBackfill({ source, startFromMessage, parallelWindows,
 }
 
 /**
- * Run EventBase over the open chat, asking first when its window size changed since EventBase last read it.
+ * Run EventBase over the open chat, into the collection given or the chat's run target, at the window size given.
  *
  * @param {AbortSignal} signal - Stops the run
- * @param {{startFromMessage: number, parallelWindows: number, resetCaches: boolean}} run
+ * @param {{startFromMessage: number, parallelWindows: number, resetCaches: boolean, windowSize?: number,
+ *   collectionIdOverride?: string|null}} run
  * @returns {Promise<object|null>} The run's result, or null when it did not run, having said why
  */
-async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches }) {
+async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCaches, windowSize, collectionIdOverride }) {
     const settings = extension_settings.vectfox || {};
     const context = getContext();
     if (!Array.isArray(context.chat) || !context.chat.length) {
@@ -466,42 +640,21 @@ async function runOpenChat(signal, { startFromMessage, parallelWindows, resetCac
         return null;
     }
     // The collection the run reads into: its pointer says how far the chat was read.
-    const registryKey = registryKeyOfRun({ type: 'current' }, settings);
-    // Vectorize forgets what was read of the chat, so ingestion starts from startFromMessage instead of fast-forwarding
-    // past a tip a deleted collection left; skipTipFallback below keeps the workflow from finding that tip in Qdrant.
+    const registryKey = collectionIdOverride ? buildRegistryKey(collectionIdOverride, settings) : registryKeyOfRun({ type: 'current' }, settings);
+    // A read from the start forgets what was read into the collection, so ingestion starts from startFromMessage instead
+    // of fast-forwarding past a tip a deleted collection left; skipTipFallback below keeps the workflow from finding that
+    // tip in Qdrant.
     if (resetCaches && registryKey) await prepareForFreshExtraction(registryKey);
 
     const messageCount = context.chat.filter(message => message.mes && message.mes.trim().length > 0).length;
-    // EventBase remembers the windows it read by their size, so a new size reads the whole chat again, paying for every
-    // window. Ask first. checkWindowSizeChanged and prepareForFreshExtraction are the one rule for it.
-    const sizeCheck = checkWindowSizeChanged(registryKey, Math.max(2, settings.eventbase_window_size || 2));
-    let freshExtraction = null;
-    if (sizeCheck.changed) {
-        const isConfirmed = await confirmPopup([
-            { text: 'The window size changed since EventBase last read this chat.' },
-            { text: 'Then:', name: `${sizeCheck.oldSize} messages` },
-            { text: 'Now:', name: `${sizeCheck.newSize} messages` },
-            { text: 'EventBase reads the chat again from the Start From message, about this many LLM calls:', name: formatCount(Math.floor(messageCount / sizeCheck.newSize)) },
-            { text: 'The events it has stay, so the collection holds events at both sizes.' },
-        ], { okButton: 'Read again', isDestructive: true });
-        if (!isConfirmed) {
-            progressTracker.complete(false, 'Cancelled — window size mismatch');
-            return null;
-        }
-        // Stamped now, as the answer, not at the run's end: a run that fails midway would ask again otherwise.
-        setLastUsedWindowSize(registryKey, sizeCheck.newSize);
-        log.lifecycle(`[EventBase] Window-size-change Proceed: stamped lastUsedWindowSize=${sizeCheck.newSize} for ${registryKey} (user intent locked in regardless of run outcome)`);
-        freshExtraction = await prepareForFreshExtraction(registryKey);
-    }
-
     return runEventBaseOnOpenChat(settings, signal, {
         startFromMessage,
         parallelWindows,
         // The progress panel's message count: one per message with words, as the windows read them.
         progressPlan: { strategy: 'per_message', batchSize: 1, totalChunks: messageCount },
-        // Both a Vectorize and a Yes to the window-size question asked to read the chat again, which the workflow's
-        // Qdrant-side tip would otherwise fast-forward past.
-        skipTipFallback: resetCaches || Boolean(freshExtraction?.skipTipFallback),
+        skipTipFallback: resetCaches,
+        collectionIdOverride,
+        windowSizeOverride: windowSize,
     });
 }
 
@@ -516,16 +669,18 @@ export async function backfillCurrentChatWithProgress() {
         toastr.info('A vectorization is already running', 'VectFox');
         return { ran: false, reason: 'busy' };
     }
-    await runEventBaseBackfill({ source: null, startFromMessage: 1, parallelWindows: 1, resetCaches: false });
+    const windowSize = windowSizeKeptBy(registryKeyOfRun({ type: 'current' }, extension_settings.vectfox || {}));
+    await runEventBaseBackfill({ source: null, startFromMessage: 1, parallelWindows: 1, resetCaches: false, windowSize });
     return { ran: true };
 }
 
 /**
- * The Action page's Sync chat: once the user confirms, read what EventBase has not read of the open chat, as Resume does
- * with the dialog's defaults, without the dialog. A chat with nothing stored yet opens Vectorize Content instead, since
- * a first read takes the dialog's choices; one with collections but none locked asks which one to use first. A chat with nothing to read says so in a dialog: up to date as the AutoSync
- * page has it, or read further than the chat now goes. So does a run that finds nothing new, as the dialog is not open
- * to say it.
+ * The Action page's Sync chat: once the user confirms, read what EventBase has not read of the open chat into its
+ * collection in use, at the collection's window size, as Resume does with the dialog's defaults, without the dialog. A
+ * chat with nothing stored yet opens Vectorize Content instead, since a first read takes the dialog's choices; one with
+ * collections but none locked asks which one to use first, its New collection opening Vectorize Content on New
+ * collection. A chat with nothing to read says so in a dialog: up to date as the AutoSync page has it, or read further
+ * than the chat now goes. So does a run that finds nothing new, as the dialog is not open to say it.
  *
  * @returns {Promise<{ran: boolean, reason?: string}>}
  */
@@ -537,7 +692,12 @@ export async function syncOpenChat() {
     const settings = extension_settings.vectfox;
     let status = await getChatAutoSyncStatus(settings);
     if (status.state === 'none-locked') {
-        if (!await askWhichChatCollection(settings)) return { ran: false, reason: 'cancelled' };
+        const answer = await askWhichChatCollection(settings, { canMakeNew: true });
+        if (answer === NEW_COLLECTION) {
+            openContentVectorizer({ isOnNewCollection: true });
+            return { ran: false, reason: 'new-collection' };
+        }
+        if (!answer) return { ran: false, reason: 'cancelled' };
         status = await getChatAutoSyncStatus(settings);
     }
     if (status.state === 'no-chat') {
@@ -573,7 +733,8 @@ export async function syncOpenChat() {
         { text: 'Sync reads them on the EventBase model, with a progress bar you can stop.' },
     ], { okButton: 'Sync' });
     if (!isConfirmed) return { ran: false, reason: 'cancelled' };
-    const ending = await runEventBaseBackfill({ source: null, startFromMessage: 1, parallelWindows: DEFAULT_PARALLEL_WINDOWS, resetCaches: false });
+    const windowSize = windowSizeKeptBy(status.registryKey ?? registryKeyOfRun({ type: 'current' }, settings));
+    const ending = await runEventBaseBackfill({ source: null, startFromMessage: 1, parallelWindows: DEFAULT_PARALLEL_WINDOWS, resetCaches: false, windowSize });
     if (ending?.hasReadNothing) await noticePopup([{ icon: 'fa-circle-info', text: ending.message }]);
     return { ran: true };
 }

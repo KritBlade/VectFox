@@ -1,34 +1,13 @@
 /**
  * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
- * the name New selection gives, a selection's ID, the selection a chat uses, and every entry a book's selections hold.
- * Which locks change when one is put in use is src/shared/one-in-use-locks.js's, tested in one-in-use-locks.test.js.
+ * the selection a chat uses, and every entry a book's selections hold. Which locks change when one is put in use is
+ * src/shared/one-in-use-locks.js's (one-in-use-locks.test.js), and the name and ID New selection gives are
+ * src/shared/new-group-member.js's (new-group-member.test.js).
  */
 import { describe, expect, it } from 'vitest';
-import {
-    emptySelection, isSelectionLockedTo, newSelectionId, numberedName, selectionInUseOf, unionOfSelections,
-} from '../src/features/lorebase/lorebase-selections-core.js';
+import { emptySelection, isSelectionLockedTo, selectionInUseOf, unionOfSelections } from '../src/features/lorebase/lorebase-selections-core.js';
 
 const selectionOf = (id, locks = {}, selectedUids = []) => ({ ...emptySelection(id, `Selection ${id}`), selectedUids, ...locks });
-
-describe('numberedName', () => {
-    it('gives the base name the lowest number from 2 that no member uses', () => {
-        expect(numberedName('Harbor Atlas', ['Harbor Atlas'])).toBe('Harbor Atlas 2');
-        expect(numberedName('Harbor Atlas', ['Harbor Atlas', 'Harbor Atlas 2', 'Harbor Atlas 3'])).toBe('Harbor Atlas 4');
-        expect(numberedName('Harbor Atlas', [])).toBe('Harbor Atlas 2');
-    });
-
-    it('takes a number again once a rename or a delete freed it', () => {
-        expect(numberedName('Harbor Atlas', ['Harbor Atlas', 'Arc two', 'Harbor Atlas 3'])).toBe('Harbor Atlas 2');
-    });
-});
-
-describe('newSelectionId', () => {
-    it("is the time in base 36, moved on a step while one of the book's selections has it", () => {
-        const now = 1_700_000_000_000;
-        expect(newSelectionId([], now)).toBe(now.toString(36));
-        expect(newSelectionId([now.toString(36), (now + 1).toString(36)], now)).toBe((now + 2).toString(36));
-    });
-});
 
 describe('the selection a chat uses', () => {
     const record = {

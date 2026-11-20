@@ -5,14 +5,15 @@
  * keeps the id settings-panel.js wires it by, the window hold and the ghosting note start hidden, the cards the wiring
  * hides on Standard without the plugin carry their ids, the window, the event count and the messages kept have a
  * slider on their box's limits, the size cap carries its own, the page is drawn from GUI-DNA alone, the auto-sync status says what auto-sync
- * is doing in each state with the tone that state takes, and Collection in use here lists the open chat's own collections (§1.2 of
- * vectfox-multi-collection-per-chat.md).
+ * is doing in each state with the tone that state takes, and Collection in use here lists the open chat's own collections,
+ * then New collection (§1.2 of vectfox-multi-collection-per-chat.md).
  */
 /* global document -- this file runs under the jsdom environment */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const { AUTOSYNC_IN_USE_ID, autoSyncCollectionMarkup, autoSyncPageMarkup, autoSyncStatusMarkup } = await import('../src/features/settings-panel/autosync-page-markup.js');
+const { IN_USE_NEW } = await import('../src/features/settings-panel/in-use-switcher-markup.js');
 
 // The ids settings-panel.js wires on the AutoSync page.
 const WIRED_IDS = [
@@ -82,20 +83,24 @@ describe('Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md)
         };
     };
 
-    it("lists the chat's own collections by name, the one locked here chosen, with no New choice yet", () => {
+    it("lists the chat's own collections by name, the one locked here chosen, then New collection", () => {
         expect(drawn([
             { registryKey: 'qdrant:first', name: '💬 Chat: Harbor Keeper', isLockedHere: false },
             { registryKey: 'qdrant:later', name: 'Harbor <b>Keeper</b> 2', isLockedHere: true },
         ])).toEqual({
             label: 'Collection in use here',
-            options: [['qdrant:first', '💬 Chat: Harbor Keeper', false], ['qdrant:later', 'Harbor <b>Keeper</b> 2', true]],
+            options: [
+                ['qdrant:first', '💬 Chat: Harbor Keeper', false],
+                ['qdrant:later', 'Harbor <b>Keeper</b> 2', true],
+                [IN_USE_NEW, 'New collection', false],
+            ],
         });
         expect(document.querySelector('b')).toBeNull();
     });
 
     it('opens on None in use here while none is locked here, and draws nothing for a chat with no collection', () => {
         expect(drawn([{ registryKey: 'qdrant:first', name: 'Harbor Keeper', isLockedHere: false }]).options)
-            .toEqual([['', 'None in use here', true], ['qdrant:first', 'Harbor Keeper', false]]);
+            .toEqual([['', 'None in use here', true], ['qdrant:first', 'Harbor Keeper', false], [IN_USE_NEW, 'New collection', false]]);
         expect(autoSyncCollectionMarkup([])).toBe('');
     });
 });

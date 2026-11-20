@@ -37,8 +37,8 @@ vi.mock('../src/features/embedding/index.js', () => ({ getModelFromSettings: vi.
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     markWindowExtracted: vi.fn(),
     setVectorizationTip: vi.fn(),
-    getLastUsedWindowSize: vi.fn(),
-    setLastUsedWindowSize: vi.fn(),
+    getCollectionWindowSize: vi.fn(),
+    setCollectionWindowSize: vi.fn(),
     readEventBaseProgress: registryKey => ({ extractedWindows: host.windows[registryKey] ?? [] }),
 }));
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: {} }));

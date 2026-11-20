@@ -72,7 +72,7 @@ import {
     clearCachesForDeletedOrImportedCollection,
     ensureVectorizationTip,
     getAutoSyncMarker,
-    getLastUsedWindowSize,
+    getCollectionWindowSize,
     getUnfinishedWindowFingerprints,
     getVectorizationTip,
     isWindowAlreadyExtracted,
@@ -204,7 +204,7 @@ describe('an export carries the pointer, and its import carries on from it', () 
         expect(isWindowAlreadyExtracted([22, 11], IMPORTED_KEY)).toBe(true);
         expect(getUnfinishedWindowFingerprints(IMPORTED_KEY, 2)).toEqual(new Set([WINDOW_FAILED]));
         expect(getAutoSyncMarker(IMPORTED_KEY)).toBe(30);
-        expect(getLastUsedWindowSize(IMPORTED_KEY)).toBe(2);
+        expect(getCollectionWindowSize(IMPORTED_KEY)).toBe(2);
     });
 
     it('imports a file made before the pointer was exported with none', async () => {

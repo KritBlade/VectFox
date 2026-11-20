@@ -14,11 +14,10 @@
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
+import { newTimeId, numberedName } from '../../shared/new-group-member.js';
 import { oneInUseLockChanges } from '../../shared/one-in-use-locks.js';
 import { decidedEntries } from './lorebase-reply-core.js';
-import {
-    emptySelection, newSelectionId, numberedName, selectionInUseOf, unionOfSelections,
-} from './lorebase-selections-core.js';
+import { emptySelection, selectionInUseOf, unionOfSelections } from './lorebase-selections-core.js';
 
 /** @typedef {import('./lorebase-selections-core.js').LoreSelection} LoreSelection */
 
@@ -157,7 +156,7 @@ function recordFor(bookName) {
 export function ensureLoreSelection(bookName) {
     const record = recordFor(bookName);
     if (!record.selections.length) {
-        record.selections.push(emptySelection(newSelectionId([]), bookName));
+        record.selections.push(emptySelection(newTimeId([]), bookName));
         saveSettingsDebounced();
     }
     return record.selections[0];
@@ -175,7 +174,7 @@ export function newLoreSelection(bookName, sourceSelectionId) {
     const source = sourceSelectionId ? getLoreSelection(bookName, sourceSelectionId) : ensureLoreSelection(bookName);
     const { selections } = recordFor(bookName);
     const selection = {
-        ...emptySelection(newSelectionId(selections.map(item => item.id)), numberedName(bookName, selections.map(item => item.name))),
+        ...emptySelection(newTimeId(selections.map(item => item.id)), numberedName(bookName, selections.map(item => item.name))),
         selectedUids: [...source.selectedUids],
         pinnedSections: [...source.pinnedSections],
     };

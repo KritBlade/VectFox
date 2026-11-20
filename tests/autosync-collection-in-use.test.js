@@ -4,17 +4,18 @@
  * Collection in use here on the AutoSync page (src/features/settings-panel/autosync-collection-in-use.js, §1.2 of
  * vectfox-multi-collection-per-chat.md), chosen as a user would: a collection chosen is put in use through EventBase's one
  * lock function, then the page is drawn again and the collections are said to have changed; "None in use here" does
- * nothing.
+ * nothing; New collection opens Vectorize Content on New collection, putting nothing in use.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import $ from 'jquery';
 
-const eventbase = vi.hoisted(() => ({ useChatCollection: vi.fn() }));
+const eventbase = vi.hoisted(() => ({ useChatCollection: vi.fn(), openContentVectorizer: vi.fn() }));
 vi.mock('../src/features/eventbase/index.js', () => ({ ...eventbase }));
 
 const { bindCollectionInUse } = await import('../src/features/settings-panel/autosync-collection-in-use.js');
 const { AUTOSYNC_IN_USE_ID, autoSyncCollectionMarkup } = await import('../src/features/settings-panel/autosync-page-markup.js');
+const { IN_USE_NEW } = await import('../src/features/settings-panel/in-use-switcher-markup.js');
 
 const SETTINGS = { vector_backend: 'qdrant' };
 const redraw = vi.fn(async () => {});
@@ -52,6 +53,15 @@ describe('Collection in use here', () => {
         await new Promise(resolve => setTimeout(resolve, 0));
         expect(eventbase.useChatCollection).not.toHaveBeenCalled();
         expect(redraw).not.toHaveBeenCalled();
+        document.removeEventListener('vectfox:collections-updated', updated);
+    });
+
+    it('opens Vectorize Content on New collection, drawing the dropdown back to the collection in use, and puts nothing in use', async () => {
+        choose(IN_USE_NEW);
+        await vi.waitFor(() => expect(eventbase.openContentVectorizer).toHaveBeenCalledWith({ isOnNewCollection: true }));
+        expect(redraw).toHaveBeenCalledWith(SETTINGS);
+        expect(eventbase.useChatCollection).not.toHaveBeenCalled();
+        expect(updated).not.toHaveBeenCalled();
         document.removeEventListener('vectfox:collections-updated', updated);
     });
 });
