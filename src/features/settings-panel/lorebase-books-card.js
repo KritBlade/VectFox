@@ -159,8 +159,8 @@ export async function refreshLoreBaseBooks() {
 /**
  * Show a line on the status line, or hide it when empty.
  * @param {string} text
- * @param {{lockChatId?: string|null}} [options] - lockChatId: the chat a line saying where books were locked was
- *   written in, as "this chat" or "this character", so the line goes once another chat is open
+ * @param {{lockChatId?: string|null}} [options] - lockChatId: the chat a line saying where books or selections were
+ *   locked or put in use was written in, as "this chat" or "this character", so the line goes once another chat is open
  */
 function showBooksStatus(text, { lockChatId = null } = {}) {
     statusLockChatId = lockChatId;
@@ -305,7 +305,8 @@ async function removeBook(button) {
 /**
  * Selection in use here, on a book's row (§1.2 of vectfox-multi-collection-per-chat.md): a selection chosen is put in
  * use in this chat; New selection copies the one in use, puts the copy in use here and opens the selection screen on it.
- * The status line says what changed, or why nothing did, and the list is drawn again.
+ * The status line says what changed, a line that goes once another chat is open, or why nothing did, and the list is
+ * drawn again.
  * @param {HTMLSelectElement} switcher - The row's switcher, naming its book
  * @returns {Promise<void>}
  */
@@ -313,16 +314,17 @@ async function switchSelection(switcher) {
     const bookName = switcher.dataset.lorebaseInUse;
     const choice = switcher.value;
     if (!choice) return;
+    const lockChatId = getCurrentChatId() ?? null;
     try {
         if (choice === IN_USE_NEW) {
             const selection = newLoreSelectionHere(bookName);
-            showBooksStatus(`Made "${selection.name}" from the selection in use, and put it in use in this chat.`);
+            showBooksStatus(`Made "${selection.name}" from the selection in use, and put it in use in this chat.`, { lockChatId });
             void refreshLoreBaseBooks();
             await chooseEntries(bookName, selection.id);
             return;
         }
         useLoreSelectionHere(bookName, choice);
-        showBooksStatus(`"${switcher.selectedOptions[0].textContent}" is in use in this chat now.`);
+        showBooksStatus(`"${switcher.selectedOptions[0].textContent}" is in use in this chat now.`, { lockChatId });
     } catch (error) {
         log.warn(`LoreBase: the selection in use of lorebook "${bookName}" was not changed:`, error);
         showBooksStatus(`Not changed: ${error?.message || error}`);

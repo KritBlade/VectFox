@@ -680,22 +680,30 @@ describe("Selection in use here (§1.2 of vectfox-multi-collection-per-chat.md)"
         expect(switcherOf('Keeper Notes')).toBeNull();
     });
 
-    it('puts the selection chosen in use in this chat, says so, and draws the list again', async () => {
+    it('puts the selection chosen in use in this chat, says so, draws the list again, and drops the line once another chat is open', async () => {
         await refreshLoreBaseBooks();
         chatBookLocks.mockClear();
         choose('Harbor Atlas', 'night');
         expect(useLoreSelectionHere).toHaveBeenCalledWith('Harbor Atlas', 'night');
         expect(status().textContent).toBe('"Night watch" is in use in this chat now.');
         await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(1));
+
+        host.chatId = 'chat-other';
+        await refreshLoreBaseBooks();
+        expect(status().hidden).toBe(true);
     });
 
-    it('makes a new selection with New selection, says so, and opens the selection screen on it', async () => {
+    it('makes a new selection with New selection, says so, opens the selection screen on it, and drops the line once another chat is open', async () => {
         await refreshLoreBaseBooks();
         choose('Harbor Atlas', '+new');
         expect(newLoreSelectionHere).toHaveBeenCalledWith('Harbor Atlas');
         expect(status().textContent).toBe('Made "Harbor Atlas 2" from the selection in use, and put it in use in this chat.');
         await vi.waitFor(() => expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Harbor Atlas', selectionId: 'made' }));
         expect(useLoreSelectionHere).not.toHaveBeenCalled();
+
+        host.chatId = 'chat-other';
+        await refreshLoreBaseBooks();
+        expect(status().hidden).toBe(true);
     });
 
     it('says why nothing changed when the selection could not be put in use', async () => {
