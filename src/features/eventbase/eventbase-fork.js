@@ -22,13 +22,13 @@ import {
     getChatLockedCollections,
     isCollectionLockedToChat,
     removeCollectionLock,
-    setCollectionLock,
     setCollectionMeta,
     fetchPortableChunks,
     insertChunksWithVectors,
 } from '../collections/index.js';
 import { purgeVectorIndex } from '../vector-backend/index.js';
 import { getModelFromSettings } from '../embedding/index.js';
+import { useChatCollection } from './eventbase-chat-collections.js';
 import { markWindowExtracted, readEventBaseProgress, setVectorizationTip, getLastUsedWindowSize, setLastUsedWindowSize } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import {
@@ -196,7 +196,9 @@ export async function forkEventBaseFromSource(settings, source) {
         registerCollection(targetRegistryKey);
         const { storyEntityMerges, storyEntityHiddenNames } = getCollectionMeta(source.registryKey);
         setCollectionMeta(targetRegistryKey, { scope: 'chat', storyEntityMerges, storyEntityHiddenNames });
-        setCollectionLock(targetRegistryKey, chatId);
+        // In use in the branch, its other own collections unlocked there; the parent's collection it copied is a
+        // collection of another chat, unlocked below.
+        useChatCollection(targetRegistryKey, { chatId });
         for (const lockKey of getChatLockedCollections(chatId)) {
             if (parseRegistryKey(lockKey).collectionId === source.collectionId) removeCollectionLock(lockKey, chatId);
         }

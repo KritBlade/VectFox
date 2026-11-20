@@ -25,6 +25,8 @@ const host = vi.hoisted(() => ({
     runResult: null,
     syncStatus: null,
     llmCheck: { ok: true },
+    ownCollections: [],
+    chosenCollection: null,
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.root, saveSettingsDebounced: vi.fn() }));
@@ -60,10 +62,15 @@ vi.mock('../src/features/eventbase/eventbase-chat-sync.js', () => ({
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     getVectorizationTip: () => (host.priorWindows ? 120 : undefined),
     readEventBaseProgress: () => ({}),
-    resolveEventBaseRunTarget: (settings, chatUUID) => ({ collectionId: `vf_eventbase_${chatUUID}`, registryKey: `qdrant:vf_eventbase_${chatUUID}` }),
     prepareForFreshExtraction: vi.fn(async () => ({ skipTipFallback: true })),
     checkWindowSizeChanged: () => ({ changed: false }),
     setLastUsedWindowSize: vi.fn(),
+}));
+// The chat's own collections, and the question asked while none is locked to it (eventbase-collection-in-use.test.js).
+vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
+    chatOwnCollections: () => host.ownCollections,
+    askWhichChatCollection: vi.fn(async () => host.chosenCollection),
+    resolveEventBaseRunTarget: (settings, chatUUID) => ({ collectionId: `vf_eventbase_${chatUUID}`, registryKey: `qdrant:vf_eventbase_${chatUUID}` }),
 }));
 vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
     runEventBaseIngestion: vi.fn(),
@@ -95,6 +102,7 @@ vi.mock('../src/shared/pick-files.js', () => ({ pickFiles: vi.fn(async () => [])
 const { openContentVectorizer, backfillCurrentChatWithProgress, syncOpenChat } = await import('../src/features/eventbase/content-vectorizer.js');
 const { runEventBaseOnOpenChat } = await import('../src/features/eventbase/eventbase-chat-sync.js');
 const { runEventBaseIngestion } = await import('../src/features/eventbase/eventbase-workflow.js');
+const { askWhichChatCollection } = await import('../src/features/eventbase/eventbase-chat-collections.js');
 const { chooseCleaningPreset, openTextCleaningDialog } = await import('../src/features/text-cleaning/index.js');
 const { pickFiles } = await import('../src/shared/pick-files.js');
 const { confirmPopup, closePanelPopup, noticePopup } = await import('../src/sillytavern/popup.js');
@@ -132,6 +140,8 @@ beforeEach(async () => {
     host.runResult = { eventsExtracted: 3, windowsProcessed: 1, windowsSkipped: 0 };
     host.syncStatus = { state: 'partial', chatMessageCount: 40, vectorizationTip: 30, unfinishedWindowCount: 0 };
     host.llmCheck = { ok: true };
+    host.ownCollections = [];
+    host.chosenCollection = null;
     host.root.vectfox = { eventbase_window_size: 4, eventbase_window_overlap: 1 };
     host.context = {
         chatId: 'chat.jsonl',
@@ -321,6 +331,27 @@ describe('a chat\'s Vectorize', () => {
         await vi.waitFor(() => expect(closed).toEqual(['closed']));
     });
 
+    it("asks which collection to use while none of the chat's is locked to it, reading nothing on Cancel and the one chosen after", async () => {
+        host.ownCollections = [{ registryKey: 'qdrant:vf_eventbase_harbor' }, { registryKey: 'qdrant:vf_eventbase_harbor_2' }];
+        openContentVectorizer();
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(askWhichChatCollection).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+
+        host.chosenCollection = 'qdrant:vf_eventbase_harbor_2';
+        actionOn('resume').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        expect(askWhichChatCollection).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks nothing about collections for a chat with none yet, which its first read makes', async () => {
+        openContentVectorizer();
+        actionOn('vectorize').click();
+        await vi.waitFor(() => expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1));
+        expect(askWhichChatCollection).not.toHaveBeenCalled();
+    });
+
     it('closes without a run with one announcement', async () => {
         openContentVectorizer();
         await closeEveryDialog();
@@ -401,6 +432,19 @@ describe('Sync chat', () => {
         host.runResult = { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
         expect(await syncOpenChat()).toEqual({ ran: true });
         expect(noticePopup).toHaveBeenCalledWith([{ icon: 'fa-circle-info', text: 'Nothing new to read. A message that does not fill a window waits for the next one.' }]);
+    });
+
+    it("asks which collection to use while none of the chat's is locked to it, then syncs the one chosen, and nothing on Cancel", async () => {
+        host.syncStatus = { state: 'none-locked', collections: [] };
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'cancelled' });
+        expect(confirmPopup).not.toHaveBeenCalled();
+
+        askWhichChatCollection.mockImplementationOnce(async () => {
+            host.syncStatus = { state: 'partial', chatMessageCount: 40, vectorizationTip: 30, unfinishedWindowCount: 0 };
+            return 'qdrant:vf_eventbase_harbor_2';
+        });
+        expect(await syncOpenChat()).toEqual({ ran: true });
+        expect(runEventBaseOnOpenChat).toHaveBeenCalledTimes(1);
     });
 
     it('opens Vectorize Content on the Chat page for a chat with nothing stored yet, and asks nothing', async () => {

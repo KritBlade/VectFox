@@ -41,6 +41,7 @@ vi.mock('../src/sillytavern/extension-runtime.js', () => ({
     debounce_timeout: { relaxed: 1 },
 }));
 vi.mock('../src/features/collections/index.js', () => ({
+    followChatRenameOfCollections: vi.fn(),
     migrateOldEnabledKeys: () => ({ migrated: 0 }),
     cleanupCorruptedCollections: vi.fn(),
     registerCollection: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     refreshWorldInfoEntryDepthCache: vi.fn(),
     runEventBaseReplyStep: vi.fn(),
     synchronizeChat: vi.fn(),
+    warnOfAutoSyncNotInUse: vi.fn(),
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({
     setInsertedCollectionRegistrar: vi.fn(),

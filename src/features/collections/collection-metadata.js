@@ -12,6 +12,7 @@
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { parseRegistryKey, parseCollectionId } from '../../shared/collection-ids.js';
 import { log } from '../../sillytavern/log.js';
+import { renamedChatIds } from '../../shared/renamed-chat.js';
 import { chatLocksOf, planCollectionLockCleanup } from './collection-lock-cleanup-core.js';
 
 // ============================================================================
@@ -421,6 +422,45 @@ export function removeCollectionLock(collectionId, chatId) {
     setCollectionMeta(collectionId, update);
     _updateChatLockIndex(collectionId, null, chatId);
     log.lifecycle(`VectFox: Removed chat ${chatId} from collection ${collectionId} locks`);
+}
+
+/**
+ * Move every collection's lock on a chat to the chat's new ID, through removeCollectionLock and setCollectionLock, which
+ * keep each record's list and the chat lock index in step.
+ * @param {string} oldChatId
+ * @param {string} newChatId
+ * @returns {number} How many collections' locks moved
+ */
+export function moveCollectionChatLocks(oldChatId, newChatId) {
+    if (!oldChatId || !newChatId || oldChatId === newChatId || !ensureCollectionsObject()) return 0;
+    const keys = new Set([...Object.keys(extension_settings.vectfox.collections), ...getChatLockedCollections(oldChatId)]);
+    let movedCount = 0;
+    for (const key of keys) {
+        if (!getCollectionLocks(key).includes(String(oldChatId))) continue;
+        removeCollectionLock(key, oldChatId);
+        setCollectionLock(key, newChatId);
+        movedCount += 1;
+    }
+    return movedCount;
+}
+
+/**
+ * Follow a chat's rename (SillyTavern's CHAT_RENAMED): every collection locked to it stays locked to it, under the name
+ * the server saved its file as (renamedChatIds). The locks stay on the old name, with a warning, when the server cannot
+ * say that name.
+ * @param {{oldFileName?: string, newFileName?: string}} renamed - CHAT_RENAMED's data
+ * @returns {Promise<void>}
+ */
+export async function followChatRenameOfCollections(renamed) {
+    let chatIds;
+    try {
+        chatIds = await renamedChatIds(renamed);
+    } catch (error) {
+        log.warn('VectFox: could not learn the name a renamed chat was saved under, so its collection locks stay on the old name:', error);
+        return;
+    }
+    const movedCount = moveCollectionChatLocks(chatIds.oldChatId, chatIds.newChatId);
+    if (movedCount) log.lifecycle(`VectFox: moved the chat locks of ${movedCount} collection(s) to the renamed chat "${chatIds.newChatId}"`);
 }
 
 /**

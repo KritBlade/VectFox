@@ -2,10 +2,11 @@
  * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
  * a book holds one or more selections, each its own selected entries, pinned sections and locks on chats and
  * characters. A chat uses one selection of a book at a time: the one locked to the chat, else the one locked to its
- * character (selectionInUseOf). Putting one in use at a place takes that place's lock off the book's others
- * (oneInUseLockChanges), and New selection names its copy by numberedName; EventBase's collections are to take the same
- * two rules (§1 of that plan). LoreBase writes keys and vectors for every entry any selection holds
- * (unionOfSelections), so the selections of a book share them. Pure: no settings, no host.
+ * character (selectionInUseOf). Putting one in use at a place takes that place's lock off the book's others, by the
+ * rule EventBase's collections follow too (oneInUseLockChanges in src/shared/one-in-use-locks.js), and New selection
+ * names its copy by numberedName, which EventBase's New collection is to take too (§1 of that plan). LoreBase writes
+ * keys and vectors for every entry any selection holds (unionOfSelections), so the selections of a book share them.
+ * Pure: no settings, no host.
  */
 
 /**
@@ -31,22 +32,6 @@ export function numberedName(baseName, takenNames) {
         const name = `${baseName} ${number}`;
         if (!taken.has(name)) return name;
     }
-}
-
-/**
- * Which locks change when one member of a group is put in use at a place, a chat or a character: the one chosen is
- * locked there, and every other member locked there is unlocked, so the place uses one member at a time. A member
- * already as it should be is left out.
- * @param {Array<{id: string, isLockedHere: boolean}>} members - The group's members, each with whether the place has it
- * @param {string} chosenId
- * @returns {{lockIds: string[], unlockIds: string[]}}
- */
-export function oneInUseLockChanges(members, chosenId) {
-    const chosen = members.find(member => member.id === chosenId);
-    return {
-        lockIds: chosen && !chosen.isLockedHere ? [chosenId] : [],
-        unlockIds: members.filter(member => member.id !== chosenId && member.isLockedHere).map(member => member.id),
-    };
 }
 
 /**

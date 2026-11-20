@@ -5,20 +5,26 @@
  * The settings panel's AutoSync page on GUI-DNA: auto-sync for the open chat,
  * Summarizer Injection, and the ghosting that leans on it. Every control keeps the
  * id settings-panel.js wires it by, and a row or card the wiring shows and hides
- * keeps its id too. The status line under the auto-sync switch is built here as
- * well. Pure: builds strings.
+ * keeps its id too. Collection in use here, over the open chat's own collections
+ * (§1.2 of vectfox-multi-collection-per-chat.md), and the status line under the
+ * auto-sync switch are built here as well. Pure: builds strings.
  * ============================================================================
  */
 
 import { detail, field, fieldLabel, hint, input, notice, resultList, stack } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { inUseSwitcherMarkup } from './in-use-switcher-markup.js';
 
 const HIDDEN = ' style="display:none;"';
+
+/** Collection in use here's dropdown, by its id. */
+export const AUTOSYNC_IN_USE_ID = 'VectFox_autosync_in_use';
 
 function autoSyncCard() {
     return `<section class="vfx-card">
         ${cardHeader({ icon: 'fa-arrows-rotate', title: 'Auto-sync', description: 'Keeps this chat\'s events current as the chat grows.' })}
         <div class="vfx-card-body vfx-grid">
+            <div id="VectFox_autosync_collection" class="vfx-span"></div>
             ${switchRow({ id: 'VectFox_autosync_enabled', title: 'Auto-sync this chat', description: 'Extracts events from new messages. The chat must be vectorized once first.', isSpan: true })}
             <div id="VectFox_autosync_status" class="vfx-span" aria-live="polite"></div>
             ${field([
@@ -99,6 +105,9 @@ function countsLine({ chatMessageCount, vectorizedCount, isLatestTurnSettling })
 function stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount }) {
     if (state === 'no-chat') return { status: 'warning', text: 'No chat open.' };
     if (state === 'no-collection') return { status: 'warning', text: 'Not vectorized yet. Turning auto-sync on starts it.' };
+    if (state === 'none-locked') {
+        return { status: 'warning', text: 'No collection of this chat is locked to it, so EventBase writes nothing here. Choose one above.' };
+    }
     if (!isVectFoxOn) return { icon: 'fa-circle', text: 'Paused while VectFox is off.' };
     if (!isOnForChat) return { icon: 'fa-circle', text: 'Off for this chat.' };
     if (state === 'fully-vectorized') return { status: 'success', text: 'Up to date.' };
@@ -107,6 +116,27 @@ function stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount }) {
         return { status: 'warning', name: `${failed} Resume in Vectorize Content sends them again.` };
     }
     return { status: 'warning', text: 'Behind. The next auto-sync catches up.' };
+}
+
+/**
+ * Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md): the open chat's own collections in the in-use
+ * switcher, the one locked to it chosen, "None in use here" with none; nothing for a chat with no collection, which
+ * keeps "Not vectorized yet.".
+ * @param {Array<{registryKey: string, name: string, isLockedHere: boolean}>} collections - chatOwnCollections
+ * @returns {string}
+ */
+export function autoSyncCollectionMarkup(collections) {
+    if (!collections.length) return '';
+    return field([
+        fieldLabel({ text: 'Collection in use here', forId: AUTOSYNC_IN_USE_ID }),
+        inUseSwitcherMarkup({
+            id: AUTOSYNC_IN_USE_ID,
+            title: 'Collection in use here',
+            members: collections.map(collection => ({ id: collection.registryKey, name: collection.name })),
+            inUseId: collections.find(collection => collection.isLockedHere)?.registryKey ?? null,
+        }),
+        hint({ text: 'The one EventBase reads and writes in this chat. The others stay as they are.' }),
+    ]);
 }
 
 /**

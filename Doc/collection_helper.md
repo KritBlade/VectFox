@@ -16,10 +16,11 @@ Code outside a feature imports these through the feature's `index.js` (`src/feat
 |---|---|---|
 | **`getCollectionListing(settings)`** | [collection-loader.js](../src/features/collections/collection-loader.js) | You need to iterate every collection (rendering a list, finding matches by pattern, computing aggregate state). |
 | **`resolveActiveEventBaseCollection(settings, chatUUID?)`** | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | You need *the one* active EventBase collection to READ for a chat (ownership-filtered + lock-aware). Use this instead of taking `[0]` from `findEventBaseCollectionsForChat`. |
-| **`resolveEventBaseWriteTarget(settings, chatUUID?)`** | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | You are about to INGEST events, stamp the auto-sync marker, or report sync status. Same resolution, but the collection's embedded chat UUID must match and it must be registered on the current `vector_backend` — a foreign lock can widen ownership, never redirect writes. |
+| **`resolveEventBaseWriteTarget(settings, chatUUID?)`** | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | You are about to INGEST events, stamp the auto-sync marker, or report sync status. Same resolution, but the collection's embedded chat UUID must match, it must be registered on the current `vector_backend`, and it must be locked to the chat — a foreign lock can widen ownership, never redirect writes, and a chat with collections but none locked has no write target. |
 | **`getCollectionLocks(key)`** / **`getCollectionCharacterLocks(key)`** | [collection-metadata.js](../src/features/collections/collection-metadata.js) | You need the chats / characters *one* collection is locked to (lock dialog, badge, tooltip). |
 | **`isCollectionActiveForContext(key, { chatId, characterId })`** | [collection-metadata.js](../src/features/collections/collection-metadata.js) | You need "is *one* collection locked to the current chat / character?" (badge, checkbox state). EventBase's retrieval checks the pause flag and the chat lock itself (see "Runtime activation — what a reply searches"). |
-| **`setCollectionLock`** / **`removeCollectionLock`** / **`clearCollectionLock`**, and **`setCollectionCharacterLock`** / **`removeCollectionCharacterLock`** | [collection-metadata.js](../src/features/collections/collection-metadata.js) | You need to *change* one collection's locks (user clicks lock / unlock / clear). |
+| **`setCollectionLock`** / **`removeCollectionLock`** / **`clearCollectionLock`**, and **`setCollectionCharacterLock`** / **`removeCollectionCharacterLock`** | [collection-metadata.js](../src/features/collections/collection-metadata.js) | You need to *change* one collection's locks (user clicks lock / unlock / clear). Not to lock one of a chat's own EventBase collections to it: that is `useChatCollection`. |
+| **`useChatCollection(registryKey)`** / **`lockCollectionToOpenChat(registryKey)`** | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | You lock one of a chat's own EventBase collections to it: it is put in use, and the chat's other own collections are unlocked there, on every backend and persona (`oneInUseLockChanges` in `src/shared/one-in-use-locks.js`). `lockCollectionToOpenChat` is the Database Browser's lock: an own collection through `useChatCollection`, another chat's or an archive locked beside it. |
 | **`buildRegistryKey(collectionId, settings)`** | [collection-ids.js](../src/shared/collection-ids.js) | You only have a bare collection ID and need to convert it to the canonical `"backend:id"` storage key (for any metadata read/write). Never hand-roll `` `${backend}:${collectionId}` `` — use this instead. |
 | **`resolveBackendForCollection(input)`** | [collection-ids.js](../src/shared/collection-ids.js) | You have an ID (either registry-key or bare) and need to pick the right backend instance for it (query, delete, list, etc.). Returns `{ backend, collectionId }` where `collectionId` is the bare form. Replaces hand-rolled `parseRegistryKey(...).backend ?? settings.vector_backend` chains. |
 
@@ -79,6 +80,7 @@ removeCollectionCharacterLock(key, String(characterId));
 - **Scope:** `getCollectionMeta` resolves every collection's scope to `'chat'` or `'character'` (`getEffectiveScope`: the stored value, else parsed from the ID), and `isCollectionActiveForContext` checks the matching list.
 - **Ownership:** the lock functions do not check it. It is applied where collections are listed — `getCollectionListing`'s `isOwn` and the DB browser's persona filter — so lock controls are only offered on the persona's own collections (every collection under `superadmin`).
 - The chat-lock writes keep the `chat_lock_index` reverse map (read by `getChatLockedCollections(chatId)`) in step with `lockedToChatIds`, and a record's delete, by `deleteCollectionMeta` or the Database Browser's orphan sweep (`cleanupOrphanedMeta`), takes its entries out.
+- **A chat's rename** (SillyTavern's `CHAT_RENAMED`) moves every collection lock on the old chat ID to the name the server saved the file under (`followChatRenameOfCollections`, `moveCollectionChatLocks`, through `renamedChatIds` in `src/shared/renamed-chat.js`, which LoreBase's book locks follow too), through `removeCollectionLock` and `setCollectionLock`, so the index moves with them.
 - **Clean up locks**, in the Action page's Stored data (`src/features/settings-panel/lock-cleanup.js`), removes the locks on chats and characters that no longer exist, the collections' (`cleanUpCollectionLocks`) and LoreBase's book locks (`cleanUpLoreBookLocks`), then rebuilds `chat_lock_index` from the records' chat locks, after a confirm that counts each kind. It lists every character's chats through SillyTavern's `/api/characters/chats` and every group's chats; a chat list it cannot read whole leaves every chat lock alone. A collection's character lock is the character's place in SillyTavern's list (D9 of `vectfox-multi-collection-per-chat.md`), so only one past the list's end counts as gone.
 
 ### What NOT to do
@@ -271,7 +273,7 @@ In `src/features/database-browser/collection-dialogs.js`:
 **`writeLockHere` lock mutation:**
 
 ```
-scope='chat'      + on  →  setCollectionLock(collectionKey, currentChatId)
+scope='chat'      + on  →  lockCollectionToOpenChat(collectionKey): one of the chat's own EventBase collections put in use (useChatCollection), any other locked beside them
 scope='chat'      + off →  removeCollectionLock(collectionKey, currentChatId)
 scope='character' + on  →  setCollectionCharacterLock(collectionKey, String(currentCharacterId))
 scope='character' + off →  removeCollectionCharacterLock(collectionKey, String(currentCharacterId))
@@ -474,8 +476,10 @@ suffix after the UUID, the time a later collection of the chat was made
 | Function | File | Use when |
 |---|---|---|
 | `resolveActiveEventBaseCollection(settings, chatUUID?, { requireUuidMatch?, shouldLogResolution? })` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | **Default choice for READS.** Returns `{ collectionId, registryKey }` for the single **active** collection — ownership-filtered (via `getCollectionListing`) and lock-aware (matches the DB Browser's "Active here only"). Returns `null` when none. Logs `[EventBase][resolve]` lifecycle diagnostics (candidates + pick) unless `shouldLogResolution: false`. Used by `buildSummarizerInjection`. |
-| `resolveEventBaseWriteTarget(settings, chatUUID?, { shouldLogResolution? })` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `synchronizeChat`, `getChatAutoSyncStatus`, the AutoSync page's marker re-stamp and ghosting's tip. Returns `null` on a chat's first ingestion on the current backend. |
-| `resolveEventBaseRunTarget(settings, chatUUID)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | The collection a run on the chat reads into: the write target, else the ID its first run builds with `buildEventBaseCollectionId`. Used by `runEventBaseIngestion` when it is handed no collection, and by Vectorize Content to read and clear that collection's pointer. |
+| `resolveEventBaseWriteTarget(settings, chatUUID?, { shouldLogResolution? })` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | **Required for WRITES.** Thin wrapper passing `requireUuidMatch: true`. Used by `synchronizeChat`, `getChatAutoSyncStatus`, the AutoSync page's marker re-stamp and ghosting's tip. Returns `null` when no collection of the chat is locked to it on the current backend: on its first read, or with collections but none locked. |
+| `resolveEventBaseRunTarget(settings, chatUUID)` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | The collection a run on the chat reads into: the write target; `null` while the chat has own collections but none locked, so the run writes nothing; else the ID its first run builds with `buildEventBaseCollectionId`. Used by `runEventBaseIngestion` when it is handed no collection, which then throws, and by Vectorize Content to read and clear that collection's pointer. |
+| `chatOwnCollections(settings)` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | The open chat's own collections as the Database Browser lists them for this persona, on the current backend, each with its name, whether it is locked here and whether auto-sync is on: what the AutoSync page's Collection in use here and the question list. |
+| `askWhichChatCollection(settings)` | [eventbase-chat-collections.js](../src/features/eventbase/eventbase-chat-collections.js) | Before Vectorize, Resume, Sync chat or the auto-sync switch writes a chat with collections but none locked: asks which one to use and puts it in use. |
 | `findEventBaseCollectionsForChat(uuid, preferredBackend)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Only when you genuinely need **every** candidate (e.g. pausing auto-sync on all of a chat's collections, or a has-data fallback probe). Returns `Array<{ collectionId, registryKey }>`, lock-ranked first. Pass `getRegistryBackend(settings.vector_backend)` as `preferredBackend`. **Do not** take `[0]` to mean "the active one" — call `resolveActiveEventBaseCollection` for that. Returns `[]` when no collection exists yet. |
 
 #### Eligibility rules inside `resolveActiveEventBaseCollection` — on READS an explicit lock is a FULL override
@@ -494,7 +498,7 @@ On the **write** path the mirror-image outcome is correct, not a bug: a chat who
 - the retrieval gather (`_gatherLockedEventBaseCollections`, lock-only, no UUID check),
 - and `resolveActiveEventBaseCollection` (rule 1 above) — reads only; see the write-target carve-out below.
 
-**Rule 1 applies to READS ONLY.** `resolveEventBaseWriteTarget` (`requireUuidMatch: true`) replaces rule 1 with: *eligible when the registry-key backend equals `getRegistryBackend(settings.vector_backend)` AND the embedded UUID matches AND (locked OR owned)*. The lock still widens **ownership** — an imported or other-persona collection for this chat is a valid write target — it just cannot redirect ingestion into a **different conversation's** collection or a **different backend's** collection.
+**Rule 1 applies to READS ONLY.** `resolveEventBaseWriteTarget` (`requireUuidMatch: true`) replaces rule 1 with: *eligible when the registry-key backend equals `getRegistryBackend(settings.vector_backend)` AND the embedded UUID matches AND it is locked to the chat*. The lock still widens **ownership** — an imported or other-persona collection for this chat is a valid write target — it just cannot redirect ingestion into a **different conversation's** collection or a **different backend's** collection. An own collection that is not locked is no write target: a chat uses one of its collections at a time, and with none locked nothing is written (§2.2 of `vectfox-multi-collection-per-chat.md`).
 
 **Why writes must stay on the current backend:** every write caller passes only the bare `collectionId` to the backend chosen by `settings.vector_backend`. A `vectra:vf_eventbase_standard_…` collection still locked to the chat after switching to Qdrant would be re-created in Qdrant under its Vectra name (`qdrant:vf_eventbase_standard_…`), so the DB Browser shows a Qdrant collection labelled `standard`. Rejecting it makes the chat report "no collection" on the new backend, and vectorizing creates a correctly named `vf_eventbase_qdrant_…` collection.
 
@@ -529,12 +533,13 @@ State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend =
 ```
 { state: 'no-chat' }
 { state: 'no-collection' }
+{ state: 'none-locked', collections }
 { state: 'vectorization-ahead', collectionId, registryKey, chatMessageCount, markerValue }
 { state: 'partial',          collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount, markerValue?, vectorizationTip? }
 { state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount: 0, markerValue?, vectorizationTip? }
 ```
 
-Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (returns `no-collection` when it yields `null`) — the status reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does no UUID walk of its own; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; turning the switch on then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
+Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`**; when it yields `null`, the status is `none-locked`, with the chat's own collections (`chatOwnCollections`), for a chat that has some, else `no-collection` — the status reports on the collection auto-sync would actually write to, so it must resolve with the same rules. It does no UUID walk of its own; that logic lives inside the resolver (see "Eligibility rules inside `resolveActiveEventBaseCollection`" above). A chat whose ONLY EventBase collection is a foreign one locked in for retrieval correctly reports `no-collection`; turning the switch on then offers a fork when the chat is a branch or checkpoint, and Vectorize Content otherwise (see "Branch and checkpoint fork" below).
 
 "Fully vectorized" is determined by `isChatFullyVectorized(messages, settings, registryKey)`, which checks that the last possible window for the current message count is already in the collection's `extractedWindows` and that no window of that size is in its `unfinishedWindows`. No DB query, just an O(1) Set lookup and a read of the record.
 
@@ -550,6 +555,8 @@ Match logic: delegates to **`resolveEventBaseWriteTarget(settings, uuid)`** (ret
 - `vectfox:eventbase-synced` custom event (after an ingestion run completes)
 - Master switch toggle (OFF: shows the paused status; ON: after the network startup re-runs)
 
+Each refresh also draws **Collection in use here** at the top of the Auto-sync card (`autoSyncCollectionMarkup`, on the in-use switcher): the chat's own collections, the one locked here chosen, "None in use here" with none; nothing for a chat with no collection. A choice puts it in use through `useChatCollection` and draws the page again (`bindCollectionInUse` in `autosync-collection-in-use.js`). Opening a chat while auto-sync is on for its collections but none is locked to it shows a yellow toast naming them (`warnOfAutoSyncNotInUse`, on `CHAT_CHANGED` while VectFox is on).
+
 While the master switch is off, `refreshAutoSyncCheckbox` reads only cached state and logs nothing (`shouldProbeBackend: false`, `shouldLogResolution: false`), and every has-collection state shows the paused status below. It still runs on chat change so the switch matches the current chat — the Summarizer Injection switch reads it.
 
 Resolution table. `autoSyncStatusMarkup` in [autosync-page-markup.js](../src/features/settings-panel/autosync-page-markup.js) builds each status from these states:
@@ -558,6 +565,7 @@ Resolution table. `autoSyncStatusMarkup` in [autosync-page-markup.js](../src/fea
 |---|---|---|---|---|---|
 | `no-chat` | — | — | off | warning | "No chat open." |
 | `no-collection` | — | — | off | warning | "Not vectorized yet. Turning auto-sync on starts it." |
+| `none-locked` | — | none of the chat's | off | warning | "No collection of this chat is locked to it, so EventBase writes nothing here. Choose one above." |
 | has-collection, master switch off | any | any | on iff flag + lock | plain | "Paused while VectFox is off." + counts |
 | has-collection | false OR no lock | — | off | plain | "Off for this chat." + counts |
 | `vectorization-ahead` | true | locked | on | warning | "Vectorization reaches past this chat's end, so there is nothing to sync." + the counts with the gap + what to check |
@@ -572,9 +580,10 @@ The counts line reads `Chat: N messages · vectorized: M messages` when the chat
 | Action | Behaviour |
 |---|---|
 | On + no-chat | Warning toast, switch back off |
+| On + none-locked | `askWhichChatCollection`: the one chosen is put in use and the status re-read, continuing as below; Cancel leaves auto-sync off |
 | On + no-collection, branch/checkpoint with a fork source | Popup: **Fork from parent** → `forkEventBaseFromSource`, re-read status, continue as partial / fully-vectorized · **Vectorize from scratch** → open Vectorize Content (`openContentVectorizer()`) · close → switch off |
 | On + no-collection, otherwise | Info toast, open Vectorize Content (`openContentVectorizer()`); auto-sync turns on when that run finishes |
-| On + partial or fully-vectorized | `setCollectionLock(registryKey, chatId)` + `setCollectionAutoSync(registryKey, true)` + the start-marker stamp. A far-behind chat first asks whether to catch up now or keep up from here; closing that popup leaves auto-sync off |
+| On + partial or fully-vectorized | `useChatCollection(registryKey)` + `setCollectionAutoSync(registryKey, true)` + the start-marker stamp. A far-behind chat first asks whether to catch up now or keep up from here; closing that popup leaves auto-sync off |
 | Off | `setCollectionAutoSync(registryKey, false)` + `clearAutoSyncMarker(registryKey)` only. **Does NOT remove the chat lock** — the lock is a separate concern (retrieval activation / explicit user choice via the DB Browser), so disabling auto-sync must not deactivate the collection. Unlocking is the DB Browser's job. |
 
 Every path that leaves auto-sync off also turns Summarizer Injection off, since its newest events would go stale.
@@ -593,7 +602,7 @@ SillyTavern gives every new branch and checkpoint its own `chat_metadata.integri
 
 **Split point** = length of that matching run. Copied: every event whose `source_window_end` is before it, including events whose message was edited in the parent after extraction (the parent still uses them). If a parent message near the split was edited and never re-extracted, the run stops early and auto-sync re-extracts a few extra windows — never the reverse.
 
-**After the copy** the branch collection is registered, `scope: 'chat'`, locked to this chat; the source is unlocked from this chat; the copied windows go into the branch collection's window record, its tip is set to the split, and the parent collection's window size carries over. The enable flow then continues as for any existing collection (backlog gate, `setCollectionAutoSync`, `stampAutoSyncMarker`). A failure or stop during the copy purges the partial collection. The fork refuses when vectors are missing or the parent was embedded with a different provider/model.
+**After the copy** the branch collection is registered, `scope: 'chat'`, and put in use in this chat (`useChatCollection`); the source is unlocked from this chat; the copied windows go into the branch collection's window record, its tip is set to the split, and the parent collection's window size carries over. The enable flow then continues as for any existing collection (backlog gate, `setCollectionAutoSync`, `stampAutoSyncMarker`). A failure or stop during the copy purges the partial collection. The fork refuses when vectors are missing or the parent was embedded with a different provider/model.
 
 | Function | File | Role |
 |---|---|---|

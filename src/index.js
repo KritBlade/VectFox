@@ -16,11 +16,12 @@ import { extension_settings } from './sillytavern/settings.js';
 
 // VectFox modules - Core
 import {
+    followChatRenameOfCollections,
     migrateOldEnabledKeys,
     registerCollection,
     setDeletedOrImportedCollectionCleanup,
 } from './features/collections/index.js';
-import { clearCachesForDeletedOrImportedCollection, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep, synchronizeChat } from './features/eventbase/index.js';
+import { clearCachesForDeletedOrImportedCollection, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep, synchronizeChat, warnOfAutoSyncNotInUse } from './features/eventbase/index.js';
 import { setInsertedCollectionRegistrar } from './features/vector-backend/index.js';
 import { migrateLegacyApiKeys } from './shared/api-keys.js';
 import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
@@ -605,9 +606,13 @@ jQuery(async () => {
     eventSource.on(event_types.CHAT_CHANGED, () => {
         if (isVectFoxEnabled(settings)) {
             log.lifecycle('VectFox: Chat changed, refreshing UI state');
+            // Auto-sync on for the chat's collections, none locked to it: EventBase writes nothing there, so say so.
+            warnOfAutoSyncNotInUse(settings);
         }
         refreshAutoSyncCheckbox(settings);
     });
+    // A renamed chat keeps its collections' locks (§2.2 of vectfox-multi-collection-per-chat.md).
+    eventSource.on(event_types.CHAT_RENAMED, followChatRenameOfCollections);
 
     // Keep the ghosting WI-scan floor accurate: refresh the cached deepest per-entry World
     // Info scanDepth whenever the active books or WI settings change (off the hot path, so

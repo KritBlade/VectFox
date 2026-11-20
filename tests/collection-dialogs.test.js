@@ -4,7 +4,8 @@
  * A collection's dialogs (src/features/database-browser/collection-dialogs.js), driven as a user would while each is
  * open: Rename and Switch model save only on their action; Collection Settings writes the lock of the collection's
  * scope only when its switch was moved (character 0 included), writes no other metadata, and writes nothing on Cancel;
- * Manage locks acts at once and says whether it changed anything.
+ * Manage locks acts at once and says whether it changed anything. A chat lock goes through EventBase's
+ * lockCollectionToOpenChat, which puts one of the chat's own collections in use there (eventbase-collection-in-use.test.js).
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -23,7 +24,6 @@ const collections = vi.hoisted(() => ({
     getCollectionMeta: vi.fn(),
     setCollectionMeta: vi.fn(),
     getCollectionLocks: vi.fn(),
-    setCollectionLock: vi.fn(),
     removeCollectionLock: vi.fn(),
     isCollectionLockedToChat: vi.fn(),
     getCollectionLockCount: vi.fn(),
@@ -36,6 +36,8 @@ const collections = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/features/collections/index.js', () => ({ ...collections }));
+const eventbase = vi.hoisted(() => ({ lockCollectionToOpenChat: vi.fn() }));
+vi.mock('../src/features/eventbase/index.js', () => ({ ...eventbase }));
 vi.mock('../src/sillytavern/chat.js', () => ({
     getContext: () => ({ characterId: 0, characters: [{ name: 'Mira' }] }),
     getCurrentChatId: () => 'Mira - 1',
@@ -72,6 +74,7 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 beforeEach(() => {
     vi.stubGlobal('$', $);
     for (const mock of Object.values(collections)) mock.mockReset();
+    eventbase.lockCollectionToOpenChat.mockReset();
     host.answer = true;
     host.onForm = null;
     host.onNotice = null;
@@ -149,7 +152,7 @@ describe('Collection Settings', () => {
         host.meta = { scope: 'chat' };
         host.onForm = form => { form.querySelector('#vectfox_always_active').checked = true; };
         await editCollectionSettings(KEY, 'Harbor');
-        expect(collections.setCollectionLock).toHaveBeenCalledWith(KEY, 'Mira - 1');
+        expect(eventbase.lockCollectionToOpenChat).toHaveBeenCalledWith(KEY);
     });
 
     it('writes nothing on Cancel, but answers that a lock changed in Manage locks', async () => {
@@ -166,7 +169,7 @@ describe('Collection Settings', () => {
             await settle();
         };
         expect(await editCollectionSettings(KEY, 'Harbor')).toBe(true);
-        expect(collections.setCollectionLock).toHaveBeenCalledWith(KEY, 'Mira - 1');
+        expect(eventbase.lockCollectionToOpenChat).toHaveBeenCalledWith(KEY);
         expect(collections.setCollectionMeta).not.toHaveBeenCalled();
     });
 });
@@ -195,7 +198,7 @@ describe('Manage locks', () => {
             body.querySelector('[data-lock-action="remove-character"]').click();
         };
         expect(await manageCollectionLocks(KEY, 'Harbor')).toBe(true);
-        expect(collections.setCollectionLock).toHaveBeenCalledWith(KEY, 'Mira - 1');
+        expect(eventbase.lockCollectionToOpenChat).toHaveBeenCalledWith(KEY);
         expect(collections.removeCollectionCharacterLock).toHaveBeenCalledWith(KEY, '0');
         expect(collections.setCollectionCharacterLock).not.toHaveBeenCalled();
     });

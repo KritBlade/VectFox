@@ -18,8 +18,6 @@ import {
     getCollectionRegistry,
     isCollectionEnabled,
     isCollectionActiveForContextAnyKey,
-    setCollectionLock,
-    setCollectionMeta,
 } from '../collections/index.js';
 import { getSavedHashes } from '../vector-backend/index.js';
 import { searchArchiveEvents } from './eventbase-retrieval.js';
@@ -29,8 +27,9 @@ import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, resolveEventBaseRunTarget, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, setLastUsedWindowSize } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, setLastUsedWindowSize } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
+import { NONE_IN_USE_TEXT, chatOwnCollections, resolveEventBaseRunTarget, useChatCollection } from './eventbase-chat-collections.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel, notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
@@ -179,9 +178,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Resolve the write target. Precedence:
     //   1. Explicit override (archive uploads pass a fixed ID; auto-sync passes the
     //      collection it already resolved for its gate).
-    //   2. The chat's ACTIVE collection from the registry — the source of truth.
-    //   3. A freshly-built ID, ONLY for first-time ingestion when no collection
-    //      exists yet (resolve returns null).
+    //   2. The chat's own collection locked to it, from the registry — the source of truth.
+    //   3. A freshly-built ID, ONLY for a chat's first read, when it has no collection
+    //      yet. A chat with collections but none locked gets none: nothing is written
+    //      until the user chooses one (§2.2 of vectfox-multi-collection-per-chat.md).
     //
     // Step 2 is load-bearing for group chats. buildEventBaseCollectionId derives the
     // ID's char segment from the LIVE context.name2, which in a group chat is whoever
@@ -194,22 +194,18 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // Trusting the registry instead of recomputing the ID is the rule in
     // Doc/collection_helper.md — the registry is the source of truth for which
     // collection holds a chat's data.
-    const collectionId = collectionIdOverride || resolveEventBaseRunTarget(settings, uuid).collectionId;
+    const collectionId = collectionIdOverride || resolveEventBaseRunTarget(settings, uuid)?.collectionId;
+    if (!collectionId) throw new Error(`EventBase: ${NONE_IN_USE_TEXT} Choose one in Collection in use here, on the AutoSync page.`);
     // The collection's record holds its locks and its pointer (how far it has read the chat), under this key.
     const registryKey = buildRegistryKey(collectionId, settings);
 
-    // Lock to current chat at start so the index is populated even if vectorization is interrupted.
-    // Archive collections are excluded — they are locked manually by the user.
-    // Stamping scope='chat' is required for isCollectionActiveForContext() to return true:
-    // it gates on scope first, so a lock without scope leaves the collection inert.
-    //
-    // Metadata writes go to the registry-key form ("backend:id") to match the
-    // import path, loader, and cleanupOrphanedMeta. Bare-ID writes would land in
-    // a different bucket and get nuked by the orphan-cleanup pass.
+    // Put it in use in the chat at start, so the lock index is filled even if the run is stopped: locked to the chat,
+    // scoped to chats, the chat's other own collections unlocked there (useChatCollection). Archive collections are
+    // excluded: the user locks them by hand. Metadata goes under the registry-key form ("backend:id"), as the import
+    // path, the loader and cleanupOrphanedMeta key it.
     const _startChatId = getCurrentChatId();
     if (_startChatId && !collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) {
-        setCollectionLock(registryKey, _startChatId);
-        setCollectionMeta(registryKey, { scope: 'chat' });
+        useChatCollection(registryKey, { chatId: _startChatId });
     }
 
     const candidateKeys = [
@@ -1399,6 +1395,8 @@ export function isChatFullyVectorized(messages, settings, registryKey, windowSiz
  * Returns one of:
  *   { state: 'no-chat' }                                              — no chat is open
  *   { state: 'no-collection' }                                        — chat has no eventbase collection yet
+ *   { state: 'none-locked', collections }                             — chat has collections of its own, none locked to
+ *                                                                       it, so nothing is written (chatOwnCollections)
  *   { state: 'vectorization-ahead', collectionId, registryKey,
  *     chatMessageCount, markerValue }                                  — collection exists, but its auto-sync marker
  *                                                                       is past the current chat tail (user bound a
@@ -1433,7 +1431,10 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     // auto-sync write target). See resolveEventBaseWriteTarget.
     const match = resolveEventBaseWriteTarget(settings, uuid, { shouldLogResolution });
 
-    if (!match) return { state: 'no-collection' };
+    if (!match) {
+        const collections = chatOwnCollections(settings, { chatUUID: uuid, chatId });
+        return collections.length ? { state: 'none-locked', collections } : { state: 'no-collection' };
+    }
 
     const ctx = getContext();
     const messages = Array.isArray(ctx?.chat)

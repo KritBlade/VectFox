@@ -15,9 +15,9 @@
  * (D14). Each reply's outcome goes to the tester (lorebase-tester.js), with what that scan reads.
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
-import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
+import { renamedChatIds } from '../../shared/renamed-chat.js';
 import { loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat, selectionInUse } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
@@ -47,24 +47,19 @@ let lastGeneration = null;
 // What the last reply said of the selected entries it left out for not being ready (unreadyEntriesNotice).
 let lastUnreadyNotice = null;
 
-// SillyTavern names a renamed chat by its file, with the extension; a chat lock holds the chat's id, the name without it.
-const chatIdOfFile = fileName => String(fileName ?? '').replace(/\.jsonl$/u, '');
-
 /**
- * Move a renamed chat's locks to the name its file was saved under, which is the chat's id from then on. SillyTavern's
- * event carries the name as typed, but its server drops what a file name cannot hold (a colon, a question mark, quotes)
- * before saving, so the same server cleaner is asked what it saved.
+ * Move a renamed chat's locks to the name its file was saved under, which is the chat's id from then on (renamedChatIds).
  * @param {{oldFileName?: string, newFileName?: string}} renamed - CHAT_RENAMED's data
  */
-async function followChatRename({ oldFileName, newFileName } = {}) {
-    let savedFileName;
+async function followChatRename(renamed) {
+    let chatIds;
     try {
-        savedFileName = await getSanitizedFilename(String(newFileName ?? ''));
+        chatIds = await renamedChatIds(renamed);
     } catch (error) {
         log.warn('LoreBase: could not learn the name a renamed chat was saved under, so its book locks stay on the old name:', error);
         return;
     }
-    renameLoreBookChat(chatIdOfFile(oldFileName), chatIdOfFile(savedFileName));
+    renameLoreBookChat(chatIds.oldChatId, chatIds.newChatId);
 }
 
 /**

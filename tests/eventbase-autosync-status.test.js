@@ -7,7 +7,10 @@
  * panel refreshes this status on every chat change, including while VectFox is
  * disabled — and a disabled VectFox must neither call the backend nor log. These
  * tests lock in that `shouldProbeBackend: false` reads only the cached tip and
- * `shouldLogResolution: false` reaches the resolver, while the defaults keep both.
+ * `shouldLogResolution: false` reaches the resolver, while the defaults keep both;
+ * that a chat with collections but none locked to it is told from one with none
+ * (§2.2 of vectfox-multi-collection-per-chat.md); and that a run on such a chat
+ * writes nothing.
  *
  * eventbase-workflow.js transitively imports ST modules that don't resolve under
  * vitest, so the whole graph is stubbed. Same harness as eventbase-settle-lag.test.js.
@@ -18,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     ensureVectorizationTip: vi.fn(),
     getVectorizationTip: vi.fn(),
     resolveEventBaseWriteTarget: vi.fn(),
+    ownCollections: [],
 }));
 
 vi.mock('../../../../../script.js', () => ({
@@ -36,11 +40,18 @@ vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({ extractEven
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: {}, generationRateLimitSettings: {} }));
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(), getUnfinishedWindowFingerprints: vi.fn(() => new Set()),
-    clearExtractionCaches: vi.fn(), resolveEventBaseRunTarget: vi.fn(), isLastWindowExtracted: vi.fn(() => false),
+    clearExtractionCaches: vi.fn(), isLastWindowExtracted: vi.fn(() => false),
     readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(), setLastUsedWindowSize: vi.fn(),
     getVectorizationTip: mocks.getVectorizationTip, setVectorizationTip: vi.fn(),
     ensureVectorizationTip: mocks.ensureVectorizationTip, shouldUseTipFallback: vi.fn(),
     resolveEventBaseWriteTarget: mocks.resolveEventBaseWriteTarget,
+}));
+// The chat's own collections; the run target is the write target, none with collections but none locked.
+vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
+    NONE_IN_USE_TEXT: 'No collection of this chat is locked to it, so EventBase writes nothing here.',
+    chatOwnCollections: () => mocks.ownCollections,
+    resolveEventBaseRunTarget: () => mocks.resolveEventBaseWriteTarget(),
+    useChatCollection: vi.fn(),
 }));
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn() }));
@@ -58,13 +69,31 @@ vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
 
-const { getChatAutoSyncStatus } = await import('../src/features/eventbase/eventbase-workflow.js');
+const { getChatAutoSyncStatus, runEventBaseIngestion } = await import('../src/features/eventbase/eventbase-workflow.js');
 
 beforeEach(() => {
     mocks.ensureVectorizationTip.mockReset().mockResolvedValue(4);
     mocks.getVectorizationTip.mockReset().mockReturnValue(2);
     mocks.resolveEventBaseWriteTarget.mockReset()
         .mockReturnValue({ collectionId: 'vf_eventbase_c1', registryKey: 'qdrant:vf_eventbase_c1' });
+    mocks.ownCollections = [];
+});
+
+describe('getChatAutoSyncStatus — a chat with none of its collections locked (§2.2)', () => {
+    it('reads none-locked, with the collections, for a chat that has some but none locked, and no-collection for one with none', async () => {
+        mocks.resolveEventBaseWriteTarget.mockReturnValue(null);
+        mocks.ownCollections = [{ registryKey: 'qdrant:vf_eventbase_c1', name: 'Harbor Keeper', isLockedHere: false }];
+        expect(await getChatAutoSyncStatus({})).toEqual({ state: 'none-locked', collections: mocks.ownCollections });
+        mocks.ownCollections = [];
+        expect(await getChatAutoSyncStatus({})).toEqual({ state: 'no-collection' });
+    });
+
+    it('writes nothing for such a chat: a run refuses before reading a window', async () => {
+        mocks.resolveEventBaseWriteTarget.mockReturnValue(null);
+        mocks.ownCollections = [{ registryKey: 'qdrant:vf_eventbase_c1', name: 'Harbor Keeper', isLockedHere: false }];
+        await expect(runEventBaseIngestion({ messages: [{ mes: 'm0' }], chatUUID: 'uuid-1', settings: {} }))
+            .rejects.toThrow('No collection of this chat is locked to it, so EventBase writes nothing here.');
+    });
 });
 
 describe('getChatAutoSyncStatus — vectorization tip source', () => {

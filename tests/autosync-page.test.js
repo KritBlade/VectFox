@@ -4,18 +4,19 @@
  * The settings panel's AutoSync page on GUI-DNA (src/features/settings-panel/autosync-page-markup.js): every control
  * keeps the id settings-panel.js wires it by, the window hold and the ghosting note start hidden, the cards the wiring
  * hides on Standard without the plugin carry their ids, the window, the event count and the messages kept have a
- * slider on their box's limits, the size cap carries its own, the page is drawn from GUI-DNA alone, and the auto-sync status says what auto-sync
- * is doing in each state with the tone that state takes.
+ * slider on their box's limits, the size cap carries its own, the page is drawn from GUI-DNA alone, the auto-sync status says what auto-sync
+ * is doing in each state with the tone that state takes, and Collection in use here lists the open chat's own collections (§1.2 of
+ * vectfox-multi-collection-per-chat.md).
  */
 /* global document -- this file runs under the jsdom environment */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-const { autoSyncPageMarkup, autoSyncStatusMarkup } = await import('../src/features/settings-panel/autosync-page-markup.js');
+const { AUTOSYNC_IN_USE_ID, autoSyncCollectionMarkup, autoSyncPageMarkup, autoSyncStatusMarkup } = await import('../src/features/settings-panel/autosync-page-markup.js');
 
 // The ids settings-panel.js wires on the AutoSync page.
 const WIRED_IDS = [
-    'VectFox_autosync_enabled', 'VectFox_autosync_status', 'VectFox_eventbase_autosync_window_turns', 'VectFox_autosync_window_lock_hint',
+    'VectFox_autosync_collection', 'VectFox_autosync_enabled', 'VectFox_autosync_status', 'VectFox_eventbase_autosync_window_turns', 'VectFox_autosync_window_lock_hint',
     'VectFox_autosync_popup', 'VectFox_autosync_show_progress_modal', 'VectFox_summarizer_injection_group', 'VectFox_summarizer_injection_enabled',
     'VectFox_summarizer_injection_count', 'VectFox_summarizer_injection_max_chars', 'VectFox_summarizer_injection_full_detail',
     'VectFox_eventbase_ghost_group', 'VectFox_eventbase_ghost_needs_summarizer', 'VectFox_eventbase_ghost_enabled', 'VectFox_eventbase_ghost_keep_recent',
@@ -71,6 +72,34 @@ describe('AutoSync page markup', () => {
     });
 });
 
+describe('Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md)', () => {
+    const drawn = collections => {
+        document.body.innerHTML = autoSyncCollectionMarkup(collections);
+        const list = document.getElementById(AUTOSYNC_IN_USE_ID);
+        return list && {
+            label: document.querySelector(`label[for="${AUTOSYNC_IN_USE_ID}"]`)?.textContent,
+            options: [...list.options].map(option => [option.value, option.textContent, option.selected]),
+        };
+    };
+
+    it("lists the chat's own collections by name, the one locked here chosen, with no New choice yet", () => {
+        expect(drawn([
+            { registryKey: 'qdrant:first', name: '💬 Chat: Harbor Keeper', isLockedHere: false },
+            { registryKey: 'qdrant:later', name: 'Harbor <b>Keeper</b> 2', isLockedHere: true },
+        ])).toEqual({
+            label: 'Collection in use here',
+            options: [['qdrant:first', '💬 Chat: Harbor Keeper', false], ['qdrant:later', 'Harbor <b>Keeper</b> 2', true]],
+        });
+        expect(document.querySelector('b')).toBeNull();
+    });
+
+    it('opens on None in use here while none is locked here, and draws nothing for a chat with no collection', () => {
+        expect(drawn([{ registryKey: 'qdrant:first', name: 'Harbor Keeper', isLockedHere: false }]).options)
+            .toEqual([['', 'None in use here', true], ['qdrant:first', 'Harbor Keeper', false]]);
+        expect(autoSyncCollectionMarkup([])).toBe('');
+    });
+});
+
 describe('autoSyncStatusMarkup', () => {
     const linesOf = (status) => {
         document.body.innerHTML = autoSyncStatusMarkup(status);
@@ -84,6 +113,12 @@ describe('autoSyncStatusMarkup', () => {
     it('warns with no chat or no events yet, and shows no counts', () => {
         expect(linesOf({ state: 'no-chat', isVectFoxOn: true })).toEqual([{ tone: 'warning', text: 'No chat open.' }]);
         expect(linesOf({ state: 'no-collection', isVectFoxOn: true })).toEqual([{ tone: 'warning', text: 'Not vectorized yet. Turning auto-sync on starts it.' }]);
+    });
+
+    it("warns that EventBase writes nothing while none of the chat's collections is locked to it, pointing at the dropdown above", () => {
+        expect(linesOf({ state: 'none-locked', isVectFoxOn: true })).toEqual([
+            { tone: 'warning', text: 'No collection of this chat is locked to it, so EventBase writes nothing here. Choose one above.' },
+        ]);
     });
 
     it('says plainly when auto-sync is paused or off, with the counts', () => {

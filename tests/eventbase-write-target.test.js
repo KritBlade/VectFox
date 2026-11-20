@@ -1,7 +1,9 @@
 /**
  * eventbase-write-target.test.js — resolver split: read honors a foreign lock,
- * ingestion does not. Plus the resolver's `[EventBase][resolve]` diagnostics,
- * which a passive UI refresh while VectFox is disabled switches off.
+ * ingestion does not, and ingestion writes only the chat's own collection locked
+ * to it, never one that is not (§2.2 of vectfox-multi-collection-per-chat.md, D6).
+ * Plus the resolver's `[EventBase][resolve]` diagnostics, which a passive UI
+ * refresh while VectFox is disabled switches off.
  *
  * A per-chat lock is the supported way to share an OLDER chat's EventBase with
  * the current chat so its events are retrieved here. Ingestion must not follow
@@ -92,7 +94,7 @@ describe('resolveEventBaseWriteTarget — a foreign lock never captures writes',
     it('returns null when the only locked collection belongs to another chat', () => {
         // Chat B is open and has locked chat A's EventBase for retrieval, but has
         // not been vectorized yet. Ingestion must decline chat A's collection so
-        // runEventBaseIngestion falls through to buildEventBaseCollectionId.
+        // the run target builds chat B's first collection.
         listingRows = [row(COL_A, KEY_A)];
         lockedKeys = new Set([KEY_A, COL_A]);
 
@@ -119,10 +121,11 @@ describe('resolveEventBaseWriteTarget — a foreign lock never captures writes',
         expect(resolveActiveEventBaseCollection(settings, CHAT_B_UUID)?.collectionId).toBe(COL_B);
     });
 
-    it('still resolves the chat\'s own collection with no lock at all', () => {
+    it("writes nothing to the chat's own collection while it is not locked to the chat, which reads still see", () => {
         listingRows = [row(COL_B, KEY_B)];
 
-        expect(resolveEventBaseWriteTarget(settings, CHAT_B_UUID)?.collectionId).toBe(COL_B);
+        expect(resolveEventBaseWriteTarget(settings, CHAT_B_UUID)).toBeNull();
+        expect(resolveActiveEventBaseCollection(settings, CHAT_B_UUID)?.collectionId).toBe(COL_B);
     });
 
     it('accepts a locked collection owned by another persona when the UUID matches', () => {
@@ -171,6 +174,7 @@ describe('resolveEventBaseWriteTarget — resolution diagnostics', () => {
         vi.spyOn(log, 'enabled').mockReturnValue(true);
         log.lifecycle.mockClear();
         listingRows = [row(COL_B, KEY_B)];
+        lockedKeys = new Set([KEY_B, COL_B]);
     });
 
     afterEach(() => {

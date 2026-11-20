@@ -23,6 +23,7 @@ export {
     cleanupTestCollections,
     clearCollectionRegistry,
     deleteCollection,
+    collectionNameOf,
     deleteCollectionWhereDiscovered,
     deleteVectorsFolder,
     discoverExistingCollections,
@@ -37,6 +38,7 @@ export {
 export {
     cleanUpCollectionLocks,
     cleanupOrphanedMeta,
+    followChatRenameOfCollections,
     getChatLockedCollections,
     getCollectionCharacterLockCount,
     getCollectionCharacterLocks,

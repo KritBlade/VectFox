@@ -443,7 +443,17 @@ export function cleanupTestCollections(isTestCollection) {
     return removed;
 }
 
-// parseCollectionId is now imported from collection-ids.js
+/**
+ * A registered collection's name as the Database Browser lists it: its record's name, else the one its ID and type give.
+ * @param {string} registryKey - Its registry key, "backend:id"
+ * @returns {string}
+ */
+export function collectionNameOf(registryKey) {
+    const { collectionId } = parseRegistryKey(registryKey);
+    const parsed = parseCollectionId(collectionId);
+    const type = getCollectionMeta(registryKey).contentType || parsed.type;
+    return getCollectionDisplayName(collectionId, registryKey, { type, rawId: parsed.rawId, chatUUID: parsed.chatUUID });
+}
 
 /**
  * Gets display name for a collection

@@ -35,7 +35,8 @@ import {
 } from './content-vectorizer-core.js';
 import { CHAT_TYPE_ID, contentVectorizerMarkup, cvId, cvPageId, loadedSourceMarkup } from './content-vectorizer-markup.js';
 import { runEventBaseOnOpenChat } from './eventbase-chat-sync.js';
-import { checkWindowSizeChanged, getVectorizationTip, prepareForFreshExtraction, readEventBaseProgress, resolveEventBaseRunTarget, setLastUsedWindowSize } from './eventbase-store.js';
+import { askWhichChatCollection, chatOwnCollections, resolveEventBaseRunTarget } from './eventbase-chat-collections.js';
+import { checkWindowSizeChanged, getVectorizationTip, prepareForFreshExtraction, readEventBaseProgress, setLastUsedWindowSize } from './eventbase-store.js';
 import { countUnfinishedWindows, getChatAutoSyncStatus, notifyUnfinishedWindows, runEventBaseIngestion } from './eventbase-workflow.js';
 
 /** How many windows EventBase reads at once when the dialog does not say. */
@@ -263,15 +264,38 @@ function stopRun() {
 
 const isStoppedError = error => error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('stopped by user');
 
-/** Vectorize: read the chat afresh from its Start From message, asking first when EventBase has read it before. */
-async function startVectorization() {
-    if (activeRun) return;
+/**
+ * Whether the open chat may be read now: one of its collections is locked to it, or it has none yet, which its first
+ * read makes; with collections but none locked, the question asks which one to use and locks it (askWhichChatCollection).
+ * @returns {Promise<boolean>} False on Cancel
+ */
+async function hasCollectionInUse() {
+    const settings = extension_settings.vectfox || {};
+    if (!chatOwnCollections(settings).length) return true;
+    return Boolean(await askWhichChatCollection(settings));
+}
+
+/**
+ * The page's source once a run on it may start: no run going, a source chosen, the EventBase model set, and for the
+ * open chat a collection in use (hasCollectionInUse). Null once the page or a dialog has said why not.
+ * @returns {Promise<object|null>}
+ */
+async function sourceReadyToRun() {
+    if (activeRun) return null;
     const { source, problem } = sourceOfPage();
     if (!source) {
         showRunState(problem);
-        return;
+        return null;
     }
-    if (!hasLlmConfig()) return;
+    if (!hasLlmConfig()) return null;
+    if (source.type !== 'file' && !await hasCollectionInUse()) return null;
+    return source;
+}
+
+/** Vectorize: read the chat afresh from its Start From message, asking first when EventBase has read it before. */
+async function startVectorization() {
+    const source = await sourceReadyToRun();
+    if (!source) return;
     // Resume adds only what is new.
     const registryKey = registryKeyOfRun(source, extension_settings.vectfox || {});
     const startFromMessage = startFromMessageOf(controlOf('start_from').value);
@@ -290,13 +314,8 @@ async function startVectorization() {
 
 /** Add what EventBase has not read of the chat yet, keeping what it read. */
 async function resumeChat() {
-    if (activeRun) return;
-    const { source, problem } = sourceOfPage();
-    if (!source) {
-        showRunState(problem);
-        return;
-    }
-    if (!hasLlmConfig()) return;
+    const source = await sourceReadyToRun();
+    if (!source) return;
     await runEventBaseBackfill({
         source,
         startFromMessage: startFromMessageOf(controlOf('start_from').value),
@@ -309,7 +328,8 @@ const parallelWindowsOfPage = () => parseInt(controlOf('parallel_windows')?.valu
 
 /**
  * The registry key ("backend:id") of the collection a run on the source reads into: an uploaded chat's archive
- * collection, or the open chat's (resolveEventBaseRunTarget). Null when no chat is open.
+ * collection, or the open chat's (resolveEventBaseRunTarget). Null when no chat is open, or none of its collections is
+ * locked to it.
  *
  * @param {{type: string, archiveUUID?: string, filenameCharName?: string}} source
  * @param {object} settings - extension_settings.vectfox
@@ -321,7 +341,7 @@ function registryKeyOfRun(source, settings) {
         return buildRegistryKey(archiveCollectionId, settings);
     }
     const chatUUID = getChatUUID();
-    return chatUUID ? resolveEventBaseRunTarget(settings, chatUUID).registryKey : null;
+    return chatUUID ? resolveEventBaseRunTarget(settings, chatUUID)?.registryKey ?? null : null;
 }
 
 /**
@@ -503,7 +523,7 @@ export async function backfillCurrentChatWithProgress() {
 /**
  * The Action page's Sync chat: once the user confirms, read what EventBase has not read of the open chat, as Resume does
  * with the dialog's defaults, without the dialog. A chat with nothing stored yet opens Vectorize Content instead, since
- * a first read takes the dialog's choices. A chat with nothing to read says so in a dialog: up to date as the AutoSync
+ * a first read takes the dialog's choices; one with collections but none locked asks which one to use first. A chat with nothing to read says so in a dialog: up to date as the AutoSync
  * page has it, or read further than the chat now goes. So does a run that finds nothing new, as the dialog is not open
  * to say it.
  *
@@ -515,7 +535,11 @@ export async function syncOpenChat() {
         return { ran: false, reason: 'busy' };
     }
     const settings = extension_settings.vectfox;
-    const status = await getChatAutoSyncStatus(settings);
+    let status = await getChatAutoSyncStatus(settings);
+    if (status.state === 'none-locked') {
+        if (!await askWhichChatCollection(settings)) return { ran: false, reason: 'cancelled' };
+        status = await getChatAutoSyncStatus(settings);
+    }
     if (status.state === 'no-chat') {
         toastr.info('Open a chat to sync it.', 'VectFox');
         return { ran: false, reason: 'no-chat' };

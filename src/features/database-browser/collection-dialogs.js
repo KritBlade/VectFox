@@ -18,7 +18,6 @@ import {
     getCollectionMeta,
     setCollectionMeta,
     getCollectionLocks,
-    setCollectionLock,
     removeCollectionLock,
     isCollectionLockedToChat,
     getCollectionLockCount,
@@ -30,6 +29,7 @@ import {
     isCollectionActiveForContext,
 } from '../collections/index.js';
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
+import { lockCollectionToOpenChat } from '../eventbase/index.js';
 import { formPopup, noticePopup } from '../../sillytavern/popup.js';
 import { log } from '../../sillytavern/log.js';
 import {
@@ -182,7 +182,8 @@ function saveCollectionSettings(form, collectionId, lock) {
 }
 
 /**
- * Lock the collection to this chat or this character, by its scope, or take that lock away.
+ * Lock the collection to this chat or this character, by its scope, or take that lock away. A chat lock on one of the
+ * chat's own EventBase collections puts it in use there, unlocking the chat's others (lockCollectionToOpenChat).
  *
  * @param {string} collectionId
  * @param {string} scope - `chat`, or `character`
@@ -190,9 +191,8 @@ function saveCollectionSettings(form, collectionId, lock) {
  */
 function writeLockHere(collectionId, scope, isOn) {
     if (scope === 'chat') {
-        const chatId = getCurrentChatId();
-        if (isOn) setCollectionLock(collectionId, chatId);
-        else removeCollectionLock(collectionId, chatId);
+        if (isOn) lockCollectionToOpenChat(collectionId);
+        else removeCollectionLock(collectionId, getCurrentChatId());
         return;
     }
     const characterId = String(currentCharacterId());
@@ -227,11 +227,9 @@ export async function manageCollectionLocks(collectionId, collectionName) {
     $(body).on('click', '[data-lock-action]', function () {
         const lockId = this.dataset.lockId;
         switch (this.dataset.lockAction) {
-            case 'add-chat': {
-                const chatId = getCurrentChatId();
-                if (chatId) setCollectionLock(collectionId, chatId);
+            case 'add-chat':
+                lockCollectionToOpenChat(collectionId);
                 break;
-            }
             case 'add-character': {
                 const characterId = currentCharacterId();
                 if (characterId !== null) setCollectionCharacterLock(collectionId, String(characterId));

@@ -29,7 +29,8 @@ import { wireSettingsPanel } from './panel-shell.js';
 import { drawerLauncherMarkup } from './drawer-launcher-markup.js';
 import { actionPageMarkup, masterSwitchPillsMarkup } from './action-page-markup.js';
 import { agentModePageMarkup } from './agentmode-page-markup.js';
-import { autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
+import { bindCollectionInUse } from './autosync-collection-in-use.js';
+import { autoSyncCollectionMarkup, autoSyncPageMarkup, autoSyncStatusMarkup } from './autosync-page-markup.js';
 import { corePageMarkup } from './core-page-markup.js';
 import { chatHistoryPageMarkup } from './chathistory-page-markup.js';
 import { ragPageMarkup } from './rag-page-markup.js';
@@ -248,7 +249,7 @@ export async function refreshAutoSyncCheckbox(settings) {
     const $checkbox = $('#VectFox_autosync_enabled');
     const $status = $('#VectFox_autosync_status');
 
-    const { getChatAutoSyncStatus } = await import('../eventbase/index.js');
+    const { chatOwnCollections, getChatAutoSyncStatus } = await import('../eventbase/index.js');
     const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../collections/index.js');
 
     // While VectFox is disabled this refresh only reads cached state: no backend call,
@@ -261,9 +262,12 @@ export async function refreshAutoSyncCheckbox(settings) {
         shouldLogResolution: isVectFoxOn,
     });
     const chatId = getCurrentChatId();
+    // Collection in use here, over the chat's own collections (§1.2 of vectfox-multi-collection-per-chat.md).
+    $('#VectFox_autosync_collection').html(autoSyncCollectionMarkup(status.state === 'no-chat' ? [] : status.collections ?? chatOwnCollections(settings)));
 
-    // No chat, or a chat with no EventBase collection yet: nothing auto-sync could run on.
-    if (status.state === 'no-chat' || status.state === 'no-collection') {
+    // No chat, a chat with no EventBase collection yet, or one with none of its collections locked to it: nothing
+    // auto-sync could run on.
+    if (status.state === 'no-chat' || status.state === 'no-collection' || status.state === 'none-locked') {
         $checkbox.prop('checked', false);
         $status.html(autoSyncStatusMarkup({ state: status.state, isVectFoxOn }));
         return;
@@ -357,14 +361,16 @@ function bindSettingsEvents(settings, callbacks) {
     };
 
     // Auto-sync on or off for the open chat's collection.
+    bindCollectionInUse(settings, refreshAutoSyncCheckbox);
+
     // Initial state is set by refreshAutoSyncCheckbox() after chat loads
     $('#VectFox_autosync_enabled')
         .on('input', async function() {
             const enabling = $(this).prop('checked');
             const $checkbox = $(this);
 
-            const { getChatAutoSyncStatus } = await import('../eventbase/index.js');
-            const { setCollectionAutoSync, setCollectionLock } = await import('../collections/index.js');
+            const { askWhichChatCollection, getChatAutoSyncStatus, useChatCollection } = await import('../eventbase/index.js');
+            const { setCollectionAutoSync } = await import('../collections/index.js');
             let status = await getChatAutoSyncStatus(settings);
             const chatId = getCurrentChatId();
             log.lifecycle(`[AutoSync][checkbox] ${enabling ? 'CHECK' : 'UNCHECK'} → status.state=${status.state}, chatId=${chatId || '(none)'}, collection=${status.registryKey || status.collectionId || '(none)'}`);
@@ -378,6 +384,16 @@ function bindSettingsEvents(settings, callbacks) {
             }
 
             if (enabling) {
+                if (status.state === 'none-locked') {
+                    // The chat has collections, none locked to it: ask which one auto-sync writes.
+                    if (!await askWhichChatCollection(settings)) {
+                        $checkbox.prop('checked', false);
+                        _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
+                        await refreshAutoSyncCheckbox(settings);
+                        return;
+                    }
+                    status = await getChatAutoSyncStatus(settings);
+                }
                 if (status.state === 'no-collection') {
                     // A branch or checkpoint can take its parent's events instead of
                     // re-extracting the shared history.
@@ -467,8 +483,8 @@ function bindSettingsEvents(settings, callbacks) {
                     log.warn('[VectFox] auto-sync backlog gate failed (continuing with default placement):', err?.message || err);
                 }
 
-                // Lock + enable (every non-revert path).
-                setCollectionLock(lockKey, chatId);
+                // In use in this chat, the chat's other collections unlocked there, and enabled (every non-revert path).
+                useChatCollection(lockKey);
                 setCollectionAutoSync(lockKey, true);
 
                 // Stamp the collection's auto-sync start marker. Prevents the
@@ -495,8 +511,8 @@ function bindSettingsEvents(settings, callbacks) {
                 // Off clears ONLY the auto-sync flag, never the chat lock: the lock marks
                 // the collection active for this chat's retrieval too, and the user may
                 // have set it in the DB Browser. Unlocking is the DB Browser's job.
-                if (status.state !== 'no-collection') {
-                    const lockKey = status.registryKey || status.collectionId;
+                if (status.registryKey) {
+                    const lockKey = status.registryKey;
                     setCollectionAutoSync(lockKey, false);
 
                     // Clear the marker so re-enabling later re-computes a fresh one

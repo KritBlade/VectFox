@@ -14,9 +14,10 @@
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
+import { oneInUseLockChanges } from '../../shared/one-in-use-locks.js';
 import { decidedEntries } from './lorebase-reply-core.js';
 import {
-    emptySelection, newSelectionId, numberedName, oneInUseLockChanges, selectionInUseOf, unionOfSelections,
+    emptySelection, newSelectionId, numberedName, selectionInUseOf, unionOfSelections,
 } from './lorebase-selections-core.js';
 
 /** @typedef {import('./lorebase-selections-core.js').LoreSelection} LoreSelection */

@@ -11,6 +11,9 @@
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
 export { backfillCurrentChatWithProgress, openContentVectorizer, syncOpenChat } from './content-vectorizer.js';
+export {
+    askWhichChatCollection, chatOwnCollections, lockCollectionToOpenChat, useChatCollection, warnOfAutoSyncNotInUse,
+} from './eventbase-chat-collections.js';
 export { describeCompaction } from './eventbase-compaction-core.js';
 export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';
 export { synchronizeChat } from './eventbase-chat-sync.js';

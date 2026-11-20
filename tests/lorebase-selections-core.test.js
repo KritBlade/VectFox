@@ -1,11 +1,11 @@
 /**
  * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
- * the name New selection gives, which locks change when one member of a group is put in use, a selection's ID, the
- * selection a chat uses, and every entry a book's selections hold.
+ * the name New selection gives, a selection's ID, the selection a chat uses, and every entry a book's selections hold.
+ * Which locks change when one is put in use is src/shared/one-in-use-locks.js's, tested in one-in-use-locks.test.js.
  */
 import { describe, expect, it } from 'vitest';
 import {
-    emptySelection, isSelectionLockedTo, newSelectionId, numberedName, oneInUseLockChanges, selectionInUseOf, unionOfSelections,
+    emptySelection, isSelectionLockedTo, newSelectionId, numberedName, selectionInUseOf, unionOfSelections,
 } from '../src/features/lorebase/lorebase-selections-core.js';
 
 const selectionOf = (id, locks = {}, selectedUids = []) => ({ ...emptySelection(id, `Selection ${id}`), selectedUids, ...locks });
@@ -19,18 +19,6 @@ describe('numberedName', () => {
 
     it('takes a number again once a rename or a delete freed it', () => {
         expect(numberedName('Harbor Atlas', ['Harbor Atlas', 'Arc two', 'Harbor Atlas 3'])).toBe('Harbor Atlas 2');
-    });
-});
-
-describe('oneInUseLockChanges', () => {
-    it('locks the one chosen and unlocks every other member locked at the place', () => {
-        const members = [{ id: 'a', isLockedHere: true }, { id: 'b', isLockedHere: false }, { id: 'c', isLockedHere: true }];
-        expect(oneInUseLockChanges(members, 'b')).toEqual({ lockIds: ['b'], unlockIds: ['a', 'c'] });
-    });
-
-    it('leaves out a member already as it should be, and locks nothing for a member the group lacks', () => {
-        expect(oneInUseLockChanges([{ id: 'a', isLockedHere: true }, { id: 'b', isLockedHere: false }], 'a')).toEqual({ lockIds: [], unlockIds: [] });
-        expect(oneInUseLockChanges([{ id: 'a', isLockedHere: true }], 'gone')).toEqual({ lockIds: [], unlockIds: ['a'] });
     });
 });
 

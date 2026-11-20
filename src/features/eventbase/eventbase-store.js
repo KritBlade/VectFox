@@ -12,7 +12,7 @@ import { insertVectorItems, deleteVectorItems, updateChunkMetadata, qdrantTarget
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
-import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../../shared/collection-ids.js';
+import { getChatUUID, getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../../shared/collection-ids.js';
 import {
     registerCollection,
     getCollectionRegistry,
@@ -27,9 +27,6 @@ import { buildEmbedText } from './eventbase-schema.js';
 import { findReplacedEvents, linksMovedToReplacements, mayHoldEarlierEvents, replacementIdsOf, windowSpanOf } from './eventbase-window-replacement-core.js';
 import { log } from '../../sillytavern/log.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
-
-// Re-export so callers can import from here if needed
-export { buildEventBaseCollectionId };
 
 // ---------------------------------------------------------------------------
 // The pointer: how far EventBase has read a chat into one collection
@@ -324,15 +321,15 @@ export async function ensureVectorizationTip(registryKey, settings, syncProgress
  *
  * @param {object[]} events      - Array of full EventRecord objects (with ingestion metadata)
  * @param {object}   settings    - VectFox settings
- * @param {AbortSignal|null} [abortSignal]
+ * @param {AbortSignal|null} abortSignal
+ * @param {string} collectionId - The run's collection (runEventBaseIngestion): never an ID built again here, which
+ *   changes with the persona and, in a group chat, with each speaker
  * @returns {Promise<void>}
+ * @throws {Error} When no collection is given
  */
-export async function insertEvents(events, settings, abortSignal = null, collectionIdOverride = null) {
+export async function insertEvents(events, settings, abortSignal, collectionId) {
     if (!events?.length) return;
-
-    const chatUUID = events[0].chat_uuid;
-    const collectionId = collectionIdOverride || buildEventBaseCollectionId(chatUUID, settings?.vector_backend);
-    if (!collectionId) throw new Error('EventBase: Cannot build collection ID — no active chat');
+    if (!collectionId) throw new Error('EventBase: no collection to write these events into.');
 
     // Build embed texts for all events at once (for efficient batched embedding)
     const embedTexts = events.map(e => buildEmbedText(e));
@@ -874,21 +871,6 @@ export function isWindowAlreadyExtracted(sourceHashes, registryKey) {
 }
 
 /**
- * The collection a run on the chat reads into: its write target (resolveEventBaseWriteTarget), else
- * the collection its first run makes, under the ID that run builds.
- *
- * @param {object} settings - extension_settings.vectfox
- * @param {string} chatUUID
- * @returns {{ collectionId: string, registryKey: string }}
- */
-export function resolveEventBaseRunTarget(settings, chatUUID) {
-    const writeTarget = resolveEventBaseWriteTarget(settings, chatUUID);
-    if (writeTarget) return writeTarget;
-    const collectionId = buildEventBaseCollectionId(chatUUID, settings?.vector_backend);
-    return { collectionId, registryKey: buildRegistryKey(collectionId, settings) };
-}
-
-/**
  * Find every EventBase collection registered for the given chat UUID: each whose ID holds it, as parseCollectionId
  * reads it, so the chat's later collections are found beside its first.
  *
@@ -998,9 +980,9 @@ export function pauseAutoSyncForChat(chatUUID, backend) {
  * @param {object} settings - extension_settings.vectfox
  * @param {string} [chatUUID] - defaults to the current chat's UUID
  * @param {{ requireUuidMatch?: boolean, shouldLogResolution?: boolean }} [options]
- *   `requireUuidMatch` — write mode: reject collections whose embedded chat UUID
- *   differs from this chat (a foreign lock can never become a write target) or
- *   that are registered on a backend other than `vector_backend`.
+ *   `requireUuidMatch` — write mode: only the chat's own collection locked to it on `vector_backend`: never one whose
+ *   embedded chat UUID differs (a foreign lock can never become a write target), nor one of the chat's own that is
+ *   not locked to it (§2.2 of vectfox-multi-collection-per-chat.md: with none locked, nothing is written).
  *   `shouldLogResolution` — false skips the `[EventBase][resolve]` lifecycle
  *   diagnostics, for passive UI refreshes while VectFox is disabled.
  * @returns {{ collectionId: string, registryKey: string } | null}
@@ -1026,17 +1008,14 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
         const { collectionId } = entry;
         const idLower = String(collectionId || '').toLowerCase();
         if (!idLower.startsWith('vf_eventbase_') && !idLower.includes('eventbase_')) return false;
-        // Write mode: the UUID match is mandatory, so a lock can widen ownership
-        // but never redirect ingestion into another conversation's collection.
-        // The collection must also live on the current backend: every write caller
-        // sends the bare ID to the current backend, so a collection registered on
-        // another backend would be re-created there under that backend's name
-        // (a Qdrant collection called vf_eventbase_standard_…).
-        // Returning null here is the correct outcome on a chat's first ingestion —
-        // runEventBaseIngestion then falls through to buildEventBaseCollectionId
-        // and creates this chat's own collection.
+        // Write mode: the chat's own collection locked to it, on the current backend. The UUID match keeps a lock from
+        // redirecting ingestion into another conversation's collection; the backend, because every write caller sends
+        // the bare ID to the current backend, where a collection registered on another backend would be re-created
+        // under that backend's name; the lock, because a chat uses one of its collections at a time and with none
+        // locked nothing is written. Null on a chat's first read: resolveEventBaseRunTarget
+        // (eventbase-chat-collections.js) then builds the chat's first collection.
         if (requireUuidMatch) {
-            return entry.backend === wantBackend && hasUuidMatch(entry) && (isLocked(entry) || entry.isOwn);
+            return entry.backend === wantBackend && hasUuidMatch(entry) && isLocked(entry);
         }
         // An explicit per-chat lock is a deliberate user override: the collection
         // is eligible regardless of ownership AND regardless of whether its
@@ -1092,7 +1071,7 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
 /**
  * Resolve the EventBase collection that ingestion may WRITE to for this chat.
  *
- * Same resolution as {@link resolveActiveEventBaseCollection} with two extra
+ * Same resolution as {@link resolveActiveEventBaseCollection} with three extra
  * requirements:
  *   - The collection's embedded chat UUID must match; a foreign lock is not
  *     enough. A lock is a read-side sharing mechanism (lock an older chat's
@@ -1105,10 +1084,12 @@ export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUu
  *   - The collection must be registered on the current `vector_backend`. Write
  *     callers send the bare ID to the current backend, so a collection from the
  *     other backend would be re-created there under the wrong backend's name.
+ *   - The collection must be locked to the chat: a chat uses one of its own
+ *     collections at a time, and with none locked nothing is written (D6).
  *
- * Returns null when this chat has no collection of its own on the current
- * backend yet; the caller is expected to fall back to `buildEventBaseCollectionId`
- * and create one.
+ * Returns null when no collection of this chat is locked to it on the current backend: on its first read,
+ * resolveEventBaseRunTarget (eventbase-chat-collections.js) builds its first collection; with collections but none
+ * locked, a run asks which one to use and auto-sync passes the chat by.
  *
  * @param {object} settings - extension_settings.vectfox
  * @param {string} [chatUUID] - defaults to the current chat's UUID

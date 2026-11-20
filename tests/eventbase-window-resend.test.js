@@ -45,6 +45,16 @@ vi.mock('../src/features/eventbase/eventbase-extractor.js', () => ({
     }),
 }));
 vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generationRateLimiter: { execute: (run) => run() }, generationRateLimitSettings: () => ({}) }));
+// The chat's collections: the run's collection is put in use in the chat (eventbase-collection-in-use.test.js holds the rule).
+vi.mock('../src/features/eventbase/eventbase-chat-collections.js', async () => {
+    const { setCollectionMeta } = await import('../src/features/collections/collection-metadata.js');
+    return {
+        NONE_IN_USE_TEXT: 'No collection of this chat is locked to it, so EventBase writes nothing here.',
+        chatOwnCollections: () => [], resolveEventBaseRunTarget: () => null,
+        // In use in the chat: scoped to chats, as the real one leaves it.
+        useChatCollection: vi.fn(registryKey => setCollectionMeta(registryKey, { scope: 'chat' })),
+    };
+});
 vi.mock('../src/features/eventbase/eventbase-store.js', async (importOriginal) => ({
     ...(await importOriginal()),
     insertEvents: vi.fn(async (events) => { state.points.push(...events); }),
