@@ -450,7 +450,7 @@ export function cleanupTestCollections(isTestCollection) {
  * @param {string} collectionId Bare collection identifier
  * @param {string} registryKey "backend:id" form — the key collection metadata
  *   (including a user-set displayName from Rename) is stored under
- * @param {object} metadata Parsed collection metadata
+ * @param {{type: string, rawId: string, chatUUID: string|null}} metadata Parsed collection metadata
  * @returns {string} Human-readable name
  */
 function getCollectionDisplayName(collectionId, registryKey, metadata) {
@@ -479,13 +479,12 @@ function getCollectionDisplayName(collectionId, registryKey, metadata) {
                 return `💬 Chat: ${character.name}`;
             }
 
-              // Fallback: extract character name from rawId if it follows pattern: charName_uuid
-            // Format: assistant_503c1099-b769-41e7-8e15-0d652cd6d1b4
-            const underscoreIndex = chatId.lastIndexOf('_');
-            if (underscoreIndex > 0) {
-                // Extract everything before the last underscore (the character name)
-                const charName = chatId.substring(0, underscoreIndex);
-                return `💬 Chat: ${charName}`;
+            // Fallback: the ID before the chat's UUID, "qdrant_rabbit_assistant" of
+            // "qdrant_rabbit_assistant_503c1099-b769-41e7-8e15-0d652cd6d1b4", the same for the chat's later collections,
+            // which end in the time each was made; with no chat UUID in the ID, the ID before its last underscore.
+            const nameEnd = metadata.chatUUID ? chatId.lastIndexOf(`_${metadata.chatUUID}`) : chatId.lastIndexOf('_');
+            if (nameEnd > 0) {
+                return `💬 Chat: ${chatId.substring(0, nameEnd)}`;
             }
 
             // Final fallback to just the ID
@@ -996,6 +995,7 @@ export async function loadAllCollections(settings, autoDiscover = true) {
                 type: storedMeta.contentType || parsedMeta.type,
                 scope: storedMeta.scope,
                 rawId: parsedMeta.rawId,
+                chatUUID: parsedMeta.chatUUID,
             };
             log.trace(`VectFox:   Type: ${metadata.type}, Scope: ${metadata.scope}${storedMeta.contentType ? ' (from stored meta)' : ' (parsed from ID)'}`);
 

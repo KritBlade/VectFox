@@ -4,6 +4,7 @@
  * §2.4 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
  *   - a chat with one collection: each store's entry becomes its part of the pointer
  *   - a chat with collections on two backends and under two personas: each gets the same pointer, as they shared it
+ *   - a chat's later collection, whose ID ends in the time it was made after the UUID, gets the chat's pointer too
  *   - an archive collection gets the entries of its archive UUID
  *   - an entry no collection holds is dropped, and the five stores are deleted
  *   - a collection that already has a pointer keeps it
@@ -12,9 +13,14 @@
  *   - an empty registry leaves the stores for the next start
  *   - a second run changes nothing, and settings with no stores are a no-op
  *
- * The migration is pure: it changes only the settings it is handed, so this file needs no module mocks.
+ * The migration changes only the settings it is handed. It reads each collection's chat UUID through the real ID
+ * module (parseCollectionId), whose SillyTavern host modules are stubbed, as in collection-id-handle-remap.test.js.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ name1: 'Wren' })) }));
+vi.mock('../../../../../script.js', () => ({ getCurrentChatId: vi.fn(() => null), chat_metadata: {} }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: new Proxy({}, { get: () => () => {} }) }));
 import {
     EVENTBASE_PROGRESS_STORES,
     migration_eventbase_progress_into_collections,
@@ -84,6 +90,17 @@ describe('the one-time copy of EventBase pointers into the collections', () => {
         expect(settings.collections[TIDES_OTHER_PERSONA_KEY]).toEqual({ eventbaseProgress: tidesPointer });
         // Each gets its own copy, so writing one never reaches the other.
         expect(settings.collections[TIDES_QDRANT_KEY].eventbaseProgress).not.toBe(settings.collections[TIDES_OTHER_PERSONA_KEY].eventbaseProgress);
+    });
+
+    it("gives a chat's later collection the chat's pointer too, as its ID holds the chat's UUID", () => {
+        const harborLaterKey = `${HARBOR_KEY}_mh3k2x1a`;
+        const settings = settingsBeforeTheCopy();
+        settings.vectfox_collection_registry.push(harborLaterKey);
+
+        migration_eventbase_progress_into_collections(settings);
+
+        expect(settings.collections[harborLaterKey]).toEqual({ eventbaseProgress: settings.collections[HARBOR_KEY].eventbaseProgress });
+        expect(settings.collections[harborLaterKey].eventbaseProgress).not.toBe(settings.collections[HARBOR_KEY].eventbaseProgress);
     });
 
     it('keeps the pointer of a collection that already has one', () => {

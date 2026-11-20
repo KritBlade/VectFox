@@ -15,8 +15,8 @@
  *   eventbase_autosync_start_marker  → autoSyncStartMarker
  *   eventbase_last_used_window_size  → windowSize
  * Each chat's entries go onto every EventBase and archive collection in the
- * registry whose chat UUID is the entry's key, as the orphan sweep this replaces
- * read it (the ID's last segment), and whose record has no pointer yet. The
+ * registry whose chat UUID, as parseCollectionId reads it, is the entry's key,
+ * and whose record has no pointer yet. The
  * window size is the number of messages in the first window on the chat's record,
  * the size Vectorize read it with; the stored size only when the record holds no
  * window, and the Vectorize dialog's Window size when there is neither. An entry
@@ -27,6 +27,8 @@
  * ============================================================================
  */
 
+import { parseCollectionId, parseRegistryKey } from '../shared/collection-ids.js';
+
 /** Each store of a chat's pointer, keyed by the chat's UUID, and the part of the pointer it becomes. */
 export const EVENTBASE_PROGRESS_STORES = Object.freeze({
     eventbase_vectorization_tip: 'vectorizationTip',
@@ -36,23 +38,11 @@ export const EVENTBASE_PROGRESS_STORES = Object.freeze({
     eventbase_last_used_window_size: 'windowSize',
 });
 
-const EVENTBASE_PREFIX = 'vf_eventbase_';
-const ARCHIVE_EVENT_PREFIX = 'vf_archiveevent_';
-const KNOWN_BACKENDS = ['standard', 'vectra', 'qdrant'];
-
-/** A registry entry's bare collection ID: entries are "backend:id", or a bare ID from older versions. */
-function collectionIdOf(registryKey) {
-    const separator = registryKey.indexOf(':');
-    return separator > 0 && KNOWN_BACKENDS.includes(registryKey.slice(0, separator)) ? registryKey.slice(separator + 1) : registryKey;
-}
-
-/** The chat UUID an EventBase or archive collection's ID ends in, or null for any other collection. */
-function chatUUIDOf(registryKey) {
-    const collectionId = collectionIdOf(registryKey);
-    const prefix = [EVENTBASE_PREFIX, ARCHIVE_EVENT_PREFIX].find(candidate => collectionId.startsWith(candidate));
-    if (!prefix) return null;
-    return collectionId.slice(prefix.length).split('_').pop() || null;
-}
+/**
+ * The chat UUID an EventBase or archive collection's ID holds, a registry entry being "backend:id" or a bare ID from
+ * older versions; null for any other collection.
+ */
+const chatUUIDOf = registryKey => parseCollectionId(parseRegistryKey(registryKey).collectionId).chatUUID;
 
 /** Whether a record holds any part of a pointer. */
 const hasPointer = record => Boolean(record?.eventbaseProgress) && Object.keys(record.eventbaseProgress).length > 0;

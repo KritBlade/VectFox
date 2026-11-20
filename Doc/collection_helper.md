@@ -466,7 +466,10 @@ The pointer's `windowSize`: the window size of the last ingestion run that extra
 **A chat UUID can map to MULTIPLE EventBase collections** — one per persona/handle
 (`name1`), plus imported archives registered under a different name. Code that
 assumes one collection per backend reads a stale import instead of the active
-collection; the **lock** says which one is active.
+collection; the **lock** says which one is active. An EventBase ID can end in a
+suffix after the UUID, the time a later collection of the chat was made
+(`…_{chatUUID}_mh3k2x1a`), so read the UUID an ID holds with
+`parseCollectionId(id).chatUUID`, never by the ID's end or its last segment.
 
 | Function | File | Use when |
 |---|---|---|

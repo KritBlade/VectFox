@@ -405,6 +405,26 @@ export function buildArchiveEventCollectionId({ filenameCharName, archiveUUID, b
 // COLLECTION ID PARSER
 // ============================================================================
 
+// A chat's integrity UUID as SillyTavern makes it: 36 characters, five groups of hex digits joined by hyphens.
+const UUID_FORM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The chat UUID an EventBase or archive collection's ID holds, read from the ID after its prefix: its last segment, or
+ * the one before it when that has a UUID's form and the last has not, as a later collection of a chat ends in the time
+ * it was made (`…_{chatUUID}_mh3k2x1a`, §2.5 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). A
+ * chat whose UUID is its file name (getChatUUID's fallback, for a chat with no integrity UUID, which SillyTavern gives
+ * every chat it loads) gives the ID's last segment, all of the file name only when the name holds no underscore.
+ * @param {string} rawId - The ID after its prefix
+ * @returns {string|null}
+ */
+function chatUUIDOfRawId(rawId) {
+    const segments = rawId.split('_');
+    const last = segments[segments.length - 1];
+    const beforeLast = segments.length > 1 ? segments[segments.length - 2] : '';
+    if (UUID_FORM.test(beforeLast) && !UUID_FORM.test(last)) return beforeLast;
+    return last || null;
+}
+
 /**
  * Parses any collection ID format and returns structured info
  * Handles all legacy and current formats.
@@ -415,8 +435,12 @@ export function buildArchiveEventCollectionId({ filenameCharName, archiveUUID, b
  *   - anything else → 'unknown' (sentinel; `getEffectiveScope` falls through
  *     to its 'character' default)
  *
+ * `chatUUID` is the chat UUID an EventBase collection's ID holds, the same for the chat's first collection and its
+ * later ones (chatUUIDOfRawId), or the archive UUID of an archive collection; null for every other collection. Every
+ * reader of a chat's UUID in an ID asks it here.
+ *
  * @param {string} collectionId Collection ID to parse
- * @returns {{type: string, rawId: string, scope: string, format: string}} Parsed info
+ * @returns {{type: string, rawId: string, scope: string, format: string, chatUUID: string|null}} Parsed info
  */
 export function parseCollectionId(collectionId) {
     if (!collectionId || typeof collectionId !== 'string') {
@@ -425,6 +449,7 @@ export function parseCollectionId(collectionId) {
             rawId: 'unknown',
             scope: COLLECTION_SCOPES.UNKNOWN,
             format: 'invalid',
+            chatUUID: null,
         };
     }
 
@@ -435,16 +460,19 @@ export function parseCollectionId(collectionId) {
             rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_LOREBOOK, ''),
             scope: COLLECTION_SCOPES.CHARACTER,
             format: 'vectfox',
+            chatUUID: null,
         };
     }
 
     // VectFox eventbase format: vf_eventbase_*
     if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) {
+        const rawId = collectionId.replace(COLLECTION_PREFIXES.VECTFOX_EVENTBASE, '');
         return {
             type: COLLECTION_TYPES.CHAT,
-            rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_EVENTBASE, ''),
+            rawId,
             scope: COLLECTION_SCOPES.CHAT,
             format: 'vectfox',
+            chatUUID: chatUUIDOfRawId(rawId),
         };
     }
 
@@ -452,11 +480,13 @@ export function parseCollectionId(collectionId) {
     // Scope is 'chat' to match getEffectiveScope's documented behavior — archive
     // event collections hold chat-shaped events and belong to the chat scope.
     if (collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) {
+        const rawId = collectionId.replace(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT, '');
         return {
             type: COLLECTION_TYPES.ARCHIVE_EVENT,
-            rawId: collectionId.replace(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT, ''),
+            rawId,
             scope: COLLECTION_SCOPES.CHAT,
             format: 'vectfox',
+            chatUUID: chatUUIDOfRawId(rawId),
         };
     }
 
@@ -466,6 +496,7 @@ export function parseCollectionId(collectionId) {
         rawId: collectionId,
         scope: COLLECTION_SCOPES.UNKNOWN,
         format: 'unknown',
+        chatUUID: null,
     };
 }
 

@@ -12,7 +12,7 @@ import { insertVectorItems, deleteVectorItems, updateChunkMetadata, qdrantTarget
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
-import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, COLLECTION_PREFIXES, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../../shared/collection-ids.js';
+import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../../shared/collection-ids.js';
 import {
     registerCollection,
     getCollectionRegistry,
@@ -889,7 +889,8 @@ export function resolveEventBaseRunTarget(settings, chatUUID) {
 }
 
 /**
- * Find every EventBase collection registered for the given chat UUID.
+ * Find every EventBase collection registered for the given chat UUID: each whose ID holds it, as parseCollectionId
+ * reads it, so the chat's later collections are found beside its first.
  *
  * The registry — not `buildEventBaseCollectionId` — is the source of truth for
  * which collection holds a chat's data. The collection ID embeds a sanitized
@@ -919,7 +920,7 @@ export function findEventBaseCollectionsForChat(uuid, preferredBackend) {
         const parsed = parseRegistryKey(registryKey);
         const colId = parsed.collectionId;
         if (!colId?.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) continue;
-        if (!colId.endsWith(uuid)) continue;
+        if (parseCollectionId(colId).chatUUID !== uuid) continue;
         matches.push({ registryKey, collectionId: colId, backend: parsed.backend });
     }
 

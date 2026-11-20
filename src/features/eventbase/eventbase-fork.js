@@ -14,7 +14,7 @@
  */
 
 import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
-import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseRegistryKey, COLLECTION_PREFIXES } from '../../shared/collection-ids.js';
+import { getChatUUID, buildEventBaseCollectionId, buildRegistryKey, getRegistryBackend, parseCollectionId, parseRegistryKey, COLLECTION_PREFIXES } from '../../shared/collection-ids.js';
 import {
     getCollectionListing,
     getCollectionMeta,
@@ -79,11 +79,13 @@ export async function findEventBaseForkSource(settings) {
         .filter(m => m.mes && m.mes.trim().length > 0);
     const branchHashes = messages.map(hashSourceMessage);
     const backend = getRegistryBackend(settings?.vector_backend);
+    // An EventBase collection of a chat other than this one, its first or a later one.
+    const isOtherChatsEventBase = collectionId => collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)
+        && parseCollectionId(collectionId).chatUUID !== chatUUID;
 
     const parentChatId = context.chatMetadata.main_chat;
     const candidates = getCollectionListing(settings)
-        .filter(entry => entry.isOwn && entry.backend === backend
-            && entry.collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE) && !entry.collectionId.endsWith(chatUUID))
+        .filter(entry => entry.isOwn && entry.backend === backend && isOtherChatsEventBase(entry.collectionId))
         .map(entry => ({
             registryKey: entry.registryKey,
             collectionId: entry.collectionId,
@@ -105,7 +107,7 @@ export async function findEventBaseForkSource(settings) {
 
     for (const lockKey of getChatLockedCollections(chatId)) {
         const { backend: lockBackend, collectionId } = parseRegistryKey(lockKey);
-        if (!collectionId.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE) || collectionId.endsWith(chatUUID)) continue;
+        if (!isOtherChatsEventBase(collectionId)) continue;
         if (lockBackend && lockBackend !== backend) continue;
         const chunks = await fetchPortableChunks(collectionId, settings);
         const sharedPrefixLength = measureSharedPrefix(branchHashes, collectSourceMessageHashes(chunks));
