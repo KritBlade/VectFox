@@ -1,18 +1,15 @@
 /**
  * Whether a chat consumer's connection can run, and the sentence for one that cannot (connection plan §1, §3). Agent
  * Mode, StoryArc and LoreBase resolve their connections here, so manual OpenRouter and vLLM are checked in this file
- * alone and retire from it (connection plan D1). A consumer set to Disabled runs no model: it cannot run, for a reason
- * of its own.
+ * alone and retire from it (connection plan D1).
  */
 import { getCustomApiKey, getOpenRouterApiKey } from '../../shared/api-keys.js';
-import { CONNECTION_PROFILE_PROVIDER, DISABLED_PROVIDER } from '../../shared/constants.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { checkConnectionProfile } from './llm-provider-call.js';
 
 // The reason of a connection whose SillyTavern profile cannot be used; its `problem` says why and where to fix it.
 const CONNECTION_PROFILE_REASON = 'connection_profile';
 const UNKNOWN_PROVIDER_PREFIX = 'unknown_provider_';
-// The reason of a consumer whose provider is set to Disabled.
-const DISABLED_REASON = 'disabled';
 
 // What each manual-provider reason means, and where it is fixed. Every consumer shares the keys and the vLLM URL.
 const MANUAL_PROVIDER_FIXES = {
@@ -37,7 +34,6 @@ const MANUAL_PROVIDER_FIXES = {
  */
 export function resolveLlmConnection({ provider: providerName, model: modelName, vllmUrl: rawVllmUrl, connectionProfileId = '', feature, page }) {
     const provider = String(providerName ?? '').toLowerCase();
-    if (provider === DISABLED_PROVIDER) return { ok: false, reason: DISABLED_REASON };
     if (provider === CONNECTION_PROFILE_PROVIDER) {
         const check = checkConnectionProfile(connectionProfileId, { feature, page });
         if (!check.ok) return { ok: false, reason: CONNECTION_PROFILE_REASON, problem: check.reason };
@@ -105,7 +101,6 @@ export function describeConnectionProblem({ feature, page, missingModelFix, cons
     if (reason === CONNECTION_PROFILE_REASON) return `${problem} ${consequence}`;
     let fix = MANUAL_PROVIDER_FIXES[reason] ?? `its connection cannot run (${reason}). Check the ${page} page.`;
     if (reason === 'missing_model') fix = missingModelFix;
-    else if (reason === DISABLED_REASON) fix = `its provider is set to Disabled. Choose a provider on the ${page} page.`;
     else if (reason.startsWith(UNKNOWN_PROVIDER_PREFIX)) fix = `its provider "${reason.slice(UNKNOWN_PROVIDER_PREFIX.length)}" is not one VectFox knows. Pick a provider on the ${page} page.`;
     return `${feature} is on, but ${fix} ${consequence}`;
 }

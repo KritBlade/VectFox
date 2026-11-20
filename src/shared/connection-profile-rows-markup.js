@@ -12,15 +12,15 @@
  * ============================================================================
  */
 
-import { CONNECTION_PROFILE_PROVIDER, DISABLED_PROVIDER } from './constants.js';
+import { CONNECTION_PROFILE_PROVIDER } from './constants.js';
 import { controlRow, field, fieldLabel, hint, select, selectOption } from './gui-dna/gui-dna-core.js';
 import { buttonWithId } from './gui-dna/panel-page-genes.js';
 
 const HIDDEN = ' style="display:none;"';
 
 /**
- * A chat consumer's own Provider options: SillyTavern profile, then the manual OpenRouter and vLLM, then Disabled, which
- * runs no model. Every chat consumer's dropdown lists them from here, so the manual two retire here (connection plan D1).
+ * A chat consumer's own Provider options: SillyTavern profile, then the manual OpenRouter and vLLM. Every chat
+ * consumer's dropdown lists them from here, so the manual two retire here (connection plan D1).
  *
  * @returns {string[]} Option markup, for select()
  */
@@ -29,7 +29,6 @@ export function chatProviderOptions() {
         selectOption({ value: CONNECTION_PROFILE_PROVIDER, text: 'SillyTavern profile' }),
         selectOption({ value: 'openrouter', text: 'OpenRouter' }),
         selectOption({ value: 'vllm', text: 'vLLM' }),
-        selectOption({ value: DISABLED_PROVIDER, text: 'Disabled' }),
     ];
 }
 

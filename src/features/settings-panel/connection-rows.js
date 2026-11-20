@@ -4,8 +4,8 @@
  * ============================================================================
  * The Provider dropdowns of the four LLM consumers and of embedding (connection plan
  * §1, §3): what each saves, the SillyTavern profile option with the Profile dropdown
- * and readout it shows, the rows a profile supplies hidden while one is chosen and a
- * manual provider's rows hidden on Disabled too, the
+ * and readout it shows, each LLM model's Profile dropdown, Jev's included, opening on
+ * Disabled, which clears the profile, the rows a profile supplies hidden while one is chosen, the
  * profile Agent Mode takes from the EventBase model, and each card's
  * Test connection; and what LoreBase's Accuracy leaves each model to do, with Jev's
  * profile group shown on Fast and Cheap [Jev] only. The Profile dropdowns repaint when a profile is made, saved or
@@ -16,7 +16,7 @@
 import { isConnectionManagerAvailable, listConnectionProfileChoices, onConnectionProfilesChanged } from '../../sillytavern/connection-profiles.js';
 import { log } from '../../sillytavern/log.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
-import { CONNECTION_PROFILE_PROVIDER, DISABLED_PROVIDER } from '../../shared/constants.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { connectionProfileRowIds } from '../../shared/connection-profile-rows-markup.js';
 import { checkPluginAvailable } from '../../shared/similharity-plugin.js';
 import { resultList, selectOption } from '../../shared/gui-dna/gui-dna-core.js';
@@ -33,6 +33,8 @@ import { CHAT_CONSUMER_CONNECTIONS, chatProfileReadoutLines, embeddingProfileRea
 const EMBEDDING_PREFIX = 'VectFox_embedding';
 const JEV_PREFIX = 'VectFox_lorebase_jev';
 const JEV_GROUP_ID = 'VectFox_lorebase_jev_group';
+// The first choice of an LLM model's Profile dropdown: it clears the profile, so that model runs on none.
+const DISABLED_PROFILE_TEXT = 'Disabled';
 const ACCURACY_SELECT_ID = 'VectFox_lorebase_accuracy';
 // The profiles Jev runs on: OpenRouter and Custom, whose key Similharity sends only where SillyTavern does.
 const isJevProfileSource = provider => provider === 'openrouter' || provider === 'custom';
@@ -54,7 +56,7 @@ const CHAT_CONSUMERS = [
     {
         ...connectionOf('VectFox_summarize'), test: testEventBaseConnection,
         manualRows: view => [
-            [byId('VectFox_summarize_settings'), view.isOnManualProvider],
+            [byId('VectFox_summarize_settings'), !view.isOnProfile],
             [byId('VectFox_summarize_openrouter_row'), view.provider === 'openrouter'],
             [byId('VectFox_summarize_vllm_url_row'), view.provider === 'vllm'],
         ],
@@ -64,17 +66,17 @@ const CHAT_CONSUMERS = [
         manualRows: view => [
             [byId('VectFox_agentic_openrouter_row'), view.ownProvider === 'openrouter'],
             [byId('VectFox_agentic_vllm_row'), view.ownProvider === 'vllm'],
-            [fieldOf('VectFox_agentic_model'), view.isOnManualProvider],
-            [byId('VectFox_agentic_provider_hint'), view.isOnManualProvider],
+            [fieldOf('VectFox_agentic_model'), !view.isOnProfile],
+            [byId('VectFox_agentic_provider_hint'), !view.isOnProfile],
         ],
     },
     {
         ...connectionOf('VectFox_story_arc_link'), test: testStoryArcConnection,
-        manualRows: view => [[fieldOf('VectFox_story_arc_link_model'), view.isOnManualProvider]],
+        manualRows: view => [[fieldOf('VectFox_story_arc_link_model'), !view.isOnProfile]],
     },
     {
         ...connectionOf('VectFox_lorebase'), test: testLoreBaseConnection,
-        manualRows: view => [[fieldOf('VectFox_lorebase_model'), view.isOnManualProvider]],
+        manualRows: view => [[fieldOf('VectFox_lorebase_model'), !view.isOnProfile]],
     },
 ];
 
@@ -89,9 +91,9 @@ function profilesFor(isManagerAvailable, offer) {
     return listConnectionProfileChoices().map(choice => ({ ...choice, isOffered: offer(choice) }));
 }
 
-function paintProfileSelect(select, { profiles, selectedId, isManagerAvailable }) {
+function paintProfileSelect(select, { profiles, selectedId, isManagerAvailable, pickableEmptyText = '' }) {
     if (!select) return;
-    const options = profileSelectOptions({ profiles, selectedId, isManagerAvailable });
+    const options = profileSelectOptions({ profiles, selectedId, isManagerAvailable, pickableEmptyText });
     select.innerHTML = options.map(({ value, text, name, isSelected }) => selectOption({ value, text, name, isSelected })).join('');
     options.forEach(({ isDisabled }, index) => { select.options[index].disabled = isDisabled; });
     select.selectedIndex = Math.max(0, options.findIndex(option => option.isSelected));
@@ -103,16 +105,14 @@ function paintReadout(element, lines) {
 
 /**
  * How a chat consumer runs: the provider its own dropdown holds and the one it runs on, Same as EventBase model
- * resolved; whether that is its own profile or the EventBase model's; and whether it is a manual provider, whose model
- * and URL rows show, which neither a profile nor Disabled is.
+ * resolved, and whether that is its own profile or the EventBase model's.
  */
 function chatConsumerView(consumer, settings) {
     const ownProvider = ownProviderOf(consumer, settings);
     const provider = consumer.inheritsEventBase ? resolveInheritedConnection({ provider: ownProvider }, settings).provider : ownProvider;
     const isOwnProfile = ownProvider === CONNECTION_PROFILE_PROVIDER;
     const isOnProfile = provider === CONNECTION_PROFILE_PROVIDER;
-    const isOnManualProvider = !isOnProfile && provider !== DISABLED_PROVIDER;
-    return { ownProvider, provider, isOwnProfile, isOnProfile, isOnManualProvider, isInheritedProfile: isOnProfile && !isOwnProfile };
+    return { ownProvider, provider, isOwnProfile, isOnProfile, isInheritedProfile: isOnProfile && !isOwnProfile };
 }
 
 function refreshChatConsumer(consumer, settings, isManagerAvailable) {
@@ -123,7 +123,7 @@ function refreshChatConsumer(consumer, settings, isManagerAvailable) {
     if (view.isOwnProfile) {
         const selectedId = textOf(settings[consumer.profileKey]);
         const profiles = profilesFor(isManagerAvailable, choice => choice.isSupported);
-        paintProfileSelect(byId(ids.select), { profiles, selectedId, isManagerAvailable });
+        paintProfileSelect(byId(ids.select), { profiles, selectedId, isManagerAvailable, pickableEmptyText: DISABLED_PROFILE_TEXT });
         const description = describeChatConnectionProfile(selectedId, { feature: consumer.feature, page: consumer.page });
         paintReadout(byId(ids.readout), chatProfileReadoutLines(description));
     }
@@ -173,8 +173,9 @@ function refreshEmbedding(choice, settings, isManagerAvailable) {
 
 /**
  * Show what LoreBase's Accuracy leaves each model to do: on High Accuracy its own model's Keys and picks; on Fast and
- * Cheap [Jev] (plan D16) its own model's Keys and Jev's group, offering the OpenRouter and Custom profiles, with what
- * keeps the chosen one from running. Jev's group shows on Fast and Cheap [Jev] only.
+ * Cheap [Jev] (plan D16) its own model's Keys and Jev's group, offering Disabled, which clears Jev's profile, then the
+ * OpenRouter and Custom profiles, with what keeps the chosen one from running. Jev's group shows on Fast and Cheap [Jev]
+ * only.
  * @param {object} settings
  * @param {boolean} isManagerAvailable
  * @param {string} accuracy - The dropdown's choice: the saved one, or the one just picked, which another listener saves
@@ -188,7 +189,9 @@ function refreshAccuracyRows(settings, isManagerAvailable, accuracy) {
     setShown(byId(ids.rows), isFastAndCheap);
     if (!isFastAndCheap) return;
     const profiles = profilesFor(isManagerAvailable, choice => isJevProfileSource(choice.embeddingProvider));
-    paintProfileSelect(byId(ids.select), { profiles, selectedId: textOf(settings[JEV_PROFILE_SETTING]), isManagerAvailable });
+    paintProfileSelect(byId(ids.select), {
+        profiles, selectedId: textOf(settings[JEV_PROFILE_SETTING]), isManagerAvailable, pickableEmptyText: DISABLED_PROFILE_TEXT,
+    });
     const connection = resolveJevConnection(settings);
     paintReadout(byId(ids.readout), connection.ok ? [] : [{ status: 'warning', name: connection.problem }]);
 }

@@ -3,16 +3,16 @@
  *
  * The Provider dropdowns of the EventBase model, Agent Mode, StoryArc, LoreBase and embedding, on their real page
  * markup (src/features/settings-panel/connection-rows.js, connection plan §1 and §3): each offers a SillyTavern
- * profile first, after Same as EventBase model where it has that, and each LLM consumer's offers Disabled last, which
- * hides its manual rows and its Profile rows; choosing a profile shows a Profile dropdown of the profiles
- * SillyTavern can use and a readout, and hides the rows a profile supplies; a deleted profile and the Connection
+ * profile first, after Same as EventBase model where it has that; choosing it shows a Profile dropdown of the profiles
+ * SillyTavern can use, under Disabled on an LLM model's, which clears the profile, and Choose a profile on embedding's,
+ * which cannot be picked, and a readout, and hides the rows a profile supplies; a deleted profile and the Connection
  * Manager switched off say so in the dropdown; the dropdowns repaint when SillyTavern makes, saves or deletes a profile;
  * Agent Mode on Same as EventBase model names the EventBase model's profile; embedding never stores the profile option
  * itself, opens on it for a new install's Custom type with no profile, choosing a profile stores its ID and type, and
  * its readout is drawn again once the Similharity probe settles; each Test connection runs its feature's test on the
  * panel's settings and reports the answer, a cut the provider made included; LoreBase's Jev profile row shows only on
- * Fast and Cheap [Jev], offers only OpenRouter and Custom profiles, saves the choice and says what keeps it from
- * running; a value the Accuracy dropdown no longer offers opens as High Accuracy.
+ * Fast and Cheap [Jev], offers Disabled, then only OpenRouter and Custom profiles, saves the choice and says what keeps
+ * it from running; a value the Accuracy dropdown no longer offers opens as High Accuracy.
  */
 /* global document, toastr -- this file runs under the jsdom environment, and stubs SillyTavern's toastr per test */
 
@@ -147,33 +147,12 @@ describe('a chat consumer\'s Provider dropdown', () => {
     it('lists SillyTavern profile first on all five dropdowns, after Same as EventBase model on Agent Mode\'s, the one that has it', () => {
         mount(baseSettings());
         const valuesOf = id => optionsOf(id).map(option => option.value);
-        expect(valuesOf('VectFox_summarize_provider')).toEqual(['connection_profile', 'openrouter', 'vllm', 'disabled']);
-        expect(valuesOf('VectFox_story_arc_link_provider')).toEqual(['connection_profile', 'openrouter', 'vllm', 'disabled']);
-        expect(valuesOf('VectFox_lorebase_provider')).toEqual(['connection_profile', 'openrouter', 'vllm', 'disabled']);
+        expect(valuesOf('VectFox_summarize_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
+        expect(valuesOf('VectFox_story_arc_link_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
+        expect(valuesOf('VectFox_lorebase_provider')).toEqual(['connection_profile', 'openrouter', 'vllm']);
         expect(valuesOf('VectFox_source')).toEqual(['connection_profile', 'transformers', 'ollama', 'openrouter', 'vllm']);
-        expect(valuesOf('VectFox_agentic_provider')).toEqual(['', 'connection_profile', 'openrouter', 'vllm', 'disabled']);
+        expect(valuesOf('VectFox_agentic_provider')).toEqual(['', 'connection_profile', 'openrouter', 'vllm']);
         expect(PROVIDER_SELECTS.map(id => optionsOf(id).find(option => option.value === 'connection_profile').text)).toEqual(Array(5).fill('SillyTavern profile'));
-        expect(PROVIDER_SELECTS.slice(0, 4).map(id => optionsOf(id).at(-1).text)).toEqual(Array(4).fill('Disabled'));
-    });
-
-    it("saves Disabled on each LLM consumer, hiding its model, its manual rows and its Profile rows, and Agent Mode's on Same as EventBase model too", () => {
-        const settings = mount({ ...baseSettings(), chat_provider: 'vllm', agent_provider: '' });
-        for (const id of PROVIDER_SELECTS.slice(0, 4)) choose(id, 'disabled');
-        expect(settings).toMatchObject({ chat_provider: 'disabled', agent_provider: 'disabled', story_arc_link_provider: 'disabled', lorebase_provider: 'disabled' });
-        expect(isShown(element('VectFox_summarize_settings'))).toBe(false);
-        expect(isShown(element('VectFox_summarize_vllm_url_row'))).toBe(false);
-        for (const prefix of ['VectFox_summarize', 'VectFox_agentic', 'VectFox_story_arc_link', 'VectFox_lorebase']) {
-            expect(isShown(element(`${prefix}_connection_profile_rows`))).toBe(false);
-        }
-        for (const model of ['VectFox_agentic_model', 'VectFox_story_arc_link_model', 'VectFox_lorebase_model']) expect(isFieldShown(model)).toBe(false);
-        expect(isShown(element('VectFox_agentic_provider_hint'))).toBe(false);
-
-        // Agent Mode on Same as EventBase model runs on the EventBase model's Disabled.
-        choose('VectFox_agentic_provider', '');
-        expect(isFieldShown('VectFox_agentic_model')).toBe(false);
-        expect(isShown(element('VectFox_agentic_inherited_profile_readout'))).toBe(false);
-        choose('VectFox_summarize_provider', 'openrouter');
-        expect(isFieldShown('VectFox_agentic_model')).toBe(true);
     });
 
     it('shows the Profile rows on the EventBase model in place of its model, key and URL', () => {
@@ -189,10 +168,10 @@ describe('a chat consumer\'s Provider dropdown', () => {
         expect(isShown(element('VectFox_summarize_connection_profile_rows'))).toBe(true);
     });
 
-    it('lists the profiles SillyTavern can send on, in its order, under a Choose a profile that cannot be picked; a choice is saved and read out', () => {
+    it('lists the profiles SillyTavern can send on, in its order, under a Disabled that clears the profile; a choice is saved and read out', () => {
         const settings = mount({ ...baseSettings(), chat_provider: 'connection_profile' });
         expect(optionsOf('VectFox_summarize_connection_profile')).toEqual([
-            { value: '', text: 'Choose a profile', isDisabled: true, isSelected: true },
+            { value: '', text: 'Disabled', isDisabled: false, isSelected: true },
             { value: 'p-harbor', text: 'Harbor', isDisabled: false, isSelected: false },
             { value: 'p-lantern', text: 'Lantern', isDisabled: false, isSelected: false },
             { value: 'p-meadow', text: 'Meadow', isDisabled: false, isSelected: false },
@@ -206,12 +185,34 @@ describe('a chat consumer\'s Provider dropdown', () => {
 
         choose('VectFox_summarize_connection_profile', 'p-harbor');
         expect(linesOf('VectFox_summarize_connection_profile_readout')).toEqual(['API: openrouter', 'Model: harbor/chat-model']);
+
+        // Disabled clears the profile: the state with none chosen, read out as such.
+        choose('VectFox_summarize_connection_profile', '');
+        expect(settings.chat_connection_profile_id).toBe('');
+        expect(optionsOf('VectFox_summarize_connection_profile')[0]).toEqual({ value: '', text: 'Disabled', isDisabled: false, isSelected: true });
+        expect(linesOf('VectFox_summarize_connection_profile_readout')).toEqual(['EventBase: no connection profile is chosen. Choose one on the Core page.']);
+    });
+
+    it('opens the Profile dropdown of Agent Mode, StoryArc and LoreBase on Disabled too, and picking it clears each profile', () => {
+        const settings = mount({
+            ...baseSettings(), agent_provider: 'connection_profile', agent_connection_profile_id: 'p-harbor', story_arc_link_provider: 'connection_profile',
+            story_arc_link_connection_profile_id: 'p-harbor', lorebase_provider: 'connection_profile', lorebase_connection_profile_id: 'p-harbor',
+        });
+        for (const [prefix, key] of [
+            ['VectFox_agentic', 'agent_connection_profile_id'], ['VectFox_story_arc_link', 'story_arc_link_connection_profile_id'],
+            ['VectFox_lorebase', 'lorebase_connection_profile_id'],
+        ]) {
+            expect(optionsOf(`${prefix}_connection_profile`)[0]).toEqual({ value: '', text: 'Disabled', isDisabled: false, isSelected: false });
+            choose(`${prefix}_connection_profile`, '');
+            expect(settings[key]).toBe('');
+        }
+        expect(linesOf('VectFox_lorebase_connection_profile_readout')).toEqual(['LoreBase: no connection profile is chosen. Choose one on the WorldInfo page.']);
     });
 
     it('shows a deleted profile as a selected "(deleted profile)" that cannot be picked, never a blank, and says why it cannot run', () => {
         mount({ ...baseSettings(), chat_provider: 'connection_profile', chat_connection_profile_id: 'p-gone' });
         expect(optionsOf('VectFox_summarize_connection_profile').slice(0, 2)).toEqual([
-            { value: '', text: 'Choose a profile', isDisabled: true, isSelected: false },
+            { value: '', text: 'Disabled', isDisabled: false, isSelected: false },
             { value: 'p-gone', text: '(deleted profile)', isDisabled: true, isSelected: true },
         ]);
         expect(linesOf('VectFox_summarize_connection_profile_readout')).toEqual(['EventBase: its connection profile was deleted in SillyTavern. Choose another on the Core page.']);
@@ -324,11 +325,17 @@ describe("LoreBase's Accuracy rows and Jev's profile (Fast and Cheap [Jev], D16)
 
         choose('VectFox_lorebase_accuracy', 'fast');
         expect(shownRows()).toEqual({ picks: false, keys: true, jev: true });
-        expect(optionsOf(JEV_SELECT).filter(option => !option.isDisabled).map(option => option.value)).toEqual(['p-harbor', 'p-lantern']);
+        expect(optionsOf(JEV_SELECT).filter(option => !option.isDisabled).map(option => option.value)).toEqual(['', 'p-harbor', 'p-lantern']);
 
         choose(JEV_SELECT, 'p-lantern');
         expect(settings.lorebase_jev_connection_profile_id).toBe('p-lantern');
         expect(host.saveSettingsDebounced).toHaveBeenCalled();
+
+        // Disabled comes first, can be picked, and clears Jev's profile.
+        expect(optionsOf(JEV_SELECT)[0]).toEqual({ value: '', text: 'Disabled', isDisabled: false, isSelected: false });
+        choose(JEV_SELECT, '');
+        expect(settings.lorebase_jev_connection_profile_id).toBe('');
+        expect(optionsOf(JEV_SELECT)[0]).toEqual({ value: '', text: 'Disabled', isDisabled: false, isSelected: true });
 
         choose('VectFox_lorebase_accuracy', 'high');
         expect(shownRows()).toEqual({ picks: true, keys: false, jev: false });

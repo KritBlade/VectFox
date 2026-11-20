@@ -15,7 +15,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { closePanelPopup, confirmPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { log } from '../../sillytavern/log.js';
 import { validateLLMConfig } from '../llm-provider/index.js';
-import { CONNECTION_PROFILE_PROVIDER, DISABLED_PROVIDER } from '../../shared/constants.js';
+import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { buildArchiveEventCollectionId, buildRegistryKey, getChatUUID } from '../../shared/collection-ids.js';
 import { chooseCleaningPreset, cleaningPresetChoices, getCleaningSettings, openTextCleaningDialog } from '../text-cleaning/index.js';
@@ -222,9 +222,8 @@ function hasLlmConfig() {
         hasVllmUrl: !!settings.chat_vllm_url,
     });
     const check = validateLLMConfig(settings);
-    // A profile's reason, and Disabled's, already name where to fix it.
-    const isFixNamed = isOnProfile || settings.chat_provider === DISABLED_PROVIDER;
-    const where = isFixNamed ? '' : ' Open VectFox → Core → EventBase model and fill in the required fields.';
+    // A profile's reason already names where to fix it.
+    const where = isOnProfile ? '' : ' Open VectFox → Core → EventBase model and fill in the required fields.';
     // Sticky, as every run fails the same way until the user fixes it.
     if (!check.ok) toastr.error(`${check.reason}${where}`, 'Configuration required', { timeOut: 0, extendedTimeOut: 0 });
     return check.ok;

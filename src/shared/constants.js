@@ -96,12 +96,6 @@ export const AGENTIC_MAX_TOKENS_MAX = 32000;
  */
 export const CONNECTION_PROFILE_PROVIDER = 'connection_profile';
 
-/**
- * The provider value of a chat consumer set to Disabled: it runs no model, and whatever needs one fails with the
- * consumer's setup problem, as with no profile chosen.
- */
-export const DISABLED_PROVIDER = 'disabled';
-
 // =============================================================================
 // RETRY CONFIGURATION
 // =============================================================================

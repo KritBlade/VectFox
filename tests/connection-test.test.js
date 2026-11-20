@@ -86,8 +86,6 @@ describe('the EventBase model\'s Test connection', () => {
             .rejects.toThrow('EventBase: No model configured. Set the Model in Core → EventBase model.');
         await expect(testEventBaseConnection({ chat_provider: 'cohere' }))
             .rejects.toThrow('EventBase: provider "cohere" is not one VectFox knows. Choose one in Core → EventBase model.');
-        await expect(testEventBaseConnection({ chat_provider: 'disabled', chat_model: 'm' }))
-            .rejects.toThrow('EventBase: its provider is set to Disabled. Choose a provider in Core → EventBase model.');
         expect(provider.calls).toEqual([]);
     });
 });

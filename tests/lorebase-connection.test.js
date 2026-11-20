@@ -71,11 +71,6 @@ describe("LoreBase's connection", () => {
         expect(describeLoreBaseConnectionProblem(noKey.reason)).toBe(
             `LoreBase is on, but it runs on OpenRouter and no OpenRouter key is saved. Enter the key on the AgentMode or Core page. ${CONSEQUENCE}`);
 
-        const disabled = resolveLoreBaseLlmConfig({ lorebase_provider: 'disabled', lorebase_model: 'openai/gpt-6-luna' });
-        expect(disabled).toEqual({ ok: false, reason: 'disabled' });
-        expect(describeLoreBaseConnectionProblem(disabled.reason)).toBe(
-            `LoreBase is on, but its provider is set to Disabled. Choose a provider on the WorldInfo page. ${CONSEQUENCE}`);
-
         checkConnectionProfileMock.mockReturnValue({ ok: false, reason: 'LoreBase: its connection profile was deleted in SillyTavern. Choose another on the WorldInfo page.' });
         const deleted = resolveLoreBaseLlmConfig({ lorebase_provider: 'connection_profile', lorebase_connection_profile_id: 'p-gone' });
         expect(describeLoreBaseConnectionProblem(deleted.reason, deleted.problem)).toBe(

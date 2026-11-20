@@ -52,25 +52,30 @@ const MANAGER_OFF_TEXT = 'Turn on Connection Manager in SillyTavern\'s extension
 const NO_KEY_TEXT = 'No key stored: none is sent';
 
 /**
- * A Profile dropdown's options. "Choose a profile" comes first and cannot be picked, so it shows only while none is
- * chosen; then the profiles offered, in SillyTavern's order. A chosen profile that is no longer offered stays selected
- * and cannot be picked again, under its name, or as "(deleted profile)" when no profile has its ID: never a silent
- * blank. With the Connection Manager off, one option says so.
+ * A Profile dropdown's options. First the empty choice: "Choose a profile", which cannot be picked, so it shows only
+ * while none is chosen; or, where `pickableEmptyText` names one, a choice that can be picked and clears the profile (a
+ * model's Disabled). Then the profiles offered, in SillyTavern's order. A chosen profile that is no longer offered stays
+ * selected and cannot be picked again, under its name, or as "(deleted profile)" when no profile has its ID: never a
+ * silent blank. With the Connection Manager off, one option says so.
  *
  * @param {object} facts
  * @param {Array<{id: string, name: string, isOffered: boolean}>} facts.profiles - Every profile, and whether this dropdown offers it
  * @param {string} facts.selectedId - The stored profile ID, '' for none
  * @param {boolean} facts.isManagerAvailable
+ * @param {string} [facts.pickableEmptyText] - The text of an empty choice that can be picked, in place of "Choose a profile"
  * @returns {Array<{value: string, text?: string, name?: string, isSelected: boolean, isDisabled: boolean}>}
  */
-export function profileSelectOptions({ profiles, selectedId, isManagerAvailable }) {
+export function profileSelectOptions({ profiles, selectedId, isManagerAvailable, pickableEmptyText = '' }) {
     if (!isManagerAvailable) return [{ value: selectedId, text: MANAGER_OFF_TEXT, isSelected: true, isDisabled: true }];
     const chosen = selectedId ? profiles.find(profile => profile.id === selectedId) : null;
     const options = profiles
         .filter(profile => profile.isOffered || profile === chosen)
         .map(profile => ({ value: profile.id, name: profile.name || '(unnamed)', isSelected: profile === chosen, isDisabled: !profile.isOffered }));
     const deleted = selectedId && !chosen ? [{ value: selectedId, text: DELETED_PROFILE_TEXT, isSelected: true, isDisabled: true }] : [];
-    return [{ value: '', text: PLACEHOLDER_TEXT, isSelected: !selectedId, isDisabled: true }, ...deleted, ...options];
+    const empty = pickableEmptyText
+        ? { value: '', text: pickableEmptyText, isSelected: !selectedId, isDisabled: false }
+        : { value: '', text: PLACEHOLDER_TEXT, isSelected: !selectedId, isDisabled: true };
+    return [empty, ...deleted, ...options];
 }
 
 /**
