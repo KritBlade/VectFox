@@ -3,8 +3,9 @@
  *
  * The settings panel's Action page (src/features/settings-panel/action-page.js), on its real markup: the master switch
  * saves, paints its pill and the other pages' notice, and redoes the startup work when it turns back on; each button
- * opens its tool; each debug switch saves its own domain or setting; Purge and Clean up delete nothing until the user
- * confirms, and a Purge whose delete fails resets nothing; the summarizer preview shows the block or why there is none.
+ * opens its tool; each debug switch saves its own domain or setting; Purge and Clean up corrupted delete nothing until
+ * the user confirms, and a Purge whose delete fails resets nothing; Clean up locks runs lock-cleanup.js
+ * (lock-cleanup.test.js); the summarizer preview shows the block or why there is none.
  */
 /* global document -- this file runs under the jsdom environment */
 
@@ -29,6 +30,7 @@ const host = vi.hoisted(() => ({
     buildSummarizerInjection: vi.fn(),
     refreshWorldInfoEntryDepthCache: vi.fn(),
     openTextCleaningDialog: vi.fn(),
+    cleanUpLocks: vi.fn(),
 }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({
@@ -49,6 +51,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     syncOpenChat: host.syncOpenChat,
 }));
 vi.mock('../src/features/text-cleaning/index.js', () => ({ openTextCleaningDialog: host.openTextCleaningDialog }));
+vi.mock('../src/features/settings-panel/lock-cleanup.js', () => ({ cleanUpLocks: host.cleanUpLocks }));
 
 const { ACTION_PAGE_ELEMENT_ID: ID, DEBUG_SWITCHES, actionPageMarkup, masterSwitchPillsMarkup } = await import('../src/features/settings-panel/action-page-markup.js');
 const { panelPageMarkup } = await import('../src/features/settings-panel/panel-shell-markup.js');
@@ -231,6 +234,13 @@ describe('Action page', () => {
         host.cleanupCorruptedCollections.mockResolvedValue({ total: 2, corruption: 1, stFile: 1, purged: [{ ok: true }, { ok: false }] });
         $(`#${ID.cleanupCorrupted}`).trigger('click');
         await vi.waitFor(() => expect(toastr.warning).toHaveBeenCalledWith(expect.stringContaining('Purged 1/2'), 'Cleanup partial'));
+    });
+
+    it('runs Clean up locks from its button in the danger zone', () => {
+        wireActionPage(settings, actions);
+        expect($(`#${ID.cleanupLocks}`).closest('.vfx-danger-zone')).toHaveLength(1);
+        $(`#${ID.cleanupLocks}`).trigger('click');
+        expect(host.cleanUpLocks).toHaveBeenCalledTimes(1);
     });
 
     it('previews the summarizer block in a read-only box, and says when the injection is off', async () => {

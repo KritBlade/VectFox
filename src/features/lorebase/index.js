@@ -19,14 +19,15 @@
 // and an entry takes part once it has its keys and vectors. The tester keeps this session's reports of each reply, the
 // search, what was picked and why, what each review kept and left out, the tokens against what SillyTavern's keys would
 // send, and the seconds, for the WorldInfo page's tester card. The folder also holds the entry splitter, which cuts the parts the
-// review numbers; the per-book record of selections, pins, locks and seen entries; LoreBase's model connection, whose
+// review numbers; the per-book record of selections, pins, locks and seen entries, whose locks on chats and characters
+// that no longer exist the Action page's Clean up locks removes; LoreBase's model connection, whose
 // Test connection the WorldInfo page runs; the first thing LoreBase's setup lacks, which the page's model card names;
 // and the start-up deletion of the old vectorized lorebook collections
 // LoreBase replaced, whose locks move to their books, with a notice naming the books. Each armed scan keeps the picks
 // its blocks carry, so the reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
-export { selectedLoreBookNames } from './lorebase-books.js';
+export { cleanUpLoreBookLocks, selectedLoreBookNames } from './lorebase-books.js';
 export { addLoreBookToChat, booksToAdd, chatBookLocks } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';

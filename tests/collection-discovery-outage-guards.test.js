@@ -185,10 +185,14 @@ describe('cleanupOrphanedMeta outage refusal', () => {
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('refused'));
     });
 
-    it('still prunes a real orphan when survivors exist, and names it in the log', () => {
+    it('still prunes a real orphan when survivors exist, its chat lock index entries with it, and names it in the log', () => {
         extension_settings.vectfox.collections = {
             [QDRANT_KEY]: { lockedToChatIds: ['chat-1'] },
-            'standard:vf_eventbase_gone_123': { name: 'deleted chat' },
+            'standard:vf_eventbase_gone_123': { name: 'deleted chat', lockedToChatIds: ['chat-1', 'chat-2'] },
+        };
+        extension_settings.vectfox.chat_lock_index = {
+            'chat-1': [QDRANT_KEY, 'standard:vf_eventbase_gone_123'],
+            'chat-2': ['standard:vf_eventbase_gone_123'],
         };
 
         const result = cleanupOrphanedMeta([QDRANT_KEY]);
@@ -198,6 +202,7 @@ describe('cleanupOrphanedMeta outage refusal', () => {
         expect(result.orphanedIds).toEqual(['standard:vf_eventbase_gone_123']);
         expect(extension_settings.vectfox.collections[QDRANT_KEY]).toBeDefined();
         expect(extension_settings.vectfox.collections['standard:vf_eventbase_gone_123']).toBeUndefined();
+        expect(extension_settings.vectfox.chat_lock_index).toEqual({ 'chat-1': [QDRANT_KEY] });
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('standard:vf_eventbase_gone_123'));
     });
 

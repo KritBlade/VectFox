@@ -28,6 +28,7 @@ export const ACTION_PAGE_ELEMENT_ID = Object.freeze({
     debugVerbosity: 'VectFox_debug_verbosity',
     purge: 'VectFox_purge',
     cleanupCorrupted: 'VectFox_cleanup_corrupted',
+    cleanupLocks: 'VectFox_cleanup_locks',
 });
 
 /**
@@ -120,6 +121,7 @@ function storedDataDangerZone() {
         buttons: [
             { id: ID.purge, icon: 'fa-trash', text: 'Purge everything', tooltip: 'Delete SillyTavern\'s local vectors folder and reset every VectFox setting.' },
             { id: ID.cleanupCorrupted, icon: 'fa-broom', text: 'Clean up corrupted', tooltip: 'Delete the collections VectFox cannot read, and SillyTavern\'s file_* collections.' },
+            { id: ID.cleanupLocks, icon: 'fa-link-slash', text: 'Clean up locks', tooltip: 'Remove the locks of collections and lorebooks on chats and characters that no longer exist, and rebuild the chat lock index.' },
         ],
     });
 }

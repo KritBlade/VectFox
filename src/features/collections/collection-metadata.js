@@ -12,6 +12,7 @@
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { parseRegistryKey, parseCollectionId } from '../../shared/collection-ids.js';
 import { log } from '../../sillytavern/log.js';
+import { chatLocksOf, planCollectionLockCleanup } from './collection-lock-cleanup-core.js';
 
 // ============================================================================
 // COLLECTION METADATA CRUD
@@ -304,6 +305,8 @@ export function cleanupOrphanedMeta(actualCollectionIds) {
 
     for (const collectionId of orphaned) {
         delete extension_settings.vectfox.collections[collectionId];
+        // Its chat locks go with it, so chat_lock_index keeps no entry for them.
+        _updateChatLockIndex(collectionId, null, '*');
         log.trace(`VectFox: Removed orphaned metadata for ${collectionId}`);
     }
 
@@ -384,12 +387,8 @@ export function setCollectionLock(collectionId, chatId) {
         update.lockedToChatId = null; // Clear old format for backward compat
     } else {
         chatId = String(chatId);
-        let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
-
-        // Migrate old single-value format if present
-        if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
-            locks.push(String(meta.lockedToChatId));
-        }
+        // The old single-value lockedToChatId joins the list, and is cleared below.
+        const locks = chatLocksOf(meta);
 
         // Add chat if not already present
         if (!locks.includes(chatId)) {
@@ -415,17 +414,8 @@ export function removeCollectionLock(collectionId, chatId) {
     const meta = getCollectionMeta(collectionId);
     const update = {};
 
-    let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
-
-    // Migrate old format if present
-    if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
-        locks.push(String(meta.lockedToChatId));
-    }
-
-    // Remove the chat
-    locks = locks.filter(id => String(id) !== String(chatId));
-
-    update.lockedToChatIds = locks;
+    // The old single-value lockedToChatId joins the list, and is cleared below.
+    update.lockedToChatIds = chatLocksOf(meta).filter(id => String(id) !== String(chatId));
     update.lockedToChatId = null; // Clear old format
 
     setCollectionMeta(collectionId, update);
@@ -442,21 +432,13 @@ export function clearCollectionLock(collectionId) {
 }
 
 /**
- * Gets the array of locked chat IDs for a collection, or empty array if not locked
- * Includes backward compatibility for old single-value `lockedToChatId` format
+ * Gets the array of locked chat IDs for a collection, or empty array if not locked: `lockedToChatIds`, then the old
+ * single-value `lockedToChatId` when the list lacks it (chatLocksOf)
  * @param {string} collectionId
  * @returns {string[]}
  */
 export function getCollectionLocks(collectionId) {
-    const meta = getCollectionMeta(collectionId);
-    let locks = Array.isArray(meta.lockedToChatIds) ? [...meta.lockedToChatIds] : [];
-
-    // Backward compatibility: if old format exists and not already in new format, include it
-    if (meta.lockedToChatId && !locks.includes(String(meta.lockedToChatId))) {
-        locks.push(String(meta.lockedToChatId));
-    }
-
-    return locks;
+    return chatLocksOf(getCollectionMeta(collectionId));
 }
 
 /**
@@ -557,6 +539,32 @@ export function isCollectionLockedToCharacter(collectionId, characterId) {
  */
 export function getCollectionCharacterLockCount(collectionId) {
     return getCollectionCharacterLocks(collectionId).length;
+}
+
+// ============================================================================
+// CLEAN UP LOCKS (the Action page's Clean up locks)
+// ============================================================================
+
+/**
+ * Clean up locks, the collections' part (§1.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * count, and with `shouldApply` remove, each chat lock on a chat that no longer exists and each character lock past
+ * the character list's end, then rebuild `chat_lock_index` from the chat locks left (planCollectionLockCleanup).
+ * Nothing is written when nothing changes.
+ * @param {{isChatPresent: ((chatId: string) => boolean)|null, characterCount: number}} targets - isChatPresent null
+ *   when the chat list could not be read whole, so no chat lock is judged; characterCount 0 judges no character lock
+ * @param {{shouldApply: boolean}} options
+ * @returns {{goneChatLockCount: number, goneCharacterLockCount: number, indexEntriesRemoved: number, indexEntriesAdded: number}}
+ */
+export function cleanUpCollectionLocks(targets, { shouldApply }) {
+    const store = extension_settings.vectfox;
+    const { updates, lockIndex, ...counts } = planCollectionLockCleanup(store.collections, store.chat_lock_index, targets);
+    if (!shouldApply || !Object.values(counts).some(Boolean)) return counts;
+    for (const [key, update] of Object.entries(updates)) setCollectionMeta(key, update);
+    store.chat_lock_index = lockIndex;
+    saveSettingsDebounced();
+    log.lifecycle(`VectFox: Clean up locks removed ${counts.goneChatLockCount} chat and ${counts.goneCharacterLockCount} character lock(s) of collections, `
+        + `and rebuilt chat_lock_index (${counts.indexEntriesRemoved} entries removed, ${counts.indexEntriesAdded} added)`);
+    return counts;
 }
 
 /**

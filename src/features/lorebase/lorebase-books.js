@@ -5,7 +5,7 @@
  * screen last opened it, so a later one shows as new. One record per book, keyed by the book's exact name, in
  * VectFox's settings: never a key per entry (§3.3), and never in the lorebook file. A book's selected entries LoreBase
  * decides are read here too, against the book as SillyTavern loads it: the one count every LoreBase screen and the
- * reply share.
+ * reply share. Clean up locks, on the Action page, drops the locks on chats and characters that no longer exist.
  */
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
@@ -200,4 +200,32 @@ export function renameLoreBookCharacter(oldAvatar, newAvatar) {
  */
 export function renameLoreBookChat(oldChatId, newChatId) {
     moveLocks('lockedToChatIds', oldChatId, newChatId);
+}
+
+/**
+ * Clean up locks, LoreBase's part (§1.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): count,
+ * and with `shouldApply` remove, each book's locks on a chat or a character that no longer exists. A null test judges
+ * no lock of its kind: the chat list could not be read whole, or no character list is loaded. Saves only when a lock
+ * goes.
+ * @param {{isChatPresent: ((chatId: string) => boolean)|null, isCharacterPresent: ((avatar: string) => boolean)|null}} targets
+ * @param {{shouldApply: boolean}} options
+ * @returns {{goneChatLockCount: number, goneCharacterLockCount: number}}
+ */
+export function cleanUpLoreBookLocks({ isChatPresent, isCharacterPresent }, { shouldApply }) {
+    let goneChatLockCount = 0;
+    let goneCharacterLockCount = 0;
+    for (const record of Object.values(extension_settings.vectfox[BOOKS_KEY] ?? {})) {
+        if (!record || typeof record !== 'object') continue;
+        const chatLocks = Array.isArray(record.lockedToChatIds) ? record.lockedToChatIds : [];
+        const characterLocks = Array.isArray(record.lockedToCharacterAvatars) ? record.lockedToCharacterAvatars : [];
+        const keptChats = isChatPresent ? chatLocks.filter(chatId => isChatPresent(String(chatId))) : chatLocks;
+        const keptCharacters = isCharacterPresent ? characterLocks.filter(avatar => isCharacterPresent(String(avatar))) : characterLocks;
+        goneChatLockCount += chatLocks.length - keptChats.length;
+        goneCharacterLockCount += characterLocks.length - keptCharacters.length;
+        if (!shouldApply) continue;
+        if (keptChats.length < chatLocks.length) record.lockedToChatIds = keptChats;
+        if (keptCharacters.length < characterLocks.length) record.lockedToCharacterAvatars = keptCharacters;
+    }
+    if (shouldApply && (goneChatLockCount || goneCharacterLockCount)) saveSettingsDebounced();
+    return { goneChatLockCount, goneCharacterLockCount };
 }

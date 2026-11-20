@@ -1,8 +1,9 @@
 /**
  * LoreBase's book record (plan §5.4 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * the entries selected for LoreBase to decide, the pinned section names, the locks, and the entries the book held when
- * the selection screen last opened it, in one settings record per book; and the book's selected entries LoreBase
- * decides, read against the book as SillyTavern loads it.
+ * the selection screen last opened it, in one settings record per book; the book's selected entries LoreBase decides,
+ * read against the book as SillyTavern loads it; and Clean up locks dropping the locks on chats and characters that no
+ * longer exist.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,8 +13,8 @@ vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: vi.fn() }));
 const { extension_settings, saveSettingsDebounced } = await import('../src/sillytavern/settings.js');
 const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
 const {
-    getLoreBook, isLoreBookLocked, loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries,
-    setLoreBookSelection,
+    cleanUpLoreBookLocks, getLoreBook, isLoreBookLocked, loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat, setLoreBookLock, setLoreBookPins,
+    setLoreBookSeenEntries, setLoreBookSelection,
 } = await import('../src/features/lorebase/lorebase-books.js');
 
 const BOOK = 'Harbor Lore';
@@ -116,5 +117,47 @@ describe('the book record', () => {
         setLoreBookSeenEntries(BOOK, [0, '1', 1]);
         expect(getLoreBook(BOOK).seenUids).toEqual(['0', '1']);
         expect(saveSettingsDebounced).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('Clean up locks on the lorebooks', () => {
+    const presentIn = names => name => names.includes(name);
+    const targets = { isChatPresent: presentIn(['Harbor Night']), isCharacterPresent: presentIn(['wren.png']) };
+
+    beforeEach(() => {
+        setLoreBookSelection(BOOK, ['1']);
+        setLoreBookLock(BOOK, { chatId: 'Harbor Night' }, true);
+        setLoreBookLock(BOOK, { chatId: 'Low Tide' }, true);
+        setLoreBookLock(BOOK, { characterAvatar: 'wren.png' }, true);
+        setLoreBookLock(BOOK, { characterAvatar: 'keeper-orrin.png' }, true);
+        setLoreBookLock('Tide Tables', { chatId: 'Harbor Night' }, true);
+        vi.mocked(saveSettingsDebounced).mockClear();
+    });
+
+    it('counts the locks on chats and characters that no longer exist, changing nothing until told to apply', () => {
+        expect(cleanUpLoreBookLocks(targets, { shouldApply: false })).toEqual({ goneChatLockCount: 1, goneCharacterLockCount: 1 });
+        expect(getLoreBook(BOOK)).toMatchObject({ lockedToChatIds: ['Harbor Night', 'Low Tide'], lockedToCharacterAvatars: ['wren.png', 'keeper-orrin.png'] });
+        expect(saveSettingsDebounced).not.toHaveBeenCalled();
+    });
+
+    it('removes them, keeping the selection and the other locks, and saves once', () => {
+        expect(cleanUpLoreBookLocks(targets, { shouldApply: true })).toEqual({ goneChatLockCount: 1, goneCharacterLockCount: 1 });
+        expect(getLoreBook(BOOK)).toMatchObject({ selectedUids: ['1'], lockedToChatIds: ['Harbor Night'], lockedToCharacterAvatars: ['wren.png'] });
+        expect(getLoreBook('Tide Tables').lockedToChatIds).toEqual(['Harbor Night']);
+        expect(saveSettingsDebounced).toHaveBeenCalledTimes(1);
+    });
+
+    it('judges no lock of a kind with no test for it, and saves nothing when no lock goes', () => {
+        expect(cleanUpLoreBookLocks({ isChatPresent: null, isCharacterPresent: null }, { shouldApply: true })).toEqual({ goneChatLockCount: 0, goneCharacterLockCount: 0 });
+        expect(getLoreBook(BOOK)).toMatchObject({ lockedToChatIds: ['Harbor Night', 'Low Tide'], lockedToCharacterAvatars: ['wren.png', 'keeper-orrin.png'] });
+        expect(saveSettingsDebounced).not.toHaveBeenCalled();
+    });
+
+    it('reads no book record, or a broken one, as nothing to clean up', () => {
+        extension_settings.vectfox = { lorebase_books: { Broken: null, 'No Lists': { selectedUids: ['1'] } } };
+        expect(cleanUpLoreBookLocks(targets, { shouldApply: true })).toEqual({ goneChatLockCount: 0, goneCharacterLockCount: 0 });
+        extension_settings.vectfox = {};
+        expect(cleanUpLoreBookLocks(targets, { shouldApply: true })).toEqual({ goneChatLockCount: 0, goneCharacterLockCount: 0 });
+        expect(saveSettingsDebounced).not.toHaveBeenCalled();
     });
 });

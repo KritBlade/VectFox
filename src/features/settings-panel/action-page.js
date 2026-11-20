@@ -4,8 +4,8 @@
  * ============================================================================
  * Wires the settings panel's Action page (action-page-markup.js): the master switch and
  * its pills, the notice the other pages show while VectFox is off, the buttons that open
- * VectFox's tools, the console's debug switches, and the danger zone's Purge and Clean up,
- * each behind a confirm dialog.
+ * VectFox's tools, the console's debug switches, and the danger zone's Purge everything,
+ * Clean up corrupted and Clean up locks (lock-cleanup.js), each behind a confirm dialog.
  * ============================================================================
  */
 
@@ -21,6 +21,7 @@ import { openDiagnostics, refreshHealthPill } from '../diagnostics/index.js';
 import { buildSummarizerInjection, clearInterceptorPrompts, openContentVectorizer, refreshWorldInfoEntryDepthCache, syncOpenChat } from '../eventbase/index.js';
 import { openTextCleaningDialog } from '../text-cleaning/index.js';
 import { ACTION_PAGE_ELEMENT_ID as ID, DEBUG_SWITCHES } from './action-page-markup.js';
+import { cleanUpLocks } from './lock-cleanup.js';
 import { VECTFOX_OFF_NOTICE_HOOK, VECTFOX_TURN_ON_HOOK } from './panel-shell-markup.js';
 
 const TOAST_TITLE = 'VectFox';
@@ -237,4 +238,5 @@ export function wireActionPage(settings, { refreshAutoSyncCheckbox, runNetworkSt
 
     $(`#${ID.purge}`).on('click', () => purgeEverything());
     $(`#${ID.cleanupCorrupted}`).on('click', () => cleanUpCorruptedCollections());
+    $(`#${ID.cleanupLocks}`).on('click', () => cleanUpLocks());
 }

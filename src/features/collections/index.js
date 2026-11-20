@@ -35,6 +35,7 @@ export {
     unregisterCollection,
 } from './collection-loader.js';
 export {
+    cleanUpCollectionLocks,
     cleanupOrphanedMeta,
     getChatLockedCollections,
     getCollectionCharacterLockCount,
