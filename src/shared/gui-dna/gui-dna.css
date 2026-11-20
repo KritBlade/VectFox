@@ -1320,6 +1320,13 @@
     display: none;
 }
 
+/* A select leading a row's actions, which of a group the row's thing uses, is as wide as its longest choice up to a
+   limit, so it sits beside the buttons and never takes their line. */
+.vfx-ui .vfx-row-actions > .vfx-select {
+    width: auto;
+    max-width: 16em;
+}
+
 /* A record holds fields, so it is drawn like a card: its fields stand out on its surface, its header sits on the tinted
    band, and its edge carries the card's rim and lift. */
 .vfx-ui .vfx-record {

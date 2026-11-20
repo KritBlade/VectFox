@@ -8,8 +8,10 @@
 // that a selected entry goes in only when picked, with the parts its review kept. All of
 // it waits for LoreBase's switch on the WorldInfo page, off by default, and never runs beside the World Info search of
 // SillyTavern's Vector Storage: turning LoreBase on, or a reply that finds that search on again, asks the user which of
-// the two to keep. The selection screen is where the user chooses a book's entries, locks the book to the chat or
-// character, and pins section names; the WorldInfo page lists the open chat's books with their selections and locks,
+// the two to keep. A book holds one or more selections of its entries, a chat using one of them, the one locked to it or
+// its character. The selection screen is where the user chooses a selection's entries, locks it to the chat or
+// character, pins section names, and makes, renames and deletes selections; the WorldInfo page lists the open chat's
+// books with the selection each uses here, which its switcher changes or makes anew, and their locks,
 // adds a book the chat does not load through SillyTavern's own lists, locked where it was added (Add a lorebook),
 // and opens the screen, and writes the keys, the vectors or both of every selected entry, or deletes them all, through
 // LoreBase's storage module, which every page that counts, writes or deletes them calls; the Database Browser lists
@@ -32,7 +34,7 @@
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
 export { cleanUpLoreBookLocks, selectedLoreBookNames } from './lorebase-books.js';
-export { addLoreBookToChat, booksToAdd, chatBookLocks } from './lorebase-chat-books.js';
+export { addLoreBookToChat, booksToAdd, chatBookLocks, newLoreSelectionHere, useLoreSelectionHere } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { editLoreBookEntry } from './lorebase-entry-editor.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';

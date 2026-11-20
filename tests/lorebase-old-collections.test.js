@@ -67,15 +67,15 @@ describe('deleting the old lorebook collections at start', () => {
 
     it("moves each collection's chat and character locks to its book before deleting it", async () => {
         vi.mocked(deleteCollectionWhereDiscovered).mockImplementation(async () => {
-            expect(getLoreBook('Harbor Atlas')?.lockedToChatIds).toEqual(['chat-1']);
+            expect(getLoreBook('Harbor Atlas')?.selections[0].lockedToChatIds).toEqual(['chat-1']);
             return true;
         });
 
         await deleteOldLorebookCollections(SETTINGS);
 
-        expect(getLoreBook('Harbor Atlas')).toMatchObject({ lockedToChatIds: ['chat-1'], lockedToCharacterAvatars: ['keeper_orrin.png'] });
+        expect(getLoreBook('Harbor Atlas').selections).toEqual([expect.objectContaining({ name: 'Harbor Atlas', lockedToChatIds: ['chat-1'], lockedToCharacterAvatars: ['keeper_orrin.png'] })]);
         // No character sits at place 5 in SillyTavern's list, so that lock has no one to move to.
-        expect(getLoreBook('Tide Tables')).toMatchObject({ lockedToChatIds: ['chat-2'], lockedToCharacterAvatars: [] });
+        expect(getLoreBook('Tide Tables').selections[0]).toMatchObject({ lockedToChatIds: ['chat-2'], lockedToCharacterAvatars: [] });
     });
 
     it('returns the notice lines, naming each book once, and shows nothing itself', async () => {

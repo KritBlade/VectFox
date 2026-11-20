@@ -20,6 +20,7 @@
  * holds, its points made by the real lorebase-vectors-core.js.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { oneSelectionRecord } from './lorebase-book-record.js';
 
 const host = vi.hoisted(() => ({
     connection: { ok: true }, ask: null, panel: null, lockPlace: null, vectorized: new Set(), vectorFailures: new Set(),
@@ -107,6 +108,8 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', async () => {
 const BOOK = 'Harbor Atlas';
 const entry = (uid, comment) => ({ uid, comment, content: `${comment} stands by the harbor.` });
 const QDRANT = { vector_backend: 'qdrant' };
+// The books card's rows, each showing every entry its book's selections hold, as with none in use in the chat.
+const shownBooks = (...bookNames) => bookNames.map(bookName => ({ bookName, selectionId: null }));
 const STILL_WRITING = 'LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.';
 
 let stored;
@@ -181,8 +184,8 @@ async function selectBooks({ isVectorized = true } = {}) {
     const { extension_settings } = await import('../src/sillytavern/settings.js');
     const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
     extension_settings.vectfox.lorebase_books = {
-        [BOOK]: { selectedUids: ['0', '1', '2'] }, 'Desert Atlas': { selectedUids: ['5'] },
-        'Lost Atlas': { selectedUids: ['1'] }, 'Unused Atlas': { selectedUids: [] },
+        [BOOK]: oneSelectionRecord({ selectedUids: ['0', '1', '2'] }), 'Desert Atlas': oneSelectionRecord({ selectedUids: ['5'] }),
+        'Lost Atlas': oneSelectionRecord({ selectedUids: ['1'] }), 'Unused Atlas': oneSelectionRecord({ selectedUids: [] }),
     };
     const books = {
         [BOOK]: { entries: { 0: entry(0, 'Lighthouse'), 1: entry(1, 'Tidewardens'), 2: { ...entry(2, 'Tide clock'), constant: true }, 3: entry(3, 'Pier') } },
@@ -228,7 +231,7 @@ describe('what the selected entries lack', () => {
     it('never counts or keys a selected entry with no text', async () => {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
-        extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['0', '1'] } };
+        extension_settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: ['0', '1'] }) };
         loadWorldInfo.mockImplementation(async () => ({ entries: { 0: entry(0, 'Lighthouse'), 1: { uid: 1, comment: 'Buoy Line', content: '' } } }));
         const pending = await storage.selectedEntriesNotReady(QDRANT);
         expect(pending.books.map(book => uidsOf(book.keyEntries))).toEqual([[0]]);
@@ -238,7 +241,7 @@ describe('what the selected entries lack', () => {
     it('never counts an entry kept with no keys as missing', async () => {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
-        extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['4'] } };
+        extension_settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: ['4'] }) };
         loadWorldInfo.mockImplementation(async () => ({ entries: { 4: entry(4, 'Section marker') } }));
         stored[BOOK] = { 4: [] };
         host.vectorized.add(`${BOOK}/4`);
@@ -254,24 +257,40 @@ describe("each book's keys and vectors, counted", () => {
             keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null,
             ...fields,
         });
-        expect(await storage.storedCountsOfBooks([BOOK, 'Desert Atlas'], QDRANT)).toEqual(new Map([
+        expect(await storage.storedCountsOfBooks(shownBooks(BOOK, 'Desert Atlas'), QDRANT)).toEqual(new Map([
             [BOOK, counts({ decidedCount: 2, keyCount: 1, vectorCount: 1, readyCount: 1, missingKeyCount: 1, missingVectorCount: 1 })],
             ['Desert Atlas', counts({ decidedCount: 1, vectorCount: 1, missingKeyCount: 1 })],
         ]));
+    });
+
+    it("counts the selection a row shows, or with none in use every entry the book's selections hold, and refuses one the book lacks", async () => {
+        const { extension_settings } = await import('../src/sillytavern/settings.js');
+        await selectBooks();
+        extension_settings.vectfox.lorebase_books[BOOK].selections.push({
+            id: 'night', name: 'Night watch', selectedUids: ['0', '3'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [],
+        });
+        const harborOf = async selectionId => (await storage.storedCountsOfBooks([{ bookName: BOOK, selectionId }], QDRANT)).get(BOOK);
+        expect(await harborOf('night'))
+            .toMatchObject({ decidedCount: 2, keyCount: 1, vectorCount: 1, readyCount: 1, missingKeyCount: 1, missingVectorCount: 1 });
+        expect(await harborOf('first'))
+            .toMatchObject({ decidedCount: 2, keyCount: 1, vectorCount: 2, readyCount: 1, missingKeyCount: 1, missingVectorCount: 0 });
+        expect(await harborOf(null))
+            .toMatchObject({ decidedCount: 3, keyCount: 1, vectorCount: 2, readyCount: 1, missingKeyCount: 2, missingVectorCount: 1 });
+        await expect(harborOf('gone')).rejects.toThrow(`LoreBase has no selection "gone" of lorebook "${BOOK}".`);
     });
 
     it('counts the entries whose keys or vectors failed in this session, with the first reason, as not ready', async () => {
         await selectBooks();
         host.ask = vi.fn(async messages => (messages[1].content.includes('Dunes') ? UNREADABLE : answerWith(['tidewardens'])));
         await storage.writeMissing(QDRANT, [kinds.KEYS]);
-        expect((await storage.storedCountsOfBooks(['Desert Atlas'], QDRANT)).get('Desert Atlas'))
+        expect((await storage.storedCountsOfBooks(shownBooks('Desert Atlas'), QDRANT)).get('Desert Atlas'))
             .toMatchObject({ keyCount: 0, readyCount: 0, failedCount: 1, firstFailure: 'its answer held no list of keys' });
     });
 
     it('reads nothing off Qdrant, where LoreBase keeps neither, or while VectFox is off', async () => {
         const loadWorldInfo = await selectBooks();
-        expect(await storage.storedCountsOfBooks([BOOK], { vector_backend: 'standard' })).toEqual(new Map());
-        expect(await storage.storedCountsOfBooks([BOOK], { ...QDRANT, enabled: false })).toEqual(new Map());
+        expect(await storage.storedCountsOfBooks(shownBooks(BOOK), { vector_backend: 'standard' })).toEqual(new Map());
+        expect(await storage.storedCountsOfBooks(shownBooks(BOOK), { ...QDRANT, enabled: false })).toEqual(new Map());
         expect(globalThis.fetch).not.toHaveBeenCalled();
         expect(loadWorldInfo).not.toHaveBeenCalled();
     });
@@ -497,7 +516,7 @@ describe('deleting', () => {
     it('Delete all deletes every vector, then every key the user has, forgets the keys it knew, and tells the listeners', async () => {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         const { deleteAllVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
-        extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['0'] }, 'Desert Atlas': { selectedUids: [] } };
+        extension_settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: ['0'] }), 'Desert Atlas': oneSelectionRecord({ selectedUids: [] }) };
         stored = { [BOOK]: { 0: ['lighthouse'], 1: ['tidewardens'] }, 'Desert Atlas': { 5: ['dunes'] } };
         await keysModule.readBookKeys([BOOK]);
         const seen = [];
@@ -514,7 +533,7 @@ describe('deleting', () => {
     it('deletes only the kind asked for', async () => {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         const { deleteAllVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
-        extension_settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: ['0'] } };
+        extension_settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: ['0'] }) };
         stored = { [BOOK]: { 0: ['lighthouse'] } };
         expect(await storage.deleteStored([kinds.VECTORS], QDRANT)).toBe(0);
         expect(deleteAllVectors).toHaveBeenCalledTimes(1);
@@ -593,11 +612,13 @@ describe("the Database Browser's rows", () => {
         expect(storage.loreBaseImportRow(kinds.VECTORS, BOOK, [leftover, ...listed], QDRANT)).toBe(listed[1]);
 
         expect(storage.loreBaseImportRow(kinds.KEYS, 'Lantern Atlas', listed, QDRANT)).toEqual({
-            key: 'keys|Lantern Atlas', kind: kinds.KEYS, book: 'Lantern Atlas', hasRecord: false, selectedCount: 0, isInSillyTavern: true, isLeftover: false, entryCount: 0,
+            key: 'keys|Lantern Atlas', kind: kinds.KEYS, book: 'Lantern Atlas', hasRecord: false, selectedCount: 0, selectionCount: 0, isInSillyTavern: true,
+            isLeftover: false, entryCount: 0,
         });
-        extension_settings.vectfox.lorebase_books['Lantern Atlas'] = { selectedUids: ['4'] };
+        extension_settings.vectfox.lorebase_books['Lantern Atlas'] = oneSelectionRecord({ selectedUids: ['4'] });
         expect(storage.loreBaseImportRow(kinds.VECTORS, 'Lantern Atlas', [], { ...QDRANT, qdrant_multitenancy: true })).toMatchObject({
-            kind: kinds.VECTORS, book: 'Lantern Atlas', hasRecord: true, selectedCount: 1, collection: 'vectfox_main', tenant: null, isHere: true, pointCount: 0,
+            kind: kinds.VECTORS, book: 'Lantern Atlas', hasRecord: true, selectedCount: 1, selectionCount: 1, collection: 'vectfox_main', tenant: null, isHere: true,
+            pointCount: 0,
         });
 
         expect(() => storage.loreBaseImportRow(kinds.KEYS, 'Lost Atlas', listed, QDRANT))
@@ -731,11 +752,11 @@ describe('removing a book from LoreBase', () => {
     async function recordBooks() {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         extension_settings.vectfox.lorebase_books = {
-            [BOOK]: {
+            [BOOK]: oneSelectionRecord({
                 selectedUids: ['0', '1', '2'], pinnedSections: ['Rules'], lockedToChatIds: ['Harbor Night'],
                 lockedToCharacterAvatars: ['keeper-orrin.png'], seenUids: ['0', '1', '2', '3'],
-            },
-            'Desert Atlas': { selectedUids: ['5'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },
+            }),
+            'Desert Atlas': oneSelectionRecord({ selectedUids: ['5'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] }),
         };
         host.listing = {
             keys: [{ book: BOOK, entryCount: 2 }, { book: 'Wren Journal', entryCount: 1 }],
@@ -752,14 +773,14 @@ describe('removing a book from LoreBase', () => {
     it("reads what the confirm names: the book's selection, pins and locks, its keys, and its vectors in each collection", async () => {
         await recordBooks();
         expect(await storage.loreBookHoldings(BOOK, QDRANT)).toEqual({
-            bookName: BOOK, selectedCount: 3, pinnedCount: 1, chatLockCount: 1, characterLockCount: 1, keyCount: 2,
+            bookName: BOOK, selectionCount: 1, selectedCount: 3, pinnedCount: 1, chatLockCount: 1, characterLockCount: 1, keyCount: 2,
             tenants: [
                 { collection: 'vf_lorebase_rabbit', tenant: HARBOR_TENANT, pointCount: 5 },
                 { collection: 'vectfox_main', tenant: HARBOR_TENANT, pointCount: 2 },
             ],
         });
         expect(await storage.loreBookHoldings('Lost Atlas', QDRANT)).toEqual({
-            bookName: 'Lost Atlas', selectedCount: 0, pinnedCount: 0, chatLockCount: 0, characterLockCount: 0, keyCount: 0, tenants: [],
+            bookName: 'Lost Atlas', selectionCount: 0, selectedCount: 0, pinnedCount: 0, chatLockCount: 0, characterLockCount: 0, keyCount: 0, tenants: [],
         });
     });
 

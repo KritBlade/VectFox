@@ -19,6 +19,7 @@ import {
     select, selectOption, stack, statusPill,
 } from '../../shared/gui-dna/gui-dna-core.js';
 import { buttonWithId, cardHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
+import { inUseSwitcherMarkup } from './in-use-switcher-markup.js';
 
 const formatCount = count => Number(count).toLocaleString('en-US');
 const formatSeconds = seconds => `${Number(seconds).toFixed(1)} s`;
@@ -40,7 +41,7 @@ function loreBaseBooksCard() {
             <div id="VectFox_lorebase_off_notice">${notice({ status: 'info', text: 'Choose entries and set up the LoreBase model card, then turn on Use LoreBase: it asks before writing their keys and vectors.' })}</div>
             <div id="VectFox_lorebase_books" aria-live="polite"></div>
             ${controlRow([button({ text: 'Choose entries', icon: 'fa-list-check', kind: 'primary', data: { 'lorebase-choose': '' } })])}
-            ${hint({ text: "Choose any lorebook's entries for LoreBase, and lock the book to this chat or character." })}
+            ${hint({ text: "Choose lorebook entries for LoreBase, and lock the selection to this chat or character." })}
             ${field([
                 fieldLabel({ text: 'Entries at once', forId: 'VectFox_lorebase_key_calls_at_once' }),
                 sliderNumber({ id: 'VectFox_lorebase_key_calls_at_once', min: 1, max: 8, step: 1, title: 'Entries' }),
@@ -222,6 +223,14 @@ export function loreBaseBookRow(book) {
         sub,
         pills: [isStateShown ? bookStatePill(book) : '', ...(locks.length ? locks : [LOCK_PILLS.none])].filter(Boolean),
         actions: [
+            book.selections.length ? inUseSwitcherMarkup({
+                id: `VectFox_lorebase_in_use_${encodeURIComponent(bookName)}`,
+                title: 'Selection in use here',
+                members: book.selections,
+                inUseId: book.selectionInUseId,
+                newText: 'New selection',
+                data: { 'lorebase-in-use': bookName },
+            }) : '',
             iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } }),
             book.canRemove ? iconButton({ icon: 'fa-trash-can', title: 'Remove from LoreBase', isDanger: true, data: { 'lorebase-remove': bookName } }) : '',
         ].filter(Boolean),
@@ -269,12 +278,15 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
 /**
  * The LoreBase books card's list for the open chat: each book SillyTavern loads here, how many entries are selected
  * in it and, once read, how many of those have keys and vectors and its one state (§7.1 of lorebook-multi-vector.md),
- * and whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Choose
- * entries, and Remove from LoreBase on a book it has something to do for; under the list, the ready entries of the books
- * locked here and those waiting; then, given what to add, Add a lorebook.
+ * and whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Selection in
+ * use here while the book has a selection (inUseSwitcherMarkup, §1.2 of vectfox-multi-collection-per-chat.md), Choose
+ * entries, and Remove from LoreBase on a book it has something to do for; the counts and locks are those of the
+ * selection in use here, or with none, the counts of every entry the book's selections hold; under the list, the ready
+ * entries of the books locked here and those waiting; then, given what to add, Add a lorebook.
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean, canRemove?: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
+ *   isLockedToCharacter: boolean, selections: Array<{id: string, name: string}>, selectionInUseId: string|null,
+ *   canRemove?: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
  *   missingKeyCount?: number, missingVectorCount?: number, otherModelCount?: number, failedCount?: number,
  *   firstFailure?: string|null, writing?: {isKeys: boolean, done: number, total: number}|null}>,
  *   add?: {bookNames: string[], canAddToCharacter: boolean}|null}} status - LoreBase's chatBookLocks, with

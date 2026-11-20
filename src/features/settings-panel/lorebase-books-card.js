@@ -16,7 +16,9 @@
  * and Generate vectors write what the selected entries of every book lack of their kind, and Generate all both; Delete
  * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17); Remove from LoreBase, on
  * a book's row, runs LoreBase's one confirm and removal of the book (removeLoreBookAfterConfirm), its record, keys and
- * vectors, and takes it out of the chat's lists Add a lorebook links books through. Each goes through LoreBase's
+ * vectors, and takes it out of the chat's lists Add a lorebook links books through. Selection in use here, leading a
+ * book's row, puts the selection chosen in use in this chat, or makes a new one and opens the selection screen on it
+ * (§1.2 and §3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). Each goes through LoreBase's
  * storage module. The card's status line says how each went, and shows every writing run on the progress panel,
  * whichever started it: the entries being written, then what was written and the books the run locked to its chat
  * (§6.1 of lorebook-multi-vector.md), a line that goes once another chat is open.
@@ -26,9 +28,10 @@ import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
     BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteStored, describeRemovedLoreBook, isLoreBaseSwitchedOn,
-    onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange, openLoreBaseSelection, removeLoreBookAfterConfirm, selectedLoreBookNames,
-    storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing, writingProblem,
+    newLoreSelectionHere, onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange, openLoreBaseSelection, removeLoreBookAfterConfirm,
+    selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, useLoreSelectionHere, writeMissing, writingProblem,
 } from '../lorebase/index.js';
+import { IN_USE_NEW } from './in-use-switcher-markup.js';
 import { loreBaseBookRow, loreBaseBooksMarkup } from './worldinfo-page-markup.js';
 
 const SWITCH_ID = 'VectFox_lorebase_enabled';
@@ -106,13 +109,14 @@ function drawBookRow(bookName) {
 
 /**
  * The books of a list about to be drawn, each with the counts the list last drawn for the same chat held for it, while
- * its selection is the same, so its state stays shown until the new counts are read.
- * @param {Array<{bookName: string, selectedCount: number}>} books
+ * the selection it shows and that selection's count are the same, so its state stays shown until the new counts are read.
+ * @param {Array<{bookName: string, selectedCount: number, selectionInUseId: string|null}>} books
  */
 function withLastCounts(books) {
     if (!shownStatus || shownChatId !== (getCurrentChatId() ?? null)) return books;
     return books.map(book => {
-        const shown = shownStatus.books.find(candidate => candidate.bookName === book.bookName && candidate.selectedCount === book.selectedCount);
+        const shown = shownStatus.books.find(candidate => candidate.bookName === book.bookName && candidate.selectedCount === book.selectedCount
+            && candidate.selectionInUseId === book.selectionInUseId);
         return shown ? { ...shown, ...book } : book;
     });
 }
@@ -138,11 +142,12 @@ export async function refreshLoreBaseBooks() {
         log.warn("LoreBase: the WorldInfo page's book list could not be drawn:", error);
         return;
     }
-    const selectedBookNames = status.books.filter(book => book.selectedCount).map(book => book.bookName);
-    if (!selectedBookNames.length || !cardSettings) return;
+    const selectedBooks = status.books.filter(book => book.selectedCount)
+        .map(({ bookName, selectionInUseId }) => ({ bookName, selectionId: selectionInUseId }));
+    if (!selectedBooks.length || !cardSettings) return;
     let counts = new Map();
     try {
-        counts = await storedCountsOfBooks(selectedBookNames, cardSettings);
+        counts = await storedCountsOfBooks(selectedBooks, cardSettings);
     } catch (error) {
         log.warn("LoreBase: the keys and vectors of the WorldInfo page's books could not be counted:", error);
     }
@@ -298,8 +303,36 @@ async function removeBook(button) {
 }
 
 /**
- * Wire LoreBase's switch, open the selection screen from the card's buttons, and run the Generate buttons, Delete all
- * and each book's Remove from LoreBase. Called once, as the panel is mounted.
+ * Selection in use here, on a book's row (§1.2 of vectfox-multi-collection-per-chat.md): a selection chosen is put in
+ * use in this chat; New selection copies the one in use, puts the copy in use here and opens the selection screen on it.
+ * The status line says what changed, or why nothing did, and the list is drawn again.
+ * @param {HTMLSelectElement} switcher - The row's switcher, naming its book
+ * @returns {Promise<void>}
+ */
+async function switchSelection(switcher) {
+    const bookName = switcher.dataset.lorebaseInUse;
+    const choice = switcher.value;
+    if (!choice) return;
+    try {
+        if (choice === IN_USE_NEW) {
+            const selection = newLoreSelectionHere(bookName);
+            showBooksStatus(`Made "${selection.name}" from the selection in use, and put it in use in this chat.`);
+            void refreshLoreBaseBooks();
+            await chooseEntries(bookName, selection.id);
+            return;
+        }
+        useLoreSelectionHere(bookName, choice);
+        showBooksStatus(`"${switcher.selectedOptions[0].textContent}" is in use in this chat now.`);
+    } catch (error) {
+        log.warn(`LoreBase: the selection in use of lorebook "${bookName}" was not changed:`, error);
+        showBooksStatus(`Not changed: ${error?.message || error}`);
+    }
+    void refreshLoreBaseBooks();
+}
+
+/**
+ * Wire LoreBase's switch, open the selection screen from the card's buttons, and run the Generate buttons, Delete all,
+ * each book's Selection in use here and its Remove from LoreBase. Called once, as the panel is mounted.
  * @param {object} settings - VectFox settings
  */
 export function bindLoreBaseBooksCard(settings) {
@@ -332,18 +365,24 @@ export function bindLoreBaseBooksCard(settings) {
         const remover = event.target.closest('[data-lorebase-remove]');
         if (remover) void removeBook(remover);
     });
+    document.getElementById('VectFox_lorebase_books_card')?.addEventListener('change', event => {
+        const switcher = event.target.closest('[data-lorebase-in-use]');
+        if (switcher) void switchSelection(switcher);
+    });
 }
 
 /**
- * Open the selection screen on a book, or on the chat's first with none named; once it closes, draw the list again, a
- * screen that failed included, and say what the selection lacks (showChosenSelection).
+ * Open the selection screen on a book, or on the chat's first with none named, and on a selection of it, or the one in
+ * use here with none named; once it closes, draw the list again, a screen that failed included, and say what the
+ * selection lacks (showChosenSelection).
  * @param {string} bookName
+ * @param {string|null} [selectionId]
  * @returns {Promise<void>}
  */
-async function chooseEntries(bookName) {
+async function chooseEntries(bookName, selectionId = null) {
     let chosen = null;
     try {
-        chosen = await openLoreBaseSelection({ bookName });
+        chosen = await openLoreBaseSelection({ bookName, selectionId });
     } catch (error) {
         log.error('LoreBase: the selection screen failed:', error);
     }

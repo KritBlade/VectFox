@@ -282,14 +282,16 @@ const BLANK_PICK_CHECK = '<span class="vfx-pick-check is-blank" aria-hidden="tru
 
 /**
  * One lorebook's LoreBase rows (§3.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), shaped as a
- * chat collection's: the lorebook's row, in the collections' column, with its selected entries, where its vectors are
+ * chat collection's: the lorebook's row, in the collections' column, with the entries its selections hold, and how
+ * many selections when there are more than one, where its vectors are
  * stored and their ID, the ⚠ flag when the view gives one, and Remove from LoreBase when the view allows it, then a
  * branch for its keys and one for each collection holding its vectors, whose View chunks opens them read only. No tick
  * box, lock, pause or rename, none of which means anything for them.
  *
  * @param {{key: string, name: string, bookName: string|null, canRemove: boolean, isInSillyTavern: boolean,
- *   selectedCount: number|null, storedIn: string, id: string, flag: string, isFlagOpen: boolean, rows: object[]}} view -
- *   selectedCount: null leaves its line out; flag: the ⚠'s words, '' for none; rows: as loreBaseRowMarkup takes them
+ *   selectedCount: number|null, selectionCount: number|null, storedIn: string, id: string, flag: string, isFlagOpen: boolean,
+ *   rows: object[]}} view - selectedCount: null leaves its line out; flag: the ⚠'s words, '' for none; rows: as
+ *   loreBaseRowMarkup takes them
  * @returns {string}
  */
 export function loreBaseBookMarkup(view) {
@@ -297,7 +299,10 @@ export function loreBaseBookMarkup(view) {
         icon: collectionTypeIcon('lorebook'),
         name: view.name,
         sub: [
-            view.selectedCount === null ? null : { text: 'Selected entries', name: view.selectedCount },
+            view.selectedCount === null ? null : {
+                text: 'Selected entries',
+                name: view.selectionCount > 1 ? `${view.selectedCount}, in ${view.selectionCount} selections` : view.selectedCount,
+            },
             { text: 'Stored in', name: view.storedIn },
             { text: 'ID', name: view.id },
         ],

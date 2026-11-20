@@ -18,7 +18,7 @@ import { eventSource, event_types } from '../../sillytavern/events.js';
 import { getSanitizedFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
-import { getLoreBook, isLoreBookLocked, loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
+import { loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat, selectionInUse } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
 import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import { askJev, resolveJevConnection } from './lorebase-jev.js';
@@ -88,8 +88,8 @@ export function initializeLoreBase() {
 }
 
 /**
- * The books taking part in this reply (D11): those SillyTavern loads that the user locked to this chat or character,
- * each with the entries LoreBase decides in it that are ready, with their keys (D17) and their vectors from the
+ * The books taking part in this reply (D11): those SillyTavern loads with a selection in use here, locked to this chat
+ * or character, each with the entries LoreBase decides in that selection that are ready, its pinned sections, with their keys (D17) and their vectors from the
  * embedding model set now (§4.4 of lorebook-multi-vector.md), and those keys by uid; and each such book's count of
  * selected entries left out for not being ready.
  * @param {object} settings - VectFox settings
@@ -101,10 +101,10 @@ async function booksTakingPart(settings) {
     const where = lockTarget();
     const books = [];
     for (const bookName of chatBookNames()) {
-        const record = getLoreBook(bookName);
-        if (!record?.selectedUids.length || !isLoreBookLocked(bookName, where)) continue;
-        const entries = await loadDecidedEntries(bookName, record);
-        if (entries.length) books.push({ bookName, entries, pinnedSections: record.pinnedSections });
+        const selection = selectionInUse(bookName, where);
+        if (!selection?.selectedUids.length) continue;
+        const entries = await loadDecidedEntries(bookName, selection);
+        if (entries.length) books.push({ bookName, entries, pinnedSections: selection.pinnedSections });
     }
     if (!books.length) return { books, unreadyBooks: [] };
     const bookNames = books.map(book => book.bookName);

@@ -91,18 +91,18 @@ const MIRA = { id: 'vf_eventbase_qdrant_rook_mira_aaaa', registryKey: 'qdrant:vf
 const HARBOR_TENANT = 'vf_lorebase_qdrant_rook_harbor_atlas_19qag9zxydm';
 const WREN_TENANT = 'vf_lorebase_qdrant_rook_wren_journal_3k';
 // The rows as storageRowsOf gives them: the list's, then the leftovers'.
-const listed = (book, selectedCount) => ({ book, hasRecord: true, selectedCount, isInSillyTavern: true, isLeftover: false });
-const HARBOR_KEYS = { key: 'keys|Harbor Atlas', kind: 'keys', ...listed('Harbor Atlas', 12), entryCount: 313 };
+const listed = (book, selectedCount, selectionCount) => ({ book, hasRecord: true, selectedCount, selectionCount, isInSillyTavern: true, isLeftover: false });
+const HARBOR_KEYS = { key: 'keys|Harbor Atlas', kind: 'keys', ...listed('Harbor Atlas', 12, 1), entryCount: 313 };
 const HARBOR_VECTORS = {
-    key: `vectors|vf_lorebase_rook|${HARBOR_TENANT}`, kind: 'vectors', ...listed('Harbor Atlas', 12), collection: 'vf_lorebase_rook',
+    key: `vectors|vf_lorebase_rook|${HARBOR_TENANT}`, kind: 'vectors', ...listed('Harbor Atlas', 12, 1), collection: 'vf_lorebase_rook',
     tenant: HARBOR_TENANT, isHere: true, pointCount: 504, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3',
 };
-const WREN_KEYS = { key: 'keys|Wren Journal', kind: 'keys', ...listed('Wren Journal', 0), hasRecord: false, entryCount: 21 };
+const WREN_KEYS = { key: 'keys|Wren Journal', kind: 'keys', ...listed('Wren Journal', 0, 0), hasRecord: false, entryCount: 21 };
 const WREN_VECTORS = {
-    key: `vectors|vf_lorebase_rook|${WREN_TENANT}`, kind: 'vectors', ...listed('Wren Journal', 0), hasRecord: false, collection: 'vf_lorebase_rook',
+    key: `vectors|vf_lorebase_rook|${WREN_TENANT}`, kind: 'vectors', ...listed('Wren Journal', 0, 0), hasRecord: false, collection: 'vf_lorebase_rook',
     tenant: WREN_TENANT, isHere: true, pointCount: 30, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3',
 };
-const leftover = book => ({ book, hasRecord: false, selectedCount: 0, isInSillyTavern: false, isLeftover: true });
+const leftover = book => ({ book, hasRecord: false, selectedCount: 0, selectionCount: 0, isInSillyTavern: false, isLeftover: true });
 const PIER_KEYS = { key: 'keys|Old Pier', kind: 'keys', ...leftover('Old Pier'), entryCount: 2 };
 const PIER_ELSEWHERE = {
     key: 'vectors|vectfox_main|vf_lorebase_qdrant_rook_old_pier_7k', kind: 'vectors', ...leftover('Old Pier'), collection: 'vectfox_main',
@@ -185,6 +185,12 @@ describe('LoreBase rows in the Database Browser', () => {
         expect(harbor.textContent).not.toContain('LoreBase lorebook');
         expect(actionsOf(HARBOR_KEYS)).toEqual(['export', 'import', 'delete']);
         expect(actionsOf(HARBOR_VECTORS)).toEqual(['view-chunks', 'export', 'import', 'delete']);
+    });
+
+    it("counts a lorebook's selections on its Selected entries line once it has more than one", async () => {
+        host.rows = [{ ...HARBOR_KEYS, selectionCount: 3 }, { ...HARBOR_VECTORS, selectionCount: 3 }];
+        await openBrowser();
+        expect(subLinesOf(bookRow('list|Harbor Atlas').querySelector('.vfx-pick-body'))[0]).toBe('Selected entries: 12, in 3 selections');
     });
 
     it("opens a vectors row's chunks read only, in the collection that holds them, and offers it only on a row holding some", async () => {
@@ -377,7 +383,7 @@ describe('LoreBase rows in the Database Browser', () => {
     it('takes a LoreBase file in Import a collection into the lorebook it names, through the row the storage module finds', async () => {
         await openBrowser();
         const importButton = () => document.querySelector('[data-browser-action="import"]');
-        const LANTERN_KEYS = { key: 'keys|Lantern Atlas', kind: 'keys', ...listed('Lantern Atlas', 0), hasRecord: false, entryCount: 0 };
+        const LANTERN_KEYS = { key: 'keys|Lantern Atlas', kind: 'keys', ...listed('Lantern Atlas', 0, 0), hasRecord: false, entryCount: 0 };
         storage.loreBaseImportRow.mockReturnValue(LANTERN_KEYS);
         storage.planImport.mockResolvedValue({ writes: [{ uid: '0' }], replaceCount: 0, unmatchedCount: 0, damagedCount: 0 });
         storage.writeImport.mockResolvedValue({ written: 1, failed: 0, isEmbedded: false });

@@ -5,7 +5,9 @@
  * The screen where the user picks the entries LoreBase decides (plan §5.2 of
  * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), on
  * GUI-DNA (mvu-helper/devdoc/gui-dna.md): a top-bar shell holding one workbench
- * page, the book, its locks and the filters in a compact card above a split. The
+ * page, the book, the selection of it shown (the book's selections in a list,
+ * with New selection, Rename and Delete), that selection's locks and the
+ * filters in a compact card above a split. The
  * start pane holds the categories and the pinned sections; the end pane the
  * entries, each with a tick box for the bulk bar, a button that shows the entry
  * in a dialog of its own, a selected entry's button that edits its LoreBase
@@ -44,6 +46,8 @@ export const SELECTION_IDS = Object.freeze({
     root: 'vectfox_lorebase_selection',
     split: 'vectfox_lorebase_split',
     book: 'vectfox_lorebase_book',
+    selectionList: 'vectfox_lorebase_selection_list',
+    renameSelection: 'vectfox_lorebase_rename_selection',
     lockChat: 'vectfox_lorebase_lock_chat',
     lockCharacter: 'vectfox_lorebase_lock_character',
     lockNotice: 'vectfox_lorebase_lock_notice',
@@ -121,14 +125,34 @@ export function bookOptions(choices, bookName) {
     }));
 }
 
+/**
+ * The selection list's options: each of the book's selections by its name, the one in use in the open chat saying so.
+ * @param {Array<{id: string, name: string}>} selections - The book's selections
+ * @param {{selectionId: string, inUseId: string|null}} shown - The selection shown, and the one in use here
+ * @returns {string[]}
+ */
+export function selectionOptions(selections, { selectionId, inUseId }) {
+    return selections.map(selection => selectOption({
+        value: selection.id,
+        name: `${selection.name}${selection.id === inUseId ? ' (in use here)' : ''}`,
+        isSelected: selection.id === selectionId,
+    }));
+}
+
 function controlsCard(choices, bookName) {
     const sizeNames = { 0: 'Any size', 300: '300+ tokens', 1000: '1,000+ tokens', 3000: '3,000+ tokens' };
     return `<section class="vfx-card">
         <div class="vfx-card-body vfx-stack">
             ${controlRow([select({ id: ids.book, title: 'Lorebook', options: bookOptions(choices, bookName) })])}
+            ${controlRow([
+                select({ id: ids.selectionList, title: 'Selection' }),
+                button({ text: 'New selection', icon: 'fa-plus', data: action('new-selection') }),
+                button({ text: 'Rename', icon: 'fa-pen', data: action('rename-selection') }),
+                button({ text: 'Delete', icon: 'fa-trash-can', kind: 'danger', data: action('delete-selection') }),
+            ])}
             <div class="vfx-grid">
-                ${switchRow({ id: ids.lockChat, title: 'Lock to this chat', description: "LoreBase decides this book's selected entries in this chat." })}
-                ${switchRow({ id: ids.lockCharacter, title: 'Lock to this character', description: 'The same in every chat with this character.' })}
+                ${switchRow({ id: ids.lockChat, title: 'Lock to this chat', description: "LoreBase decides this selection's entries in this chat, not the book's others." })}
+                ${switchRow({ id: ids.lockCharacter, title: 'Lock to this character', description: 'The same in every chat with this character, unless a chat locks another selection.' })}
             </div>
             <div id="${ids.lockNotice}"></div>
             ${controlRow([
@@ -215,6 +239,29 @@ export function selectionScreenMarkup({ choices, bookName }) {
         + '</div></div></main></div>';
 }
 
+/**
+ * Rename's form: the selection's name, in a box.
+ * @param {string} currentName
+ * @returns {string}
+ */
+export function renameSelectionFormMarkup(currentName) {
+    return stack([`<div class="vfx-field">${input({ id: ids.renameSelection, value: currentName, title: 'Name' })}</div>`]);
+}
+
+/**
+ * Delete's confirm for one selection: what goes with it, and what the chats using it do then.
+ * @param {string} selectionName
+ * @returns {object[]} confirmPopup's lines
+ */
+export function deleteSelectionLines(selectionName) {
+    return [
+        { text: 'Delete this selection?' },
+        { text: 'Selection:', name: selectionName },
+        { text: "Its selected entries, pinned sections and locks go. The vectors of entries no other selection holds are deleted as this screen closes." },
+        { text: 'Where it was in use, LoreBase uses the selection locked to the character instead, or with none, the lorebook fires by its keys there.' },
+    ];
+}
+
 /** The screen when SillyTavern has no lorebook to choose. */
 export function noLorebookMarkup() {
     return emptyState({ icon: 'fa-book', text: 'SillyTavern has no lorebook yet. Make one in World Info first.' });
@@ -227,8 +274,8 @@ export function bookFailedMarkup(reason) {
 
 /** Why a lock switch cannot act now, or '' when both can. */
 export function lockNoticeMarkup({ hasChat, hasCharacter }) {
-    if (!hasChat) return notice({ status: 'info', text: 'Open a chat to lock this book to it or to its character.' });
-    if (!hasCharacter) return notice({ status: 'info', text: 'A group chat has no one character to lock this book to.' });
+    if (!hasChat) return notice({ status: 'info', text: 'Open a chat to lock this selection to it or to its character.' });
+    if (!hasCharacter) return notice({ status: 'info', text: 'A group chat has no one character to lock this selection to.' });
     return '';
 }
 
@@ -472,16 +519,16 @@ export function entriesFooterMarkup({ shownCount, matchCount, hasMore }) {
  * The footer line. On High Accuracy: how many titles the pick reads from the book, and what they add to every pick. On
  * Fast and Cheap [Jev] (§7.3 of lorebook-multi-vector.md): how many selected entries Jev is asked about on every reply,
  * every one up to POOL_SEATS, else the search's best POOL_SEATS, counted over the books taking part in the open chat;
- * that this book takes no part there; or the rule alone while the count is not known.
+ * that the selection shown takes no part there; or the rule alone while the count is not known.
  * @param {{entryCount: number, titleTokens: number}} footer - From selectionFooter
- * @param {{isFastAndCheap?: boolean, takingPart?: {count: number, isBookTakingPart: boolean}|null}} [choice] -
+ * @param {{isFastAndCheap?: boolean, takingPart?: {count: number, isSelectionTakingPart: boolean}|null}} [choice] -
  *   isFastAndCheap: LoreBase's Accuracy is Fast and Cheap [Jev]; takingPart: the selected entries LoreBase decides in the
- *   books taking part in the open chat, this book's as now selected among them, and whether this book is one, or null
- *   while not known
+ *   books taking part in the open chat, the selection shown's among them, and whether it takes part, or null while not
+ *   known
  * @returns {string}
  */
 export function summaryText({ entryCount, titleTokens }, { isFastAndCheap = false, takingPart = null } = {}) {
-    if (!entryCount) return 'LoreBase decides no entry of this book: SillyTavern\'s keys decide them all.';
+    if (!entryCount) return 'LoreBase decides no entry in this selection: where it is in use, SillyTavern\'s keys decide them all.';
     if (!isFastAndCheap) {
         return `The pick reads ${counted(entryCount, 'title')} and their keys from this book, about ${formatCount(titleTokens)} tokens on every pick.`;
     }
@@ -489,7 +536,7 @@ export function summaryText({ entryCount, titleTokens }, { isFastAndCheap = fals
         return `Jev is asked about every selected entry of the books a chat locks, up to ${formatCount(POOL_SEATS)} in all, `
             + `and above that about the ${formatCount(POOL_SEATS)} a search finds best, on every reply.`;
     }
-    if (!takingPart.isBookTakingPart) return 'This book takes no part in this chat, so Jev is never asked about its entries here.';
+    if (!takingPart.isSelectionTakingPart) return 'This selection takes no part in this chat, so Jev is never asked about its entries here.';
     const entries = `${counted(takingPart.count, 'selected entry', 'selected entries')} taking part in this chat`;
     return takingPart.count > POOL_SEATS
         ? `Jev is asked about the ${formatCount(POOL_SEATS)} a search finds best of the ${entries}, on every reply.`

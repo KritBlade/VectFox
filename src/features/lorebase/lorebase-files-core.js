@@ -339,27 +339,32 @@ const stillLoadedSentence = places => `This chat still loads it through ${places
 
 /**
  * Remove from LoreBase's confirm, the same on the Database Browser's lorebook row and the WorldInfo page's book row:
- * the book, each part of it that goes (its selected entries and pinned sections, its locks, its keys and its vectors in
- * every collection holding them), and what stays; on the WorldInfo page, the open chat's lists it is taken out of
- * too, and the places that still load it there.
- * @param {{bookName: string, selectedCount: number, pinnedCount: number, chatLockCount: number, characterLockCount: number,
- *   keyCount: number, tenants: Array<{pointCount: number}>}} holdings - From loreBookHoldings in lorebase-storage.js
+ * the book, each part of it that goes (its selections, when it has more than one, the entries they select and their
+ * pinned sections, their locks, its keys and its vectors in every collection holding them), and what stays; on the
+ * WorldInfo page, the open chat's lists it is taken out of too, and the places that still load it there.
+ * @param {{bookName: string, selectionCount: number, selectedCount: number, pinnedCount: number, chatLockCount: number,
+ *   characterLockCount: number, keyCount: number, tenants: Array<{pointCount: number}>}} holdings - From loreBookHoldings
+ *   in lorebase-storage.js
  * @param {{takenOutOf: string[], stillLoadedBy: string[]}|null} [links] - chatBookLinks in lorebase-chat-books.js, on
  *   the WorldInfo page
  * @returns {object[]} confirmPopup's lines
  */
-export function removalConfirmLines({ bookName, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }, links = null) {
+export function removalConfirmLines({ bookName, selectionCount, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }, links = null) {
     const partCount = tenants.reduce((sum, tenant) => sum + tenant.pointCount, 0);
     const listOrNone = parts => (parts.length ? listWords.format(parts) : 'none');
     const countedIfAny = (count, singular, plural) => (count ? counted(count, singular, plural) : '');
-    const selection = [countedIfAny(selectedCount, 'selected entry', 'selected entries'), countedIfAny(pinnedCount, 'pinned section')].filter(Boolean);
+    const isSeveral = selectionCount > 1;
+    const selection = [
+        isSeveral ? counted(selectionCount, 'selection') : '', countedIfAny(selectedCount, 'selected entry', 'selected entries'),
+        countedIfAny(pinnedCount, 'pinned section'),
+    ].filter(Boolean);
     const locks = [countedIfAny(chatLockCount, 'chat'), countedIfAny(characterLockCount, 'character')].filter(Boolean);
     const collections = tenants.length > 1 ? ` in ${counted(tenants.length, 'collection')}` : '';
     const keepCopy = keyCount || partCount ? ' Export its keys and vectors in the Database Browser first to keep a copy.' : '';
     return [
         { text: 'Remove this lorebook from LoreBase?' },
         { text: 'Lorebook:', name: bookName },
-        { text: 'Selection:', name: listOrNone(selection) },
+        { text: isSeveral ? 'Selections:' : 'Selection:', name: listOrNone(selection) },
         { text: 'Locked to:', name: listOrNone(locks) },
         { text: 'Keys:', name: keyCount ? `the keys of ${counted(keyCount, 'entry', 'entries')}, those edited by hand included` : 'none' },
         { text: 'Vectors:', name: partCount ? `${counted(partCount, 'part')}${collections}` : 'none' },

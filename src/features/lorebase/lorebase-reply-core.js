@@ -75,7 +75,7 @@ export function activeBookNames({ globalBooks, characterBooks, chatBook, persona
  * LoreBase block that would go in the entry's place. An entry with no text has nothing to key, pick or send, so its
  * keys would fail at every writing.
  * @param {{uid: number|string, content?: string, disable?: boolean, constant?: boolean, sticky?: number, cooldown?: number}} entry
- * @param {Set<string>} selectedUids - The book's selected uids, as its record holds them
+ * @param {Set<string>} selectedUids - The selected uids of the book's selection in use, or of every one of them
  * @returns {boolean}
  */
 export function isDecidedEntry(entry, selectedUids) {
@@ -87,11 +87,11 @@ export function isDecidedEntry(entry, selectedUids) {
 /**
  * The entries LoreBase decides in a book (isDecidedEntry), in the book's own order.
  * @param {{entries?: object}|null} book - The book as loadWorldInfo returns it
- * @param {{selectedUids: string[]}|null} record - The book's record, from getLoreBook
+ * @param {{selectedUids: string[]}|null} selection - One of the book's selections, or every entry they hold together
  * @returns {object[]}
  */
-export function decidedEntries(book, record) {
-    const selected = new Set(record?.selectedUids ?? []);
+export function decidedEntries(book, selection) {
+    const selected = new Set(selection?.selectedUids ?? []);
     return Object.values(book?.entries ?? {}).filter(entry => isDecidedEntry(entry, selected));
 }
 

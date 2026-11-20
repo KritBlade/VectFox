@@ -25,7 +25,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const host = vi.hoisted(() => ({
     status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, writingProgressListener: null,
     selectedBooks: [], settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
-    counts: null, add: null, added: null, removed: null,
+    counts: null, add: null, added: null, removed: null, useError: null,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
@@ -49,6 +49,11 @@ vi.mock('../src/features/lorebase/index.js', async () => ({
         return host.added;
     }),
     storedCountsOfBooks: vi.fn(async () => host.counts),
+    // The switcher's two actions: a selection put in use here, or the error that refused it; a new selection made.
+    useLoreSelectionHere: vi.fn(() => {
+        if (host.useError) throw host.useError;
+    }),
+    newLoreSelectionHere: vi.fn(() => ({ id: 'made', name: 'Harbor Atlas 2' })),
     writingProblem: vi.fn(() => host.keyProblem),
     writeMissing: vi.fn(async () => host.outcome),
     deleteStored: vi.fn(async () => {
@@ -69,8 +74,8 @@ vi.mock('../src/features/lorebase/index.js', async () => ({
 }));
 
 const {
-    addLoreBookToChat, chatBookLocks, deleteStored, openLoreBaseSelection, removeLoreBookAfterConfirm, storedCountsOfBooks, turnLoreBaseOff,
-    turnLoreBaseOn, writeMissing, writingProblem,
+    addLoreBookToChat, chatBookLocks, deleteStored, newLoreSelectionHere, openLoreBaseSelection, removeLoreBookAfterConfirm, storedCountsOfBooks,
+    turnLoreBaseOff, turnLoreBaseOn, useLoreSelectionHere, writeMissing, writingProblem,
 } = await import('../src/features/lorebase/index.js');
 const { log } = await import('../src/sillytavern/log.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
@@ -83,8 +88,11 @@ const countsOf = fields => ({
     decidedCount: 2, keyCount: 0, vectorCount: 0, readyCount: 0, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0,
     firstFailure: null, ...fields,
 });
-const HARBOR = { bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: true, isLockedToCharacter: false };
-const KEEPER = { bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false };
+const HARBOR = {
+    bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: true, isLockedToCharacter: false, selections: [{ id: 'first', name: 'Harbor Atlas' }],
+    selectionInUseId: 'first',
+};
+const KEEPER = { bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, selections: [], selectionInUseId: null };
 const rowsShown = () => [...document.querySelectorAll('#VectFox_lorebase_books .vfx-row')].map(row => `${row.querySelector('.vfx-row-name').textContent}: ${row.querySelector('.vfx-row-sub').textContent}`);
 const opener = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-choose="${bookName}"]`);
 const remover = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-remove="${bookName}"]`);
@@ -105,6 +113,7 @@ beforeEach(() => {
     host.add = { bookNames: ['Tide Tables', 'Voyage Log'], canAddToCharacter: true };
     host.added = { characterAvatar: 'keeper-orrin.png' };
     host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5, takenOutOf: ['characterBooks'], stillLoadedBy: [] };
+    host.useError = null;
     bindLoreBaseBooksCard(host.settings);
 });
 
@@ -139,7 +148,7 @@ describe("LoreBase's switch", () => {
         host.isOn = false;
         await refreshLoreBaseBooks();
         opener('Harbor Atlas').click();
-        expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Harbor Atlas' });
+        expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Harbor Atlas', selectionId: null });
     });
 
     it('enables the Generate buttons and hides the notice once turned on', async () => {
@@ -237,7 +246,7 @@ describe('the LoreBase books card', () => {
     it('opens the selection screen on the book a row names, and draws the list again once the screen closes', async () => {
         await refreshLoreBaseBooks();
         opener('Keeper Notes').click();
-        expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Keeper Notes' });
+        expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Keeper Notes', selectionId: null });
         host.status = { hasChat: true, books: [HARBOR, { ...KEEPER, selectedCount: 3, isLockedToCharacter: true }] };
         expect(rowsShown()).toEqual(['Harbor Atlas: 2 selected, 2 with keys, 1 with vectors', 'Keeper Notes: Nothing selected']);
 
@@ -248,7 +257,7 @@ describe('the LoreBase books card', () => {
 
     it('counts the keys and vectors of the books with a selection, through the settings the card was bound with', async () => {
         await refreshLoreBaseBooks();
-        expect(storedCountsOfBooks).toHaveBeenCalledWith(['Harbor Atlas'], host.settings);
+        expect(storedCountsOfBooks).toHaveBeenCalledWith([{ bookName: 'Harbor Atlas', selectionId: 'first' }], host.settings);
         host.status = { hasChat: true, books: [KEEPER] };
         await refreshLoreBaseBooks();
         expect(storedCountsOfBooks).toHaveBeenCalledTimes(1);
@@ -326,7 +335,7 @@ describe('the LoreBase books card', () => {
 
     it("opens the screen on the chat's first book from the card's own button", () => {
         document.querySelector('#VectFox_lorebase_books_card .vfx-card-body > .vfx-control-row [data-lorebase-choose]').click();
-        expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: '' });
+        expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: '', selectionId: null });
     });
 
     it('logs a screen that failed, and still draws the list again', async () => {
@@ -382,7 +391,7 @@ describe('Add a lorebook', () => {
         expect(addButtons().every(button => button.disabled)).toBe(true);
 
         finishAdding({ characterAvatar: 'keeper-orrin.png' });
-        await vi.waitFor(() => expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Voyage Log' }));
+        await vi.waitFor(() => expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Voyage Log', selectionId: null }));
         const added = 'Added "Voyage Log" to this character, and locked it to the character.';
         expect(status().textContent).toBe(added);
         expect(chatBookLocks).toHaveBeenCalledTimes(2);
@@ -638,5 +647,62 @@ describe('Remove from LoreBase on a book row', () => {
         remover('Harbor Atlas').click();
         await vi.waitFor(() => expect(status().textContent)
             .toBe('Not removed: LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.'));
+    });
+});
+
+describe("Selection in use here (§1.2 of vectfox-multi-collection-per-chat.md)", () => {
+    const switcherOf = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-in-use="${bookName}"]`);
+    const choose = (bookName, value) => {
+        switcherOf(bookName).value = value;
+        switcherOf(bookName).dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const TWO_SELECTIONS = [{ id: 'first', name: 'Harbor Atlas' }, { id: 'night', name: 'Night watch' }];
+
+    beforeEach(() => {
+        host.status = { hasChat: true, books: [{ ...HARBOR, selections: TWO_SELECTIONS }, { ...KEEPER, selections: [{ id: 'k1', name: 'Keeper Notes' }], selectionInUseId: null }] };
+    });
+
+    it("leads a book's row with its selections, the one in use here chosen, then New selection; with none in use, None in use here", async () => {
+        await refreshLoreBaseBooks();
+        expect([...switcherOf('Harbor Atlas').options].map(option => [option.value, option.textContent, option.selected])).toEqual([
+            ['first', 'Harbor Atlas', true], ['night', 'Night watch', false], ['+new', 'New selection', false],
+        ]);
+        expect(switcherOf('Harbor Atlas').title).toBe('Selection in use here');
+        expect(switcherOf('Harbor Atlas').closest('.vfx-row-actions').firstElementChild).toBe(switcherOf('Harbor Atlas'));
+        expect([...switcherOf('Keeper Notes').options].map(option => [option.value, option.textContent, option.selected])).toEqual([
+            ['', 'None in use here', true], ['k1', 'Keeper Notes', false], ['+new', 'New selection', false],
+        ]);
+    });
+
+    it('draws none for a book with no selection', async () => {
+        host.status = { hasChat: true, books: [KEEPER] };
+        await refreshLoreBaseBooks();
+        expect(switcherOf('Keeper Notes')).toBeNull();
+    });
+
+    it('puts the selection chosen in use in this chat, says so, and draws the list again', async () => {
+        await refreshLoreBaseBooks();
+        chatBookLocks.mockClear();
+        choose('Harbor Atlas', 'night');
+        expect(useLoreSelectionHere).toHaveBeenCalledWith('Harbor Atlas', 'night');
+        expect(status().textContent).toBe('"Night watch" is in use in this chat now.');
+        await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(1));
+    });
+
+    it('makes a new selection with New selection, says so, and opens the selection screen on it', async () => {
+        await refreshLoreBaseBooks();
+        choose('Harbor Atlas', '+new');
+        expect(newLoreSelectionHere).toHaveBeenCalledWith('Harbor Atlas');
+        expect(status().textContent).toBe('Made "Harbor Atlas 2" from the selection in use, and put it in use in this chat.');
+        await vi.waitFor(() => expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Harbor Atlas', selectionId: 'made' }));
+        expect(useLoreSelectionHere).not.toHaveBeenCalled();
+    });
+
+    it('says why nothing changed when the selection could not be put in use', async () => {
+        await refreshLoreBaseBooks();
+        host.useError = new Error('Open a chat to choose the selection it uses.');
+        choose('Harbor Atlas', 'night');
+        expect(status().textContent).toBe('Not changed: Open a chat to choose the selection it uses.');
+        expect(log.warn).toHaveBeenCalledWith('LoreBase: the selection in use of lorebook "Harbor Atlas" was not changed:', host.useError);
     });
 });

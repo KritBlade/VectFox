@@ -140,6 +140,8 @@ describe('WorldInfo page markup', () => {
 });
 
 describe('loreBaseBooksMarkup', () => {
+    // A book as chatBookLocks lists it, holding no selection unless the test gives some, so its row draws no switcher.
+    const listedBook = fields => ({ selections: [], selectionInUseId: null, ...fields });
     const rowsOf = status => {
         document.body.innerHTML = loreBaseBooksMarkup(status);
         return [...document.querySelectorAll('.vfx-row')].map(row => ({
@@ -162,9 +164,9 @@ describe('loreBaseBooksMarkup', () => {
         expect(rowsOf({
             hasChat: true,
             books: [
-                { bookName: 'Harbor Atlas', selectedCount: 1234, isLockedToChat: true, isLockedToCharacter: true },
-                { bookName: 'Keeper Notes', selectedCount: 1, isLockedToChat: false, isLockedToCharacter: true },
-                { bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false },
+                listedBook({ bookName: 'Harbor Atlas', selectedCount: 1234, isLockedToChat: true, isLockedToCharacter: true }),
+                listedBook({ bookName: 'Keeper Notes', selectedCount: 1, isLockedToChat: false, isLockedToCharacter: true }),
+                listedBook({ bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false }),
             ],
         })).toEqual([
             { name: 'Harbor Atlas', sub: '1,234 selected', pills: ['Locked to this chat (success)', 'Locked to this character (success)'], opens: 'Harbor Atlas', opener: 'Choose entries' },
@@ -176,7 +178,7 @@ describe('loreBaseBooksMarkup', () => {
     it('adds how many selected entries have keys and vectors once they are read, each count with its unit', () => {
         expect(rowsOf({
             hasChat: true,
-            books: [{ bookName: 'Harbor Atlas', selectedCount: 1234, isLockedToChat: true, isLockedToCharacter: false, keyCount: 1200, vectorCount: 0 }],
+            books: [listedBook({ bookName: 'Harbor Atlas', selectedCount: 1234, isLockedToChat: true, isLockedToCharacter: false, keyCount: 1200, vectorCount: 0 })],
         })[0].sub).toBe('1,234 selected, 1,200 with keys, 0 with vectors');
     });
 
@@ -184,8 +186,8 @@ describe('loreBaseBooksMarkup', () => {
         document.body.innerHTML = loreBaseBooksMarkup({
             hasChat: true,
             books: [
-                { bookName: 'Harbor Atlas', selectedCount: 18, isLockedToChat: false, isLockedToCharacter: true, canRemove: true },
-                { bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, canRemove: false },
+                listedBook({ bookName: 'Harbor Atlas', selectedCount: 18, isLockedToChat: false, isLockedToCharacter: true, canRemove: true }),
+                listedBook({ bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, canRemove: false }),
             ],
         });
         const removers = [...document.querySelectorAll('.vfx-row-actions [data-lorebase-remove]')];
@@ -194,8 +196,38 @@ describe('loreBaseBooksMarkup', () => {
         expect(removers[0].classList.contains('vfx-btn-danger')).toBe(true);
     });
 
+    it("leads a book's actions with Selection in use here while it has a selection: its selections, the one in use here chosen, then New selection (§1.2 of vectfox-multi-collection-per-chat.md)", () => {
+        document.body.innerHTML = loreBaseBooksMarkup({
+            hasChat: true,
+            books: [
+                listedBook({
+                    bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: true, isLockedToCharacter: false,
+                    selections: [{ id: 'first', name: 'Harbor Atlas' }, { id: 'night', name: 'Night <b>watch</b>' }], selectionInUseId: 'night',
+                }),
+                listedBook({ bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, selections: [{ id: 'k1', name: 'Keeper Notes' }] }),
+                listedBook({ bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false }),
+            ],
+        });
+        const switchers = [...document.querySelectorAll('.vfx-row')].map(row => row.querySelector('.vfx-row-actions select'));
+        expect(switchers.map(switcher => switcher && {
+            book: switcher.dataset.lorebaseInUse, title: switcher.title, isFirst: switcher.parentElement.firstElementChild === switcher,
+            options: [...switcher.options].map(option => [option.value, option.textContent, option.selected]),
+        })).toEqual([
+            {
+                book: 'Harbor Atlas', title: 'Selection in use here', isFirst: true,
+                options: [['first', 'Harbor Atlas', false], ['night', 'Night <b>watch</b>', true], ['+new', 'New selection', false]],
+            },
+            {
+                book: 'Keeper Notes', title: 'Selection in use here', isFirst: true,
+                options: [['', 'None in use here', true], ['k1', 'Keeper Notes', false], ['+new', 'New selection', false]],
+            },
+            null,
+        ]);
+        expect(document.querySelector('.vfx-row b')).toBeNull();
+    });
+
     describe("each book's state, once its keys and vectors are read (§7.1 of lorebook-multi-vector.md)", () => {
-        const book = fields => ({
+        const book = fields => listedBook({
             bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false, decidedCount: 40, keyCount: 40, vectorCount: 40,
             readyCount: 40, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null, writing: null, ...fields,
         });
@@ -241,7 +273,7 @@ describe('loreBaseBooksMarkup', () => {
 
         it('shows no state before the keys and vectors are read, nor on a book with nothing selected', () => {
             document.body.innerHTML = loreBaseBooksMarkup({ hasChat: true, books: [
-                { bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false },
+                listedBook({ bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false }),
                 book({ bookName: 'Tide Tables', selectedCount: 0, readyCount: 0 }),
             ] });
             expect([...document.querySelectorAll('.vfx-row')].map(row => [...row.querySelectorAll('.vfx-pill')].map(pill => pill.textContent.trim())))
@@ -261,7 +293,7 @@ describe('loreBaseBooksMarkup', () => {
             expect(lineOf([book({ selectedCount: 1, decidedCount: 1, readyCount: 1 })])).toBe('1 book locked here: 1 entry ready.');
             expect(lineOf([book({ selectedCount: 75, decidedCount: 23, readyCount: 23 })])).toBe('1 book locked here: 23 entries ready.');
             expect(lineOf([book({ isLockedToChat: false })])).toBe('No book with selected entries is locked here, so LoreBase sends none of them.');
-            expect(lineOf([{ bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false }])).toBeNull();
+            expect(lineOf([listedBook({ bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false })])).toBeNull();
         });
     });
 
@@ -296,7 +328,7 @@ describe('loreBaseBooksMarkup', () => {
     });
 
     it('shows a book named like markup as written, and opens it by that name', () => {
-        expect(rowsOf({ hasChat: true, books: [{ bookName: 'The <b>Old</b> "Keep"', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false }] })[0])
+        expect(rowsOf({ hasChat: true, books: [listedBook({ bookName: 'The <b>Old</b> "Keep"', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false })] })[0])
             .toMatchObject({ name: 'The <b>Old</b> "Keep"', opens: 'The <b>Old</b> "Keep"' });
         expect(document.querySelector('.vfx-row b')).toBeNull();
     });

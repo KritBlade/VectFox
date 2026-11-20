@@ -1,19 +1,29 @@
 /**
- * What VectFox keeps per lorebook for LoreBase (plan §5.2, §5.4): the entries the user selected for LoreBase to
- * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), the chats and characters
- * the book is locked to (D11), each character by its avatar file name, and the entries it held when the selection
- * screen last opened it, so a later one shows as new. One record per book, keyed by the book's exact name, in
- * VectFox's settings: never a key per entry (§3.3), and never in the lorebook file. A book's selected entries LoreBase
- * decides are read here too, against the book as SillyTavern loads it: the one count every LoreBase screen and the
- * reply share. Clean up locks, on the Action page, drops the locks on chats and characters that no longer exist, and
- * Remove from LoreBase deletes a book's record once its keys and vectors are deleted.
+ * What VectFox keeps per lorebook for LoreBase (plan §5.2, §5.4, and §3.7 of InternalProject/Vectfox/plans/
+ * vectfox-multi-collection-per-chat.md): the book's selections, each with the entries the user selected for LoreBase to
+ * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), and the chats and
+ * characters it is locked to (D11), each character by its avatar file name; and the entries the book held when the
+ * selection screen last opened it, so a later one shows as new. A chat uses one selection of a book at a time, the one
+ * locked to it, else the one locked to its character (selectionInUse), and locking a selection takes that lock off the
+ * book's others (setLoreSelectionLock). One record per book, keyed by the book's exact name, in VectFox's settings:
+ * never a key per entry (§3.3), and never in the lorebook file. A book's selected entries LoreBase decides are read here
+ * too, against the book as SillyTavern loads it: the one count every LoreBase screen and the reply share. Clean up locks,
+ * on the Action page, drops the locks on chats and characters that no longer exist, and Remove from LoreBase deletes a
+ * book's record once its keys and vectors are deleted.
  */
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { decidedEntries } from './lorebase-reply-core.js';
+import {
+    emptySelection, newSelectionId, numberedName, oneInUseLockChanges, selectionInUseOf, unionOfSelections,
+} from './lorebase-selections-core.js';
+
+/** @typedef {import('./lorebase-selections-core.js').LoreSelection} LoreSelection */
 
 const BOOKS_KEY = 'lorebase_books';
+// Each kind of lock a selection holds, by the place it names.
+const LOCK_LISTS = Object.freeze({ chatId: 'lockedToChatIds', characterAvatar: 'lockedToCharacterAvatars' });
 
 function allBooks() {
     const settings = extension_settings.vectfox;
@@ -21,32 +31,61 @@ function allBooks() {
     return settings[BOOKS_KEY];
 }
 
-function emptyRecord() {
-    return { selectedUids: [], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] };
-}
-
 /**
  * A book's record, or null when the user never selected, pinned, locked or opened anything in it. Reading writes
  * nothing: each reply reads the records of the books it loads. `seenUids` is missing until the selection screen first
  * opens the book.
  * @param {string} bookName
- * @returns {{selectedUids: string[], pinnedSections: string[], lockedToChatIds: string[],
- *   lockedToCharacterAvatars: string[], seenUids?: string[]}|null}
+ * @returns {{selections: LoreSelection[], seenUids?: string[]}|null}
  */
 export function getLoreBook(bookName) {
     return extension_settings.vectfox[BOOKS_KEY]?.[bookName] ?? null;
 }
 
 /**
- * The selected entries LoreBase decides in a book, as SillyTavern loads it now (decidedEntries): what the WorldInfo
- * page's book rows count, the keys count reads and the reply sends from. None when SillyTavern has no such book.
+ * A book's selections, in the order they were made; none while it has no record.
  * @param {string} bookName
- * @param {object|null} [record] - The book's record, the saved one by default
+ * @returns {LoreSelection[]}
+ */
+export function loreSelectionsOf(bookName) {
+    return getLoreBook(bookName)?.selections ?? [];
+}
+
+/**
+ * One of a book's selections, by its ID.
+ * @param {string} bookName
+ * @param {string} selectionId
+ * @returns {LoreSelection}
+ * @throws {Error} When the book has no selection of that ID
+ */
+export function getLoreSelection(bookName, selectionId) {
+    const selection = loreSelectionsOf(bookName).find(each => each.id === selectionId);
+    if (!selection) throw new Error(`LoreBase has no selection "${selectionId}" of lorebook "${bookName}".`);
+    return selection;
+}
+
+/**
+ * The selection of a book a chat uses: the one locked to the chat, else the one locked to its character, else none.
+ * @param {string} bookName
+ * @param {{chatId?: string|null, characterAvatar?: string|null}} where
+ * @returns {LoreSelection|null}
+ */
+export function selectionInUse(bookName, where) {
+    return selectionInUseOf(getLoreBook(bookName), where);
+}
+
+/**
+ * The selected entries LoreBase decides in a book, as SillyTavern loads it now (decidedEntries): of one selection, or
+ * by default every entry any of the book's selections holds, which LoreBase writes keys and vectors for. What the
+ * WorldInfo page's book rows count, the keys count reads and the reply sends from. None when SillyTavern has no such
+ * book.
+ * @param {string} bookName
+ * @param {{selectedUids: string[]}} [selection] - A selection, or every entry the book's selections hold by default
  * @returns {Promise<object[]>}
  * @throws {Error} When SillyTavern cannot load the book
  */
-export async function loadDecidedEntries(bookName, record = getLoreBook(bookName)) {
-    return decidedEntries(await loadWorldInfo(bookName), record);
+export async function loadDecidedEntries(bookName, selection = unionOfSelections(getLoreBook(bookName))) {
+    return decidedEntries(await loadWorldInfo(bookName), selection);
 }
 
 /**
@@ -81,49 +120,119 @@ export function recordedLoreBookNames() {
 }
 
 /**
- * Every book with a record, by name, and how many entries it selects for LoreBase: the Database Browser's lorebooks
- * with a record, and which of them selects none.
- * @returns {Record<string, number>}
+ * Every book with a record, by name, with how many entries its selections hold together and how many selections it
+ * has: the Database Browser's lorebooks with a record, and which of them selects none.
+ * @returns {Record<string, {selectedCount: number, selectionCount: number}>}
  */
-export function loreBookSelectedCounts() {
-    return Object.fromEntries(Object.entries(extension_settings.vectfox[BOOKS_KEY] ?? {})
-        .map(([bookName, record]) => [bookName, record?.selectedUids?.length ?? 0]));
+export function loreBookRecordCounts() {
+    return Object.fromEntries(Object.entries(extension_settings.vectfox[BOOKS_KEY] ?? {}).map(([bookName, record]) => [bookName, {
+        selectedCount: unionOfSelections(record).selectedUids.length,
+        selectionCount: record?.selections?.length ?? 0,
+    }]));
 }
 
 /**
- * The names of the books with entries selected for LoreBase, as their records hold them.
+ * The names of the books with entries selected for LoreBase, in any of their selections.
  * @returns {string[]}
  */
 export function selectedLoreBookNames() {
     return Object.entries(extension_settings.vectfox[BOOKS_KEY] ?? {})
-        .filter(([, record]) => record?.selectedUids?.length)
+        .filter(([, record]) => unionOfSelections(record).selectedUids.length)
         .map(([bookName]) => bookName);
 }
 
 function recordFor(bookName) {
     const books = allBooks();
-    books[bookName] ??= emptyRecord();
+    books[bookName] ??= { selections: [] };
     return books[bookName];
 }
 
 /**
- * Set the entries LoreBase decides in a book: a selected entry goes in only when LoreBase picks it, Jev on Fast and
- * Cheap [Jev] or Luna on High Accuracy (D14, D16). Every entry starts unselected (D3).
+ * A book's first selection, made with nothing selected and named after the book while it has none: what the selection
+ * screen opens on a book never opened, and Add a lorebook locks.
  * @param {string} bookName
- * @param {Iterable<string|number>} entryUids
+ * @returns {LoreSelection}
  */
-export function setLoreBookSelection(bookName, entryUids) {
-    recordFor(bookName).selectedUids = [...new Set([...entryUids].map(String))];
+export function ensureLoreSelection(bookName) {
+    const record = recordFor(bookName);
+    if (!record.selections.length) {
+        record.selections.push(emptySelection(newSelectionId([]), bookName));
+        saveSettingsDebounced();
+    }
+    return record.selections[0];
+}
+
+/**
+ * New selection: a copy of one of the book's selections, its selected entries and pinned sections but none of its locks,
+ * named by numberedName from the book's name ("Harbor Atlas 2").
+ * @param {string} bookName
+ * @param {string|null} sourceSelectionId - The selection to copy; null copies the book's first, made when it has none
+ * @returns {LoreSelection} The new selection, locked nowhere
+ * @throws {Error} When the book has no selection of that ID
+ */
+export function newLoreSelection(bookName, sourceSelectionId) {
+    const source = sourceSelectionId ? getLoreSelection(bookName, sourceSelectionId) : ensureLoreSelection(bookName);
+    const { selections } = recordFor(bookName);
+    const selection = {
+        ...emptySelection(newSelectionId(selections.map(item => item.id)), numberedName(bookName, selections.map(item => item.name))),
+        selectedUids: [...source.selectedUids],
+        pinnedSections: [...source.pinnedSections],
+    };
+    selections.push(selection);
+    saveSettingsDebounced();
+    return selection;
+}
+
+/**
+ * Rename one of a book's selections.
+ * @param {string} bookName
+ * @param {string} selectionId
+ * @param {string} name
+ * @throws {Error} With nothing in the name, or no such selection
+ */
+export function renameLoreSelection(bookName, selectionId, name) {
+    const trimmed = String(name ?? '').trim();
+    if (!trimmed) throw new Error('A selection needs a name.');
+    getLoreSelection(bookName, selectionId).name = trimmed;
     saveSettingsDebounced();
 }
 
 /**
- * Set the section names whose parts are kept whenever their entry is picked, whatever its review says (D10).
+ * Delete one of a book's selections, with its selected entries, pinned sections and locks; the vectors of the entries
+ * no other selection holds go with the book's next prune (pruneBookVectors). A book's last selection stays: Remove from
+ * LoreBase removes the book.
  * @param {string} bookName
+ * @param {string} selectionId
+ * @throws {Error} For the book's last selection, or no such selection
+ */
+export function deleteLoreSelection(bookName, selectionId) {
+    const selection = getLoreSelection(bookName, selectionId);
+    const { selections } = getLoreBook(bookName);
+    if (selections.length === 1) throw new Error(`"${selection.name}" is the only selection of "${bookName}": Remove from LoreBase removes the book.`);
+    selections.splice(selections.indexOf(selection), 1);
+    saveSettingsDebounced();
+}
+
+/**
+ * Set the entries LoreBase decides in a book while a selection is in use: a selected entry goes in only when LoreBase
+ * picks it, Jev on Fast and Cheap [Jev] or Luna on High Accuracy (D14, D16). Every entry starts unselected (D3).
+ * @param {string} bookName
+ * @param {string} selectionId
+ * @param {Iterable<string|number>} entryUids
+ */
+export function setLoreBookSelection(bookName, selectionId, entryUids) {
+    getLoreSelection(bookName, selectionId).selectedUids = [...new Set([...entryUids].map(String))];
+    saveSettingsDebounced();
+}
+
+/**
+ * Set a selection's section names whose parts are kept whenever their entry is picked, whatever its review says (D10).
+ * @param {string} bookName
+ * @param {string} selectionId
  * @param {Iterable<string>} sectionNames
  */
-export function setLoreBookPins(bookName, sectionNames) {
-    recordFor(bookName).pinnedSections = [...new Set([...sectionNames].map(name => String(name).trim()).filter(Boolean))];
+export function setLoreBookPins(bookName, selectionId, sectionNames) {
+    getLoreSelection(bookName, selectionId).pinnedSections = [...new Set([...sectionNames].map(name => String(name).trim()).filter(Boolean))];
     saveSettingsDebounced();
 }
 
@@ -138,42 +247,40 @@ export function setLoreBookSeenEntries(bookName, entryUids) {
 }
 
 /**
- * Lock a book to a chat or a character, or unlock it. The lock is the master switch (D11): a book takes part only
- * where SillyTavern has it active and the user locked it. A character is named by its avatar file name, which stays
- * the same when characters are added or deleted, where its place in SillyTavern's character list does not.
+ * Lock a selection to a chat or a character, or unlock it: every lock of a selection goes through here. The lock is the
+ * master switch (D11): a book takes part only where SillyTavern has it active and one of its selections is locked.
+ * Locking a selection takes that chat's or character's lock off the book's other selections (oneInUseLockChanges), so
+ * a chat or a character uses one selection of a book. A character is named by its avatar file name, which stays the
+ * same when characters are added or deleted, where its place in SillyTavern's character list does not.
  * @param {string} bookName
- * @param {{chatId?: string, characterAvatar?: string}} target
- * @param {boolean} locked
+ * @param {string} selectionId
+ * @param {{chatId?: string|null, characterAvatar?: string|null}} where - The places to lock it to or unlock it from
+ * @param {boolean} isLocked
+ * @throws {Error} When the book has no such selection
  */
-export function setLoreBookLock(bookName, { chatId, characterAvatar }, locked) {
-    const record = recordFor(bookName);
-    const update = (list, id) => {
-        if (id === undefined || id === null) return list;
-        const others = list.filter(item => item !== String(id));
-        return locked ? [...others, String(id)] : others;
-    };
-    record.lockedToChatIds = update(record.lockedToChatIds, chatId);
-    record.lockedToCharacterAvatars = update(record.lockedToCharacterAvatars, characterAvatar);
+export function setLoreSelectionLock(bookName, selectionId, where, isLocked) {
+    const chosen = getLoreSelection(bookName, selectionId);
+    const selections = loreSelectionsOf(bookName);
+    for (const [placeName, list] of Object.entries(LOCK_LISTS)) {
+        if (where[placeName] === undefined || where[placeName] === null) continue;
+        const place = String(where[placeName]);
+        if (!isLocked) {
+            chosen[list] = chosen[list].filter(item => item !== place);
+            continue;
+        }
+        const { lockIds, unlockIds } = oneInUseLockChanges(
+            selections.map(selection => ({ id: selection.id, isLockedHere: selection[list].includes(place) })), selectionId);
+        for (const selection of selections) {
+            if (lockIds.includes(selection.id)) selection[list] = [...selection[list], place];
+            if (unlockIds.includes(selection.id)) selection[list] = selection[list].filter(item => item !== place);
+        }
+    }
     saveSettingsDebounced();
 }
 
 /**
- * Whether a book is locked to this chat or this character.
- * @param {string} bookName
- * @param {{chatId?: string|null, characterAvatar?: string|null}} where
- * @returns {boolean}
- */
-export function isLoreBookLocked(bookName, { chatId, characterAvatar }) {
-    const record = getLoreBook(bookName);
-    if (!record) return false;
-    return (chatId != null && record.lockedToChatIds.includes(String(chatId)))
-        || (characterAvatar != null && record.lockedToCharacterAvatars.includes(String(characterAvatar)));
-}
-
-/**
- * Delete a book's record, with its selected entries, pinned sections, locks and seen entries: the last step of
- * Remove from LoreBase (removeLoreBook in lorebase-storage.js), once the book's keys and vectors are deleted. Saves only
- * when the book had a record.
+ * Delete a book's record, with its selections and seen entries: the last step of Remove from LoreBase (removeLoreBook
+ * in lorebase-storage.js), once the book's keys and vectors are deleted. Saves only when the book had a record.
  * @param {string} bookName
  */
 export function deleteLoreBookRecord(bookName) {
@@ -183,44 +290,47 @@ export function deleteLoreBookRecord(bookName) {
     saveSettingsDebounced();
 }
 
-/** Move every book's lock on one chat or character to its new name, saving only when a lock moved. */
+// Every selection of every book, for the functions that act on the locks of all of them.
+const everySelection = () => Object.values(extension_settings.vectfox[BOOKS_KEY] ?? {})
+    .flatMap(record => (Array.isArray(record?.selections) ? record.selections : []));
+
+/** Move every selection's lock on one chat or character to its new name, saving only when a lock moved. */
 function moveLocks(lockList, oldName, newName) {
-    const books = extension_settings.vectfox[BOOKS_KEY];
-    if (!books || !oldName || !newName || oldName === newName) return;
+    if (!oldName || !newName || oldName === newName) return;
     let hasMoved = false;
-    for (const record of Object.values(books)) {
-        if (!record[lockList].includes(oldName)) continue;
-        record[lockList] = [...new Set(record[lockList].map(name => (name === oldName ? newName : name)))];
+    for (const selection of everySelection()) {
+        if (!selection[lockList].includes(oldName)) continue;
+        selection[lockList] = [...new Set(selection[lockList].map(name => (name === oldName ? newName : name)))];
         hasMoved = true;
     }
     if (hasMoved) saveSettingsDebounced();
 }
 
 /**
- * Keep every book's locks on a character SillyTavern renamed: the rename gives it a new avatar file name, and
+ * Keep every selection's locks on a character SillyTavern renamed: the rename gives it a new avatar file name, and
  * SillyTavern moves its own per-character settings (tags, extra lorebooks, the character's Author's Note) the same way.
  * @param {string} oldAvatar
  * @param {string} newAvatar
  */
 export function renameLoreBookCharacter(oldAvatar, newAvatar) {
-    moveLocks('lockedToCharacterAvatars', oldAvatar, newAvatar);
+    moveLocks(LOCK_LISTS.characterAvatar, oldAvatar, newAvatar);
 }
 
 /**
- * Keep every book's locks on a chat SillyTavern renamed: a chat lock holds the chat's file name, which the rename
+ * Keep every selection's locks on a chat SillyTavern renamed: a chat lock holds the chat's file name, which the rename
  * changes.
  * @param {string} oldChatId
  * @param {string} newChatId
  */
 export function renameLoreBookChat(oldChatId, newChatId) {
-    moveLocks('lockedToChatIds', oldChatId, newChatId);
+    moveLocks(LOCK_LISTS.chatId, oldChatId, newChatId);
 }
 
 /**
  * Clean up locks, LoreBase's part (§1.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): count,
- * and with `shouldApply` remove, each book's locks on a chat or a character that no longer exists. A null test judges
- * no lock of its kind: the chat list could not be read whole, or no character list is loaded. Saves only when a lock
- * goes.
+ * and with `shouldApply` remove, each selection's locks on a chat or a character that no longer exists. A null test
+ * judges no lock of its kind: the chat list could not be read whole, or no character list is loaded. Saves only when a
+ * lock goes.
  * @param {{isChatPresent: ((chatId: string) => boolean)|null, isCharacterPresent: ((avatar: string) => boolean)|null}} targets
  * @param {{shouldApply: boolean}} options
  * @returns {{goneChatLockCount: number, goneCharacterLockCount: number}}
@@ -228,17 +338,17 @@ export function renameLoreBookChat(oldChatId, newChatId) {
 export function cleanUpLoreBookLocks({ isChatPresent, isCharacterPresent }, { shouldApply }) {
     let goneChatLockCount = 0;
     let goneCharacterLockCount = 0;
-    for (const record of Object.values(extension_settings.vectfox[BOOKS_KEY] ?? {})) {
-        if (!record || typeof record !== 'object') continue;
-        const chatLocks = Array.isArray(record.lockedToChatIds) ? record.lockedToChatIds : [];
-        const characterLocks = Array.isArray(record.lockedToCharacterAvatars) ? record.lockedToCharacterAvatars : [];
+    for (const selection of everySelection()) {
+        if (!selection || typeof selection !== 'object') continue;
+        const chatLocks = Array.isArray(selection.lockedToChatIds) ? selection.lockedToChatIds : [];
+        const characterLocks = Array.isArray(selection.lockedToCharacterAvatars) ? selection.lockedToCharacterAvatars : [];
         const keptChats = isChatPresent ? chatLocks.filter(chatId => isChatPresent(String(chatId))) : chatLocks;
         const keptCharacters = isCharacterPresent ? characterLocks.filter(avatar => isCharacterPresent(String(avatar))) : characterLocks;
         goneChatLockCount += chatLocks.length - keptChats.length;
         goneCharacterLockCount += characterLocks.length - keptCharacters.length;
         if (!shouldApply) continue;
-        if (keptChats.length < chatLocks.length) record.lockedToChatIds = keptChats;
-        if (keptCharacters.length < characterLocks.length) record.lockedToCharacterAvatars = keptCharacters;
+        if (keptChats.length < chatLocks.length) selection.lockedToChatIds = keptChats;
+        if (keptCharacters.length < characterLocks.length) selection.lockedToCharacterAvatars = keptCharacters;
     }
     if (shouldApply && (goneChatLockCount || goneCharacterLockCount)) saveSettingsDebounced();
     return { goneChatLockCount, goneCharacterLockCount };

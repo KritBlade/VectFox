@@ -13,6 +13,7 @@
  * each reply's outcome to the tester, with what that scan reads (§5.10).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { oneSelectionRecord } from './lorebase-book-record.js';
 
 const host = vi.hoisted(() => ({
     handlers: {},
@@ -180,7 +181,7 @@ beforeEach(() => {
     host.settings.vectfox = {
         lorebase_enabled: true,
         vector_backend: 'qdrant',
-        lorebase_books: { 'Harbor Atlas': { selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] } },
+        lorebase_books: { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['0', '1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] }) },
     };
     settings = { enabled: true, lorebase_enabled: true, vector_backend: 'qdrant', lorebase_accuracy: 'high' };
     host.connection = ON_PROFILE;
@@ -295,7 +296,7 @@ describe('Fast and Cheap [Jev] (D16)', () => {
         beforeEach(() => {
             const many = Object.fromEntries(Array.from({ length: 101 }, (_, uid) => [uid, { uid, comment: `Entry ${uid}`, content: `Text of entry ${uid}.` }]));
             host.books['Harbor Atlas'] = { entries: many };
-            host.settings.vectfox.lorebase_books['Harbor Atlas'].selectedUids = Object.keys(many);
+            host.settings.vectfox.lorebase_books['Harbor Atlas'].selections[0].selectedUids = Object.keys(many);
         });
 
         it("asks Jev only about the search's pool, the search given the books, the table and the scene's messages", async () => {
@@ -387,17 +388,30 @@ describe('the books taking part (D11)', () => {
         host.books['Tide Tables'] = { entries: { 2: { uid: 2, comment: 'Neap Tide', content: 'Neap tides come twice a month.' } } };
         host.books['Unloaded Book'] = { entries: { 0: { uid: 0, comment: 'Far Isles', content: 'Far to the west.' } } };
         host.settings.vectfox.lorebase_books = {
-            'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] },
-            'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },
+            'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] }),
+            'Keeper Notes': oneSelectionRecord({ selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] }),
             // Selected but locked elsewhere, and selected and locked but not loaded by SillyTavern.
-            'Tide Tables': { selectedUids: ['2'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterAvatars: [] },
-            'Unloaded Book': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] },
+            'Tide Tables': oneSelectionRecord({ selectedUids: ['2'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterAvatars: [] }),
+            'Unloaded Book': oneSelectionRecord({ selectedUids: ['0'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] }),
         };
         postChatCompletion.mockResolvedValue(pickOf());
         await prepareLoreForReply('normal', settings);
 
         expect(pickTable(0)).toBe('1. Tidewardens (keys of Tidewardens)\n2. Lamp Rules (keys of Lamp Rules)');
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas', 'Keeper Notes']);
+    });
+
+    it("reads a book's selection in use here alone, the chat's lock before the character's, and leaves a book with none in use to its keys", async () => {
+        const harbor = oneSelectionRecord({ selectedUids: ['0'], lockedToCharacterAvatars: ['keeper-orrin.png'] });
+        harbor.selections.push({ id: 'night', name: 'Night watch', selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] });
+        const keeper = oneSelectionRecord({ selectedUids: ['7'] });
+        keeper.selections.push({ id: 'elsewhere', name: 'Elsewhere', selectedUids: ['7'], pinnedSections: [], lockedToChatIds: ['chat-other'], lockedToCharacterAvatars: [] });
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': harbor, 'Keeper Notes': keeper };
+        postChatCompletion.mockResolvedValue(pickOf());
+        await prepareLoreForReply('normal', settings);
+
+        expect(pickTable(0)).toBe('1. Tidewardens (keys of Tidewardens)');
+        expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas']);
     });
 
     it('leaves out a selected entry whose keys are not written yet, so it sends nothing (D17)', async () => {
@@ -433,7 +447,7 @@ describe('the books taking part (D11)', () => {
     it('says once per chat which selected entries it leaves out for not being ready, and again when their number changes', async () => {
         // A chat of its own, so what an earlier reply said in another chat does not count here.
         host.chatId = 'chat-unkeyed-once';
-        host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = ['chat-unkeyed-once'];
+        host.settings.vectfox.lorebase_books['Harbor Atlas'].selections[0].lockedToChatIds = ['chat-unkeyed-once'];
         host.unkeyedUids = new Set(['Harbor Atlas/0']);
         postChatCompletion.mockResolvedValue(pickOf());
         const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys or vectors'));
@@ -453,7 +467,7 @@ describe('the books taking part (D11)', () => {
 
     it('says it again in another chat, and nothing in a chat whose selected entries are all ready', async () => {
         host.chatId = 'chat-unkeyed-first';
-        host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds = ['chat-unkeyed-first', 'chat-unkeyed-second'];
+        host.settings.vectfox.lorebase_books['Harbor Atlas'].selections[0].lockedToChatIds = ['chat-unkeyed-first', 'chat-unkeyed-second'];
         host.unkeyedUids = new Set(['Harbor Atlas/1']);
         postChatCompletion.mockResolvedValue(pickOf());
         const unkeyedToasts = () => globalThis.toastr.warning.mock.calls.filter(([message]) => message.includes('no keys or vectors'));
@@ -478,14 +492,14 @@ describe('the books taking part (D11)', () => {
 
     it('keeps a book locked to a character through a rename, which gives the character a new avatar file name', async () => {
         host.settings.vectfox.lorebase_books = {
-            'Keeper Notes': { selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] },
+            'Keeper Notes': oneSelectionRecord({ selectedUids: ['7'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: ['keeper-orrin.png'] }),
         };
         host.handlers.character_renamed('keeper-orrin.png', 'keeper-orrin-the-elder.png');
         host.context.characters[3].avatar = 'keeper-orrin-the-elder.png';
         postChatCompletion.mockResolvedValue(pickOf());
         await prepareLoreForReply('normal', settings);
 
-        expect(host.settings.vectfox.lorebase_books['Keeper Notes'].lockedToCharacterAvatars).toEqual(['keeper-orrin-the-elder.png']);
+        expect(host.settings.vectfox.lorebase_books['Keeper Notes'].selections[0].lockedToCharacterAvatars).toEqual(['keeper-orrin-the-elder.png']);
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Keeper Notes']);
     });
 
@@ -497,7 +511,7 @@ describe('the books taking part (D11)', () => {
         await prepareLoreForReply('normal', settings);
 
         expect(getSanitizedFilename).toHaveBeenCalledWith('Harbor: the storm?.jsonl');
-        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds).toEqual(['Harbor the storm']);
+        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].selections[0].lockedToChatIds).toEqual(['Harbor the storm']);
         expect(loadWorldInfo.mock.calls.map(([name]) => name)).toEqual(['Harbor Atlas']);
     });
 
@@ -506,12 +520,12 @@ describe('the books taking part (D11)', () => {
         getSanitizedFilename.mockRejectedValueOnce(failure);
         await host.handlers.chat_renamed({ avatarId: 'keeper-orrin.png', groupId: undefined, oldFileName: 'chat-harbor.jsonl', newFileName: 'chat-harbor-storm.jsonl' });
 
-        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].lockedToChatIds).toEqual(['chat-harbor']);
+        expect(host.settings.vectfox.lorebase_books['Harbor Atlas'].selections[0].lockedToChatIds).toEqual(['chat-harbor']);
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('saved under'), failure);
     });
 
     it('asks nothing when no book taking part has a selected entry LoreBase decides', async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['0'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] }) };
         expect(await prepareLoreForReply('normal', settings)).toBeNull();
         host.settings.vectfox.lorebase_books = {};
         expect(await prepareLoreForReply('normal', settings)).toBeNull();

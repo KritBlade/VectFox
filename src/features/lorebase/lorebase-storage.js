@@ -25,7 +25,7 @@ import { exportFileHeader } from '../../shared/export-file-header.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import {
-    deleteLoreBookRecord, getLoreBook, loadBookEntries, loadDecidableEntries, loadDecidedEntries, loreBookSelectedCounts,
+    deleteLoreBookRecord, getLoreBook, getLoreSelection, loadBookEntries, loadDecidableEntries, loadDecidedEntries, loreBookRecordCounts,
     recordedLoreBookNames, selectedLoreBookNames,
 } from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
@@ -35,6 +35,7 @@ import {
     writeImportedKeys, writeKeys,
 } from './lorebase-keys.js';
 import { postLoreBaseRoute } from './lorebase-routes.js';
+import { unionOfSelections } from './lorebase-selections-core.js';
 import {
     KEYS, VECTORS, emptyRowOf, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
 } from './lorebase-storage-core.js';
@@ -205,19 +206,22 @@ export async function selectedEntriesNotReady(settings, { isRereading = false } 
 
 /**
  * Where each named book's selected entries LoreBase decides stand, for the books card's rows (storedCountsOf, §7.1 of
- * lorebook-multi-vector.md): the keys read from Similharity, the vectors as this session holds them, and the failures of
- * this session's writing. The card counts on every chat change, so while VectFox is off, and off Qdrant, where LoreBase
- * keeps neither, nothing is read and the map is empty; a book with no selection is left out.
- * @param {string[]} bookNames
+ * lorebook-multi-vector.md): those of the selection the row shows, in use in the open chat, or every entry the book's
+ * selections hold while none is; the keys read from Similharity, the vectors as this session holds them, and the
+ * failures of this session's writing. The card counts on every chat change, so while VectFox is off, and off Qdrant,
+ * where LoreBase keeps neither, nothing is read and the map is empty; a book with no selection is left out.
+ * @param {Array<{bookName: string, selectionId: string|null}>} books - Each book, with the selection its row shows
  * @param {object} settings - VectFox settings
  * @returns {Promise<Map<string, ReturnType<typeof storedCountsOf>>>}
- * @throws {Error} When a book cannot be loaded, or Similharity cannot read its keys or vectors
+ * @throws {Error} When a book cannot be loaded, has no selection of a row's ID, or Similharity cannot read its keys or
+ *   vectors
  */
-export async function storedCountsOfBooks(bookNames, settings) {
+export async function storedCountsOfBooks(books, settings) {
     if (!isVectFoxEnabled(settings) || !isLoreBaseBackend(settings)) return new Map();
     const loaded = [];
-    for (const bookName of bookNames) {
-        const entries = await loadDecidedEntries(bookName);
+    for (const { bookName, selectionId } of books) {
+        const selection = selectionId ? getLoreSelection(bookName, selectionId) : unionOfSelections(getLoreBook(bookName));
+        const entries = await loadDecidedEntries(bookName, selection);
         if (entries.length) loaded.push({ bookName, entries });
     }
     if (!loaded.length) return new Map();
@@ -381,7 +385,7 @@ export async function loreBaseStorageRows(settings) {
     const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
     return storageRowsOf({
         listing,
-        selectedCounts: loreBookSelectedCounts(),
+        recordCounts: loreBookRecordCounts(),
         hereCollection: loreBaseVectorsCollection(settings),
         sillyTavernBookNames: world_names,
     });
@@ -406,8 +410,8 @@ export function loreBaseImportRow(kind, bookName, rows, settings) {
         throw new Error(`SillyTavern has no lorebook named "${bookName}". Bring the lorebook into SillyTavern first, or use `
             + `Import on the ${kind === KEYS ? 'keys' : 'vectors'} row of the lorebook you want this file in.`);
     }
-    const record = getLoreBook(bookName);
-    return emptyRowOf(kind, { book: bookName, hasRecord: record !== null, selectedCount: record?.selectedUids?.length ?? 0 },
+    const counts = loreBookRecordCounts()[bookName];
+    return emptyRowOf(kind, { book: bookName, hasRecord: Boolean(counts), selectedCount: counts?.selectedCount ?? 0, selectionCount: counts?.selectionCount ?? 0 },
         loreBaseVectorsCollection(settings));
 }
 
@@ -448,7 +452,7 @@ export async function planImport(row, fileData, settings) {
         return { row, ...planKeysImport(fileData, { entries, storedKeys }) };
     }
     const decidableEntries = await loadDecidableEntries(row.book);
-    const selectedUids = new Set(getLoreBook(row.book)?.selectedUids ?? []);
+    const selectedUids = new Set(unionOfSelections(getLoreBook(row.book)).selectedUids);
     const decidedEntries = decidableEntries.filter(entry => selectedUids.has(uidOf(entry)));
     const stored = (await readBookVectors([row.book], settings)).get(row.book);
     const plan = planVectorsImport(fileData, {
@@ -534,14 +538,15 @@ const REMOVAL_OFF_QDRANT = "LoreBase keeps each lorebook's keys and vectors in Q
     + 'go with the lorebook.';
 
 /**
- * What a book holds in LoreBase, for Remove from LoreBase's confirm (removalConfirmLines in lorebase-files-core.js): how
- * many entries its record selects, its pinned sections, its locks on chats and on characters, how many of its entries
- * have keys, and each collection holding its vectors with their parts, from Similharity's listing. Refused while
- * LoreBase writes and off Qdrant, as the removal is, so no confirm offers what would be refused.
+ * What a book holds in LoreBase, for Remove from LoreBase's confirm (removalConfirmLines in lorebase-files-core.js): its
+ * selections, how many entries they hold together, their pinned sections, their locks on chats and on characters, how
+ * many of its entries have keys, and each collection holding its vectors with their parts, from Similharity's listing.
+ * Refused while LoreBase writes and off Qdrant, as the removal is, so no confirm offers what would be refused.
  * @param {string} bookName
  * @param {object} settings - VectFox settings
- * @returns {Promise<{bookName: string, selectedCount: number, pinnedCount: number, chatLockCount: number,
- *   characterLockCount: number, keyCount: number, tenants: Array<{collection: string, tenant: string, pointCount: number}>}>}
+ * @returns {Promise<{bookName: string, selectionCount: number, selectedCount: number, pinnedCount: number,
+ *   chatLockCount: number, characterLockCount: number, keyCount: number,
+ *   tenants: Array<{collection: string, tenant: string, pointCount: number}>}>}
  * @throws {Error} While LoreBase writes, off Qdrant, or when Similharity cannot list them
  */
 export async function loreBookHoldings(bookName, settings) {
@@ -549,12 +554,14 @@ export async function loreBookHoldings(bookName, settings) {
     if (!isLoreBaseBackend(settings)) throw new Error(REMOVAL_OFF_QDRANT);
     const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
     const record = getLoreBook(bookName);
+    const selections = record?.selections ?? [];
     return {
         bookName,
-        selectedCount: record?.selectedUids?.length ?? 0,
-        pinnedCount: record?.pinnedSections?.length ?? 0,
-        chatLockCount: record?.lockedToChatIds?.length ?? 0,
-        characterLockCount: record?.lockedToCharacterAvatars?.length ?? 0,
+        selectionCount: selections.length,
+        selectedCount: unionOfSelections(record).selectedUids.length,
+        pinnedCount: new Set(selections.flatMap(selection => selection.pinnedSections)).size,
+        chatLockCount: selections.reduce((sum, selection) => sum + selection.lockedToChatIds.length, 0),
+        characterLockCount: selections.reduce((sum, selection) => sum + selection.lockedToCharacterAvatars.length, 0),
         keyCount: listing.keys.find(row => row.book === bookName)?.entryCount ?? 0,
         tenants: listing.vectors.filter(row => row.book === bookName)
             .map(({ collection, tenant, pointCount }) => ({ collection, tenant, pointCount })),
@@ -565,8 +572,8 @@ export async function loreBookHoldings(bookName, settings) {
  * Remove a book from LoreBase (§3.6 of vectfox-multi-collection-per-chat.md), the one removal the Database Browser's
  * lorebook row and the WorldInfo page's book row both run, through removeLoreBookAfterConfirm: its vectors in every
  * collection holding them, the cheapest to write again, then its keys, those edited by hand included, then its record,
- * with its selected entries, pinned sections and locks, so a delete that fails leaves the book listed with what it still
- * holds. What this session knew of its keys and vectors goes with them. The lorebook stays in SillyTavern.
+ * with every selection's selected entries, pinned sections and locks, so a delete that fails leaves the book listed
+ * with what it still holds. What this session knew of its keys and vectors goes with them. The lorebook stays in SillyTavern.
  * @param {string} bookName
  * @param {object} settings - VectFox settings
  * @returns {Promise<{bookName: string, keysDeleted: number, partsDeleted: number}>}

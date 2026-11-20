@@ -23,7 +23,7 @@
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
-import { getLoreBook, isLoreBookLocked } from './lorebase-books.js';
+import { selectionInUse } from './lorebase-books.js';
 import { lockTarget } from './lorebase-chat-books.js';
 import { LOREBOOK_TAG, armScan, scanDeliveries, scanKey } from './lorebase-delivery-core.js';
 import { isLoreBaseActive } from './lorebase-switch.js';
@@ -79,15 +79,17 @@ export async function scanLeftToSillyTavern(scan) {
     }
 }
 
-/** Each book's selected uids where it takes part in this scan: locked to the chat or its character (D11). */
+/**
+ * Each book's selected uids where it takes part in this scan: those of its selection in use here, locked to the chat or
+ * its character (D11).
+ */
 function takingPartLookup() {
     const where = lockTarget();
     const lookups = new Map();
     return bookName => {
         if (!lookups.has(bookName)) {
-            const record = getLoreBook(bookName);
-            const isTakingPart = Boolean(record?.selectedUids.length) && isLoreBookLocked(bookName, where);
-            lookups.set(bookName, isTakingPart ? new Set(record.selectedUids) : null);
+            const selection = selectionInUse(bookName, where);
+            lookups.set(bookName, selection?.selectedUids.length ? new Set(selection.selectedUids) : null);
         }
         return lookups.get(bookName);
     };

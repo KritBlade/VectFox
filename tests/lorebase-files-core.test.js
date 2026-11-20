@@ -212,7 +212,7 @@ describe("the Database Browser's words", () => {
 describe("Remove from LoreBase's words, the same on both pages", () => {
     const TENANT = 'vf_lorebase_qdrant_rook_harbor_atlas_19qag9zxydm';
     const holdingsOf = fields => ({
-        bookName: BOOK, selectedCount: 313, pinnedCount: 2, chatLockCount: 1, characterLockCount: 0, keyCount: 313,
+        bookName: BOOK, selectionCount: 1, selectedCount: 313, pinnedCount: 2, chatLockCount: 1, characterLockCount: 0, keyCount: 313,
         tenants: [{ collection: 'vf_lorebase_rook', tenant: TENANT, pointCount: 504 }], ...fields,
     });
     const sentencesOf = lines => lines.flatMap(line => [line.text, line.name]).filter(Boolean);
@@ -248,6 +248,12 @@ describe("Remove from LoreBase's words, the same on both pages", () => {
             'The lorebook stays in SillyTavern, where every entry fires by its keys, as SillyTavern does.',
             'Remove deletes all of it. Cancel keeps it.',
         ]);
+    });
+
+    it("counts a book's selections once it has more than one, with the entries and pins they hold and every lock on them", () => {
+        const several = holdingsOf({ selectionCount: 3, chatLockCount: 2, characterLockCount: 1 });
+        expect(sentencesOf(files.removalConfirmLines(several)).slice(3, 7))
+            .toEqual(['Selections:', '3 selections, 313 selected entries, and 2 pinned sections', 'Locked to:', '2 chats and 1 character']);
     });
 
     it('names a record with nothing selected, and every lock it holds', () => {

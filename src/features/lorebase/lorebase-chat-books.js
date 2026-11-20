@@ -1,11 +1,13 @@
 /**
  * The open chat's lorebooks, as SillyTavern's World Info scan loads them (world-info.js, getSortedEntries), and what
- * a book can be locked to there: the open chat and its character (plan §5.2, §5.8 and D11 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md). The reply, the selection screen and the WorldInfo page read them,
- * and a key run locks the books it writes keys for to the chat it started in (§6.1 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md). Add a lorebook adds a book the chat does not load, through SillyTavern's own lists, and
- * locks it where it was added (§6 of lorebook-multi-vector.md); the WorldInfo page's Remove from LoreBase takes a book
- * out of those lists again (§3.6 of vectfox-multi-collection-per-chat.md).
+ * a book's selection can be locked to there: the open chat and its character (plan §5.2, §5.8 and D11 of
+ * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md). The reply, the selection screen and the
+ * WorldInfo page read them, each book through the selection in use here (§3.7 of InternalProject/Vectfox/plans/
+ * vectfox-multi-collection-per-chat.md), which the page's switcher changes or makes anew; and a key run locks the books
+ * it writes keys for to the chat it started in (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md). Add a
+ * lorebook adds a book the chat does not load, through SillyTavern's own lists, and locks it where it was added (§6 of
+ * lorebook-multi-vector.md); the WorldInfo page's Remove from LoreBase takes a book out of those lists again (§3.6 of
+ * vectfox-multi-collection-per-chat.md).
  */
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getCharaFilename } from '../../sillytavern/identifiers.js';
@@ -14,8 +16,11 @@ import {
     METADATA_KEY, addCharacterLorebook, addGlobalLorebook, getWorldInfoSettings, removeCharacterLorebook, removeGlobalLorebook,
     selected_world_info, world_names,
 } from '../../sillytavern/world-info.js';
-import { getLoreBook, isLoreBookLocked, loadDecidedEntries, setLoreBookLock } from './lorebase-books.js';
+import {
+    ensureLoreSelection, getLoreBook, loadDecidedEntries, loreSelectionsOf, newLoreSelection, selectionInUse, setLoreSelectionLock,
+} from './lorebase-books.js';
 import { activeBookNames } from './lorebase-reply-core.js';
+import { isSelectionLockedTo, unionOfSelections } from './lorebase-selections-core.js';
 
 // The places SillyTavern's World Info scan loads the open chat's books from, in its order, and the two Add a lorebook
 // links a book through, which the WorldInfo page's Remove from LoreBase takes a book out of.
@@ -127,8 +132,10 @@ export function keyRunLockPlace(booksWithChosenLocks = []) {
 }
 
 /**
- * Lock each book a key run wrote keys for to the chat the run started in, when that chat loads it and it is locked to
- * neither that chat nor its character (§6.1 of lorebook-multi-vector.md).
+ * Lock each book a key run wrote keys for to the chat the run started in (§6.1 of lorebook-multi-vector.md): its one
+ * selection, when that chat loads the book and uses no selection of it, locked neither to the chat nor to its character.
+ * A book with more than one selection stays as the user set it, as New selection locks the one it makes (§3.7 of
+ * vectfox-multi-collection-per-chat.md).
  * @param {ReturnType<typeof keyRunLockPlace>} place - Read as the run started; null locks nothing
  * @param {string[]} keyedBookNames - The books the run wrote at least one entry's keys for
  * @returns {{chatId: string, bookNames: string[]}|null} The chat and the books locked to it, or null when none was
@@ -136,8 +143,9 @@ export function keyRunLockPlace(booksWithChosenLocks = []) {
 export function lockKeyedBooks(place, keyedBookNames) {
     if (!place) return null;
     const where = { chatId: place.chatId, characterAvatar: place.characterAvatar };
-    const bookNames = keyedBookNames.filter(bookName => place.lockableBookNames.has(bookName) && !isLoreBookLocked(bookName, where));
-    for (const bookName of bookNames) setLoreBookLock(bookName, { chatId: place.chatId }, true);
+    const bookNames = keyedBookNames.filter(bookName => place.lockableBookNames.has(bookName)
+        && loreSelectionsOf(bookName).length === 1 && !selectionInUse(bookName, where));
+    for (const bookName of bookNames) setLoreSelectionLock(bookName, loreSelectionsOf(bookName)[0].id, { chatId: place.chatId }, true);
     return bookNames.length ? { chatId: place.chatId, bookNames } : null;
 }
 
@@ -159,8 +167,9 @@ export function booksToAdd() {
 
 /**
  * Add a lorebook the open chat does not load (§6 of lorebook-multi-vector.md): link it through SillyTavern's own
- * lists, to the open character's Additional Lorebooks or to the global list every chat loads, then lock it where it was
- * added, to the character, or to this chat for all chats, so LoreBase decides its entries here once they are chosen.
+ * lists, to the open character's Additional Lorebooks or to the global list every chat loads, then lock its first
+ * selection, made with nothing selected while it has none, where it was added: to the character, or to this chat for all
+ * chats, so LoreBase decides its entries here once they are chosen.
  * @param {string} bookName - One of booksToAdd's
  * @param {string} place - ADD_TO_CHARACTER or ADD_TO_ALL_CHATS
  * @returns {Promise<{chatId?: string, characterAvatar?: string}>} Where the book was locked
@@ -181,48 +190,80 @@ export async function addLoreBookToChat(bookName, place) {
         throw new Error(`SillyTavern did not add "${bookName}" to ${isToCharacter ? "this character's lorebooks" : 'the lorebooks every chat loads'}.`);
     }
     const lock = isToCharacter ? { characterAvatar } : { chatId };
-    setLoreBookLock(bookName, lock, true);
+    setLoreSelectionLock(bookName, ensureLoreSelection(bookName).id, lock, true);
     return lock;
 }
 
 /**
- * How many selected entries LoreBase decides in a book (loadDecidedEntries), as the keys count reads them; a book that
- * cannot be loaded counts its saved selection, and the console says why.
+ * How many entries of a selection LoreBase decides in its book (loadDecidedEntries), as the keys count reads them; a
+ * book that cannot be loaded counts the selection as saved, and the console says why.
  * @param {string} bookName
+ * @param {{selectedUids: string[]}} selection - A selection, or every entry the book's selections hold
  * @returns {Promise<number>}
  */
-async function decidedCountOf(bookName) {
-    const record = getLoreBook(bookName);
-    if (!record?.selectedUids.length) return 0;
+async function decidedCountOf(bookName, selection) {
+    if (!selection.selectedUids.length) return 0;
     try {
-        return (await loadDecidedEntries(bookName, record)).length;
+        return (await loadDecidedEntries(bookName, selection)).length;
     } catch (error) {
         log.warn(`LoreBase: lorebook "${bookName}" could not be loaded, so its row counts its saved selection:`, error);
-        return record.selectedUids.length;
+        return selection.selectedUids.length;
     }
 }
 
 /**
- * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, how many of its
- * selected entries LoreBase decides, whether it is locked to this chat or to its character, where LoreBase decides
- * them (D11), and whether its row's Remove from LoreBase has anything to do: a LoreBase record of the book to delete,
- * or a list Remove takes books out of loading it here (chatBookLinks).
+ * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, its selections and
+ * the one in use here (§3.7 of vectfox-multi-collection-per-chat.md), how many of that one's selected entries LoreBase
+ * decides, or of every entry its selections hold while none is in use, whether that one is locked to this chat or to
+ * its character, where LoreBase decides them (D11), and whether its row's Remove from LoreBase has anything to do: a
+ * LoreBase record of the book to delete, or a list Remove takes books out of loading it here (chatBookLinks).
  * @returns {Promise<{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean, canRemove: boolean}>}>}
+ *   isLockedToCharacter: boolean, selections: Array<{id: string, name: string}>, selectionInUseId: string|null,
+ *   canRemove: boolean}>}>}
  */
 export async function chatBookLocks() {
-    const { chatId, characterAvatar } = lockTarget();
+    const where = lockTarget();
     const known = new Set(world_names);
     const bookNames = chatBookNames().filter(bookName => known.has(bookName));
-    const counts = await Promise.all(bookNames.map(decidedCountOf));
+    const inUse = bookNames.map(bookName => selectionInUse(bookName, where));
+    const counts = await Promise.all(bookNames.map((bookName, index) => decidedCountOf(bookName, inUse[index] ?? unionOfSelections(getLoreBook(bookName)))));
     return {
-        hasChat: Boolean(chatId),
+        hasChat: Boolean(where.chatId),
         books: bookNames.map((bookName, index) => ({
             bookName,
             selectedCount: counts[index],
-            isLockedToChat: Boolean(chatId) && isLoreBookLocked(bookName, { chatId }),
-            isLockedToCharacter: Boolean(characterAvatar) && isLoreBookLocked(bookName, { characterAvatar }),
+            isLockedToChat: Boolean(inUse[index]) && isSelectionLockedTo(inUse[index], { chatId: where.chatId }),
+            isLockedToCharacter: Boolean(inUse[index]) && isSelectionLockedTo(inUse[index], { characterAvatar: where.characterAvatar }),
+            selections: loreSelectionsOf(bookName).map(({ id, name }) => ({ id, name })),
+            selectionInUseId: inUse[index]?.id ?? null,
             canRemove: getLoreBook(bookName) !== null || chatBookLinks(bookName).takenOutOf.length > 0,
         })),
     };
+}
+
+/**
+ * Put one of a book's selections in use in the open chat, as the WorldInfo page's switcher does (§1.2 of
+ * vectfox-multi-collection-per-chat.md): lock it to the chat, which unlocks the book's other selections there.
+ * @param {string} bookName
+ * @param {string} selectionId
+ * @throws {Error} With no chat open, or no such selection
+ */
+export function useLoreSelectionHere(bookName, selectionId) {
+    const { chatId } = lockTarget();
+    if (!chatId) throw new Error('Open a chat to choose the selection it uses.');
+    setLoreSelectionLock(bookName, selectionId, { chatId }, true);
+}
+
+/**
+ * New selection (§3.7 of vectfox-multi-collection-per-chat.md): a copy of a selection of the book, the one in use here
+ * unless another is named, else of the book's first, put in use in the open chat; with no chat open it is locked nowhere.
+ * @param {string} bookName
+ * @param {string|null} [sourceSelectionId] - The selection to copy, the selection screen's; the one in use here when null
+ * @returns {import('./lorebase-selections-core.js').LoreSelection}
+ */
+export function newLoreSelectionHere(bookName, sourceSelectionId = null) {
+    const where = lockTarget();
+    const selection = newLoreSelection(bookName, sourceSelectionId ?? selectionInUse(bookName, where)?.id ?? null);
+    if (where.chatId) setLoreSelectionLock(bookName, selection.id, { chatId: where.chatId }, true);
+    return selection;
 }

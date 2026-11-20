@@ -85,6 +85,7 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
 const { notifyInvalidModel } = await import('../src/shared/model-config-notifier.js');
 const { openLoreBaseSelection } = await import('../src/features/lorebase/lorebase-selection-screen.js');
 const { summaryText } = await import('../src/features/lorebase/lorebase-selection-markup.js');
+const { oneSelectionRecord } = await import('./lorebase-book-record.js');
 
 const HARBOR = {
     entries: {
@@ -101,6 +102,8 @@ const actionButton = (name, extra = '') => document.querySelector(`[data-lorebas
 const entryToggle = uid => document.querySelector(`[data-lorebase-action="toggle-entry"][data-lorebase-uid="${uid}"]`);
 const tickBox = uid => document.querySelector(`[data-lorebase-tick="${uid}"]`);
 const record = (name = 'Harbor Atlas') => host.settings.vectfox.lorebase_books?.[name];
+// The book's first selection, the one the screen shows on a book of one selection.
+const selection = (name = 'Harbor Atlas') => record(name)?.selections?.[0];
 const change = (element, value) => {
     if (typeof value === 'boolean') element.checked = value;
     else element.value = value;
@@ -150,15 +153,15 @@ describe('opening the screen', () => {
         expect(document.querySelectorAll('[data-lorebase-action="toggle-entry"][aria-pressed="true"]')).toHaveLength(0);
         expect([...document.querySelectorAll('[data-lorebase-entry]')].some(element => element.textContent.includes('New'))).toBe(false);
         expect(record().seenUids).toEqual(['0', '1', '2', '3', '4']);
-        expect($id('vectfox_lorebase_summary').textContent).toBe("LoreBase decides no entry of this book: SillyTavern's keys decide them all.");
+        expect($id('vectfox_lorebase_summary').textContent).toBe("LoreBase decides no entry in this selection: where it is in use, SillyTavern's keys decide them all.");
     });
 
     it('marks an entry added since the last opening as new, and drops deleted entries from the selection', async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1', '9'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [], seenUids: ['0', '1', '2', '3'] } };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1', '9'], seenUids: ['0', '1', '2', '3'] }) };
         await openScreen();
         const newRows = [...document.querySelectorAll('[data-lorebase-entry]')].filter(element => element.textContent.includes('New'));
         expect(newRows.map(element => element.dataset.lorebaseEntry)).toEqual(['4']);
-        expect(record().selectedUids).toEqual(['1']);
+        expect(selection().selectedUids).toEqual(['1']);
     });
 });
 
@@ -169,7 +172,7 @@ describe('keys (D17)', () => {
     it('writes no keys for an entry turned on, and its row follows where its keys stand', async () => {
         await openScreen();
         entryToggle('1').click();
-        expect(record().selectedUids).toEqual(['1']);
+        expect(selection().selectedUids).toEqual(['1']);
         expect([host.regenerateKeysOfEntries.mock.calls, host.writeMissing.mock.calls]).toEqual([[], []]);
         expect(rowText('1')).toContain('No keys yet');
         expect($id('vectfox_lorebase_summary').textContent).toMatch(/Closing this screen asks to write the missing ones\.$/);
@@ -190,12 +193,12 @@ describe('keys (D17)', () => {
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
         tickBox('4').click();
         actionButton('turn-on').click();
-        expect(record().selectedUids).toEqual(['0', '1', '4']);
+        expect(selection().selectedUids).toEqual(['0', '1', '4']);
         expect([host.regenerateKeysOfEntries.mock.calls, host.writeMissing.mock.calls]).toEqual([[], []]);
     });
 
     it("shows a failed entry's reason on its row", async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1'] }) };
         host.keyStates.set('Harbor Atlas/1', { status: 'failed', detail: 'its answer held no list of keys' });
         await openScreen();
         expect(rowText('1')).toContain('Keys failed');
@@ -204,7 +207,7 @@ describe('keys (D17)', () => {
     });
 
     it('shows No keys found on a row the model found nothing to key in, counted as written', async () => {
-        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1'] }) };
         host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: [] });
         await openScreen();
         expect(rowText('1')).toContain('No keys found');
@@ -240,7 +243,7 @@ describe('keys (D17)', () => {
         const box = form => form.querySelector('#vectfox_lorebase_keys_editor');
         const status = form => form.querySelector('#vectfox_lorebase_keys_editor_status').textContent;
         const selectTidewardens = () => {
-            host.settings.vectfox.lorebase_books = { 'Harbor Atlas': { selectedUids: ['1'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+            host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1'] }) };
             host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens', 'harbor bells'] });
         };
 
@@ -321,11 +324,11 @@ describe('keys (D17)', () => {
         await openScreen();
         entryToggle('1').click();
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
-        expect(record().selectedUids).toEqual(['1', '0']);
+        expect(selection().selectedUids).toEqual(['1', '0']);
         host.settings.vectfox.lorebase_enabled = false;
         tickBox('4').click();
         actionButton('turn-on').click();
-        expect([...record().selectedUids].sort()).toEqual(['0', '1', '4']);
+        expect([...selection().selectedUids].sort()).toEqual(['0', '1', '4']);
         expect(host.noticePopup).not.toHaveBeenCalled();
     });
 
@@ -380,7 +383,7 @@ describe('closing the screen (D17, §4.3 and §4.4 of lorebook-multi-vector.md)'
 
         expect(await opened).toEqual({ missingCount: 2, missingKeyCount: 1, missingVectorCount: 2, decidedCount: 5, isWriting: true });
         expect(host.writeMissing).toHaveBeenCalledWith(host.settings.vectfox, ['keys', 'vectors'], { pending: missingTwo, booksWithChosenLocks: ['Harbor Atlas'] });
-        expect(record().lockedToChatIds).toEqual([]);
+        expect(selection().lockedToChatIds).toEqual([]);
     });
 
     it('writes nothing on Turn LoreBase off with no entry ready, turns it off, and says how many are missing', async () => {
@@ -480,7 +483,7 @@ describe('choosing entries', () => {
     it("saves a row's toggle at once and counts what the pick reads, and never turns on an entry SillyTavern keeps", async () => {
         await openScreen();
         entryToggle('1').click();
-        expect(record().selectedUids).toEqual(['1']);
+        expect(selection().selectedUids).toEqual(['1']);
         expect(entryToggle('1').getAttribute('aria-pressed')).toBe('true');
         expect(document.querySelector('[data-lorebase-selected-count]').textContent).toBe('1 selected');
         expect($id('vectfox_lorebase_summary').textContent).toMatch(
@@ -492,10 +495,10 @@ describe('choosing entries', () => {
     it('turns a whole category on but its engine entry, reads it in words, and turns it off again', async () => {
         await openScreen();
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
-        expect(record().selectedUids.sort()).toEqual(['0', '1']);
+        expect(selection().selectedUids.sort()).toEqual(['0', '1']);
         expect($id('vectfox_lorebase_categories').textContent).toContain('All on');
         actionButton('toggle-category', '[data-lorebase-category="[Harbor]"]').click();
-        expect(record().selectedUids).toEqual([]);
+        expect(selection().selectedUids).toEqual([]);
         expect($id('vectfox_lorebase_categories').textContent).not.toContain('All on');
     });
 
@@ -509,10 +512,10 @@ describe('choosing entries', () => {
         shiftClick(tickBox('2'));
         expect(['0', '1', '2', '3', '4'].filter(uid => tickBox(uid).checked)).toEqual(['0', '1', '2']);
         actionButton('turn-on').click();
-        expect(record().selectedUids.sort()).toEqual(['0', '1', '2']);
+        expect(selection().selectedUids.sort()).toEqual(['0', '1', '2']);
         tickBox('0').click();
         actionButton('turn-off').click();
-        expect(record().selectedUids).toEqual(['0']);
+        expect(selection().selectedUids).toEqual(['0']);
     });
 
     it('filters the rows by text and category, and tick all matching ticks only the rows the filters let through', async () => {
@@ -600,13 +603,13 @@ describe('showing an entry', () => {
 });
 
 describe('locks, pins and books', () => {
-    it('locks the book to the open chat and to its character by its avatar file, and says when either cannot be set', async () => {
+    it('locks the selection shown to the open chat and to its character by its avatar file, and says when either cannot be set', async () => {
         await openScreen();
         change($id('vectfox_lorebase_lock_chat'), true);
         change($id('vectfox_lorebase_lock_character'), true);
-        expect(record()).toMatchObject({ lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: ['keeper-orrin.png'] });
+        expect(selection()).toMatchObject({ lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: ['keeper-orrin.png'] });
         change($id('vectfox_lorebase_lock_chat'), false);
-        expect(record().lockedToChatIds).toEqual([]);
+        expect(selection().lockedToChatIds).toEqual([]);
 
         document.body.innerHTML = '';
         host.chatId = undefined;
@@ -614,7 +617,7 @@ describe('locks, pins and books', () => {
         await openScreen({ bookName: 'Harbor Atlas' });
         expect($id('vectfox_lorebase_lock_chat').disabled).toBe(true);
         expect($id('vectfox_lorebase_lock_character').disabled).toBe(true);
-        expect($id('vectfox_lorebase_lock_notice').textContent).toContain('Open a chat to lock this book');
+        expect($id('vectfox_lorebase_lock_notice').textContent).toContain('Open a chat to lock this selection');
 
         // A group chat: the chat can be locked, and no one character.
         document.body.innerHTML = '';
@@ -630,7 +633,7 @@ describe('locks, pins and books', () => {
         entryToggle('0').click();
         const secrets = document.querySelector('[data-lorebase-pin="Secrets"]');
         change(secrets, true);
-        expect(record().pinnedSections).toEqual(['Secrets']);
+        expect(selection().pinnedSections).toEqual(['Secrets']);
     });
 
     it('shows another book when one is chosen, its ticks starting empty', async () => {
@@ -643,11 +646,115 @@ describe('locks, pins and books', () => {
     });
 });
 
+describe("a book's selections (§3.7 of vectfox-multi-collection-per-chat.md)", () => {
+    const selectionList = () => $id('vectfox_lorebase_selection_list');
+    const turnedOn = () => [...document.querySelectorAll('[data-lorebase-action="toggle-entry"][aria-pressed="true"]')].map(button => button.dataset.lorebaseUid);
+    const withTwoSelections = () => {
+        const harbor = oneSelectionRecord({ selectedUids: ['0'], lockedToChatIds: ['chat-harbor'] });
+        harbor.selections.push({ id: 'second', name: 'Night watch', selectedUids: ['1', '4'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] });
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': harbor };
+    };
+    const renameTo = name => async (lines, form) => {
+        form.querySelector('#vectfox_lorebase_rename_selection').value = name;
+        return true;
+    };
+
+    it('opens on the one in use here, lists them all with that one marked, and shows another chosen without putting it in use', async () => {
+        withTwoSelections();
+        await openScreen();
+        expect([...selectionList().options].map(option => [option.value, option.textContent, option.selected]))
+            .toEqual([['first', 'First (in use here)', true], ['second', 'Night watch', false]]);
+        expect(turnedOn()).toEqual(['0']);
+
+        change(selectionList(), 'second');
+        expect(turnedOn()).toEqual(['1', '4']);
+        expect($id('vectfox_lorebase_lock_chat').checked).toBe(false);
+        // An entry turned on changes the selection shown alone.
+        entryToggle('2').click();
+        expect(record().selections.map(each => each.selectedUids)).toEqual([['0'], ['1', '2', '4']]);
+        expect(record().selections[0].lockedToChatIds).toEqual(['chat-harbor']);
+    });
+
+    it('opens on the selection named, and on a book never opened makes its first, named after the book', async () => {
+        withTwoSelections();
+        await openScreen({ bookName: 'Harbor Atlas', selectionId: 'second' });
+        expect(selectionList().value).toBe('second');
+
+        document.body.innerHTML = '';
+        await openScreen({ bookName: 'Voyage Log' });
+        expect(record('Voyage Log').selections).toEqual([expect.objectContaining({ name: 'Voyage Log', selectedUids: [] })]);
+        expect([...selectionList().options].map(option => option.textContent)).toEqual(['Voyage Log']);
+        expect(actionButton('delete-selection').disabled).toBe(true);
+    });
+
+    it('drops deleted entries from every selection of the book as it opens', async () => {
+        withTwoSelections();
+        record().selections[1].selectedUids.push('9');
+        await openScreen();
+        expect(record().selections.map(each => each.selectedUids)).toEqual([['0'], ['1', '4']]);
+    });
+
+    it('makes a new selection from the one shown with New selection, puts it in use here and shows it', async () => {
+        withTwoSelections();
+        await openScreen();
+        change(selectionList(), 'second');
+        actionButton('new-selection').click();
+        const made = record().selections[2];
+        expect(made).toMatchObject({ name: 'Harbor Atlas 2', selectedUids: ['1', '4'], lockedToChatIds: ['chat-harbor'] });
+        expect(record().selections[0].lockedToChatIds).toEqual([]);
+        expect(selectionList().value).toBe(made.id);
+        expect(selectionList().selectedOptions[0].textContent).toBe('Harbor Atlas 2 (in use here)');
+        expect($id('vectfox_lorebase_lock_chat').checked).toBe(true);
+        expect(turnedOn()).toEqual(['1', '4']);
+    });
+
+    it('renames the selection shown, and saves nothing on Cancel or an empty name', async () => {
+        withTwoSelections();
+        await openScreen();
+        host.formPopup.mockImplementationOnce(renameTo('  Day watch '));
+        actionButton('rename-selection').click();
+        await vi.waitFor(() => expect(record().selections[0].name).toBe('Day watch'));
+        expect(selectionList().options[0].textContent).toBe('Day watch (in use here)');
+
+        host.formPopup.mockImplementationOnce(renameTo('   '));
+        actionButton('rename-selection').click();
+        host.formPopup.mockResolvedValueOnce(false);
+        actionButton('rename-selection').click();
+        await vi.waitFor(() => expect(host.formPopup).toHaveBeenCalledTimes(3));
+        expect(record().selections[0].name).toBe('Day watch');
+    });
+
+    it("deletes the selection shown once confirmed, shows the book's next, prunes the book as the screen closes, and keeps the last", async () => {
+        host.settings.vectfox.vector_backend = 'qdrant';
+        withTwoSelections();
+        const opened = openLoreBaseSelection();
+        await vi.waitFor(() => expect(rowUids().length).toBeGreaterThan(0));
+        host.confirmPopup.mockResolvedValueOnce(false);
+        actionButton('delete-selection').click();
+        await vi.waitFor(() => expect(host.confirmPopup).toHaveBeenCalledTimes(1));
+        expect(record().selections).toHaveLength(2);
+
+        host.confirmPopup.mockResolvedValueOnce(true);
+        actionButton('delete-selection').click();
+        await vi.waitFor(() => expect(record().selections.map(each => each.id)).toEqual(['second']));
+        const [lines, buttons] = host.confirmPopup.mock.calls[1];
+        expect(lines).toEqual(expect.arrayContaining([{ text: 'Delete this selection?' }, { text: 'Selection:', name: 'First' }]));
+        expect(buttons).toEqual({ okButton: 'Delete', isDestructive: true });
+        expect(selectionList().value).toBe('second');
+        expect(turnedOn()).toEqual(['1', '4']);
+        expect(actionButton('delete-selection').disabled).toBe(true);
+
+        host.closeScreen();
+        await opened;
+        expect(host.pruneBookVectors).toHaveBeenCalledWith('Harbor Atlas', host.settings.vectfox);
+    });
+});
+
 describe('vectors on each row, the readiness filter, and the footer on Fast and Cheap [Jev] (§7.3 of lorebook-multi-vector.md)', () => {
     const rowText = uid => document.querySelector(`[data-lorebase-entry="${uid}"]`).textContent;
     const selectHarbor = (uids, locks = {}) => {
         host.settings.vectfox.lorebase_books = {
-            'Harbor Atlas': { selectedUids: uids, pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [], ...locks },
+            'Harbor Atlas': oneSelectionRecord({ selectedUids: uids, ...locks }),
         };
     };
     const tellVectorListeners = bookName => host.vectorListeners.forEach(listener => listener(bookName));
@@ -700,26 +807,26 @@ describe('vectors on each row, the readiness filter, and the footer on Fast and 
         expect(rowUids()).toEqual([]);
     });
 
-    it("says on Fast and Cheap [Jev] how many selected entries taking part in this chat Jev is asked about, or that this book takes no part", async () => {
+    it("says on Fast and Cheap [Jev] how many selected entries taking part in this chat Jev is asked about, or that the selection shown takes no part", async () => {
         host.settings.vectfox.lorebase_accuracy = 'fast';
         selectHarbor(['0', '1'], { lockedToChatIds: ['chat-harbor'] });
         await openScreen();
         await vi.waitFor(() => expect($id('vectfox_lorebase_summary').textContent)
             .toMatch(/^Jev is asked about every one of the 2 selected entries taking part in this chat, on every reply\./));
         change($id('vectfox_lorebase_lock_chat'), false);
-        expect($id('vectfox_lorebase_summary').textContent).toMatch(/^This book takes no part in this chat, so Jev is never asked about its entries here\./);
+        expect($id('vectfox_lorebase_summary').textContent).toMatch(/^This selection takes no part in this chat, so Jev is never asked about its entries here\./);
     });
 
     it("words the footer's rule: the search's best 100 above 100, the rule alone while the count is not known, and the pick's titles on High Accuracy", () => {
         const footer = { entryCount: 40, titleTokens: 600 };
-        expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 313, isBookTakingPart: true } }))
+        expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 313, isSelectionTakingPart: true } }))
             .toBe('Jev is asked about the 100 a search finds best of the 313 selected entries taking part in this chat, on every reply.');
-        expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 100, isBookTakingPart: true } }))
+        expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 100, isSelectionTakingPart: true } }))
             .toBe('Jev is asked about every one of the 100 selected entries taking part in this chat, on every reply.');
         expect(summaryText(footer, { isFastAndCheap: true, takingPart: null }))
             .toBe('Jev is asked about every selected entry of the books a chat locks, up to 100 in all, and above that about the 100 a search finds best, on every reply.');
-        expect(summaryText(footer, { isFastAndCheap: false, takingPart: { count: 313, isBookTakingPart: true } }))
+        expect(summaryText(footer, { isFastAndCheap: false, takingPart: { count: 313, isSelectionTakingPart: true } }))
             .toBe('The pick reads 40 titles and their keys from this book, about 600 tokens on every pick.');
-        expect(summaryText({ entryCount: 0, titleTokens: 0 }, { isFastAndCheap: true })).toBe("LoreBase decides no entry of this book: SillyTavern's keys decide them all.");
+        expect(summaryText({ entryCount: 0, titleTokens: 0 }, { isFastAndCheap: true })).toBe("LoreBase decides no entry in this selection: where it is in use, SillyTavern's keys decide them all.");
     });
 });

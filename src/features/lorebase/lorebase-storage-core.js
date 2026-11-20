@@ -113,9 +113,11 @@ export function storedCountsOf(entries) {
 }
 
 /**
- * What every row of a book knows of it: its name, whether it has a LoreBase record and how many entries that selects,
- * whether SillyTavern has it, and whether the row is a leftover, one LoreBase cannot use here.
- * @typedef {{book: string|null, hasRecord: boolean, selectedCount: number, isInSillyTavern: boolean, isLeftover: boolean}} BookFacts
+ * What every row of a book knows of it: its name, whether it has a LoreBase record, how many entries its selections
+ * hold together and how many selections it has, whether SillyTavern has it, and whether the row is a leftover, one
+ * LoreBase cannot use here.
+ * @typedef {{book: string|null, hasRecord: boolean, selectedCount: number, selectionCount: number, isInSillyTavern: boolean,
+ *   isLeftover: boolean}} BookFacts
  */
 
 /**
@@ -131,7 +133,7 @@ const keysRowOf = (facts, entryCount) => ({ key: `${KEYS}|${facts.book}`, kind: 
  * A row to import a file onto in a book that has none, as the list draws it at 0: its Keys row, or its Vectors row in
  * the collection LoreBase reads now (§3.3 of vectfox-multi-collection-per-chat.md).
  * @param {string} kind - KEYS or VECTORS
- * @param {{book: string, hasRecord: boolean, selectedCount: number}} book - A book SillyTavern has
+ * @param {{book: string, hasRecord: boolean, selectedCount: number, selectionCount: number}} book - A book SillyTavern has
  * @param {string} hereCollection - The Qdrant collection LoreBase reads this account's vectors in now
  * @returns {KeysRow|VectorsRow}
  */
@@ -152,15 +154,16 @@ export function emptyRowOf(kind, book, hereCollection) {
  * collection, every row of a book SillyTavern no longer has, and each tenant whose points name no book, last.
  * @param {{listing: {keys: Array<{book: string, entryCount: number}>, vectors: Array<{collection: string, tenant: string,
  *   book: string|null, pointCount: number, embeddingSource: string, embeddingModel: string}>},
- *   selectedCounts: Record<string, number>, hereCollection: string, sillyTavernBookNames: string[]}} parts - listing:
- *   Similharity's /lorebase/books; selectedCounts: each book with a LoreBase record, by name, and how many entries it
- *   selects; hereCollection: the Qdrant collection LoreBase reads this account's vectors in now
+ *   recordCounts: Record<string, {selectedCount: number, selectionCount: number}>, hereCollection: string,
+ *   sillyTavernBookNames: string[]}} parts - listing: Similharity's /lorebase/books; recordCounts: each book with a
+ *   LoreBase record, by name, with how many entries its selections hold together and how many selections it has
+ *   (loreBookRecordCounts); hereCollection: the Qdrant collection LoreBase reads this account's vectors in now
  * @returns {Array<KeysRow|VectorsRow>}
  */
-export function storageRowsOf({ listing, selectedCounts, hereCollection, sillyTavernBookNames }) {
+export function storageRowsOf({ listing, recordCounts, hereCollection, sillyTavernBookNames }) {
     const inSillyTavern = new Set(sillyTavernBookNames);
     const bookNames = new Set([
-        ...Object.keys(selectedCounts),
+        ...Object.keys(recordCounts),
         ...listing.keys.map(row => row.book),
         ...listing.vectors.map(row => row.book).filter(book => book !== null),
     ]);
@@ -178,8 +181,11 @@ export function storageRowsOf({ listing, selectedCounts, hereCollection, sillyTa
     const listed = [];
     const leftovers = [];
     for (const book of [...bookNames].sort((first, second) => first.localeCompare(second))) {
-        const hasRecord = Object.hasOwn(selectedCounts, book);
-        const facts = { book, hasRecord, selectedCount: selectedCounts[book] ?? 0, isInSillyTavern: inSillyTavern.has(book) };
+        const hasRecord = Object.hasOwn(recordCounts, book);
+        const facts = {
+            book, hasRecord, selectedCount: recordCounts[book]?.selectedCount ?? 0, selectionCount: recordCounts[book]?.selectionCount ?? 0,
+            isInSillyTavern: inSillyTavern.has(book),
+        };
         const leftoverFacts = { ...facts, isLeftover: true };
         const entryCount = listing.keys.find(row => row.book === book)?.entryCount ?? 0;
         const tenants = listing.vectors.filter(row => row.book === book);
@@ -199,7 +205,7 @@ export function storageRowsOf({ listing, selectedCounts, hereCollection, sillyTa
         for (const tenant of elsewhere) leftovers.push(tenantRow(tenant, leftoverFacts));
     }
     for (const tenant of listing.vectors.filter(row => row.book === null)) {
-        leftovers.push(tenantRow(tenant, { book: null, hasRecord: false, selectedCount: 0, isInSillyTavern: false, isLeftover: true }));
+        leftovers.push(tenantRow(tenant, { book: null, hasRecord: false, selectedCount: 0, selectionCount: 0, isInSillyTavern: false, isLeftover: true }));
     }
     return [...listed, ...leftovers];
 }

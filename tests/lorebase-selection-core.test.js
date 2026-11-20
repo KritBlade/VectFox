@@ -83,8 +83,8 @@ describe("the screen's rows", () => {
 
 describe('the books offered', () => {
     it("puts the open chat's books first, in SillyTavern's order, then the rest by name, with their selected counts", () => {
-        const records = { 'Harbor Atlas': { selectedUids: ['1', '4'] }, Zeta: { selectedUids: ['0'] } };
-        expect(bookChoices(['Zeta', 'Alpha', 'Harbor Atlas', 'Voyage Log'], ['Voyage Log', 'Harbor Atlas', 'Unknown Book'], records)).toEqual([
+        const selectedCounts = { 'Harbor Atlas': 2, Zeta: 1 };
+        expect(bookChoices(['Zeta', 'Alpha', 'Harbor Atlas', 'Voyage Log'], ['Voyage Log', 'Harbor Atlas', 'Unknown Book'], selectedCounts)).toEqual([
             { bookName: 'Voyage Log', isActive: true, selectedCount: 0 },
             { bookName: 'Harbor Atlas', isActive: true, selectedCount: 2 },
             { bookName: 'Alpha', isActive: false, selectedCount: 0 },

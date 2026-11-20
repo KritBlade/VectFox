@@ -1,14 +1,18 @@
 /**
  * LoreBase's selection screen (plan §5.2 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
- * dialog over it, locks the book to the open chat or its character (D11), and pins section names (D10). Every control
- * saves as it changes, as GUI-DNA asks. Turning entries on only selects them: once the screen closes while LoreBase is
+ * dialog over it, locks the selection it shows to the open chat or its character (D11), and pins section names (D10). It
+ * edits one of the book's selections (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the
+ * one named, else the one in use here, else the book's first, made when it has none. Its list changes which one it edits, not which is
+ * in use; New selection copies the one shown and puts the copy in use here, Rename renames it, and Delete, once
+ * confirmed, deletes it, a book's last selection staying. Its lock switches and pins are the shown selection's. Every
+ * control saves as it changes, as GUI-DNA asks. Turning entries on only selects them: once the screen closes while LoreBase is
  * on, it asks to write the keys and vectors the selected entries lack (D17, §4.3 of InternalProject/Vectfox/plans/
  * lorebook-multi-vector.md), under the progress panel, and turns LoreBase off when they are not written and no entry is
  * ready, by the question turning LoreBase on asks (lorebase-keys-question.js). The books that writing keys lock to the
  * open chat, but for those whose lock the user set while the screen was open, which stay as the user set them (§6.1).
  * While LoreBase is off, turning it on asks. Closing counts what the selection lacks either way, for the books card's
- * line, and deletes the vectors of the entries turned off in each book whose selection changed. Each selected row shows
+ * line, and in each book whose selections changed deletes the vectors of the entries no selection holds now. Each selected row shows
  * where its keys and vectors stand, redrawn as they are written or fail, and a filter shows the ready entries or those
  * without keys or vectors (§7.3 of lorebook-multi-vector.md). The footer says, on High Accuracy, what the pick reads
  * from the book, and on Fast and Cheap [Jev], how many of the selected entries taking part in the open chat Jev is asked
@@ -16,16 +20,19 @@
  * of the screen with its Stop; a selected row's pencil edits its keys in a dialog, where Regenerate fills the box from
  * the model for the user to read before saving.
  * Opening a book keeps the uids it holds, so an entry added later shows as new, drops the uids of deleted entries from
- * its selection, and reads its vectors from Qdrant again, so edits made while SillyTavern was closed are found.
+ * each of its selections, and reads its vectors from Qdrant again, so edits made while SillyTavern was closed are found.
  */
 import { log } from '../../sillytavern/log.js';
-import { formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { confirmPopup, formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
-import { getLoreBook, isLoreBookLocked, setLoreBookLock, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection } from './lorebase-books.js';
-import { chatBookLocks, chatBookNames, lockTarget } from './lorebase-chat-books.js';
+import {
+    deleteLoreSelection, ensureLoreSelection, getLoreBook, getLoreSelection, loreBookRecordCounts, loreSelectionsOf, renameLoreSelection,
+    selectionInUse, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
+} from './lorebase-books.js';
+import { chatBookLocks, chatBookNames, lockTarget, newLoreSelectionHere } from './lorebase-chat-books.js';
 import { editedKeys } from './lorebase-keys-core.js';
 import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys } from './lorebase-keys.js';
 import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
@@ -33,6 +40,7 @@ import { FAST_AND_CHEAP, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 import { regenerateKeysOfEntries, selectedEntriesNotReady } from './lorebase-storage.js';
 import { missingCountsOf } from './lorebase-storage-core.js';
 import { entryTitle } from './lorebase-splitter.js';
+import { isSelectionLockedTo } from './lorebase-selections-core.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
 import { onVectorStateChange, pruneBookVectors, readBookVectors, vectorStateOf } from './lorebase-vectors.js';
 import {
@@ -40,9 +48,10 @@ import {
     selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
 } from './lorebase-selection-core.js';
 import {
-    NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup, entryDetailLines,
-    entryRowMarkup, entryTextMarkup, keysEditorLines, keysEditorMarkup, lockNoticeMarkup, noLorebookMarkup, noMatchingEntriesMarkup,
-    noTitleNoticeMarkup, pinsMarkup, readinessSummaryText, selectionScreenMarkup, summaryText,
+    NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, deleteSelectionLines, entriesFooterMarkup,
+    entryDetailLines, entryRowMarkup, entryTextMarkup, keysEditorLines, keysEditorMarkup, lockNoticeMarkup, noLorebookMarkup,
+    noMatchingEntriesMarkup, noTitleNoticeMarkup, pinsMarkup, readinessSummaryText, renameSelectionFormMarkup, selectionOptions,
+    selectionScreenMarkup, summaryText,
 } from './lorebase-selection-markup.js';
 
 const PAGE_SIZE = 100;
@@ -50,8 +59,9 @@ const SEARCH_DELAY_MS = 200;
 
 const byId = (root, id) => root.querySelector(`#${id}`);
 const entryElementOf = (root, uid) => [...root.querySelectorAll('[data-lorebase-entry]')].find(element => element.dataset.lorebaseEntry === uid);
-const recordsOf = names => Object.fromEntries(names.map(name => [name, getLoreBook(name)]).filter(([, record]) => record));
 const selectedUidsOf = session => session.rows.filter(row => row.isSelected).map(row => row.uid);
+// The selection the screen shows, of the book shown.
+const shownSelectionOf = session => getLoreSelection(session.bookName, session.selectionId);
 // A selected row LoreBase decides, as isDecidedEntry: one disabled in SillyTavern is skipped until it is enabled again.
 const isDecidedRow = row => row.isSelected && !row.undecidableReason && !row.isDisabled;
 
@@ -91,8 +101,8 @@ function isKeyWritingBlocked(heading) {
 }
 
 function currentChoices() {
-    const names = [...world_names];
-    return bookChoices(names, chatBookNames(), recordsOf(names));
+    const selectedCounts = Object.fromEntries(Object.entries(loreBookRecordCounts()).map(([bookName, counts]) => [bookName, counts.selectedCount]));
+    return bookChoices([...world_names], chatBookNames(), selectedCounts);
 }
 
 /** The rows the filters in the controls card and the category shown let through, drawn on the screen yet or not. */
@@ -136,19 +146,18 @@ const SUMMARY_COUNT_OF = Object.freeze({
 });
 
 /**
- * The selected entries LoreBase decides in the books taking part in the open chat, this book's as now selected among
- * them while the chat loads it and it is locked here, and whether it is; null while the other books' are not counted.
+ * The selected entries LoreBase decides in the books taking part in the open chat, the selection shown's among them
+ * while the chat loads its book and it is the one in use here, and whether it takes part; null while the other books'
+ * are not counted.
  * @param {object} session
  * @param {number} entryCount - This book's, from selectionFooter
- * @returns {{count: number, isBookTakingPart: boolean}|null}
+ * @returns {{count: number, isSelectionTakingPart: boolean}|null}
  */
 function takingPartOf(session, entryCount) {
     if (session.otherTakingPartCount === null) return null;
-    const { chatId, characterAvatar } = lockTarget();
-    const isLockedHere = (Boolean(chatId) && isLoreBookLocked(session.bookName, { chatId }))
-        || (Boolean(characterAvatar) && isLoreBookLocked(session.bookName, { characterAvatar }));
-    const isBookTakingPart = isLockedHere && chatBookNames().includes(session.bookName);
-    return { count: session.otherTakingPartCount + (isBookTakingPart ? entryCount : 0), isBookTakingPart };
+    const isInUseHere = selectionInUse(session.bookName, lockTarget())?.id === session.selectionId;
+    const isSelectionTakingPart = isInUseHere && chatBookNames().includes(session.bookName);
+    return { count: session.otherTakingPartCount + (isSelectionTakingPart ? entryCount : 0), isSelectionTakingPart };
 }
 
 /**
@@ -187,7 +196,7 @@ function renderSummaryText(root, session) {
         const state = keyStateOf(session.bookName, uid);
         return state.status === 'ready' ? state.keys : [];
     };
-    const footer = selectionFooter(session.book, getLoreBook(session.bookName), keysOf);
+    const footer = selectionFooter(session.book, shownSelectionOf(session), keysOf);
     const choice = {
         isFastAndCheap: loreBaseAccuracyOf(extension_settings.vectfox?.lorebase_accuracy) === FAST_AND_CHEAP,
         takingPart: takingPartOf(session, footer.entryCount),
@@ -195,11 +204,19 @@ function renderSummaryText(root, session) {
     byId(root, ids.summary).textContent = [summaryText(footer, choice), readinessLine].filter(Boolean).join(' ');
 }
 
+/** The book's selections in the list, the one shown chosen; Delete waits while the book has only one. */
+function renderSelectionList(root, session) {
+    const selections = loreSelectionsOf(session.bookName);
+    const inUseId = selectionInUse(session.bookName, lockTarget())?.id ?? null;
+    byId(root, ids.selectionList).innerHTML = selectionOptions(selections, { selectionId: session.selectionId, inUseId }).join('');
+    root.querySelector('[data-lorebase-action="delete-selection"]').disabled = selections.length < 2;
+}
+
 function renderSelectionSummary(root, session) {
-    const record = getLoreBook(session.bookName);
-    byId(root, ids.pins).innerHTML = pinsMarkup(pinnableSections(session.book, record, session.sectionNamesOf));
+    byId(root, ids.pins).innerHTML = pinsMarkup(pinnableSections(session.book, shownSelectionOf(session), session.sectionNamesOf));
     renderSummaryText(root, session);
     byId(root, ids.book).innerHTML = bookOptions(currentChoices(), session.bookName).join('');
+    renderSelectionList(root, session);
 }
 
 /** Redraw the rows shown whose keys or vectors changed, keeping the keyboard where it was, and the summary. */
@@ -222,14 +239,15 @@ function renderLocks(root, session) {
     const characterSwitch = byId(root, ids.lockCharacter);
     chatSwitch.disabled = !target.chatId;
     characterSwitch.disabled = !target.characterAvatar;
-    chatSwitch.checked = Boolean(target.chatId) && isLoreBookLocked(session.bookName, { chatId: target.chatId });
-    characterSwitch.checked = Boolean(target.characterAvatar) && isLoreBookLocked(session.bookName, { characterAvatar: target.characterAvatar });
+    const selection = shownSelectionOf(session);
+    chatSwitch.checked = Boolean(target.chatId && selection) && isSelectionLockedTo(selection, { chatId: target.chatId });
+    characterSwitch.checked = Boolean(target.characterAvatar && selection) && isSelectionLockedTo(selection, { characterAvatar: target.characterAvatar });
     byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterAvatar) });
 }
 
-/** Save a book's selection, noting the book, so the vectors of the entries turned off go as the screen closes. */
+/** Save the selection shown, noting its book, so the vectors of the entries turned off go as the screen closes. */
 function saveBookSelection(session, bookName, selectedUids) {
-    setLoreBookSelection(bookName, selectedUids);
+    setLoreBookSelection(bookName, session.selectionId, selectedUids);
     session.booksWithChangedSelection.add(bookName);
 }
 
@@ -382,11 +400,19 @@ async function editKeys(session, uid) {
     }
 }
 
-/** Read a book and show it: its entries, categories, pins, locks and footer. */
-async function showBook(root, session, bookName) {
+/**
+ * Read a book and show it on one of its selections: the one named, else the one in use here, else its first, made when
+ * it has none; its entries, categories, pins, locks and footer.
+ * @param {HTMLElement} root
+ * @param {object} session
+ * @param {string} bookName
+ * @param {string|null} [selectionId]
+ * @returns {Promise<void>}
+ */
+async function showBook(root, session, bookName, selectionId = null) {
     Object.assign(session, {
-        bookName, book: null, rows: [], entryByUid: new Map(), ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE,
-        keyReadProblem: '', otherTakingPartCount: null,
+        bookName, selectionId: null, book: null, rows: [], entryByUid: new Map(), ticked: new Set(), anchorUid: null, shownCategory: null,
+        shownLimit: PAGE_SIZE, keyReadProblem: '', otherTakingPartCount: null,
     });
     let book;
     try {
@@ -419,23 +445,74 @@ async function showBook(root, session, bookName) {
     await countOtherBooksTakingPart(session, bookName);
     if (session.bookName !== bookName) return;
     // The record as it stood says which entries are new; then it keeps the uids the book holds now.
-    const record = getLoreBook(bookName);
+    const seenUids = getLoreBook(bookName)?.seenUids;
+    for (const selection of loreSelectionsOf(bookName)) {
+        const live = liveSelection(book, selection);
+        if (live.length === selection.selectedUids.length) continue;
+        setLoreBookSelection(bookName, selection.id, live);
+        session.booksWithChangedSelection.add(bookName);
+    }
+    const selection = selectionId ? getLoreSelection(bookName, selectionId) : selectionInUse(bookName, lockTarget()) ?? ensureLoreSelection(bookName);
+    session.selectionId = selection.id;
     session.book = book;
     session.entryByUid = new Map(Object.values(book.entries ?? {}).map(entry => [String(entry.uid), entry]));
-    session.rows = selectionRows(book, record);
+    session.rows = selectionRows(book, { selectedUids: selection.selectedUids, seenUids });
     const sectionNames = new Map();
     session.sectionNamesOf = entry => {
         const key = `${entry.uid}\u0000${entry.content ?? ''}`;
         if (!sectionNames.has(key)) sectionNames.set(key, entrySectionNames(entry));
         return sectionNames.get(key);
     };
-    const live = liveSelection(book, record);
-    if (record && live.length !== record.selectedUids.length) saveBookSelection(session, bookName, live);
     setLoreBookSeenEntries(bookName, seenUidsOf(book));
     renderLocks(root, session);
     renderCategories(root, session);
     renderEntries(root, session);
     renderSelectionSummary(root, session);
+}
+
+/** Show another selection of the book shown, its entries' rows turned on and off as it selects them. */
+function showSelection(root, session, selectionId) {
+    const selection = getLoreSelection(session.bookName, selectionId);
+    session.selectionId = selection.id;
+    const selected = new Set(selection.selectedUids);
+    for (const row of session.rows) row.isSelected = selected.has(row.uid);
+    renderLocks(root, session);
+    renderCategories(root, session);
+    renderEntries(root, session);
+    renderSelectionSummary(root, session);
+}
+
+/** New selection: a copy of the selection shown, put in use in the open chat, then shown. */
+function newSelection(root, session) {
+    showSelection(root, session, newLoreSelectionHere(session.bookName, session.selectionId).id);
+}
+
+/** Rename the selection shown; a name left empty or as it was saves nothing. */
+async function renameSelection(root, session) {
+    const selection = shownSelectionOf(session);
+    if (!selection) return;
+    const holder = document.createElement('div');
+    holder.innerHTML = renameSelectionFormMarkup(selection.name);
+    const form = holder.firstElementChild;
+    const isSubmitted = await formPopup([{ text: 'Rename the selection' }, { text: 'Now:', name: selection.name }], form,
+        { okButton: 'Rename', focusSelector: `#${ids.renameSelection}`, isSubmittedOnEnter: true });
+    const name = form.querySelector(`#${ids.renameSelection}`).value.trim();
+    if (!isSubmitted || !name || name === selection.name) return;
+    renameLoreSelection(session.bookName, selection.id, name);
+    renderSelectionList(root, session);
+}
+
+/**
+ * Delete the selection shown, once confirmed, then show the one in use here or the book's first. The vectors of the
+ * entries no other selection holds go as the screen closes, with the book's other changed selections.
+ */
+async function deleteSelection(root, session) {
+    const selection = shownSelectionOf(session);
+    if (!selection || loreSelectionsOf(session.bookName).length < 2) return;
+    if (!await confirmPopup(deleteSelectionLines(selection.name), { okButton: 'Delete', isDestructive: true })) return;
+    deleteLoreSelection(session.bookName, selection.id);
+    session.booksWithChangedSelection.add(session.bookName);
+    showSelection(root, session, (selectionInUse(session.bookName, lockTarget()) ?? loreSelectionsOf(session.bookName)[0]).id);
 }
 
 function onAction(root, session, element, event) {
@@ -468,6 +545,12 @@ function onAction(root, session, element, event) {
     } else if (name === 'show-more') {
         session.shownLimit += PAGE_SIZE;
         renderEntries(root, session);
+    } else if (name === 'new-selection') {
+        newSelection(root, session);
+    } else if (name === 'rename-selection') {
+        void renameSelection(root, session);
+    } else if (name === 'delete-selection') {
+        void deleteSelection(root, session);
     } else {
         log.warn(`LoreBase: the selection screen has no action "${name}"`, event.type);
     }
@@ -501,15 +584,18 @@ function bindScreen(root, session) {
         const target = event.target;
         if (target.id === ids.book) {
             void showBook(root, session, target.value);
-        } else if (target.id === ids.lockChat || target.id === ids.lockCharacter) {
+        } else if (target.id === ids.selectionList && session.book) {
+            showSelection(root, session, target.value);
+        } else if ((target.id === ids.lockChat || target.id === ids.lockCharacter) && session.selectionId) {
             const { chatId, characterAvatar } = lockTarget();
-            setLoreBookLock(session.bookName, target.id === ids.lockChat ? { chatId } : { characterAvatar }, target.checked);
+            setLoreSelectionLock(session.bookName, session.selectionId, target.id === ids.lockChat ? { chatId } : { characterAvatar }, target.checked);
             session.booksWithChosenLocks.add(session.bookName);
             renderLocks(root, session);
             renderSummaryText(root, session);
-        } else if (target.matches('[data-lorebase-pin]')) {
+            renderSelectionList(root, session);
+        } else if (target.matches('[data-lorebase-pin]') && session.selectionId) {
             const pinned = [...root.querySelectorAll('[data-lorebase-pin]')].filter(pin => pin.checked).map(pin => pin.dataset.lorebasePin);
-            setLoreBookPins(session.bookName, pinned);
+            setLoreBookPins(session.bookName, session.selectionId, pinned);
         } else if ([ids.size, ids.readiness, ids.badge, ids.newness].includes(target.id) && session.book) {
             session.shownLimit = PAGE_SIZE;
             renderEntries(root, session);
@@ -526,23 +612,25 @@ function bindScreen(root, session) {
 }
 
 /**
- * Open the selection screen on a book: the one named, else the open chat's first, else the first by name. Once it
- * closes, delete the vectors of the entries turned off and count what the selection lacks; while LoreBase is on, ask to
- * write the missing keys and vectors, turning LoreBase off on no when no entry is ready, and keep the locks the user
- * set on the screen as set (settleSelectionOnClose).
- * @param {{bookName?: string}} [options]
+ * Open the selection screen on a book: the one named, else the open chat's first, else the first by name; on the
+ * selection named, else the one in use here, else the book's first. Once it closes, delete the vectors of the entries
+ * no selection holds now and count what the selections lack; while LoreBase is on, ask to write the missing keys and
+ * vectors, turning LoreBase off on no when no entry is ready, and keep the locks the user set on the screen as set
+ * (settleSelectionOnClose).
+ * @param {{bookName?: string, selectionId?: string|null}} [options]
  * @returns {Promise<{missingCount: number, missingKeyCount: number, missingVectorCount: number, decidedCount: number,
  *   isWriting: boolean}|null>} Once the screen is closed and any question answered: what the selection lacks, or null
  *   when its keys and vectors could not be read
  */
-export async function openLoreBaseSelection({ bookName = '' } = {}) {
+export async function openLoreBaseSelection({ bookName = '', selectionId = null } = {}) {
     const choices = currentChoices();
     const first = choices.some(choice => choice.bookName === bookName) ? bookName : choices[0]?.bookName ?? '';
     const template = document.createElement('template');
     template.innerHTML = selectionScreenMarkup({ choices, bookName: first });
     const root = template.content.firstElementChild;
     const session = {
-        bookName: first, book: null, rows: [], entryByUid: new Map(), ticked: new Set(), anchorUid: null, shownCategory: null, shownLimit: PAGE_SIZE,
+        bookName: first, selectionId: null, book: null, rows: [], entryByUid: new Map(), ticked: new Set(), anchorUid: null, shownCategory: null,
+        shownLimit: PAGE_SIZE,
         searchTimer: null, sectionNamesOf: entrySectionNames, shownReadiness: new Map(), keyReadProblem: '', otherTakingPartCount: null,
         booksWithChosenLocks: new Set(), booksWithChangedSelection: new Set(),
     };
@@ -554,7 +642,7 @@ export async function openLoreBaseSelection({ bookName = '' } = {}) {
     const stopKeyUpdates = onKeyStateChange(onBookStateChange);
     const stopVectorUpdates = onVectorStateChange(onBookStateChange);
     const closed = openPanelPopup(root, { canClose: () => true });
-    if (first) void showBook(root, session, first);
+    if (first) void showBook(root, session, first, first === bookName ? selectionId : null);
     else byId(root, ids.entries).innerHTML = noLorebookMarkup();
     await closed;
     stopKeyUpdates();

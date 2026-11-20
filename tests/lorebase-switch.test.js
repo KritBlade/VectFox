@@ -11,6 +11,7 @@
  * that finds the search on again asks which of the two to turn off, and closing the question leaves LoreBase sitting out.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { oneSelectionRecord } from './lorebase-book-record.js';
 
 const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn: false, canTurnOff: true, pending: null, keyProblem: null, replyProblem: '' }));
 
@@ -45,7 +46,7 @@ const { settleVectorStorageConflict, turnLoreBaseOn } = await import('../src/fea
 const showsSwitch = vi.fn();
 onLoreBaseSwitchChange(showsSwitch);
 
-const HARBOR_RECORD = { selectedUids: ['0'], pinnedSections: [], lockedToChatIds: ['chat-harbor'], lockedToCharacterAvatars: [] };
+const HARBOR_RECORD = oneSelectionRecord({ selectedUids: ['0'], lockedToChatIds: ['chat-harbor'] });
 
 beforeEach(() => {
     vi.clearAllMocks();

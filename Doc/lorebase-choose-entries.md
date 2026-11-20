@@ -4,7 +4,7 @@ This screen is where you tell LoreBase which lorebook entries it decides. Every 
 
 ## Before you open it
 
-You open it from VectFox's **WorldInfo** page. In the **LoreBase books** card, **Choose entries** opens the first book of your chat, and the list button on a book's row opens that book.
+You open it from VectFox's **WorldInfo** page. In the **LoreBase books** card, **Choose entries** opens the first book of your chat, and the list button on a book's row opens that book. Both open on the selection your chat uses, or on the book's first if it uses none. Selections are explained in **More than one selection of a book**, below.
 
 A few things have to be set first:
 
@@ -56,23 +56,23 @@ So when you close this screen with new entries on, VectFox asks to write them, a
 
 Say "Not now", and LoreBase goes on with the ready ones. It only turns off when no entry is ready at all. **Generate all** on the WorldInfo page writes whatever is missing later.
 
-Each book's row on the WorldInfo page tells you where it stands, like `313 selected, 313 with keys, 300 with vectors`, and its pill says what that means: **Ready**, or what the rest still need, like `13 need vectors`. While a run writes the book, the pill counts along, like `Vectorizing, 120 of 313`. If some entries failed, it says how many, and the line under the numbers gives the first reason. After you switch your embedding model, it says **Vectors from another embedding model**.
+Each book's row on the WorldInfo page tells you where its selection in use here stands, like `313 selected, 313 with keys, 300 with vectors`, and its pill says what that means: **Ready**, or what the rest still need, like `13 need vectors`. While a run writes the book, the pill counts along, like `Vectorizing, 120 of 313`. If some entries failed, it says how many, and the line under the numbers gives the first reason. After you switch your embedding model, it says **Vectors from another embedding model**. A book with no selection in use here counts every entry its selections turn on.
 
 Under the books, one line adds up the books locked to this chat, like `2 books locked here: 312 entries ready, 40 entries waiting for keys or vectors.` So a book that still waits shows right there, while LoreBase goes on with the rest.
 
 Need only one of the 2? **Generate keys** writes just the missing keys, and **Generate vectors** just the missing vectors. Generate vectors never calls the LoreBase model, so it costs almost nothing. It's the one to press after you switch your embedding model.
 
-You don't have to keep them up to date. Edit an entry in World Info, and VectFox writes the vectors of the parts you changed again by itself. Turn an entry off, and its vectors are deleted when you close this screen. Its keys stay, in case you turn it back on.
+You don't have to keep them up to date. Edit an entry in World Info, and VectFox writes the vectors of the parts you changed again by itself. Turn an entry off, and its vectors are deleted when you close this screen, unless another selection of the book still has it on. Its keys stay, in case you turn it back on.
 
 ## Saving them, putting them back, deleting one book
 
-The Database Browser lists every lorebook you use with LoreBase, under the type LoreBase, right after your chat collections. Each one looks like a chat collection: a row with the book's name, how many entries you selected, and where its vectors are stored. Under it sit 2 rows, its keys and its vectors, like `313 entries with keys` and `504 parts`. So you see what a book holds without opening anything.
+The Database Browser lists every lorebook you use with LoreBase, under the type LoreBase, right after your chat collections. Each one looks like a chat collection: a row with the book's name, how many entries its selections turn on, and where its vectors are stored. A book with more than 1 selection says how many, like `Selected entries: 312, in 2 selections`. Under it sit 2 rows, its keys and its vectors, like `313 entries with keys` and `504 parts`. So you see what a book holds without opening anything.
 
-See a ⚠ next to a book's name? None of its entries are selected, so LoreBase leaves the whole book out of your replies. Its keys stay. Its vectors don't: the next write erases them, like the next time you change its selection, unless you select their entries first. Hover the ⚠ and it tells you the same. On a phone, tap it.
+See a ⚠ next to a book's name? None of its selections has an entry on, so LoreBase leaves the whole book out of your replies. Its keys stay. Its vectors don't: the next write erases them, like the next time you change its selection, unless you select their entries first. Hover the ⚠ and it tells you the same. On a phone, tap it.
 
 Each row has its own Export, Import and Delete. Export saves that one kind to a file. Import puts a file back. Delete removes that kind, of that book, and nothing else. Your selections stay, LoreBase stays on, and those entries just sit out of your replies until Generate keys or Generate vectors writes them again.
 
-Want the whole book gone from LoreBase, not just one kind? Press the trash button on the book's own row, **Remove from LoreBase**. It deletes everything LoreBase keeps for that book: your selected entries, pinned sections and locks, its keys AND its vectors. It asks first and names each part, so you see what goes before it goes.
+Want the whole book gone from LoreBase, not just one kind? Press the trash button on the book's own row, **Remove from LoreBase**. It deletes everything LoreBase keeps for that book: all its selections, with their entries, pinned sections and locks, its keys AND its vectors. It asks first and names each part, so you see what goes before it goes.
 
 The book itself stays in SillyTavern. So its entries just fire by their keys again, like any book LoreBase doesn't use. Leftovers don't get the button: you clean those up one row at a time.
 
@@ -86,11 +86,11 @@ Leftovers have View chunks too, but no Edit entry: their book isn't in SillyTave
 
 This matters MOST for keys. They cost a LoreBase model call for every entry, so a book of 313 entries is 313 calls. Export them once, and after a reinstall, a new PC or a Delete you regret, Import brings them all back with no LLM call at all. Vectors work the same way, and Import puts them back with no embedding call.
 
-Import only writes what still matches. A keys file goes onto an entry only when its number AND its title match, because every book numbers its entries 0, 1, 2. That's what keeps another book's keys off your entries. A vectors file goes onto a part only when that part still has the same text. Both go onto an entry whether you selected it or not. Vectors of an entry you didn't select get erased on the next write, though, so Import tells you how many of those there are.
+Import only writes what still matches. A keys file goes onto an entry only when its number AND its title match, because every book numbers its entries 0, 1, 2. That's what keeps another book's keys off your entries. A vectors file goes onto a part only when that part still has the same text. Both go onto an entry whether a selection has it on or not. Vectors of an entry no selection has on get erased on the next write, though, so Import tells you how many of those there are.
 
 Before it writes, Import tells you how many it writes, how many of those replace what the book has, and how many it skips. Say Cancel, and nothing changes.
 
-If you switched your embedding model since the export, Import says so, and embeds those parts again with your current model, the same as Generate vectors. Only your selected entries get embedded. To use the saved vectors as they are, switch back to the model the file names first.
+If you switched your embedding model since the export, Import says so, and embeds those parts again with your current model, the same as Generate vectors. Only the entries your selections have on get embedded. To use the saved vectors as they are, switch back to the model the file names first.
 
 A book isn't in the list at all when it has nothing stored and you never opened its selection screen, like after a fresh install. Use **Import a collection**, at the top of the list. Give it a keys or vectors file, and it puts it into the lorebook the file names, with the same check before it writes. The book shows up in the list right after, with its ⚠ until you select entries. So after a fresh install:
 
@@ -109,24 +109,41 @@ This is the part that confuses everyone, so I'll say it first. Each entry row ha
 
 It works like the checkboxes in your email inbox. Ticking 20 emails doesn't delete anything. Pressing Delete does.
 
-2 pills tell them apart. The **selected** pill at the top right counts the entries that are on. The **ticked** pill above the list counts your ticks.
+2 pills tell them apart. The **selected** pill at the top right counts the entries that are on in the selection you see. The **ticked** pill above the list counts your ticks.
 
 Ticks are never saved. They go away when you switch to another book or close the screen. Everything else saves as you click it: the wands, Turn on and Turn off, the locks and the pins.
 
 ## The lock: where LoreBase decides
 
-Turning entries on says WHICH entries LoreBase decides. Locking the book says WHERE. LoreBase decides a book's entries only in a chat, or with a character, the book is locked to. Everywhere else the whole book fires by its keys, and your selection just waits.
+Turning entries on says WHICH entries LoreBase decides. Locking says WHERE. LoreBase decides a book's entries only in a chat, or with a character, one of its selections is locked to. Everywhere else the whole book fires by its keys, and your selection just waits.
 
-- **Lock to this chat**: LoreBase decides this book's entries in the chat you have open.
+- **Lock to this chat**: LoreBase decides this selection's entries in the chat you have open.
 - **Lock to this character**: the same in every chat with this character.
 
-You don't have to lock the chat yourself. Once LoreBase writes the keys of the entries you turned on, it locks their book to the chat you have open. That's when you close this screen and press **Write keys and vectors**, turn on **Use LoreBase**, or press **Generate all**. The line under Generate all tells you, like `Locked "Harbor Atlas" to this chat.`
+You don't have to lock the chat yourself. Once LoreBase writes the keys of the entries you turned on, it locks their book to the chat you have open. That's when you close this screen and press **Write keys and vectors**, turn on **Use LoreBase**, or press **Generate all**. The line under Generate all tells you, like `Locked "Harbor Atlas" to this chat.` It only does that for a book with 1 selection. Once a book has more, which one a chat uses is your call.
 
 A book already locked to this chat or this character stays as it is. And if you changed a lock on this screen, closing it keeps your choice, so a lock you turned off there stays off. Locking to the character is always your call.
 
 So you can turn on 50 entries in Harbor Atlas in your Wren chat to try them. Only that chat changes, your other chats don't. If you like it, lock it to the character too.
 
 A group chat has no one character, so its character lock can't be turned on. With no chat open, neither lock can.
+
+## More than one selection of a book
+
+A selection is the entries you turn on in a book, with its pins and its locks. Every book starts with 1, named after the book. Make another when you want a different set of the same book in another chat. Say all of Harbor Atlas in your Wren chat, but only its harbor entries in your Orrin chat. Then you don't turn entries off and on again each time you switch chats.
+
+All the selections of a book share its keys and vectors. So a new selection writes nothing for the entries the book already has ready.
+
+The row under the book's dropdown is for them. Its list has the book's selections, and the one this chat uses says "(in use here)".
+
+- Picking another one in that list only shows it, so you can change it. It doesn't put it in use.
+- **New selection** copies the one you see, its entries and pins but not its locks, as "Harbor Atlas 2". The copy goes in use in this chat right away.
+- **Rename** gives the one you see a new name.
+- **Delete** deletes the one you see, after asking. A book's last selection can't be deleted. **Remove from LoreBase** removes the whole book instead.
+
+A chat uses 1 selection of a book at most. Lock one to this chat, and this chat's lock comes off the book's other selections. The same goes for the character. When the chat and the character lock different ones, the chat's lock wins. So you can lock your usual selection to Keeper Orrin, and another one to the one chat that needs it.
+
+You don't even need this screen to switch. On the WorldInfo page, each book's row starts with **Selection in use here**. Pick a selection there, and this chat uses it from the next reply on. Its last choice, **New selection**, makes the copy and opens this screen on it. While no selection of the book is in use here, it says **None in use here**, and the book fires by its keys in this chat.
 
 ## Finding entries: the book and the filters
 
@@ -163,7 +180,7 @@ If a section should ALWAYS go in when its entry is picked, tick it under **Pinne
 
 Fast and Cheap [Jev] sends every picked entry whole, so pins only matter on High Accuracy.
 
-The list shows the section names in the entries you turned on, the most common first, each with how many entries hold it. It stays empty until you turn on an entry with sections. Pins are per book.
+The list shows the section names in the entries you turned on, the most common first, each with how many entries hold it. It stays empty until you turn on an entry with sections. Pins are per selection.
 
 ## The entries list
 
@@ -184,7 +201,7 @@ One thing to watch. A tick stays when a filter hides its row. If you tick 10 ent
 
 The list draws 100 entries at a time. **Show more** draws the next 100.
 
-At the bottom, a line says what your entries cost each reply. On High Accuracy, it's how many titles the LoreBase model reads from this book, each with its keys, and about how many tokens that adds to every pick. Every entry you turn on is one more line it reads before every single reply. On Fast and Cheap [Jev], it's how many entries Jev is asked about: every one while the books locked to this chat have 100 or fewer turned on, and above that the 100 a search finds best. If this book isn't locked to the chat, the line says it takes no part here.
+At the bottom, a line says what your entries cost each reply. On High Accuracy, it's how many titles the LoreBase model reads from this book, each with its keys, and about how many tokens that adds to every pick. Every entry you turn on is one more line it reads before every single reply. On Fast and Cheap [Jev], it's how many entries Jev is asked about: every one while the books locked to this chat have 100 or fewer turned on, and above that the 100 a search finds best. If the selection you see isn't the one this chat uses, the line says it takes no part here.
 
 ## The pills on a row
 
@@ -245,7 +262,7 @@ Think of the librarian from before, working 2 different ways. On High Accuracy, 
 This runs before every send, swipe, regenerate and continue. Never on impersonate.
 
 1. **It reads the scene.** That's the last 6 messages, up to and including yours. Hidden messages are skipped, and each one goes through your **Text Cleaning** first, with the AI's thinking and any game-system blocks taken out.
-2. **It gathers the ready entries.** Those are the entries you turned on, in the books locked to this chat or its character, that have their keys and vectors. The rest sit out, and a toast tells you how many, once per chat and again when that number changes.
+2. **It gathers the ready entries.** Those are the entries turned on in each book's selection in use here, the one locked to this chat or its character, that have their keys and vectors. The rest sit out, and a toast tells you how many, once per chat and again when that number changes.
 
 ### Fast and Cheap [Jev]
 

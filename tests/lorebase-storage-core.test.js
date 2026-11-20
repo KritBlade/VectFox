@@ -98,9 +98,15 @@ describe("the Database Browser's rows", () => {
     const tenant = (book, collection, pointCount, id = `vf_lorebase_qdrant_rabbit_${String(book).toLowerCase().replace(/\W+/g, '_')}_${collection}`) => ({
         collection, tenant: id, book, pointCount, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3',
     });
-    // Harbor Atlas selects 12 entries; Wren Journal has a record selecting none; Ghost Atlas's book is gone from SillyTavern.
+    // Harbor Atlas's 2 selections hold 12 entries; Wren Journal has a record selecting none; Ghost Atlas's book is gone from
+    // SillyTavern.
     const rowsOf = listing => storageRowsOf({
-        listing, selectedCounts: { 'Harbor Atlas': 12, 'Wren Journal': 0, 'Ghost Atlas': 3 }, hereCollection: 'vf_lorebase_rabbit',
+        listing,
+        recordCounts: {
+            'Harbor Atlas': { selectedCount: 12, selectionCount: 2 }, 'Wren Journal': { selectedCount: 0, selectionCount: 1 },
+            'Ghost Atlas': { selectedCount: 3, selectionCount: 1 },
+        },
+        hereCollection: 'vf_lorebase_rabbit',
         sillyTavernBookNames: ['Harbor Atlas', 'Desert Atlas', 'Wren Journal'],
     });
     const shapeOf = rows => rows.map(row => [row.kind, row.book, row.kind === KEYS ? row.entryCount : `${row.collection}:${row.pointCount}`, row.isLeftover]);
@@ -121,8 +127,8 @@ describe("the Database Browser's rows", () => {
             ['vectors', 'Harbor Atlas', 'vectfox_main:7', true],
             ['keys', 'Old Pier', 2, true], ['vectors', 'Old Pier', 'vf_lorebase_rabbit:4', true], ['vectors', 'Old Pier', 'vectfox_main:50', true],
         ]);
-        expect(rows.filter(row => row.kind === KEYS).map(row => [row.book, row.hasRecord, row.selectedCount, row.isInSillyTavern])).toEqual([
-            ['Desert Atlas', false, 0, true], ['Harbor Atlas', true, 12, true], ['Wren Journal', true, 0, true], ['Old Pier', false, 0, false],
+        expect(rows.filter(row => row.kind === KEYS).map(row => [row.book, row.hasRecord, row.selectedCount, row.selectionCount, row.isInSillyTavern])).toEqual([
+            ['Desert Atlas', false, 0, 0, true], ['Harbor Atlas', true, 12, 2, true], ['Wren Journal', true, 0, 1, true], ['Old Pier', false, 0, 0, false],
         ]);
         expect(rows.some(row => row.book === 'Ghost Atlas')).toBe(false);
         expect(new Set(rows.map(row => row.key)).size).toBe(rows.length);
@@ -132,7 +138,7 @@ describe("the Database Browser's rows", () => {
         const [, here] = rowsOf({ keys: [], vectors: [tenant('Harbor Atlas', 'vf_lorebase_rabbit', 504, 'vf_lorebase_qdrant_rabbit_harbor_atlas_19qag9zxydm')] });
         expect(here).toEqual({
             key: 'vectors|vf_lorebase_rabbit|vf_lorebase_qdrant_rabbit_harbor_atlas_19qag9zxydm', kind: VECTORS, book: 'Harbor Atlas', hasRecord: true,
-            selectedCount: 12, isInSillyTavern: true, isLeftover: false, collection: 'vf_lorebase_rabbit',
+            selectedCount: 12, selectionCount: 2, isInSillyTavern: true, isLeftover: false, collection: 'vf_lorebase_rabbit',
             tenant: 'vf_lorebase_qdrant_rabbit_harbor_atlas_19qag9zxydm', isHere: true, pointCount: 504, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3',
         });
         const wren = rowsOf({ keys: [], vectors: [] }).find(row => row.kind === VECTORS && row.book === 'Wren Journal');
@@ -142,12 +148,13 @@ describe("the Database Browser's rows", () => {
     it('gives a tenant whose points name no book a leftover vectors row of its own, after the books', () => {
         const rows = rowsOf({ keys: [], vectors: [tenant(null, 'vf_lorebase_rabbit', 3, 'vf_lorebase_qdrant_rabbit_unnamed_1a')] });
         expect(rows.at(-1)).toMatchObject({
-            kind: VECTORS, book: null, tenant: 'vf_lorebase_qdrant_rabbit_unnamed_1a', hasRecord: false, isInSillyTavern: false, isLeftover: true, pointCount: 3,
+            kind: VECTORS, book: null, tenant: 'vf_lorebase_qdrant_rabbit_unnamed_1a', hasRecord: false, selectedCount: 0, selectionCount: 0, isInSillyTavern: false,
+            isLeftover: true, pointCount: 3,
         });
     });
 
     it('gives a book with no row the row an import would write to, at 0, as the list draws it', () => {
-        const book = { book: 'Lantern Atlas', hasRecord: false, selectedCount: 0 };
+        const book = { book: 'Lantern Atlas', hasRecord: false, selectedCount: 0, selectionCount: 0 };
         expect(emptyRowOf(KEYS, book, 'vectfox_main')).toEqual({
             key: 'keys|Lantern Atlas', kind: KEYS, ...book, isInSillyTavern: true, isLeftover: false, entryCount: 0,
         });

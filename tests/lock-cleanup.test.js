@@ -67,8 +67,10 @@ function staleSettings() {
         },
         lorebase_books: {
             'Harbor Lore': {
-                selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['Wren - harbor', 'Orrin - deleted'],
-                lockedToCharacterAvatars: ['wren.png', 'gone.png'],
+                selections: [{
+                    id: 'first', name: 'Harbor Lore', selectedUids: ['1'], pinnedSections: [], lockedToChatIds: ['Wren - harbor', 'Orrin - deleted'],
+                    lockedToCharacterAvatars: ['wren.png', 'gone.png'],
+                }],
             },
         },
     };
@@ -107,7 +109,7 @@ describe('Clean up locks', () => {
         expect(settings.collections[LIGHTHOUSE].lockedToChatIds).toEqual(['Harbor night group']);
         expect(settings.collections[LIGHTHOUSE].lockedToCharacterIds).toEqual([]);
         expect(settings.chat_lock_index).toEqual({ 'Wren - harbor': [HARBOR], 'Harbor night group': [LIGHTHOUSE] });
-        expect(settings.lorebase_books['Harbor Lore']).toMatchObject({ lockedToChatIds: ['Wren - harbor'], lockedToCharacterAvatars: ['wren.png'], selectedUids: ['1'] });
+        expect(settings.lorebase_books['Harbor Lore'].selections[0]).toMatchObject({ lockedToChatIds: ['Wren - harbor'], lockedToCharacterAvatars: ['wren.png'], selectedUids: ['1'] });
         expect(host.saveSettingsDebounced).toHaveBeenCalled();
         expect(toastr.success).toHaveBeenCalledWith(
             'Removed 4 locks on chats and characters that no longer exist. Rebuilt the chat lock index: 2 entries removed, 1 entry added.',
@@ -141,7 +143,7 @@ describe('Clean up locks', () => {
         ]);
         const settings = host.extensionSettings.vectfox;
         expect(settings.collections[HARBOR].lockedToChatIds).toEqual(['Wren - harbor', 'Wren - deleted']);
-        expect(settings.lorebase_books['Harbor Lore'].lockedToChatIds).toEqual(['Wren - harbor', 'Orrin - deleted']);
+        expect(settings.lorebase_books['Harbor Lore'].selections[0].lockedToChatIds).toEqual(['Wren - harbor', 'Orrin - deleted']);
         expect(settings.chat_lock_index).toEqual({ 'Wren - harbor': [HARBOR], 'Wren - deleted': [HARBOR], 'Harbor night group': [LIGHTHOUSE] });
         expect(host.logWarn).toHaveBeenCalledWith(expect.stringContaining('SillyTavern could not list the chats of Wren.'));
     });
@@ -175,7 +177,7 @@ describe('Clean up locks', () => {
         host.extensionSettings.vectfox = {
             collections: { [HARBOR]: { lockedToChatIds: ['Wren - harbor'] } },
             chat_lock_index: { 'Wren - harbor': [HARBOR] },
-            lorebase_books: { 'Harbor Lore': { selectedUids: [], pinnedSections: [], lockedToChatIds: ['Harbor night group'], lockedToCharacterAvatars: ['orrin.png'] } },
+            lorebase_books: { 'Harbor Lore': { selections: [{ id: 'first', name: 'Harbor Lore', selectedUids: [], pinnedSections: [], lockedToChatIds: ['Harbor night group'], lockedToCharacterAvatars: ['orrin.png'] }] } },
         };
         await cleanUpLocks();
 

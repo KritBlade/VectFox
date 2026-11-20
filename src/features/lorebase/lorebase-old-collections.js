@@ -2,7 +2,7 @@
  * Deleting the old vectorized lorebook collections LoreBase replaced (D5 and §6.4 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md), once collection discovery has filled the registry and SillyTavern has
  * loaded (src/app/retired-collections.js runs it then). Each collection's chat and character locks move to its book's
- * record first, then it is deleted with every index discovery found it in, and the notice's lines name the books to
+ * first selection first, then it is deleted with every index discovery found it in, and the notice's lines name the books to
  * choose entries for again. It asks nothing (D5): no old collection can serve LoreBase. A collection that could not be
  * deleted is tried again at the next start, and when none could be, there are no lines.
  */
@@ -10,14 +10,15 @@ import { deleteCollectionWhereDiscovered, getCollectionCharacterLocks, getCollec
 import { getContext } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
 import { world_names } from '../../sillytavern/world-info.js';
-import { setLoreBookLock } from './lorebase-books.js';
+import { ensureLoreSelection, setLoreSelectionLock } from './lorebase-books.js';
 import { oldCollectionsNoticeLines, oldLorebookCollections } from './lorebase-old-collections-core.js';
 
 function moveLocksToBooks(collections) {
     for (const { bookName, chatIds, characterAvatars } of collections) {
         if (!bookName) continue;
-        for (const chatId of chatIds) setLoreBookLock(bookName, { chatId }, true);
-        for (const characterAvatar of characterAvatars) setLoreBookLock(bookName, { characterAvatar }, true);
+        const { id } = ensureLoreSelection(bookName);
+        for (const chatId of chatIds) setLoreSelectionLock(bookName, id, { chatId }, true);
+        for (const characterAvatar of characterAvatars) setLoreSelectionLock(bookName, id, { characterAvatar }, true);
     }
 }
 

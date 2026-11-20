@@ -741,6 +741,7 @@ function loreBaseBookView(rows) {
     canRemove: !first.isLeftover,
     isInSillyTavern: first.isInSillyTavern,
     selectedCount: first.isLeftover ? null : first.selectedCount,
+    selectionCount: first.isLeftover ? null : first.selectionCount,
     storedIn: shownEmbedding ? `Qdrant, embedded by ${shownEmbedding}` : "Qdrant",
     id: tenantRows[0]?.tenant ?? "",
     flag: !first.isLeftover && first.selectedCount === 0 ? noSelectionWords(tenantRows.some((row) => row.pointCount)) : "",

@@ -111,13 +111,14 @@ export function isEngineLike(row) {
 /**
  * The screen's rows for a book, in the book's own order.
  * @param {{entries?: object}|null} book - As loadWorldInfo returns it
- * @param {{selectedUids: string[], seenUids?: string[]}|null} record - The book's record, from getLoreBook
+ * @param {{selectedUids: string[], seenUids?: string[]}|null} shown - The selection shown's entries, and the entries the
+ *   book's record saw it hold when the screen last opened it
  * @returns {SelectionRow[]}
  */
-export function selectionRows(book, record) {
-    const selected = new Set(record?.selectedUids ?? []);
+export function selectionRows(book, shown) {
+    const selected = new Set(shown?.selectedUids ?? []);
     // A book never opened on the screen has no record of what was there, so nothing in it counts as new.
-    const seen = Array.isArray(record?.seenUids) ? new Set(record.seenUids) : null;
+    const seen = Array.isArray(shown?.seenUids) ? new Set(shown.seenUids) : null;
     return Object.values(book?.entries ?? {}).map(entry => {
         const uid = String(entry.uid);
         const content = String(entry.content ?? '');
@@ -143,18 +144,18 @@ export function selectionRows(book, record) {
 
 /**
  * The books the screen offers: those SillyTavern loads for the open chat first, in its order, then every other book
- * by name, each with how many entries it has selected.
+ * by name, each with how many entries its selections hold together.
  * @param {string[]} bookNames - Every lorebook SillyTavern has
  * @param {string[]} activeNames - The books it loads for the open chat (activeBookNames)
- * @param {Record<string, {selectedUids: string[]}>} records - The book records, by name
+ * @param {Record<string, number>} selectedCounts - How many entries each book's selections hold, by book name
  * @returns {Array<{bookName: string, isActive: boolean, selectedCount: number}>}
  */
-export function bookChoices(bookNames, activeNames, records) {
+export function bookChoices(bookNames, activeNames, selectedCounts) {
     const known = new Set(bookNames);
     const active = activeNames.filter(name => known.has(name));
     const others = bookNames.filter(name => !active.includes(name)).sort((first, second) => first.localeCompare(second));
     return [...active, ...others].map(bookName => ({
-        bookName, isActive: active.includes(bookName), selectedCount: records?.[bookName]?.selectedUids?.length ?? 0,
+        bookName, isActive: active.includes(bookName), selectedCount: selectedCounts?.[bookName] ?? 0,
     }));
 }
 
@@ -328,14 +329,14 @@ export function selectionAfterCategory(selectedUids, rows, category, isOn) {
 }
 
 /**
- * The selection without the uids of entries the book no longer holds.
+ * A selection's entries without the uids of those the book no longer holds.
  * @param {{entries?: object}|null} book
- * @param {{selectedUids: string[]}|null} record
+ * @param {{selectedUids: string[]}|null} selection
  * @returns {string[]}
  */
-export function liveSelection(book, record) {
+export function liveSelection(book, selection) {
     const held = new Set(Object.values(book?.entries ?? {}).map(entry => String(entry.uid)));
-    return (record?.selectedUids ?? []).filter(uid => held.has(uid));
+    return (selection?.selectedUids ?? []).filter(uid => held.has(uid));
 }
 
 /**
@@ -348,15 +349,15 @@ export function seenUidsOf(book) {
 }
 
 /**
- * The footer: how many entries the pick reads from this book, and about how many tokens their lines, each a title and
- * its keys, add to the table of contents of every pick.
+ * The footer: how many entries the pick reads from this book while the selection is in use, and about how many tokens
+ * their lines, each a title and its keys, add to the table of contents of every pick.
  * @param {{entries?: object}|null} book
- * @param {{selectedUids: string[]}|null} record
+ * @param {{selectedUids: string[]}|null} selection
  * @param {(uid: string) => string[]} [keysOf] - An entry's keys, none when not written
  * @returns {{entryCount: number, titleTokens: number}}
  */
-export function selectionFooter(book, record, keysOf = () => []) {
-    const entries = decidedEntries(book, record);
+export function selectionFooter(book, selection, keysOf = () => []) {
+    const entries = decidedEntries(book, selection);
     const titleTokens = entries.reduce((total, entry, index) => total
         + estimatedTokens(`${index + 1}. ${contentsLine({ title: entryTitle(entry), keys: keysOf(String(entry.uid)) })}`), 0);
     return { entryCount: entries.length, titleTokens };
@@ -372,17 +373,17 @@ export function entrySectionNames(entry) {
 }
 
 /**
- * The section names a book can pin (D10): those in the entries the pick reads, each with how many of them hold it,
- * most held first, and any name already pinned.
+ * The section names a selection can pin (D10): those in the entries the pick reads while it is in use, each with how
+ * many of them hold it, most held first, and any name already pinned.
  * @param {{entries?: object}|null} book
- * @param {{selectedUids: string[], pinnedSections?: string[]}|null} record
+ * @param {{selectedUids: string[], pinnedSections?: string[]}|null} selection
  * @param {(entry: object) => string[]} [sectionNamesOf] - entrySectionNames, or a copy that remembers each entry's
  * @returns {Array<{name: string, entryCount: number, isPinned: boolean}>}
  */
-export function pinnableSections(book, record, sectionNamesOf = entrySectionNames) {
-    const pinned = new Set(record?.pinnedSections ?? []);
+export function pinnableSections(book, selection, sectionNamesOf = entrySectionNames) {
+    const pinned = new Set(selection?.pinnedSections ?? []);
     const counts = new Map();
-    for (const entry of decidedEntries(book, record)) {
+    for (const entry of decidedEntries(book, selection)) {
         for (const name of sectionNamesOf(entry)) counts.set(name, (counts.get(name) ?? 0) + 1);
     }
     for (const name of pinned) if (!counts.has(name)) counts.set(name, 0);

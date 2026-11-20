@@ -12,6 +12,7 @@
  * qdrantTarget.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { oneSelectionRecord } from './lorebase-book-record.js';
 
 const host = vi.hoisted(() => ({
     handle: 'rabbit',
@@ -103,7 +104,7 @@ const deleted = () => host.calls.filter(call => call.action === 'delete');
 
 function selectEntries(entries, uids = entries.map(entry => String(entry.uid))) {
     host.books[BOOK] = { entries: Object.fromEntries(entries.map(entry => [entry.uid, entry])) };
-    host.settings.vectfox.lorebase_books = { [BOOK]: { selectedUids: uids, pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] } };
+    host.settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: uids, pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [] }) };
 }
 
 beforeEach(async () => {
@@ -356,6 +357,19 @@ describe('deleting vectors', () => {
         await vectors.pruneBookVectors(BOOK, SETTINGS);
         expect(inserted()).toEqual([]);
         expect(deleted()[0].hashes).toEqual([core.entryPoints(buoy, core.loreBaseBookCollectionId(BOOK, 'rabbit'))[0].hash]);
+    });
+
+    it('keeps the points of an entry another selection of the book still holds', async () => {
+        selectEntries([lighthouse, buoy]);
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [lighthouse, buoy], SETTINGS);
+        selectEntries([lighthouse, buoy], ['3']);
+        host.settings.vectfox.lorebase_books[BOOK].selections.push({
+            id: 'night', name: 'Night watch', selectedUids: ['4'], pinnedSections: [], lockedToChatIds: [], lockedToCharacterAvatars: [],
+        });
+        host.calls = [];
+        await vectors.pruneBookVectors(BOOK, SETTINGS);
+        expect(deleted()).toEqual([]);
+        expect(inserted()).toEqual([]);
     });
 
     it("Delete all deletes the account's own collection while One shared collection is off", async () => {

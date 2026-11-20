@@ -1,0 +1,74 @@
+/**
+ * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * the name New selection gives, which locks change when one member of a group is put in use, a selection's ID, the
+ * selection a chat uses, and every entry a book's selections hold.
+ */
+import { describe, expect, it } from 'vitest';
+import {
+    emptySelection, isSelectionLockedTo, newSelectionId, numberedName, oneInUseLockChanges, selectionInUseOf, unionOfSelections,
+} from '../src/features/lorebase/lorebase-selections-core.js';
+
+const selectionOf = (id, locks = {}, selectedUids = []) => ({ ...emptySelection(id, `Selection ${id}`), selectedUids, ...locks });
+
+describe('numberedName', () => {
+    it('gives the base name the lowest number from 2 that no member uses', () => {
+        expect(numberedName('Harbor Atlas', ['Harbor Atlas'])).toBe('Harbor Atlas 2');
+        expect(numberedName('Harbor Atlas', ['Harbor Atlas', 'Harbor Atlas 2', 'Harbor Atlas 3'])).toBe('Harbor Atlas 4');
+        expect(numberedName('Harbor Atlas', [])).toBe('Harbor Atlas 2');
+    });
+
+    it('takes a number again once a rename or a delete freed it', () => {
+        expect(numberedName('Harbor Atlas', ['Harbor Atlas', 'Arc two', 'Harbor Atlas 3'])).toBe('Harbor Atlas 2');
+    });
+});
+
+describe('oneInUseLockChanges', () => {
+    it('locks the one chosen and unlocks every other member locked at the place', () => {
+        const members = [{ id: 'a', isLockedHere: true }, { id: 'b', isLockedHere: false }, { id: 'c', isLockedHere: true }];
+        expect(oneInUseLockChanges(members, 'b')).toEqual({ lockIds: ['b'], unlockIds: ['a', 'c'] });
+    });
+
+    it('leaves out a member already as it should be, and locks nothing for a member the group lacks', () => {
+        expect(oneInUseLockChanges([{ id: 'a', isLockedHere: true }, { id: 'b', isLockedHere: false }], 'a')).toEqual({ lockIds: [], unlockIds: [] });
+        expect(oneInUseLockChanges([{ id: 'a', isLockedHere: true }], 'gone')).toEqual({ lockIds: [], unlockIds: ['a'] });
+    });
+});
+
+describe('newSelectionId', () => {
+    it("is the time in base 36, moved on a step while one of the book's selections has it", () => {
+        const now = 1_700_000_000_000;
+        expect(newSelectionId([], now)).toBe(now.toString(36));
+        expect(newSelectionId([now.toString(36), (now + 1).toString(36)], now)).toBe((now + 2).toString(36));
+    });
+});
+
+describe('the selection a chat uses', () => {
+    const record = {
+        selections: [
+            selectionOf('a', { lockedToCharacterAvatars: ['wren.png'] }),
+            selectionOf('b', { lockedToChatIds: ['Harbor Night'] }),
+        ],
+    };
+
+    it('is the one locked to the chat, else the one locked to its character, else none', () => {
+        expect(selectionInUseOf(record, { chatId: 'Harbor Night', characterAvatar: 'wren.png' })?.id).toBe('b');
+        expect(selectionInUseOf(record, { chatId: 'Low Tide', characterAvatar: 'wren.png' })?.id).toBe('a');
+        expect(selectionInUseOf(record, { chatId: 'Low Tide', characterAvatar: 'keeper-orrin.png' })).toBeNull();
+        expect(selectionInUseOf(record, { chatId: null, characterAvatar: null })).toBeNull();
+        expect(selectionInUseOf(null, { chatId: 'Harbor Night' })).toBeNull();
+    });
+
+    it('reads a lock to the chat or to the character given', () => {
+        expect(isSelectionLockedTo(record.selections[1], { chatId: 'Harbor Night' })).toBe(true);
+        expect(isSelectionLockedTo(record.selections[1], { characterAvatar: 'Harbor Night' })).toBe(false);
+        expect(isSelectionLockedTo(record.selections[0], {})).toBe(false);
+    });
+});
+
+describe('unionOfSelections', () => {
+    it("holds every entry any of the book's selections holds, each once, and none for a book with no record", () => {
+        const record = { selections: [selectionOf('a', {}, ['1', '2']), selectionOf('b', {}, ['2', '3'])] };
+        expect(unionOfSelections(record)).toEqual({ selectedUids: ['1', '2', '3'] });
+        expect(unionOfSelections(null)).toEqual({ selectedUids: [] });
+    });
+});
