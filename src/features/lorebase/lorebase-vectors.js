@@ -10,7 +10,8 @@
  * edit SillyTavern saves writes the changed parts of the entries that had vectors again in the background and deletes
  * their gone parts; the points of an entry no longer selected go when the selection screen closes. For the Database
  * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), a book tenant's
- * points are read whole, vectors included, in whichever collection holds them, a vectors file's points are stored with
+ * points are read whole, vectors included, in whichever collection holds them, and its View chunks reads them there
+ * (tenantChunkSource), a vectors file's points are stored with
  * their vectors and no embedding call, and a tenant is deleted whole. A reply on Fast and Cheap [Jev] searches every
  * book taking part in one request for each of its two texts (§4.5).
  */
@@ -401,6 +402,30 @@ export async function readTenantPoints(tenant, collection, settings) {
         const vector = Array.isArray(item.vector) ? item.vector : item.vector?.[''] ?? null;
         return { hash: item.hash, text: item.text ?? '', vector: Array.isArray(vector) ? vector : null, metadata: item.metadata ?? {} };
     });
+}
+
+/**
+ * What the Database Browser's View chunks reads for a book tenant (§3.2 of InternalProject/Vectfox/plans/
+ * vectfox-multi-collection-per-chat.md): the tenant as a lorebook's collection, and the settings that read it in the
+ * Qdrant collection holding it, whichever that is.
+ * @param {{tenant: string, collection: string, book: string|null, pointCount: number, embeddingSource: string,
+ *   embeddingModel: string}} row - A Vectors row holding points, from loreBaseStorageRows
+ * @param {object} settings - VectFox settings
+ * @returns {{collection: object, settings: object}} What the Chunk Visualizer opens, and the settings it reads with
+ */
+export function tenantChunkSource(row, settings) {
+    return {
+        collection: {
+            id: row.tenant,
+            name: row.book ?? row.tenant,
+            type: 'lorebook',
+            backend: 'qdrant',
+            source: row.embeddingSource,
+            model: row.embeddingModel,
+            chunkCount: row.pointCount,
+        },
+        settings: { ...settingsInCollection(settings, row.collection), vector_backend: 'qdrant' },
+    };
 }
 
 /**

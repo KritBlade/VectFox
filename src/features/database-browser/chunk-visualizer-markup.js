@@ -8,7 +8,10 @@
  * the ticked ones; the chunk pane holds the open chunk's form, which one Save
  * writes. chunk-visualizer.js finds each control by its id in VISUALIZER_IDS and
  * each action by `data-chunk-action`; a row and its tick box carry
- * `data-chunk-key`. Every value is escaped by the builders. Pure: builds strings.
+ * `data-chunk-key`. A lorebook's LoreBase parts are drawn read only: no filter,
+ * tick boxes, bulk bar, name, event, Save or Delete, and Edit entry where their
+ * entry can be edited. Every value is escaped by the builders. Pure: builds
+ * strings.
  * ============================================================================
  */
 
@@ -33,7 +36,7 @@ import {
 } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, navBrand, pageHeader } from '../../shared/gui-dna/panel-page-genes.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
-import { CHUNK_FILTERS, CHUNK_SORTS } from './chunk-visualizer-core.js';
+import { CHUNK_FILTERS, CHUNK_SORTS, LOREBASE_PART_SORTS } from './chunk-visualizer-core.js';
 import { collectionTypeIcon } from './database-browser-markup.js';
 import { counted } from '../../shared/counted.js';
 
@@ -63,14 +66,16 @@ const linePill = ({ text, name }, options = {}) => statusPill({ name: `${text}: 
 
 // ── Shell ─────────────────────────────────────────────────────────────────────────────────────────────
 
-function controlsCard() {
+const optionsOf = choices => choices.map(({ value, label }) => selectOption({ value, text: label }));
+
+function controlsCard(isLoreBaseParts) {
     return `<section class="vfx-card">
         <div class="vfx-card-body">
             ${controlRow([
-                input({ id: ids.search, placeholder: 'Search text, names and keywords', title: 'Search the chunks' }),
-                select({ id: ids.sort, title: 'Order', options: CHUNK_SORTS.map(({ value, label }) => selectOption({ value, text: label })) }),
-                select({ id: ids.filter, title: 'Show', options: CHUNK_FILTERS.map(({ value, label }) => selectOption({ value, text: label })) }),
-            ])}
+                input({ id: ids.search, placeholder: isLoreBaseParts ? 'Search the text' : 'Search text, names and keywords', title: 'Search the chunks' }),
+                select({ id: ids.sort, title: 'Order', options: optionsOf(isLoreBaseParts ? LOREBASE_PART_SORTS : CHUNK_SORTS) }),
+                isLoreBaseParts ? '' : select({ id: ids.filter, title: 'Show', options: optionsOf(CHUNK_FILTERS) }),
+            ].filter(Boolean))}
         </div>
     </section>`;
 }
@@ -94,11 +99,12 @@ function loadField(fetchLimit) {
     ]);
 }
 
-function listPane(fetchLimit) {
+function listPane(fetchLimit, isLoreBaseParts) {
+    const description = isLoreBaseParts ? 'Open a chunk to read it.' : 'Tick chunks to delete several at once.';
     return `<section class="vfx-card is-pane">
-        ${cardHeader({ icon: 'fa-layer-group', title: 'Chunks', description: 'Tick chunks to delete several at once.', isCollapsible: false })}
+        ${cardHeader({ icon: 'fa-layer-group', title: 'Chunks', description, isCollapsible: false })}
         <div class="vfx-card-body vfx-stack">
-            ${bulkBar()}
+            ${isLoreBaseParts ? '' : bulkBar()}
             <div id="${ids.list}" class="vfx-list">${emptyState({ icon: 'fa-spinner', text: 'Loading chunks…' })}</div>
             <div id="${ids.listFooter}"></div>
             ${loadField(fetchLimit)}
@@ -110,61 +116,68 @@ function listPane(fetchLimit) {
 /**
  * The chunk pane with no chunk open.
  *
+ * @param {boolean} [isReadOnly] - Whether its chunks are only read
  * @returns {string}
  */
-export function noChunkOpenMarkup() {
+export function noChunkOpenMarkup(isReadOnly = false) {
+    const text = isReadOnly ? 'Pick a chunk in the list to read it.' : 'Pick a chunk in the list to read or edit it.';
     return cardHeader({ icon: 'fa-file-lines', title: 'Chunk', isCollapsible: false })
-        + `<div class="vfx-card-body">${emptyState({ icon: 'fa-hand-pointer', text: 'Pick a chunk in the list to read or edit it.' })}</div>`;
+        + `<div class="vfx-card-body">${emptyState({ icon: 'fa-hand-pointer', text })}</div>`;
 }
 
 const SPLIT_DIVIDER = '<div class="vfx-split-divider" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize the panes"></div>';
 
 /**
- * The whole visualizer: the top bar, the page header, the list controls, then the split of the list and the chunk.
+ * The whole visualizer: the top bar, the page header, the list controls, then the split of the list and the chunk. A
+ * lorebook's LoreBase parts are drawn read only.
  *
- * @param {{collectionName: string, collectionType: string, fetchLimit: number}} view
+ * @param {{collectionName: string, collectionType: string, fetchLimit: number, isLoreBaseParts?: boolean}} view
  * @returns {string}
  */
-export function chunkVisualizerMarkup({ collectionName, collectionType, fetchLimit }) {
+export function chunkVisualizerMarkup({ collectionName, collectionType, fetchLimit, isLoreBaseParts = false }) {
     const status = statusPill({ name: '', data: { 'chunk-count': '' } });
+    const subtitle = isLoreBaseParts
+        ? 'Every chunk LoreBase stored for this lorebook. Read only: it writes them from the entries.'
+        : 'Every chunk this collection holds. Open one to read or edit it.';
     return `<div id="${ids.root}" class="vfx-ui vfx-shell is-topbar">`
         + `<nav class="vfx-nav"><div class="vfx-nav-inner">${navBrand('Chunk Visualizer')}</div></nav>`
         + '<main class="vfx-main"><div class="vfx-page is-workbench">'
-        + pageHeader({ icon: collectionTypeIcon(collectionType), eyebrow: 'Database Browser / Chunks', title: collectionName, subtitle: 'Every chunk this collection holds. Open one to read or edit it.', status })
-        + controlsCard()
+        + pageHeader({ icon: collectionTypeIcon(collectionType), eyebrow: 'Database Browser / Chunks', title: collectionName, subtitle, status })
+        + controlsCard(isLoreBaseParts)
         + `<div id="${ids.split}" class="vfx-split">`
-        + listPane(fetchLimit)
+        + listPane(fetchLimit, isLoreBaseParts)
         + SPLIT_DIVIDER
-        + `<section id="${ids.pane}" class="vfx-card is-pane">${noChunkOpenMarkup()}</section>`
+        + `<section id="${ids.pane}" class="vfx-card is-pane">${noChunkOpenMarkup(isLoreBaseParts)}</section>`
         + '</div></div></main></div>';
 }
 
 // ── List ──────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * One chunk in the list: its tick box, then its row (name or the start of its text, where it came from, its size, and
- * its keyword pill), marked while it is the open one.
+ * One chunk in the list: its tick box, unless its chunks are only read, then its row (its title, where it came from,
+ * its size, and its keyword pill), marked while it is the open one.
  *
- * @param {{key: string, title: string, message: {text: string, name: string}, characterCount: number,
- *   keywordCount: number, isOpen: boolean, isTicked: boolean}} view
+ * @param {{key: string, title: string, origin: {text: string, name: string}, characterCount: number,
+ *   keywordCount: number, isOpen: boolean, isTicked: boolean, isReadOnly?: boolean}} view
  * @returns {string}
  */
 export function chunkRowMarkup(view) {
     const row = listRow({
         icon: 'fa-file-lines',
         name: view.title,
-        sub: [view.message],
+        sub: [view.origin],
         pills: [
             statusPill({ name: `${formatCount(view.characterCount)} ${view.characterCount === 1 ? 'character' : 'characters'}` }),
             view.keywordCount ? statusPill({ name: counted(view.keywordCount, 'keyword'), status: 'accent', icon: 'fa-tag' }) : '',
         ].filter(Boolean),
-        actions: [iconButton({ icon: 'fa-pen-to-square', title: 'Open', data: action('open', { 'chunk-key': view.key }) })],
+        actions: [iconButton({ icon: view.isReadOnly ? 'fa-eye' : 'fa-pen-to-square', title: 'Open', data: action('open', { 'chunk-key': view.key }) })],
         data: { 'chunk-key': view.key },
     });
-    return `<div class="vfx-pick-row${view.isOpen ? ' is-open' : ''}" data-chunk-entry="${escape(view.key)}"${view.isOpen ? ' aria-current="true"' : ''}>`
-        + '<label class="vfx-pick-check" title="Select">'
+    const tick = view.isReadOnly ? '' : '<label class="vfx-pick-check" title="Select">'
         + `<input type="checkbox" class="vfx-check" aria-label="Select ${escape(view.title)}"${view.isTicked ? ' checked' : ''} data-chunk-tick="${escape(view.key)}">`
-        + '</label>'
+        + '</label>';
+    return `<div class="vfx-pick-row${view.isOpen ? ' is-open' : ''}" data-chunk-entry="${escape(view.key)}"${view.isOpen ? ' aria-current="true"' : ''}>`
+        + tick
         + `<div class="vfx-pick-body">${row}</div>`
         + '</div>';
 }
@@ -254,18 +267,45 @@ export function tokenizerLockMarkup({ madeWith, setTo }) {
 }
 
 /**
- * The open chunk's form: the place of tokenizerLockMarkup; where it came from, its name and text, and its event; then
- * Delete and Save. The form shows what is saved; chunk-visualizer.js keeps the edits on it until Save.
+ * A LoreBase part, read only: where it came from, and its text, which chunk-visualizer.js makes read only; no name,
+ * event, Save or Delete, as LoreBase writes its parts from the entries. Where its entry can be edited, Edit entry opens
+ * LoreBase's entry editor.
  *
- * @param {{number: number, hash: string|number, message: {text: string, name: string},
- *   fields: ReturnType<import('./chunk-visualizer-core.js').savedChunkFields>,
- *   event: ReturnType<import('./chunk-visualizer-core.js').eventFields>}} view
+ * @param {{hash: string|number, origin: {text: string, name: string}, title: string, canEditEntry?: boolean,
+ *   fields: ReturnType<import('./chunk-visualizer-core.js').savedChunkFields>}} view
+ * @returns {string}
+ */
+function loreBasePartMarkup(view) {
+    const parts = [
+        controlRow([linePill(view.origin), linePill({ text: 'ID', name: String(view.hash) })]),
+        field([
+            fieldLabel({ text: 'Text', forId: ids.text }),
+            textarea({ id: ids.text, value: view.fields.text, rows: 12 }),
+            dynamicHint('', 'chunk-text-count'),
+            hint({ text: view.canEditEntry ? 'Written by LoreBase from its entry. Edit entry saves the entry, then rewrites its chunks.' : 'Written by LoreBase from its entry.' }),
+        ]),
+        view.canEditEntry ? controlRow([button({ text: 'Edit entry', icon: 'fa-pen-to-square', kind: 'primary', data: action('edit-entry') })]) : '',
+    ].filter(Boolean);
+    return cardHeader({ icon: 'fa-file-lines', title: view.title, isCollapsible: false })
+        + `<div class="vfx-card-body">${stack(parts)}</div>`;
+}
+
+/**
+ * The open chunk's form: the place of tokenizerLockMarkup; where it came from, its name and text, and its event; then
+ * Delete and Save. The form shows what is saved; chunk-visualizer.js keeps the edits on it until Save. A LoreBase part
+ * is read only (loreBasePartMarkup).
+ *
+ * @param {{number: number, hash: string|number, origin: {text: string, name: string}, isLoreBasePart?: boolean,
+ *   title?: string, canEditEntry?: boolean, fields: ReturnType<import('./chunk-visualizer-core.js').savedChunkFields>,
+ *   event: ReturnType<import('./chunk-visualizer-core.js').eventFields>}} view - title: a LoreBase part's, its entry's;
+ *   canEditEntry: whether a LoreBase part's entry can be edited
  * @returns {string}
  */
 export function chunkFormMarkup(view) {
+    if (view.isLoreBasePart) return loreBasePartMarkup(view);
     const { fields, event } = view;
     const origin = controlRow([
-        linePill(view.message),
+        linePill(view.origin),
         event.sentAt ? linePill({ text: 'Sent', name: event.sentAt }, { icon: 'fa-clock' }) : '',
         linePill({ text: 'ID', name: String(view.hash) }),
     ].filter(Boolean));

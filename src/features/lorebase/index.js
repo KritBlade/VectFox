@@ -14,7 +14,9 @@
 // and opens the screen, and writes the keys, the vectors or both of every selected entry, or deletes them all, through
 // LoreBase's storage module, which every page that counts, writes or deletes them calls; the Database Browser lists
 // each book's keys and vectors as rows through it too, what LoreBase cannot use here among its leftovers, and exports,
-// imports and deletes them a row at a time, a file its global Import takes going to the book the file names. Each
+// imports and deletes them a row at a time, a file its global Import takes going to the book the file names; its Chunk
+// Visualizer shows a book's vectors read only, and its Edit entry opens LoreBase's entry editor, whose Save writes the
+// entry's title and text into the lorebook through SillyTavern, then its vectors. Each
 // selected entry's vectors, one point per part, live in Qdrant, every book of an account a tenant of one collection,
 // and an entry takes part once it has its keys and vectors. The tester keeps this session's reports of each reply, the
 // search, what was picked and why, what each review kept and left out, the tokens against what SillyTavern's keys would
@@ -30,6 +32,7 @@
 export { cleanUpLoreBookLocks, selectedLoreBookNames } from './lorebase-books.js';
 export { addLoreBookToChat, booksToAdd, chatBookLocks } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
+export { editLoreBookEntry } from './lorebase-entry-editor.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
 export { loreBaseSetupProblem } from './lorebase-setup.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
@@ -47,6 +50,7 @@ export {
     deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
     storedCountsOfBooks, writeImport, writeMissing, writingProblem,
 } from './lorebase-storage.js';
+export { tenantChunkSource } from './lorebase-vectors.js';
 export { BOTH_KINDS, KEYS, VECTORS } from './lorebase-storage-core.js';
 export { entryTitle } from './lorebase-splitter.js';
 export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';

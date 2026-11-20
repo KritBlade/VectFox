@@ -2,9 +2,12 @@
 // (`selected_world_info`, a live binding) and the chat metadata key of a chat's book, loading one, the entries in
 // activation order, a scan of the books (`checkWorldInfo`) and whether it reads each message with its speaker's name
 // (`world_info_include_names`, a live binding), and the World Info settings. And adding a book the way SillyTavern's
-// own World Info controls do: to a character's Additional Lorebooks, or to the global list every chat loads.
+// own World Info controls do: to a character's Additional Lorebooks, or to the global list every chat loads; and saving
+// one entry's title and text the way its World Info commands do.
 // The rest of VectFox imports these here, never from SillyTavern (tools/check-host-imports.mjs).
-import { charUpdateAddAuxWorld, selected_world_info, world_names } from '../../../../../world-info.js';
+import {
+    charUpdateAddAuxWorld, loadWorldInfo, reloadEditor, saveWorldInfo, selected_world_info, world_names,
+} from '../../../../../world-info.js';
 
 export {
     METADATA_KEY, checkWorldInfo, getSortedEntries, getWorldInfoSettings, loadWorldInfo, selected_world_info, world_info_include_names, world_names,
@@ -37,4 +40,26 @@ export function addGlobalLorebook(bookName) {
     const turnedOn = new Set([...selected_world_info, bookName].map(name => String(world_names.indexOf(name))));
     for (const option of list.options) option.selected = turnedOn.has(option.value);
     list.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/**
+ * Save one entry's title and text in a lorebook as SillyTavern's World Info commands do: the book loaded (a copy of
+ * SillyTavern's), the entry changed, the book saved at once, which tells SillyTavern's listeners it was updated, and its
+ * World Info editor drawn again when it shows that book, so the editor never saves its older copy over this one.
+ * SillyTavern's save does not read the server's answer, so a save the server refused goes unseen here too.
+ * @param {string} bookName
+ * @param {string} uid - The entry's uid
+ * @param {{comment: string, content: string}} fields - Its title, as SillyTavern's Title/Memo, and its text
+ * @returns {Promise<void>}
+ * @throws {Error} When SillyTavern has no such book, or the book no such entry
+ */
+export async function saveLorebookEntry(bookName, uid, { comment, content }) {
+    const book = await loadWorldInfo(bookName);
+    if (!book?.entries) throw new Error(`SillyTavern has no lorebook named "${bookName}".`);
+    const entry = Object.values(book.entries).find(candidate => String(candidate.uid) === String(uid));
+    if (!entry) throw new Error(`Lorebook "${bookName}" has no entry ${uid} any more.`);
+    entry.comment = comment;
+    entry.content = content;
+    await saveWorldInfo(bookName, book, true);
+    reloadEditor(bookName);
 }

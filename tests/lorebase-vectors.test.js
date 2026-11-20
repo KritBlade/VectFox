@@ -148,6 +148,21 @@ describe('a book tenant, for the Database Browser', () => {
         expect(listed()[0]).toMatchObject({ target: { collectionId: 'vectfox_main', filters: { content_type: tenant } }, includeVectors: true });
     });
 
+    it("gives View chunks the tenant as a lorebook's collection, read in whichever collection holds it", async () => {
+        const { qdrantTarget } = await import('../src/features/vector-backend/qdrant-target.js');
+        const tenant = core.loreBaseBookCollectionId(BOOK, 'rabbit');
+        const row = { tenant, collection: 'vf_lorebase_rabbit', book: BOOK, pointCount: 504, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3' };
+        const here = vectors.tenantChunkSource(row, SETTINGS);
+        expect(here.collection).toEqual({ id: tenant, name: BOOK, type: 'lorebook', backend: 'qdrant', source: 'openrouter', model: 'baai/bge-m3', chunkCount: 504 });
+        expect(here.settings.vector_backend).toBe('qdrant');
+        expect(qdrantTarget(tenant, here.settings)).toEqual({ collectionId: 'vf_lorebase_rabbit', filters: { content_type: tenant } });
+        // A leftover in vectfox_main, whose points name no book.
+        const leftover = vectors.tenantChunkSource({ ...row, collection: 'vectfox_main', book: null }, SETTINGS);
+        expect(leftover.collection.name).toBe(tenant);
+        expect(qdrantTarget(tenant, leftover.settings)).toEqual({ collectionId: 'vectfox_main', filters: { content_type: tenant } });
+        expect(SETTINGS.qdrant_multitenancy).toBe(false);
+    });
+
     it('stores a file\'s points with their vectors, IDs, entries and parts, and keeps them as the model set now\'s', async () => {
         selectEntries([lighthouse]);
         const [{ points }] = vectors.entriesWithPoints(BOOK, [lighthouse]);

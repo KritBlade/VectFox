@@ -9,7 +9,11 @@
  * the text again first when it changed. Leaving one or closing with unsaved
  * edits asks first. Ticked ones are deleted together. The backend payload holds
  * every field. A Qdrant collection made with another CJK tokenizer than VectFox
- * is set to takes no new vector, so there the text is locked.
+ * is set to takes no new vector, so there the text is locked. A lorebook's
+ * LoreBase parts open read only, in their entries' order: LoreBase writes them
+ * from the entries, and an edit here would leave them out of step. Where the
+ * browser gives an entry editor, a part's Edit entry opens it on the part's
+ * entry, and a save reads the list again, the same part open.
  * ============================================================================
  */
 
@@ -22,15 +26,20 @@ import { log } from '../../sillytavern/log.js';
 import { confirmPopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import {
+    CHUNK_SORTS,
     LIST_PAGE_SIZE,
+    LOREBASE_PART_SORTS,
     chunkLabel,
+    chunkTitle,
     collectionRecordLines,
     eventFields,
     formChanges,
-    messageLine,
+    isLoreBasePart,
+    loreBasePartPlace,
+    originLine,
+    reopenedChunk,
     saveProblem,
     savedChunkFields,
-    textPreview,
     tokenizerLockOf,
     visibleChunks,
 } from './chunk-visualizer-core.js';
@@ -59,17 +68,27 @@ const SEARCH_DELAY_MS = 200;
 const formatCount = count => Number(count).toLocaleString('en-US');
 
 /**
- * Open a collection's chunks over the Database Browser and load them. Resolves when the visualizer closes; never throws.
+ * Open a collection's chunks over the Database Browser and load them, or a lorebook's LoreBase parts, read only.
+ * Resolves when the visualizer closes; never throws.
  *
  * @param {{id: string, name?: string, type?: string, backend?: string, source?: string, model?: string,
  *   chunkCount?: number}} collection
  * @param {object} settings - VectFox's settings, with the collection's backend as `vector_backend`
+ * @param {{isLoreBaseParts?: boolean, editEntry?: ((chunk: object) => Promise<boolean>)|null}} [options] -
+ *   isLoreBaseParts: the collection is a lorebook's LoreBase parts; editEntry: opens the editor of a part's entry, and
+ *   answers whether it saved, null where the entries cannot be edited
  * @returns {Promise<void>}
  */
-export async function openChunkVisualizer(collection, settings) {
+export async function openChunkVisualizer(collection, settings, { isLoreBaseParts = false, editEntry = null } = {}) {
+    const sorts = isLoreBaseParts ? LOREBASE_PART_SORTS : CHUNK_SORTS;
     const session = {
         collection,
         settings,
+        isLoreBaseParts,
+        editEntry,
+        // The list's order, kept from the last opening when this list offers it; LoreBase parts have no filter.
+        sort: sorts.some(({ value }) => value === listChoices.sort) ? listChoices.sort : 'index',
+        filter: isLoreBaseParts ? 'all' : listChoices.filter,
         chunks: [],
         totalCount: null,
         query: '',
@@ -88,16 +107,18 @@ export async function openChunkVisualizer(collection, settings) {
         collectionName: collection.name || collection.id,
         collectionType: collection.type,
         fetchLimit: listChoices.fetchLimit,
+        isLoreBaseParts,
     });
     const root = template.content.firstElementChild;
-    root.querySelector(`#${ids.sort}`).value = listChoices.sort;
-    root.querySelector(`#${ids.filter}`).value = listChoices.filter;
+    root.querySelector(`#${ids.sort}`).value = session.sort;
+    if (!isLoreBaseParts) root.querySelector(`#${ids.filter}`).value = session.filter;
     bindGeneBehaviours(root);
     bindVisualizer(root, session);
 
     const closed = openPanelPopup(root, { canClose: () => (session.isBusy ? true : confirmLeavingChunk(root, session)) });
     void loadChunks(root, session);
-    void showCollectionRecord(root, session);
+    // The record is the Qdrant collection's, which holds every lorebook's parts, and its tokenizer locks only an edit.
+    if (!isLoreBaseParts) void showCollectionRecord(root, session);
     await closed;
 }
 
@@ -132,8 +153,12 @@ async function fetchChunks(collection, limit, settings) {
     return { items, total: Number.isFinite(total) ? total : items.length };
 }
 
-/** A chunk's place in the chat's history: its timeline key, else its message number on the same scale. */
-function timelineValueOf(chunk) {
+/**
+ * A chunk's place in the list's first order: a LoreBase part's by its entry and part; else its place in the chat's
+ * history, its timeline key, else its message number on the same scale.
+ */
+function placeValueOf(chunk) {
+    if (isLoreBasePart(chunk)) return loreBasePartPlace(chunk);
     const payload = chunk.metadata;
     if (typeof payload.timeline_sort_key === 'number') return payload.timeline_sort_key;
     return packTimelineSortKey(payload.source_window_start ?? payload.source_window_end ?? chunk.index ?? 0, 0);
@@ -149,13 +174,13 @@ function loadedChunk(item, position) {
         metadata: { ...(item.metadata || {}) },
     };
     chunk.fields = savedChunkFields(chunk);
-    chunk.timelineValue = timelineValueOf(chunk);
+    chunk.placeValue = placeValueOf(chunk);
     return chunk;
 }
 
 async function loadChunks(root, session) {
     const loadNumber = ++session.loadCount;
-    const reopenHash = openChunkOf(session)?.hash ?? null;
+    const previouslyOpen = openChunkOf(session);
     root.querySelector(`#${ids.list}`).innerHTML = chunksLoadingMarkup();
     root.querySelector(`#${ids.listFooter}`).innerHTML = '';
     try {
@@ -165,8 +190,7 @@ async function loadChunks(root, session) {
         session.totalCount = total;
         session.tickedKeys.clear();
         session.shownLimit = LIST_PAGE_SIZE;
-        const reopened = reopenHash === null ? null : session.chunks.find(chunk => String(chunk.hash) === String(reopenHash));
-        session.openKey = reopened?.key ?? null;
+        session.openKey = reopenedChunk(session.chunks, previouslyOpen)?.key ?? null;
         paintChunkCount(root, session);
         renderList(root, session);
         renderPane(root, session);
@@ -225,17 +249,18 @@ function paintChunkCount(root, session) {
 function rowView(chunk, session) {
     return {
         key: chunk.key,
-        title: chunk.fields.name || textPreview(chunk.fields.text) || 'No text',
-        message: messageLine(chunk),
+        title: chunkTitle(chunk),
+        origin: originLine(chunk),
         characterCount: chunk.fields.text.length,
         keywordCount: chunk.fields.keywords.length,
         isOpen: chunk.key === session.openKey,
         isTicked: session.tickedKeys.has(chunk.key),
+        isReadOnly: session.isLoreBaseParts,
     };
 }
 
 function renderList(root, session) {
-    const matching = visibleChunks(session.chunks, { query: session.query, filter: listChoices.filter, sort: listChoices.sort });
+    const matching = visibleChunks(session.chunks, { query: session.query, filter: session.filter, sort: session.sort });
     session.matchingKeys = matching.map(chunk => chunk.key);
     // A chunk the search or filter hides is no longer ticked, so a bulk action never reaches what the list does not show.
     const matchingKeys = new Set(session.matchingKeys);
@@ -265,6 +290,7 @@ function markOpenRow(root, session) {
 }
 
 function paintBulkBar(root, session) {
+    if (session.isLoreBaseParts) return;
     const tickedCount = session.tickedKeys.size;
     root.querySelector('[data-chunk-bulk-count]').textContent = `${tickedCount} selected`;
     root.querySelector('[data-chunk-action="bulk-delete"]').disabled = tickedCount === 0 || session.isBusy;
@@ -283,20 +309,24 @@ function renderPane(root, session) {
     if (!chunk) {
         session.openKey = null;
         session.draft = null;
-        pane.innerHTML = noChunkOpenMarkup();
+        pane.innerHTML = noChunkOpenMarkup(session.isLoreBaseParts);
         markOpenRow(root, session);
         return;
     }
     pane.innerHTML = chunkFormMarkup({
         number: Number(chunk.key) + 1,
         hash: chunk.hash,
-        message: messageLine(chunk),
+        origin: originLine(chunk),
         fields: chunk.fields,
         event: eventFields(chunk),
+        isLoreBasePart: session.isLoreBaseParts,
+        title: chunkTitle(chunk),
+        canEditEntry: Boolean(session.editEntry) && isLoreBasePart(chunk),
     });
     pane.querySelector('.vfx-card-body').scrollTop = 0;
     markOpenRow(root, session);
-    paintTokenizerLock(root, session);
+    if (session.isLoreBaseParts) root.querySelector(`#${ids.text}`).readOnly = true;
+    else paintTokenizerLock(root, session);
     refreshFormState(root, session);
 }
 
@@ -323,13 +353,21 @@ function changesOf(root, session) {
     return chunk ? formChanges(chunk.fields, readForm(root)) : null;
 }
 
-/** Save and Delete as the form allows, and the lines that say what the form holds. */
+/**
+ * Save and Delete as the form allows, and the lines that say what the form holds; a LoreBase part has only its size,
+ * and Edit entry while nothing is being written.
+ */
 function refreshFormState(root, session) {
     const changes = changesOf(root, session);
     if (!changes) return;
     const pane = root.querySelector(`#${ids.pane}`);
     const characters = root.querySelector(`#${ids.text}`).value.trim().length;
     pane.querySelector('[data-chunk-text-count]').textContent = `${formatCount(characters)} ${characters === 1 ? 'character' : 'characters'}.`;
+    if (session.isLoreBaseParts) {
+        const editButton = pane.querySelector('[data-chunk-action="edit-entry"]');
+        if (editButton) editButton.disabled = session.isBusy;
+        return;
+    }
     const problem = saveProblem(changes, session.tokenizerLock);
     pane.querySelector('[data-chunk-save-state]').textContent = problem || (changes.hasChanges ? 'Unsaved changes.' : 'No changes.');
     pane.querySelector('[data-chunk-action="save"]').disabled = session.isBusy || !changes.hasChanges || Boolean(problem);
@@ -453,7 +491,7 @@ async function saveOpenChunk(root, session) {
     } finally {
         // What is saved now, as far as the save got; the form keeps any edit it did not write.
         chunk.fields = savedChunkFields(chunk);
-        chunk.timelineValue = timelineValueOf(chunk);
+        chunk.placeValue = placeValueOf(chunk);
         setBusy(root, session, false);
     }
     renderList(root, session);
@@ -516,6 +554,28 @@ async function runDeletion(root, session, chunks) {
     if (!openChunkOf(session)) renderPane(root, session);
 }
 
+// ── Editing a LoreBase part's entry ───────────────────────────────────────────────────────────────────
+
+/**
+ * Open the editor of the open LoreBase part's entry, the visualizer waiting meanwhile; once it saves, which writes the
+ * entry's vectors again, read the list again with the same part open.
+ */
+async function editOpenEntry(root, session) {
+    const chunk = openChunkOf(session);
+    if (!chunk || session.isBusy || !session.editEntry) return;
+    setBusy(root, session, true);
+    let isSaved = false;
+    try {
+        isSaved = await session.editEntry(chunk);
+    } catch (error) {
+        log.error('VectFox Chunk Visualizer: the entry editor failed:', error);
+        toastr.error(`The entry editor failed: ${error.message}`, 'VectFox');
+    } finally {
+        setBusy(root, session, false);
+    }
+    if (isSaved) await loadChunks(root, session);
+}
+
 // ── Events ────────────────────────────────────────────────────────────────────────────────────────────
 
 function runAction(root, session, button) {
@@ -528,6 +588,7 @@ function runAction(root, session, button) {
         case 'bulk-delete': return bulkDelete(root, session);
         case 'save': return saveOpenChunk(root, session);
         case 'delete': return deleteOpenChunk(root, session);
+        case 'edit-entry': return editOpenEntry(root, session);
         default: return undefined;
     }
 }
@@ -567,7 +628,9 @@ function bindVisualizer(root, session) {
     root.addEventListener('change', (event) => {
         const { target } = event;
         if (target.id === ids.sort || target.id === ids.filter) {
-            listChoices[target.id === ids.sort ? 'sort' : 'filter'] = target.value;
+            const choice = target.id === ids.sort ? 'sort' : 'filter';
+            session[choice] = target.value;
+            listChoices[choice] = target.value;
             session.shownLimit = LIST_PAGE_SIZE;
             return renderList(root, session);
         }

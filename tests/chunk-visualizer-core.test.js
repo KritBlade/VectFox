@@ -1,18 +1,24 @@
 /**
  * The Chunk Visualizer's rules (src/features/database-browser/chunk-visualizer-core.js): what a chunk holds as its form
  * and its row show it, which chunks the list shows and in what order, how a chunk is named, the collection's Qdrant
- * record and the tokenizer lock it sets, and what the form changes against what is saved.
+ * record and the tokenizer lock it sets, and what the form changes against what is saved; a LoreBase part named and
+ * ordered by its entry and part.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
     CHUNK_FILTERS,
+    LOREBASE_PART_SORTS,
     chunkLabel,
+    chunkTitle,
     collectionRecordLines,
     eventFields,
     formChanges,
-    messageLine,
+    isLoreBasePart,
+    loreBasePartPlace,
     normalizeKeywords,
+    originLine,
+    reopenedChunk,
     saveProblem,
     savedChunkFields,
     textPreview,
@@ -22,7 +28,7 @@ import {
 
 const loaded = (key, text, metadata = {}, extra = {}) => {
     const chunk = { key, hash: 1000 + Number(key), index: Number(key), text, metadata };
-    return { ...chunk, fields: savedChunkFields(chunk), timelineValue: Number(key), ...extra };
+    return { ...chunk, fields: savedChunkFields(chunk), placeValue: Number(key), ...extra };
 };
 
 // A form left as it was opened, as chunk-visualizer.js reads it.
@@ -51,10 +57,26 @@ describe('what a chunk holds', () => {
     });
 
     it('names where a chunk came from: one message, or a window of messages and the event in it', () => {
-        expect(messageLine({ index: 12, metadata: {} })).toEqual({ text: 'Message', name: '12' });
-        expect(messageLine({ metadata: { source_window_start: 40, source_window_end: 44, window_event_order: 2 } }))
+        expect(originLine({ index: 12, metadata: {} })).toEqual({ text: 'Message', name: '12' });
+        expect(originLine({ metadata: { source_window_start: 40, source_window_end: 44, window_event_order: 2 } }))
             .toEqual({ text: 'Messages', name: '40 to 44, event 3' });
         expect(textPreview('  The   tide\ncame  in.  ', 8)).toBe('The tide…');
+    });
+
+    it("names a LoreBase part by its entry and part, and titles it by its entry's title, its first line", () => {
+        const part = loaded('0', 'Harbor lighthouse\nThe keeper lights it at dusk.', { lorebookName: 'Harbor Atlas', entryUid: '12', partNumber: 2 });
+        expect(isLoreBasePart(part)).toBe(true);
+        expect(originLine(part)).toEqual({ text: 'Entry', name: '12, part 2' });
+        expect(chunkTitle(part)).toBe('Harbor lighthouse');
+        // An entry with no title: its part's text stands in.
+        expect(chunkTitle(loaded('1', '\nThe keeper lights it.', { entryUid: '13', partNumber: 1 }))).toBe('The keeper lights it.');
+        expect(isLoreBasePart(loaded('2', 'The gate.', { entryUid: '' }))).toBe(false);
+    });
+
+    it('titles any other chunk by its name, else the start of its text, else as having none', () => {
+        expect(chunkTitle(loaded('0', 'Harbor lighthouse\nThe keeper.', { name: 'Light' }))).toBe('Light');
+        expect(chunkTitle(loaded('1', 'Harbor lighthouse\nThe keeper.'))).toBe('Harbor lighthouse The keeper.');
+        expect(chunkTitle(loaded('2', ''))).toBe('No text');
     });
 });
 
@@ -80,6 +102,32 @@ describe('the list', () => {
         expect(keysOf(visibleChunks(chunks, { sort: 'keywords' }))).toEqual(['0', '1', '2']);
         expect(keysOf(visibleChunks(chunks, { sort: 'customized' }))).toEqual(['2', '0', '1']);
         expect(keysOf(visibleChunks(chunks, { sort: 'unknown' }))).toEqual(['0', '1', '2']);
+    });
+
+    it("orders a lorebook's LoreBase parts by entry, then part, and offers only the orders that mean something for them", () => {
+        const part = (key, entryUid, partNumber) => {
+            const chunk = loaded(key, `Entry ${entryUid}\nPart ${partNumber}.`, { entryUid, partNumber });
+            return { ...chunk, placeValue: loreBasePartPlace(chunk) };
+        };
+        const parts = [part('0', '12', 2), part('1', '3', 1), part('2', '12', 1), part('3', '100', 1)];
+        expect(keysOf(visibleChunks(parts, { sort: 'index' }))).toEqual(['1', '2', '0', '3']);
+        expect(LOREBASE_PART_SORTS.map(sort => sort.value)).toEqual(['index', 'length-desc', 'length-asc']);
+    });
+
+    it('opens again the chunk with the same ID; for a LoreBase part written again under a new one, its entry\'s same part, else its first', () => {
+        const part = (key, hash, entryUid, partNumber) => {
+            const chunk = { ...loaded(key, `Entry ${entryUid}\nPart ${partNumber}.`, { entryUid, partNumber }), hash };
+            return { ...chunk, placeValue: loreBasePartPlace(chunk) };
+        };
+        const before = part('0', 501, '12', 2);
+        expect(reopenedChunk([part('3', 900, '3', 1), part('4', 501, '12', 2)], before).key).toBe('4');
+        expect(reopenedChunk([part('3', 900, '3', 1), part('5', 777, '12', 1), part('6', 601, '12', 2)], before).key).toBe('6');
+        // The edit left the entry fewer parts: its first.
+        expect(reopenedChunk([part('7', 778, '12', 3), part('8', 779, '12', 1)], before).key).toBe('8');
+        expect(reopenedChunk([part('3', 900, '3', 1)], before)).toBeNull();
+        // Any other chunk opens again only by its ID.
+        expect(reopenedChunk([chunks[0]], { ...chunks[1], hash: 999 })).toBeNull();
+        expect(reopenedChunk(chunks, null)).toBeNull();
     });
 
     // In an EventBase collection every chunk has keywords, so a named chunk must not sink below those with more.

@@ -6,11 +6,13 @@
  * charUpdateAddAuxWorld, by the character's avatar file name; and to the global list every chat loads through the World
  * Info panel's own list, whose change handler sets the global books, as SillyTavern's does: the book goes on beside
  * those already on, whatever its name holds, and a book SillyTavern lacks, or a page without the panel, is refused.
+ * Saving one entry's title and text as SillyTavern's World Info commands do: the loaded copy changed, saved at once,
+ * and the World Info editor drawn again; a book or entry SillyTavern lacks is refused, saving nothing.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ worldNames: [], globalBooks: [] }));
+const host = vi.hoisted(() => ({ worldNames: [], globalBooks: [], books: {} }));
 
 // SillyTavern's world-info.js, /scripts/world-info.js, as this folder reaches it when served beside src/.
 vi.mock('../../../../world-info.js', () => ({
@@ -19,15 +21,18 @@ vi.mock('../../../../world-info.js', () => ({
     checkWorldInfo: vi.fn(),
     getSortedEntries: vi.fn(),
     getWorldInfoSettings: vi.fn(),
-    loadWorldInfo: vi.fn(),
+    // SillyTavern hands out a copy of its cached book.
+    loadWorldInfo: vi.fn(async bookName => (host.books[bookName] ? structuredClone(host.books[bookName]) : null)),
+    reloadEditor: vi.fn(),
+    saveWorldInfo: vi.fn(async () => {}),
     // A live binding: SillyTavern's change handler assigns a new list.
     get selected_world_info() { return host.globalBooks; },
     world_info_include_names: true,
     world_names: host.worldNames,
 }));
 
-const { charUpdateAddAuxWorld } = await import('../../../../world-info.js');
-const { addCharacterLorebook, addGlobalLorebook } = await import('../src/sillytavern/world-info.js');
+const { charUpdateAddAuxWorld, reloadEditor, saveWorldInfo } = await import('../../../../world-info.js');
+const { addCharacterLorebook, addGlobalLorebook, saveLorebookEntry } = await import('../src/sillytavern/world-info.js');
 
 let changeCount = 0;
 
@@ -81,5 +86,33 @@ describe('addGlobalLorebook', () => {
         expect(() => addGlobalLorebook('Harbor Atlas')).toThrow("SillyTavern's World Info panel is not on the page.");
         expect(changeCount).toBe(0);
         expect(host.globalBooks).toEqual(['Tide Tables']);
+    });
+});
+
+describe('saveLorebookEntry', () => {
+    beforeEach(() => {
+        host.books = {
+            'Harbor Atlas': { entries: { 0: { uid: 0, comment: 'Lighthouse', content: 'It stands.', key: ['beacon'] }, 4: { uid: 4, comment: 'Pier', content: 'Old.' } } },
+        };
+    });
+
+    it("changes the entry's title and text alone, saves the book at once, then draws SillyTavern's editor again", async () => {
+        await saveLorebookEntry('Harbor Atlas', '4', { comment: 'Old pier', content: 'Its planks are gone.' });
+        expect(saveWorldInfo).toHaveBeenCalledTimes(1);
+        const [bookName, book, isImmediate] = saveWorldInfo.mock.calls[0];
+        expect([bookName, isImmediate]).toEqual(['Harbor Atlas', true]);
+        expect(book.entries).toEqual({
+            0: { uid: 0, comment: 'Lighthouse', content: 'It stands.', key: ['beacon'] },
+            4: { uid: 4, comment: 'Old pier', content: 'Its planks are gone.' },
+        });
+        expect(reloadEditor).toHaveBeenCalledWith('Harbor Atlas');
+        expect(saveWorldInfo.mock.invocationCallOrder[0]).toBeLessThan(reloadEditor.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses a book or an entry SillyTavern lacks, saving nothing', async () => {
+        await expect(saveLorebookEntry('Lost Charts', '0', { comment: '', content: '' })).rejects.toThrow('SillyTavern has no lorebook named "Lost Charts".');
+        await expect(saveLorebookEntry('Harbor Atlas', '9', { comment: '', content: '' })).rejects.toThrow('Lorebook "Harbor Atlas" has no entry 9 any more.');
+        expect(saveWorldInfo).not.toHaveBeenCalled();
+        expect(reloadEditor).not.toHaveBeenCalled();
     });
 });

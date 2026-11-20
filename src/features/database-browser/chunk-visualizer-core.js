@@ -5,7 +5,8 @@
  * The Chunk Visualizer's rules as plain values, for chunk-visualizer.js to wire
  * and chunk-visualizer-markup.js to draw: what an event holds, which events the
  * list shows and in what order, how a row reads, and what the form changes
- * against what is saved. Pure: no host, no page.
+ * against what is saved. A lorebook's LoreBase parts, which it only reads, are
+ * named and ordered by their entry and part. Pure: no host, no page.
  * ============================================================================
  */
 
@@ -30,6 +31,16 @@ export const CHUNK_FILTERS = Object.freeze([
     { value: 'all', label: 'All chunks' },
     { value: 'keywords', label: 'With keywords' },
 ]);
+
+/** The orders the list offers for a lorebook's LoreBase parts, which have no message, name or keywords. */
+export const LOREBASE_PART_SORTS = Object.freeze([
+    { value: 'index', label: 'Entry order' },
+    { value: 'length-desc', label: 'Longest first' },
+    { value: 'length-asc', label: 'Shortest first' },
+]);
+
+// Parts per entry the LoreBase order leaves room for: far more than the splitter cuts one entry into.
+const PART_PLACES_PER_ENTRY = 10_000;
 
 const asList = value => (Array.isArray(value) ? value.map(String) : []);
 
@@ -90,14 +101,37 @@ export function eventFields(chunk) {
 }
 
 /**
- * Where a chunk came from: one message, or for an event drawn from a window of messages the window and the event's
- * place in it.
+ * Whether a chunk is a part of a LoreBase entry: LoreBase stores each with its entry's number.
+ *
+ * @param {{metadata?: object}} chunk
+ * @returns {boolean}
+ */
+export function isLoreBasePart(chunk) {
+    const uid = chunk.metadata?.entryUid;
+    return uid !== undefined && uid !== null && uid !== '';
+}
+
+/**
+ * A LoreBase part's place in its lorebook: by its entry's number, then its part's.
+ *
+ * @param {{metadata?: object}} chunk
+ * @returns {number}
+ */
+export function loreBasePartPlace(chunk) {
+    const payload = chunk.metadata || {};
+    return (Number(payload.entryUid) || 0) * PART_PLACES_PER_ENTRY + (Number(payload.partNumber) || 0);
+}
+
+/**
+ * Where a chunk came from: a LoreBase part's entry and part; one message; or for an event drawn from a window of
+ * messages the window and the event's place in it.
  *
  * @param {{index?: number, metadata?: object}} chunk
- * @returns {{text: string, name: string}} A LINE: "Message: 245" or "Messages: 2527 to 2531, event 3"
+ * @returns {{text: string, name: string}} A LINE: "Entry: 12, part 2", "Message: 245" or "Messages: 2527 to 2531, event 3"
  */
-export function messageLine(chunk) {
+export function originLine(chunk) {
     const payload = chunk.metadata || {};
+    if (isLoreBasePart(chunk)) return { text: 'Entry', name: `${payload.entryUid}, part ${payload.partNumber ?? '?'}` };
     const start = payload.source_window_start;
     const end = payload.source_window_end;
     const isWindow = start !== undefined && start !== null && end !== undefined && end !== null && end !== start;
@@ -118,18 +152,32 @@ export function textPreview(text, length = PREVIEW_LENGTH) {
     return line.length > length ? `${line.slice(0, length)}…` : line;
 }
 
+/**
+ * A chunk's title in the list: its name; for a LoreBase part, its entry's title, the first line LoreBase writes it
+ * with; else the start of its text.
+ *
+ * @param {{fields: {name: string, text: string}, metadata?: object}} chunk
+ * @returns {string}
+ */
+export function chunkTitle(chunk) {
+    const { name, text } = chunk.fields;
+    if (name) return name;
+    const entryTitle = isLoreBasePart(chunk) ? text.split('\n', 1)[0].trim() : '';
+    return entryTitle || textPreview(text) || 'No text';
+}
+
 const lengthOf = chunk => chunk.fields.text.length;
 const keywordCountOf = chunk => chunk.fields.keywords.length;
 const isNamed = chunk => Boolean(chunk.fields.name);
-const byMessage = (first, second) => first.timelineValue - second.timelineValue;
+const byPlace = (first, second) => first.placeValue - second.placeValue;
 const SORTERS = {
-    index: byMessage,
-    'index-reversed': (first, second) => second.timelineValue - first.timelineValue,
+    index: byPlace,
+    'index-reversed': (first, second) => second.placeValue - first.placeValue,
     'length-desc': (first, second) => lengthOf(second) - lengthOf(first),
     'length-asc': (first, second) => lengthOf(first) - lengthOf(second),
     keywords: (first, second) => keywordCountOf(second) - keywordCountOf(first),
     // A chunk given a name first, each group in message order.
-    customized: (first, second) => (Number(isNamed(second)) - Number(isNamed(first))) || byMessage(first, second),
+    customized: (first, second) => (Number(isNamed(second)) - Number(isNamed(first))) || byPlace(first, second),
 };
 
 const FILTER_TESTS = {
@@ -138,9 +186,10 @@ const FILTER_TESTS = {
 
 /**
  * The chunks the list shows, in its order: those whose text, name or a keyword holds the search, that pass the filter.
- * Each chunk carries its saved `fields` and its `timelineValue`, its place in the chat's history.
+ * Each chunk carries its saved `fields` and its `placeValue`: its place in the chat's history, or a LoreBase part's in
+ * its lorebook.
  *
- * @template {{fields: {text: string, name: string, keywords: {text: string}[]}, timelineValue: number}} T
+ * @template {{fields: {text: string, name: string, keywords: {text: string}[]}, placeValue: number}} T
  * @param {T[]} chunks
  * @param {{query?: string, filter?: string, sort?: string}} [view]
  * @returns {T[]}
@@ -153,6 +202,25 @@ export function visibleChunks(chunks, { query = '', filter = 'all', sort = 'inde
         || chunk.fields.keywords.some(keyword => keyword.text.toLowerCase().includes(needle));
     const passes = FILTER_TESTS[filter] ?? (() => true);
     return chunks.filter(chunk => holdsNeedle(chunk) && passes(chunk)).sort(SORTERS[sort] ?? SORTERS.index);
+}
+
+/**
+ * The chunk to open again once the list is read again: the one with the open chunk's ID; for a LoreBase part, which
+ * takes a new ID when its entry's edit changes its text, the same entry's part of the same number, else its first.
+ *
+ * @template {{hash?: unknown, placeValue: number, metadata?: object}} T
+ * @param {T[]} chunks - The list as read again
+ * @param {T|null} previous - The chunk open before
+ * @returns {T|null}
+ */
+export function reopenedChunk(chunks, previous) {
+    if (!previous) return null;
+    const sameId = chunks.find(chunk => String(chunk.hash) === String(previous.hash));
+    if (sameId || !isLoreBasePart(previous)) return sameId ?? null;
+    const sameEntry = chunks
+        .filter(chunk => isLoreBasePart(chunk) && String(chunk.metadata.entryUid) === String(previous.metadata.entryUid))
+        .sort(byPlace);
+    return sameEntry.find(chunk => Number(chunk.metadata.partNumber) === Number(previous.metadata.partNumber)) ?? sameEntry[0] ?? null;
 }
 
 /**
@@ -174,14 +242,14 @@ export function formChanges(saved, form) {
 }
 
 /**
- * A chunk named for a reader: its message, then its name or the start of its text.
+ * A chunk named for a reader: where it came from, then its name or the start of its text.
  *
  * @param {{fields: {name: string, text: string}, index?: number, metadata?: object}} chunk
  * @returns {string}
  */
 export function chunkLabel(chunk) {
-    const message = messageLine(chunk);
-    return `${message.text} ${message.name}: ${chunk.fields.name || textPreview(chunk.fields.text, 40)}`;
+    const origin = originLine(chunk);
+    return `${origin.text} ${origin.name}: ${chunk.fields.name || textPreview(chunk.fields.text, 40)}`;
 }
 
 /**

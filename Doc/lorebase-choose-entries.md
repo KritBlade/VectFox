@@ -72,6 +72,12 @@ See a ⚠ next to a book's name? None of its entries are selected, so LoreBase l
 
 Each row has its own Export, Import and Delete. Export saves that one kind to a file. Import puts a file back. Delete removes that kind, of that book, and nothing else. Your selections stay, LoreBase stays on, and those entries just sit out of your replies until Generate keys or Generate vectors writes them again.
 
+The vectors row also has **View chunks**, the eye button. It opens the book's chunks the way a chat collection's open, one chunk for each part of an entry: the entry's title, then that part's text. They're listed by entry and part, and you can search them.
+
+You can't edit a chunk itself, since LoreBase writes them from your entries. To change one, open it and press **Edit entry**. That opens the entry it came from, its title and its text. **Save** writes them into the lorebook, then writes that entry's vectors again, so the chunks you see after it are the new ones. That works even while LoreBase is off. The entry's LoreBase keys stay as they are: the pencil on the selection screen writes new ones. Editing the entry in SillyTavern's World Info works too, and while LoreBase is on, it writes that entry's chunks again by itself.
+
+Leftovers have View chunks too, but no Edit entry: their book isn't in SillyTavern, or their vectors aren't where LoreBase writes them now.
+
 This matters MOST for keys. They cost a LoreBase model call for every entry, so a book of 313 entries is 313 calls. Export them once, and after a reinstall, a new PC or a Delete you regret, Import brings them all back with no LLM call at all. Vectors work the same way, and Import puts them back with no embedding call.
 
 Import only writes what still matches. A keys file goes onto an entry only when its number AND its title match, because every book numbers its entries 0, 1, 2. That's what keeps another book's keys off your entries. A vectors file goes onto a part only when that part still has the same text. Both go onto an entry whether you selected it or not. Vectors of an entry you didn't select get erased on the next write, though, so Import tells you how many of those there are.

@@ -254,8 +254,8 @@ export function collectionEntryMarkup(view) {
  * One branch of a lorebook's LoreBase rows, in one line as a StoryArc links row is: its keys, or the vectors one
  * collection holds of it, with the actions the view allows.
  *
- * @param {{key: string, kind: string, line: string, isElsewhere: boolean, canExport: boolean, canImport: boolean,
- *   canDelete: boolean}} row - line: what it holds, in words
+ * @param {{key: string, kind: string, line: string, isElsewhere: boolean, canViewChunks?: boolean, canExport: boolean,
+ *   canImport: boolean, canDelete: boolean}} row - line: what it holds, in words; canViewChunks: a vectors row's
  * @returns {string}
  */
 function loreBaseRowMarkup(row) {
@@ -268,6 +268,7 @@ function loreBaseRowMarkup(row) {
         sub: { name: row.line },
         pills: row.isElsewhere ? [statusPill({ text: 'Not read', status: 'warning' })] : [],
         actions: [
+            row.canViewChunks ? iconButton({ icon: 'fa-eye', title: 'View chunks', data: data('view-chunks') }) : '',
             row.canExport ? iconButton({ icon: 'fa-file-export', title: `Export ${words}`, data: data('export') }) : '',
             row.canImport ? iconButton({ icon: 'fa-file-import', title: `Import ${words}`, data: data('import') }) : '',
             row.canDelete ? iconButton({ icon: 'fa-trash-can', title: `Delete ${words}`, isDanger: true, data: data('delete') }) : '',
@@ -283,7 +284,8 @@ const BLANK_PICK_CHECK = '<span class="vfx-pick-check is-blank" aria-hidden="tru
  * One lorebook's LoreBase rows (§3.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), shaped as a
  * chat collection's: the lorebook's row, in the collections' column, with its selected entries, where its vectors are
  * stored and their ID, and the ⚠ flag when the view gives one, then a branch for its keys and one for each collection
- * holding its vectors. No tick box, lock, pause, rename or View chunks, none of which means anything for them.
+ * holding its vectors, whose View chunks opens them read only. No tick box, lock, pause or rename, none of which means
+ * anything for them.
  *
  * @param {{key: string, name: string, isInSillyTavern: boolean, selectedCount: number|null, storedIn: string, id: string,
  *   flag: string, isFlagOpen: boolean, rows: object[]}} view - selectedCount: null leaves its line out; flag: the ⚠'s

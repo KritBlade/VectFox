@@ -9,13 +9,14 @@
  * (onWritingProgress); and deletes every book's keys or vectors (deleteStored). For the Database Browser it reads a Keys row and
  * Vectors rows for each book, the list's and the leftovers' (loreBaseStorageRows, §3.2), exports a row as a file, finds
  * the row a file the global Import takes goes to (loreBaseImportRow), plans and writes a file's import onto what matches
- * (§3.3), and deletes one row. One guard refuses a run, an import or a delete while LoreBase writes. A
+ * (§3.3), and deletes one row. LoreBase's entry editor saves an entry through it and has its vectors written
+ * (saveEntryWithVectors). One guard refuses a run, an import, a delete or an entry's save while LoreBase writes. A
  * run that writes missing keys locks each book it wrote keys for to the chat it started in (§6.1 of InternalProject/
  * Vectfox/plans/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock nothing. The keys
  * and vectors themselves are written, read and kept for the session by lorebase-keys.js and lorebase-vectors.js.
  */
 import { log } from '../../sillytavern/log.js';
-import { world_names } from '../../sillytavern/world-info.js';
+import { saveLorebookEntry, world_names } from '../../sillytavern/world-info.js';
 import { counted } from '../../shared/counted.js';
 import { exportFileHeader } from '../../shared/export-file-header.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
@@ -109,6 +110,37 @@ function refuseWhileWriting() {
     if (!panelRun && !isWritingKeys()) return;
     progressTracker.reopen();
     throw new Error('LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.');
+}
+
+/**
+ * Save one entry's title and text into its lorebook through SillyTavern, from LoreBase's entry editor, then write its
+ * vectors when LoreBase decides it as saved: its changed parts embedded, and what no entry LoreBase decides holds
+ * deleted (writeBookVectors), whether LoreBase is on or not. Its keys stay as they are. An entry LoreBase does not
+ * decide is saved alone, its book's vectors left as they are. Refused while LoreBase writes, as that writing would race
+ * this one.
+ * @param {string} bookName
+ * @param {string} uid - The entry's uid
+ * @param {{comment: string, content: string}} fields - Its title and text
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{isDecided: boolean, failure: {title: string, detail: string}|null, vectorProblem: string|null}>}
+ *   isDecided: whether LoreBase decides the entry as saved; failure: why its vectors were not written; vectorProblem:
+ *   why no vectors can be written here, off Qdrant
+ * @throws {Error} While LoreBase writes, or when SillyTavern has no such book or entry
+ */
+export async function saveEntryWithVectors(bookName, uid, fields, settings) {
+    refuseWhileWriting();
+    await saveLorebookEntry(bookName, uid, fields);
+    const decidedEntries = await loadDecidedEntries(bookName);
+    const entry = decidedEntries.find(candidate => uidOf(candidate) === String(uid));
+    if (!entry) {
+        log.lifecycle(`LoreBase: saved entry ${uid} of lorebook "${bookName}" from its editor; LoreBase does not decide it, so no vectors were written`);
+        return { isDecided: false, failure: null, vectorProblem: null };
+    }
+    const vectorProblem = writingProblem(settings, [VECTORS]);
+    if (vectorProblem) return { isDecided: true, failure: null, vectorProblem };
+    const { failures } = await writeBookVectors(bookName, decidedEntries, [entry], settings);
+    log.lifecycle(`LoreBase: saved entry ${uid} of lorebook "${bookName}" from its editor${failures.length ? '; its vectors failed' : ', and wrote its vectors'}`);
+    return { isDecided: true, failure: failures[0] ?? null, vectorProblem: null };
 }
 
 /**

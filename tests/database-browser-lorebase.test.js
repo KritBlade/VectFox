@@ -6,7 +6,9 @@
  * after the collections, under All types and LoreBase alone, its row shaped as a chat collection's, in their column,
  * with its selected entries, where its vectors are stored and their ID, and its keys and vectors rows in one line each;
  * the ⚠ beside a lorebook with no entries selected, its words opening under the name on a click; what LoreBase cannot
- * use here behind Show leftovers, closed on each open; each row's actions as what it holds allows; Export downloading
+ * use here behind Show leftovers, closed on each open; each row's actions as what it holds allows; View chunks opening
+ * a vectors row's chunks read only, in the collection that holds them, with LoreBase's entry editor on a row of the
+ * list alone, the rows read again once the visualizer closes after a save; Export downloading
  * the row's file and saying what it left out; Import confirming what it writes and skips before writing, and writing
  * nothing on Cancel or when nothing matches; Delete confirming what is lost; Import a collection taking a LoreBase file
  * into the lorebook it names and refusing a StoryArc links file, naming its row; and a notice where the rows go when
@@ -22,7 +24,7 @@ import $ from 'jquery';
 
 const host = vi.hoisted(() => ({ answer: true, close: null, collections: [], rows: [], rowsError: null, fileData: null, rowReads: 0 }));
 const storage = vi.hoisted(() => ({
-    exportStored: vi.fn(), planImport: vi.fn(), writeImport: vi.fn(), deleteStoredRow: vi.fn(), loreBaseImportRow: vi.fn(),
+    exportStored: vi.fn(), planImport: vi.fn(), writeImport: vi.fn(), deleteStoredRow: vi.fn(), loreBaseImportRow: vi.fn(), editLoreBookEntry: vi.fn(),
 }));
 
 vi.mock('../src/features/collections/index.js', () => ({
@@ -47,6 +49,7 @@ vi.mock('../src/features/lorebase/index.js', async () => {
         describeImport: files.describeImport,
         describeImported: files.describeImported,
         nothingToImportText: files.nothingToImportText,
+        tenantChunkSource: (row, settings) => ({ collection: { id: row.tenant, name: row.book }, settings: { ...settings, readsIn: row.collection } }),
         loreBaseStorageRows: async () => {
             host.rowReads += 1;
             if (host.rowsError) throw host.rowsError;
@@ -78,6 +81,7 @@ vi.mock('../src/features/database-browser/collection-dialogs.js', () => ({ editC
 const { initializeDatabaseBrowser, openDatabaseBrowser } = await import('../src/features/database-browser/database-browser.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
 const { downloadExport } = await import('../src/features/collections/index.js');
+const { openChunkVisualizer } = await import('../src/features/database-browser/chunk-visualizer.js');
 
 const MIRA = { id: 'vf_eventbase_qdrant_rook_mira_aaaa', registryKey: 'qdrant:vf_eventbase_qdrant_rook_mira_aaaa', name: 'Mira', type: 'chat', backend: 'qdrant', chunkCount: 9, enabled: true, scope: 'chat' };
 const HARBOR_TENANT = 'vf_lorebase_qdrant_rook_harbor_atlas_19qag9zxydm';
@@ -176,7 +180,52 @@ describe('LoreBase rows in the Database Browser', () => {
         expect(harbor.querySelector('[data-lorebase-flag]')).toBeNull();
         expect(harbor.textContent).not.toContain('LoreBase lorebook');
         expect(actionsOf(HARBOR_KEYS)).toEqual(['export', 'import', 'delete']);
-        expect(actionsOf(HARBOR_VECTORS)).toEqual(['export', 'import', 'delete']);
+        expect(actionsOf(HARBOR_VECTORS)).toEqual(['view-chunks', 'export', 'import', 'delete']);
+    });
+
+    it("opens a vectors row's chunks read only, in the collection that holds them, and offers it only on a row holding some", async () => {
+        await openBrowser();
+        press(HARBOR_VECTORS, 'view-chunks');
+        expect(openChunkVisualizer).toHaveBeenCalledWith(
+            { id: HARBOR_TENANT, name: 'Harbor Atlas' },
+            expect.objectContaining({ readsIn: 'vf_lorebase_rook', vector_backend: 'qdrant' }),
+            { isLoreBaseParts: true, editEntry: expect.any(Function) },
+        );
+
+        host.rows = [{ ...HARBOR_KEYS }, { ...HARBOR_VECTORS, tenant: null, pointCount: 0, embeddingSource: '', embeddingModel: '' }];
+        await closeBrowser();
+        await openBrowser();
+        expect(actionsOf(host.rows[1])).toEqual(['import']);
+    });
+
+    it("gives a list row's chunks LoreBase's entry editor, reading the rows again once the visualizer closes after a save, and a leftover's none", async () => {
+        let closeVisualizer;
+        openChunkVisualizer.mockImplementation(() => new Promise(resolve => { closeVisualizer = resolve; }));
+        storage.editLoreBookEntry.mockResolvedValue(true);
+        await openBrowser();
+        press(HARBOR_VECTORS, 'view-chunks');
+        const { editEntry } = openChunkVisualizer.mock.calls[0][2];
+        expect(await editEntry({ hash: 501, metadata: { lorebookName: 'Harbor Atlas', entryUid: 12, partNumber: 2 } })).toBe(true);
+        expect(storage.editLoreBookEntry).toHaveBeenCalledWith('Harbor Atlas', '12');
+        const readsBefore = host.rowReads;
+        closeVisualizer();
+        await vi.waitFor(() => expect(host.rowReads).toBe(readsBefore + 1));
+
+        // Closed with nothing saved: the rows stay as read.
+        storage.editLoreBookEntry.mockResolvedValue(false);
+        press(HARBOR_VECTORS, 'view-chunks');
+        expect(await openChunkVisualizer.mock.calls[1][2].editEntry({ metadata: { entryUid: 3 } })).toBe(false);
+        closeVisualizer();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(host.rowReads).toBe(readsBefore + 1);
+
+        // A leftover's lorebook is not in SillyTavern, or its vectors not where LoreBase writes them.
+        leftoversButton().click();
+        press(PIER_ELSEWHERE, 'view-chunks');
+        expect(openChunkVisualizer.mock.calls[2][2]).toEqual({ isLoreBaseParts: true, editEntry: null });
+        closeVisualizer();
+        openChunkVisualizer.mockReset();
+        storage.editLoreBookEntry.mockReset();
     });
 
     it('flags a lorebook with no entries selected, its words on hover and, on a click, under its name until the next click', async () => {
@@ -222,7 +271,7 @@ describe('LoreBase rows in the Database Browser', () => {
         expect(pier.querySelector('[data-lorebase-flag]')).toBeNull();
         // SillyTavern has no Old Pier, and LoreBase does not read vectfox_main now, so no file can write there.
         expect(actionsOf(PIER_KEYS)).toEqual(['export', 'delete']);
-        expect(actionsOf(PIER_ELSEWHERE)).toEqual(['export', 'delete']);
+        expect(actionsOf(PIER_ELSEWHERE)).toEqual(['view-chunks', 'export', 'delete']);
 
         $('#vectfox_collection_search').val('pier').trigger('input');
         expect(books()).toEqual(['leftovers|Old Pier']);

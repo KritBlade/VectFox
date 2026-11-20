@@ -10,7 +10,10 @@
  * listing and the books with a record, each with its selected count; the row a file the global Import takes goes to; a
  * row's keys or vectors exported; a file's import planned onto what matches, an unselected entry's parts included, and
  * written, a vectors file of another model embedded again for the selected entries; a row deleted; and an import or a
- * delete refused while LoreBase writes. Similharity's LoreBase routes are a fetch stand-in holding the keys and titles in memory, as
+ * delete refused while LoreBase writes. The entry editor's save (saveEntryWithVectors): the entry saved through
+ * SillyTavern, then its vectors alone written when LoreBase decides it, LoreBase on or off; an entry it does not decide
+ * saved alone; no vectors off Qdrant; nothing saved while LoreBase writes. Similharity's LoreBase routes are a fetch
+ * stand-in holding the keys and titles in memory, as
  * lorebase-keys.test.js has them; the vectors are a stand-in for lorebase-vectors.js, which lorebase-vectors.test.js
  * holds, its points made by the real lorebase-vectors-core.js.
  */
@@ -24,7 +27,14 @@ const host = vi.hoisted(() => ({
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json' }) }));
 vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: vi.fn() }));
-vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: vi.fn(), world_names: host.worldNames }));
+vi.mock('../src/sillytavern/world-info.js', () => {
+    const loadWorldInfo = vi.fn();
+    // SillyTavern's save of one entry, onto the book loadWorldInfo gives, so the next load reads it.
+    const saveLorebookEntry = vi.fn(async (bookName, uid, fields) => {
+        Object.assign((await loadWorldInfo(bookName)).entries[uid], fields);
+    });
+    return { loadWorldInfo, saveLorebookEntry, world_names: host.worldNames };
+});
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: vi.fn(() => ({})), getCurrentChatId: vi.fn(), chat_metadata: {} }));
 vi.mock('../src/features/vector-backend/index.js', () => ({ getBackend: (...args) => host.getBackend(...args) }));
 vi.mock('../src/shared/similharity-plugin.js', () => ({
@@ -702,6 +712,70 @@ describe("the Database Browser's rows", () => {
         await expect(storage.deleteStoredRow(vectorsRowOf(), QDRANT)).rejects.toThrow(STILL_WRITING);
         expect(routeCalls.filter(call => call.url.endsWith('/write'))).toHaveLength(writesBefore);
         expect(deleteTenantPoints).not.toHaveBeenCalled();
+        answer(answerWith(['tidewardens']));
+        await writing;
+    });
+});
+
+describe("the entry editor's save", () => {
+    const EDITED = { comment: 'Tidewardens', content: 'The wardens ring the harbor bell at dusk.' };
+    let saveLorebookEntry;
+    let writeBookVectors;
+
+    beforeEach(async () => {
+        ({ saveLorebookEntry } = await import('../src/sillytavern/world-info.js'));
+        ({ writeBookVectors } = await import('../src/features/lorebase/lorebase-vectors.js'));
+        saveLorebookEntry.mockClear();
+    });
+
+    it('saves the entry through SillyTavern, then writes the vectors of that entry alone, as saved, whether LoreBase is on or off', async () => {
+        await selectBooks();
+        const outcome = await storage.saveEntryWithVectors(BOOK, '1', EDITED, QDRANT);
+
+        expect(saveLorebookEntry).toHaveBeenCalledWith(BOOK, '1', EDITED);
+        expect(writeBookVectors).toHaveBeenCalledTimes(1);
+        const [bookName, decidedEntries, entriesToWrite, settings] = writeBookVectors.mock.calls[0];
+        expect([bookName, settings]).toEqual([BOOK, QDRANT]);
+        // Every entry LoreBase decides, so what none holds goes: the constant entry 2 and the unselected 3 are not.
+        expect(uidsOf(decidedEntries)).toEqual([0, 1]);
+        expect(entriesToWrite).toEqual([{ uid: 1, ...EDITED }]);
+        expect(outcome).toEqual({ isDecided: true, failure: null, vectorProblem: null });
+    });
+
+    it('says why the vectors failed, the entry saved', async () => {
+        await selectBooks();
+        host.vectorFailures.add('1');
+        expect(await storage.saveEntryWithVectors(BOOK, '1', EDITED, QDRANT))
+            .toEqual({ isDecided: true, failure: { title: 'Tidewardens', detail: 'upstream timeout' }, vectorProblem: null });
+        expect(saveLorebookEntry).toHaveBeenCalledTimes(1);
+    });
+
+    it('saves an entry LoreBase does not decide alone, its book\'s vectors left as they are', async () => {
+        await selectBooks();
+        expect(await storage.saveEntryWithVectors(BOOK, '3', { comment: 'Pier', content: 'The old pier.' }, QDRANT))
+            .toEqual({ isDecided: false, failure: null, vectorProblem: null });
+        expect(saveLorebookEntry).toHaveBeenCalledTimes(1);
+        expect(writeBookVectors).not.toHaveBeenCalled();
+    });
+
+    it('writes no vectors off Qdrant, and says why, the entry saved', async () => {
+        await selectBooks();
+        const outcome = await storage.saveEntryWithVectors(BOOK, '1', EDITED, { vector_backend: 'standard' });
+        expect(outcome).toEqual({ isDecided: true, failure: null, vectorProblem: 'LoreBase keeps the vectors of each entry in Qdrant. Choose Qdrant as the vector backend first.' });
+        expect(saveLorebookEntry).toHaveBeenCalledTimes(1);
+        expect(writeBookVectors).not.toHaveBeenCalled();
+    });
+
+    it('saves nothing while LoreBase writes', async () => {
+        await selectBooks();
+        let answer;
+        host.ask = vi.fn(() => new Promise(resolve => { answer = resolve; }));
+        const writing = keysModule.writeKeys(BOOK, [entry(1, 'Tidewardens')], QDRANT);
+        await vi.waitFor(() => expect(host.ask).toHaveBeenCalled());
+
+        await expect(storage.saveEntryWithVectors(BOOK, '1', EDITED, QDRANT)).rejects.toThrow(STILL_WRITING);
+        expect(saveLorebookEntry).not.toHaveBeenCalled();
+        expect(writeBookVectors).not.toHaveBeenCalled();
         answer(answerWith(['tidewardens']));
         await writing;
     });

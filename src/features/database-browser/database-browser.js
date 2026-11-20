@@ -7,7 +7,9 @@
  * ticked ones), Search (a search across collections with a keyword filter) and
  * Size Inspector (size-inspector.js). The Collections list also holds each
  * lorebook's LoreBase rows, its keys and its vectors, each exported, imported and
- * deleted through LoreBase's storage module (features/lorebase), what LoreBase
+ * deleted through LoreBase's storage module (features/lorebase), a vectors row's
+ * chunks read only in the Chunk Visualizer, each with Edit entry, LoreBase's
+ * entry editor, on a row of the list, what LoreBase
  * cannot use here behind Show leftovers; Import a collection takes a collection
  * file, and a LoreBase keys or vectors file into the lorebook it names, and names
  * the row whose Import takes a StoryArc links file. The browser opens in a
@@ -75,11 +77,13 @@ import {
   describeExport,
   describeImport,
   describeImported,
+  editLoreBookEntry,
   exportStored,
   loreBaseImportRow,
   loreBaseStorageRows,
   nothingToImportText,
   planImport,
+  tenantChunkSource,
   writeImport,
 } from "../lorebase/index.js";
 import {
@@ -713,8 +717,9 @@ function noSelectionWords(hasVectors) {
 /**
  * A lorebook's LoreBase rows as plain values, for loreBaseBookMarkup (§3.2 of vectfox-multi-collection-per-chat.md):
  * the lorebook's row, with its selected entries in the list, where its vectors are stored and their ID, and its ⚠
- * while none of its entries is selected; then each of its rows in one line. Export and Delete need something stored;
- * Import needs a row of the list and, for vectors, the collection LoreBase reads now, which an import writes to.
+ * while none of its entries is selected; then each of its rows in one line. Export and Delete need something stored,
+ * and so does a vectors row's View chunks; Import needs a row of the list and, for vectors, the collection LoreBase
+ * reads now, which an import writes to.
  * @param {object[]} rows - One book's rows, from loreBaseStorageRows
  * @returns {object}
  */
@@ -739,6 +744,7 @@ function loreBaseBookView(rows) {
         kind: row.kind,
         line: row.kind === KEYS ? counted(count, "entry with keys", "entries with keys") : vectorsLine(row, shownEmbedding),
         isElsewhere: row.kind === VECTORS && !row.isHere,
+        canViewChunks: row.kind === VECTORS && count > 0,
         canExport: count > 0,
         canImport: !row.isLeftover && (row.kind === KEYS || row.isHere),
         canDelete: count > 0,
@@ -1087,11 +1093,33 @@ async function runLoreBaseAction(action, key) {
   const row = browserState.loreBaseRows.find((each) => each.key === key);
   if (!row) return;
   switch (action) {
+    case "view-chunks": return viewLoreBaseChunks(row);
     case "export": return exportLoreBaseRow(row);
     case "import": return importLoreBaseFromPicker(row);
     case "delete": return deleteLoreBaseRow(row);
     default: log.warn(`VectFox Database Browser: no LoreBase row button runs "${action}"`);
   }
+}
+
+/**
+ * Opens a vectors row's chunks in the Chunk Visualizer, read only, over the browser: LoreBase writes them from the
+ * lorebook's entries. On a row of the list, a chunk's Edit entry opens LoreBase's entry editor, whose Save writes the
+ * entry and its vectors; a leftover's lorebook is not in SillyTavern, or its vectors not where LoreBase writes them, so
+ * its entries are not edited here. Once the visualizer closes after a save, the rows are read again, as an entry's
+ * parts may have changed in number. The rows are listed only with Similharity, which the visualizer reads them through.
+ * @param {object} row
+ * @returns {Promise<void>}
+ */
+async function viewLoreBaseChunks(row) {
+  const { collection, settings } = tenantChunkSource(row, browserState.settings);
+  let isEntrySaved = false;
+  const editEntry = row.isLeftover ? null : async (chunk) => {
+    const isSaved = await editLoreBookEntry(row.book, String(chunk.metadata.entryUid));
+    isEntrySaved ||= isSaved;
+    return isSaved;
+  };
+  await openChunkVisualizer(collection, settings, { isLoreBaseParts: true, editEntry });
+  if (isEntrySaved) await refreshLoreBaseRows();
 }
 
 /**

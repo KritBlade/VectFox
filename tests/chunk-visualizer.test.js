@@ -5,7 +5,9 @@
  * open: it loads and lists a collection's chunks; one Save writes a changed name, or, for a changed text, embeds the
  * new text before the old chunk goes, an event of a chat or of a chat file keeping its own ID; a failed embedding loses
  * nothing; a collection made with another CJK tokenizer locks the text; leaving or closing with unsaved edits asks; the
- * bulk bar deletes only ticked chunks the list shows.
+ * bulk bar deletes only ticked chunks the list shows; a lorebook's LoreBase parts open read only, in their entries'
+ * order, from the collection that holds them, and Edit entry, where the browser gives an entry editor, waits for it and
+ * reads the list again after a save, the same part open.
  */
 /* global document, toastr -- this file runs under the jsdom environment; toastr is stubbed per test */
 
@@ -325,5 +327,96 @@ describe('the bulk bar', () => {
         await vi.waitFor(() => expect(confirmPopup).toHaveBeenCalledTimes(1));
         expect(backend.deleteVectorItems).not.toHaveBeenCalled();
         expect(rowKeys()).toEqual(['0', '1', '2']);
+    });
+});
+
+describe("a lorebook's LoreBase parts", () => {
+    const TENANT = 'vf_lorebase_qdrant_rook_harbor_atlas_19qag9zxydm';
+    const PARTS = { id: TENANT, name: 'Harbor Atlas', type: 'lorebook', backend: 'qdrant', source: 'openrouter', model: 'baai/bge-m3', chunkCount: 3 };
+    // The settings tenantChunkSource gives for a tenant of the account's own LoreBase collection.
+    const IN_ACCOUNT_COLLECTION = { vector_backend: 'qdrant', qdrant_multitenancy: true, qdrant_shared_collection: 'vf_lorebase_rook' };
+
+    beforeEach(() => {
+        host.items = [
+            { hash: 501, text: 'Lighthouse\nIts keeper.', metadata: { lorebookName: 'Harbor Atlas', entryUid: '12', partNumber: 2 } },
+            { hash: 502, text: 'Gate\nThe harbor gate.', metadata: { lorebookName: 'Harbor Atlas', entryUid: '3', partNumber: 1 } },
+            { hash: 503, text: 'Lighthouse\nIts history.', metadata: { lorebookName: 'Harbor Atlas', entryUid: '12', partNumber: 1 } },
+        ];
+    });
+
+    async function openParts(editEntry = null) {
+        void openChunkVisualizer(PARTS, IN_ACCOUNT_COLLECTION, { isLoreBaseParts: true, editEntry });
+        change($id('vectfox_chunk_sort'), 'index');
+        await vi.waitFor(() => expect(rowKeys().length).toBe(host.items.length));
+    }
+
+    it("reads the tenant's parts in the collection holding them, and lists them by entry and part under each entry's title", async () => {
+        await openParts();
+        expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ backend: 'qdrant', collectionId: 'vf_lorebase_rook', filters: { content_type: TENANT } });
+        // Only the parts are read, not the Qdrant collection's own record, which every lorebook there shares.
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(rowKeys()).toEqual(['1', '2', '0']);
+        expect([...document.querySelectorAll('[data-chunk-entry] .vfx-row-name')].map(name => name.textContent)).toEqual(['Gate', 'Lighthouse', 'Lighthouse']);
+        expect([...document.querySelectorAll('[data-chunk-entry] .vfx-row-sub')].map(line => line.textContent))
+            .toEqual(['Entry: 3, part 1', 'Entry: 12, part 1', 'Entry: 12, part 2']);
+        expect(document.querySelector('[data-chunk-tick]')).toBeNull();
+    });
+
+    it('opens a part read only: its text takes no typing, nothing saves or deletes it, and another opens without a question', async () => {
+        await openParts();
+        await openChunk('0');
+        expect($id('vectfox_chunk_text').readOnly).toBe(true);
+        expect(document.querySelector('[data-chunk-text-count]').textContent).toBe('22 characters.');
+        expect(document.querySelector('[data-chunk-action="save"], [data-chunk-action="delete"], [data-chunk-action="bulk-delete"]')).toBeNull();
+        // No entry editor was given, as for a leftover's parts.
+        expect(actionButton('edit-entry')).toBeNull();
+        await openChunk('2');
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(Object.values(backend).every(mock => mock.mock.calls.length === 0)).toBe(true);
+    });
+
+    it('opens the entry editor on the open part, waiting meanwhile, and after a save reads the list again with the same part open', async () => {
+        let finishEdit;
+        const editEntry = vi.fn(() => new Promise(resolve => { finishEdit = resolve; }));
+        await openParts(editEntry);
+        await openChunk('0');
+        actionButton('edit-entry').click();
+        expect(editEntry).toHaveBeenCalledTimes(1);
+        expect(editEntry.mock.calls[0][0]).toMatchObject({ hash: 501, metadata: { entryUid: '12', partNumber: 2 } });
+        expect(actionButton('edit-entry').disabled).toBe(true);
+
+        // The edit changed the part's text, so LoreBase wrote it again under a new ID.
+        host.items = [{ hash: 601, text: 'Lighthouse\nIts keeper, now retired.', metadata: { lorebookName: 'Harbor Atlas', entryUid: '12', partNumber: 2 } }, ...host.items.slice(1)];
+        finishEdit(true);
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect($id('vectfox_chunk_text').value).toBe('Lighthouse\nIts keeper, now retired.'));
+        expect(document.querySelector('[data-chunk-entry].is-open').dataset.chunkEntry).toBe('0');
+        expect(actionButton('edit-entry').disabled).toBe(false);
+    });
+
+    it('reads nothing again when the editor saves nothing', async () => {
+        const editEntry = vi.fn(async () => false);
+        await openParts(editEntry);
+        await openChunk('2');
+        actionButton('edit-entry').click();
+        await vi.waitFor(() => expect(actionButton('edit-entry').disabled).toBe(false));
+        expect(editEntry).toHaveBeenCalledTimes(1);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(document.querySelector('[data-chunk-entry].is-open').dataset.chunkEntry).toBe('2');
+    });
+
+    it("keeps a collection's order for the next one when the parts do not offer it, and the parts list in entry order", async () => {
+        await openHarbor();
+        change($id('vectfox_chunk_sort'), 'keywords');
+        document.body.innerHTML = '';
+        void openChunkVisualizer(PARTS, IN_ACCOUNT_COLLECTION, { isLoreBaseParts: true });
+        await vi.waitFor(() => expect(rowKeys().length).toBe(host.items.length));
+        expect($id('vectfox_chunk_sort').value).toBe('index');
+        expect(rowKeys()).toEqual(['1', '2', '0']);
+
+        document.body.innerHTML = '';
+        void openChunkVisualizer(COLLECTION, SETTINGS);
+        await vi.waitFor(() => expect(rowKeys().length).toBe(host.items.length));
+        expect($id('vectfox_chunk_sort').value).toBe('keywords');
     });
 });
