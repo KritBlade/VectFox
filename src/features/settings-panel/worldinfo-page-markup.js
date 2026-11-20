@@ -221,7 +221,10 @@ export function loreBaseBookRow(book) {
         name: bookName,
         sub,
         pills: [isStateShown ? bookStatePill(book) : '', ...(locks.length ? locks : [LOCK_PILLS.none])].filter(Boolean),
-        actions: [iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } })],
+        actions: [
+            iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } }),
+            book.hasRecord ? iconButton({ icon: 'fa-trash-can', title: 'Remove from LoreBase', isDanger: true, data: { 'lorebase-remove': bookName } }) : '',
+        ].filter(Boolean),
     });
 }
 
@@ -266,11 +269,12 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
 /**
  * The LoreBase books card's list for the open chat: each book SillyTavern loads here, how many entries are selected
  * in it and, once read, how many of those have keys and vectors and its one state (§7.1 of lorebook-multi-vector.md),
- * and whether it is locked to this chat or its character, where LoreBase decides them (D11); under the list, the ready
- * entries of the books locked here and those waiting; then, given what to add, Add a lorebook.
+ * and whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Choose
+ * entries, and Remove from LoreBase on a book LoreBase has a record of; under the list, the ready entries of the books
+ * locked here and those waiting; then, given what to add, Add a lorebook.
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
+ *   isLockedToCharacter: boolean, hasRecord?: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
  *   missingKeyCount?: number, missingVectorCount?: number, otherModelCount?: number, failedCount?: number,
  *   firstFailure?: string|null, writing?: {isKeys: boolean, done: number, total: number}|null}>,
  *   add?: {bookNames: string[], canAddToCharacter: boolean}|null}} status - LoreBase's chatBookLocks, with

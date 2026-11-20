@@ -77,12 +77,14 @@ import {
   describeExport,
   describeImport,
   describeImported,
+  describeRemovedLoreBook,
   editLoreBookEntry,
   exportStored,
   loreBaseImportRow,
   loreBaseStorageRows,
   nothingToImportText,
   planImport,
+  removeLoreBookAfterConfirm,
   tenantChunkSource,
   writeImport,
 } from "../lorebase/index.js";
@@ -291,6 +293,9 @@ function bindBrowserEvents(root) {
   });
   $root.on("click", "[data-lorebase-action]", function () {
     void runLoreBaseAction(this.dataset.lorebaseAction, this.dataset.lorebaseRow);
+  });
+  $root.on("click", "[data-lorebase-remove]", function () {
+    void removeLoreBookOfRow(this.dataset.lorebaseRemove);
   });
   $root.on("click", "[data-lorebase-flag]", function () {
     toggleLoreBaseFlag(this.dataset.lorebaseFlag);
@@ -716,10 +721,11 @@ function noSelectionWords(hasVectors) {
 
 /**
  * A lorebook's LoreBase rows as plain values, for loreBaseBookMarkup (§3.2 of vectfox-multi-collection-per-chat.md):
- * the lorebook's row, with its selected entries in the list, where its vectors are stored and their ID, and its ⚠
- * while none of its entries is selected; then each of its rows in one line. Export and Delete need something stored,
- * and so does a vectors row's View chunks; Import needs a row of the list and, for vectors, the collection LoreBase
- * reads now, which an import writes to.
+ * the lorebook's row, with its selected entries in the list, where its vectors are stored and their ID, its ⚠ while
+ * none of its entries is selected, and Remove from LoreBase on a lorebook of the list, a leftover's rows being deleted
+ * one at a time (D13); then each of its rows in one line. Export and Delete need something stored, and so does a
+ * vectors row's View chunks; Import needs a row of the list and, for vectors, the collection LoreBase reads now, which
+ * an import writes to.
  * @param {object[]} rows - One book's rows, from loreBaseStorageRows
  * @returns {object}
  */
@@ -731,6 +737,8 @@ function loreBaseBookView(rows) {
   return {
     key,
     name: `📖 Lorebook: ${first.book ?? "none named"}`,
+    bookName: first.book,
+    canRemove: !first.isLeftover,
     isInSillyTavern: first.isInSillyTavern,
     selectedCount: first.isLeftover ? null : first.selectedCount,
     storedIn: shownEmbedding ? `Qdrant, embedded by ${shownEmbedding}` : "Qdrant",
@@ -1244,6 +1252,24 @@ async function deleteLoreBaseRow(row) {
   } catch (error) {
     log.error(`VectFox: Delete of LoreBase ${words} failed`, error);
     toastr.error(`Delete failed: ${error.message}`, LOREBASE_TOAST);
+  }
+}
+
+/**
+ * Removes a lorebook from LoreBase, from its row (removeLoreBookAfterConfirm, the WorldInfo page's book row's too): once
+ * confirmed and done, a toast says what went, and the rows are read again, so the lorebook leaves the list.
+ * @param {string} bookName
+ * @returns {Promise<void>}
+ */
+async function removeLoreBookOfRow(bookName) {
+  try {
+    const removed = await removeLoreBookAfterConfirm(bookName, browserState.settings);
+    if (!removed) return;
+    toastr.success(describeRemovedLoreBook(removed), LOREBASE_TOAST);
+    await refreshLoreBaseRows();
+  } catch (error) {
+    log.error(`VectFox: Remove of lorebook "${bookName}" from LoreBase failed`, error);
+    toastr.error(`Remove failed: ${error.message}`, LOREBASE_TOAST);
   }
 }
 

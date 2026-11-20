@@ -283,13 +283,13 @@ const BLANK_PICK_CHECK = '<span class="vfx-pick-check is-blank" aria-hidden="tru
 /**
  * One lorebook's LoreBase rows (§3.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), shaped as a
  * chat collection's: the lorebook's row, in the collections' column, with its selected entries, where its vectors are
- * stored and their ID, and the ⚠ flag when the view gives one, then a branch for its keys and one for each collection
- * holding its vectors, whose View chunks opens them read only. No tick box, lock, pause or rename, none of which means
- * anything for them.
+ * stored and their ID, the ⚠ flag when the view gives one, and Remove from LoreBase when the view allows it, then a
+ * branch for its keys and one for each collection holding its vectors, whose View chunks opens them read only. No tick
+ * box, lock, pause or rename, none of which means anything for them.
  *
- * @param {{key: string, name: string, isInSillyTavern: boolean, selectedCount: number|null, storedIn: string, id: string,
- *   flag: string, isFlagOpen: boolean, rows: object[]}} view - selectedCount: null leaves its line out; flag: the ⚠'s
- *   words, '' for none; rows: as loreBaseRowMarkup takes them
+ * @param {{key: string, name: string, bookName: string|null, canRemove: boolean, isInSillyTavern: boolean,
+ *   selectedCount: number|null, storedIn: string, id: string, flag: string, isFlagOpen: boolean, rows: object[]}} view -
+ *   selectedCount: null leaves its line out; flag: the ⚠'s words, '' for none; rows: as loreBaseRowMarkup takes them
  * @returns {string}
  */
 export function loreBaseBookMarkup(view) {
@@ -303,6 +303,9 @@ export function loreBaseBookMarkup(view) {
         ],
         pills: view.isInSillyTavern ? [] : [statusPill({ text: 'Not in SillyTavern', status: 'warning' })],
         flag: view.flag ? { title: view.flag, isOpen: view.isFlagOpen, data: { 'lorebase-flag': view.key } } : null,
+        actions: view.canRemove
+            ? [iconButton({ icon: 'fa-trash-can', title: 'Remove from LoreBase', isDanger: true, data: { 'lorebase-remove': view.bookName } })]
+            : [],
     });
     return `<div class="vfx-pick-row" data-lorebase-book="${escape(view.key)}">${BLANK_PICK_CHECK}<div class="vfx-pick-body">`
         + bookRow + view.rows.map(loreBaseRowMarkup).join('')

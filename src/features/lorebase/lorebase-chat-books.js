@@ -142,10 +142,10 @@ async function decidedCountOf(bookName) {
 
 /**
  * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, how many of its
- * selected entries LoreBase decides, and whether it is locked to this chat or to its character, where LoreBase decides
- * them (D11).
+ * selected entries LoreBase decides, whether it is locked to this chat or to its character, where LoreBase decides
+ * them (D11), and whether LoreBase has its record, which its row's Remove from LoreBase deletes.
  * @returns {Promise<{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
- *   isLockedToCharacter: boolean}>}>}
+ *   isLockedToCharacter: boolean, hasRecord: boolean}>}>}
  */
 export async function chatBookLocks() {
     const { chatId, characterAvatar } = lockTarget();
@@ -159,6 +159,7 @@ export async function chatBookLocks() {
             selectedCount: counts[index],
             isLockedToChat: Boolean(chatId) && isLoreBookLocked(bookName, { chatId }),
             isLockedToCharacter: Boolean(characterAvatar) && isLoreBookLocked(bookName, { characterAvatar }),
+            hasRecord: getLoreBook(bookName) !== null,
         })),
     };
 }

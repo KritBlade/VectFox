@@ -13,7 +13,9 @@
  * InternalProject/Vectfox/plans/lorebook-multi-vector.md) lists the books the chat does not load, adds the chosen one
  * to this character or to all chats, says where it went or why it was not, and opens the screen on it. Generate keys, Generate
  * vectors and Generate all write the missing ones of their kinds, or say why they cannot; Delete all asks first, and
- * once it has deleted both turns LoreBase off; the status line says how each went, one entry as one, and names the
+ * once it has deleted both turns LoreBase off; Remove from LoreBase on a book's row runs LoreBase's one confirm and
+ * removal, then says what went and that the chat still loads the book, or why it was not removed, and draws the
+ * list again; the status line says how each went, one entry as one, and names the
  * books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md),
  * "this chat" while it is open, a line that goes once another chat is open.
  */
@@ -23,13 +25,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const host = vi.hoisted(() => ({
     status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, writingProgressListener: null,
     selectedBooks: [], settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
-    counts: null, add: null, added: null,
+    counts: null, add: null, added: null, removed: null,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(async () => host.isConfirmed) }));
 vi.mock('../src/sillytavern/chat.js', () => ({ getCurrentChatId: () => host.chatId }));
-vi.mock('../src/features/lorebase/index.js', () => ({
+vi.mock('../src/features/lorebase/index.js', async () => ({
+    describeRemovedLoreBook: (await import('../src/features/lorebase/lorebase-files-core.js')).describeRemovedLoreBook,
+    // What was removed, null on Cancel, or the error that refused it.
+    removeLoreBookAfterConfirm: vi.fn(async () => {
+        if (host.removed instanceof Error) throw host.removed;
+        return host.removed;
+    }),
     KEYS: 'keys',
     VECTORS: 'vectors',
     BOTH_KINDS: ['keys', 'vectors'],
@@ -61,8 +69,8 @@ vi.mock('../src/features/lorebase/index.js', () => ({
 }));
 
 const {
-    addLoreBookToChat, chatBookLocks, deleteStored, openLoreBaseSelection, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing,
-    writingProblem,
+    addLoreBookToChat, chatBookLocks, deleteStored, openLoreBaseSelection, removeLoreBookAfterConfirm, storedCountsOfBooks, turnLoreBaseOff,
+    turnLoreBaseOn, writeMissing, writingProblem,
 } = await import('../src/features/lorebase/index.js');
 const { log } = await import('../src/sillytavern/log.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
@@ -79,6 +87,7 @@ const HARBOR = { bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: tru
 const KEEPER = { bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false };
 const rowsShown = () => [...document.querySelectorAll('#VectFox_lorebase_books .vfx-row')].map(row => `${row.querySelector('.vfx-row-name').textContent}: ${row.querySelector('.vfx-row-sub').textContent}`);
 const opener = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-choose="${bookName}"]`);
+const remover = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-remove="${bookName}"]`);
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -95,6 +104,7 @@ beforeEach(() => {
     host.counts = new Map([['Harbor Atlas', countsOf({ keyCount: 2, vectorCount: 1, readyCount: 1, missingVectorCount: 1 })]]);
     host.add = { bookNames: ['Tide Tables', 'Voyage Log'], canAddToCharacter: true };
     host.added = { characterAvatar: 'keeper-orrin.png' };
+    host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5 };
     bindLoreBaseBooksCard(host.settings);
 });
 
@@ -597,5 +607,36 @@ describe("each book's state on the card (§7.1 of lorebook-multi-vector.md)", ()
         await refreshLoreBaseBooks();
         expect(stateOf('Harbor Atlas')).toBeNull();
         expect(rowsShown()).toEqual(['Harbor Atlas: 2 selected', 'Keeper Notes: Nothing selected']);
+    });
+});
+
+describe('Remove from LoreBase on a book row', () => {
+    beforeEach(() => {
+        host.status = { hasChat: true, books: [{ ...HARBOR, hasRecord: true }, { ...KEEPER, hasRecord: false }] };
+    });
+
+    it('removes the book once confirmed, says what went and that the chat still loads it, and draws the list again', async () => {
+        await refreshLoreBaseBooks();
+        expect(remover('Keeper Notes')).toBeNull();
+        chatBookLocks.mockClear();
+        remover('Harbor Atlas').click();
+        await vi.waitFor(() => expect(status().textContent).toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 2 entries and the '
+            + 'vectors of 5 parts. This chat still loads it in SillyTavern, so it stays listed here, with nothing selected.'));
+        expect(removeLoreBookAfterConfirm).toHaveBeenCalledWith('Harbor Atlas', host.settings);
+        await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(1));
+    });
+
+    it('says nothing on Cancel, and why when it is refused', async () => {
+        host.removed = null;
+        await refreshLoreBaseBooks();
+        remover('Harbor Atlas').click();
+        await vi.waitFor(() => expect(removeLoreBookAfterConfirm).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(status().textContent).toBe('');
+
+        host.removed = new Error('LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.');
+        remover('Harbor Atlas').click();
+        await vi.waitFor(() => expect(status().textContent)
+            .toBe('Not removed: LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.'));
     });
 });

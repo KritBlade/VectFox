@@ -5,7 +5,8 @@
  * screen last opened it, so a later one shows as new. One record per book, keyed by the book's exact name, in
  * VectFox's settings: never a key per entry (§3.3), and never in the lorebook file. A book's selected entries LoreBase
  * decides are read here too, against the book as SillyTavern loads it: the one count every LoreBase screen and the
- * reply share. Clean up locks, on the Action page, drops the locks on chats and characters that no longer exist.
+ * reply share. Clean up locks, on the Action page, drops the locks on chats and characters that no longer exist, and
+ * Remove from LoreBase deletes a book's record once its keys and vectors are deleted.
  */
 
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
@@ -167,6 +168,19 @@ export function isLoreBookLocked(bookName, { chatId, characterAvatar }) {
     if (!record) return false;
     return (chatId != null && record.lockedToChatIds.includes(String(chatId)))
         || (characterAvatar != null && record.lockedToCharacterAvatars.includes(String(characterAvatar)));
+}
+
+/**
+ * Delete a book's record, with its selected entries, pinned sections, locks and seen entries: the last step of
+ * Remove from LoreBase (removeLoreBook in lorebase-storage.js), once the book's keys and vectors are deleted. Saves only
+ * when the book had a record.
+ * @param {string} bookName
+ */
+export function deleteLoreBookRecord(bookName) {
+    const books = extension_settings.vectfox[BOOKS_KEY];
+    if (!books || !Object.hasOwn(books, bookName)) return;
+    delete books[bookName];
+    saveSettingsDebounced();
 }
 
 /** Move every book's lock on one chat or character to its new name, saving only when a lock moved. */

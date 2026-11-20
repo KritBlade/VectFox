@@ -472,6 +472,17 @@ export async function deleteTenantPoints(tenant, collection, settings) {
 }
 
 /**
+ * Forget what this session read of one book's vectors, and its entries whose writing failed, telling the vector
+ * listeners: Remove from LoreBase deleted the book's vectors (removeLoreBook in lorebase-storage.js), so the next read
+ * finds what is left.
+ * @param {string} bookName
+ */
+export function forgetBookVectors(bookName) {
+    storedVectors.delete(bookName);
+    if (writeStates.delete(bookName)) tellStateListeners(bookName);
+}
+
+/**
  * Delete every LoreBase vector of this SillyTavern account (Delete all, §4.3), and forget the entries whose writing
  * failed, telling the vector listeners: its own Qdrant collection while "One
  * shared collection" is off, else each named book's points in vectfox_main.

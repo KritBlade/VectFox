@@ -4,7 +4,8 @@
  * its keys, an entry with neither left out; a keys file's import matching by number and title together, selected or not;
  * a tenant's vectors file of one embedding model; a vectors file's import matching each point's hash, made again, to a
  * part of an entry selected or not, counting the unselected entries' parts, and embedding a selected entry's again when
- * the file's model is not the one set now; a damaged or another kind's file; and the Database Browser's words for each.
+ * the file's model is not the one set now; a damaged or another kind's file; the Database Browser's words for each; and
+ * Remove from LoreBase's confirm and outcome, which the Database Browser and the WorldInfo page both show.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -205,5 +206,60 @@ describe("the Database Browser's words", () => {
         expect(files.describeDelete({ kind: 'keys', entryCount: 2, ...leftover }).after).toBe(nothingInReplies);
         expect(files.describeDelete({ kind: 'vectors', pointCount: 2, isHere: true, embeddingSource: 'custom', embeddingModel: 'baai/bge-m3', ...leftover }).after)
             .toBe(nothingInReplies);
+    });
+});
+
+describe("Remove from LoreBase's words, the same on both pages", () => {
+    const TENANT = 'vf_lorebase_qdrant_rook_harbor_atlas_19qag9zxydm';
+    const holdingsOf = fields => ({
+        bookName: BOOK, selectedCount: 313, pinnedCount: 2, chatLockCount: 1, characterLockCount: 0, keyCount: 313,
+        tenants: [{ collection: 'vf_lorebase_rook', tenant: TENANT, pointCount: 504 }], ...fields,
+    });
+    const sentencesOf = lines => lines.flatMap(line => [line.text, line.name]).filter(Boolean);
+
+    it('names each part of the book that goes, and that the lorebook stays in SillyTavern', () => {
+        expect(sentencesOf(files.removalConfirmLines(holdingsOf()))).toEqual([
+            'Remove this lorebook from LoreBase?',
+            'Lorebook:', BOOK,
+            'Selection:', '313 selected entries and 2 pinned sections',
+            'Locked to:', '1 chat',
+            'Keys:', 'the keys of 313 entries, those edited by hand included',
+            'Vectors:', '504 parts',
+            'The lorebook stays in SillyTavern, where every entry fires by its keys, as SillyTavern does. Export its keys and vectors '
+                + 'in the Database Browser first to keep a copy.',
+            'Remove deletes all of it. Cancel keeps it.',
+        ]);
+    });
+
+    it("counts the collections a book's vectors are in, and offers no export for a book with nothing stored", () => {
+        const spread = holdingsOf({ tenants: [
+            { collection: 'vf_lorebase_rook', tenant: TENANT, pointCount: 504 }, { collection: 'vectfox_main', tenant: TENANT, pointCount: 30 },
+        ] });
+        expect(sentencesOf(files.removalConfirmLines(spread))).toContain('534 parts in 2 collections');
+
+        const blank = holdingsOf({ selectedCount: 18, pinnedCount: 0, chatLockCount: 0, characterLockCount: 1, keyCount: 0, tenants: [] });
+        expect(sentencesOf(files.removalConfirmLines(blank))).toEqual([
+            'Remove this lorebook from LoreBase?',
+            'Lorebook:', BOOK,
+            'Selection:', '18 selected entries',
+            'Locked to:', '1 character',
+            'Keys:', 'none',
+            'Vectors:', 'none',
+            'The lorebook stays in SillyTavern, where every entry fires by its keys, as SillyTavern does.',
+            'Remove deletes all of it. Cancel keeps it.',
+        ]);
+    });
+
+    it('names a record with nothing selected, and every lock it holds', () => {
+        const unselected = holdingsOf({ selectedCount: 0, pinnedCount: 0, chatLockCount: 2, characterLockCount: 1 });
+        expect(sentencesOf(files.removalConfirmLines(unselected)).slice(3, 7)).toEqual(['Selection:', 'none', 'Locked to:', '2 chats and 1 character']);
+    });
+
+    it('says what was removed, each count with its unit', () => {
+        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 313, partsDeleted: 504 }))
+            .toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 313 entries and the vectors of 504 parts.');
+        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 1, partsDeleted: 0 }))
+            .toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 1 entry.');
+        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 0, partsDeleted: 0 })).toBe('Removed "Harbor Atlas" from LoreBase.');
     });
 });

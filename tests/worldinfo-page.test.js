@@ -180,6 +180,20 @@ describe('loreBaseBooksMarkup', () => {
         })[0].sub).toBe('1,234 selected, 1,200 with keys, 0 with vectors');
     });
 
+    it('offers Remove from LoreBase on the row of a book LoreBase has a record of, and on no other', () => {
+        document.body.innerHTML = loreBaseBooksMarkup({
+            hasChat: true,
+            books: [
+                { bookName: 'Harbor Atlas', selectedCount: 18, isLockedToChat: false, isLockedToCharacter: true, hasRecord: true },
+                { bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, hasRecord: false },
+            ],
+        });
+        const removers = [...document.querySelectorAll('.vfx-row-actions [data-lorebase-remove]')];
+        expect(removers.map(button => [button.closest('.vfx-row').querySelector('.vfx-row-name').textContent, button.dataset.lorebaseRemove, button.title]))
+            .toEqual([['Harbor Atlas', 'Harbor Atlas', 'Remove from LoreBase']]);
+        expect(removers[0].classList.contains('vfx-btn-danger')).toBe(true);
+    });
+
     describe("each book's state, once its keys and vectors are read (§7.1 of lorebook-multi-vector.md)", () => {
         const book = fields => ({
             bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false, decidedCount: 40, keyCount: 40, vectorCount: 40,

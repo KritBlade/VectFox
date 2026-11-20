@@ -10,7 +10,9 @@
  * a vectors row's chunks read only, in the collection that holds them, with LoreBase's entry editor on a row of the
  * list alone, the rows read again once the visualizer closes after a save; Export downloading
  * the row's file and saying what it left out; Import confirming what it writes and skips before writing, and writing
- * nothing on Cancel or when nothing matches; Delete confirming what is lost; Import a collection taking a LoreBase file
+ * nothing on Cancel or when nothing matches; Delete confirming what is lost; Remove from LoreBase on a lorebook of the
+ * list, never a leftover, running LoreBase's one confirm and removal, then saying what went and reading the rows
+ * again; Import a collection taking a LoreBase file
  * into the lorebook it names and refusing a StoryArc links file, naming its row; and a notice where the rows go when
  * they cannot be read.
  *
@@ -25,6 +27,7 @@ import $ from 'jquery';
 const host = vi.hoisted(() => ({ answer: true, close: null, collections: [], rows: [], rowsError: null, fileData: null, rowReads: 0 }));
 const storage = vi.hoisted(() => ({
     exportStored: vi.fn(), planImport: vi.fn(), writeImport: vi.fn(), deleteStoredRow: vi.fn(), loreBaseImportRow: vi.fn(), editLoreBookEntry: vi.fn(),
+    removeLoreBookAfterConfirm: vi.fn(),
 }));
 
 vi.mock('../src/features/collections/index.js', () => ({
@@ -48,6 +51,7 @@ vi.mock('../src/features/lorebase/index.js', async () => {
         describeExport: files.describeExport,
         describeImport: files.describeImport,
         describeImported: files.describeImported,
+        describeRemovedLoreBook: files.describeRemovedLoreBook,
         nothingToImportText: files.nothingToImportText,
         tenantChunkSource: (row, settings) => ({ collection: { id: row.tenant, name: row.book }, settings: { ...settings, readsIn: row.collection } }),
         loreBaseStorageRows: async () => {
@@ -423,5 +427,52 @@ describe('LoreBase rows in the Database Browser', () => {
         expect(document.querySelectorAll('[data-collection-entry]')).toHaveLength(1);
         expect(document.querySelector('#vectfox_collections_list').textContent)
             .toContain("LoreBase's keys and vectors could not be read: Similharity could not list LoreBase's books (HTTP 404): Not Found");
+    });
+});
+
+describe("Remove from LoreBase on a lorebook's row", () => {
+    const remover = key => bookRow(key).querySelector('[data-lorebase-remove]');
+
+    it('offers it on each lorebook of the list, never on a leftover, whose rows are deleted one at a time', async () => {
+        const HARBOR_ELSEWHERE = {
+            ...HARBOR_VECTORS, key: `vectors|vectfox_main|${HARBOR_TENANT}`, collection: 'vectfox_main', isHere: false, isLeftover: true, pointCount: 30,
+        };
+        host.rows = [HARBOR_KEYS, HARBOR_VECTORS, WREN_KEYS, WREN_VECTORS, HARBOR_ELSEWHERE, PIER_KEYS, PIER_ELSEWHERE];
+        await openBrowser();
+        leftoversButton().click();
+        const removers = [...document.querySelectorAll('[data-lorebase-remove]')];
+        expect(removers.map(button => [button.closest('[data-lorebase-book]').dataset.lorebaseBook, button.dataset.lorebaseRemove, button.title]))
+            .toEqual([
+                ['list|Harbor Atlas', 'Harbor Atlas', 'Remove from LoreBase'],
+                ['list|Wren Journal', 'Wren Journal', 'Remove from LoreBase'],
+            ]);
+        expect([remover('leftovers|Harbor Atlas'), remover('leftovers|Old Pier')]).toEqual([null, null]);
+        expect(removers.every(button => button.classList.contains('vfx-btn-danger'))).toBe(true);
+    });
+
+    it('removes the lorebook once confirmed, says what went, and reads the rows again, so it leaves the list', async () => {
+        storage.removeLoreBookAfterConfirm.mockResolvedValue({ bookName: 'Wren Journal', keysDeleted: 21, partsDeleted: 30 });
+        await openBrowser();
+        remover('list|Wren Journal').click();
+        await vi.waitFor(() => expect(toastr.success).toHaveBeenCalledTimes(1));
+        expect(storage.removeLoreBookAfterConfirm).toHaveBeenCalledWith('Wren Journal', SETTINGS);
+        expect(toastr.success.mock.calls[0][0]).toBe('Removed "Wren Journal" from LoreBase, with the keys of 21 entries and the vectors of 30 parts.');
+        await vi.waitFor(() => expect(host.rowReads).toBe(2));
+    });
+
+    it('does nothing on Cancel, and says why when it is refused', async () => {
+        storage.removeLoreBookAfterConfirm.mockResolvedValue(null);
+        await openBrowser();
+        remover('list|Harbor Atlas').click();
+        await vi.waitFor(() => expect(storage.removeLoreBookAfterConfirm).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(toastr.success).not.toHaveBeenCalled();
+        expect(host.rowReads).toBe(1);
+
+        const offQdrant = "LoreBase keeps each lorebook's keys and vectors in Qdrant. Choose Qdrant as the vector backend first, so they go with the lorebook.";
+        storage.removeLoreBookAfterConfirm.mockRejectedValue(new Error(offQdrant));
+        remover('list|Harbor Atlas').click();
+        await vi.waitFor(() => expect(toastr.error).toHaveBeenCalledTimes(1));
+        expect(toastr.error.mock.calls[0][0]).toBe(`Remove failed: ${offQdrant}`);
     });
 });

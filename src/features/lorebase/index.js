@@ -14,7 +14,9 @@
 // and opens the screen, and writes the keys, the vectors or both of every selected entry, or deletes them all, through
 // LoreBase's storage module, which every page that counts, writes or deletes them calls; the Database Browser lists
 // each book's keys and vectors as rows through it too, what LoreBase cannot use here among its leftovers, and exports,
-// imports and deletes them a row at a time, a file its global Import takes going to the book the file names; its Chunk
+// imports and deletes them a row at a time, a file its global Import takes going to the book the file names; Remove from
+// LoreBase, on a lorebook's row there and on the WorldInfo page's book row, deletes all LoreBase holds of a book, its
+// record of selections, pins and locks included, after the one confirm both pages share; its Chunk
 // Visualizer shows a book's vectors read only, and its Edit entry opens LoreBase's entry editor, whose Save writes the
 // entry's title and text into the lorebook through SillyTavern, then its vectors. Each
 // selected entry's vectors, one point per part, live in Qdrant, every book of an account a tenant of one collection,
@@ -44,8 +46,9 @@ export { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf } from './lorebas
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
 export {
     LOREBASE_KEYS_FILE_TYPE, LOREBASE_VECTORS_FILE_TYPE, describeDelete, describeExport, describeImport, describeImported,
-    nothingToImportText,
+    describeRemovedLoreBook, nothingToImportText,
 } from './lorebase-files-core.js';
+export { removeLoreBookAfterConfirm } from './lorebase-removal.js';
 export {
     deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
     storedCountsOfBooks, writeImport, writeMissing, writingProblem,

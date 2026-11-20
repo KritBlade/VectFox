@@ -4,7 +4,8 @@
  * is on and inside the account's own collection while it is off (Q6); what Qdrant holds read once a session and kept
  * current by what is written and deleted; writes in batches of whole entries, stored before the stale points are
  * deleted; a wrong embedding setup fails the rest of a run at once; a stop leaves the batches not yet sent; the points
- * of entries no longer selected deleted; Delete all; an edit SillyTavern saves written again in the background; and,
+ * of entries no longer selected deleted; Delete all; what the session knew of one book's vectors and failures
+ * forgotten once Remove from LoreBase deletes them; an edit SillyTavern saves written again in the background; and,
  * for the Database Browser's rows, a book tenant read whole with its dense vectors in the collection named, a vectors
  * file's points stored with their vectors, and a tenant deleted; a reply's search, both texts over every book taking
  * part in the collection LoreBase reads now. The vector API is a stand-in holding points in memory, routed by the real
@@ -465,6 +466,21 @@ describe("each entry's vectors, as this session knows them (§7.1, §7.3 of lore
         await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [buoy], SETTINGS);
         expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS).status).toBe('failed');
         await vectors.deleteAllVectors([BOOK], SETTINGS);
+        await vectors.bookVectors([BOOK], SETTINGS);
+        expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'missing' });
+    });
+
+    it("forgets one book's failures and what it held once the book leaves LoreBase, telling the listeners", async () => {
+        selectEntries([lighthouse, buoy]);
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [lighthouse], SETTINGS);
+        host.insertFailure = () => new Error('the embedding server refused');
+        await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [buoy], SETTINGS);
+        const told = [];
+        const stop = vectors.onVectorStateChange(bookName => told.push(bookName));
+        vectors.forgetBookVectors(BOOK);
+        stop();
+        expect(told).toEqual([BOOK]);
+        expect(vectors.vectorStateOf(BOOK, lighthouse, SETTINGS)).toEqual({ status: 'unknown' });
         await vectors.bookVectors([BOOK], SETTINGS);
         expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'missing' });
     });

@@ -3,7 +3,8 @@
  * a book's keys file and a book tenant's vectors file, each opening with the header every VectFox file has, and what
  * a file would write to a book before anything is written: the keys of the entries whose number and title both match,
  * selected or not, and the vectors of the parts of the entries LoreBase would decide now, selected or not. The Database
- * Browser's words for an export, an import and a delete are here too.
+ * Browser's words for an export, an import and a delete are here too, and Remove from LoreBase's confirm and outcome,
+ * which the Database Browser and the WorldInfo page both show.
  */
 import { counted } from '../../shared/counted.js';
 import { KEYS, VECTORS } from './lorebase-storage-core.js';
@@ -321,4 +322,47 @@ export function describeDelete(row) {
             ? 'Its selected entries leave replies until Generate vectors writes their vectors again. LoreBase stays on. Export them first to keep a copy.'
             : NOTHING_IN_REPLIES,
     };
+}
+
+const listWords = new Intl.ListFormat('en', { type: 'conjunction' });
+
+/**
+ * Remove from LoreBase's confirm, the same on the Database Browser's lorebook row and the WorldInfo page's book row:
+ * the book, each part of it that goes (its selected entries and pinned sections, its locks, its keys and its vectors in
+ * every collection holding them), and what stays.
+ * @param {{bookName: string, selectedCount: number, pinnedCount: number, chatLockCount: number, characterLockCount: number,
+ *   keyCount: number, tenants: Array<{pointCount: number}>}} holdings - From loreBookHoldings in lorebase-storage.js
+ * @returns {object[]} confirmPopup's lines
+ */
+export function removalConfirmLines({ bookName, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }) {
+    const partCount = tenants.reduce((sum, tenant) => sum + tenant.pointCount, 0);
+    const listOrNone = parts => (parts.length ? listWords.format(parts) : 'none');
+    const countedIfAny = (count, singular, plural) => (count ? counted(count, singular, plural) : '');
+    const selection = [countedIfAny(selectedCount, 'selected entry', 'selected entries'), countedIfAny(pinnedCount, 'pinned section')].filter(Boolean);
+    const locks = [countedIfAny(chatLockCount, 'chat'), countedIfAny(characterLockCount, 'character')].filter(Boolean);
+    const collections = tenants.length > 1 ? ` in ${counted(tenants.length, 'collection')}` : '';
+    const keepCopy = keyCount || partCount ? ' Export its keys and vectors in the Database Browser first to keep a copy.' : '';
+    return [
+        { text: 'Remove this lorebook from LoreBase?' },
+        { text: 'Lorebook:', name: bookName },
+        { text: 'Selection:', name: listOrNone(selection) },
+        { text: 'Locked to:', name: listOrNone(locks) },
+        { text: 'Keys:', name: keyCount ? `the keys of ${counted(keyCount, 'entry', 'entries')}, those edited by hand included` : 'none' },
+        { text: 'Vectors:', name: partCount ? `${counted(partCount, 'part')}${collections}` : 'none' },
+        { text: `The lorebook stays in SillyTavern, where every entry fires by its keys, as SillyTavern does.${keepCopy}` },
+        { text: 'Remove deletes all of it. Cancel keeps it.' },
+    ];
+}
+
+/**
+ * What Remove from LoreBase deleted, in one line, each count with its unit.
+ * @param {{bookName: string, keysDeleted: number, partsDeleted: number}} removed - From removeLoreBook in lorebase-storage.js
+ * @returns {string}
+ */
+export function describeRemovedLoreBook({ bookName, keysDeleted, partsDeleted }) {
+    const stored = [
+        keysDeleted ? `the keys of ${counted(keysDeleted, 'entry', 'entries')}` : '',
+        partsDeleted ? `the vectors of ${counted(partsDeleted, 'part')}` : '',
+    ].filter(Boolean);
+    return `Removed "${bookName}" from LoreBase${stored.length ? `, with ${listWords.format(stored)}` : ''}.`;
 }

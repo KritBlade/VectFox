@@ -2,8 +2,9 @@
  * The open chat's books as the WorldInfo page lists them (chatBookLocks in src/features/lorebase/lorebase-chat-books.js,
  * plan §5.2 and D11 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): each book
  * SillyTavern loads here and has, in the order its scan loads them, with how many of its selected entries LoreBase
- * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded, and
- * whether it is locked to this chat or to the character, by the character's avatar file name. And the lock a key run
+ * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded,
+ * whether it is locked to this chat or to the character, by the character's avatar file name, and whether LoreBase has
+ * its record, which its row's Remove from LoreBase deletes. And the lock a key run
  * makes (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): where, read as the run starts, and which of
  * the books it wrote keys for lock to that chat. And Add a lorebook (§6 of lorebook-multi-vector.md): the books the
  * chat does not load, each added to the character or to all chats through SillyTavern's own lists and locked where it
@@ -53,7 +54,9 @@ const { loreBaseBooksMarkup } = await import('../src/features/settings-panel/wor
 const recordOf = ({ selected = [], chats = [], characters = [] } = {}) => ({
     selectedUids: selected, pinnedSections: [], lockedToChatIds: chats, lockedToCharacterAvatars: characters,
 });
-const bookOf = (bookName, selectedCount, isLockedToChat, isLockedToCharacter) => ({ bookName, selectedCount, isLockedToChat, isLockedToCharacter });
+const bookOf = (bookName, selectedCount, isLockedToChat, isLockedToCharacter, hasRecord) => ({
+    bookName, selectedCount, isLockedToChat, isLockedToCharacter, hasRecord,
+});
 const bookWith = (...uids) => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, content: `Entry ${uid}.` }])) });
 
 beforeEach(() => {
@@ -74,7 +77,7 @@ beforeEach(() => {
 });
 
 describe('chatBookLocks', () => {
-    it("lists the books this chat loads in the scan's order, each with its selected count and its locks here", async () => {
+    it("lists the books this chat loads in the scan's order, each with its selected count, its locks here and its record", async () => {
         host.settings.vectfox.lorebase_books = {
             'Harbor Atlas': recordOf({ selected: ['0', '1'], chats: ['chat-harbor'] }),
             'Keeper Notes': recordOf({ selected: ['7'], characters: ['keeper-orrin.png'] }),
@@ -87,12 +90,14 @@ describe('chatBookLocks', () => {
         // The global book, the character's own (its extra book SillyTavern no longer has is left out), then the chat's.
         expect(await chatBookLocks()).toEqual({
             hasChat: true,
-            books: [bookOf('Tide Tables', 1, false, false), bookOf('Keeper Notes', 1, false, true), bookOf('Harbor Atlas', 2, true, false)],
+            books: [bookOf('Tide Tables', 1, false, false, true), bookOf('Keeper Notes', 1, false, true, true), bookOf('Harbor Atlas', 2, true, false, true)],
         });
     });
 
-    it('counts nothing selected and no lock for a book LoreBase has no record of, loading no book', async () => {
-        expect((await chatBookLocks()).books).toEqual([bookOf('Tide Tables', 0, false, false), bookOf('Keeper Notes', 0, false, false), bookOf('Harbor Atlas', 0, false, false)]);
+    it('counts nothing selected and no lock for a book LoreBase has no record of, and says it has none, loading no book', async () => {
+        expect((await chatBookLocks()).books).toEqual([
+            bookOf('Tide Tables', 0, false, false, false), bookOf('Keeper Notes', 0, false, false, false), bookOf('Harbor Atlas', 0, false, false, false),
+        ]);
         expect(loadWorldInfo).not.toHaveBeenCalled();
     });
 
@@ -100,14 +105,14 @@ describe('chatBookLocks', () => {
         // Entry 1 was emptied and entry 9 deleted since they were selected.
         host.books['Harbor Atlas'] = { entries: { 0: { uid: 0, content: 'The harbor bells.' }, 1: { uid: 1, content: '' } } };
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': recordOf({ selected: ['0', '1', '9'] }) };
-        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 1, false, false));
+        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 1, false, false, true));
     });
 
     it('counts the saved selection of a book that cannot be loaded, and logs why', async () => {
         const failure = new Error('HTTP 500');
         host.books['Harbor Atlas'] = failure;
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': recordOf({ selected: ['0', '1', '9'] }) };
-        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 3, false, false));
+        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 3, false, false, true));
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('could not be loaded'), failure);
     });
 
@@ -116,14 +121,14 @@ describe('chatBookLocks', () => {
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
         host.settings.vectfox.lorebase_books = { 'Tide Tables': recordOf({ chats: ['group-harbor'], characters: ['keeper-orrin.png'] }) };
 
-        expect(await chatBookLocks()).toEqual({ hasChat: true, books: [bookOf('Tide Tables', 0, true, false)] });
+        expect(await chatBookLocks()).toEqual({ hasChat: true, books: [bookOf('Tide Tables', 0, true, false, true)] });
     });
 
     it('says when no chat is open', async () => {
         host.chatId = undefined;
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
 
-        expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false)] });
+        expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false, false)] });
     });
 });
 

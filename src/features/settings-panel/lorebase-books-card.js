@@ -14,18 +14,20 @@
  * (§6 of lorebook-multi-vector.md) adds the book chosen in its list to this character or to all chats, locked there,
  * and opens the selection screen on it, the status line saying where it went or why it was not added. Generate keys
  * and Generate vectors write what the selected entries of every book lack of their kind, and Generate all both; Delete
- * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17). Each goes through
- * LoreBase's storage module. The card's status line says how each went, and shows every writing run on the progress
- * panel, whichever started it: the entries being written, then what was written and the books the run locked to its
- * chat (§6.1 of lorebook-multi-vector.md), a line that goes once another chat is open.
+ * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17); Remove from LoreBase, on
+ * a book's row, runs LoreBase's one confirm and removal of the book (removeLoreBookAfterConfirm), whose record, keys
+ * and vectors go while the chat still loads the book in SillyTavern. Each goes through LoreBase's storage module. The
+ * card's status line says how each went, and shows every writing run on the progress panel, whichever started it: the
+ * entries being written, then what was written and the books the run locked to its chat (§6.1 of
+ * lorebook-multi-vector.md), a line that goes once another chat is open.
  */
 import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
-    BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteStored, isLoreBaseSwitchedOn, onLoreBaseSwitchChange,
-    onWritingProgress, onWritingRunChange, openLoreBaseSelection, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn,
-    writeMissing, writingProblem,
+    BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteStored, describeRemovedLoreBook, isLoreBaseSwitchedOn,
+    onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange, openLoreBaseSelection, removeLoreBookAfterConfirm, selectedLoreBookNames,
+    storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, writeMissing, writingProblem,
 } from '../lorebase/index.js';
 import { loreBaseBookRow, loreBaseBooksMarkup } from './worldinfo-page-markup.js';
 
@@ -272,8 +274,31 @@ async function deleteAll(settings, button) {
 }
 
 /**
- * Wire LoreBase's switch, open the selection screen from the card's buttons, and run the Generate buttons and Delete
- * all. Called once, as the panel is mounted.
+ * Remove from LoreBase on a book's row (removeLoreBookAfterConfirm): once confirmed and done, the status line says what
+ * went, and that the book stays listed while the chat loads it in SillyTavern; the list is drawn again. Cancel says
+ * nothing; a refusal says why. The button waits while it runs.
+ * @param {HTMLButtonElement} button - The row's Remove from LoreBase, naming its book
+ * @returns {Promise<void>}
+ */
+async function removeBook(button) {
+    const bookName = button.dataset.lorebaseRemove;
+    button.disabled = true;
+    try {
+        const removed = await removeLoreBookAfterConfirm(bookName, cardSettings);
+        if (!removed) return;
+        showBooksStatus(`${describeRemovedLoreBook(removed)} This chat still loads it in SillyTavern, so it stays listed here, with nothing selected.`);
+        void refreshLoreBaseBooks();
+    } catch (error) {
+        log.warn(`LoreBase: lorebook "${bookName}" could not be removed:`, error);
+        showBooksStatus(`Not removed: ${error?.message || error}`);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/**
+ * Wire LoreBase's switch, open the selection screen from the card's buttons, and run the Generate buttons, Delete all
+ * and each book's Remove from LoreBase. Called once, as the panel is mounted.
  * @param {object} settings - VectFox settings
  */
 export function bindLoreBaseBooksCard(settings) {
@@ -303,6 +328,8 @@ export function bindLoreBaseBooksCard(settings) {
         if (opener) void chooseEntries(opener.dataset.lorebaseChoose);
         const adder = event.target.closest('[data-lorebase-add]');
         if (adder) void addBook(adder);
+        const remover = event.target.closest('[data-lorebase-remove]');
+        if (remover) void removeBook(remover);
     });
 }
 

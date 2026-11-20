@@ -9,11 +9,14 @@
  * (onWritingProgress); and deletes every book's keys or vectors (deleteStored). For the Database Browser it reads a Keys row and
  * Vectors rows for each book, the list's and the leftovers' (loreBaseStorageRows, §3.2), exports a row as a file, finds
  * the row a file the global Import takes goes to (loreBaseImportRow), plans and writes a file's import onto what matches
- * (§3.3), and deletes one row. LoreBase's entry editor saves an entry through it and has its vectors written
- * (saveEntryWithVectors). One guard refuses a run, an import, a delete or an entry's save while LoreBase writes. A
- * run that writes missing keys locks each book it wrote keys for to the chat it started in (§6.1 of InternalProject/
- * Vectfox/plans/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock nothing. The keys
- * and vectors themselves are written, read and kept for the session by lorebase-keys.js and lorebase-vectors.js.
+ * (§3.3), and deletes one row. Remove from LoreBase, on the Database Browser's lorebook row and the WorldInfo page's
+ * book row alike, reads what a book holds for its confirm (loreBookHoldings), then deletes all of it, its record last
+ * (removeLoreBook). LoreBase's entry editor saves an entry through it and has its vectors written
+ * (saveEntryWithVectors). One guard refuses a run, an import, a delete, a removal or an entry's save while LoreBase
+ * writes. A run that writes missing keys locks each book it wrote keys for to the chat it started in (§6.1 of
+ * InternalProject/Vectfox/plans/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock
+ * nothing. The keys and vectors themselves are written, read and kept for the session by lorebase-keys.js and
+ * lorebase-vectors.js.
  */
 import { log } from '../../sillytavern/log.js';
 import { saveLorebookEntry, world_names } from '../../sillytavern/world-info.js';
@@ -22,8 +25,8 @@ import { exportFileHeader } from '../../shared/export-file-header.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import {
-    getLoreBook, loadBookEntries, loadDecidableEntries, loadDecidedEntries, loreBookSelectedCounts, recordedLoreBookNames,
-    selectedLoreBookNames,
+    deleteLoreBookRecord, getLoreBook, loadBookEntries, loadDecidableEntries, loadDecidedEntries, loreBookSelectedCounts,
+    recordedLoreBookNames, selectedLoreBookNames,
 } from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
@@ -37,7 +40,7 @@ import {
 } from './lorebase-storage-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
-    bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, importBookPoints,
+    bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, forgetBookVectors, importBookPoints,
     loreBaseVectorsCollection, readBookVectors, readTenantPoints, showVectorFailures, uidsWithCurrentVectors, vectorStateOf,
     writeBookVectors,
 } from './lorebase-vectors.js';
@@ -525,4 +528,57 @@ export async function deleteStoredRow(row, settings) {
     if (row.kind === KEYS) return deleteBookKeys([row.book]);
     await deleteTenantPoints(row.tenant, row.collection, settings);
     return row.pointCount;
+}
+
+const REMOVAL_OFF_QDRANT = "LoreBase keeps each lorebook's keys and vectors in Qdrant. Choose Qdrant as the vector backend first, so they "
+    + 'go with the lorebook.';
+
+/**
+ * What a book holds in LoreBase, for Remove from LoreBase's confirm (removalConfirmLines in lorebase-files-core.js): how
+ * many entries its record selects, its pinned sections, its locks on chats and on characters, how many of its entries
+ * have keys, and each collection holding its vectors with their parts, from Similharity's listing. Refused while
+ * LoreBase writes and off Qdrant, as the removal is, so no confirm offers what would be refused.
+ * @param {string} bookName
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{bookName: string, selectedCount: number, pinnedCount: number, chatLockCount: number,
+ *   characterLockCount: number, keyCount: number, tenants: Array<{collection: string, tenant: string, pointCount: number}>}>}
+ * @throws {Error} While LoreBase writes, off Qdrant, or when Similharity cannot list them
+ */
+export async function loreBookHoldings(bookName, settings) {
+    refuseWhileWriting();
+    if (!isLoreBaseBackend(settings)) throw new Error(REMOVAL_OFF_QDRANT);
+    const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
+    const record = getLoreBook(bookName);
+    return {
+        bookName,
+        selectedCount: record?.selectedUids?.length ?? 0,
+        pinnedCount: record?.pinnedSections?.length ?? 0,
+        chatLockCount: record?.lockedToChatIds?.length ?? 0,
+        characterLockCount: record?.lockedToCharacterAvatars?.length ?? 0,
+        keyCount: listing.keys.find(row => row.book === bookName)?.entryCount ?? 0,
+        tenants: listing.vectors.filter(row => row.book === bookName)
+            .map(({ collection, tenant, pointCount }) => ({ collection, tenant, pointCount })),
+    };
+}
+
+/**
+ * Remove a book from LoreBase (§3.6 of vectfox-multi-collection-per-chat.md), the one removal the Database Browser's
+ * lorebook row and the WorldInfo page's book row both run, through removeLoreBookAfterConfirm: its vectors in every
+ * collection holding them, the cheapest to write again, then its keys, those edited by hand included, then its record,
+ * with its selected entries, pinned sections and locks, so a delete that fails leaves the book listed with what it still
+ * holds. What this session knew of its keys and vectors goes with them. The lorebook stays in SillyTavern.
+ * @param {string} bookName
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<{bookName: string, keysDeleted: number, partsDeleted: number}>}
+ * @throws {Error} While LoreBase writes, off Qdrant, or when Similharity cannot list or delete them
+ */
+export async function removeLoreBook(bookName, settings) {
+    const { tenants } = await loreBookHoldings(bookName, settings);
+    for (const { tenant, collection } of tenants) await deleteTenantPoints(tenant, collection, settings);
+    const keysDeleted = await deleteBookKeys([bookName]);
+    forgetBookVectors(bookName);
+    deleteLoreBookRecord(bookName);
+    const partsDeleted = tenants.reduce((sum, tenant) => sum + tenant.pointCount, 0);
+    log.lifecycle(`LoreBase: removed lorebook "${bookName}", with the keys of ${keysDeleted} entries and the vectors of ${partsDeleted} parts`);
+    return { bookName, keysDeleted, partsDeleted };
 }
