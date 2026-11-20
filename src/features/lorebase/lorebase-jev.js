@@ -8,33 +8,35 @@
 import { connectionProfileDecisionsFields, findConnectionProfile } from '../../sillytavern/connection-profiles.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
+import { connectionConsequence } from './lorebase-connection.js';
 import { CALL_TIMEOUT_MS } from './lorebase-reply-core.js';
 
 const DECISIONS_ROUTE = '/api/plugins/similharity/lorebase/decisions';
 /** The setting that holds Jev's profile ID. */
 export const JEV_PROFILE_SETTING = 'lorebase_jev_connection_profile_id';
 const WHERE_TO_FIX = 'Choose one in the Jev group of the LoreBase model card on the WorldInfo page.';
-const UNTIL_FIXED = 'Until then the entries selected for LoreBase stay out of replies.';
 // A made-up state and question for Test connection, so a test never carries chat text.
 const TEST_STATE = "The chat so far. The last message is the user's; the next reply answers it.\n\nWren: We sail for the harbor lighthouse at dawn.";
 const TEST_QUESTIONS = { e1: { type: 'noul', instructions: 'Does the next reply need the lorebook entry "Harbor lighthouse" (about: lighthouse, harbor, keeper)?' } };
 
 /**
- * Jev's connection on the profile chosen for it, or why it cannot run.
+ * Jev's connection on the profile chosen for it, or why it cannot run, ending on what that costs as LoreBase stands
+ * now (connectionConsequence).
  * @param {object} settings - VectFox settings
  * @returns {{ok: true, fields: object}|{ok: false, problem: string}}
  */
 export function resolveJevConnection(settings) {
+    const cannotRun = (...sentences) => ({ ok: false, problem: [...sentences, connectionConsequence(settings, { isJev: true })].filter(Boolean).join(' ') });
     const profileId = String(settings?.[JEV_PROFILE_SETTING] ?? '').trim();
-    if (!profileId) return { ok: false, problem: `Fast and Cheap [Jev] has no profile for Jev. ${WHERE_TO_FIX} ${UNTIL_FIXED}` };
+    if (!profileId) return cannotRun('Fast and Cheap [Jev] has no profile for Jev.', WHERE_TO_FIX);
     const profile = findConnectionProfile(profileId);
-    if (!profile) return { ok: false, problem: `Jev's profile is no longer in SillyTavern. ${WHERE_TO_FIX} ${UNTIL_FIXED}` };
+    if (!profile) return cannotRun("Jev's profile is no longer in SillyTavern.", WHERE_TO_FIX);
     const fields = connectionProfileDecisionsFields(profile);
-    if (!fields) return { ok: false, problem: `Jev's profile "${profile.name}" is neither an OpenRouter nor a Custom profile. ${WHERE_TO_FIX} ${UNTIL_FIXED}` };
+    if (!fields) return cannotRun(`Jev's profile "${profile.name}" is neither an OpenRouter nor a Custom profile.`, WHERE_TO_FIX);
     if (!fields.model) {
-        return { ok: false, problem: `Jev's profile "${profile.name}" names no model: set typesafe/jev-1.14 on OpenRouter, or jev-1.14.0 on Typesafe's own URL. ${UNTIL_FIXED}` };
+        return cannotRun(`Jev's profile "${profile.name}" names no model: set typesafe/jev-1.14 on OpenRouter, or jev-1.14.0 on Typesafe's own URL.`);
     }
-    if (fields.source === 'custom' && !fields.apiUrl) return { ok: false, problem: `Jev's Custom profile "${profile.name}" names no URL. ${UNTIL_FIXED}` };
+    if (fields.source === 'custom' && !fields.apiUrl) return cannotRun(`Jev's Custom profile "${profile.name}" names no URL.`);
     return { ok: true, fields };
 }
 

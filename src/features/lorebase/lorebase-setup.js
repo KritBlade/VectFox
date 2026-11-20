@@ -30,7 +30,7 @@ export function loreBaseSetupProblem(settings) {
         return `VectFox's embedding model writes LoreBase's vectors, and it cannot run yet: ${sentence}${where}`;
     }
     const connection = resolveLoreBaseLlmConfig(settings);
-    if (!connection.ok) return describeLoreBaseConnectionProblem(connection.reason, connection.problem);
+    if (!connection.ok) return describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings);
     return replyModelProblem(settings);
 }
 
@@ -46,5 +46,5 @@ export function replyModelProblem(settings) {
         return jev.ok ? '' : jev.problem;
     }
     const connection = resolveLoreBaseLlmConfig(settings);
-    return connection.ok ? '' : describeLoreBaseConnectionProblem(connection.reason, connection.problem);
+    return connection.ok ? '' : describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings);
 }

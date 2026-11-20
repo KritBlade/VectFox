@@ -113,7 +113,7 @@ export function keyWritingProblem(settings) {
         return 'LoreBase keeps the keys its model writes for each entry in Qdrant. Choose Qdrant as the vector backend first.';
     }
     const connection = resolveLoreBaseLlmConfig(settings);
-    return connection.ok ? null : describeLoreBaseConnectionProblem(connection.reason, connection.problem);
+    return connection.ok ? null : describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings);
 }
 
 async function askForKeys(entry, ask) {

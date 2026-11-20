@@ -2,13 +2,17 @@
  * LoreBase's Fast and Cheap [Jev] connection (src/features/lorebase/lorebase-jev.js, plan D16 of InternalProject/Vectfox/
  * plans/lorebook-semantic-overhaul-passage-index.md): Jev runs on the OpenRouter or Custom profile chosen for it; VectFox
  * sends Similharity's decisions route the profile's source, URL, model and key ID, never a key; each setup that cannot
- * run says what is wrong; a refusal says what Similharity answered; and Test connection asks one made-up question. The
- * real profile wrapper reads a stand-in for SillyTavern's context.
+ * run says what is wrong, then what that costs (connectionConsequence, a stand-in here: lorebase-connection.test.js
+ * covers it); a refusal says what Similharity answered; and Test connection asks one made-up question. The real profile
+ * wrapper reads a stand-in for SillyTavern's context.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const host = vi.hoisted(() => ({ connectionConsequence: null }));
+
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/requests.js', () => ({ getRequestHeaders: () => ({ 'Content-Type': 'application/json', 'X-CSRF-Token': 'session' }) }));
+vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({ connectionConsequence: (...args) => host.connectionConsequence(...args) }));
 
 const { askJev, resolveJevConnection, testJevConnection } = await import('../src/features/lorebase/lorebase-jev.js');
 
@@ -22,7 +26,11 @@ const PROFILES = [
 const STATE = "The chat so far. The last message is the user's; the next reply answers it.\n\nWren: Who keeps the lamp?";
 const QUESTIONS = { e1: { type: 'noul', instructions: 'Does the next reply need the lorebook entry "Lighthouse" (about: lamp)?' } };
 
+const OUT_OF_REPLIES = 'Until then the entries selected for LoreBase stay out of replies.';
+const WHERE_TO_FIX = 'Choose one in the Jev group of the LoreBase model card on the WorldInfo page.';
+
 beforeEach(() => {
+    host.connectionConsequence = vi.fn(() => OUT_OF_REPLIES);
     globalThis.SillyTavern = {
         getContext: () => ({
             extensionSettings: { connectionManager: { profiles: PROFILES } },
@@ -62,7 +70,15 @@ describe("Jev's connection", () => {
         expect(problem('p-claude')).toContain('is neither an OpenRouter nor a Custom profile');
         expect(problem('p-no-model')).toContain('names no model');
         expect(problem('p-no-url')).toContain('names no URL');
-        expect(problem('')).toContain('stay out of replies');
+        expect(problem('')).toBe(`Fast and Cheap [Jev] has no profile for Jev. ${WHERE_TO_FIX} ${OUT_OF_REPLIES}`);
+        expect(host.connectionConsequence).toHaveBeenCalledWith({ lorebase_jev_connection_profile_id: '' }, { isJev: true });
+    });
+
+    it('ends on what is wrong when it costs nothing now, as while LoreBase is off', () => {
+        host.connectionConsequence = vi.fn(() => '');
+        const problem = id => resolveJevConnection({ lorebase_jev_connection_profile_id: id }).problem;
+        expect(problem('')).toBe(`Fast and Cheap [Jev] has no profile for Jev. ${WHERE_TO_FIX}`);
+        expect(problem('p-no-url')).toBe(`Jev's Custom profile "No URL" names no URL.`);
     });
 
     it('says what Similharity answered when Jev cannot answer', async () => {

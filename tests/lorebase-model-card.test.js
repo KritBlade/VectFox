@@ -4,17 +4,20 @@
  * The WorldInfo page's LoreBase model card lines (src/features/settings-panel/lorebase-model-card.js, §7.2 of
  * InternalProject/Vectfox/plans/lorebook-multi-vector.md): the setup notice names the first thing LoreBase lacks and
  * hides while nothing is missing; the Vectors line names VectFox's embedding model, and its button shows the Core page
- * that sets it; both are drawn again as a control on the card changes, as SillyTavern's connection profiles change, and
- * as the page opens.
+ * that sets it; both are drawn again as a control on the card changes, as LoreBase's switch is saved, as SillyTavern's
+ * connection profiles change, and as the page opens.
  */
 /* global document -- this file runs under the jsdom environment */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ problem: '', modelName: '', profilesListener: null }));
+const host = vi.hoisted(() => ({ problem: '', modelName: '', profilesListener: null, switchListener: null }));
 
 vi.mock('../src/sillytavern/connection-profiles.js', () => ({ onConnectionProfilesChanged: listener => { host.profilesListener = listener; } }));
 vi.mock('../src/features/embedding/index.js', () => ({ embeddingModelName: () => host.modelName }));
-vi.mock('../src/features/lorebase/index.js', () => ({ loreBaseSetupProblem: () => host.problem }));
+vi.mock('../src/features/lorebase/index.js', () => ({
+    loreBaseSetupProblem: () => host.problem,
+    onLoreBaseSwitchChange: listener => { host.switchListener = listener; },
+}));
 vi.mock('../src/features/settings-panel/panel-shell.js', () => ({ showPanelTab: vi.fn() }));
 
 const { showPanelTab } = await import('../src/features/settings-panel/panel-shell.js');
@@ -52,6 +55,15 @@ describe("LoreBase's model card lines", () => {
         host.profilesListener();
         expect(shownNotice()).toBeNull();
         expect(vectorsLine()).toBe('No embedding model is set.');
+    });
+
+    it("draws the notice again as LoreBase's switch is saved, as its last sentence follows the switch", () => {
+        host.problem = 'Fast and Cheap [Jev] has no profile for Jev. Until then the entries selected for LoreBase stay out of replies.';
+        host.switchListener(true);
+        expect(shownNotice()).toBe('Fast and Cheap [Jev] has no profile for Jev. Until then the entries selected for LoreBase stay out of replies.');
+        host.problem = 'Fast and Cheap [Jev] has no profile for Jev.';
+        host.switchListener(false);
+        expect(shownNotice()).toBe('Fast and Cheap [Jev] has no profile for Jev.');
     });
 
     it('draws again as the page opens, from the settings as they are then', () => {

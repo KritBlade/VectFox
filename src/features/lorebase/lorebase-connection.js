@@ -2,8 +2,10 @@
  * LoreBase's model (plan §5.6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): its own
  * row on the WorldInfo page, on a SillyTavern profile, OpenRouter or vLLM. The llm-provider feature resolves it as it
  * resolves every other consumer's, so LoreBase holds no manual-provider code of its own. A call can hand its token
- * counts to the caller, as the tester's report of High Accuracy's pick reads them.
+ * counts to the caller, as the tester's report of High Accuracy's pick reads them. A sentence saying that LoreBase's
+ * model or Jev cannot run ends on what that costs as LoreBase stands then (connectionConsequence).
  */
+import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { log } from '../../sillytavern/log.js';
 import {
     describeConnectionProblem,
@@ -16,17 +18,38 @@ import {
     shownVllmUrl,
 } from '../llm-provider/index.js';
 import { stripReasoningBlocks } from '../text-cleaning/index.js';
-import { CALL_TIMEOUT_MS } from './lorebase-reply-core.js';
+import { CALL_TIMEOUT_MS, FAST_AND_CHEAP, loreBaseAccuracyOf } from './lorebase-reply-core.js';
+import { isLoreBaseBackend, isLoreBaseSwitchedOn } from './lorebase-switch.js';
 
 const LOREBASE = 'LoreBase';
 
-// Where LoreBase's connection is chosen, how a missing model is fixed there, and what happens until it is fixed.
+// Where LoreBase's connection is chosen, and how a missing model is fixed there.
 const LOREBASE_CONNECTION = Object.freeze({
     feature: LOREBASE,
     page: 'WorldInfo',
     missingModelFix: 'it has no model. Set Model under LoreBase model on the WorldInfo page.',
-    consequence: 'Until then the entries selected for LoreBase stay out of replies.',
 });
+// What a model of LoreBase's that cannot run costs: a reply's lore, or the keys of the entries selected for LoreBase.
+const OUT_OF_REPLIES = 'Until then the entries selected for LoreBase stay out of replies.';
+const NO_KEYS_WRITTEN = 'Until then no keys are written for the entries selected for LoreBase.';
+
+/** Whether LoreBase runs: VectFox and LoreBase on, on Qdrant. While it does not, SillyTavern's keys decide every entry. */
+const isLoreBaseRunning = settings => isVectFoxEnabled(settings) && isLoreBaseSwitchedOn(settings) && isLoreBaseBackend(settings);
+
+/**
+ * What it costs, as LoreBase stands now, that one of its models cannot run. The entries selected for LoreBase stay out
+ * of replies only while LoreBase runs, and only when the model is the one that picks each reply's entries: Jev on Fast
+ * and Cheap [Jev], LoreBase's own model on High Accuracy. Otherwise LoreBase's own model, which writes the keys on both
+ * choices, writes none, and Jev costs nothing.
+ * @param {object} settings - VectFox settings
+ * @param {{isJev: boolean}} model - Jev, or LoreBase's own model
+ * @returns {string} '' when it costs nothing now
+ */
+export function connectionConsequence(settings, { isJev }) {
+    const isJevPicking = loreBaseAccuracyOf(settings?.lorebase_accuracy) === FAST_AND_CHEAP;
+    if (isJev === isJevPicking && isLoreBaseRunning(settings)) return OUT_OF_REPLIES;
+    return isJev ? '' : NO_KEYS_WRITTEN;
+}
 
 /**
  * LoreBase's connection, or why it cannot run. The temperature is never sent, as in the route trials; each call sets
@@ -49,15 +72,20 @@ export function resolveLoreBaseLlmConfig(settings) {
 }
 
 /**
- * The sentence for LoreBase's connection that cannot run: what is wrong, where to fix it, and that the entries
- * selected for LoreBase stay out of replies until then.
+ * The sentence for LoreBase's connection that cannot run: what is wrong, where to fix it, and what that costs as
+ * LoreBase stands now (connectionConsequence). While LoreBase does not run, it does not say LoreBase is on.
  *
  * @param {string} reason - From resolveLoreBaseLlmConfig
- * @param {string} [problem] - From resolveLoreBaseLlmConfig, for a profile that cannot be used
+ * @param {string|undefined} problem - From resolveLoreBaseLlmConfig, for a profile that cannot be used
+ * @param {object} settings - VectFox settings
  * @returns {string}
  */
-export function describeLoreBaseConnectionProblem(reason, problem) {
-    return describeConnectionProblem(LOREBASE_CONNECTION, reason, problem);
+export function describeLoreBaseConnectionProblem(reason, problem, settings) {
+    return describeConnectionProblem({
+        ...LOREBASE_CONNECTION,
+        consequence: connectionConsequence(settings, { isJev: false }),
+        isOn: isLoreBaseRunning(settings),
+    }, reason, problem);
 }
 
 /**
@@ -105,6 +133,6 @@ export function askOnLoreBase(connection) {
  */
 export async function testLoreBaseConnection(settings) {
     const connection = resolveLoreBaseLlmConfig(settings);
-    if (!connection.ok) throw new Error(describeLoreBaseConnectionProblem(connection.reason, connection.problem));
+    if (!connection.ok) throw new Error(describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings));
     return sendConnectionTest(connection, { contextLabel: LOREBASE, parameterStyle: connection.parameterStyle });
 }

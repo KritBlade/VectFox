@@ -89,18 +89,21 @@ export function shownVllmUrl(settings) {
 
 /**
  * The sentence for a consumer's connection that cannot run: what is wrong and where to fix it, then what happens
- * until it is fixed.
+ * until it is fixed, when anything does.
  *
- * @param {{feature: string, page: string, missingModelFix: string, consequence: string}} consumer - `missingModelFix`
- *   says how its missing model is fixed, as a clause after "but"
+ * @param {{feature: string, page: string, missingModelFix: string, consequence: string, isOn?: boolean}} consumer -
+ *   `missingModelFix` says how its missing model is fixed, as the clause after the feature's name; `consequence` is ''
+ *   when nothing happens until then; `isOn` is false for a feature that is off, whose sentence then names it without
+ *   saying it is on
  * @param {string} reason - From resolveLlmConnection
  * @param {string} [problem] - From resolveLlmConnection, for a profile that cannot be used
  * @returns {string}
  */
-export function describeConnectionProblem({ feature, page, missingModelFix, consequence }, reason, problem = '') {
-    if (reason === CONNECTION_PROFILE_REASON) return `${problem} ${consequence}`;
+export function describeConnectionProblem({ feature, page, missingModelFix, consequence, isOn = true }, reason, problem = '') {
+    const withConsequence = sentence => (consequence ? `${sentence} ${consequence}` : sentence);
+    if (reason === CONNECTION_PROFILE_REASON) return withConsequence(problem);
     let fix = MANUAL_PROVIDER_FIXES[reason] ?? `its connection cannot run (${reason}). Check the ${page} page.`;
     if (reason === 'missing_model') fix = missingModelFix;
     else if (reason.startsWith(UNKNOWN_PROVIDER_PREFIX)) fix = `its provider "${reason.slice(UNKNOWN_PROVIDER_PREFIX.length)}" is not one VectFox knows. Pick a provider on the ${page} page.`;
-    return `${feature} is on, but ${fix} ${consequence}`;
+    return withConsequence(isOn ? `${feature} is on, but ${fix}` : `${feature}: ${fix}`);
 }

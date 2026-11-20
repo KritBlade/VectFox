@@ -3,12 +3,13 @@
  * InternalProject/Vectfox/plans/lorebook-multi-vector.md): the setup notice, naming the first thing LoreBase lacks
  * (loreBaseSetupProblem: Qdrant, VectFox's embedding model, LoreBase's model, then Jev's profile on Fast and Cheap
  * [Jev]), hidden while nothing is missing; and the Vectors line, naming VectFox's embedding model, whose button shows
- * the Core page that sets it. Both are drawn as the page opens, and again as a control on the card changes or
- * SillyTavern's connection profiles do. The card's own controls are wired by settings-panel.js and connection-rows.js.
+ * the Core page that sets it. Both are drawn as the page opens, and again as a control on the card changes, as
+ * LoreBase's switch is saved, which the notice's last sentence follows, and as SillyTavern's connection profiles
+ * change. The card's own controls are wired by settings-panel.js and connection-rows.js.
  */
 import { onConnectionProfilesChanged } from '../../sillytavern/connection-profiles.js';
 import { embeddingModelName } from '../embedding/index.js';
-import { loreBaseSetupProblem } from '../lorebase/index.js';
+import { loreBaseSetupProblem, onLoreBaseSwitchChange } from '../lorebase/index.js';
 import { showPanelTab } from './panel-shell.js';
 import { loreBaseSetupNoticeMarkup, loreBaseVectorsLineText } from './worldinfo-page-markup.js';
 
@@ -37,8 +38,8 @@ export function refreshLoreBaseModelCard() {
 
 /**
  * Wire the Vectors line's button to the Core page, and draw the card's lines again after any control on it saves its
- * value, as a control's own listener runs before the card hears the event bubble up, and as SillyTavern's profiles
- * change. Called once, as the panel is mounted.
+ * value, as a control's own listener runs before the card hears the event bubble up, as LoreBase's switch is saved,
+ * and as SillyTavern's profiles change. Called once, as the panel is mounted.
  * @param {object} settings - VectFox settings
  */
 export function bindLoreBaseModelCard(settings) {
@@ -48,5 +49,6 @@ export function bindLoreBaseModelCard(settings) {
     card?.addEventListener('change', refreshLoreBaseModelCard);
     card?.addEventListener('input', refreshLoreBaseModelCard);
     onConnectionProfilesChanged(refreshLoreBaseModelCard);
+    onLoreBaseSwitchChange(refreshLoreBaseModelCard);
     refreshLoreBaseModelCard();
 }

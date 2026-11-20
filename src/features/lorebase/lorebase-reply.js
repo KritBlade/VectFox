@@ -187,7 +187,7 @@ async function askForReplyLore(settings, { books, scene, messages }) {
     }
     const connection = resolveLoreBaseLlmConfig(settings);
     if (!connection.ok) {
-        notifySetupIncomplete(LOREBASE, describeLoreBaseConnectionProblem(connection.reason, connection.problem));
+        notifySetupIncomplete(LOREBASE, describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings));
         return null;
     }
     return loreForReply({ scene, books, ask: askOnLoreBase(connection) });
