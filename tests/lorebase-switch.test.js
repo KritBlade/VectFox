@@ -2,7 +2,8 @@
  * LoreBase's switch and SillyTavern's Vector Storage (src/features/lorebase/lorebase-switch.js and
  * lorebase-vector-storage.js, plan §5.9 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
  * LoreBase acts only while VectFox and its switch are on, on Qdrant (D15), and Vector Storage's World Info search is
- * off; turning LoreBase on off Qdrant says it needs Qdrant and stays off; turning it on asks first to write the keys and
+ * off; turning LoreBase on off Qdrant says it needs Qdrant and stays off; so does turning it on while the model that
+ * picks each reply's entries cannot run, before any question; turning it on asks first to write the keys and
  * vectors the selected entries lack (D17, §4.3 and §4.4 of InternalProject/Vectfox/plans/lorebook-multi-vector.md,
  * lorebase-keys-question.js), says why when they cannot be, and stays off when the user declines with no entry ready,
  * turning on with the ready ones on Not now; then it asks to turn that search off, LoreBase staying off when the user
@@ -11,12 +12,13 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn: false, canTurnOff: true, pending: null, keyProblem: null }));
+const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn: false, canTurnOff: true, pending: null, keyProblem: null, replyProblem: '' }));
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { verbose: vi.fn(), warn: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(), choicePopup: vi.fn(), noticePopup: vi.fn() }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({ keyWritingProblem: () => host.keyProblem }));
+vi.mock('../src/features/lorebase/lorebase-setup.js', () => ({ replyModelProblem: () => host.replyProblem }));
 vi.mock('../src/features/lorebase/lorebase-storage.js', () => ({
     selectedEntriesNotReady: vi.fn(async () => {
         if (host.pending instanceof Error) throw host.pending;
@@ -53,6 +55,7 @@ beforeEach(() => {
     host.canTurnOff = true;
     host.pending = { books: [], count: 0, readyCount: 0, unreadBooks: 0 };
     host.keyProblem = null;
+    host.replyProblem = '';
 });
 
 describe('when LoreBase acts', () => {
@@ -173,6 +176,23 @@ describe('turning LoreBase on and off', () => {
         host.keyProblem = 'LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.';
         expect(await turnLoreBaseOn()).toBe(true);
         expect(writeMissing).not.toHaveBeenCalled();
+    });
+
+    it("stays off, saying why before any question, while the model that picks each reply's entries cannot run", async () => {
+        host.replyProblem = 'Fast and Cheap [Jev] has no profile for Jev. Choose one in the Jev group of the LoreBase model card on the WorldInfo page.';
+        host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 4, readyCount: 357, unreadBooks: 0 };
+        host.isWorldInfoSearchOn = true;
+
+        expect(await turnLoreBaseOn()).toBe(false);
+        expect(noticePopup).toHaveBeenCalledWith([
+            { icon: 'fa-plug', text: "LoreBase stays off: the model that picks each reply's entries cannot run yet." },
+            { name: host.replyProblem },
+        ]);
+        expect(selectedEntriesNotReady).not.toHaveBeenCalled();
+        expect(confirmPopup).not.toHaveBeenCalled();
+        expect(turnOffVectorStorageWorldInfo).not.toHaveBeenCalled();
+        expect(isLoreBaseSwitchedOn()).toBe(false);
+        expect(showsSwitch).not.toHaveBeenCalled();
     });
 
     it('stays off on the Standard backend, and says LoreBase needs Qdrant', async () => {

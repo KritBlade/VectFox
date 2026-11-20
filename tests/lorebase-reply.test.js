@@ -117,6 +117,8 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
     }),
 }));
 vi.mock('../src/features/lorebase/lorebase-routes.js', () => ({ postLoreBaseRoute: vi.fn() }));
+// Turning LoreBase on, which a reply never does, checks its reply model there.
+vi.mock('../src/features/lorebase/lorebase-setup.js', () => ({ replyModelProblem: () => '' }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     readBookKeys: vi.fn(async bookNames => {
         if (host.keysReadError) throw host.keysReadError;

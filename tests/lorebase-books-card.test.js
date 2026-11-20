@@ -115,11 +115,12 @@ const freeControls = () => [...document.querySelectorAll('#VectFox_lorebase_book
 const isNoticeShown = () => !document.getElementById('VectFox_lorebase_off_notice').hidden;
 
 describe("LoreBase's switch", () => {
-    it('shows off as saved, with the notice saying to choose entries and set the model first, and only the Generate buttons waiting', async () => {
+    it('shows off as saved, with the notice saying to choose entries and set up the model card first, and only the Generate buttons waiting', async () => {
         host.isOn = false;
         await refreshLoreBaseBooks();
         expect([toggle().checked, ...generateButtons().map(button => button.disabled), isNoticeShown()]).toEqual([false, true, true, true, true]);
-        expect(document.getElementById('VectFox_lorebase_off_notice').textContent).toContain('Choose entries and set LoreBase');
+        expect(document.getElementById('VectFox_lorebase_off_notice').textContent)
+            .toContain('Choose entries and set up the LoreBase model card, then turn on Use LoreBase');
         expect(freeControls().length).toBeGreaterThan(4);
         expect(freeControls().filter(control => control.disabled)).toEqual([]);
     });

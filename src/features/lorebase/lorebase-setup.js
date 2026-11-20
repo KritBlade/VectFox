@@ -1,7 +1,9 @@
 /**
  * What LoreBase's setup lacks, for the WorldInfo page's model card (§2 and §7.2 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md): the first thing missing, in the order a new user sets it up. Each check is the one the
- * runs themselves make, so the card and a run say the same.
+ * lorebook-multi-vector.md): the first thing missing, in the order a new user sets it up; and whether the model that
+ * picks each reply's entries can run, which turning LoreBase on needs (§5.9 of InternalProject/Vectfox/plans/
+ * lorebook-semantic-overhaul-passage-index.md). Each check is the one the runs themselves make, so the card, the switch
+ * and a run say the same.
  */
 import { embeddingSetupProblem } from '../embedding/index.js';
 import { describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
@@ -29,7 +31,20 @@ export function loreBaseSetupProblem(settings) {
     }
     const connection = resolveLoreBaseLlmConfig(settings);
     if (!connection.ok) return describeLoreBaseConnectionProblem(connection.reason, connection.problem);
-    if (loreBaseAccuracyOf(settings.lorebase_accuracy) !== FAST_AND_CHEAP) return '';
-    const jev = resolveJevConnection(settings);
-    return jev.ok ? '' : jev.problem;
+    return replyModelProblem(settings);
+}
+
+/**
+ * Why the model that picks each reply's entries cannot run: Jev, through its profile, on Fast and Cheap [Jev], where
+ * LoreBase's own model only writes the keys; LoreBase's own model on High Accuracy.
+ * @param {object} settings - VectFox settings
+ * @returns {string} '' when it can run
+ */
+export function replyModelProblem(settings) {
+    if (loreBaseAccuracyOf(settings.lorebase_accuracy) === FAST_AND_CHEAP) {
+        const jev = resolveJevConnection(settings);
+        return jev.ok ? '' : jev.problem;
+    }
+    const connection = resolveLoreBaseLlmConfig(settings);
+    return connection.ok ? '' : describeLoreBaseConnectionProblem(connection.reason, connection.problem);
 }

@@ -37,7 +37,7 @@ function loreBaseBooksCard() {
         ${cardHeader({ icon: 'fa-book-open', title: 'LoreBase books', description: 'The lorebooks this chat loads. LoreBase decides selected entries in books locked here.' })}
         <div class="vfx-card-body vfx-stack">
             ${switchRow({ id: 'VectFox_lorebase_enabled', title: 'Use LoreBase', description: 'Off: every entry fires by its keys, as SillyTavern does. Selections are kept.' })}
-            <div id="VectFox_lorebase_off_notice">${notice({ status: 'info', text: "Choose entries and set LoreBase's model, then turn on Use LoreBase: it asks before writing their keys and vectors." })}</div>
+            <div id="VectFox_lorebase_off_notice">${notice({ status: 'info', text: 'Choose entries and set up the LoreBase model card, then turn on Use LoreBase: it asks before writing their keys and vectors.' })}</div>
             <div id="VectFox_lorebase_books" aria-live="polite"></div>
             ${controlRow([button({ text: 'Choose entries', icon: 'fa-list-check', kind: 'primary', data: { 'lorebase-choose': '' } })])}
             ${hint({ text: "Choose any lorebook's entries for LoreBase, and lock the book to this chat or character." })}
