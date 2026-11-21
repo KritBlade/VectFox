@@ -75,10 +75,10 @@ describe('measureStoryLinkCoverage', () => {
 
     it('calls links usable from 90% decided, and only when one has a link', () => {
         const decided = Array.from({ length: 9 }, (_, i) => event(i, i, { story_links: [link(0)] }));
-        expect(measureStoryLinkCoverage([...decided, event(9, 9)]).hasUsableLinks).toBe(true);
-        expect(measureStoryLinkCoverage([...decided, event(9, 9), event(10, 10)]).hasUsableLinks).toBe(false);
-        expect(measureStoryLinkCoverage([event(1, 1, { story_links: [] })]).hasUsableLinks).toBe(false);
-        expect(measureStoryLinkCoverage([]).hasUsableLinks).toBe(false);
+        expect(measureStoryLinkCoverage([...decided, event(9, 9)])).toMatchObject({ isMostlyDecided: true, hasUsableLinks: true });
+        expect(measureStoryLinkCoverage([...decided, event(9, 9), event(10, 10)])).toMatchObject({ isMostlyDecided: false, hasUsableLinks: false });
+        expect(measureStoryLinkCoverage([event(1, 1, { story_links: [] })])).toMatchObject({ isMostlyDecided: true, hasUsableLinks: false });
+        expect(measureStoryLinkCoverage([])).toMatchObject({ isMostlyDecided: false, hasUsableLinks: false });
     });
 
     // Links that lead nowhere must read as none, or a chat looks linked while every walk stops at once.
@@ -305,6 +305,7 @@ describe('describeStoryLinkCoverage', () => {
     it('says how many events are linked, and how many are not decided yet', () => {
         expect(describeStoryLinkCoverage({ totalCount: 1803, decidedCount: 1803, linkedCount: 1672 })).toBe('1672 of 1803 events linked');
         expect(describeStoryLinkCoverage({ totalCount: 10, decidedCount: 7, linkedCount: 5 })).toBe('5 of 10 events linked, 3 not decided yet');
+        expect(describeStoryLinkCoverage({ totalCount: 1, decidedCount: 1, linkedCount: 0 })).toBe('0 of 1 event linked');
     });
 
     it('says when there are no events, and when they could not be read', () => {

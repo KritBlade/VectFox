@@ -17,6 +17,7 @@
  * ============================================================================
  */
 
+import { counted } from '../../shared/counted.js';
 import { packTimelineSortKey, parseEmbedText } from './eventbase-schema.js';
 
 export const STORY_LINK_TYPE = Object.freeze({
@@ -53,7 +54,7 @@ export const LINK_NEAREST_COUNT = 10;
 const LINK_RECENT_COUNT = 3;
 
 /** Below this share of decided events, walks would stop at undecided events, so recipes do not use links. */
-const USABLE_DECIDED_SHARE = 0.9;
+export const USABLE_DECIDED_SHARE = 0.9;
 
 /**
  * Events a link pass from the StoryArc tab decides at once, its Events at once slider: as many as Vectorize Content
@@ -134,18 +135,21 @@ export function eventsByEventId(events) {
  * link of its reaches a stored event, so links that lead nowhere show as none.
  *
  * @param {object[]} events
- * @returns {{totalCount: number, decidedCount: number, linkedCount: number, hasUsableLinks: boolean}}
- *   `hasUsableLinks` is true when enough events are decided, and at least one has a link, for a walk to be useful.
+ * @returns {{totalCount: number, decidedCount: number, linkedCount: number, isMostlyDecided: boolean, hasUsableLinks: boolean}}
+ *   `isMostlyDecided` is true from USABLE_DECIDED_SHARE of events decided; `hasUsableLinks` is true when they are, and
+ *   at least one has a link, for a walk to be useful.
  */
 export function measureStoryLinkCoverage(events) {
     const decided = events.filter(isDecided);
     const eventById = eventsByEventId(events);
     const linkedCount = decided.filter(event => event.story_links.some(link => eventById.has(link.event_id))).length;
+    const isMostlyDecided = events.length > 0 && decided.length >= events.length * USABLE_DECIDED_SHARE;
     return {
         totalCount: events.length,
         decidedCount: decided.length,
         linkedCount,
-        hasUsableLinks: linkedCount > 0 && decided.length >= events.length * USABLE_DECIDED_SHARE,
+        isMostlyDecided,
+        hasUsableLinks: linkedCount > 0 && isMostlyDecided,
     };
 }
 
@@ -343,7 +347,7 @@ export function describeStoryLinkCoverage(coverage) {
     if (!coverage) return 'Could not read its events. See the console.';
     if (!coverage.totalCount) return 'No events yet';
     const undecidedCount = coverage.totalCount - coverage.decidedCount;
-    return `${coverage.linkedCount} of ${coverage.totalCount} events linked${undecidedCount ? `, ${undecidedCount} not decided yet` : ''}`;
+    return `${coverage.linkedCount} of ${counted(coverage.totalCount, 'event')} linked${undecidedCount ? `, ${undecidedCount} not decided yet` : ''}`;
 }
 
 /**

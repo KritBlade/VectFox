@@ -22,7 +22,7 @@ import {
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import {
-    describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, linkPassChoices, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass,
+    describeStoryLinkPass, hideStoryArcPage, linkEstimateText, linkParallelCallsOf, linkPassChoices, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass,
     showNoCollectionInUse, showStoryArcPage, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup, wireStoryArcPage,
 } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
@@ -165,12 +165,6 @@ async function refreshStoryLinkStatus(settings) {
     $pill.removeClass(LINK_PILL_STATUS_CLASSES).addClass(`is-${pill.status}`).text(pill.text).show();
 }
 
-/** One line of what a link pass would likely cost. */
-function _describeLinkEstimate({ eventCount, inputTokens, outputTokens, minutes, costUsd }) {
-    const cost = costUsd === null ? 'price unknown' : `about $${costUsd.toFixed(2)}`;
-    return `${eventCount} events: ${cost}, about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}, about ${Math.round(inputTokens / 1000)}k input and ${Math.round(outputTokens / 1000)}k output tokens`;
-}
-
 /** Show a link pass's cost, and run it if the player accepts, with as many events at once as the card's slider says. */
 async function _runStoryLinkButton(settings) {
     const parallelCalls = linkParallelCallsOf($('#VectFox_story_arc_link_parallel_calls').val());
@@ -191,8 +185,8 @@ async function _runStoryLinkButton(settings) {
         { icon: 'fa-diagram-project', text: 'Regenerate StoryArc links?' },
         { text: 'Collection:', name: collectionName },
         { parts: [{ text: "Each event's text goes to " }, { name: model }, { text: ' once, along with up to 13 earlier events.' }] },
-        ...(hasUndecided ? [{ text: 'Events with no decision yet:', name: _describeLinkEstimate(undecidedEstimate) }] : []),
-        ...(hasDecided ? [{ text: 'All events, replacing their links:', name: _describeLinkEstimate(allEstimate) }] : []),
+        ...(hasUndecided ? [{ text: 'Events with no decision yet:', name: linkEstimateText(undecidedEstimate) }] : []),
+        ...(hasDecided ? [{ text: 'All events, replacing their links:', name: linkEstimateText(allEstimate) }] : []),
         { text: 'Estimated from one chat on GPT-6 Luna, and a model that thinks more costs more. You can stop at any time, and finished events keep their links.' },
     ], {
         choices: linkPassChoices({ undecidedCount: undecidedEstimate.eventCount, decidedCount: coverage.decidedCount, totalCount: allEstimate.eventCount }),

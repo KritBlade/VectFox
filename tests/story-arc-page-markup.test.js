@@ -10,8 +10,9 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    STORY_ARC_ELEMENT_ID, linkPassChoices, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup,
+    STORY_ARC_ELEMENT_ID, linkEstimateText, linkPassChoices, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup,
 } from '../src/features/eventbase/story-arc-page-markup.js';
+import { estimateStoryLinkPass } from '../src/features/eventbase/story-arc-links-core.js';
 import { ENTITY_ROWS_PER_PAGE, entityListMarkup, hiddenNamesButton } from '../src/features/eventbase/story-arc-entity-ui.js';
 
 const rowsOf = count => Array.from({ length: count }, (_, place) => ({ name: `Name ${place}`, otherNames: [], eventCount: count - place }));
@@ -163,12 +164,13 @@ describe('hiddenNamesButton', () => {
 });
 
 describe('the links line and pill: how far the collection in use is linked', () => {
-    const coverage = (decidedCount, totalCount = 12) => ({
+    const coverage = (decidedCount, totalCount = 12, linkedCount = Math.max(0, decidedCount - 2)) => ({
         collectionName: 'Harbor <b>Keeper</b> 3',
         totalCount,
         decidedCount,
-        linkedCount: Math.max(0, decidedCount - 2),
-        hasUsableLinks: decidedCount > 2 && decidedCount >= totalCount * 0.9,
+        linkedCount,
+        isMostlyDecided: decidedCount >= totalCount * 0.9,
+        hasUsableLinks: linkedCount > 0 && decidedCount >= totalCount * 0.9,
     });
 
     it('is green with every event decided', () => {
@@ -182,9 +184,21 @@ describe('the links line and pill: how far the collection in use is linked', () 
     it('is yellow with some decided, for Regenerate links to catch up', () => {
         const line = storyLinkStatusMarkup(coverage(8));
         expect(line).toContain('vfx-result-line is-warning');
-        expect(line).toContain('8 of 12 events decided, 6 with links. StoryArc searches without links until this pass is mostly done.'
+        expect(line).toContain('8 of 12 events decided, 6 with links. StoryArc searches without links until 90% of events are decided.'
             + ' Regenerate links catches up the events not decided.');
         expect(storyLinkPill(coverage(8))).toEqual({ status: 'warning', text: '8 of 12 events decided' });
+    });
+
+    // A small collection's one call can find nothing to link: its pass is done, so the line must not say it is under way.
+    it('says why there are no links with every event decided and none linked', () => {
+        const line = storyLinkStatusMarkup(coverage(2, 2, 0));
+        expect(line).toContain('vfx-result-line is-success');
+        expect(line).toContain('2 of 2 events decided, 0 with links. No event links to an earlier one yet, so StoryArc searches without links.');
+    });
+
+    it('counts one event as one', () => {
+        expect(storyLinkPill(coverage(0, 1))).toEqual({ status: 'danger', text: '0 of 1 event decided' });
+        expect(storyLinkStatusMarkup(coverage(1, 1, 0))).toContain('1 of 1 event decided, 0 with links.');
     });
 
     it('is red with none decided, as a new collection is until Regenerate links links it', () => {
@@ -219,5 +233,29 @@ describe("Regenerate links' choices", () => {
 
     it('offers Relink all alone with every one decided', () => {
         expect(linkPassChoices({ undecidedCount: 0, decidedCount: 11, totalCount: 11 })).toEqual([{ text: 'Relink all 11 events', value: 'all' }]);
+    });
+
+    // A turn synced with StoryArc mode off leaves one new event for Catch up.
+    it('counts one event as one', () => {
+        expect(linkPassChoices({ undecidedCount: 1, decidedCount: 2, totalCount: 3 })).toEqual([
+            { text: 'Catch up 1 event', value: 'undecided' },
+            { text: 'Relink all 3 events', value: 'all' },
+        ]);
+        expect(linkPassChoices({ undecidedCount: 1, decidedCount: 0, totalCount: 1 })).toEqual([{ text: 'Link 1 event', value: 'undecided' }]);
+    });
+});
+
+describe("Regenerate links' cost line", () => {
+    it('counts one event and one minute as one, and shows output under a thousand tokens to the hundred', () => {
+        expect(linkEstimateText(estimateStoryLinkPass(1, null, 3))).toBe('1 event: price unknown, about 1 minute, about 2k input and 300 output tokens');
+    });
+
+    it('shows thousands from 950 tokens', () => {
+        expect(linkEstimateText(estimateStoryLinkPass(3, null, 3))).toBe('3 events: price unknown, about 1 minute, about 5k input and 1k output tokens');
+    });
+
+    it('shows the price and the minutes of a larger pass', () => {
+        expect(linkEstimateText(estimateStoryLinkPass(15, { input: 0.000001, output: 0.000004 }, 1)))
+            .toBe('15 events: about $0.05, about 2 minutes, about 27k input and 5k output tokens');
     });
 });

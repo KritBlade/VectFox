@@ -10,7 +10,8 @@
 
 import { button, detail, fieldLabel, grid, hint, iconButton, resultList, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, pageHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
-import { LINK_PARALLEL_CALLS_DEFAULT, LINK_PARALLEL_CALLS_MAX, STORY_LINK_STATE, storyLinkState } from './story-arc-links-core.js';
+import { counted } from '../../shared/counted.js';
+import { LINK_PARALLEL_CALLS_DEFAULT, LINK_PARALLEL_CALLS_MAX, STORY_LINK_STATE, USABLE_DECIDED_SHARE, storyLinkState } from './story-arc-links-core.js';
 import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
@@ -99,23 +100,35 @@ const LINK_STATE_STATUS = Object.freeze({
 });
 
 /**
+ * Why StoryArc does or does not walk a collection's links, once some events are decided: it walks them from
+ * USABLE_DECIDED_SHARE decided with one link or more; at that share with none, no event builds on an earlier one.
+ * @param {{linkedCount: number, isMostlyDecided: boolean, hasUsableLinks: boolean}} coverage
+ * @returns {string}
+ */
+function linkUseText({ linkedCount, isMostlyDecided, hasUsableLinks }) {
+    if (hasUsableLinks) return 'StoryArc follows threads through these links.';
+    if (isMostlyDecided && linkedCount === 0) return 'No event links to an earlier one yet, so StoryArc searches without links.';
+    return `StoryArc searches without links until ${Math.round(USABLE_DECIDED_SHARE * 100)}% of events are decided.`;
+}
+
+/**
  * The links line under Regenerate links: how far the collection in use is linked, coloured by storyLinkState, green
  * with every event decided, yellow with some, red with none, and what Regenerate links does about it; or, with no
  * collection to read, why (readStoryLinkCoverage's problem), uncoloured.
  * @param {{problem?: string, collectionName?: string, totalCount?: number, decidedCount?: number, linkedCount?: number,
- *   hasUsableLinks?: boolean}} coverage - readStoryLinkCoverage's answer
+ *   isMostlyDecided?: boolean, hasUsableLinks?: boolean}} coverage - readStoryLinkCoverage's answer
  * @returns {string}
  */
 export function storyLinkStatusMarkup(coverage) {
     if (coverage.problem) return resultList({ lines: [{ name: coverage.problem }] });
-    const { collectionName, totalCount, decidedCount, linkedCount, hasUsableLinks } = coverage;
+    const { collectionName, totalCount, decidedCount, linkedCount } = coverage;
     const state = storyLinkState(coverage);
-    const counts = `"${collectionName}": ${decidedCount} of ${totalCount} events decided, ${linkedCount} with links.`;
+    const counts = `"${collectionName}": ${decidedCount} of ${counted(totalCount, 'event')} decided, ${linkedCount} with links.`;
     let next;
     if (state === STORY_LINK_STATE.UNLINKED) {
         next = 'StoryArc searches without links until Regenerate links links them, after showing the cost.';
     } else {
-        next = hasUsableLinks ? 'StoryArc follows threads through these links.' : 'StoryArc searches without links until this pass is mostly done.';
+        next = linkUseText(coverage);
         if (state === STORY_LINK_STATE.PARTLY_LINKED) next += ' Regenerate links catches up the events not decided.';
     }
     return resultList({ lines: [{ status: LINK_STATE_STATUS[state], name: `${counts} ${next}` }] });
@@ -127,7 +140,7 @@ export function storyLinkStatusMarkup(coverage) {
  * @returns {{status: string, text: string}} status: success, warning or danger, the pill's is- class
  */
 export function storyLinkPill(coverage) {
-    return { status: LINK_STATE_STATUS[storyLinkState(coverage)], text: `${coverage.decidedCount} of ${coverage.totalCount} events decided` };
+    return { status: LINK_STATE_STATUS[storyLinkState(coverage)], text: `${coverage.decidedCount} of ${counted(coverage.totalCount, 'event')} decided` };
 }
 
 /**
@@ -138,9 +151,24 @@ export function storyLinkPill(coverage) {
  */
 export function linkPassChoices({ undecidedCount, decidedCount, totalCount }) {
     return [
-        ...(undecidedCount > 0 ? [{ text: `${decidedCount > 0 ? 'Catch up' : 'Link'} ${undecidedCount} events`, value: 'undecided' }] : []),
-        ...(decidedCount > 0 || undecidedCount === 0 ? [{ text: `Relink all ${totalCount} events`, value: 'all' }] : []),
+        ...(undecidedCount > 0 ? [{ text: `${decidedCount > 0 ? 'Catch up' : 'Link'} ${counted(undecidedCount, 'event')}`, value: 'undecided' }] : []),
+        ...(decidedCount > 0 || undecidedCount === 0 ? [{ text: `Relink all ${counted(totalCount, 'event')}`, value: 'all' }] : []),
     ];
+}
+
+/** A token count as a link estimate shows it: from 950 in thousands, as "27k", and below that to the hundred, as "300". */
+const tokenCountText = count => (count >= 950 ? `${Math.round(count / 1000)}k` : String(Math.round(count / 100) * 100));
+
+/**
+ * One line of what a link pass would likely cost, for Regenerate links' dialog.
+ * @param {{eventCount: number, inputTokens: number, outputTokens: number, minutes: number, costUsd: number|null}} estimate
+ *   - estimateStoryLinkPass's answer
+ * @returns {string}
+ */
+export function linkEstimateText({ eventCount, inputTokens, outputTokens, minutes, costUsd }) {
+    const cost = costUsd === null ? 'price unknown' : `about $${costUsd.toFixed(2)}`;
+    return `${counted(eventCount, 'event')}: ${cost}, about ${counted(minutes, 'minute')}, `
+        + `about ${tokenCountText(inputTokens)} input and ${tokenCountText(outputTokens)} output tokens`;
 }
 
 function blockSizeCard() {

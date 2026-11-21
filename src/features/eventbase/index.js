@@ -49,7 +49,7 @@ export {
     runStoryLinkPass,
     writeImportedStoryLinks,
 } from './story-arc-links.js';
-export { linkPassChoices, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup } from './story-arc-page-markup.js';
+export { linkEstimateText, linkPassChoices, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup } from './story-arc-page-markup.js';
 export { hideStoryArcPage, showStoryArcPage, wireStoryArcPage } from './story-arc-page.js';
 export {
     buildSummarizerInjection,
