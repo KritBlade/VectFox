@@ -14,14 +14,14 @@
  * (§6 of lorebook-multi-vector.md) adds the book chosen in its list to this chat or to this character, locked there,
  * and opens the selection screen on it, the status line saying where it went or why it was not added. Generate keys
  * and Generate vectors write what the selected entries of every book lack of their kind, and Generate all both; Delete
- * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17); Remove from LoreBase, on
- * a book's row, runs LoreBase's one confirm and removal of the book (removeLoreBookAfterConfirm), its record, keys and
- * vectors, and leaves the book in the chat; Unlink, on the row of a book the chat loads through its Chat Lorebook, the
- * character's Additional Lorebooks or the global list, confirms and removes it the same, then takes it out of those
- * lists. Selection in use here, leading a book's row, puts the selection chosen in use in this chat, or makes a new one
- * and opens the selection screen on it (§1.2 and §3.7 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md). Each goes through LoreBase's
- * storage module. The card's status line says how each went, and shows every writing run on the progress panel,
+ * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17); a book row's trash, on
+ * one of 2 or more selections in use here, runs LoreBase's one selection delete on it alone
+ * (deleteLoreSelectionAfterConfirm), and else Remove from LoreBase, LoreBase's one confirm and removal of the book
+ * (removeLoreBookAfterConfirm), its record, keys and vectors, leaving the book in the chat; Unlink, on the row of a book
+ * the chat loads through its Chat Lorebook, the character's Additional Lorebooks or the global list, confirms and
+ * removes it the same, then takes it out of those lists. Selection in use here, leading a book's row, puts the
+ * selection chosen in use in this chat, or makes a new one and opens the selection screen on it (§1.2 and §3.7 of
+ * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). Each goes through LoreBase's storage module. The card's status line says how each went, and shows every writing run on the progress panel,
  * whichever started it: the entries being written, then what was written and the books the run locked to its chat
  * (§6.1 of lorebook-multi-vector.md), a line that goes once another chat is open.
  */
@@ -29,9 +29,10 @@ import { getCurrentChatId } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
-    BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteStored, describeRemovedLoreBook, isLoreBaseSwitchedOn,
-    newLoreSelectionHere, onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange, openLoreBaseSelection, removeLoreBookAfterConfirm,
-    selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, useLoreSelectionHere, writeMissing, writingProblem,
+    BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteLoreSelectionAfterConfirm, deleteStored,
+    describeRemovedLoreBook, isLoreBaseSwitchedOn, newLoreSelectionHere, onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange,
+    openLoreBaseSelection, removeLoreBookAfterConfirm, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn,
+    useLoreSelectionHere, writeMissing, writingProblem,
 } from '../lorebase/index.js';
 import { IN_USE_NEW } from './in-use-switcher-markup.js';
 import { loreBaseBookRow, loreBaseBooksMarkup } from './worldinfo-page-markup.js';
@@ -307,6 +308,30 @@ async function removeBook(button) {
 }
 
 /**
+ * The trash on a book's row while its dropdown shows one of its 2 or more selections in use here: LoreBase's one
+ * selection delete on that one alone (deleteLoreSelectionAfterConfirm), the book and its other selections staying.
+ * Once confirmed and done, the status line says what went and the list is drawn again; Cancel says nothing; a refusal
+ * says why. The button waits while it runs.
+ * @param {HTMLButtonElement} button - The row's trash, naming its book and the selection
+ * @returns {Promise<void>}
+ */
+async function deleteRowSelection(button) {
+    const bookName = button.dataset.lorebaseDeleteSelection;
+    button.disabled = true;
+    try {
+        const deleted = await deleteLoreSelectionAfterConfirm(bookName, button.dataset.lorebaseSelection, cardSettings);
+        if (!deleted) return;
+        showBooksStatus(`Deleted the selection "${deleted.selectionName}" of "${bookName}". Its other selections stay.`);
+        void refreshLoreBaseBooks();
+    } catch (error) {
+        log.warn(`LoreBase: a selection of lorebook "${bookName}" could not be deleted:`, error);
+        showBooksStatus(`Not deleted: ${error?.message || error}`);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/**
  * Selection in use here, on a book's row (§1.2 of vectfox-multi-collection-per-chat.md): a selection chosen is put in
  * use in this chat; New selection copies the one in use, or on a book with none makes its first, puts it in use here
  * and opens the selection screen on it (newLoreSelectionHere). The status line says what changed, a line that goes once
@@ -338,7 +363,7 @@ async function switchSelection(switcher) {
 
 /**
  * Wire LoreBase's switch, open the selection screen from the card's buttons, and run the Generate buttons, Delete all,
- * each book's Selection in use here, its Unlink and its Remove from LoreBase. Called once, as the panel is mounted.
+ * each book's Selection in use here, its Unlink and its trash. Called once, as the panel is mounted.
  * @param {object} settings - VectFox settings
  */
 export function bindLoreBaseBooksCard(settings) {
@@ -370,6 +395,8 @@ export function bindLoreBaseBooksCard(settings) {
         if (adder) void addBook(adder);
         const remover = event.target.closest('[data-lorebase-remove], [data-lorebase-unlink]');
         if (remover) void removeBook(remover);
+        const selectionDeleter = event.target.closest('[data-lorebase-delete-selection]');
+        if (selectionDeleter) void deleteRowSelection(selectionDeleter);
     });
     document.getElementById('VectFox_lorebase_books_card')?.addEventListener('change', event => {
         const switcher = event.target.closest('[data-lorebase-in-use]');

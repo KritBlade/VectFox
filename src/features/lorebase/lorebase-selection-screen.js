@@ -5,7 +5,8 @@
  * edits one of the book's selections (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the
  * one named, else the one in use here, else the book's first, made when it has none. Its list changes which one it edits, not which is
  * in use; New selection copies the one shown and puts the copy in use here, Rename renames it, and Delete, once
- * confirmed, deletes it, a book's last selection staying. Its lock switches and pins are the shown selection's. Every
+ * confirmed, deletes it with the vectors no other selection holds, the WorldInfo row's trash's one delete
+ * (deleteLoreSelectionAfterConfirm), a book's last selection staying. Its lock switches and pins are the shown selection's. Every
  * control saves as it changes, as GUI-DNA asks. Turning entries on only selects them: once the screen closes while LoreBase is
  * on, it asks to write the keys and vectors the selected entries lack (D17, §4.3 of InternalProject/Vectfox/plans/
  * lorebook-multi-vector.md), under the progress panel, and turns LoreBase off when they are not written and no entry is
@@ -23,16 +24,17 @@
  * each of its selections, and reads its vectors from Qdrant again, so edits made while SillyTavern was closed are found.
  */
 import { log } from '../../sillytavern/log.js';
-import { confirmPopup, formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
+import { formPopup, noticePopup, openPanelPopup } from '../../sillytavern/popup.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import {
-    deleteLoreSelection, ensureLoreSelection, getLoreBook, getLoreSelection, loreBookRecordCounts, loreSelectionsOf, renameLoreSelection,
-    selectionInUse, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
+    ensureLoreSelection, getLoreBook, getLoreSelection, loreBookRecordCounts, loreSelectionsOf, renameLoreSelection, selectionInUse,
+    setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
 } from './lorebase-books.js';
 import { chatBookLocks, chatBookNames, lockTarget, newLoreSelectionHere } from './lorebase-chat-books.js';
+import { deleteLoreSelectionAfterConfirm } from './lorebase-removal.js';
 import { editedKeys } from './lorebase-keys-core.js';
 import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys } from './lorebase-keys.js';
 import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
@@ -48,7 +50,7 @@ import {
     selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
 } from './lorebase-selection-core.js';
 import {
-    NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, deleteSelectionLines, entriesFooterMarkup,
+    NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup,
     entryDetailLines, entryRowMarkup, entryTextMarkup, keysEditorLines, keysEditorMarkup, lockNoticeMarkup, noLorebookMarkup,
     noMatchingEntriesMarkup, noTitleNoticeMarkup, pinsMarkup, readinessSummaryText, renameSelectionFormMarkup, selectionOptions,
     selectionScreenMarkup, summaryText,
@@ -503,15 +505,14 @@ async function renameSelection(root, session) {
 }
 
 /**
- * Delete the selection shown, once confirmed, then show the one in use here or the book's first. The vectors of the
- * entries no other selection holds go as the screen closes, with the book's other changed selections.
+ * Delete the selection shown through the one selection delete, the WorldInfo row's trash's too
+ * (deleteLoreSelectionAfterConfirm), which asks first and prunes the vectors of the entries no other selection holds;
+ * then show the one in use here or the book's first.
  */
 async function deleteSelection(root, session) {
     const selection = shownSelectionOf(session);
     if (!selection || loreSelectionsOf(session.bookName).length < 2) return;
-    if (!await confirmPopup(deleteSelectionLines(selection.name), { okButton: 'Delete', isDestructive: true })) return;
-    deleteLoreSelection(session.bookName, selection.id);
-    session.booksWithChangedSelection.add(session.bookName);
+    if (!await deleteLoreSelectionAfterConfirm(session.bookName, selection.id, extension_settings.vectfox)) return;
     showSelection(root, session, (selectionInUse(session.bookName, lockTarget()) ?? loreSelectionsOf(session.bookName)[0]).id);
 }
 

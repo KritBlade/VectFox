@@ -72,11 +72,11 @@ See a ⚠ next to a book's name? None of its selections has an entry on, so Lore
 
 Each row has its own Export, Import and Delete. Export saves that one kind to a file. Import puts a file back. Delete removes that kind, of that book, and nothing else. Your selections stay, LoreBase stays on, and those entries just sit out of your replies until Generate keys or Generate vectors writes them again.
 
-Want the whole book gone from LoreBase, not just one kind? Press the trash button on the book's own row, **Remove from LoreBase**. It deletes everything LoreBase keeps for that book: all its selections, with their entries, pinned sections and locks, its keys AND its vectors. It asks first, in red, and names each part, so you see what goes before it goes. Only want 1 of its selections gone? That's **Delete** in **Choose entries**, and the question says so in green when the book has more than 1.
+Want the whole book gone from LoreBase, not just one kind? Press the trash button on the book's own row, **Remove from LoreBase**. It deletes everything LoreBase keeps for that book: all its selections, with their entries, pinned sections and locks, its keys AND its vectors. It asks first, in red, and names each part, so you see what goes before it goes. Only want 1 of its selections gone? That's **Delete** in **Choose entries**, and the question says so in green when the book has more than 1. The trash on the book's WorldInfo row does it too, for the selection in use there.
 
 The book itself stays in SillyTavern. So its entries just fire by their keys again, like any book LoreBase doesn't use. Leftovers don't get the button: you clean those up one row at a time.
 
-The **LoreBase books** card on the WorldInfo page has the same trash button, on each book LoreBase keeps something for, and it does the same thing. The book stays in your chat, with nothing selected and no lock.
+The **LoreBase books** card on the WorldInfo page has a trash button too, on each book LoreBase keeps something for. When the book has 2 or more selections and one of them is in use here, the one its dropdown shows, the trash deletes just that selection, like **Delete** in **Choose entries**: its entries, pins and locks, and the vectors no other selection needs. The book and its other selections stay. Otherwise the trash is **Remove from LoreBase**, the same as above, and the book stays in your chat, with nothing selected and no lock.
 
 Want the book out of the chat too? That's **Unlink**, the broken-link button right before the trash. It's on each book your chat loads through its Chat Lorebook, the character's Additional Lorebooks or SillyTavern's global list. It deletes everything **Remove from LoreBase** deletes, AND unlinks the book from those places. So it's gone from the card, and **Add a lorebook** offers it again. It asks first, in red, and tells you unlinking deletes its keys and vectors too. Careful with the global list: a book there loads in EVERY chat, so it leaves all of them. The character's own lorebook and your persona's have no Unlink, since they load in other chats too. Take those out in SillyTavern.
 
@@ -141,11 +141,11 @@ The row under the book's dropdown is for them. Its list has the book's selection
 - Picking another one in that list only shows it, so you can change it. It doesn't put it in use.
 - **New selection** copies the one you see, its entries and pins but not its locks, as "Harbor Atlas 2". The copy goes in use in this chat right away.
 - **Rename** gives the one you see a new name.
-- **Delete** deletes the one you see, after asking. A book's last selection can't be deleted. **Remove from LoreBase** removes the whole book instead.
+- **Delete** deletes the one you see, after asking, with the vectors no other selection needs. A book's last selection can't be deleted. **Remove from LoreBase** removes the whole book instead.
 
 A chat uses 1 selection of a book at most. Lock one to this chat, and this chat's lock comes off the book's other selections. The same goes for the character. When the chat and the character lock different ones, the chat's lock wins. So you can lock your usual selection to Keeper Orrin, and another one to the one chat that needs it.
 
-You don't even need this screen to switch. On the WorldInfo page, each book's row starts with **Selection in use here**. Pick a selection there, and this chat uses it from the next reply on. Its last choice, **New selection**, makes the copy and opens this screen on it. A book with no selection yet, like right after its trash, gets its first one instead, named after the book. While no selection of the book is in use here, it says **None in use here**, and the book fires by its keys in this chat.
+You don't even need this screen to switch. On the WorldInfo page, each book's row starts with **Selection in use here**. Pick a selection there, and this chat uses it from the next reply on. Its last choice, **New selection**, makes the copy and opens this screen on it. A book with no selection yet, like right after its trash, gets its first one instead, named after the book. While no selection of the book is in use here, it says **None in use here**, and the book fires by its keys in this chat. While a book has 2 or more, the trash on its row deletes the one in use here, the same as **Delete**.
 
 ## Finding entries: the book and the filters
 

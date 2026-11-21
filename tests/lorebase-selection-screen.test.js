@@ -724,7 +724,7 @@ describe("a book's selections (§3.7 of vectfox-multi-collection-per-chat.md)", 
         expect(record().selections[0].name).toBe('Day watch');
     });
 
-    it("deletes the selection shown once confirmed, shows the book's next, prunes the book as the screen closes, and keeps the last", async () => {
+    it("deletes the selection shown once confirmed, pruning the book's vectors then, shows the book's next, and keeps the last", async () => {
         host.settings.vectfox.vector_backend = 'qdrant';
         withTwoSelections();
         const opened = openLoreBaseSelection();
@@ -740,13 +740,14 @@ describe("a book's selections (§3.7 of vectfox-multi-collection-per-chat.md)", 
         const [lines, buttons] = host.confirmPopup.mock.calls[1];
         expect(lines).toEqual(expect.arrayContaining([{ text: 'Delete this selection?' }, { text: 'Selection:', name: 'First' }]));
         expect(buttons).toEqual({ okButton: 'Delete', isDestructive: true });
+        // The one selection delete, the WorldInfo row's trash's too, prunes as it deletes, the screen still open.
+        expect(host.pruneBookVectors).toHaveBeenCalledWith('Harbor Atlas', host.settings.vectfox);
         expect(selectionList().value).toBe('second');
         expect(turnedOn()).toEqual(['1', '4']);
         expect(actionButton('delete-selection').disabled).toBe(true);
 
         host.closeScreen();
         await opened;
-        expect(host.pruneBookVectors).toHaveBeenCalledWith('Harbor Atlas', host.settings.vectfox);
     });
 });
 

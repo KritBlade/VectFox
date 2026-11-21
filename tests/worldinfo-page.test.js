@@ -212,6 +212,31 @@ describe('loreBaseBooksMarkup', () => {
         expect(unlinkers[0].nextElementSibling.dataset.lorebaseRemove).toBe('Harbor Atlas');
     });
 
+    it('gives the trash of a book with 2 or more selections the one in use here to delete, its dropdown showing it; else Remove from LoreBase', () => {
+        const TWO = [{ id: 'first', name: 'Harbor Atlas' }, { id: 'night', name: 'Night <b>watch</b>' }];
+        document.body.innerHTML = loreBaseBooksMarkup({
+            hasChat: true,
+            books: [
+                listedBook({ bookName: 'Harbor Atlas', selectedCount: 2, isLockedToChat: true, isLockedToCharacter: false, canRemove: true, selections: TWO, selectionInUseId: 'night' }),
+                listedBook({ bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: false, isLockedToCharacter: false, canRemove: true, selections: TWO }),
+                listedBook({
+                    bookName: 'Tide Tables', selectedCount: 0, isLockedToChat: true, isLockedToCharacter: false, canRemove: true,
+                    selections: [{ id: 't1', name: 'Tide Tables' }], selectionInUseId: 't1',
+                }),
+            ],
+        });
+        const trashes = [...document.querySelectorAll('.vfx-row')].map(row => {
+            const trash = row.querySelector('.vfx-row-actions .fa-trash-can').closest('button');
+            const { lorebaseRemove = null, lorebaseDeleteSelection = null, lorebaseSelection = null } = trash.dataset;
+            return [trash.title, lorebaseRemove, lorebaseDeleteSelection, lorebaseSelection, trash.classList.contains('vfx-btn-danger')];
+        });
+        expect(trashes).toEqual([
+            ['Delete the selection "Night <b>watch</b>"', null, 'Harbor Atlas', 'night', true],
+            ['Remove from LoreBase', 'Keeper Notes', null, null, true],
+            ['Remove from LoreBase', 'Tide Tables', null, null, true],
+        ]);
+    });
+
     it("leads every book's actions with Selection in use here: its selections, the one in use here chosen, then New selection; a book with none, None in use here and New selection (§1.2 of vectfox-multi-collection-per-chat.md)", () => {
         document.body.innerHTML = loreBaseBooksMarkup({
             hasChat: true,

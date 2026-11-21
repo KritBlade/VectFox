@@ -249,7 +249,8 @@ export function renameSelectionFormMarkup(currentName) {
 }
 
 /**
- * Delete's confirm for one selection: what goes with it, and what the chats using it do then.
+ * The confirm of deleting one selection, Choose entries' Delete and the WorldInfo row's trash on one of several
+ * selections alike (deleteLoreSelectionAfterConfirm): what goes with it, and what the chats using it do then.
  * @param {string} selectionName
  * @returns {object[]} confirmPopup's lines
  */
@@ -257,7 +258,7 @@ export function deleteSelectionLines(selectionName) {
     return [
         { text: 'Delete this selection?' },
         { text: 'Selection:', name: selectionName },
-        { text: "Its selected entries, pinned sections and locks go. The vectors of entries no other selection holds are deleted as this screen closes." },
+        { text: 'Its selected entries, pinned sections and locks go, with the vectors of entries no other selection holds.' },
         { text: 'Where it was in use, LoreBase uses the selection locked to the character instead, or with none, the lorebook fires by its keys there.' },
     ];
 }

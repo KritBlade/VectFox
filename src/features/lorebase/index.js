@@ -50,7 +50,7 @@ export {
     LOREBASE_KEYS_FILE_TYPE, LOREBASE_VECTORS_FILE_TYPE, describeDelete, describeExport, describeImport, describeImported,
     describeRemovedLoreBook, nothingToImportText,
 } from './lorebase-files-core.js';
-export { removeLoreBookAfterConfirm } from './lorebase-removal.js';
+export { deleteLoreSelectionAfterConfirm, removeLoreBookAfterConfirm } from './lorebase-removal.js';
 export {
     deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
     storedCountsOfBooks, writeImport, writeMissing, writingProblem,

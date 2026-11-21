@@ -15,8 +15,9 @@
  * vectors and Generate all write the missing ones of their kinds, or say why they cannot; Delete all asks first, and
  * once it has deleted both turns LoreBase off; Remove from LoreBase on a book's row runs LoreBase's one confirm and
  * removal, leaving the book in the chat, and Unlink runs them and unlinks the book; each then says what went and what
- * still loads the book, or why it was not removed or unlinked, and draws the list again; the status line says how
- * each went, one entry as one, and names the
+ * still loads the book, or why it was not removed or unlinked, and draws the list again; on a row showing one of its
+ * several selections the trash deletes that selection alone, through LoreBase's one selection delete; the status line
+ * says how each went, one entry as one, and names the
  * books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md),
  * "this chat" while it is open, a line that goes once another chat is open.
  */
@@ -26,7 +27,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const host = vi.hoisted(() => ({
     status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, writingProgressListener: null,
     selectedBooks: [], settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
-    counts: null, add: null, added: null, removed: null, useError: null,
+    counts: null, add: null, added: null, removed: null, deletedSelection: null, useError: null,
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
@@ -38,6 +39,11 @@ vi.mock('../src/features/lorebase/index.js', async () => ({
     removeLoreBookAfterConfirm: vi.fn(async () => {
         if (host.removed instanceof Error) throw host.removed;
         return host.removed;
+    }),
+    // The selection deleted, null on Cancel, or the error that refused it.
+    deleteLoreSelectionAfterConfirm: vi.fn(async () => {
+        if (host.deletedSelection instanceof Error) throw host.deletedSelection;
+        return host.deletedSelection;
     }),
     KEYS: 'keys',
     VECTORS: 'vectors',
@@ -75,8 +81,8 @@ vi.mock('../src/features/lorebase/index.js', async () => ({
 }));
 
 const {
-    addLoreBookToChat, chatBookLocks, deleteStored, newLoreSelectionHere, openLoreBaseSelection, removeLoreBookAfterConfirm, storedCountsOfBooks,
-    turnLoreBaseOff, turnLoreBaseOn, useLoreSelectionHere, writeMissing, writingProblem,
+    addLoreBookToChat, chatBookLocks, deleteLoreSelectionAfterConfirm, deleteStored, newLoreSelectionHere, openLoreBaseSelection,
+    removeLoreBookAfterConfirm, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn, useLoreSelectionHere, writeMissing, writingProblem,
 } = await import('../src/features/lorebase/index.js');
 const { log } = await import('../src/sillytavern/log.js');
 const { confirmPopup } = await import('../src/sillytavern/popup.js');
@@ -115,6 +121,7 @@ beforeEach(() => {
     host.add = { bookNames: ['Tide Tables', 'Voyage Log'], canAddToCharacter: true };
     host.added = { characterAvatar: 'keeper-orrin.png' };
     host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5 };
+    host.deletedSelection = { bookName: 'Harbor Atlas', selectionName: 'Night watch' };
     host.useError = null;
     bindLoreBaseBooksCard(host.settings);
 });
@@ -664,6 +671,40 @@ describe('Remove from LoreBase and Unlink on a book row', () => {
         await vi.waitFor(() => expect(status().textContent).toBe(`Not removed: ${WRITING}`));
         unlinker('Harbor Atlas').click();
         await vi.waitFor(() => expect(status().textContent).toBe(`Not unlinked: ${WRITING}`));
+    });
+});
+
+describe('the trash on a book row whose dropdown shows one of its several selections', () => {
+    const TWO = [{ id: 'first', name: 'Harbor Atlas' }, { id: 'night', name: 'Night watch' }];
+    const selectionTrash = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-delete-selection="${bookName}"]`);
+
+    beforeEach(() => {
+        host.status = { hasChat: true, books: [{ ...HARBOR, selections: TWO, selectionInUseId: 'night', canRemove: true }] };
+    });
+
+    it('deletes that selection alone once confirmed, never the book, says so, and draws the list again', async () => {
+        await refreshLoreBaseBooks();
+        expect(remover('Harbor Atlas')).toBeNull();
+        chatBookLocks.mockClear();
+        selectionTrash('Harbor Atlas').click();
+        await vi.waitFor(() => expect(status().textContent).toBe('Deleted the selection "Night watch" of "Harbor Atlas". Its other selections stay.'));
+        expect(deleteLoreSelectionAfterConfirm).toHaveBeenCalledWith('Harbor Atlas', 'night', host.settings);
+        expect(removeLoreBookAfterConfirm).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(1));
+    });
+
+    it('says nothing on Cancel, and why when it is refused', async () => {
+        host.deletedSelection = null;
+        await refreshLoreBaseBooks();
+        selectionTrash('Harbor Atlas').click();
+        await vi.waitFor(() => expect(deleteLoreSelectionAfterConfirm).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(status().textContent).toBe('');
+
+        const refusal = '"Night watch" is the only selection of "Harbor Atlas": Remove from LoreBase removes the book.';
+        host.deletedSelection = new Error(refusal);
+        selectionTrash('Harbor Atlas').click();
+        await vi.waitFor(() => expect(status().textContent).toBe(`Not deleted: ${refusal}`));
     });
 });
 

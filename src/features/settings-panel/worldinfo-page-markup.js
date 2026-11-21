@@ -235,9 +235,25 @@ export function loreBaseBookRow(book) {
             book.canUnlink
                 ? iconButton({ icon: 'fa-link-slash', title: 'Unlink from this chat, and remove from LoreBase', isDanger: true, data: { 'lorebase-unlink': bookName } })
                 : '',
-            book.canRemove ? iconButton({ icon: 'fa-trash-can', title: 'Remove from LoreBase', isDanger: true, data: { 'lorebase-remove': bookName } }) : '',
+            bookTrashButton(book),
         ].filter(Boolean),
     });
+}
+
+/**
+ * A book row's trash (§3.6 and §3.7 of vectfox-multi-collection-per-chat.md, the user, 2026-11-21): on a book of 2 or
+ * more selections, one of them in use here and so shown in its dropdown, the delete of that selection alone; else, on a
+ * book LoreBase has a record of, Remove from LoreBase, the whole book.
+ */
+function bookTrashButton({ bookName, selections, selectionInUseId, canRemove }) {
+    const shown = selections.length > 1 ? selections.find(selection => selection.id === selectionInUseId) : null;
+    if (shown) {
+        return iconButton({
+            icon: 'fa-trash-can', title: `Delete the selection "${shown.name}"`, isDanger: true,
+            data: { 'lorebase-delete-selection': bookName, 'lorebase-selection': shown.id },
+        });
+    }
+    return canRemove ? iconButton({ icon: 'fa-trash-can', title: 'Remove from LoreBase', isDanger: true, data: { 'lorebase-remove': bookName } }) : '';
 }
 
 /**
@@ -285,7 +301,8 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
  * and whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Selection in
  * use here (inUseSwitcherMarkup, §1.2 of vectfox-multi-collection-per-chat.md), None in use here and New selection
  * alone on a book with no selection, Choose entries, Unlink on a book a list Unlink takes books out of loads here, and
- * Remove from LoreBase on a book LoreBase has a record of; the counts and locks are those of the selection in use here,
+ * the trash (bookTrashButton): the selection in use here on a book of several, else Remove from LoreBase on a book
+ * LoreBase has a record of; the counts and locks are those of the selection in use here,
  * or with none, the counts of every entry the book's selections hold; under the list, the ready entries of the books
  * locked here and those waiting; then, given what to add, Add a lorebook.
  *
