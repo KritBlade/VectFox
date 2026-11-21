@@ -102,12 +102,10 @@ function countsLine({ chatMessageCount, vectorizedCount, isLatestTurnSettling })
  * What auto-sync is doing for the open chat, as a line with its tone: success, warning,
  * or a plain line while it is off.
  */
-function stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount }) {
+function stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount, noneInUseText }) {
     if (state === 'no-chat') return { status: 'warning', text: 'No chat open.' };
     if (state === 'no-collection') return { status: 'warning', text: 'Not vectorized yet. Turning auto-sync on starts it.' };
-    if (state === 'none-locked') {
-        return { status: 'warning', text: 'No collection of this chat is locked to it, so EventBase writes nothing here. Choose one above.' };
-    }
+    if (state === 'none-locked') return { status: 'warning', text: `${noneInUseText} Choose one above.` };
     if (!isVectFoxOn) return { icon: 'fa-circle', text: 'Paused while VectFox is off.' };
     if (!isOnForChat) return { icon: 'fa-circle', text: 'Off for this chat.' };
     if (state === 'fully-vectorized') return { status: 'success', text: 'Up to date.' };
@@ -152,9 +150,10 @@ export function autoSyncCollectionMarkup(collections) {
  * @param {boolean} [status.isLatestTurnSettling] - Up to date but for the newest turn, held back until it settles
  * @param {number} [status.markerValue] - Where the auto-sync marker sits, read while vectorization is ahead of the chat
  * @param {number} [status.unfinishedWindowCount] - Windows that failed and hold no events
+ * @param {string} [status.noneInUseText] - With collections and none in use: why EventBase reads and writes nothing here
  * @returns {string}
  */
-export function autoSyncStatusMarkup({ state, isVectFoxOn, isOnForChat = false, chatMessageCount = null, vectorizedCount = null, isLatestTurnSettling = false, markerValue = 0, unfinishedWindowCount = 0 }) {
+export function autoSyncStatusMarkup({ state, isVectFoxOn, isOnForChat = false, chatMessageCount = null, vectorizedCount = null, isLatestTurnSettling = false, markerValue = 0, unfinishedWindowCount = 0, noneInUseText = '' }) {
     if (isVectFoxOn && isOnForChat && state === 'vectorization-ahead') {
         const gap = markerValue - chatMessageCount;
         return resultList({ lines: [
@@ -163,6 +162,6 @@ export function autoSyncStatusMarkup({ state, isVectFoxOn, isOnForChat = false, 
             { name: `Messages may have been deleted, or the events came from a longer copy of this chat. Auto-sync resumes once the chat reaches ${markerValue} messages.` },
         ] });
     }
-    const line = stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount });
+    const line = stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount, noneInUseText });
     return resultList({ lines: [line, countsLine({ chatMessageCount, vectorizedCount, isLatestTurnSettling })] });
 }

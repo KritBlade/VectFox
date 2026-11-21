@@ -132,7 +132,7 @@ const baseParams = {
     searchText: 'recent chat',
     chatLength: 3000,
     settings: { vector_backend: 'qdrant', story_arc_block_scale: 0.7 },
-    liveCollectionIds: [COLLECTION],
+    storyArcCollectionKey: COLLECTION,
     boundQuery: (promise) => promise,
 };
 
@@ -172,13 +172,13 @@ describe('retrieveStoryRecipeEvents', () => {
         expect(starts(events)).not.toContain(1089);
     });
 
-    it('takes turns between searches, so no collection crowds out another', async () => {
-        const first = Array.from({ length: 90 }, (_, i) => event(1000 + i, `first ${i}`));
-        const second = Array.from({ length: 90 }, (_, i) => event(5000 + i, `second ${i}`));
-        queryCollectionMock.mockResolvedValueOnce({ hashes: starts(first), metadata: first });
-        queryCollectionMock.mockResolvedValueOnce({ hashes: starts(second), metadata: second });
-        const { events } = await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, { ...baseParams, liveCollectionIds: [COLLECTION, 'qdrant:vf_eventbase_other'] });
-        expect(starts(events).filter(start => start >= 5000)).toHaveLength(20);
+    it('reads the collection in use alone, never another collection locked here', async () => {
+        queryReturns([event(100, 'in use')]);
+        await retrieveStoryRecipeEvents({ shape: 'chain', subject: '' }, { ...baseParams, liveCollectionIds: [COLLECTION, 'qdrant:vf_eventbase_other'] });
+        expect(queryCollectionMock).toHaveBeenCalledTimes(1);
+        expect(queryCollectionMock.mock.calls[0][0]).toBe(COLLECTION);
+        expect(listChunksMock).toHaveBeenCalledTimes(1);
+        expect(listChunksMock.mock.calls[0][0]).toBe(COLLECTION);
     });
 
     it('walks stored links once the chat has them, reaching events the search did not find', async () => {
@@ -274,21 +274,20 @@ describe('retrieveStoryRecipeEvents', () => {
         expect(starts(events)).toEqual([2990]);
     });
 
-    it('searches every live collection and adds archive hits, without repeats', async () => {
+    it('leaves out the hits of chat files locked here, whose links are another collection\'s', async () => {
         queryReturns([event(100, 'live', { score: 0.9 })]);
         const { events } = await retrieveStoryRecipeEvents({ shape: 'why', subject: '' }, {
             ...baseParams,
-            liveCollectionIds: [COLLECTION, 'qdrant:vf_eventbase_other'],
             additionalCandidates: [event(50, 'archive', { score: 0.5, event_id: 'archive50' })],
         });
-        expect(queryCollectionMock).toHaveBeenCalledTimes(2);
-        expect(starts(events)).toEqual([50, 100]);
+        expect(queryCollectionMock).toHaveBeenCalledTimes(1);
+        expect(starts(events)).toEqual([100]);
     });
 
     it('does nothing without a recipe, a collection or a query', async () => {
         for (const [route, params] of [
             [{ shape: 'scene', subject: '' }, baseParams],
-            [{ shape: 'chain', subject: '' }, { ...baseParams, liveCollectionIds: [] }],
+            [{ shape: 'chain', subject: '' }, { ...baseParams, storyArcCollectionKey: null }],
             [{ shape: 'chain', subject: '' }, { ...baseParams, skipLiveQuery: true }],
             [{ shape: 'chain', subject: '' }, { ...baseParams, keywordQuery: '', searchText: '' }],
         ]) {

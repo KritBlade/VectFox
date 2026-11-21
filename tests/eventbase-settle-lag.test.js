@@ -33,7 +33,6 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     clearExtractionCaches: vi.fn(), isLastWindowExtracted: vi.fn(), getVectorizationTip: vi.fn(),
     readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(),
     setVectorizationTip: vi.fn(), ensureVectorizationTip: vi.fn(), shouldUseTipFallback: vi.fn(),
-    resolveEventBaseWriteTarget: vi.fn(),
 }));
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
 vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({ retrieveEventsForTurn: vi.fn() }));

@@ -107,25 +107,29 @@ async function _cutLongBlock({ shape, keptNames, events, poolEvents, storedEvent
  * Start what any recipe reads, before the router has chosen one: the listing, and the
  * pool query unless entity merges make its search text wait for the router's subject.
  * Started beside the router, a question about the past does not wait for them after it
- * answers. A turn the router keeps on the pre-search reads them and uses nothing.
+ * answers. A turn the router keeps on the pre-search reads them and uses nothing. A recipe
+ * reads the chat's collection in use alone, its events and the links stored on them, never
+ * another collection locked here (D18 of vectfox-multi-collection-per-chat.md).
  *
  * @param {object} params - The retrieval params (see retrieveEvents)
+ * @param {string|null} params.storyArcCollectionKey - The chat's collection in use; null when none is, and no recipe runs
  * @param {(promise: Promise) => Promise} params.boundQuery - Limits how long one Qdrant call may take
  * @returns {{queryText: string, ebSettings: object, merges: Record<string, string[]>, listing: Promise<(object[]|null)[]>, pools: Promise<object[][]>|null, failedSearches: unknown[]}|null} null when no recipe could run
  */
 export function startStoryRecipeReads(params) {
-    const { keywordQuery, searchText, settings, liveCollectionIds, skipLiveQuery, boundQuery } = params;
+    const { keywordQuery, searchText, settings, storyArcCollectionKey, skipLiveQuery, boundQuery } = params;
     const queryText = keywordQuery || searchText;
-    if (skipLiveQuery || !liveCollectionIds?.length || !queryText) return null;
+    if (skipLiveQuery || !storyArcCollectionKey || !queryText) return null;
+    const storyCollectionIds = [storyArcCollectionKey];
     const ebSettings = eventSearchSettings(settings);
-    const merges = readEntityMerges(liveCollectionIds);
+    const merges = readEntityMerges(storyCollectionIds);
     const failedSearches = [];
     return {
         queryText,
         ebSettings,
         merges,
-        listing: Promise.all(liveCollectionIds.map(collectionId => listStoryEvents(collectionId, ebSettings, boundQuery))),
-        pools: hasEntityMerges(merges) ? null : _queryPools(liveCollectionIds, queryText, ebSettings, boundQuery, failedSearches),
+        listing: Promise.all(storyCollectionIds.map(collectionId => listStoryEvents(collectionId, ebSettings, boundQuery))),
+        pools: hasEntityMerges(merges) ? null : _queryPools(storyCollectionIds, queryText, ebSettings, boundQuery, failedSearches),
         failedSearches,
     };
 }
@@ -144,7 +148,7 @@ export function startStoryRecipeReads(params) {
  * @returns {Promise<{events: object[], blockShape: string, ruleName: string, cutRuleName: string, pickedThreadCount: number, entityNames: {name: string, keptName: string}[], failedSearchCount: number, searchFailureMessage: string, setupFailureMessage: string}>} blockShape says which block the events suit, entityNames which other names the question used, failedSearchCount how many of the recipe's searches failed, so its events may be missing some, and setupFailureMessage the first that failed on its setup
  */
 export async function retrieveStoryRecipeEvents(route, params) {
-    const { chatLength, settings, liveCollectionIds, additionalCandidates, skipContextDedup, boundQuery, startedReads, pickThreads = async () => [], chooseBlockEvents, shouldCutByRule = false } = params;
+    const { chatLength, settings, storyArcCollectionKey, skipContextDedup, boundQuery, startedReads, pickThreads = async () => [], chooseBlockEvents, shouldCutByRule = false } = params;
     const reads = hasRecipe(route.shape) ? (startedReads ?? startStoryRecipeReads(params)) : null;
     if (!reads) {
         return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.RECIPE_FOUND_NOTHING, cutRuleName: '', pickedThreadCount: 0, entityNames: [] };
@@ -157,13 +161,13 @@ export async function retrieveStoryRecipeEvents(route, params) {
         ? entitySearchText({ queryText, subject: route.subject, merges, storedEvents: (await listing).flatMap(events => events ?? []) })
         : queryText;
     if (poolText !== queryText) log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] search text with other names: "${poolText}"`);
-    const [pools, stored] = await Promise.all([reads.pools ?? _queryPools(liveCollectionIds, poolText, ebSettings, boundQuery, reads.failedSearches), listing]);
+    const [pools, stored] = await Promise.all([reads.pools ?? _queryPools([storyArcCollectionKey], poolText, ebSettings, boundQuery, reads.failedSearches), listing]);
     if (stored.includes(null)) {
         return { events: [], blockShape: route.shape, ruleName: STORY_ROUTE_RULE.LISTING_FAILED, cutRuleName: '', pickedThreadCount: 0, entityNames: [] };
     }
     const writeName = buildEntityNameWriter(merges, stored.flat());
     const readable = events => (isMerging ? withKeptEntityNames(events, writeName) : events);
-    const poolEvents = readable(_mergeHitsByPlace([...pools, additionalCandidates || []]));
+    const poolEvents = readable(_mergeHitsByPlace(pools));
     const storedEvents = readable(stored.flat());
     const keptNames = { question: writeName(queryText), subject: writeName(route.subject) };
     const pickedThreads = hasThreadPick(route.shape) && measureStoryLinkCoverage(storedEvents).hasUsableLinks ? await pickThreads(storedEvents, keptNames) : [];

@@ -85,11 +85,16 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
         return host.savedHashes.length;
     }),
 }));
-// The chat's own collections, the question asked while none is locked to it, and New collection's collection
-// (eventbase-collection-in-use.test.js).
+// The chat's collection in use and its own collections (the one route, collectionInUse), the question asked while none
+// is in use, and New collection's collection (eventbase-collection-in-use.test.js).
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
     NEW_COLLECTION: '+new',
-    chatOwnCollections: () => host.ownCollections,
+    collectionInUse: () => {
+        const lockedHere = host.ownCollections.filter(collection => collection.isLockedHere);
+        const collection = lockedHere.length === 1 ? lockedHere[0] : null;
+        const reason = collection ? null : host.ownCollections.length ? 'none-in-use' : 'no-collection';
+        return { collection, reason, collections: host.ownCollections, lockedElsewhere: [], backend: 'qdrant' };
+    },
     // The one locked here, which the question answers without asking, else the answer given.
     askWhichChatCollection: vi.fn(async () => host.ownCollections.find(collection => collection.isLockedHere)?.registryKey ?? host.chosenCollection),
     resolveEventBaseRunTarget: (settings, chatUUID) => ({ collectionId: `vf_eventbase_${chatUUID}`, registryKey: `qdrant:vf_eventbase_${chatUUID}` }),

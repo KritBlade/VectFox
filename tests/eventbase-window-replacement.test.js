@@ -26,7 +26,6 @@ vi.mock('../src/shared/collection-ids.js', () => ({
     getChatUUID: () => 'replace-uuid', parseRegistryKey: (k) => ({ collectionId: k }),
     COLLECTION_PREFIXES: { VECTFOX_ARCHIVE_EVENT: 'vf_archiveevent_', VECTFOX_EVENTBASE: 'vf_eventbase_' },
     buildRegistryKey: (id) => `qdrant:${id}`, buildEventBaseCollectionId: () => 'vf_eventbase_replace', getRegistryBackend: () => 'qdrant',
-    buildChatSearchPatterns: () => [], matchesPatterns: () => false,
 }));
 vi.mock('../src/features/collections/collection-loader.js', () => ({ getCollectionRegistry: () => [], registerCollection: vi.fn(), getCollectionListing: vi.fn() }));
 vi.mock('../src/features/vector-backend/vector-api.js', () => ({
@@ -67,8 +66,9 @@ vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generat
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', async () => {
     const { setCollectionMeta } = await import('../src/features/collections/collection-metadata.js');
     return {
-        NONE_IN_USE_TEXT: 'No collection of this chat is locked to it, so EventBase writes nothing here.',
-        chatOwnCollections: () => [], resolveEventBaseRunTarget: () => null,
+        collectionInUse: () => ({ collection: null, reason: 'no-collection', collections: [], lockedElsewhere: [] }),
+        noCollectionInUseText: () => null, resolveEventBaseRunTarget: () => null,
+        sharedCollectionsLockedHere: () => ({ otherChats: [], archives: [] }),
         // In use in the chat: scoped to chats, as the real one leaves it.
         useChatCollection: vi.fn(registryKey => setCollectionMeta(registryKey, { scope: 'chat' })),
     };

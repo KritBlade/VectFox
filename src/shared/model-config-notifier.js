@@ -10,8 +10,8 @@
  *
  * Every model path can hit this (EventBase extraction, summarizer, agent mode,
  * embedding), so the user-facing toast lives here once instead of being
- * re-implemented at each catch site. Pausing EventBase auto-sync after such a
- * failure is eventbase-store.js's pauseAutoSyncForChat.
+ * re-implemented at each catch site. Turning EventBase auto-sync off after such a
+ * failure is eventbase-store.js's pauseCollectionAutoSync, on the collection in use.
  * ============================================================================
  */
 

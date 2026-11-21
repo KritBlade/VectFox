@@ -12,7 +12,7 @@
 export { testAgentModeConnection, testStoryArcConnection } from './agentic-retrieval.js';
 export { backfillCurrentChatWithProgress, openContentVectorizer, syncOpenChat } from './content-vectorizer.js';
 export {
-    askWhichChatCollection, chatOwnCollections, lockCollectionToOpenChat, useChatCollection, warnOfAutoSyncNotInUse,
+    askWhichChatCollection, chatOwnCollections, collectionInUse, lockCollectionToOpenChat, showNoCollectionInUse, useChatCollection,
 } from './eventbase-chat-collections.js';
 export { describeCompaction } from './eventbase-compaction-core.js';
 export { compactCollection, planCollectionCompaction } from './eventbase-compaction.js';
@@ -29,7 +29,6 @@ export {
     ensureEventBaseIndexes,
     eventPointHash,
     getVectorizationTip,
-    resolveEventBaseWriteTarget,
     stampAutoSyncMarker,
 } from './eventbase-store.js';
 export {

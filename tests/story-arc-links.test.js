@@ -36,10 +36,13 @@ vi.mock('../src/features/eventbase/agentic-retrieval.js', () => ({
     resolveStoryLinkLlmConfig: (...args) => resolveLinkConfigMock(...args),
 }));
 
-const resolveActiveCollectionMock = vi.fn();
-vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
-    resolveActiveEventBaseCollection: (...args) => resolveActiveCollectionMock(...args),
+// The one route to the chat's collection in use (collectionInUse), and its words for a chat with none in use.
+const collectionInUseMock = vi.fn();
+vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
+    collectionInUse: (...args) => collectionInUseMock(...args),
+    noCollectionInUseText: (inUse, consequence) => (inUse.reason === 'none-in-use' ? `No collection is in use in this chat, so ${consequence}.` : null),
 }));
+const NONE_IN_USE = { collection: null, reason: 'none-in-use', collections: [{ registryKey: 'qdrant:other' }], lockedElsewhere: [] };
 
 const listStoryEventsMock = vi.fn();
 vi.mock('../src/features/eventbase/story-arc-retrieval.js', () => ({
@@ -110,7 +113,9 @@ beforeEach(() => {
     callLlmForJsonMock.mockReset().mockResolvedValue({ links: [] });
     listStoryEventsMock.mockReset();
     resolveLinkConfigMock.mockReset().mockReturnValue({ ok: true, provider: 'openrouter', model: 'openai/gpt-6-luna', apiKey: 'key' });
-    resolveActiveCollectionMock.mockReset().mockReturnValue({ collectionId: COLLECTION, registryKey: `qdrant:${COLLECTION}` });
+    collectionInUseMock.mockReset().mockReturnValue({
+        collection: { collectionId: COLLECTION, registryKey: `qdrant:${COLLECTION}`, name: 'Harbor Keeper' }, reason: null, collections: [], lockedElsewhere: [],
+    });
     vi.stubGlobal('fetch', vi.fn(async () => ({
         ok: true,
         json: async () => ({ data: [{ id: 'openai/gpt-6-luna', pricing: { prompt: '0.0000001', completion: '0.0000005' } }] }),
@@ -286,6 +291,16 @@ describe('describeStoryLinkPass', () => {
         expect(pass.allEstimate.costUsd).toBeGreaterThan(pass.undecidedEstimate.costUsd);
         expect(pass.model).toBe('openai/gpt-6-luna');
         expect(pass.collectionId).toBe(COLLECTION);
+        expect(pass.collectionName).toBe('Harbor Keeper');
+    });
+
+    it('reads nothing while the chat has collections and none in use, handing back the route\'s answer', async () => {
+        collectionInUseMock.mockReturnValue(NONE_IN_USE);
+        expect(await describeStoryLinkPass(settings)).toEqual({
+            problem: 'No collection is in use in this chat, so StoryArc has no events or links here.',
+            noneInUse: NONE_IN_USE,
+        });
+        expect(listStoryEventsMock).not.toHaveBeenCalled();
     });
 
     // On GPT-6 Luna, a whole pass cost what this price gives, within 0.1%.
@@ -316,7 +331,7 @@ describe('describeStoryLinkPass', () => {
 
     it('names what is missing', async () => {
         expect((await describeStoryLinkPass({ ...settings, vector_backend: 'standard' })).problem).toContain('Qdrant');
-        resolveActiveCollectionMock.mockReturnValueOnce(null);
+        collectionInUseMock.mockReturnValueOnce({ collection: null, reason: 'no-collection', collections: [], lockedElsewhere: [] });
         expect((await describeStoryLinkPass(settings)).problem).toContain('no EventBase collection');
         listStoryEventsMock.mockResolvedValueOnce([stored(1, 10)]);
         resolveLinkConfigMock.mockReturnValueOnce({ ok: false, reason: 'missing_openrouter_api_key' });
@@ -334,13 +349,19 @@ describe('describeStoryLinkPass', () => {
 describe('readStoryLinkCoverage', () => {
     it('reports coverage', async () => {
         listStoryEventsMock.mockResolvedValueOnce([stored(1, 10, { story_links: [] })]);
-        expect(await readStoryLinkCoverage(settings)).toMatchObject({ totalCount: 1, decidedCount: 1 });
+        expect(await readStoryLinkCoverage(settings)).toMatchObject({ totalCount: 1, decidedCount: 1, collectionName: 'Harbor Keeper' });
+    });
+
+    it('has no links while the chat has collections and none in use, and reads nothing', async () => {
+        collectionInUseMock.mockReturnValue(NONE_IN_USE);
+        expect(await readStoryLinkCoverage(settings)).toEqual({ problem: 'No collection is in use in this chat, so StoryArc has no events or links here.' });
+        expect(listStoryEventsMock).not.toHaveBeenCalled();
     });
 
     // A chat with 1,400 linked events must not read as empty because one listing failed.
     it('tells a failed listing from a chat with nothing stored', async () => {
         expect((await readStoryLinkCoverage({ ...settings, vector_backend: 'standard' })).problem).toContain('Qdrant');
-        resolveActiveCollectionMock.mockReturnValueOnce(null);
+        collectionInUseMock.mockReturnValueOnce({ collection: null, reason: 'no-collection', collections: [], lockedElsewhere: [] });
         expect((await readStoryLinkCoverage(settings)).problem).toContain('no EventBase collection');
         listStoryEventsMock.mockResolvedValueOnce(null);
         expect((await readStoryLinkCoverage(settings)).problem).toContain('Could not read');

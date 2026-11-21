@@ -39,7 +39,6 @@ export {
     cleanUpCollectionLocks,
     cleanupOrphanedMeta,
     followChatRenameOfCollections,
-    getChatLockedCollections,
     getCollectionCharacterLockCount,
     getCollectionCharacterLocks,
     getCollectionLockCount,

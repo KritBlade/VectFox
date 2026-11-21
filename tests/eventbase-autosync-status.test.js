@@ -1,16 +1,15 @@
 /**
- * getChatAutoSyncStatus — the backend probe and diagnostics a passive refresh skips.
+ * getChatAutoSyncStatus — the backend probe a passive refresh skips, and the collection it reports on.
  *
  * The auto-sync status feeds the Chat Auto-Sync checkbox + LED. Its one backend
  * call is the vectorization-tip probe (ensureVectorizationTip), which runs on a cold
- * or far-behind tip; resolving the write target logs `[EventBase][resolve]` diagnostics. The
- * panel refreshes this status on every chat change, including while VectFox is
- * disabled — and a disabled VectFox must neither call the backend nor log. These
- * tests lock in that `shouldProbeBackend: false` reads only the cached tip and
- * `shouldLogResolution: false` reaches the resolver, while the defaults keep both;
- * that a chat with collections but none locked to it is told from one with none
- * (§2.2 of vectfox-multi-collection-per-chat.md); and that a run on such a chat
- * writes nothing.
+ * or far-behind tip. The panel refreshes this status on every chat change, including
+ * while VectFox is disabled — and a disabled VectFox must not call the backend. These
+ * tests lock in that `shouldProbeBackend: false` reads only the cached tip while the
+ * default probes; that the collection is the one route's answer (collectionInUse);
+ * that a chat with collections but none in use is told from one with none, with why
+ * (§2.2 and D18 of vectfox-multi-collection-per-chat.md); and that a run on such a
+ * chat writes nothing.
  *
  * eventbase-workflow.js transitively imports ST modules that don't resolve under
  * vitest, so the whole graph is stubbed. Same harness as eventbase-settle-lag.test.js.
@@ -20,8 +19,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     ensureVectorizationTip: vi.fn(),
     getVectorizationTip: vi.fn(),
-    resolveEventBaseWriteTarget: vi.fn(),
-    ownCollections: [],
+    collectionInUse: vi.fn(),
 }));
 
 vi.mock('../../../../../script.js', () => ({
@@ -44,13 +42,13 @@ vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(),
     getVectorizationTip: mocks.getVectorizationTip, setVectorizationTip: vi.fn(),
     ensureVectorizationTip: mocks.ensureVectorizationTip, shouldUseTipFallback: vi.fn(),
-    resolveEventBaseWriteTarget: mocks.resolveEventBaseWriteTarget,
 }));
-// The chat's own collections; the run target is the write target, none with collections but none locked.
+// The one route: the chat's collection in use, or why there is none; the run target is the one in use.
 vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
-    NONE_IN_USE_TEXT: 'No collection of this chat is locked to it, so EventBase writes nothing here.',
-    chatOwnCollections: () => mocks.ownCollections,
-    resolveEventBaseRunTarget: () => mocks.resolveEventBaseWriteTarget(),
+    collectionInUse: mocks.collectionInUse,
+    noCollectionInUseText: (inUse, consequence) => (inUse.collection ? null : `No collection is in use in this chat, so ${consequence}.`),
+    resolveEventBaseRunTarget: () => mocks.collectionInUse().collection,
+    sharedCollectionsLockedHere: () => ({ otherChats: [], archives: [] }),
     useChatCollection: vi.fn(),
 }));
 vi.mock('../src/features/eventbase/eventbase-retrieval.js', () => ({ retrieveEvents: vi.fn() }));
@@ -74,25 +72,32 @@ const { getChatAutoSyncStatus, runEventBaseIngestion } = await import('../src/fe
 beforeEach(() => {
     mocks.ensureVectorizationTip.mockReset().mockResolvedValue(4);
     mocks.getVectorizationTip.mockReset().mockReturnValue(2);
-    mocks.resolveEventBaseWriteTarget.mockReset()
-        .mockReturnValue({ collectionId: 'vf_eventbase_c1', registryKey: 'qdrant:vf_eventbase_c1' });
-    mocks.ownCollections = [];
+    mocks.collectionInUse.mockReset().mockReturnValue({
+        collection: { collectionId: 'vf_eventbase_c1', registryKey: 'qdrant:vf_eventbase_c1' }, reason: null, collections: [], lockedElsewhere: [],
+    });
 });
 
-describe('getChatAutoSyncStatus — a chat with none of its collections locked (§2.2)', () => {
-    it('reads none-locked, with the collections, for a chat that has some but none locked, and no-collection for one with none', async () => {
-        mocks.resolveEventBaseWriteTarget.mockReturnValue(null);
-        mocks.ownCollections = [{ registryKey: 'qdrant:vf_eventbase_c1', name: 'Harbor Keeper', isLockedHere: false }];
-        expect(await getChatAutoSyncStatus({})).toEqual({ state: 'none-locked', collections: mocks.ownCollections });
-        mocks.ownCollections = [];
+const NONE_IN_USE = {
+    collection: null, reason: 'none-in-use', lockedElsewhere: [],
+    collections: [{ registryKey: 'qdrant:vf_eventbase_c1', name: 'Harbor Keeper', isLockedHere: false }],
+};
+
+describe('getChatAutoSyncStatus — a chat with none of its collections in use (§2.2, D18)', () => {
+    it('reads none-locked, with the collections and why, for a chat that has some but none in use, and no-collection for one with none', async () => {
+        mocks.collectionInUse.mockReturnValue(NONE_IN_USE);
+        expect(await getChatAutoSyncStatus({})).toEqual({
+            state: 'none-locked',
+            collections: NONE_IN_USE.collections,
+            noneInUseText: 'No collection is in use in this chat, so EventBase reads and writes nothing here.',
+        });
+        mocks.collectionInUse.mockReturnValue({ collection: null, reason: 'no-collection', collections: [], lockedElsewhere: [] });
         expect(await getChatAutoSyncStatus({})).toEqual({ state: 'no-collection' });
     });
 
-    it('writes nothing for such a chat: a run refuses before reading a window', async () => {
-        mocks.resolveEventBaseWriteTarget.mockReturnValue(null);
-        mocks.ownCollections = [{ registryKey: 'qdrant:vf_eventbase_c1', name: 'Harbor Keeper', isLockedHere: false }];
+    it('writes nothing for such a chat: a run refuses before reading a window, saying why', async () => {
+        mocks.collectionInUse.mockReturnValue(NONE_IN_USE);
         await expect(runEventBaseIngestion({ messages: [{ mes: 'm0' }], chatUUID: 'uuid-1', settings: {} }))
-            .rejects.toThrow('No collection of this chat is locked to it, so EventBase writes nothing here.');
+            .rejects.toThrow('EventBase: No collection is in use in this chat, so EventBase writes nothing here.');
     });
 });
 
@@ -119,14 +124,9 @@ describe('getChatAutoSyncStatus — vectorization tip source', () => {
     });
 });
 
-describe('getChatAutoSyncStatus — write-target diagnostics', () => {
-    it('lets the resolver log by default', async () => {
+describe('getChatAutoSyncStatus — the collection it reports on', () => {
+    it('is the open chat\'s collection in use, from the one route', async () => {
         await getChatAutoSyncStatus({});
-        expect(mocks.resolveEventBaseWriteTarget).toHaveBeenCalledWith({}, 'uuid-1', { shouldLogResolution: true });
-    });
-
-    it('tells the resolver to stay quiet when diagnostics are off', async () => {
-        await getChatAutoSyncStatus({}, { shouldProbeBackend: false, shouldLogResolution: false });
-        expect(mocks.resolveEventBaseWriteTarget).toHaveBeenCalledWith({}, 'uuid-1', { shouldLogResolution: false });
+        expect(mocks.collectionInUse).toHaveBeenCalledWith({}, { chatUUID: 'uuid-1', chatId: 'chat-1' });
     });
 });

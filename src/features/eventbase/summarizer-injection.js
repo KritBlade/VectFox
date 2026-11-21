@@ -14,6 +14,10 @@
  *
  * Uses its OWN extension-prompt tag so it stacks cleanly with the semantic
  * EventBase injection (`*_eventbase`) instead of clobbering it.
+ *
+ * It and ghosting read the chat's collection in use, from the one route every reader
+ * asks (collectionInUse); with none in use, or the one in use paused, they read nothing
+ * (D18 of vectfox-multi-collection-per-chat.md).
  * ============================================================================
  */
 
@@ -21,8 +25,8 @@ import { setExtensionPrompt } from '../../sillytavern/prompt-injection.js';
 import { getContext } from '../../sillytavern/chat.js';
 import { getWorldInfoSettings, getSortedEntries } from '../../sillytavern/world-info.js';
 import { getBackend } from '../vector-backend/index.js';
-import { getChatUUID } from '../../shared/collection-ids.js';
-import { resolveActiveEventBaseCollection, resolveEventBaseWriteTarget, getVectorizationTip } from './eventbase-store.js';
+import { NOT_IN_USE_REASON, collectionInUse, noCollectionInUseText } from './eventbase-chat-collections.js';
+import { getVectorizationTip } from './eventbase-store.js';
 import { SUMMARIZER_PROMPT_TAG } from '../../shared/constants.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { log } from '../../sillytavern/log.js';
@@ -33,14 +37,15 @@ import { log } from '../../sillytavern/log.js';
  * unconditionally every turn is safe and keeps stale injections from lingering.
  *
  * @param {object} settings - extension_settings.vectfox
+ * @param {object|null} [inUse] - The chat's collection in use (collectionInUse), as the reply step resolved it
  * @returns {Promise<{ injected: number, error?: string }>}
  */
-export async function runSummarizerInjection(settings) {
+export async function runSummarizerInjection(settings, inUse = null) {
     const clear = () => setExtensionPrompt(SUMMARIZER_PROMPT_TAG, '', settings.position, settings.depth, false);
 
     if (!settings?.summarizer_injection_enabled) { clear(); return { injected: 0 }; }
 
-    const { text, count } = await buildSummarizerInjection(settings);
+    const { text, count } = await buildSummarizerInjection(settings, inUse);
     setExtensionPrompt(SUMMARIZER_PROMPT_TAG, text, settings.position, settings.depth, false);
     if (count > 0) log.domain('injection', 'trace', `[Summarizer] Injected ${count} event(s) under ${SUMMARIZER_PROMPT_TAG}`);
     return { injected: count };
@@ -172,9 +177,10 @@ function blankPromptClone(m) {
  *
  * @param {Array} chat - ST interceptor chat array (coreChat; mutated by slot replacement)
  * @param {object} settings - extension_settings.vectfox
+ * @param {object|null} [inUse] - The chat's collection in use (collectionInUse), as the reply step resolved it
  * @returns {{ wiped: number, charsRemoved: number }}
  */
-export function applyGhosting(chat, settings) {
+export function applyGhosting(chat, settings, inUse = null) {
     if (!settings?.eventbase_ghost_enabled || !settings?.summarizer_injection_enabled) {
         return { wiped: 0, charsRemoved: 0 };
     }
@@ -182,11 +188,11 @@ export function applyGhosting(chat, settings) {
     let charsRemoved = 0;
 
     const keepRecent = Math.max(0, Math.floor(Number(settings.eventbase_ghost_keep_recent) || 0));
-    const uuid = getChatUUID();
-    // tip = highest extracted message index + 1, in FULL-chat index space: the tip of the chat's own
-    // collection, the one auto-sync writes. A collection of another chat locked in here counts that
-    // chat's messages.
-    const ownCollection = uuid ? resolveEventBaseWriteTarget(settings, uuid, { shouldLogResolution: false }) : null;
+    // tip = highest extracted message index + 1, in FULL-chat index space: the tip of the chat's collection in
+    // use, unless it is paused, as no reply then reads its events. A collection of another chat locked in here
+    // counts that chat's messages, so it never sets the tip.
+    const { collection } = inUse ?? collectionInUse(settings);
+    const ownCollection = collection && !collection.isPaused ? collection : null;
     const tip = ownCollection ? getVectorizationTip(ownCollection.registryKey) : undefined;
 
     if (Array.isArray(chat) && chat.length > 0 && typeof tip === 'number' && tip > 0) {
@@ -261,18 +267,23 @@ export function applyGhosting(chat, settings) {
  * Action page's Summarizer preview shows the real result even while the feature is off.
  *
  * @param {object} settings - extension_settings.vectfox
- * @returns {Promise<{ text: string, count: number, reason?: string, collectionId?: string, requested?: number, error?: string }>}
- *   `reason` is set on a 0-count outcome (disabled handled by the caller).
+ * @param {object|null} [inUse] - The chat's collection in use (collectionInUse), as the reply step resolved it
+ * @returns {Promise<{ text: string, count: number, reason?: string, problem?: string, collectionId?: string, requested?: number, error?: string }>}
+ *   `reason` is set on a 0-count outcome (disabled handled by the caller): `no-chat`, a reason collectionInUse gives
+ *   (`no-collection`, `none-in-use`, `several-in-use`, `other-backend`, the last three with `problem` saying why),
+ *   `paused`, or a read that failed.
  */
-export async function buildSummarizerInjection(settings) {
+export async function buildSummarizerInjection(settings, inUse = null) {
     const n = Math.max(1, Math.min(50, settings.summarizer_injection_count ?? 20));
-    const uuid = getChatUUID();
-    if (!uuid) return { text: '', count: 0, reason: 'no-chat', requested: n };
-
-    // Lock-aware, ownership-filtered active collection (same source of truth as
-    // the auto-sync marker and the auto-sync status).
-    const active = resolveActiveEventBaseCollection(settings, uuid);
-    if (!active) return { text: '', count: 0, reason: 'no-collection', requested: n };
+    // The chat's collection in use, from the one route the auto-sync marker and status read too.
+    const route = inUse ?? collectionInUse(settings);
+    if (route.reason === NOT_IN_USE_REASON.NO_CHAT) return { text: '', count: 0, reason: 'no-chat', requested: n };
+    const active = route.collection;
+    if (!active) {
+        const problem = noCollectionInUseText(route, 'Summarizer Injection reads nothing') ?? undefined;
+        return { text: '', count: 0, reason: route.reason, problem, requested: n };
+    }
+    if (active.isPaused) return { text: '', count: 0, reason: 'paused', collectionId: active.collectionId, requested: n };
 
     let backendInstance;
     try {

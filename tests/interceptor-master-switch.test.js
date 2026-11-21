@@ -5,8 +5,10 @@
  * SillyTavern keeps every extension prompt until it is overwritten, so a VectFox block the reply step does not clear
  * keeps reaching the model on later generations. These tests lock in that each live generation first empties the
  * EventBase and Summarizer blocks, and nothing else; that with the master switch OFF it stops right after, with no
- * retrieval and no lifecycle logging; that a quiet generation is left alone; and that a live turn searches EventBase
- * with the last messages, then runs the Summarizer and ghosting, each search bounded.
+ * retrieval and no lifecycle logging; that a quiet generation is left alone; that a live turn searches EventBase
+ * with the last messages, then runs the Summarizer and ghosting, each search bounded, all three on the one route's
+ * answer asked once (collectionInUse); and that a reply with none in use says so once, naming what was switched on
+ * to read the chat's events (D18 of vectfox-multi-collection-per-chat.md).
  *
  * The module's SillyTavern wrappers and its EventBase and backend imports are stubbed; constants.js and
  * feature-gate.js stay real.
@@ -25,6 +27,8 @@ const mocks = vi.hoisted(() => {
         runEventBaseRetrieval: vi.fn(async () => {}),
         runSummarizerInjection: vi.fn(async () => {}),
         applyGhosting: vi.fn(),
+        collectionInUse: vi.fn(),
+        showNoCollectionInUse: vi.fn(),
         log: {
             error: vi.fn(), warn: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn(),
             domain: vi.fn(), enabled: () => false, domainEnabled: () => false,
@@ -43,6 +47,10 @@ vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({ runEventBase
 vi.mock('../src/features/eventbase/summarizer-injection.js', () => ({
     applyGhosting: mocks.applyGhosting, runSummarizerInjection: mocks.runSummarizerInjection,
 }));
+vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
+    collectionInUse: mocks.collectionInUse, showNoCollectionInUse: mocks.showNoCollectionInUse,
+}));
+const IN_USE = { collection: { registryKey: 'qdrant:vf_eventbase_c1' }, reason: null, collections: [], lockedElsewhere: [] };
 
 import { clearInterceptorPrompts, runEventBaseReplyStep } from '../src/features/eventbase/eventbase-reply.js';
 
@@ -113,14 +121,29 @@ describe('runEventBaseReplyStep with the master switch ON', () => {
             { mes: 'Under the cart, I think.', is_user: false },
         ];
         const settings = { enabled: true, query: 2, position: 1, depth: 2 };
+        mocks.collectionInUse.mockReturnValue(IN_USE);
         await runEventBaseReplyStep(chat, settings, 'normal');
 
-        expect(mocks.runEventBaseRetrieval).toHaveBeenCalledWith({ chat, searchText: 'Under the cart, I think.\nWhere did we leave the map?', settings, chatUUID: 'uuid-1' });
+        expect(mocks.collectionInUse).toHaveBeenCalledTimes(1);
+        expect(mocks.runEventBaseRetrieval).toHaveBeenCalledWith({ chat, searchText: 'Under the cart, I think.\nWhere did we leave the map?', settings, chatUUID: 'uuid-1', inUse: IN_USE });
         expect(mocks.runBoundedRetrieval.mock.calls.map(([, bound]) => bound.contextLabel)).toEqual(['EventBase', 'Summarizer']);
         expect(mocks.runBoundedRetrieval.mock.calls[0][1]).toMatchObject({ settings, timeoutMs: 15000 });
-        expect(mocks.runSummarizerInjection).toHaveBeenCalledWith(settings);
-        expect(mocks.applyGhosting).toHaveBeenCalledWith(chat, settings);
+        expect(mocks.runSummarizerInjection).toHaveBeenCalledWith(settings, IN_USE);
+        expect(mocks.applyGhosting).toHaveBeenCalledWith(chat, settings, IN_USE);
         expect(mocks.applyGhosting.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.runSummarizerInjection.mock.invocationCallOrder[0]);
         expect(chat.map(message => message.mes)).toEqual(['We camped by the river.', 'Where did we leave the map?', '[The scene changes.]', 'Under the cart, I think.']);
+    });
+
+    it('says once per reply, through the route\'s red toast, what was switched on to read the chat\'s events', async () => {
+        const none = { collection: null, reason: 'none-in-use', collections: [{ registryKey: 'qdrant:vf_eventbase_c1' }], lockedElsewhere: [] };
+        mocks.collectionInUse.mockReturnValue(none);
+        const settings = { enabled: true, query: 2, position: 1, depth: 2, summarizer_injection_enabled: true, story_arc_mode_enabled: true, vector_backend: 'qdrant' };
+        await runEventBaseReplyStep(CHAT, settings, 'normal');
+        expect(mocks.showNoCollectionInUse).toHaveBeenCalledTimes(1);
+        expect(mocks.showNoCollectionInUse).toHaveBeenCalledWith(none, 'this reply read none of its events: retrieval, Summarizer Injection, and StoryArc');
+
+        mocks.showNoCollectionInUse.mockClear();
+        await runEventBaseReplyStep(CHAT, { enabled: true, query: 2, position: 1, depth: 2 }, 'normal');
+        expect(mocks.showNoCollectionInUse).toHaveBeenCalledWith(none, 'this reply read none of its events: retrieval');
     });
 });

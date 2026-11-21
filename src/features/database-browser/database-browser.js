@@ -52,7 +52,7 @@ import { checkPluginAvailable } from "../../shared/similharity-plugin.js";
 import { confirmPopup, openPanelPopup } from "../../sillytavern/popup.js";
 import { pickFiles } from "../../shared/pick-files.js";
 import { bindGeneBehaviours, scrollPageToTop, setCollapsed } from "../../shared/gui-dna/gene-behaviours.js";
-import { COLLECTION_PREFIXES } from "../../shared/collection-ids.js";
+import { COLLECTION_PREFIXES, vectorBackendName } from "../../shared/collection-ids.js";
 import {
   STORY_LINKS_FILE_TYPE,
   buildCollectionLinksFile,
@@ -836,8 +836,6 @@ function renderCollections() {
   if (shown.length) fillStoryLinkRows().catch((err) => log.warn("VectFox: Could not fill in the StoryArc links rows:", err));
 }
 
-const BACKEND_NAMES = Object.freeze({ standard: "Standard", qdrant: "Qdrant" });
-
 /**
  * A collection's row as plain values, for collectionEntryMarkup.
  * @param {object} collection
@@ -856,7 +854,7 @@ function collectionRowView(collection, isActiveById) {
     isEnabled: Boolean(collection.enabled),
     isSelected: browserState.bulkSelected.has(key),
     scope: collection.scope,
-    backend: BACKEND_NAMES[collection.backend] || collection.backend || "",
+    backend: vectorBackendName(collection.backend),
     embedding: embeddingOfCollection(collection),
     model: hasMultipleModels ? (collection.model || "(default)") : "",
     hasMultipleModels,

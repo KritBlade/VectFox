@@ -39,7 +39,7 @@ import {
 import { CHAT_TYPE_ID, contentVectorizerMarkup, cvId, cvPageId, loadedSourceMarkup } from './content-vectorizer-markup.js';
 import { runEventBaseOnOpenChat } from './eventbase-chat-sync.js';
 import {
-    NEW_COLLECTION, askWhichChatCollection, chatOwnCollections, resolveEventBaseRunTarget, startNewChatCollection,
+    NEW_COLLECTION, askWhichChatCollection, collectionInUse, resolveEventBaseRunTarget, startNewChatCollection,
 } from './eventbase-chat-collections.js';
 import {
     emptyEventBaseCollection, getCollectionWindowSize, getVectorizationTip, prepareForFreshExtraction, readEventBaseProgress,
@@ -302,7 +302,7 @@ const isStoppedError = error => error?.name === 'AbortError' || String(error?.me
  */
 async function collectionOfRun({ canMakeNew, isNewCollectionChosen = false }) {
     const settings = extension_settings.vectfox || {};
-    if (!chatOwnCollections(settings).length) return 'first';
+    if (!collectionInUse(settings).collections.length) return 'first';
     if (isNewCollectionChosen) return 'new';
     const answer = await askWhichChatCollection(settings, { canMakeNew });
     if (answer === NEW_COLLECTION) return 'new';
@@ -368,9 +368,9 @@ async function resumeChat() {
  * @returns {Promise<'catch-up'|'start-over'|'new-collection'|null>} Null on Cancel
  */
 function askVectorizeChoice(startFromMessage) {
-    const inUse = chatOwnCollections(extension_settings.vectfox || {}).find(collection => collection.isLockedHere);
+    const { collection } = collectionInUse(extension_settings.vectfox || {});
     return choicePopup([
-        { text: 'This chat reads into:', name: inUse?.name ?? '' },
+        { text: 'This chat reads into:', name: collection?.name ?? '' },
         { text: 'Catch up reads the messages it has not read.' },
         { text: `Start over empties it, then reads the chat again from message ${startFromMessage}.` },
         { text: `New collection reads the chat from message ${startFromMessage} into a new collection, and keeps this one.` },
@@ -445,9 +445,9 @@ async function vectorizeChatFile(run) {
  */
 async function startOver(run) {
     const settings = extension_settings.vectfox || {};
-    const registryKey = registryKeyOfRun(run.source, settings);
+    const { collection: inUse } = collectionInUse(settings);
+    const registryKey = inUse?.registryKey;
     if (!registryKey) return;
-    const inUse = chatOwnCollections(settings).find(collection => collection.registryKey === registryKey);
     let eventCount = null;
     try {
         eventCount = (await getSavedHashes(parseRegistryKey(registryKey).collectionId, settings)).length;
@@ -490,7 +490,7 @@ async function readIntoNewCollection(run) {
     }
     showNewCollectionChosen(false);
     await runEventBaseBackfill({ ...run, resetCaches: true, windowSize, collectionIdOverride: made.collectionId });
-    const isInUse = chatOwnCollections(settings).some(collection => collection.registryKey === made.registryKey && collection.isLockedHere);
+    const isInUse = collectionInUse(settings).collection?.registryKey === made.registryKey;
     if (isInUse) toastr.info(`"${made.name}" is in use in this chat now. Auto-sync is off for it: turn it on on the AutoSync page.`, 'EventBase', { timeOut: 12000 });
 }
 

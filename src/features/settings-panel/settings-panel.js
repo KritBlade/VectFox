@@ -21,7 +21,7 @@ import {
 } from '../../shared/api-keys.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
-import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
+import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass, showNoCollectionInUse, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
 import { keyCallsAtOnceOf, loreBaseAccuracyOf, loreBudgetOf } from '../lorebase/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
@@ -149,12 +149,13 @@ async function refreshStoryLinkStatus(settings) {
     }
     if (coverage.problem) {
         $status.text(coverage.problem);
+        $('#VectFox_story_arc_link_pill').hide();
         return;
     }
     const usability = coverage.hasUsableLinks
         ? 'StoryArc follows threads through these links.'
         : 'StoryArc searches without links until this pass is mostly done.';
-    $status.text(`${coverage.decidedCount} of ${coverage.totalCount} events decided, ${coverage.linkedCount} with links. ${usability}`);
+    $status.text(`"${coverage.collectionName}": ${coverage.decidedCount} of ${coverage.totalCount} events decided, ${coverage.linkedCount} with links. ${usability}`);
     $('#VectFox_story_arc_link_pill').text(`${coverage.linkedCount} of ${coverage.totalCount} linked`).show();
 }
 
@@ -168,16 +169,21 @@ function _describeLinkEstimate({ eventCount, inputTokens, outputTokens, minutes,
 async function _runStoryLinkButton(settings) {
     const parallelCalls = linkParallelCallsOf($('#VectFox_story_arc_link_parallel_calls').val());
     const pass = await describeStoryLinkPass(settings, parallelCalls);
+    if (pass.noneInUse) {
+        showNoCollectionInUse(pass.noneInUse, 'Regenerate links sent nothing');
+        return;
+    }
     if (pass.problem) {
         toastr.warning(pass.problem, 'VectFox StoryArc');
         return;
     }
-    const { collectionId, coverage, allEstimate, undecidedEstimate, model } = pass;
+    const { collectionId, collectionName, coverage, allEstimate, undecidedEstimate, model } = pass;
     const hasUndecided = undecidedEstimate.eventCount > 0;
     const hasDecided = coverage.decidedCount > 0;
     const { choicePopup } = await import('../../sillytavern/popup.js');
     const choice = await choicePopup([
         { icon: 'fa-diagram-project', text: 'Regenerate StoryArc links?' },
+        { text: 'Collection:', name: collectionName },
         { parts: [{ text: "Each event's text goes to " }, { name: model }, { text: ' once, along with up to 13 earlier events.' }] },
         ...(hasUndecided ? [{ text: 'Events with no decision yet:', name: _describeLinkEstimate(undecidedEstimate) }] : []),
         ...(hasDecided ? [{ text: 'All events, replacing their links:', name: _describeLinkEstimate(allEstimate) }] : []),
@@ -205,14 +211,21 @@ async function _runStoryLinkButton(settings) {
 async function _offerEventBaseFork(settings) {
     const { findEventBaseForkSource, forkEventBaseFromSource } = await import('../eventbase/index.js');
 
-    let source;
+    let found;
     try {
-        source = await findEventBaseForkSource(settings);
+        found = await findEventBaseForkSource(settings);
     } catch (err) {
         log.error('[AutoSync][fork] looking for a parent EventBase failed:', err);
         toastr.error(err?.message || String(err), 'Could not check for a parent chat');
         return 'cancel';
     }
+    // Collections holding this branch's history, none in use in its parent chat: never read (D18), and said in red.
+    if (found.problem) {
+        log.warn(`[AutoSync][fork] ${found.problem}`);
+        toastr.error(found.problem, 'EventBase', { timeOut: 15000, extendedTimeOut: 10000 });
+        return 'cancel';
+    }
+    const { source } = found;
     if (!source) return 'vectorize';
 
     const remainingCount = Math.max(0, source.chatMessageCount - source.sharedPrefixLength);
@@ -250,18 +263,14 @@ export async function refreshAutoSyncCheckbox(settings) {
     const $status = $('#VectFox_autosync_status');
 
     const { chatOwnCollections, getChatAutoSyncStatus } = await import('../eventbase/index.js');
-    const { isCollectionAutoSyncEnabled, isCollectionActiveForContextAnyKey } = await import('../collections/index.js');
+    const { isCollectionAutoSyncEnabled } = await import('../collections/index.js');
 
     // While VectFox is disabled this refresh only reads cached state: no backend call,
     // no diagnostics. It still runs so the checkbox matches the current chat — the
     // Summarizer Injection toggle reads it. The master switch refreshes again when
     // VectFox is turned back on.
     const isVectFoxOn = isVectFoxEnabled(settings);
-    const status = await getChatAutoSyncStatus(settings, {
-        shouldProbeBackend: isVectFoxOn,
-        shouldLogResolution: isVectFoxOn,
-    });
-    const chatId = getCurrentChatId();
+    const status = await getChatAutoSyncStatus(settings, { shouldProbeBackend: isVectFoxOn });
     // Collection in use here, over the chat's own collections (§1.2 of vectfox-multi-collection-per-chat.md).
     $('#VectFox_autosync_collection').html(autoSyncCollectionMarkup(status.state === 'no-chat' ? [] : status.collections ?? chatOwnCollections(settings)));
 
@@ -269,15 +278,13 @@ export async function refreshAutoSyncCheckbox(settings) {
     // auto-sync could run on.
     if (status.state === 'no-chat' || status.state === 'no-collection' || status.state === 'none-locked') {
         $checkbox.prop('checked', false);
-        $status.html(autoSyncStatusMarkup({ state: status.state, isVectFoxOn }));
+        $status.html(autoSyncStatusMarkup({ state: status.state, isVectFoxOn, noneInUseText: status.noneInUseText }));
         return;
     }
 
-    // Collection exists. The switch shows the per-collection autoSync flag, for a
-    // collection locked to this chat. Metadata is keyed by registry-key form ("backend:id").
-    const lookupKey = status.registryKey || status.collectionId;
-    const isOnForChat = Boolean(isCollectionAutoSyncEnabled(lookupKey)
-        && chatId && isCollectionActiveForContextAnyKey([status.registryKey, status.collectionId], { chatId }));
+    // The chat's collection in use (collectionInUse, through getChatAutoSyncStatus): the switch shows its auto-sync.
+    // Metadata is keyed by registry-key form ("backend:id").
+    const isOnForChat = isCollectionAutoSyncEnabled(status.registryKey || status.collectionId);
     $checkbox.prop('checked', isOnForChat);
 
     // How far vectorization reaches: the live tip (max source_window_end + 1, kept current by
@@ -408,7 +415,7 @@ function bindSettingsEvents(settings, callbacks) {
                         status = await getChatAutoSyncStatus(settings);
                         log.lifecycle(`[AutoSync][checkbox] forked → status.state=${status.state}, collection=${status.registryKey || status.collectionId || '(none)'}`);
                         if (status.state === 'no-collection') {
-                            log.error('[AutoSync][checkbox] fork finished but resolveEventBaseWriteTarget still finds no collection — see [EventBase][resolve] log above');
+                            log.error('[AutoSync][checkbox] fork finished but collectionInUse still finds no collection of this chat');
                             toastr.error('The forked EventBase is not recognized as this chat\'s collection. Check the console log.', 'Auto-sync not enabled');
                             $checkbox.prop('checked', false);
                             _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync');
@@ -419,7 +426,7 @@ function bindSettingsEvents(settings, callbacks) {
                 }
                 if (status.state === 'no-collection') {
                     // No collection for this chat yet — send the user to vectorize first.
-                    log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (resolveEventBaseWriteTarget found no eligible collection — see [EventBase][resolve] log above)');
+                    log.lifecycle('[AutoSync][checkbox] state=no-collection → redirecting to Vectorize Content (collectionInUse found no collection of this chat on this backend)');
                     $checkbox.prop('checked', false);
                     toastr.info('Vectorize your chat history first — auto-sync will turn on when it finishes');
                     _disableSummarizerInjectionBecauseAutoSyncIsOff('needs auto-sync, which needs a vectorized chat');
@@ -1208,10 +1215,8 @@ function bindSettingsEvents(settings, callbacks) {
         if (settings.eventbase_autosync_window_turns === _stampedWindowTurns) return;
         _stampedWindowTurns = settings.eventbase_autosync_window_turns;
         try {
-            const { resolveEventBaseWriteTarget, stampAutoSyncMarker } = await import('../eventbase/index.js');
-            const { getChatUUID } = await import('../../shared/collection-ids.js');
-            const uuid = getChatUUID();
-            const collection = uuid ? resolveEventBaseWriteTarget(extension_settings.vectfox, uuid) : null;
+            const { collectionInUse, stampAutoSyncMarker } = await import('../eventbase/index.js');
+            const { collection } = collectionInUse(extension_settings.vectfox);
             if (collection) await stampAutoSyncMarker(collection.registryKey, extension_settings.vectfox);
         } catch (err) {
             log.warn('[VectFox] Failed to re-stamp marker on auto-sync window change:', err?.message || err);

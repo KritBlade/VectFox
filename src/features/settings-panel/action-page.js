@@ -30,6 +30,7 @@ const TOAST_TITLE = 'VectFox';
 const SUMMARIZER_EMPTY_REASONS = {
     'no-chat': { text: 'No chat is open.' },
     'no-collection': { text: 'This chat has no EventBase collection yet. Vectorize it first.' },
+    paused: { text: 'Its collection in use is paused in the Database Browser.' },
     'no-events': { text: 'Its collection holds no events yet.' },
     'backend-error': { text: 'The vector backend did not answer:' },
     'listchunks-error': { text: 'Its collection could not be read:' },
@@ -141,7 +142,8 @@ async function previewSummarizerInjection(settings) {
     await noticePopup([
         { text: 'Summarizer preview' },
         { text: 'Nothing would be injected this turn.' },
-        reason ? { text: reason.text, name: result.error } : { text: 'Reason:', name: result.reason },
+        // A chat with collections and none in use: why, in the words every reader of it gives (collectionInUse).
+        result.problem ? { text: result.problem } : reason ? { text: reason.text, name: result.error } : { text: 'Reason:', name: result.reason },
         ...offLine,
     ]);
 }

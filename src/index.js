@@ -21,7 +21,7 @@ import {
     registerCollection,
     setDeletedOrImportedCollectionCleanup,
 } from './features/collections/index.js';
-import { clearCachesForDeletedOrImportedCollection, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep, synchronizeChat, warnOfAutoSyncNotInUse } from './features/eventbase/index.js';
+import { clearCachesForDeletedOrImportedCollection, refreshWorldInfoEntryDepthCache, runEventBaseReplyStep, synchronizeChat } from './features/eventbase/index.js';
 import { setInsertedCollectionRegistrar } from './features/vector-backend/index.js';
 import { migrateLegacyApiKeys } from './shared/api-keys.js';
 import { migration_setting_name_for_connection } from './app/settings-migration-connection-setting-names.js';
@@ -604,11 +604,7 @@ jQuery(async () => {
     // switch is OFF so the panel shows the current chat; refreshAutoSyncCheckbox then
     // reads cached state only and never calls the backend.
     eventSource.on(event_types.CHAT_CHANGED, () => {
-        if (isVectFoxEnabled(settings)) {
-            log.lifecycle('VectFox: Chat changed, refreshing UI state');
-            // Auto-sync on for the chat's collections, none locked to it: EventBase writes nothing there, so say so.
-            warnOfAutoSyncNotInUse(settings);
-        }
+        if (isVectFoxEnabled(settings)) log.lifecycle('VectFox: Chat changed, refreshing UI state');
         refreshAutoSyncCheckbox(settings);
     });
     // A renamed chat keeps its collections' locks (§2.2 of vectfox-multi-collection-per-chat.md).

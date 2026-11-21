@@ -29,6 +29,7 @@ const page = {
     isOpen: false,
     settings: null,
     collectionKey: '',
+    collectionName: '',
     events: [],
     merges: {},
     hiddenNames: [],
@@ -158,7 +159,7 @@ function setWebStatus(text) {
 
 function describeWholeWeb() {
     const { nodes, links } = page.webData;
-    return `${nodes.length} events, ${links.length} links. Hover near a dot to stop the web and light what connects to it, and click to go into it.`;
+    return `"${page.collectionName}": ${nodes.length} events, ${links.length} links. Hover near a dot to stop the web and light what connects to it, and click to go into it.`;
 }
 
 function webActionButton(action) {
@@ -293,7 +294,7 @@ function showTab(tab) {
 async function readAndPaintPage() {
     closeWeb();
     page.isWebDue = false;
-    const chat = await readChatStoryEvents(page.settings, { shouldLogResolution: false });
+    const chat = await readChatStoryEvents(page.settings);
     if (!page.isOpen) return;
     showProblem(STORY_ARC_ELEMENT_ID.webProblem, chat.problem);
     showProblem(STORY_ARC_ELEMENT_ID.entityProblem, chat.problem);
@@ -302,12 +303,14 @@ async function readAndPaintPage() {
         page.merges = {};
         page.hiddenNames = [];
         page.collectionKey = '';
+        page.collectionName = '';
         setWebStatus('');
         paintEntityTab();
         return;
     }
     page.events = chat.events;
     page.collectionKey = chat.registryKey;
+    page.collectionName = chat.name;
     page.merges = readEntityMerges([chat.registryKey]);
     page.hiddenNames = readHiddenEntityNames(chat.registryKey);
     paintEntityTab();

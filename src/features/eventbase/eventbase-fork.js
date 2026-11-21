@@ -19,8 +19,7 @@ import {
     getCollectionListing,
     getCollectionMeta,
     registerCollection,
-    getChatLockedCollections,
-    isCollectionLockedToChat,
+    isCollectionActiveForContextAnyKey,
     removeCollectionLock,
     setCollectionMeta,
     fetchPortableChunks,
@@ -28,7 +27,7 @@ import {
 } from '../collections/index.js';
 import { purgeVectorIndex } from '../vector-backend/index.js';
 import { getModelFromSettings } from '../embedding/index.js';
-import { useChatCollection } from './eventbase-chat-collections.js';
+import { sharedCollectionsLockedHere, useChatCollection } from './eventbase-chat-collections.js';
 import { markWindowExtracted, readEventBaseProgress, setVectorizationTip, getCollectionWindowSize, setCollectionWindowSize } from './eventbase-store.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import {
@@ -57,23 +56,26 @@ import { log } from '../../sillytavern/log.js';
  * Find the collection this chat can fork its EventBase from.
  *
  * Only branches and checkpoints qualify — SillyTavern sets `main_chat` in their
- * metadata. The parent is identified first from the window records of the
- * current persona's EventBase collections of other chats on the current backend
- * (no backend reads); of two that share as many messages, the one locked to the
- * parent chat (`main_chat`) wins. When that finds nothing, each EventBase
- * collection of another chat that is locked to this chat is read and matched by
- * its events' stored source hashes.
+ * metadata. Only a collection in use is read (D18 of vectfox-multi-collection-per-chat.md):
+ * first, of the current persona's EventBase collections of other chats on the current
+ * backend locked to the parent chat (`main_chat`), the one whose window records share the
+ * most of this chat's messages (no backend reads); when that finds nothing, each EventBase
+ * collection of another chat locked to this chat, read and matched by its events' stored
+ * source hashes. Collections holding the shared messages that are not in use in the parent
+ * chat are never read, and `problem` says so.
  *
  * @param {object} settings - extension_settings.vectfox
- * @returns {Promise<EventBaseForkSource|null>} null when nothing can be forked
+ * @returns {Promise<{source: EventBaseForkSource|null, problem: string|null}>} source null when nothing can be forked;
+ *   problem: why, when the parent's collections hold the shared messages but none is in use there
  */
 export async function findEventBaseForkSource(settings) {
+    const nothing = { source: null, problem: null };
     const context = getContext();
-    if (!context?.chatMetadata?.main_chat) return null;
+    if (!context?.chatMetadata?.main_chat) return nothing;
 
     const chatUUID = getChatUUID();
     const chatId = getCurrentChatId();
-    if (!chatUUID || !chatId) return null;
+    if (!chatUUID || !chatId) return nothing;
 
     const messages = (Array.isArray(context.chat) ? context.chat : [])
         .filter(m => m.mes && m.mes.trim().length > 0);
@@ -90,24 +92,26 @@ export async function findEventBaseForkSource(settings) {
             registryKey: entry.registryKey,
             collectionId: entry.collectionId,
             windowFingerprints: readEventBaseProgress(entry.registryKey).extractedWindows ?? [],
-            isLockedToParentChat: isCollectionLockedToChat(entry.registryKey, parentChatId),
+            isLockedToParentChat: isCollectionActiveForContextAnyKey([entry.registryKey, entry.collectionId], { chatId: parentChatId }),
         }));
-    const [best] = rankForkSourcesFromWindowRecords(candidates, branchHashes);
+    const [best] = rankForkSourcesFromWindowRecords(candidates.filter(candidate => candidate.isLockedToParentChat), branchHashes);
     if (best) {
         log.lifecycle(`[EventBase][fork] source from window record: ${best.collectionId}, shares ${best.sharedPrefixLength}/${messages.length} messages (${best.coveredWindowCount} windows)`);
         return {
-            origin: 'window-record',
-            collectionId: best.collectionId,
-            registryKey: best.registryKey,
-            sharedPrefixLength: best.sharedPrefixLength,
-            chatMessageCount: messages.length,
-            chunks: null,
+            source: {
+                origin: 'window-record',
+                collectionId: best.collectionId,
+                registryKey: best.registryKey,
+                sharedPrefixLength: best.sharedPrefixLength,
+                chatMessageCount: messages.length,
+                chunks: null,
+            },
+            problem: null,
         };
     }
 
-    for (const lockKey of getChatLockedCollections(chatId)) {
-        const { backend: lockBackend, collectionId } = parseRegistryKey(lockKey);
-        if (!isOtherChatsEventBase(collectionId)) continue;
+    for (const shared of sharedCollectionsLockedHere({ chatUUID, chatId }).otherChats) {
+        const { backend: lockBackend, collectionId } = parseRegistryKey(shared.registryKey);
         if (lockBackend && lockBackend !== backend) continue;
         const chunks = await fetchPortableChunks(collectionId, settings);
         const sharedPrefixLength = measureSharedPrefix(branchHashes, collectSourceMessageHashes(chunks));
@@ -115,17 +119,28 @@ export async function findEventBaseForkSource(settings) {
         log.lifecycle(`[EventBase][fork] locked collection ${collectionId}: shares ${sharedPrefixLength}/${messages.length} messages, ${copyableCount}/${chunks.length} events before the split`);
         if (copyableCount === 0) continue;
         return {
-            origin: 'locked-collection',
-            collectionId,
-            registryKey: buildRegistryKey(collectionId, backend),
-            sharedPrefixLength,
-            chatMessageCount: messages.length,
-            chunks,
+            source: {
+                origin: 'locked-collection',
+                collectionId,
+                registryKey: buildRegistryKey(collectionId, backend),
+                sharedPrefixLength,
+                chatMessageCount: messages.length,
+                chunks,
+            },
+            problem: null,
         };
     }
 
     log.lifecycle(`[EventBase][fork] no fork source for chat ${chatUUID} (${candidates.length} collection(s) on ${backend} searched by window record)`);
-    return null;
+    // The parent's collections may hold this chat's history while none is in use there: that is not read, but said.
+    const [notInUse] = rankForkSourcesFromWindowRecords(candidates, branchHashes);
+    if (!notInUse) return nothing;
+    return {
+        source: null,
+        problem: `Collections of another chat hold the first ${notInUse.sharedPrefixLength} messages of this branch, but none `
+            + 'is in use in its parent chat, so nothing is forked. Open the parent chat and choose one in Collection in use here, '
+            + 'on the AutoSync page, then turn auto-sync on here again.',
+    };
 }
 
 /**
@@ -199,8 +214,9 @@ export async function forkEventBaseFromSource(settings, source) {
         // In use in the branch, its other own collections unlocked there; the parent's collection it copied is a
         // collection of another chat, unlocked below.
         useChatCollection(targetRegistryKey, { chatId });
-        for (const lockKey of getChatLockedCollections(chatId)) {
-            if (parseRegistryKey(lockKey).collectionId === source.collectionId) removeCollectionLock(lockKey, chatId);
+        for (const shared of sharedCollectionsLockedHere({ chatUUID, chatId }).otherChats) {
+            if (shared.collectionId !== source.collectionId) continue;
+            for (const lockKey of [shared.registryKey, shared.collectionId]) removeCollectionLock(lockKey, chatId);
         }
 
         const { tip, sourceHashLists } = summarizeCopiedWindows(copiedChunks);

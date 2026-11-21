@@ -120,9 +120,10 @@ describe('autoSyncStatusMarkup', () => {
         expect(linesOf({ state: 'no-collection', isVectFoxOn: true })).toEqual([{ tone: 'warning', text: 'Not vectorized yet. Turning auto-sync on starts it.' }]);
     });
 
-    it("warns that EventBase writes nothing while none of the chat's collections is locked to it, pointing at the dropdown above", () => {
-        expect(linesOf({ state: 'none-locked', isVectFoxOn: true })).toEqual([
-            { tone: 'warning', text: 'No collection of this chat is locked to it, so EventBase writes nothing here. Choose one above.' },
+    it("warns, in the one route's words, that EventBase reads and writes nothing while none of the chat's collections is in use, pointing at the dropdown above", () => {
+        const noneInUseText = 'No collection is in use in this chat, so EventBase reads and writes nothing here.';
+        expect(linesOf({ state: 'none-locked', isVectFoxOn: true, noneInUseText })).toEqual([
+            { tone: 'warning', text: `${noneInUseText} Choose one above.` },
         ]);
     });
 

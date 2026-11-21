@@ -11,16 +11,13 @@
 import { insertVectorItems, deleteVectorItems, getSavedHashes, updateChunkMetadata, qdrantTarget } from '../vector-backend/index.js';
 import { saveSettingsDebounced, extension_settings } from '../../sillytavern/settings.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
-import { getCurrentChatId, getContext } from '../../sillytavern/chat.js';
-import { getChatUUID, getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey, buildChatSearchPatterns, matchesPatterns } from '../../shared/collection-ids.js';
+import { getContext } from '../../sillytavern/chat.js';
+import { getRegistryBackend, COLLECTION_PREFIXES, parseCollectionId, parseRegistryKey } from '../../shared/collection-ids.js';
 import {
     registerCollection,
     getCollectionRegistry,
-    getCollectionListing,
     getCollectionMeta,
     setCollectionMeta,
-    getChatLockedCollections,
-    isCollectionActiveForContextAnyKey,
     setCollectionAutoSync,
 } from '../collections/index.js';
 import { buildEmbedText } from './eventbase-schema.js';
@@ -549,8 +546,8 @@ export function clearAutoSyncMarker(registryKey) {
 
 /**
  * Stamp a collection's auto-sync start marker, which gates the windows auto-sync
- * reads into it. The collection is the chat's own, on the current backend (the
- * write target): the marker is a message index into the open chat.
+ * reads into it. The collection is the chat's collection in use, on the current backend
+ * (collectionInUse): the marker is a message index into the open chat.
  *
  * Smart placement:
  *   - If the collection has events → marker = max(source_window_end) + 1
@@ -918,233 +915,41 @@ export function isWindowAlreadyExtracted(sourceHashes, registryKey) {
 }
 
 /**
- * Find every EventBase collection registered for the given chat UUID: each whose ID holds it, as parseCollectionId
- * reads it, so the chat's later collections are found beside its first.
+ * Every EventBase collection registered for the given chat UUID, on every backend and of every account: each whose ID
+ * holds it, as parseCollectionId reads it, so the chat's later collections are found beside its first. Never an
+ * archive. Which of them the chat uses is collectionInUse's answer (eventbase-chat-collections.js), the one route every
+ * reader and writer of a chat's events asks; this list is what that route, and the lock function unlocking the chat's
+ * others, read.
  *
- * The registry — not `buildEventBaseCollectionId` — is the source of truth for
- * which collection holds a chat's data. The collection ID embeds a sanitized
- * form of `name1`/`name2`, and that sanitization can change over time
- * (e.g. the CJK-name fix). Recomputing the ID at read-time therefore can't
- * be trusted; the registry remembers the actual stored ID.
- *
- * Returned entries are ordered most-preferred first:
- *   1. Backend-scoped IDs matching the current backend setting
- *   2. Other backend-scoped IDs
- *   3. Legacy (no backend) IDs
- *
- * Naming convention (see Doc/collection_helper.md):
- *   - `find…`  → ALL candidates, returns an array (this function).
- *   - `resolve…` → THE single active answer (see resolveActiveEventBaseCollection).
- * Take care before reaching for `[0]` here — if you want the one active
- * collection for the current chat, call resolveActiveEventBaseCollection instead.
+ * The registry, not `buildEventBaseCollectionId`, is the source of truth for which collection holds a chat's data: the
+ * ID embeds a sanitized form of `name1`/`name2`, whose sanitization has changed over time.
  *
  * @param {string} uuid Chat UUID
- * @param {string} [preferredBackend] Backend to prefer (e.g. 'qdrant', 'vectra')
- * @returns {{ registryKey: string, collectionId: string }[]}
+ * @returns {{ registryKey: string, collectionId: string, backend: string|null }[]} In registry order, a legacy ID's backend null
  */
-export function findEventBaseCollectionsForChat(uuid, preferredBackend) {
+export function findEventBaseCollectionsForChat(uuid) {
     if (!uuid) return [];
     const matches = [];
     for (const registryKey of getCollectionRegistry()) {
-        const parsed = parseRegistryKey(registryKey);
-        const colId = parsed.collectionId;
-        if (!colId?.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) continue;
-        if (parseCollectionId(colId).chatUUID !== uuid) continue;
-        matches.push({ registryKey, collectionId: colId, backend: parsed.backend });
+        const { backend, collectionId } = parseRegistryKey(registryKey);
+        if (!collectionId?.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) continue;
+        if (parseCollectionId(collectionId).chatUUID !== uuid) continue;
+        matches.push({ registryKey, collectionId, backend });
     }
-
-    // A single chat UUID can have MULTIPLE EventBase collections on the same
-    // backend — one per persona/handle (e.g. an imported archive under a different
-    // name1). Backend rank alone then picks an arbitrary one, which is how the
-    // auto-sync marker ended up reading a stale import instead of the active
-    // collection. Disambiguate by the chat lock: the collection locked to the
-    // CURRENT chat is the one the rest of the system treats as active (DB Browser
-    // "Active here only", isCollectionActiveForContext). Rank it first so callers
-    // that take [0] resolve correctly. Only meaningful when resolving the current
-    // chat; for any other UUID lock state is irrelevant and we keep backend order.
-    const lockedKeys = (uuid === getChatUUID())
-        ? new Set(getChatLockedCollections(getCurrentChatId()))
-        : new Set();
-    const isLocked = (m) => lockedKeys.has(m.registryKey) || lockedKeys.has(m.collectionId);
-
-    const wantBackend = String(preferredBackend || '').toLowerCase();
-    const backendRank = (m) => {
-        if (wantBackend && m.backend === wantBackend) return 0;
-        if (m.backend) return 1;
-        return 2;
-    };
-    // Lock dominates; backend preference tie-breaks within each lock tier.
-    const rank = (m) => (isLocked(m) ? 0 : 10) + backendRank(m);
-    matches.sort((a, b) => rank(a) - rank(b));
-    return matches.map(({ registryKey, collectionId }) => ({ registryKey, collectionId }));
+    return matches;
 }
 
 /**
- * Turn OFF auto-sync for the chat's EventBase collection(s) so a bad model
- * stops silently re-failing on every message. The user re-enables it after fixing
- * the model. Dispatches `vectfox:collections-updated` so the UI checkbox updates.
+ * Turn auto-sync off for a collection, the one in use whose run failed on a model the provider no longer knows, so it
+ * stops failing on every message. The user turns it on again after fixing the model. Dispatches
+ * `vectfox:collections-updated` so the AutoSync page's switch follows.
  *
- * @param {string} chatUUID
- * @param {string} backend - registry backend, i.e. getRegistryBackend(settings.vector_backend)
+ * @param {string} registryKey - The collection's registry key ("backend:id")
  */
-export function pauseAutoSyncForChat(chatUUID, backend) {
-    if (!chatUUID || !backend) return;
-    let paused = 0;
-    for (const { registryKey } of findEventBaseCollectionsForChat(chatUUID, backend)) {
-        setCollectionAutoSync(registryKey, false);
-        paused++;
-    }
-    if (paused > 0) {
-        globalThis.document?.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
-    }
-}
-
-/**
- * Resolve THE active EventBase collection for a chat — the canonical answer to
- * "which EventBase collection does this chat use right now?".
- *
- * This is the single entry point callers should use when they want one
- * collection (not a list). It is:
- *   - ownership-filtered (via getCollectionListing → drops collections owned by
- *     other personas/users, matching the DB Browser and the auto-sync status), and
- *   - lock-aware (a chat UUID can map to MULTIPLE per-persona collections; the
- *     lock picks the one the rest of the system treats as active — "Active here
- *     only" / the auto-sync write target).
- *
- * Prefer this over `findEventBaseCollectionsForChat(...)[0]`. The plural `find…`
- * is only for the rare case where you genuinely need every candidate (e.g.
- * pausing auto-sync on all of a chat's collections).
- *
- * READ vs WRITE: the default (read) semantics honor a lock even when the locked
- * collection belongs to another conversation — that is the documented way to
- * share an older chat's EventBase with the current one. Ingestion must NOT use
- * those semantics: writing this chat's events into another conversation's
- * collection mixes two `source_window_end` index spaces in one sort frame and
- * corrupts chronology (see `_orderEventsForPresentation` in
- * eventbase-injection.js). Write callers go through
- * {@link resolveEventBaseWriteTarget}, which passes `requireUuidMatch`.
- *
- * @param {object} settings - extension_settings.vectfox
- * @param {string} [chatUUID] - defaults to the current chat's UUID
- * @param {{ requireUuidMatch?: boolean, shouldLogResolution?: boolean }} [options]
- *   `requireUuidMatch` — write mode: only the chat's own collection locked to it on `vector_backend`: never one whose
- *   embedded chat UUID differs (a foreign lock can never become a write target), nor one of the chat's own that is
- *   not locked to it (§2.2 of vectfox-multi-collection-per-chat.md: with none locked, nothing is written).
- *   `shouldLogResolution` — false skips the `[EventBase][resolve]` lifecycle
- *   diagnostics, for passive UI refreshes while VectFox is disabled.
- * @returns {{ collectionId: string, registryKey: string } | null}
- */
-export function resolveActiveEventBaseCollection(settings, chatUUID, { requireUuidMatch = false, shouldLogResolution = true } = {}) {
-    const uuid = chatUUID || getChatUUID();
-    if (!uuid) return null;
-
-    // Disambiguate persona collections: lock dominates, current backend
-    // tie-breaks, otherwise listing order. The lock index is keyed by the active
-    // chat id, so the lock is only meaningful when resolving the current chat.
-    // Computed up front because the ownership filter below also consults it.
-    const chatId = (uuid === getChatUUID()) ? getCurrentChatId() : null;
-    const isLocked = (m) => !!chatId && isCollectionActiveForContextAnyKey(
-        [m.registryKey, m.collectionId], { chatId });
-
-    // Match by UUID (stable across legacy ID formats and character renames).
-    const patterns = buildChatSearchPatterns(null, uuid);
-    const hasUuidMatch = (entry) =>
-        matchesPatterns(entry.collectionId, patterns) || matchesPatterns(entry.registryKey, patterns);
-    const wantBackend = getRegistryBackend(settings?.vector_backend);
-    const isEbMatch = (entry) => {
-        const { collectionId } = entry;
-        const idLower = String(collectionId || '').toLowerCase();
-        if (!idLower.startsWith('vf_eventbase_') && !idLower.includes('eventbase_')) return false;
-        // Write mode: the chat's own collection locked to it, on the current backend. The UUID match keeps a lock from
-        // redirecting ingestion into another conversation's collection; the backend, because every write caller sends
-        // the bare ID to the current backend, where a collection registered on another backend would be re-created
-        // under that backend's name; the lock, because a chat uses one of its collections at a time and with none
-        // locked nothing is written. Null on a chat's first read: resolveEventBaseRunTarget
-        // (eventbase-chat-collections.js) then builds the chat's first collection.
-        if (requireUuidMatch) {
-            return entry.backend === wantBackend && hasUuidMatch(entry) && isLocked(entry);
-        }
-        // An explicit per-chat lock is a deliberate user override: the collection
-        // is eligible regardless of ownership AND regardless of whether its
-        // embedded UUID still matches this chat. The UUID can drift from the lock
-        // after a delete + re-vectorize cycle (the chat gets a fresh UUID, but the
-        // user re-locks the old collection), or when intentionally binding another
-        // chat's EventBase here. This matches the DB Browser's lock-only "Active
-        // here" badge and the retrieval path (_gatherLockedEventBaseCollections),
-        // both of which honor the lock without a UUID check. Without this the lock
-        // resolves as ACTIVE in the UI yet auto-sync reports "no collection".
-        if (isLocked(entry)) return true;
-        // Auto-association (no lock): must be owned by the current persona AND its
-        // embedded UUID must match the current chat.
-        if (!entry.isOwn) return false;
-        return hasUuidMatch(entry);
-    };
-    const listing = getCollectionListing(settings);
-    const ebMatches = listing.filter(isEbMatch);
-
-    // Diagnostic: why each EventBase collection was/ wasn't picked. Surfaces the
-    // exact reason auto-sync sees "no collection" (e.g. lock missing, or UUID
-    // drifted after a re-vectorize and no lock to override it).
-    const logResolution = shouldLogResolution ? log.lifecycle : () => {};
-    if (shouldLogResolution && log.enabled('lifecycle')) {
-        const ebAll = listing.filter(e => {
-            const il = String(e.collectionId || '').toLowerCase();
-            return il.startsWith('vf_eventbase_') || il.includes('eventbase_');
-        });
-        const rows = ebAll.map(e =>
-            `${e.collectionId} [own=${e.isOwn} locked=${isLocked(e)} uuidMatch=${hasUuidMatch(e)} eligible=${isEbMatch(e)}]`);
-        logResolution(`[EventBase][resolve] chatUUID=${uuid} chatId=${chatId || '(none)'} requireUuidMatch=${requireUuidMatch}: ${ebAll.length} eb collection(s), ${ebMatches.length} eligible`);
-        for (const r of rows) logResolution(`[EventBase][resolve]   ${r}`);
-    }
-
-    if (ebMatches.length === 0) {
-        logResolution('[EventBase][resolve] → no eligible collection (auto-sync will report "no-collection")');
-        return null;
-    }
-
-    // Ranking tiers, most significant first: lock, then own-UUID, then current
-    // backend. The UUID tier matters when a chat has BOTH its own collection and
-    // a foreign one locked in for cross-chat retrieval — without it both score 0
-    // and the winner is decided by registry insertion order, which silently flips
-    // if a collection is ever deleted and re-registered.
-    const rank = (m) => (isLocked(m) ? 0 : 10)
-        + (hasUuidMatch(m) ? 0 : 4)
-        + (m.backend === wantBackend ? 0 : 1);
-    const active = ebMatches.slice().sort((a, b) => rank(a) - rank(b))[0];
-    logResolution(`[EventBase][resolve] → picked ${active.collectionId} (locked=${isLocked(active)} uuidMatch=${hasUuidMatch(active)})`);
-    return { collectionId: active.collectionId, registryKey: active.registryKey };
-}
-
-/**
- * Resolve the EventBase collection that ingestion may WRITE to for this chat.
- *
- * Same resolution as {@link resolveActiveEventBaseCollection} with three extra
- * requirements:
- *   - The collection's embedded chat UUID must match; a foreign lock is not
- *     enough. A lock is a read-side sharing mechanism (lock an older chat's
- *     EventBase into this chat so its events are retrieved here). Honoring it on
- *     the write side put this chat's events into that older collection, where the
- *     two chats' independent `source_window_end` values collide inside one sort
- *     frame — the injected timeline then interleaves both conversations, and
- *     Resume reads the foreign collection's tip and skips every window
- *     ("0 events extracted").
- *   - The collection must be registered on the current `vector_backend`. Write
- *     callers send the bare ID to the current backend, so a collection from the
- *     other backend would be re-created there under the wrong backend's name.
- *   - The collection must be locked to the chat: a chat uses one of its own
- *     collections at a time, and with none locked nothing is written (D6).
- *
- * Returns null when no collection of this chat is locked to it on the current backend: on its first read,
- * resolveEventBaseRunTarget (eventbase-chat-collections.js) builds its first collection; with collections but none
- * locked, a run asks which one to use and auto-sync passes the chat by.
- *
- * @param {object} settings - extension_settings.vectfox
- * @param {string} [chatUUID] - defaults to the current chat's UUID
- * @param {{ shouldLogResolution?: boolean }} [options] - see resolveActiveEventBaseCollection
- * @returns {{ collectionId: string, registryKey: string } | null}
- */
-export function resolveEventBaseWriteTarget(settings, chatUUID, { shouldLogResolution = true } = {}) {
-    return resolveActiveEventBaseCollection(settings, chatUUID, { requireUuidMatch: true, shouldLogResolution });
+export function pauseCollectionAutoSync(registryKey) {
+    if (!registryKey) return;
+    setCollectionAutoSync(registryKey, false);
+    globalThis.document?.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
 }
 
 // ---------------------------------------------------------------------------

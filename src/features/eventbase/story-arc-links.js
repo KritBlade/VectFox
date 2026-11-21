@@ -21,7 +21,7 @@ import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/mode
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { log } from '../../sillytavern/log.js';
 import { callLlmForJson, resolveStoryLinkLlmConfig } from './agentic-retrieval.js';
-import { resolveActiveEventBaseCollection } from './eventbase-store.js';
+import { collectionInUse, noCollectionInUseText } from './eventbase-chat-collections.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
 import { isStoryArcActive } from './story-arc-core.js';
 import {
@@ -174,20 +174,26 @@ async function _readLinkModelPrice(settings) {
 }
 
 /**
- * The current chat's collection and stored events, or what stands in the way.
+ * The chat's collection in use and its stored events, or what stands in the way. StoryArc reads the collection in
+ * use alone, from the one route every reader asks (collectionInUse): with none in use it has no events and no links,
+ * and `noneInUse` holds the route's answer, for a caller to say why in its own words (D18 of
+ * vectfox-multi-collection-per-chat.md).
  *
  * @param {object} settings
- * @param {object} [resolveOptions] - Passed on to resolveActiveEventBaseCollection
- * @returns {Promise<{problem: string}|{collectionId: string, registryKey: string, events: object[]}>}
+ * @returns {Promise<{problem: string, noneInUse?: object}|{collectionId: string, registryKey: string, name: string, events: object[]}>}
  */
-export async function readChatStoryEvents(settings, resolveOptions) {
+export async function readChatStoryEvents(settings) {
     if (settings.vector_backend !== 'qdrant') return { problem: 'StoryArc links need the Qdrant backend.' };
-    const collection = resolveActiveEventBaseCollection(settings, undefined, resolveOptions);
-    if (!collection) return { problem: 'This chat has no EventBase collection yet.' };
+    const inUse = collectionInUse(settings);
+    const { collection } = inUse;
+    if (!collection) {
+        const why = noCollectionInUseText(inUse, 'StoryArc has no events or links here');
+        return why ? { problem: why, noneInUse: inUse } : { problem: 'This chat has no EventBase collection yet.' };
+    }
     const events = await listStoryEvents(collection.collectionId, settings);
     if (!events) return { problem: 'Could not read this chat\'s events. See the console.' };
     if (!events.length) return { problem: 'This chat has no stored events yet.' };
-    return { collectionId: collection.collectionId, registryKey: collection.registryKey, events };
+    return { collectionId: collection.collectionId, registryKey: collection.registryKey, name: collection.name, events };
 }
 
 /**
@@ -195,17 +201,19 @@ export async function readChatStoryEvents(settings, resolveOptions) {
  *
  * @param {object} settings
  * @param {number} [parallelCalls] - Events decided at once, from the tab's Events at once
- * @returns {Promise<{problem: string}|{collectionId: string, coverage: object, allEstimate: object, undecidedEstimate: object, model: string}>}
+ * @returns {Promise<{problem: string, noneInUse?: object}|{collectionId: string, collectionName: string, coverage: object, allEstimate: object, undecidedEstimate: object, model: string}>}
+ *   noneInUse: the chat has collections and none in use (collectionInUse), so the pass would send nothing
  */
 export async function describeStoryLinkPass(settings, parallelCalls = LINK_PARALLEL_CALLS_DEFAULT) {
-    const { problem, collectionId, events } = await readChatStoryEvents(settings);
-    if (problem) return { problem };
+    const { problem, noneInUse, collectionId, name, events } = await readChatStoryEvents(settings);
+    if (problem) return noneInUse ? { problem, noneInUse } : { problem };
     const llmConnection = resolveStoryLinkLlmConfig(settings);
     if (!llmConnection.ok) return { problem: llmConnection.problem ?? `Set the link model and its provider's key or URL first (${llmConnection.reason}).` };
     const coverage = measureStoryLinkCoverage(events);
     const price = await _readLinkModelPrice(settings);
     return {
         collectionId,
+        collectionName: name,
         coverage,
         allEstimate: estimateStoryLinkPass(coverage.totalCount, price, parallelCalls),
         undecidedEstimate: estimateStoryLinkPass(coverage.totalCount - coverage.decidedCount, price, parallelCalls),
@@ -217,11 +225,11 @@ export async function describeStoryLinkPass(settings, parallelCalls = LINK_PARAL
  * How far the current chat's link pass has got, for the StoryArc tab's status line.
  *
  * @param {object} settings
- * @returns {Promise<{problem: string}|object>} the coverage, or what stands in the way
+ * @returns {Promise<{problem: string}|object>} the coverage, with the collection's name, or what stands in the way
  */
 export async function readStoryLinkCoverage(settings) {
-    const { problem, events } = await readChatStoryEvents(settings, { shouldLogResolution: false });
-    return problem ? { problem } : measureStoryLinkCoverage(events);
+    const { problem, name, events } = await readChatStoryEvents(settings);
+    return problem ? { problem } : { ...measureStoryLinkCoverage(events), collectionName: name };
 }
 
 /**

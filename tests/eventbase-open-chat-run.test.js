@@ -23,8 +23,10 @@ vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: vi.fn(() => 'uu
 vi.mock('../src/shared/progress-tracker.js', () => ({ progressTracker: { complete: vi.fn() } }));
 vi.mock('../src/features/collections/index.js', () => ({ isCollectionAutoSyncEnabled: vi.fn(() => false) }));
 vi.mock('../src/features/vector-backend/index.js', () => ({ isBackendAvailable: vi.fn(async () => true) }));
-vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
-    findEventBaseCollectionsForChat: vi.fn(() => []), pauseAutoSyncForChat: vi.fn(), resolveEventBaseWriteTarget: vi.fn(() => null),
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ pauseCollectionAutoSync: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
+    collectionInUse: vi.fn(() => ({ collection: null, reason: 'no-collection', collections: [], lockedElsewhere: [] })),
+    showNoCollectionInUse: vi.fn(),
 }));
 vi.mock('../src/features/eventbase/eventbase-workflow.js', () => ({
     runEventBaseIngestion: mocks.runEventBaseIngestion, countUnfinishedWindows: vi.fn(() => 0), getAutoSyncWindowSize: vi.fn(() => 4), notifyUnfinishedWindows: vi.fn(),

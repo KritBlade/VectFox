@@ -5,22 +5,23 @@
 import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { is_send_press } from '../../sillytavern/generation.js';
 import { log } from '../../sillytavern/log.js';
-import { getChatUUID, getRegistryBackend } from '../../shared/collection-ids.js';
+import { getChatUUID } from '../../shared/collection-ids.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { isInvalidModelConfigError, notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
-import { isCollectionAutoSyncEnabled } from '../collections/index.js';
 import { isBackendAvailable } from '../vector-backend/index.js';
-import { findEventBaseCollectionsForChat, pauseAutoSyncForChat, resolveEventBaseWriteTarget } from './eventbase-store.js';
+import { collectionInUse, showNoCollectionInUse } from './eventbase-chat-collections.js';
+import { pauseCollectionAutoSync } from './eventbase-store.js';
 import { countUnfinishedWindows, getAutoSyncWindowSize, notifyUnfinishedWindows, runEventBaseIngestion } from './eventbase-workflow.js';
 
 /** Chats already told that auto-sync left windows undone, so a failing provider does not toast on every turn. */
 const chatsWarnedOfUnfinishedWindows = new Set();
 
 /**
- * Auto-sync: runs EventBase over the open chat's new windows when the chat's active EventBase collection has auto-sync
- * on. A model the provider no longer knows pauses auto-sync for the chat, with one notice, so it stops failing on
- * every message.
+ * Auto-sync: runs EventBase over the open chat's new windows when the chat's collection in use (collectionInUse) has
+ * auto-sync on. With none in use it writes nothing, and while one of the chat's collections has auto-sync on, it says
+ * so in red for each message (D18 of vectfox-multi-collection-per-chat.md). A model the provider no longer knows turns
+ * auto-sync off for the collection in use, with one notice, so it stops failing on every message.
  *
  * @param {object} settings - VectFox settings
  * @param {string|null} [triggerEvent] - The SillyTavern event that scheduled this sync
@@ -46,19 +47,20 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         return;
     }
 
-    const backend = getRegistryBackend(settings?.vector_backend);
-    if (log.enabled('lifecycle')) {
-        // Metadata is keyed by the registry-key form ("backend:id"), as the write paths key it.
-        const eventbaseCollections = findEventBaseCollectionsForChat(uuid, backend);
-        const flagPerCollection = eventbaseCollections.map(({ registryKey }) => `${registryKey}=${isCollectionAutoSyncEnabled(registryKey)}`);
-        log.lifecycle(`[AutoSync] uuid=${uuid}, backend=${backend}, eventbaseCollections=${eventbaseCollections.length}, autoSyncFlags=[${flagPerCollection.join(', ')}]`);
+    // Only the collection in use counts, with the auto-sync switch the AutoSync page shows for it: a flag left on
+    // another of the chat's collections, from another persona or backend, never writes.
+    const inUse = collectionInUse(settings, { chatUUID: uuid, chatId });
+    const chatCollections = [...inUse.collections, ...inUse.lockedElsewhere];
+    log.lifecycle(`[AutoSync] uuid=${uuid}, in use: ${inUse.collection?.registryKey ?? inUse.reason}, `
+        + `autoSyncFlags=[${chatCollections.map(({ registryKey, isAutoSyncOn }) => `${registryKey}=${isAutoSyncOn}`).join(', ')}]`);
+    const activeCollection = inUse.collection;
+    if (!activeCollection) {
+        if (chatCollections.some(collection => collection.isAutoSyncOn)) showNoCollectionInUse(inUse, 'auto-sync wrote nothing for this message');
+        log.lifecycle(`[AutoSync] BAIL: no collection in use (${inUse.reason})`);
+        return;
     }
-    // Only the active collection's flag counts, the one the AutoSync checkbox shows (refreshAutoSyncCheckbox →
-    // getChatAutoSyncStatus → resolveEventBaseWriteTarget): a leftover flag on another of the chat's collections, from
-    // another persona or backend, must not sync into the active one while its checkbox is off.
-    const activeCollection = resolveEventBaseWriteTarget(settings, uuid);
-    if (!activeCollection || !isCollectionAutoSyncEnabled(activeCollection.registryKey)) {
-        log.lifecycle(`[AutoSync] BAIL: active collection auto-sync is off (active=${activeCollection?.registryKey ?? 'none'})`);
+    if (!activeCollection.isAutoSyncOn) {
+        log.lifecycle(`[AutoSync] BAIL: auto-sync is off for ${activeCollection.registryKey}`);
         return;
     }
 
@@ -77,10 +79,9 @@ export async function synchronizeChat(settings, triggerEvent = null) {
             chatUUID: uuid,
             settings,
             isAutoSync: true,
-            // The collection resolved above. Left to itself, ingestion builds the ID from the live character name,
-            // which in a group chat is whoever speaks this turn, so each speaker would get a collection of their own
-            // that the Summarizer, reading only the write target, never sees (Doc/collection_helper.md,
-            // resolveEventBaseWriteTarget).
+            // The collection in use, resolved above. Left to itself, ingestion builds the ID from the live character
+            // name, which in a group chat is whoever speaks this turn, so each speaker would get a collection of their
+            // own that nothing reading the collection in use ever sees (Doc/collection_helper.md, collectionInUse).
             collectionIdOverride: activeCollection.collectionId,
             // No popup when the user's own message triggered the sync: it shows after the reply, never mid-generation.
             suppressAutoSyncPopup: triggerEvent === 'MESSAGE_SENT',
@@ -92,7 +93,7 @@ export async function synchronizeChat(settings, triggerEvent = null) {
         // SillyTavern's module worker would swallow the error and fail again on every message.
         if (isInvalidModelConfigError(error)) {
             notifyInvalidModel(error.message);
-            pauseAutoSyncForChat(uuid, backend);
+            pauseCollectionAutoSync(activeCollection.registryKey);
             return;
         }
         throw error;

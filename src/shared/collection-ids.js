@@ -209,6 +209,20 @@ export function getRegistryBackend(vectorBackend) {
 }
 
 /**
+ * A backend's name as the Core page shows it, from the setting's form ('standard', 'qdrant') or the registry's
+ * ('vectra', 'qdrant'): Standard or Qdrant; any other is shown as it is.
+ *
+ * @param {string} backend
+ * @returns {string}
+ */
+export function vectorBackendName(backend) {
+    const key = String(backend || '').toLowerCase();
+    if (key === 'standard' || key === 'vectra') return 'Standard';
+    if (key === 'qdrant') return 'Qdrant';
+    return String(backend || '');
+}
+
+/**
  * Build the canonical registry-key form ("backend:collectionId") used as the
  * dict key for all collection metadata (locks, autoSync, scope, conditions,
  * etc.). All write paths must use this form so reads stay consistent with
@@ -498,51 +512,6 @@ export function parseCollectionId(collectionId) {
         format: 'unknown',
         chatUUID: null,
     };
-}
-
-// ============================================================================
-// PATTERN MATCHING FOR DISCOVERY
-// ============================================================================
-
-/**
- * Builds search patterns for finding a chat's collections
- * Used by EventBase to find a chat's collections (eventbase-store.js)
- *
- * @param {string} [chatId] Chat ID (filename)
- * @param {string} [chatUUID] Chat UUID
- * @returns {string[]} Array of patterns to search for (all lowercase)
- */
-export function buildChatSearchPatterns(chatId, chatUUID) {
-    const patterns = [];
-    const uuid = chatUUID || getChatUUID();
-
-    // Primary: UUID (the unique identifier)
-    if (uuid) {
-        patterns.push(uuid.toLowerCase());
-    }
-
-    return patterns;
-}
-
-/**
- * Checks if a collection ID matches any of the given patterns
- * Case-insensitive, uses substring matching for flexibility
- *
- * @param {string} collectionId Collection ID to check
- * @param {string[]} patterns Patterns to match against
- * @returns {boolean} True if matches any pattern
- */
-export function matchesPatterns(collectionId, patterns) {
-    if (!collectionId || !patterns || patterns.length === 0) {
-        return false;
-    }
-
-    const idLower = collectionId.toLowerCase();
-
-    return patterns.some(pattern =>
-        idLower === pattern ||
-        idLower.includes(pattern)
-    );
 }
 
 /**

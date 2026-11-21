@@ -52,7 +52,7 @@ vi.mock('../src/features/eventbase/index.js', () => ({
     refreshWorldInfoEntryDepthCache: vi.fn(),
     runEventBaseReplyStep: vi.fn(),
     synchronizeChat: vi.fn(),
-    warnOfAutoSyncNotInUse: vi.fn(),
+    showNoCollectionInUse: vi.fn(),
 }));
 vi.mock('../src/features/vector-backend/index.js', () => ({
     setInsertedCollectionRegistrar: vi.fn(),

@@ -13,12 +13,8 @@
 
 import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-injection.js';
 import { getCurrentChatId, substituteParams, getContext } from '../../sillytavern/chat.js';
-import { getChatUUID, parseRegistryKey, COLLECTION_PREFIXES, buildRegistryKey } from '../../shared/collection-ids.js';
-import {
-    getCollectionRegistry,
-    isCollectionEnabled,
-    isCollectionActiveForContextAnyKey,
-} from '../collections/index.js';
+import { getChatUUID, COLLECTION_PREFIXES, buildRegistryKey } from '../../shared/collection-ids.js';
+import { isCollectionEnabled } from '../collections/index.js';
 import { getSavedHashes } from '../vector-backend/index.js';
 import { searchArchiveEvents } from './eventbase-retrieval.js';
 import { EVENTBASE_PROMPT_TAG } from '../../shared/constants.js';
@@ -27,9 +23,9 @@ import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, resolveEventBaseWriteTarget, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
-import { NONE_IN_USE_TEXT, chatOwnCollections, resolveEventBaseRunTarget, useChatCollection } from './eventbase-chat-collections.js';
+import { collectionInUse, noCollectionInUseText, resolveEventBaseRunTarget, sharedCollectionsLockedHere, useChatCollection } from './eventbase-chat-collections.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import { isInvalidModelConfigError, notifyInvalidModel, notifyMemoryNotInjected } from '../../shared/model-config-notifier.js';
@@ -177,27 +173,27 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
 export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined, startFromMessage = 1 }) {
     const uuid = chatUUID || getChatUUID();
 
-    // Resolve the write target. Precedence:
-    //   1. Explicit override (archive uploads pass a fixed ID; auto-sync passes the
-    //      collection it already resolved for its gate).
-    //   2. The chat's own collection locked to it, from the registry — the source of truth.
-    //   3. A freshly-built ID, ONLY for a chat's first read, when it has no collection
-    //      yet. A chat with collections but none locked gets none: nothing is written
-    //      until the user chooses one (§2.2 of vectfox-multi-collection-per-chat.md).
+    // The collection the run writes. Precedence:
+    //   1. Explicit override (archive uploads and New collection pass a fixed ID; auto-sync passes the
+    //      collection in use it already resolved for its gate).
+    //   2. The chat's collection in use, from the one route every reader and writer asks (collectionInUse).
+    //   3. A freshly-built ID, ONLY for a chat's first read, when it has no collection of its own on this
+    //      backend. A chat with collections but none in use gets none: nothing is written until the user
+    //      chooses one (§2.2 of vectfox-multi-collection-per-chat.md).
     //
-    // Step 2 is load-bearing for group chats. buildEventBaseCollectionId derives the
-    // ID's char segment from the LIVE context.name2, which in a group chat is whoever
-    // is speaking on this trigger. Recomputing it per call would manufacture and lock
-    // a NEW per-character EventBase collection for the same chat every time a
-    // different character speaks, scattering events across siblings that the
-    // summarizer (which reads only resolveActiveEventBaseCollection) never sees.
-    // The write target additionally requires a UUID match, so a foreign collection
-    // locked in for cross-chat retrieval can never capture this chat's events.
-    // Trusting the registry instead of recomputing the ID is the rule in
-    // Doc/collection_helper.md — the registry is the source of truth for which
-    // collection holds a chat's data.
+    // Step 2 is load-bearing for group chats. buildEventBaseCollectionId derives the ID's char segment from
+    // the LIVE context.name2, which in a group chat is whoever is speaking on this trigger. Recomputing it per
+    // call would manufacture and lock a NEW per-character EventBase collection for the same chat every time a
+    // different character speaks, scattering events across siblings that nothing reading the collection in
+    // use ever sees. The route takes only the chat's own collections, so another chat's collection locked in
+    // for retrieval never captures this chat's events. Trusting the registry instead of recomputing the ID is
+    // the rule in Doc/collection_helper.md: the registry is the source of truth for which collection holds a
+    // chat's data.
     const collectionId = collectionIdOverride || resolveEventBaseRunTarget(settings, uuid)?.collectionId;
-    if (!collectionId) throw new Error(`EventBase: ${NONE_IN_USE_TEXT} Choose one in Collection in use here, on the AutoSync page.`);
+    if (!collectionId) {
+        const why = noCollectionInUseText(collectionInUse(settings, { chatUUID: uuid }), 'EventBase writes nothing here');
+        throw new Error(`EventBase: ${why ?? 'No chat is open.'}`);
+    }
     // The collection's record holds its locks and its pointer (how far it has read the chat), under this key.
     const registryKey = buildRegistryKey(collectionId, settings);
 
@@ -1078,89 +1074,6 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 // ---------------------------------------------------------------------------
 
 /**
- * Scan the registry for archive event collections (VectFox_archiveevent_*) that are
- * enabled and locked to the current chat. These are included in Phase A retrieval.
- *
- * Uses direct enabled + lock checks: pause and lock state may sit under either key form
- * (see below), and only a lock to this chat counts, never a character lock.
- *
- * @param {string} currentChatId
- * @returns {{ collectionId: string, registryKey: string }[]}
- */
-function _gatherArchiveEventCollections(currentChatId) {
-    if (!currentChatId) return [];
-    const registry = getCollectionRegistry();
-    const results = [];
-    for (const registryKey of registry) {
-        const parsed = parseRegistryKey(registryKey);
-        const colId = parsed.collectionId;
-        if (!colId?.startsWith(COLLECTION_PREFIXES.VECTFOX_ARCHIVE_EVENT)) continue;
-
-        // Pause and lock metadata are written under the registry key (backend:collectionId),
-        // but entries from before that keying can sit under the bare collectionId; check both.
-        const candidateKeys = [registryKey, colId].filter(Boolean);
-
-        const pausedKey = candidateKeys.find(key => !isCollectionEnabled(key));
-        if (pausedKey) {
-            log.trace(`[EventBase] Archive event collection skipped (paused: "${pausedKey}")`);
-            continue;
-        }
-
-        const isLocked = isCollectionActiveForContextAnyKey(candidateKeys, { chatId: currentChatId });
-        if (!isLocked) {
-            log.trace(`[EventBase] Archive event collection skipped (not locked to chat): ${colId}`);
-            continue;
-        }
-
-        results.push({ collectionId: colId, registryKey });
-    }
-    return results;
-}
-
-/**
- * Scan the registry for live EventBase collections (VectFox_eventbase_*) that
- * are enabled and locked to the current chat.
- *
- * The chat UUID embedded in the ID is only used for write-side collision
- * avoidance. For reads, the lock is the activation gate — a user can lock
- * another chat's EventBase to the current chat to share its data (e.g. after
- * branching/duplicating a chat).
- *
- * @param {string} currentChatId
- * @returns {{ collectionId: string, registryKey: string }[]}
- */
-function _gatherLockedEventBaseCollections(currentChatId) {
-    if (!currentChatId) return [];
-    const registry = getCollectionRegistry();
-    const results = [];
-    const seenIds = new Set();
-    for (const registryKey of registry) {
-        const parsed = parseRegistryKey(registryKey);
-        const colId = parsed.collectionId;
-        if (!colId?.startsWith(COLLECTION_PREFIXES.VECTFOX_EVENTBASE)) continue;
-        if (seenIds.has(colId)) continue;
-
-        const candidateKeys = [registryKey, colId].filter(Boolean);
-
-        const pausedKey = candidateKeys.find(key => !isCollectionEnabled(key));
-        if (pausedKey) {
-            log.trace(`[EventBase] Live collection skipped (paused: "${pausedKey}")`);
-            continue;
-        }
-
-        const isLocked = isCollectionActiveForContextAnyKey(candidateKeys, { chatId: currentChatId });
-        if (!isLocked) {
-            log.trace(`[EventBase] Live collection skipped (not locked to chat): ${colId}`);
-            continue;
-        }
-
-        seenIds.add(colId);
-        results.push({ collectionId: colId, registryKey });
-    }
-    return results;
-}
-
-/**
  * Run the EventBase retrieval pipeline and inject the result into the prompt.
  *
  * @param {object} params
@@ -1168,24 +1081,27 @@ function _gatherLockedEventBaseCollections(currentChatId) {
  * @param {string}   params.searchText - Query text (from buildSearchQuery)
  * @param {object}   params.settings   - VectFox settings
  * @param {string}  [params.chatUUID]  - Override chat UUID
+ * @param {object}  [params.inUse]     - The chat's collection in use (collectionInUse), as the reply step resolved it
+ *   for the whole reply; resolved here without it
  * @returns {Promise<void>}
  */
-export async function runEventBaseRetrieval({ chat, searchText, settings, chatUUID, dryRun = false, testMessage = null }) {
+export async function runEventBaseRetrieval({ chat, searchText, settings, chatUUID, dryRun = false, testMessage = null, inUse = null }) {
     const uuid = chatUUID || getChatUUID();
     const currentChatId = getCurrentChatId();
 
-    // --- Gather all live EventBase collections locked to the current chat ---
-    // The lock — not the chat UUID — is the activation gate. The UUID embedded
-    // in the collection ID exists for write-side collision avoidance, not for
-    // read-time activation. A user can lock any EventBase collection to the
-    // current chat (e.g. after branching) and we should query it.
-    const lockedLiveCollections = _gatherLockedEventBaseCollections(currentChatId);
+    // What a reply reads (§2.2 of vectfox-multi-collection-per-chat.md): the chat's collection in use, unless it is
+    // paused, beside the collections of other chats and chat files locked here, each on the backend it was made on.
+    // With none in use the chat's own events are read nowhere; the reply step says so in red.
+    const ownInUse = (inUse ?? collectionInUse(settings, { chatUUID: uuid })).collection;
+    const ownCollection = ownInUse && !ownInUse.isPaused ? ownInUse : null;
+    const shared = sharedCollectionsLockedHere({ chatUUID: uuid, chatId: currentChatId });
+    const otherChatsCollections = shared.otherChats.filter(collection => !collection.isPaused);
+    const lockedLiveCollections = [...(ownCollection ? [ownCollection] : []), ...otherChatsCollections];
     const queryEventbase = lockedLiveCollections.length > 0;
 
     log.lifecycle(`[EventBase] Live retrieval: uuid=${uuid}, lockedLiveCollections=${lockedLiveCollections.length}, ids=${JSON.stringify(lockedLiveCollections.map(c => c.collectionId))}`);
 
-    // --- Find archive event collections locked to this chat ---
-    const archiveCollections = _gatherArchiveEventCollections(currentChatId);
+    const archiveCollections = shared.archives.filter(collection => !collection.isPaused);
 
     if (!queryEventbase && archiveCollections.length === 0) {
         log.lifecycle('[EventBase] No live collection and no archive collections — skipping Phase A');
@@ -1221,10 +1137,9 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
         log.verbose(`[EventBase] Queried ${archiveCollections.length} archive event collection(s) → ${additionalCandidates.length} event(s)`);
     }
 
-    // Cross-chat lock: collection UUID embedded in the ID differs from the current chat UUID.
-    // When locked cross-chat, source_window_end values belong to a different conversation and
-    // cannot be compared to the current chat length — skip the context-dedup step entirely.
-    const isCrossChat = lockedLiveCollections.some(c => !c.collectionId.includes(uuid));
+    // Another chat's collection locked here: its source_window_end values belong to a different conversation and
+    // cannot be compared to the current chat length, so the context-dedup step is skipped.
+    const isCrossChat = otherChatsCollections.length > 0;
 
     // retrieveEventsForTurn decides the turn's path: StoryArc mode, Agent Mode, or the plain search.
     const { events, debug, storyArcShape, storyArcEntityNames } = await retrieveEventsForTurn({
@@ -1236,6 +1151,8 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
         // ("backend:id") searches each locked collection on the backend it was
         // created with, so a Standard and a Qdrant EventBase can be locked together.
         liveCollectionIds: lockedLiveCollections.map(c => c.registryKey),
+        // StoryArc reads the collection in use alone, its events and their links (D18).
+        storyArcCollectionKey: ownCollection?.registryKey ?? null,
         additionalCandidates,
         skipLiveQuery: !queryEventbase,
         skipContextDedup: isCrossChat,
@@ -1386,14 +1303,15 @@ export function isChatFullyVectorized(messages, settings, registryKey, windowSiz
  * Reads the registry and the collection's pointer, in its record. The one
  * backend call is the vectorization-tip probe (ensureVectorizationTip), which runs
  * when the tip is not cached yet or is far behind the chat. Passive refreshes while VectFox is disabled
- * pass `shouldProbeBackend: false` (report the cached tip alone, never call the
- * backend) and `shouldLogResolution: false` (no write-target diagnostics).
+ * pass `shouldProbeBackend: false` (report the cached tip alone, never call the backend).
+ * The collection is the chat's collection in use, through the one route every reader and writer asks (collectionInUse).
  *
  * Returns one of:
  *   { state: 'no-chat' }                                              — no chat is open
  *   { state: 'no-collection' }                                        — chat has no eventbase collection yet
- *   { state: 'none-locked', collections }                             — chat has collections of its own, none locked to
- *                                                                       it, so nothing is written (chatOwnCollections)
+ *   { state: 'none-locked', collections, noneInUseText }              — chat has collections of its own on this backend
+ *                                                                       and none in use (collectionInUse), so nothing reads
+ *                                                                       or writes its events; noneInUseText says why
  *   { state: 'vectorization-ahead', collectionId, registryKey,
  *     chatMessageCount, markerValue }                                  — collection exists, but its auto-sync marker
  *                                                                       is past the current chat tail (user bound a
@@ -1413,24 +1331,21 @@ export function isChatFullyVectorized(messages, settings, registryKey, windowSiz
  * @param {object} settings - extension_settings.vectfox
  * @param {object} [options]
  * @param {boolean} [options.shouldProbeBackend=true] - false = never query the backend for the tip
- * @param {boolean} [options.shouldLogResolution=true] - false = skip the `[EventBase][resolve]` diagnostics
  * @returns {Promise<object>}
  */
-export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = true, shouldLogResolution = true } = {}) {
+export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = true } = {}) {
     const chatId = getCurrentChatId();
     if (!chatId) return { state: 'no-chat' };
 
     const uuid = getChatUUID();
     if (!uuid) return { state: 'no-chat' };
 
-    // Resolve THE active EventBase collection for this chat — ownership-filtered
-    // and lock-aware (matches the DB Browser's "Active here only" and the
-    // auto-sync write target). See resolveEventBaseWriteTarget.
-    const match = resolveEventBaseWriteTarget(settings, uuid, { shouldLogResolution });
-
+    const inUse = collectionInUse(settings, { chatUUID: uuid, chatId });
+    const match = inUse.collection;
     if (!match) {
-        const collections = chatOwnCollections(settings, { chatUUID: uuid, chatId });
-        return collections.length ? { state: 'none-locked', collections } : { state: 'no-collection' };
+        if (!inUse.collections.length) return { state: 'no-collection' };
+        const noneInUseText = noCollectionInUseText(inUse, 'EventBase reads and writes nothing here', { isWhereToChooseSaid: false });
+        return { state: 'none-locked', collections: inUse.collections, noneInUseText };
     }
 
     const ctx = getContext();

@@ -116,10 +116,9 @@ describe('Live code remains intact (regression guard)', () => {
                 .toMatch(/getCollectionListing/);
         });
 
-        it('eventbase-store.js consumes getCollectionListing', () => {
-            // The EventBase path resolves its active collection through the listing,
-            // inside resolveActiveEventBaseCollection.
-            expect(readRel('src/features/eventbase/eventbase-store.js'))
+        it('eventbase-chat-collections.js consumes getCollectionListing', () => {
+            // The one route to a chat's collection in use (collectionInUse) reads ownership from the listing.
+            expect(readRel('src/features/eventbase/eventbase-chat-collections.js'))
                 .toMatch(/getCollectionListing/);
         });
     });
@@ -152,6 +151,24 @@ describe('Live code remains intact (regression guard)', () => {
 // ============================================================================
 
 describe('Dead code is removed (cleanup contract)', () => {
+    describe('E6 — one route to the collection a chat uses (D18 of vectfox-multi-collection-per-chat.md)', () => {
+        it('the helpers that each answered which collection a chat uses, by a rule of their own, are gone', () => {
+            const offenders = grepSourcesWithLines(/\b(?:resolveActiveEventBaseCollection|resolveEventBaseWriteTarget|_gatherLockedEventBaseCollections|_gatherArchiveEventCollections|isLockedTo|buildChatSearchPatterns|matchesPatterns)\b/);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+        });
+
+        it('the yellow toast on opening a chat with none in use, its words and the pause of every collection of a chat are gone', () => {
+            const offenders = grepSourcesWithLines(/\b(?:warnOfAutoSyncNotInUse|autoSyncNotInUseText|NONE_IN_USE_TEXT|pauseAutoSyncForChat)\b/);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+        });
+
+        it('a backend is named by one function', () => {
+            const offenders = grepSourcesWithLines(/\bBACKEND_NAMES\b/);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+            expect(readRel('src/shared/collection-ids.js')).toMatch(/export\s+function\s+vectorBackendName\b/);
+        });
+    });
+
     describe('Phase B — DEAD-CHUNK-CHAT', () => {
         it('No source file contains the DEAD-CHUNK-CHAT marker', () => {
             const offenders = grepSourcesWithLines(/DEAD-CHUNK-CHAT/);

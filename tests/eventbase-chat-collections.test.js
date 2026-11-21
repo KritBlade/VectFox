@@ -1,12 +1,12 @@
 /**
  * A chat's EventBase collections, found by the chat UUID their IDs hold (findEventBaseCollectionsForChat in
  * src/features/eventbase/eventbase-store.js, §2.5 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
- * its first collection and a later one on the current backend, then those on another backend, then a legacy ID with
- * no backend; never an archive holding the same UUID, nor another chat's collections; and first of all the one locked
- * to the open chat, a later one as well.
+ * its first collection and a later one, on every backend, and a legacy ID with no backend, in registry order, each with
+ * its backend; never an archive holding the same UUID, nor another chat's collections; and no ranking by lock, as which
+ * one the chat uses is the one route's answer (collectionInUse, D18).
  *
  * The real ID module reads the UUID. eventbase-store.js reaches SillyTavern modules that do not resolve under vitest,
- * stubbed as in eventbase-write-target.test.js.
+ * which are stubbed.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -58,7 +58,7 @@ const HARBOR_ARCHIVE = `qdrant:vf_archiveevent_qdrant_wren_keeper_${ids.harbor}`
 const TIDES_FIRST = `qdrant:vf_eventbase_qdrant_wren_keeper_${ids.tides}`;
 const TIDES_LATER = `qdrant:vf_eventbase_qdrant_wren_keeper_${ids.tides}_mh3k2x1b`;
 
-const keysFound = (uuid) => findEventBaseCollectionsForChat(uuid, 'qdrant').map(found => found.registryKey);
+const keysFound = (uuid) => findEventBaseCollectionsForChat(uuid).map(found => found.registryKey);
 
 beforeEach(() => {
     host.registry = [HARBOR_FIRST, TIDES_LATER, HARBOR_LEGACY, HARBOR_ARCHIVE, HARBOR_ON_STANDARD, HARBOR_LATER, TIDES_FIRST];
@@ -66,19 +66,21 @@ beforeEach(() => {
 });
 
 describe("a chat's EventBase collections", () => {
-    it('finds its first and later collections on the current backend, then another backend, then a legacy ID', () => {
-        expect(keysFound(ids.harbor)).toEqual([HARBOR_FIRST, HARBOR_LATER, HARBOR_ON_STANDARD, HARBOR_LEGACY]);
+    it('finds its first and later collections on every backend, and a legacy ID, in registry order with their backends', () => {
+        expect(findEventBaseCollectionsForChat(ids.harbor)).toEqual([
+            { registryKey: HARBOR_FIRST, collectionId: HARBOR_FIRST.slice('qdrant:'.length), backend: 'qdrant' },
+            { registryKey: HARBOR_LEGACY, collectionId: HARBOR_LEGACY, backend: null },
+            { registryKey: HARBOR_ON_STANDARD, collectionId: HARBOR_ON_STANDARD.slice('vectra:'.length), backend: 'vectra' },
+            { registryKey: HARBOR_LATER, collectionId: HARBOR_LATER.slice('qdrant:'.length), backend: 'qdrant' },
+        ]);
     });
 
     it("finds none of another chat's collections, nor an archive holding the same UUID", () => {
         expect(keysFound(ids.tides)).toEqual([TIDES_LATER, TIDES_FIRST]);
     });
 
-    it('puts the collection locked to the open chat first, a later one as well', () => {
+    it('ranks none by lock: the one locked to the open chat keeps its place', () => {
         host.lockedKeys = [HARBOR_LATER];
-        expect(findEventBaseCollectionsForChat(ids.harbor, 'qdrant')[0]).toEqual({
-            registryKey: HARBOR_LATER,
-            collectionId: HARBOR_LATER.slice('qdrant:'.length),
-        });
+        expect(keysFound(ids.harbor)).toEqual([HARBOR_FIRST, HARBOR_LEGACY, HARBOR_ON_STANDARD, HARBOR_LATER]);
     });
 });

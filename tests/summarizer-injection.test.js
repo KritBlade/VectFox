@@ -5,7 +5,9 @@
  *
  * Locks in the part most prone to silent breakage: sort by source_window_end
  * desc → slice top N → render chronologically inside <VectFoxSummarizer> tags →
- * strip [EVENT_TYPE] prefixes, plus the self-clearing early-exits. The depth
+ * strip [EVENT_TYPE] prefixes, plus the self-clearing early-exits: the collection
+ * is the chat's collection in use, from the one route (collectionInUse), and with
+ * none in use, or the one in use paused, nothing is read (D18). The depth
  * refresh must not load lorebooks while VectFox is disabled, and must warn
  * instead of failing silently.
  *
@@ -20,8 +22,9 @@ const mocks = vi.hoisted(() => ({
     setExtensionPrompt: vi.fn(),
     listChunks: vi.fn(),
     getChatUUID: vi.fn(() => 'uuid-1'),
-    resolveActive: vi.fn(() => ({ collectionId: 'c', registryKey: 'k' })),
+    collectionInUse: vi.fn(),
 }));
+const IN_USE = { collection: { collectionId: 'c', registryKey: 'k', isPaused: false }, reason: null, collections: [], lockedElsewhere: [] };
 
 vi.mock('../../../../../script.js', () => ({ setExtensionPrompt: mocks.setExtensionPrompt }));
 // Host modules that summarizer-injection.js imports but the tests don't drive.
@@ -31,7 +34,12 @@ vi.mock('../../../../extensions.js', () => ({ getContext: vi.fn(() => ({ chat: [
 vi.mock('../../../../world-info.js', () => ({ getWorldInfoSettings: vi.fn(() => ({})), getSortedEntries: vi.fn(async () => []) }));
 vi.mock('../src/features/vector-backend/backend-registry.js', () => ({ getBackend: vi.fn(async () => ({ listChunks: mocks.listChunks })) }));
 vi.mock('../src/shared/collection-ids.js', () => ({ getChatUUID: mocks.getChatUUID }));
-vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ resolveActiveEventBaseCollection: mocks.resolveActive }));
+vi.mock('../src/features/eventbase/eventbase-store.js', () => ({ getVectorizationTip: vi.fn() }));
+vi.mock('../src/features/eventbase/eventbase-chat-collections.js', () => ({
+    NOT_IN_USE_REASON: { NO_CHAT: 'no-chat', NO_COLLECTION: 'no-collection', NONE_IN_USE: 'none-in-use' },
+    collectionInUse: mocks.collectionInUse,
+    noCollectionInUseText: (inUse, consequence) => (inUse.reason === 'none-in-use' ? `No collection is in use in this chat, so ${consequence}.` : null),
+}));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn() {}, error() {}, domain() {}, trace() {}, verbose() {}, lifecycle() {}, enabled: () => false } }));
 
 // SillyTavern modules the feature barrels reach; nothing this test runs uses them. SECRET_KEYS is
@@ -40,8 +48,10 @@ vi.mock('../../../../openai.js', () => ({}));
 vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 
-import { runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
+import { applyGhosting, runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
 import { getSortedEntries } from '../../../../world-info.js';
+import { getContext } from '../../../../extensions.js';
+import { getVectorizationTip } from '../src/features/eventbase/eventbase-store.js';
 import { log } from '../src/sillytavern/log.js';
 
 const SETTINGS = (over = {}) => ({
@@ -60,7 +70,7 @@ beforeEach(() => {
     mocks.setExtensionPrompt.mockClear();
     mocks.listChunks.mockReset();
     mocks.getChatUUID.mockReturnValue('uuid-1');
-    mocks.resolveActive.mockReturnValue({ collectionId: 'c', registryKey: 'k' });
+    mocks.collectionInUse.mockReset().mockReturnValue(IN_USE);
 });
 
 describe('runSummarizerInjection', () => {
@@ -72,17 +82,33 @@ describe('runSummarizerInjection', () => {
     });
 
     it('clears the slot when no chat is open', async () => {
-        mocks.getChatUUID.mockReturnValue(null);
+        mocks.collectionInUse.mockReturnValue({ collection: null, reason: 'no-chat', collections: [], lockedElsewhere: [] });
         const r = await runSummarizerInjection(SETTINGS());
         expect(r.injected).toBe(0);
         expect(lastInjected()).toEqual(['3_vectfox_summarizer', '', 1, 4, false]);
     });
 
-    it('clears the slot when no active collection resolves', async () => {
-        mocks.resolveActive.mockReturnValue(null);
+    it('clears the slot, reading nothing, while the chat has collections and none in use', async () => {
+        mocks.collectionInUse.mockReturnValue({ collection: null, reason: 'none-in-use', collections: [{ registryKey: 'k' }], lockedElsewhere: [] });
         const r = await runSummarizerInjection(SETTINGS());
         expect(r.injected).toBe(0);
         expect(lastInjected()[1]).toBe('');
+        expect(mocks.listChunks).not.toHaveBeenCalled();
+    });
+
+    it('clears the slot, reading nothing, while the collection in use is paused', async () => {
+        mocks.collectionInUse.mockReturnValue({ ...IN_USE, collection: { ...IN_USE.collection, isPaused: true } });
+        const r = await runSummarizerInjection(SETTINGS());
+        expect(r.injected).toBe(0);
+        expect(mocks.listChunks).not.toHaveBeenCalled();
+    });
+
+    it('reads the collection the reply step resolved, asking the route nothing', async () => {
+        mocks.listChunks.mockResolvedValue({ items: [ev(2, 'X')] });
+        const r = await runSummarizerInjection(SETTINGS(), { ...IN_USE, collection: { ...IN_USE.collection, collectionId: 'c2' } });
+        expect(r.injected).toBe(1);
+        expect(mocks.collectionInUse).not.toHaveBeenCalled();
+        expect(mocks.listChunks.mock.calls[0][0]).toBe('c2');
     });
 
     it('clears when the collection has no events', async () => {
@@ -136,6 +162,15 @@ describe('runSummarizerInjection', () => {
 });
 
 describe('buildSummarizerInjection (the Summarizer preview path)', () => {
+    it('says why it has nothing while the chat has collections and none in use, and that the one in use is paused', async () => {
+        mocks.collectionInUse.mockReturnValue({ collection: null, reason: 'none-in-use', collections: [{ registryKey: 'k' }], lockedElsewhere: [] });
+        expect(await buildSummarizerInjection(SETTINGS())).toMatchObject({
+            count: 0, reason: 'none-in-use', problem: 'No collection is in use in this chat, so Summarizer Injection reads nothing.',
+        });
+        mocks.collectionInUse.mockReturnValue({ ...IN_USE, collection: { ...IN_USE.collection, isPaused: true } });
+        expect(await buildSummarizerInjection(SETTINGS())).toMatchObject({ count: 0, reason: 'paused' });
+    });
+
     it('computes the would-be content even when the feature is DISABLED (never injects)', async () => {
         mocks.listChunks.mockResolvedValue({ items: [ev(4, 'Y'), ev(2, 'X')] });
         const out = await buildSummarizerInjection(SETTINGS({ summarizer_injection_enabled: false, summarizer_injection_count: 5 }));
@@ -174,7 +209,7 @@ describe('buildSummarizerInjection (the Summarizer preview path)', () => {
     });
 
     it('reports a reason on empty outcomes', async () => {
-        mocks.resolveActive.mockReturnValue(null);
+        mocks.collectionInUse.mockReturnValue({ collection: null, reason: 'no-collection', collections: [], lockedElsewhere: [] });
         const out = await buildSummarizerInjection(SETTINGS());
         expect(out).toMatchObject({ count: 0, text: '', reason: 'no-collection' });
     });
@@ -268,5 +303,30 @@ describe('refreshWorldInfoEntryDepthCache', () => {
 
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('scan-depth refresh failed'), failure);
         warn.mockRestore();
+    });
+});
+
+describe('applyGhosting and the collection in use', () => {
+    const GHOSTING = { eventbase_ghost_enabled: true, summarizer_injection_enabled: true, eventbase_ghost_keep_recent: 1 };
+    const chatOf = () => ['a', 'b', 'c', 'd', 'e', 'f'].map(mes => ({ mes, is_user: false }));
+
+    beforeEach(() => {
+        globalThis.window = {};
+        getVectorizationTip.mockReset().mockReturnValue(4);
+    });
+
+    it('blanks the messages the collection in use has read, up to its tip', () => {
+        const chat = chatOf();
+        getContext.mockReturnValue({ chat: chatOf(), symbols: { ignore: null } });
+        expect(applyGhosting(chat, GHOSTING, IN_USE)).toEqual({ wiped: 4, charsRemoved: 4 });
+        expect(getVectorizationTip).toHaveBeenCalledWith('k');
+    });
+
+    it('blanks nothing while the collection in use is paused, or none is in use, reading no tip', () => {
+        const paused = { ...IN_USE, collection: { ...IN_USE.collection, isPaused: true } };
+        expect(applyGhosting(chatOf(), GHOSTING, paused)).toEqual({ wiped: 0, charsRemoved: 0 });
+        const none = { collection: null, reason: 'none-in-use', collections: [{ registryKey: 'k' }], lockedElsewhere: [] };
+        expect(applyGhosting(chatOf(), GHOSTING, none)).toEqual({ wiped: 0, charsRemoved: 0 });
+        expect(getVectorizationTip).not.toHaveBeenCalled();
     });
 });
