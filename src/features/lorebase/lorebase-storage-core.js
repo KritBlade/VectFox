@@ -157,9 +157,20 @@ export function emptyRowOf(kind, book, hereCollection) {
 }
 
 /**
+ * Whether LoreBase holds anything of a book SillyTavern has: a record, keys, or vectors in the collection it reads now.
+ * The one rule of whether a book has Remove from LoreBase: the Database Browser lists such a book (storageRowsOf), and
+ * the WorldInfo page gives its row the trash (removableLoreBookNames in lorebase-storage.js).
+ * @param {{hasRecord: boolean, keyCount: number, hereTenantCount: number}} holdings - From the record and the listing
+ * @returns {boolean}
+ */
+export function hasLoreBaseHoldings({ hasRecord, keyCount, hereTenantCount }) {
+    return hasRecord || keyCount > 0 || hereTenantCount > 0;
+}
+
+/**
  * The Database Browser's LoreBase rows (§3.2 of vectfox-multi-collection-per-chat.md): first the list, then the
- * leftovers, each by book name. The list holds every book SillyTavern has with a LoreBase record, keys, or vectors in
- * the collection LoreBase reads now: its Keys row, then that collection's Vectors row, either at 0 when nothing is
+ * leftovers, each by book name. The list holds every book SillyTavern has that LoreBase holds anything of
+ * (hasLoreBaseHoldings): its Keys row, then the Vectors row of the collection read now, either at 0 when nothing is
  * there. The leftovers hold what LoreBase cannot use here, each row holding something: a book's vectors in the other
  * collection, every row of a book SillyTavern no longer has, and each tenant whose points name no book, last.
  * @param {{listing: {keys: Array<{book: string, entryCount: number}>, vectors: Array<{collection: string, tenant: string,
@@ -206,7 +217,7 @@ export function storageRowsOf({ listing, recordCounts, hereCollection, sillyTave
             for (const tenant of [...here, ...elsewhere]) leftovers.push(tenantRow(tenant, leftoverFacts));
             continue;
         }
-        if (hasRecord || entryCount || here.length) {
+        if (hasLoreBaseHoldings({ hasRecord, keyCount: entryCount, hereTenantCount: here.length })) {
             const listedFacts = { ...facts, isLeftover: false };
             listed.push(keysRowOf(listedFacts, entryCount));
             if (here.length) for (const tenant of here) listed.push(tenantRow(tenant, listedFacts));

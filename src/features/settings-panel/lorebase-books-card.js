@@ -31,7 +31,7 @@ import { confirmPopup } from '../../sillytavern/popup.js';
 import {
     BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteLoreSelectionAfterConfirm, deleteStored,
     describeRemovedLoreBook, isLoreBaseSwitchedOn, kindsLacking, newLoreSelectionHere, onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange,
-    openLoreBaseSelection, removeLoreBookAfterConfirm, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn,
+    openLoreBaseSelection, removableLoreBookNames, removeLoreBookAfterConfirm, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn,
     useLoreSelectionHere, writeMissing, writingProblem,
 } from '../lorebase/index.js';
 import { IN_USE_NEW } from './in-use-switcher-markup.js';
@@ -127,9 +127,10 @@ function withLastCounts(books) {
 /**
  * Draw the open chat's LoreBase books, once the panel is mounted, under the switch as saved: each row counts the
  * selected entries LoreBase decides, as the keys line does, once the books are loaded, then how many of them have keys
- * and vectors and the book's state, once those are read, a row of the same chat keeping the state it showed until
- * then; under them, Add a lorebook with the books the chat does not load. Only the newest refresh draws, so a slow load
- * never draws a chat left since. A status line that says "this chat" goes once another chat is open.
+ * and vectors and the book's state, and whether LoreBase holds anything of it to remove (removableLoreBookNames, the
+ * Database Browser's rule), once those are read, a row of the same chat keeping what it showed until then; under them,
+ * Add a lorebook with the books the chat does not load. Only the newest refresh draws, so a slow load never draws a
+ * chat left since. A status line that says "this chat" goes once another chat is open.
  * @returns {Promise<void>}
  */
 export async function refreshLoreBaseBooks() {
@@ -145,18 +146,22 @@ export async function refreshLoreBaseBooks() {
         log.warn("LoreBase: the WorldInfo page's book list could not be drawn:", error);
         return;
     }
+    if (!status.books.length || !cardSettings) return;
     const selectedBooks = status.books.filter(book => book.selectedCount)
         .map(({ bookName, selectionInUseId }) => ({ bookName, selectionId: selectionInUseId }));
-    if (!selectedBooks.length || !cardSettings) return;
-    let counts = new Map();
-    try {
-        counts = await storedCountsOfBooks(selectedBooks, cardSettings);
-    } catch (error) {
-        log.warn("LoreBase: the keys and vectors of the WorldInfo page's books could not be counted:", error);
-    }
+    const [counts, removable] = await Promise.all([
+        selectedBooks.length ? storedCountsOfBooks(selectedBooks, cardSettings).catch(error => {
+            log.warn("LoreBase: the keys and vectors of the WorldInfo page's books could not be counted:", error);
+            return new Map();
+        }) : new Map(),
+        removableLoreBookNames(status.books.map(book => book.bookName), cardSettings).catch(error => {
+            log.warn("LoreBase: what LoreBase holds of the WorldInfo page's books could not be listed, so no row offers Remove from LoreBase:", error);
+            return new Set();
+        }),
+    ]);
     if (refresh !== refreshCount) return;
     // Drawn again whatever was read, so counts kept from the last list never stay in place of ones that could not be read.
-    drawBooks({ ...status, books: status.books.map(book => ({ ...book, ...counts.get(book.bookName) })) });
+    drawBooks({ ...status, books: status.books.map(book => ({ ...book, ...counts.get(book.bookName), canRemove: removable.has(book.bookName) })) });
 }
 
 /**

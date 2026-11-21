@@ -77,8 +77,8 @@ const recordOf = ({ selected = [], chats = [], characters = [] } = {}) => oneSel
 });
 // A book of one selection, the record recordOf makes, as the WorldInfo page lists it.
 const ONE_SELECTION = [{ id: 'first', name: 'First' }];
-const bookOf = (bookName, selectedCount, isLockedToChat, isLockedToCharacter, canRemove, canUnlink, selections = [], selectionInUseId = null) => ({
-    bookName, selectedCount, isLockedToChat, isLockedToCharacter, selections, selectionInUseId, canRemove, canUnlink,
+const bookOf = (bookName, selectedCount, isLockedToChat, isLockedToCharacter, canUnlink, selections = [], selectionInUseId = null) => ({
+    bookName, selectedCount, isLockedToChat, isLockedToCharacter, selections, selectionInUseId, canUnlink,
 });
 const bookWith = (...uids) => ({ entries: Object.fromEntries(uids.map(uid => [uid, { uid, content: `Entry ${uid}.` }])) });
 
@@ -101,7 +101,7 @@ beforeEach(() => {
 });
 
 describe('chatBookLocks', () => {
-    it("lists the books this chat loads in the scan's order, each with its selection in use here, its count, its locks, Remove and Unlink", async () => {
+    it("lists the books this chat loads in the scan's order, each with its selection in use here, its count, its locks and Unlink", async () => {
         host.settings.vectfox.lorebase_books = {
             'Harbor Atlas': recordOf({ selected: ['0', '1'], chats: ['chat-harbor'] }),
             'Keeper Notes': recordOf({ selected: ['7'], characters: ['keeper-orrin.png'] }),
@@ -116,9 +116,9 @@ describe('chatBookLocks', () => {
         expect(await chatBookLocks()).toEqual({
             hasChat: true,
             books: [
-                bookOf('Tide Tables', 1, false, false, true, true, ONE_SELECTION),
-                bookOf('Keeper Notes', 1, false, true, true, false, ONE_SELECTION, 'first'),
-                bookOf('Harbor Atlas', 2, true, false, true, true, ONE_SELECTION, 'first'),
+                bookOf('Tide Tables', 1, false, false, true, ONE_SELECTION),
+                bookOf('Keeper Notes', 1, false, true, false, ONE_SELECTION, 'first'),
+                bookOf('Harbor Atlas', 2, true, false, true, ONE_SELECTION, 'first'),
             ],
         });
     });
@@ -134,15 +134,15 @@ describe('chatBookLocks', () => {
 
         const both = [...ONE_SELECTION, { id: 'second', name: 'Second' }];
         const { books } = await chatBookLocks();
-        expect(books.find(book => book.bookName === 'Harbor Atlas')).toEqual(bookOf('Harbor Atlas', 2, true, false, true, true, both, 'second'));
-        expect(books.find(book => book.bookName === 'Tide Tables')).toEqual(bookOf('Tide Tables', 2, false, false, true, true, both));
+        expect(books.find(book => book.bookName === 'Harbor Atlas')).toEqual(bookOf('Harbor Atlas', 2, true, false, true, both, 'second'));
+        expect(books.find(book => book.bookName === 'Tide Tables')).toEqual(bookOf('Tide Tables', 2, false, false, true, both));
     });
 
-    it('counts nothing selected and no lock for a book LoreBase has no record of, which has no Remove, and offers Unlink where a list Unlink empties loads it, loading no book', async () => {
+    it('counts nothing selected and no lock for a book LoreBase has no record of, and offers Unlink where a list Unlink empties loads it, loading no book', async () => {
         // The global list's book and the chat's Chat Lorebook can be unlinked; the character's own lorebook is SillyTavern's to change.
         expect((await chatBookLocks()).books).toEqual([
-            bookOf('Tide Tables', 0, false, false, false, true), bookOf('Keeper Notes', 0, false, false, false, false),
-            bookOf('Harbor Atlas', 0, false, false, false, true),
+            bookOf('Tide Tables', 0, false, false, true), bookOf('Keeper Notes', 0, false, false, false),
+            bookOf('Harbor Atlas', 0, false, false, true),
         ]);
         expect(loadWorldInfo).not.toHaveBeenCalled();
     });
@@ -151,14 +151,14 @@ describe('chatBookLocks', () => {
         // Entry 1 was emptied and entry 9 deleted since they were selected.
         host.books['Harbor Atlas'] = { entries: { 0: { uid: 0, content: 'The harbor bells.' }, 1: { uid: 1, content: '' } } };
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': recordOf({ selected: ['0', '1', '9'] }) };
-        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 1, false, false, true, true, ONE_SELECTION));
+        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 1, false, false, true, ONE_SELECTION));
     });
 
     it('counts the saved selection of a book that cannot be loaded, and logs why', async () => {
         const failure = new Error('HTTP 500');
         host.books['Harbor Atlas'] = failure;
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': recordOf({ selected: ['0', '1', '9'] }) };
-        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 3, false, false, true, true, ONE_SELECTION));
+        expect((await chatBookLocks()).books.at(-1)).toEqual(bookOf('Harbor Atlas', 3, false, false, true, ONE_SELECTION));
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('could not be loaded'), failure);
     });
 
@@ -167,14 +167,14 @@ describe('chatBookLocks', () => {
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
         host.settings.vectfox.lorebase_books = { 'Tide Tables': recordOf({ chats: ['group-harbor'], characters: ['keeper-orrin.png'] }) };
 
-        expect(await chatBookLocks()).toEqual({ hasChat: true, books: [bookOf('Tide Tables', 0, true, false, true, true, ONE_SELECTION, 'first')] });
+        expect(await chatBookLocks()).toEqual({ hasChat: true, books: [bookOf('Tide Tables', 0, true, false, true, ONE_SELECTION, 'first')] });
     });
 
     it('says when no chat is open', async () => {
         host.chatId = undefined;
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
 
-        expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false, false, true)] });
+        expect(await chatBookLocks()).toEqual({ hasChat: false, books: [bookOf('Tide Tables', 0, false, false, true)] });
     });
 });
 

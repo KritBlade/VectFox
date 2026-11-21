@@ -28,6 +28,8 @@ const host = vi.hoisted(() => ({
     status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, writingProgressListener: null,
     selectedBooks: [], settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
     counts: null, add: null, added: null, removed: null, deletedSelection: null, useError: null,
+    // The books LoreBase holds anything of, so their rows offer Remove from LoreBase.
+    removable: new Set(),
 }));
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn() } }));
@@ -57,6 +59,7 @@ vi.mock('../src/features/lorebase/index.js', async () => ({
         return host.added;
     }),
     storedCountsOfBooks: vi.fn(async () => host.counts),
+    removableLoreBookNames: vi.fn(async bookNames => new Set(bookNames.filter(bookName => host.removable.has(bookName)))),
     // The switcher's two actions: a selection put in use here, or the error that refused it; a new selection made.
     useLoreSelectionHere: vi.fn(() => {
         if (host.useError) throw host.useError;
@@ -110,6 +113,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = `<div id="VectFox_settings">${worldInfoPageMarkup()}</div>`;
     host.status = { hasChat: true, books: [HARBOR, KEEPER] };
+    host.removable = new Set();
     host.isOn = true;
     host.willTurnOn = true;
     host.keyProblem = null;
@@ -271,6 +275,14 @@ describe('the LoreBase books card', () => {
         host.status = { hasChat: true, books: [KEEPER] };
         await refreshLoreBaseBooks();
         expect(storedCountsOfBooks).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers Remove from LoreBase on the rows of the books LoreBase holds anything of, as the Database Browser lists them, read after the list is drawn", async () => {
+        host.removable = new Set(['Keeper Notes']);
+        await refreshLoreBaseBooks();
+        const { removableLoreBookNames } = await import('../src/features/lorebase/index.js');
+        expect(removableLoreBookNames).toHaveBeenLastCalledWith(['Harbor Atlas', 'Keeper Notes'], host.settings);
+        expect([remover('Harbor Atlas'), remover('Keeper Notes')?.title]).toEqual([null, 'Remove from LoreBase']);
     });
 
     it('keeps the rows without counts when the keys and vectors cannot be read, and logs why', async () => {
@@ -633,7 +645,8 @@ describe('Remove from LoreBase and Unlink on a book row', () => {
     const WRITING = 'LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.';
 
     beforeEach(() => {
-        host.status = { hasChat: true, books: [{ ...HARBOR, canRemove: true, canUnlink: true }, { ...KEEPER, canRemove: false, canUnlink: false }] };
+        host.status = { hasChat: true, books: [{ ...HARBOR, canUnlink: true }, { ...KEEPER, canUnlink: false }] };
+        host.removable = new Set(['Harbor Atlas']);
     });
 
     it('removes the book from LoreBase once confirmed, unlinking nothing, says what went, and draws the list again', async () => {
@@ -680,7 +693,8 @@ describe('the trash on a book row whose dropdown shows one of its several select
     const selectionTrash = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-delete-selection="${bookName}"]`);
 
     beforeEach(() => {
-        host.status = { hasChat: true, books: [{ ...HARBOR, selections: TWO, selectionInUseId: 'night', canRemove: true }] };
+        host.status = { hasChat: true, books: [{ ...HARBOR, selections: TWO, selectionInUseId: 'night' }] };
+        host.removable = new Set(['Harbor Atlas']);
     });
 
     it('deletes that selection alone once confirmed, never the book, says so, and draws the list again', async () => {

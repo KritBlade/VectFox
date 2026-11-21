@@ -53,7 +53,7 @@ export {
 export { deleteLoreSelectionAfterConfirm, removeLoreBookAfterConfirm } from './lorebase-removal.js';
 export {
     deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
-    storedCountsOfBooks, writeImport, writeMissing,
+    removableLoreBookNames, storedCountsOfBooks, writeImport, writeMissing,
 } from './lorebase-storage.js';
 export { currentEmbeddingModel, tenantChunkSource } from './lorebase-vectors.js';
 export { BOTH_KINDS, KEYS, VECTORS, kindsLacking } from './lorebase-storage-core.js';

@@ -39,7 +39,7 @@ import { postLoreBaseRoute } from './lorebase-routes.js';
 import { unionOfSelections } from './lorebase-selections-core.js';
 import { qdrantProblem, writingProblem } from './lorebase-setup.js';
 import {
-    KEYS, VECTORS, emptyRowOf, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
+    KEYS, VECTORS, emptyRowOf, hasLoreBaseHoldings, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
 } from './lorebase-storage-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
@@ -351,14 +351,33 @@ export async function regenerateKeysOfEntries(bookName, entries, settings) {
 
 /**
  * What Similharity lists of this SillyTavern user's LoreBase keys and vectors (`/lorebase/books`): each book's keys,
- * and every tenant of its vectors in either Qdrant collection. The one read of it: the Database Browser's rows, what
- * Remove from LoreBase deletes, and Delete all.
+ * and every tenant of its vectors in either Qdrant collection. The one read of it: the Database Browser's rows, which
+ * books have Remove from LoreBase, what it deletes, and Delete all.
  * @returns {Promise<{keys: Array<{book: string, entryCount: number}>, vectors: Array<{book: string|null, collection: string,
  *   tenant: string, pointCount: number}>}>}
  * @throws {Error} When Similharity cannot list them
  */
 function listLoreBaseStorage() {
     return postLoreBaseRoute('books', {}, "list LoreBase's books");
+}
+
+/**
+ * The named books LoreBase holds anything of (hasLoreBaseHoldings, the rule the Database Browser lists a book by): those
+ * whose WorldInfo row gets Remove from LoreBase. Off Qdrant, where Remove is refused, none.
+ * @param {string[]} bookNames
+ * @param {object} settings - VectFox settings
+ * @returns {Promise<Set<string>>}
+ * @throws {Error} When Similharity cannot list what LoreBase holds
+ */
+export async function removableLoreBookNames(bookNames, settings) {
+    if (!isLoreBaseBackend(settings)) return new Set();
+    const listing = await listLoreBaseStorage();
+    const here = loreBaseVectorsCollection(settings);
+    return new Set(bookNames.filter(bookName => hasLoreBaseHoldings({
+        hasRecord: getLoreBook(bookName) !== null,
+        keyCount: listing.keys.find(row => row.book === bookName)?.entryCount ?? 0,
+        hereTenantCount: listing.vectors.filter(row => row.book === bookName && row.collection === here).length,
+    })));
 }
 
 /**

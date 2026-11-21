@@ -614,6 +614,23 @@ describe("the Database Browser's rows", () => {
         expect(routeCalls).toEqual([]);
     });
 
+    it('names the books with Remove from LoreBase by the rule the rows are listed by: a record, keys, or vectors in the collection read now', async () => {
+        const { extension_settings } = await import('../src/sillytavern/settings.js');
+        extension_settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: [] }) };
+        host.listing = {
+            keys: [{ book: 'Imported Atlas', entryCount: 3 }],
+            vectors: [
+                { collection: 'vectfox_main', tenant: 'elsewhere', book: 'Shared Atlas', pointCount: 2 },
+                { collection: 'vf_lorebase_rabbit', tenant: 'here', book: 'Vector Atlas', pointCount: 2 },
+            ],
+        };
+        const names = [BOOK, 'Imported Atlas', 'Shared Atlas', 'Vector Atlas', 'Plain Atlas'];
+        expect([...await storage.removableLoreBookNames(names, QDRANT)]).toEqual([BOOK, 'Imported Atlas', 'Vector Atlas']);
+        routeCalls.length = 0;
+        expect([...await storage.removableLoreBookNames(names, { vector_backend: 'standard' })]).toEqual([]);
+        expect(routeCalls).toEqual([]);
+    });
+
     it("finds the row a file the global Import takes goes to: the book's own, or the one it would have, never a book SillyTavern lacks", async () => {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
         await selectBooks();

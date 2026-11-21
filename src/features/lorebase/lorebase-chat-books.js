@@ -208,12 +208,13 @@ export async function addLoreBookToChat(bookName, place) {
 /**
  * The open chat's books as the WorldInfo page lists them: each book SillyTavern loads here and has, its selections and
  * the one in use here (§3.7 of vectfox-multi-collection-per-chat.md), how many of that one's selected entries LoreBase
- * decides, or of every entry its selections hold while none is in use, whether that one is locked to this chat or to
- * its character, where LoreBase decides them (D11), whether its row's Remove from LoreBase has a LoreBase record of the
- * book to delete, and whether its row offers Unlink: a list Unlink takes books out of loads it here (chatBookLinks).
+ * decides, or of every entry its selections hold while none is in use (decidedCountOf), whether that one is locked to
+ * this chat or to its character, where LoreBase decides them (D11), and whether its row offers Unlink: a list Unlink
+ * takes books out of loads it here (chatBookLinks). Whether a row has Remove from LoreBase is the listing's to say
+ * (removableLoreBookNames in lorebase-storage.js).
  * @returns {Promise<{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
  *   isLockedToCharacter: boolean, selections: Array<{id: string, name: string}>, selectionInUseId: string|null,
- *   canRemove: boolean, canUnlink: boolean}>}>}
+ *   canUnlink: boolean}>}>}
  */
 export async function chatBookLocks() {
     const where = lockTarget();
@@ -230,7 +231,6 @@ export async function chatBookLocks() {
             isLockedToCharacter: Boolean(inUse[index]) && isSelectionLockedTo(inUse[index], { characterAvatar: where.characterAvatar }),
             selections: loreSelectionsOf(bookName).map(({ id, name }) => ({ id, name })),
             selectionInUseId: inUse[index]?.id ?? null,
-            canRemove: getLoreBook(bookName) !== null,
             canUnlink: chatBookLinks(bookName).unlinkedFrom.length > 0,
         })),
     };
