@@ -152,7 +152,19 @@ export function storedPointsOf(items) {
  * @returns {boolean}
  */
 export function hasCurrentVectors(points, stored, modelKey) {
-    return points.every(point => stored.get(point.hash)?.modelKey === modelKey);
+    return points.every(point => isPointCurrent(point, stored, modelKey));
+}
+
+/**
+ * Whether one point is stored, made by the embedding model set now: what hasCurrentVectors asks of every part, and
+ * what bookVectorWork writes again when not.
+ * @param {{hash: number}} point - From entryPoints
+ * @param {Map<number, {modelKey: string}>} stored - From storedPointsOf
+ * @param {string} modelKey - The embedding model set now (embeddingModelKey)
+ * @returns {boolean}
+ */
+export function isPointCurrent(point, stored, modelKey) {
+    return stored.get(point.hash)?.modelKey === modelKey;
 }
 
 /**
@@ -182,7 +194,7 @@ export function bookVectorWork(decided, uidsToWrite, stored, modelKey) {
     const currentHashes = new Set(decided.flatMap(entry => entry.points.map(point => point.hash)));
     const points = decided
         .filter(entry => writing.has(String(entry.uid)))
-        .flatMap(entry => entry.points.filter(point => stored.get(point.hash)?.modelKey !== modelKey));
+        .flatMap(entry => entry.points.filter(point => !isPointCurrent(point, stored, modelKey)));
     const deleteHashes = [...stored.keys()].filter(hash => !currentHashes.has(hash));
     return { points, deleteHashes };
 }

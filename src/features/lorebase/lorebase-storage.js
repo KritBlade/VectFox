@@ -39,7 +39,7 @@ import { postLoreBaseRoute } from './lorebase-routes.js';
 import { unionOfSelections } from './lorebase-selections-core.js';
 import { qdrantProblem, writingProblem } from './lorebase-setup.js';
 import {
-    KEYS, VECTORS, emptyRowOf, hasLoreBaseHoldings, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
+    KEYS, VECTORS, emptyRowOf, hasLoreBaseHoldings, listedHoldingsOf, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
 } from './lorebase-storage-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
@@ -373,11 +373,10 @@ export async function removableLoreBookNames(bookNames, settings) {
     if (!isLoreBaseBackend(settings)) return new Set();
     const listing = await listLoreBaseStorage();
     const here = loreBaseVectorsCollection(settings);
-    return new Set(bookNames.filter(bookName => hasLoreBaseHoldings({
-        hasRecord: getLoreBook(bookName) !== null,
-        keyCount: listing.keys.find(row => row.book === bookName)?.entryCount ?? 0,
-        hereTenantCount: listing.vectors.filter(row => row.book === bookName && row.collection === here).length,
-    })));
+    return new Set(bookNames.filter(bookName => {
+        const { keyCount, tenants } = listedHoldingsOf(listing, bookName);
+        return hasLoreBaseHoldings({ hasRecord: getLoreBook(bookName) !== null, keyCount, hereTenantCount: tenants.filter(tenant => tenant.collection === here).length });
+    }));
 }
 
 /**
@@ -487,7 +486,7 @@ export async function planImport(row, fileData, settings) {
     }
     const decidableEntries = await loadDecidableEntries(row.book);
     const selectedUids = new Set(unionOfSelections(getLoreBook(row.book)).selectedUids);
-    const decidedEntries = decidableEntries.filter(entry => selectedUids.has(uidOf(entry)));
+    const decidedEntries = await loadDecidedEntries(row.book);
     const stored = (await readBookVectors([row.book], settings)).get(row.book);
     const plan = planVectorsImport(fileData, {
         candidates: entriesWithPoints(row.book, decidableEntries), selectedUids, stored, modelKey: currentEmbeddingModelKey(settings),
@@ -585,7 +584,7 @@ export async function loreBookHoldings(bookName, settings) {
     refuseWhileWriting();
     const offQdrant = qdrantProblem(settings);
     if (offQdrant) throw new Error(offQdrant);
-    const listing = await listLoreBaseStorage();
+    const { keyCount, tenants } = listedHoldingsOf(await listLoreBaseStorage(), bookName);
     const record = getLoreBook(bookName);
     const selections = record?.selections ?? [];
     return {
@@ -595,9 +594,8 @@ export async function loreBookHoldings(bookName, settings) {
         pinnedCount: new Set(selections.flatMap(selection => selection.pinnedSections)).size,
         chatLockCount: selections.reduce((sum, selection) => sum + selection.lockedToChatIds.length, 0),
         characterLockCount: selections.reduce((sum, selection) => sum + selection.lockedToCharacterAvatars.length, 0),
-        keyCount: listing.keys.find(row => row.book === bookName)?.entryCount ?? 0,
-        tenants: listing.vectors.filter(row => row.book === bookName)
-            .map(({ collection, tenant, pointCount }) => ({ collection, tenant, pointCount })),
+        keyCount,
+        tenants: tenants.map(({ collection, tenant, pointCount }) => ({ collection, tenant, pointCount })),
     };
 }
 

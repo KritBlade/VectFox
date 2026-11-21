@@ -157,6 +157,21 @@ export function emptyRowOf(kind, book, hereCollection) {
 }
 
 /**
+ * What Similharity's listing holds of one book: how many of its entries have keys, and each tenant of its vectors, in
+ * either collection. The one reading of a book's part of the listing: the Database Browser's rows (storageRowsOf), what
+ * Remove from LoreBase deletes (loreBookHoldings) and which books have it (removableLoreBookNames).
+ * @param {{keys: Array<{book: string, entryCount: number}>, vectors: Array<{book: string|null, collection: string}>}} listing
+ * @param {string} book
+ * @returns {{keyCount: number, tenants: object[]}}
+ */
+export function listedHoldingsOf(listing, book) {
+    return {
+        keyCount: listing.keys.find(row => row.book === book)?.entryCount ?? 0,
+        tenants: listing.vectors.filter(row => row.book === book),
+    };
+}
+
+/**
  * Whether LoreBase holds anything of a book SillyTavern has: a record, keys, or vectors in the collection it reads now.
  * The one rule of whether a book has Remove from LoreBase: the Database Browser lists such a book (storageRowsOf), and
  * the WorldInfo page gives its row the trash (removableLoreBookNames in lorebase-storage.js).
@@ -208,8 +223,7 @@ export function storageRowsOf({ listing, recordCounts, hereCollection, sillyTave
             isInSillyTavern: inSillyTavern.has(book),
         };
         const leftoverFacts = { ...facts, isLeftover: true };
-        const entryCount = listing.keys.find(row => row.book === book)?.entryCount ?? 0;
-        const tenants = listing.vectors.filter(row => row.book === book);
+        const { keyCount: entryCount, tenants } = listedHoldingsOf(listing, book);
         const here = tenants.filter(row => row.collection === hereCollection);
         const elsewhere = tenants.filter(row => row.collection !== hereCollection);
         if (!facts.isInSillyTavern) {
