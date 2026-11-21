@@ -209,7 +209,7 @@ describe("the Database Browser's words", () => {
     });
 });
 
-describe("Remove from LoreBase's words, the same on both pages", () => {
+describe("Remove from LoreBase's words, the same on both pages, and Unlink's", () => {
     const TENANT = 'vf_lorebase_qdrant_rook_harbor_atlas_19qag9zxydm';
     const holdingsOf = fields => ({
         bookName: BOOK, selectionCount: 1, selectedCount: 313, pinnedCount: 2, chatLockCount: 1, characterLockCount: 0, keyCount: 313,
@@ -269,24 +269,40 @@ describe("Remove from LoreBase's words, the same on both pages", () => {
         expect(sentencesOf(files.removalConfirmLines(unselected)).slice(3, 7)).toEqual(['Selection:', 'none', 'Locked to:', '2 chats and 1 character']);
     });
 
-    it("names the chat's lists it is taken out of on the WorldInfo page, and what still loads it there", () => {
-        const links = { takenOutOf: ['globalList', 'characterBooks'], stillLoadedBy: ['chatBook'] };
-        const sentences = sentencesOf(files.removalConfirmLines(holdingsOf(), links));
-        expect(sentences.slice(11, 13)).toEqual(['Taken out of:', "the global list every chat loads and this character's Additional Lorebooks"]);
-        expect(sentences).toContain("This chat still loads it through this chat's lorebook: take it out there in SillyTavern.");
-        expect(sentencesOf(files.removalConfirmLines(holdingsOf(), { takenOutOf: [], stillLoadedBy: [] })))
-            .toEqual(sentencesOf(files.removalConfirmLines(holdingsOf())));
+    it("asks Unlink in red, saying unlinking deletes all of the book too, then names the chat's lists it is unlinked from, what goes, and what still loads it", () => {
+        const question = 'Unlink this lorebook? Unlinking also deletes ALL of it from LoreBase: its vectors, keys, selections and locks.';
+        const links = { unlinkedFrom: ['globalList', 'characterBooks', 'chatBook'], stillLoadedBy: ['personaBook'] };
+        const lines = files.removalConfirmLines(holdingsOf({ selectionCount: 2 }), links);
+        // Choose entries deletes one selection, which is no way to unlink, so Unlink offers no green line.
+        expect(lines.filter(line => line.status)).toEqual([{ text: question, status: 'danger' }]);
+        expect(sentencesOf(lines)).toEqual([
+            question,
+            'Lorebook:', BOOK,
+            'Unlinked from:', "the global list every chat loads, this character's Additional Lorebooks, and this chat's Chat Lorebook",
+            'Selections:', '2 selections, 313 selected entries, and 2 pinned sections',
+            'Locked to:', '1 chat',
+            'Keys:', 'the keys of 313 entries, those edited by hand included',
+            'Vectors:', '504 parts',
+            'The lorebook stays in SillyTavern. Export its keys and vectors in the Database Browser first to keep a copy.',
+            "This chat still loads it through your persona's lorebook: take it out there in SillyTavern.",
+            'Unlink deletes all of it. Cancel keeps it.',
+        ]);
+        expect(sentencesOf(files.removalConfirmLines(holdingsOf(), { unlinkedFrom: [], stillLoadedBy: ['characterOwnBook'] })).slice(3, 5))
+            .toEqual(['Unlinked from:', 'none']);
     });
 
-    it('says what was removed, each count with its unit', () => {
+    it('says what was removed, each count with its unit, and with Unlink what the book was unlinked from first', () => {
         expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 313, partsDeleted: 504 }))
             .toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 313 entries and the vectors of 504 parts.');
         expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 1, partsDeleted: 0 }))
             .toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 1 entry.');
         expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 0, partsDeleted: 0 })).toBe('Removed "Harbor Atlas" from LoreBase.');
-        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 0, partsDeleted: 0, takenOutOf: ['characterBooks'], stillLoadedBy: [] }))
-            .toBe('Removed "Harbor Atlas" from LoreBase, and took it out of this character\'s Additional Lorebooks.');
-        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 2, partsDeleted: 0, takenOutOf: [], stillLoadedBy: ['characterOwnBook'] }))
+        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 0, partsDeleted: 0, unlinkedFrom: ['characterBooks'], stillLoadedBy: [] }))
+            .toBe('Unlinked "Harbor Atlas" from this character\'s Additional Lorebooks, and removed it from LoreBase.');
+        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 2, partsDeleted: 5, unlinkedFrom: ['chatBook'], stillLoadedBy: [] }))
+            .toBe('Unlinked "Harbor Atlas" from this chat\'s Chat Lorebook, and removed it from LoreBase, with the keys of 2 entries and the '
+                + 'vectors of 5 parts.');
+        expect(files.describeRemovedLoreBook({ bookName: BOOK, keysDeleted: 2, partsDeleted: 0, unlinkedFrom: [], stillLoadedBy: ['characterOwnBook'] }))
             .toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 2 entries. This chat still loads it through the character\'s '
                 + 'own lorebook: take it out there in SillyTavern.');
     });

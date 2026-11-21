@@ -538,10 +538,11 @@ const REMOVAL_OFF_QDRANT = "LoreBase keeps each lorebook's keys and vectors in Q
     + 'go with the lorebook.';
 
 /**
- * What a book holds in LoreBase, for Remove from LoreBase's confirm (removalConfirmLines in lorebase-files-core.js): its
- * selections, how many entries they hold together, their pinned sections, their locks on chats and on characters, how
- * many of its entries have keys, and each collection holding its vectors with their parts, from Similharity's listing.
- * Refused while LoreBase writes and off Qdrant, as the removal is, so no confirm offers what would be refused.
+ * What a book holds in LoreBase, for the confirm of Remove from LoreBase and Unlink (removalConfirmLines in
+ * lorebase-files-core.js): its selections, how many entries they hold together, their pinned sections, their locks on
+ * chats and on characters, how many of its entries have keys, and each collection holding its vectors with their parts,
+ * from Similharity's listing. Refused while LoreBase writes and off Qdrant, as the removal is, so no confirm offers what
+ * would be refused.
  * @param {string} bookName
  * @param {object} settings - VectFox settings
  * @returns {Promise<{bookName: string, selectionCount: number, selectedCount: number, pinnedCount: number,
@@ -570,10 +571,11 @@ export async function loreBookHoldings(bookName, settings) {
 
 /**
  * Remove a book from LoreBase (§3.6 of vectfox-multi-collection-per-chat.md), the one removal the Database Browser's
- * lorebook row and the WorldInfo page's book row both run, through removeLoreBookAfterConfirm: its vectors in every
- * collection holding them, the cheapest to write again, then its keys, those edited by hand included, then its record,
- * with every selection's selected entries, pinned sections and locks, so a delete that fails leaves the book listed
- * with what it still holds. What this session knew of its keys and vectors goes with them. The lorebook stays in SillyTavern.
+ * lorebook row and the WorldInfo page's book row both run, its Remove and its Unlink, through
+ * removeLoreBookAfterConfirm: its vectors in every collection holding them, the cheapest to write again, then its keys,
+ * those edited by hand included, then its record, with every selection's selected entries, pinned sections and locks,
+ * so a delete that fails leaves the book listed with what it still holds. What this session knew of its keys and
+ * vectors goes with them. The lorebook stays in SillyTavern.
  * @param {string} bookName
  * @param {object} settings - VectFox settings
  * @returns {Promise<{bookName: string, keysDeleted: number, partsDeleted: number}>}

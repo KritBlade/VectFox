@@ -11,14 +11,16 @@
  * goes; under them, the ready and waiting entries of the books locked here. It opens LoreBase's selection screen on the book a row names, or on the
  * chat's first book from the card's own button, drawing the list again once the screen closes and saying what the
  * selection lacks of each kind, LoreBase on or off, and while it is on which Generate button writes it. Add a lorebook
- * (§6 of lorebook-multi-vector.md) adds the book chosen in its list to this character or to all chats, locked there,
+ * (§6 of lorebook-multi-vector.md) adds the book chosen in its list to this chat or to this character, locked there,
  * and opens the selection screen on it, the status line saying where it went or why it was not added. Generate keys
  * and Generate vectors write what the selected entries of every book lack of their kind, and Generate all both; Delete
  * all, once confirmed, deletes every key and vector the user has and turns LoreBase off (D17); Remove from LoreBase, on
  * a book's row, runs LoreBase's one confirm and removal of the book (removeLoreBookAfterConfirm), its record, keys and
- * vectors, and takes it out of the chat's lists Add a lorebook links books through. Selection in use here, leading a
- * book's row, puts the selection chosen in use in this chat, or makes a new one and opens the selection screen on it
- * (§1.2 and §3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). Each goes through LoreBase's
+ * vectors, and leaves the book in the chat; Unlink, on the row of a book the chat loads through its Chat Lorebook, the
+ * character's Additional Lorebooks or the global list, confirms and removes it the same, then takes it out of those
+ * lists. Selection in use here, leading a book's row, puts the selection chosen in use in this chat, or makes a new one
+ * and opens the selection screen on it (§1.2 and §3.7 of InternalProject/Vectfox/plans/
+ * vectfox-multi-collection-per-chat.md). Each goes through LoreBase's
  * storage module. The card's status line says how each went, and shows every writing run on the progress panel,
  * whichever started it: the entries being written, then what was written and the books the run locked to its chat
  * (§6.1 of lorebook-multi-vector.md), a line that goes once another chat is open.
@@ -279,24 +281,26 @@ async function deleteAll(settings, button) {
 }
 
 /**
- * Remove from LoreBase on a book's row (removeLoreBookAfterConfirm), taking the book out of the open chat's lists Add a
- * lorebook links books through as well: once confirmed and done, the status line says what went, and what still loads
- * the book in this chat, and the list is drawn again. Cancel says nothing; a refusal says why. The button waits while
- * it runs.
- * @param {HTMLButtonElement} button - The row's Remove from LoreBase, naming its book
+ * Remove from LoreBase or Unlink on a book's row (removeLoreBookAfterConfirm): Remove deletes what LoreBase holds of the
+ * book and leaves it in the chat; Unlink deletes that too, then takes the book out of the open chat's lists Add a
+ * lorebook links books through, and the global list. Once confirmed and done, the status line says what went, and what
+ * still loads the book in this chat, and the list is drawn again. Cancel says nothing; a refusal says why. The button
+ * waits while it runs.
+ * @param {HTMLButtonElement} button - The row's Remove from LoreBase or Unlink, naming its book
  * @returns {Promise<void>}
  */
 async function removeBook(button) {
-    const bookName = button.dataset.lorebaseRemove;
+    const shouldUnlink = button.dataset.lorebaseUnlink !== undefined;
+    const bookName = shouldUnlink ? button.dataset.lorebaseUnlink : button.dataset.lorebaseRemove;
     button.disabled = true;
     try {
-        const removed = await removeLoreBookAfterConfirm(bookName, cardSettings, { isTakenOutOfChat: true });
+        const removed = await removeLoreBookAfterConfirm(bookName, cardSettings, { shouldUnlink });
         if (!removed) return;
         showBooksStatus(describeRemovedLoreBook(removed));
         void refreshLoreBaseBooks();
     } catch (error) {
-        log.warn(`LoreBase: lorebook "${bookName}" could not be removed:`, error);
-        showBooksStatus(`Not removed: ${error?.message || error}`);
+        log.warn(`LoreBase: lorebook "${bookName}" could not be ${shouldUnlink ? 'unlinked' : 'removed'}:`, error);
+        showBooksStatus(`${shouldUnlink ? 'Not unlinked' : 'Not removed'}: ${error?.message || error}`);
     } finally {
         button.disabled = false;
     }
@@ -334,7 +338,7 @@ async function switchSelection(switcher) {
 
 /**
  * Wire LoreBase's switch, open the selection screen from the card's buttons, and run the Generate buttons, Delete all,
- * each book's Selection in use here and its Remove from LoreBase. Called once, as the panel is mounted.
+ * each book's Selection in use here, its Unlink and its Remove from LoreBase. Called once, as the panel is mounted.
  * @param {object} settings - VectFox settings
  */
 export function bindLoreBaseBooksCard(settings) {
@@ -364,7 +368,7 @@ export function bindLoreBaseBooksCard(settings) {
         if (opener) void chooseEntries(opener.dataset.lorebaseChoose);
         const adder = event.target.closest('[data-lorebase-add]');
         if (adder) void addBook(adder);
-        const remover = event.target.closest('[data-lorebase-remove]');
+        const remover = event.target.closest('[data-lorebase-remove], [data-lorebase-unlink]');
         if (remover) void removeBook(remover);
     });
     document.getElementById('VectFox_lorebase_books_card')?.addEventListener('change', event => {
@@ -393,10 +397,11 @@ async function chooseEntries(bookName, selectionId = null) {
 }
 
 /**
- * Add a lorebook (§6 of lorebook-multi-vector.md): the book chosen in the card's list, to this character or to all
- * chats as the button pressed says, locked there; then draw the list again, so its row shows, and open the selection
- * screen on it. The status line says where it went, a line that stays when the screen closes with nothing to say of the
- * selection, or that no book was chosen, or why it was not added. The Add buttons wait while it is added.
+ * Add a lorebook (§6 of lorebook-multi-vector.md): the book chosen in the card's list, to this chat as its Chat
+ * Lorebook or to this character as the button pressed says, locked there; then draw the list again, so its row shows,
+ * and open the selection screen on it. The status line says where it went, a line that stays when the screen closes
+ * with nothing to say of the selection, or that no book was chosen, or why it was not added. The Add buttons wait while
+ * it is added.
  * @param {HTMLElement} button - The Add button pressed, carrying the place addLoreBookToChat takes
  * @returns {Promise<void>}
  */
@@ -421,7 +426,7 @@ async function addBook(button) {
     }
     const addedText = lock.characterAvatar
         ? `Added "${bookName}" to this character, and locked it to the character.`
-        : `Added "${bookName}" to all chats, and locked it to this chat.`;
+        : `Added "${bookName}" to this chat as its Chat Lorebook, and locked it to this chat.`;
     showBooksStatus(addedText, { lockChatId: chatId });
     void refreshLoreBaseBooks();
     await chooseEntries(bookName);

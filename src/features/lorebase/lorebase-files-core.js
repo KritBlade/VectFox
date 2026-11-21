@@ -331,23 +331,24 @@ const CHAT_BOOK_PLACE_WORDS = Object.freeze({
     globalList: 'the global list every chat loads',
     characterBooks: "this character's Additional Lorebooks",
     characterOwnBook: "the character's own lorebook",
-    chatBook: "this chat's lorebook",
+    chatBook: "this chat's Chat Lorebook",
     personaBook: "your persona's lorebook",
 });
 const placesInWords = places => listWords.format(places.map(place => CHAT_BOOK_PLACE_WORDS[place]));
 const stillLoadedSentence = places => `This chat still loads it through ${placesInWords(places)}: take it out there in SillyTavern.`;
 
 /**
- * Remove from LoreBase's confirm, the same on the Database Browser's lorebook row and the WorldInfo page's book row:
- * its question in red, as it deletes the whole book; with more than one selection, a green line naming Choose entries,
- * which deletes one; the book, each part of it that goes (its selections, when it has more than one, the entries they
- * select and their pinned sections, their locks, its keys and its vectors in every collection holding them), and what
- * stays; on the WorldInfo page, the open chat's lists it is taken out of too, and the places that still load it there.
+ * The confirm of Remove from LoreBase, the same on the Database Browser's lorebook row and the WorldInfo page's book
+ * row, and of the WorldInfo page's Unlink. Its question in red: Remove's as it deletes the whole book, Unlink's saying
+ * that unlinking deletes the whole book too. With more than one selection, Remove's green line naming Choose entries,
+ * which deletes one. Then the book, with Unlink the open chat's lists it is unlinked from, each part of it that goes
+ * (its selections, when it has more than one, the entries they select and their pinned sections, their locks, its keys
+ * and its vectors in every collection holding them), and what stays, with Unlink the places that still load it there.
  * @param {{bookName: string, selectionCount: number, selectedCount: number, pinnedCount: number, chatLockCount: number,
  *   characterLockCount: number, keyCount: number, tenants: Array<{pointCount: number}>}} holdings - From loreBookHoldings
  *   in lorebase-storage.js
- * @param {{takenOutOf: string[], stillLoadedBy: string[]}|null} [links] - chatBookLinks in lorebase-chat-books.js, on
- *   the WorldInfo page
+ * @param {{unlinkedFrom: string[], stillLoadedBy: string[]}|null} [links] - chatBookLinks in lorebase-chat-books.js,
+ *   for Unlink; null for Remove
  * @returns {object[]} confirmPopup's lines
  */
 export function removalConfirmLines({ bookName, selectionCount, selectedCount, pinnedCount, chatLockCount, characterLockCount, keyCount, tenants }, links = null) {
@@ -355,6 +356,7 @@ export function removalConfirmLines({ bookName, selectionCount, selectedCount, p
     const listOrNone = parts => (parts.length ? listWords.format(parts) : 'none');
     const countedIfAny = (count, singular, plural) => (count ? counted(count, singular, plural) : '');
     const isSeveral = selectionCount > 1;
+    const isUnlink = links !== null;
     const selection = [
         isSeveral ? counted(selectionCount, 'selection') : '', countedIfAny(selectedCount, 'selected entry', 'selected entries'),
         countedIfAny(pinnedCount, 'pinned section'),
@@ -363,33 +365,37 @@ export function removalConfirmLines({ bookName, selectionCount, selectedCount, p
     const collections = tenants.length > 1 ? ` in ${counted(tenants.length, 'collection')}` : '';
     const keepCopy = keyCount || partCount ? ' Export its keys and vectors in the Database Browser first to keep a copy.' : '';
     return [
-        { text: 'Remove ALL of this lorebook from LoreBase?', status: 'danger' },
-        isSeveral ? { text: 'To delete one selection only, use Choose entries on the WorldInfo page.', status: 'success' } : null,
+        isUnlink
+            ? { text: 'Unlink this lorebook? Unlinking also deletes ALL of it from LoreBase: its vectors, keys, selections and locks.', status: 'danger' }
+            : { text: 'Remove ALL of this lorebook from LoreBase?', status: 'danger' },
+        isSeveral && !isUnlink ? { text: 'To delete one selection only, use Choose entries on the WorldInfo page.', status: 'success' } : null,
         { text: 'Lorebook:', name: bookName },
+        isUnlink ? { text: 'Unlinked from:', name: listOrNone(links.unlinkedFrom.map(place => CHAT_BOOK_PLACE_WORDS[place])) } : null,
         { text: isSeveral ? 'Selections:' : 'Selection:', name: listOrNone(selection) },
         { text: 'Locked to:', name: listOrNone(locks) },
         { text: 'Keys:', name: keyCount ? `the keys of ${counted(keyCount, 'entry', 'entries')}, those edited by hand included` : 'none' },
         { text: 'Vectors:', name: partCount ? `${counted(partCount, 'part')}${collections}` : 'none' },
-        links?.takenOutOf.length ? { text: 'Taken out of:', name: placesInWords(links.takenOutOf) } : null,
-        { text: `The lorebook stays in SillyTavern, where every entry fires by its keys, as SillyTavern does.${keepCopy}` },
+        { text: `The lorebook stays in SillyTavern${isUnlink ? '' : ', where every entry fires by its keys, as SillyTavern does'}.${keepCopy}` },
         links?.stillLoadedBy.length ? { text: stillLoadedSentence(links.stillLoadedBy) } : null,
-        { text: 'Remove deletes all of it. Cancel keeps it.' },
+        { text: `${isUnlink ? 'Unlink' : 'Remove'} deletes all of it. Cancel keeps it.` },
     ].filter(Boolean);
 }
 
 /**
- * What Remove from LoreBase deleted, each count with its unit, and on the WorldInfo page the open chat's lists the book
- * went from and the places that still load it there.
- * @param {{bookName: string, keysDeleted: number, partsDeleted: number, takenOutOf?: string[], stillLoadedBy?: string[]}} removed -
+ * What Remove from LoreBase or Unlink did, each count with its unit: with Unlink, the open chat's lists the book was
+ * unlinked from first, and the places that still load it there.
+ * @param {{bookName: string, keysDeleted: number, partsDeleted: number, unlinkedFrom?: string[], stillLoadedBy?: string[]}} removed -
  *   From removeLoreBookAfterConfirm in lorebase-removal.js
  * @returns {string}
  */
-export function describeRemovedLoreBook({ bookName, keysDeleted, partsDeleted, takenOutOf = [], stillLoadedBy = [] }) {
+export function describeRemovedLoreBook({ bookName, keysDeleted, partsDeleted, unlinkedFrom = [], stillLoadedBy = [] }) {
     const stored = [
         keysDeleted ? `the keys of ${counted(keysDeleted, 'entry', 'entries')}` : '',
         partsDeleted ? `the vectors of ${counted(partsDeleted, 'part')}` : '',
     ].filter(Boolean);
-    const removed = `Removed "${bookName}" from LoreBase${stored.length ? `, with ${listWords.format(stored)}` : ''}`;
-    const takenOut = takenOutOf.length ? `, and took it out of ${placesInWords(takenOutOf)}` : '';
-    return `${removed}${takenOut}.${stillLoadedBy.length ? ` ${stillLoadedSentence(stillLoadedBy)}` : ''}`;
+    const withStored = stored.length ? `, with ${listWords.format(stored)}` : '';
+    const done = unlinkedFrom.length
+        ? `Unlinked "${bookName}" from ${placesInWords(unlinkedFrom)}, and removed it from LoreBase${withStored}`
+        : `Removed "${bookName}" from LoreBase${withStored}`;
+    return `${done}.${stillLoadedBy.length ? ` ${stillLoadedSentence(stillLoadedBy)}` : ''}`;
 }

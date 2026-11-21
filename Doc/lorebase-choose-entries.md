@@ -23,16 +23,16 @@ LoreBase only decides books your chat loads. If the book you want isn't in the *
 
 Pick the book, then one of the 2 buttons:
 
+- **Add to this chat** makes it this chat's Chat Lorebook, the one SillyTavern's Chat Lore button sets. It loads in this chat only, and LoreBase locks it to this chat.
 - **Add to this character** puts it in the character's Additional Lorebooks. It loads in every chat with this character, and LoreBase locks it to the character.
-- **Add to all chats** turns it on in SillyTavern's global list. It loads in EVERY chat you have, and LoreBase locks it to this chat only.
 
-Both use SillyTavern's own lists, so SillyTavern's World Info panel shows the book there too. To take it out again, press **Remove from LoreBase**, the trash button on the book's row. It takes the book back out of the list it went into AND deletes what LoreBase keeps for it. Taking it out in the World Info panel works too, like any other book, but then LoreBase keeps what it had for the book.
+A chat has only 1 Chat Lorebook. If yours already has one, **Add to this chat** names it and adds nothing, so the one you set never gets swapped out behind your back. Add the book to the character instead, or take the other one off first.
+
+Both use SillyTavern's own places, so SillyTavern shows the book there too. To take it out again, press **Unlink**, the broken-link button on the book's row. After asking, it takes the book back out of where it went AND deletes what LoreBase keeps for it. Taking it out in SillyTavern works too, like any other book, but then LoreBase keeps what it had for the book.
 
 Right after, this screen opens on the new book, with nothing turned on. You pick its entries like any other book's.
 
-Be careful with **Add to all chats**. In your other chats the book isn't locked, so its entries fire by their keys, like any book SillyTavern loads. So if you only want Harbor Atlas with Keeper Orrin, use **Add to this character**.
-
-A group chat has no one character, so it only gets **Add to all chats**.
+A group chat has no one character, so it only gets **Add to this chat**.
 
 ## What turning an entry on does
 
@@ -76,7 +76,9 @@ Want the whole book gone from LoreBase, not just one kind? Press the trash butto
 
 The book itself stays in SillyTavern. So its entries just fire by their keys again, like any book LoreBase doesn't use. Leftovers don't get the button: you clean those up one row at a time.
 
-The **LoreBase books** card on the WorldInfo page has the same button, on each book LoreBase keeps something for or that the chat loads through the character's Additional Lorebooks or the global list. That one goes a step further. It also takes the book out of the character's Additional Lorebooks, or out of SillyTavern's global list, so it's gone from the card too. Careful with the global list: a book there loads in EVERY chat, so it leaves all of them. A book that's the character's own lorebook, the chat's or your persona's stays where it is, and the card tells you to take it out in SillyTavern.
+The **LoreBase books** card on the WorldInfo page has the same trash button, on each book LoreBase keeps something for, and it does the same thing. The book stays in your chat, with nothing selected and no lock.
+
+Want the book out of the chat too? That's **Unlink**, the broken-link button right before the trash. It's on each book your chat loads through its Chat Lorebook, the character's Additional Lorebooks or SillyTavern's global list. It deletes everything **Remove from LoreBase** deletes, AND unlinks the book from those places. So it's gone from the card, and **Add a lorebook** offers it again. It asks first, in red, and tells you unlinking deletes its keys and vectors too. Careful with the global list: a book there loads in EVERY chat, so it leaves all of them. The character's own lorebook and your persona's have no Unlink, since they load in other chats too. Take those out in SillyTavern.
 
 The vectors row also has **View chunks**, the eye button. It opens the book's chunks the way a chat collection's open, one chunk for each part of an entry: the entry's title, then that part's text. They're listed by entry and part, and you can search them.
 

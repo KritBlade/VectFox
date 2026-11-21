@@ -196,6 +196,22 @@ describe('loreBaseBooksMarkup', () => {
         expect(removers[0].classList.contains('vfx-btn-danger')).toBe(true);
     });
 
+    it('offers Unlink on the row of a book a list Unlink takes books out of loads, in red just before Remove, and on no other', () => {
+        document.body.innerHTML = loreBaseBooksMarkup({
+            hasChat: true,
+            books: [
+                listedBook({ bookName: 'Keeper Notes', selectedCount: 18, isLockedToChat: false, isLockedToCharacter: true, canRemove: true, canUnlink: false }),
+                listedBook({ bookName: 'Harbor Atlas', selectedCount: 0, isLockedToChat: true, isLockedToCharacter: false, canRemove: true, canUnlink: true }),
+            ],
+        });
+        const unlinkers = [...document.querySelectorAll('.vfx-row-actions [data-lorebase-unlink]')];
+        expect(unlinkers.map(button => [button.closest('.vfx-row').querySelector('.vfx-row-name').textContent, button.dataset.lorebaseUnlink, button.title]))
+            .toEqual([['Harbor Atlas', 'Harbor Atlas', 'Unlink from this chat, and remove from LoreBase']]);
+        expect(unlinkers[0].classList.contains('vfx-btn-danger')).toBe(true);
+        expect(unlinkers[0].querySelector('.fa-link-slash')).not.toBeNull();
+        expect(unlinkers[0].nextElementSibling.dataset.lorebaseRemove).toBe('Harbor Atlas');
+    });
+
     it("leads a book's actions with Selection in use here while it has a selection: its selections, the one in use here chosen, then New selection (§1.2 of vectfox-multi-collection-per-chat.md)", () => {
         document.body.innerHTML = loreBaseBooksMarkup({
             hasChat: true,
@@ -297,7 +313,7 @@ describe('loreBaseBooksMarkup', () => {
         });
     });
 
-    it('draws Add a lorebook under the books when given the books to add: a list, and a button for each place, all chats alone in a group chat', () => {
+    it('draws Add a lorebook under the books when given the books to add: a list, and a button for each place, this chat first, and this chat alone in a group chat', () => {
         const addRow = add => {
             document.body.innerHTML = loreBaseBooksMarkup({ hasChat: true, books: [], add });
             const list = document.getElementById('VectFox_lorebase_add_book');
@@ -311,13 +327,13 @@ describe('loreBaseBooksMarkup', () => {
         expect(addRow({ bookNames: ['Tide Tables', 'The <b>Old</b> "Keep"'], canAddToCharacter: true })).toEqual({
             label: 'Add a lorebook',
             options: [['', 'Choose a lorebook'], ['Tide Tables', 'Tide Tables'], ['The <b>Old</b> "Keep"', 'The <b>Old</b> "Keep"']],
-            buttons: [['character', 'Add to this character'], ['all-chats', 'Add to all chats']],
-            hint: 'This character: its chats only, locked to the character. All chats: every chat, locked to this chat.',
+            buttons: [['chat', 'Add to this chat'], ['character', 'Add to this character']],
+            hint: 'This chat: as its Chat Lorebook, locked here. This character: its chats, locked to it.',
         });
         expect(document.body.textContent).toContain('This chat loads no lorebook.');
         expect(addRow({ bookNames: ['Tide Tables'], canAddToCharacter: false })).toMatchObject({
-            buttons: [['all-chats', 'Add to all chats']],
-            hint: 'A group chat has no one character, so a book goes to all chats, locked to this chat.',
+            buttons: [['chat', 'Add to this chat']],
+            hint: 'A group chat has no one character, so a book goes to this chat, locked here.',
         });
         expect(addRow({ bookNames: [], canAddToCharacter: true })).toEqual({ label: null, options: null, buttons: [], hint: 'This chat loads every lorebook you have.' });
     });

@@ -11,11 +11,12 @@
  * chat's first book, and draws the list again once the screen closes, a screen that failed included, saying what the
  * selection lacks of each kind and, while LoreBase is on, which Generate button writes it. Add a lorebook (§6 of
  * InternalProject/Vectfox/plans/lorebook-multi-vector.md) lists the books the chat does not load, adds the chosen one
- * to this character or to all chats, says where it went or why it was not, and opens the screen on it. Generate keys, Generate
+ * to this chat or to this character, says where it went or why it was not, and opens the screen on it. Generate keys, Generate
  * vectors and Generate all write the missing ones of their kinds, or say why they cannot; Delete all asks first, and
  * once it has deleted both turns LoreBase off; Remove from LoreBase on a book's row runs LoreBase's one confirm and
- * removal, then says what went and that the chat still loads the book, or why it was not removed, and draws the
- * list again; the status line says how each went, one entry as one, and names the
+ * removal, leaving the book in the chat, and Unlink runs them and unlinks the book; each then says what went and what
+ * still loads the book, or why it was not removed or unlinked, and draws the list again; the status line says how
+ * each went, one entry as one, and names the
  * books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md),
  * "this chat" while it is open, a line that goes once another chat is open.
  */
@@ -96,6 +97,7 @@ const KEEPER = { bookName: 'Keeper Notes', selectedCount: 0, isLockedToChat: fal
 const rowsShown = () => [...document.querySelectorAll('#VectFox_lorebase_books .vfx-row')].map(row => `${row.querySelector('.vfx-row-name').textContent}: ${row.querySelector('.vfx-row-sub').textContent}`);
 const opener = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-choose="${bookName}"]`);
 const remover = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-remove="${bookName}"]`);
+const unlinker = bookName => document.querySelector(`#VectFox_lorebase_books_card [data-lorebase-unlink="${bookName}"]`);
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -112,7 +114,7 @@ beforeEach(() => {
     host.counts = new Map([['Harbor Atlas', countsOf({ keyCount: 2, vectorCount: 1, readyCount: 1, missingVectorCount: 1 })]]);
     host.add = { bookNames: ['Tide Tables', 'Voyage Log'], canAddToCharacter: true };
     host.added = { characterAvatar: 'keeper-orrin.png' };
-    host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5, takenOutOf: ['characterBooks'], stillLoadedBy: [] };
+    host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5 };
     host.useError = null;
     bindLoreBaseBooksCard(host.settings);
 });
@@ -357,16 +359,16 @@ describe('Add a lorebook', () => {
         addButtons().find(button => button.dataset.lorebaseAdd === place).click();
     };
 
-    it('lists the books the chat does not load under its books, with a button for each place, and all chats alone in a group chat', async () => {
+    it('lists the books the chat does not load under its books, with a button for each place, this chat first, and this chat alone in a group chat', async () => {
         await refreshLoreBaseBooks();
         expect([...bookList().options].map(option => `${option.value}: ${option.textContent}`))
             .toEqual([': Choose a lorebook', 'Tide Tables: Tide Tables', 'Voyage Log: Voyage Log']);
         expect(addButtons().map(button => `${button.dataset.lorebaseAdd}: ${button.textContent.trim()}`))
-            .toEqual(['character: Add to this character', 'all-chats: Add to all chats']);
+            .toEqual(['chat: Add to this chat', 'character: Add to this character']);
 
         host.add = { bookNames: ['Voyage Log'], canAddToCharacter: false };
         await refreshLoreBaseBooks();
-        expect(addButtons().map(button => button.dataset.lorebaseAdd)).toEqual(['all-chats']);
+        expect(addButtons().map(button => button.dataset.lorebaseAdd)).toEqual(['chat']);
 
         host.add = { bookNames: [], canAddToCharacter: true };
         await refreshLoreBaseBooks();
@@ -404,12 +406,12 @@ describe('Add a lorebook', () => {
         expect(status().hidden).toBe(false);
     });
 
-    it('adds the chosen book to all chats, locked to this chat, a line that goes once another chat is open', async () => {
+    it('adds the chosen book to this chat as its Chat Lorebook, locked to this chat, a line that goes once another chat is open', async () => {
         host.added = { chatId: 'chat-harbor' };
         await refreshLoreBaseBooks();
-        addTo('all-chats', 'Tide Tables');
-        expect(addLoreBookToChat).toHaveBeenCalledWith('Tide Tables', 'all-chats');
-        await vi.waitFor(() => expect(status().textContent).toBe('Added "Tide Tables" to all chats, and locked it to this chat.'));
+        addTo('chat', 'Tide Tables');
+        expect(addLoreBookToChat).toHaveBeenCalledWith('Tide Tables', 'chat');
+        await vi.waitFor(() => expect(status().textContent).toBe('Added "Tide Tables" to this chat as its Chat Lorebook, and locked it to this chat.'));
         host.screen.resolve(null);
         await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(3));
 
@@ -619,19 +621,32 @@ describe("each book's state on the card (§7.1 of lorebook-multi-vector.md)", ()
     });
 });
 
-describe('Remove from LoreBase on a book row', () => {
+describe('Remove from LoreBase and Unlink on a book row', () => {
+    const WRITING = 'LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.';
+
     beforeEach(() => {
-        host.status = { hasChat: true, books: [{ ...HARBOR, canRemove: true }, { ...KEEPER, canRemove: false }] };
+        host.status = { hasChat: true, books: [{ ...HARBOR, canRemove: true, canUnlink: true }, { ...KEEPER, canRemove: false, canUnlink: false }] };
     });
 
-    it("removes the book once confirmed and takes it out of the chat's lists, says what went, and draws the list again", async () => {
+    it('removes the book from LoreBase once confirmed, unlinking nothing, says what went, and draws the list again', async () => {
         await refreshLoreBaseBooks();
         expect(remover('Keeper Notes')).toBeNull();
         chatBookLocks.mockClear();
         remover('Harbor Atlas').click();
-        await vi.waitFor(() => expect(status().textContent).toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 2 entries and the '
-            + "vectors of 5 parts, and took it out of this character's Additional Lorebooks."));
-        expect(removeLoreBookAfterConfirm).toHaveBeenCalledWith('Harbor Atlas', host.settings, { isTakenOutOfChat: true });
+        await vi.waitFor(() => expect(status().textContent).toBe('Removed "Harbor Atlas" from LoreBase, with the keys of 2 entries and the vectors of 5 parts.'));
+        expect(removeLoreBookAfterConfirm).toHaveBeenCalledWith('Harbor Atlas', host.settings, { shouldUnlink: false });
+        await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(1));
+    });
+
+    it('unlinks the book once confirmed, removing it from LoreBase too, says both, and draws the list again', async () => {
+        host.removed = { bookName: 'Harbor Atlas', keysDeleted: 2, partsDeleted: 5, unlinkedFrom: ['chatBook'], stillLoadedBy: [] };
+        await refreshLoreBaseBooks();
+        expect(unlinker('Keeper Notes')).toBeNull();
+        chatBookLocks.mockClear();
+        unlinker('Harbor Atlas').click();
+        await vi.waitFor(() => expect(status().textContent).toBe('Unlinked "Harbor Atlas" from this chat\'s Chat Lorebook, and removed it from '
+            + 'LoreBase, with the keys of 2 entries and the vectors of 5 parts.'));
+        expect(removeLoreBookAfterConfirm).toHaveBeenCalledWith('Harbor Atlas', host.settings, { shouldUnlink: true });
         await vi.waitFor(() => expect(chatBookLocks).toHaveBeenCalledTimes(1));
     });
 
@@ -639,14 +654,16 @@ describe('Remove from LoreBase on a book row', () => {
         host.removed = null;
         await refreshLoreBaseBooks();
         remover('Harbor Atlas').click();
-        await vi.waitFor(() => expect(removeLoreBookAfterConfirm).toHaveBeenCalledTimes(1));
+        unlinker('Harbor Atlas').click();
+        await vi.waitFor(() => expect(removeLoreBookAfterConfirm).toHaveBeenCalledTimes(2));
         await new Promise(resolve => setTimeout(resolve, 0));
         expect(status().textContent).toBe('');
 
-        host.removed = new Error('LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.');
+        host.removed = new Error(WRITING);
         remover('Harbor Atlas').click();
-        await vi.waitFor(() => expect(status().textContent)
-            .toBe('Not removed: LoreBase is already writing keys or vectors; the progress panel shows them. Wait for it, or press Stop there.'));
+        await vi.waitFor(() => expect(status().textContent).toBe(`Not removed: ${WRITING}`));
+        unlinker('Harbor Atlas').click();
+        await vi.waitFor(() => expect(status().textContent).toBe(`Not unlinked: ${WRITING}`));
     });
 });
 

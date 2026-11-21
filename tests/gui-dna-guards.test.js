@@ -163,6 +163,7 @@ const OWN_CLASS = /^(?:vfx|is|fa)-(?:[\w-]+|[\w-]*\*)$/;
 const OUTSIDE_THE_DNA = new Map([
     ['src/features/settings-panel/drawer-launcher-markup.js', "SillyTavern's drawer frame and the launcher in it, in SillyTavern's look"],
     ['src/features/settings-panel/wand-menu-markup.js', "VectFox's row in SillyTavern's wand menu and the two it opens, in SillyTavern's look"],
+    ['src/sillytavern/world-info.js', "SillyTavern's Chat Lore buttons, their set mark put on and taken off as SillyTavern's own Chat Lorebook popup does"],
 ]);
 const CLASS_ATTRIBUTE = /\bclass(?:Name)?\s*=\s*(["'`])([^\n]*?)\1/g;
 const CLASS_CALL = /\.(?:addClass|removeClass|toggleClass)\(\s*(["'`])([^"'`\n]*)\1|\.classList\.(?:add|remove|toggle|replace)\(([^)\n]*)\)/g;

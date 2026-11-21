@@ -232,6 +232,9 @@ export function loreBaseBookRow(book) {
                 data: { 'lorebase-in-use': bookName },
             }) : '',
             iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } }),
+            book.canUnlink
+                ? iconButton({ icon: 'fa-link-slash', title: 'Unlink from this chat, and remove from LoreBase', isDanger: true, data: { 'lorebase-unlink': bookName } })
+                : '',
             book.canRemove ? iconButton({ icon: 'fa-trash-can', title: 'Remove from LoreBase', isDanger: true, data: { 'lorebase-remove': bookName } }) : '',
         ].filter(Boolean),
     });
@@ -255,8 +258,9 @@ function readyLine(books) {
 }
 
 // Add a lorebook (§6 and §7.1 of lorebook-multi-vector.md): the books the chat does not load, then a button for each
-// place, Add to this character, which a group chat with no one character lacks, and Add to all chats. Each button
-// carries the place addLoreBookToChat takes (ADD_TO_CHARACTER and ADD_TO_ALL_CHATS in lorebase-chat-books.js).
+// place, Add to this chat, as its Chat Lorebook, and Add to this character, which a group chat with no one character
+// lacks. Each button carries the place addLoreBookToChat takes (ADD_TO_CHAT and ADD_TO_CHARACTER in
+// lorebase-chat-books.js).
 function addBookMarkup({ bookNames, canAddToCharacter }) {
     if (!bookNames.length) return hint({ text: 'This chat loads every lorebook you have.' });
     const options = [selectOption({ value: '', text: 'Choose a lorebook' }), ...bookNames.map(bookName => selectOption({ value: bookName, name: bookName }))];
@@ -264,13 +268,13 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
         fieldLabel({ text: 'Add a lorebook', forId: 'VectFox_lorebase_add_book' }),
         controlRow([
             select({ id: 'VectFox_lorebase_add_book', title: 'Lorebook to add', options }),
+            button({ text: 'Add to this chat', icon: 'fa-comment', data: { 'lorebase-add': 'chat' } }),
             canAddToCharacter ? button({ text: 'Add to this character', icon: 'fa-user-plus', data: { 'lorebase-add': 'character' } }) : '',
-            button({ text: 'Add to all chats', icon: 'fa-globe', data: { 'lorebase-add': 'all-chats' } }),
         ]),
         hint({
             text: canAddToCharacter
-                ? 'This character: its chats only, locked to the character. All chats: every chat, locked to this chat.'
-                : 'A group chat has no one character, so a book goes to all chats, locked to this chat.',
+                ? 'This chat: as its Chat Lorebook, locked here. This character: its chats, locked to it.'
+                : 'A group chat has no one character, so a book goes to this chat, locked here.',
         }),
     ]);
 }
@@ -280,13 +284,14 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
  * in it and, once read, how many of those have keys and vectors and its one state (§7.1 of lorebook-multi-vector.md),
  * and whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Selection in
  * use here while the book has a selection (inUseSwitcherMarkup, §1.2 of vectfox-multi-collection-per-chat.md), Choose
- * entries, and Remove from LoreBase on a book it has something to do for; the counts and locks are those of the
- * selection in use here, or with none, the counts of every entry the book's selections hold; under the list, the ready
- * entries of the books locked here and those waiting; then, given what to add, Add a lorebook.
+ * entries, Unlink on a book a list Unlink takes books out of loads here, and Remove from LoreBase on a book LoreBase has
+ * a record of; the counts and locks are those of the selection in use here, or with none, the counts of every entry the
+ * book's selections hold; under the list, the ready entries of the books locked here and those waiting; then, given
+ * what to add, Add a lorebook.
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
  *   isLockedToCharacter: boolean, selections: Array<{id: string, name: string}>, selectionInUseId: string|null,
- *   canRemove?: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
+ *   canRemove?: boolean, canUnlink?: boolean, keyCount?: number, vectorCount?: number, readyCount?: number,
  *   missingKeyCount?: number, missingVectorCount?: number, otherModelCount?: number, failedCount?: number,
  *   firstFailure?: string|null, writing?: {isKeys: boolean, done: number, total: number}|null}>,
  *   add?: {bookNames: string[], canAddToCharacter: boolean}|null}} status - LoreBase's chatBookLocks, with
