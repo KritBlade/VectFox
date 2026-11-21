@@ -229,7 +229,10 @@ describe('the words for a chat with no collection in use', () => {
         host.locks.set(FIRST, [CHAT_ID]);
         host.locks.set(LATER, [CHAT_ID]);
         expect(chatCollections.noCollectionInUseText(chatCollections.collectionInUse(SETTINGS), WHY))
-            .toBe(`"${AUTOMATIC_NAME}" and "Harbor Keeper 2" are all locked to this chat, which uses one at a time, so ${WHY}. ${CHOOSE_ONE}`);
+            .toBe(`"${AUTOMATIC_NAME}" and "Harbor Keeper 2" are both locked to this chat, which uses one at a time, so ${WHY}. ${CHOOSE_ONE}`);
+        host.locks.set(OTHER_PERSONA, [CHAT_ID]);
+        expect(chatCollections.noCollectionInUseText(chatCollections.collectionInUse(SETTINGS), WHY))
+            .toBe(`"${AUTOMATIC_NAME}", "Harbor Keeper 2", and "${AUTOMATIC_NAME}" are all locked to this chat, which uses one at a time, so ${WHY}. ${CHOOSE_ONE}`);
         host.locks.clear();
         host.locks.set(OTHER_BACKEND, [CHAT_ID]);
         expect(chatCollections.noCollectionInUseText(chatCollections.collectionInUse(SETTINGS), WHY))

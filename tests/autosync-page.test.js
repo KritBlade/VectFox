@@ -74,8 +74,8 @@ describe('AutoSync page markup', () => {
 });
 
 describe('Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md)', () => {
-    const drawn = collections => {
-        document.body.innerHTML = autoSyncCollectionMarkup(collections);
+    const drawn = (collections, inUseKey) => {
+        document.body.innerHTML = autoSyncCollectionMarkup(collections, inUseKey);
         const list = document.getElementById(AUTOSYNC_IN_USE_ID);
         return list && {
             label: document.querySelector(`label[for="${AUTOSYNC_IN_USE_ID}"]`)?.textContent,
@@ -83,11 +83,11 @@ describe('Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md)
         };
     };
 
-    it("lists the chat's own collections by name, the one locked here chosen, then New collection", () => {
+    it("lists the chat's own collections by name, the one in use chosen, then New collection", () => {
         expect(drawn([
             { registryKey: 'qdrant:first', name: '💬 Chat: Harbor Keeper', isLockedHere: false },
             { registryKey: 'qdrant:later', name: 'Harbor <b>Keeper</b> 2', isLockedHere: true },
-        ])).toEqual({
+        ], 'qdrant:later')).toEqual({
             label: 'Collection in use here',
             options: [
                 ['qdrant:first', '💬 Chat: Harbor Keeper', false],
@@ -98,10 +98,22 @@ describe('Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md)
         expect(document.querySelector('b')).toBeNull();
     });
 
-    it('opens on None in use here while none is locked here, and draws nothing for a chat with no collection', () => {
+    it('opens on None in use here while none is in use, and draws nothing for a chat with no collection', () => {
         expect(drawn([{ registryKey: 'qdrant:first', name: 'Harbor Keeper', isLockedHere: false }]).options)
             .toEqual([['', 'None in use here', true], ['qdrant:first', 'Harbor Keeper', false], [IN_USE_NEW, 'New collection', false]]);
         expect(autoSyncCollectionMarkup([])).toBe('');
+    });
+
+    it('opens on None in use here with two locked to the chat, which the route counts as none in use, so either can be chosen', () => {
+        expect(drawn([
+            { registryKey: 'qdrant:first', name: 'Harbor Keeper', isLockedHere: true },
+            { registryKey: 'qdrant:later', name: 'Harbor Keeper 2', isLockedHere: true },
+        ], null).options).toEqual([
+            ['', 'None in use here', true],
+            ['qdrant:first', 'Harbor Keeper', false],
+            ['qdrant:later', 'Harbor Keeper 2', false],
+            [IN_USE_NEW, 'New collection', false],
+        ]);
     });
 });
 

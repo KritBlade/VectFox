@@ -271,8 +271,12 @@ export async function refreshAutoSyncCheckbox(settings) {
     // VectFox is turned back on.
     const isVectFoxOn = isVectFoxEnabled(settings);
     const status = await getChatAutoSyncStatus(settings, { shouldProbeBackend: isVectFoxOn });
-    // Collection in use here, over the chat's own collections (§1.2 of vectfox-multi-collection-per-chat.md).
-    $('#VectFox_autosync_collection').html(autoSyncCollectionMarkup(status.state === 'no-chat' ? [] : status.collections ?? chatOwnCollections(settings)));
+    // Collection in use here, over the chat's own collections (§1.2 of vectfox-multi-collection-per-chat.md), the one in
+    // use chosen as the route gives it: a status with a collection in use carries its registry key.
+    $('#VectFox_autosync_collection').html(autoSyncCollectionMarkup(
+        status.state === 'no-chat' ? [] : status.collections ?? chatOwnCollections(settings),
+        status.registryKey ?? null,
+    ));
 
     // No chat, a chat with no EventBase collection yet, or one with none of its collections locked to it: nothing
     // auto-sync could run on.

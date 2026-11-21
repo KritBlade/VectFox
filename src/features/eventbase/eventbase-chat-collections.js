@@ -160,10 +160,12 @@ export function noCollectionInUseText(inUse, consequence, { isWhereToChooseSaid 
         case NOT_IN_USE_REASON.NONE_IN_USE:
             why = `No collection is in use in this chat, so ${consequence}.`;
             break;
-        case NOT_IN_USE_REASON.SEVERAL_IN_USE:
-            why = `${listNames(inUse.collections.filter(collection => collection.isLockedHere))} are all locked to this chat, `
+        case NOT_IN_USE_REASON.SEVERAL_IN_USE: {
+            const lockedHere = inUse.collections.filter(collection => collection.isLockedHere);
+            why = `${listNames(lockedHere)} are ${lockedHere.length === 2 ? 'both' : 'all'} locked to this chat, `
                 + `which uses one at a time, so ${consequence}.`;
             break;
+        }
         case NOT_IN_USE_REASON.OTHER_BACKEND: {
             const isOne = inUse.lockedElsewhere.length === 1;
             why = `${listNames(inUse.lockedElsewhere)}, in use in this chat, ${isOne ? 'is' : 'are'} on `

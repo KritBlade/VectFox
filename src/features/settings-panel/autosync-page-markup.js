@@ -118,12 +118,15 @@ function stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount, non
 
 /**
  * Collection in use here (§1.2 of vectfox-multi-collection-per-chat.md): the open chat's own collections in the in-use
- * switcher, the one locked to it chosen, "None in use here" with none, then New collection, which opens Vectorize
+ * switcher, the one in use chosen as the one route gives it (collectionInUse, D18); "None in use here" while none is,
+ * as with several locked to the chat, so that each of them can be chosen; then New collection, which opens Vectorize
  * Content on it; nothing for a chat with no collection, which keeps "Not vectorized yet.".
- * @param {Array<{registryKey: string, name: string, isLockedHere: boolean}>} collections - chatOwnCollections
+ * @param {Array<{registryKey: string, name: string}>} collections - chatOwnCollections
+ * @param {string|null} [inUseKey] - The registry key of the collection in use, from getChatAutoSyncStatus; none while
+ *   none is in use
  * @returns {string}
  */
-export function autoSyncCollectionMarkup(collections) {
+export function autoSyncCollectionMarkup(collections, inUseKey = null) {
     if (!collections.length) return '';
     return field([
         fieldLabel({ text: 'Collection in use here', forId: AUTOSYNC_IN_USE_ID }),
@@ -131,7 +134,7 @@ export function autoSyncCollectionMarkup(collections) {
             id: AUTOSYNC_IN_USE_ID,
             title: 'Collection in use here',
             members: collections.map(collection => ({ id: collection.registryKey, name: collection.name })),
-            inUseId: collections.find(collection => collection.isLockedHere)?.registryKey ?? null,
+            inUseId: inUseKey,
             newText: 'New collection',
         }),
         hint({ text: 'The one EventBase reads and writes in this chat. The others stay as they are.' }),
