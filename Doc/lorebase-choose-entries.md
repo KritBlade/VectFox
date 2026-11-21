@@ -145,7 +145,7 @@ The row under the book's dropdown is for them. Its list has the book's selection
 
 A chat uses 1 selection of a book at most. Lock one to this chat, and this chat's lock comes off the book's other selections. The same goes for the character. When the chat and the character lock different ones, the chat's lock wins. So you can lock your usual selection to Keeper Orrin, and another one to the one chat that needs it.
 
-You don't even need this screen to switch. On the WorldInfo page, each book's row starts with **Selection in use here**. Pick a selection there, and this chat uses it from the next reply on. Its last choice, **New selection**, makes the copy and opens this screen on it. While no selection of the book is in use here, it says **None in use here**, and the book fires by its keys in this chat.
+You don't even need this screen to switch. On the WorldInfo page, each book's row starts with **Selection in use here**. Pick a selection there, and this chat uses it from the next reply on. Its last choice, **New selection**, makes the copy and opens this screen on it. A book with no selection yet, like right after its trash, gets its first one instead, named after the book. While no selection of the book is in use here, it says **None in use here**, and the book fires by its keys in this chat.
 
 ## Finding entries: the book and the filters
 

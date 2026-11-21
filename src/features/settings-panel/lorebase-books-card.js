@@ -308,9 +308,9 @@ async function removeBook(button) {
 
 /**
  * Selection in use here, on a book's row (§1.2 of vectfox-multi-collection-per-chat.md): a selection chosen is put in
- * use in this chat; New selection copies the one in use, puts the copy in use here and opens the selection screen on it.
- * The status line says what changed, a line that goes once another chat is open, or why nothing did, and the list is
- * drawn again.
+ * use in this chat; New selection copies the one in use, or on a book with none makes its first, puts it in use here
+ * and opens the selection screen on it (newLoreSelectionHere). The status line says what changed, a line that goes once
+ * another chat is open, or why nothing did, and the list is drawn again.
  * @param {HTMLSelectElement} switcher - The row's switcher, naming its book
  * @returns {Promise<void>}
  */
@@ -322,7 +322,7 @@ async function switchSelection(switcher) {
     try {
         if (choice === IN_USE_NEW) {
             const selection = newLoreSelectionHere(bookName);
-            showBooksStatus(`Made "${selection.name}" from the selection in use, and put it in use in this chat.`, { lockChatId });
+            showBooksStatus(`Made "${selection.name}" and put it in use in this chat.`, { lockChatId });
             void refreshLoreBaseBooks();
             await chooseEntries(bookName, selection.id);
             return;

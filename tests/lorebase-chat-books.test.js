@@ -267,6 +267,12 @@ describe("the WorldInfo page's switcher", () => {
         host.chatId = undefined;
         expect(newLoreSelectionHere('Harbor Atlas')).toMatchObject({ name: 'Harbor Atlas 2', selectedUids: ['0', '1'], lockedToChatIds: [] });
     });
+
+    // A book whose record its trash deleted, or never opened, has none to copy: its first is made, as Choose entries makes it.
+    it("makes a book's first selection, named after it with nothing selected, and puts it in use in this chat, when it has none", () => {
+        expect(newLoreSelectionHere('Keeper Notes')).toMatchObject({ name: 'Keeper Notes', selectedUids: [], lockedToChatIds: ['chat-harbor'] });
+        expect(selectionsOf('Keeper Notes')).toHaveLength(1);
+    });
 });
 
 describe('Add a lorebook', () => {

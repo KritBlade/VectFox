@@ -268,14 +268,17 @@ export function useLoreSelectionHere(bookName, selectionId) {
 
 /**
  * New selection (§3.7 of vectfox-multi-collection-per-chat.md): a copy of a selection of the book, the one in use here
- * unless another is named, else of the book's first, put in use in the open chat; with no chat open it is locked nowhere.
+ * unless another is named, else of the book's first; on a book with none, as after its trash, its first, named after it
+ * with nothing selected, as Choose entries makes it. Put in use in the open chat; with no chat open it is locked nowhere.
  * @param {string} bookName
  * @param {string|null} [sourceSelectionId] - The selection to copy, the selection screen's; the one in use here when null
  * @returns {import('./lorebase-selections-core.js').LoreSelection}
  */
 export function newLoreSelectionHere(bookName, sourceSelectionId = null) {
     const where = lockTarget();
-    const selection = newLoreSelection(bookName, sourceSelectionId ?? selectionInUse(bookName, where)?.id ?? null);
+    const selection = loreSelectionsOf(bookName).length
+        ? newLoreSelection(bookName, sourceSelectionId ?? selectionInUse(bookName, where)?.id ?? null)
+        : ensureLoreSelection(bookName);
     if (where.chatId) setLoreSelectionLock(bookName, selection.id, { chatId: where.chatId }, true);
     return selection;
 }

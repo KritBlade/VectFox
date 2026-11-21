@@ -691,10 +691,17 @@ describe("Selection in use here (§1.2 of vectfox-multi-collection-per-chat.md)"
         ]);
     });
 
-    it('draws none for a book with no selection', async () => {
+    it('draws None in use here and New selection for a book with no selection, as after its trash, whose New selection makes its first and opens the screen on it', async () => {
         host.status = { hasChat: true, books: [KEEPER] };
         await refreshLoreBaseBooks();
-        expect(switcherOf('Keeper Notes')).toBeNull();
+        expect([...switcherOf('Keeper Notes').options].map(option => [option.value, option.textContent, option.selected])).toEqual([
+            ['', 'None in use here', true], ['+new', 'New selection', false],
+        ]);
+        newLoreSelectionHere.mockReturnValueOnce({ id: 'first-made', name: 'Keeper Notes' });
+        choose('Keeper Notes', '+new');
+        expect(newLoreSelectionHere).toHaveBeenCalledWith('Keeper Notes');
+        expect(status().textContent).toBe('Made "Keeper Notes" and put it in use in this chat.');
+        await vi.waitFor(() => expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Keeper Notes', selectionId: 'first-made' }));
     });
 
     it('puts the selection chosen in use in this chat, says so, draws the list again, and drops the line once another chat is open', async () => {
@@ -714,7 +721,7 @@ describe("Selection in use here (§1.2 of vectfox-multi-collection-per-chat.md)"
         await refreshLoreBaseBooks();
         choose('Harbor Atlas', '+new');
         expect(newLoreSelectionHere).toHaveBeenCalledWith('Harbor Atlas');
-        expect(status().textContent).toBe('Made "Harbor Atlas 2" from the selection in use, and put it in use in this chat.');
+        expect(status().textContent).toBe('Made "Harbor Atlas 2" and put it in use in this chat.');
         await vi.waitFor(() => expect(openLoreBaseSelection).toHaveBeenCalledWith({ bookName: 'Harbor Atlas', selectionId: 'made' }));
         expect(useLoreSelectionHere).not.toHaveBeenCalled();
 

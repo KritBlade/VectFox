@@ -223,14 +223,14 @@ export function loreBaseBookRow(book) {
         sub,
         pills: [isStateShown ? bookStatePill(book) : '', ...(locks.length ? locks : [LOCK_PILLS.none])].filter(Boolean),
         actions: [
-            book.selections.length ? inUseSwitcherMarkup({
+            inUseSwitcherMarkup({
                 id: `VectFox_lorebase_in_use_${encodeURIComponent(bookName)}`,
                 title: 'Selection in use here',
                 members: book.selections,
                 inUseId: book.selectionInUseId,
                 newText: 'New selection',
                 data: { 'lorebase-in-use': bookName },
-            }) : '',
+            }),
             iconButton({ icon: 'fa-list-check', title: 'Choose entries', data: { 'lorebase-choose': bookName } }),
             book.canUnlink
                 ? iconButton({ icon: 'fa-link-slash', title: 'Unlink from this chat, and remove from LoreBase', isDanger: true, data: { 'lorebase-unlink': bookName } })
@@ -283,11 +283,11 @@ function addBookMarkup({ bookNames, canAddToCharacter }) {
  * The LoreBase books card's list for the open chat: each book SillyTavern loads here, how many entries are selected
  * in it and, once read, how many of those have keys and vectors and its one state (§7.1 of lorebook-multi-vector.md),
  * and whether it is locked to this chat or its character, where LoreBase decides them (D11), each row with Selection in
- * use here while the book has a selection (inUseSwitcherMarkup, §1.2 of vectfox-multi-collection-per-chat.md), Choose
- * entries, Unlink on a book a list Unlink takes books out of loads here, and Remove from LoreBase on a book LoreBase has
- * a record of; the counts and locks are those of the selection in use here, or with none, the counts of every entry the
- * book's selections hold; under the list, the ready entries of the books locked here and those waiting; then, given
- * what to add, Add a lorebook.
+ * use here (inUseSwitcherMarkup, §1.2 of vectfox-multi-collection-per-chat.md), None in use here and New selection
+ * alone on a book with no selection, Choose entries, Unlink on a book a list Unlink takes books out of loads here, and
+ * Remove from LoreBase on a book LoreBase has a record of; the counts and locks are those of the selection in use here,
+ * or with none, the counts of every entry the book's selections hold; under the list, the ready entries of the books
+ * locked here and those waiting; then, given what to add, Add a lorebook.
  *
  * @param {{hasChat: boolean, books: Array<{bookName: string, selectedCount: number, isLockedToChat: boolean,
  *   isLockedToCharacter: boolean, selections: Array<{id: string, name: string}>, selectionInUseId: string|null,

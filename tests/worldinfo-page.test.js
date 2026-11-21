@@ -212,7 +212,7 @@ describe('loreBaseBooksMarkup', () => {
         expect(unlinkers[0].nextElementSibling.dataset.lorebaseRemove).toBe('Harbor Atlas');
     });
 
-    it("leads a book's actions with Selection in use here while it has a selection: its selections, the one in use here chosen, then New selection (§1.2 of vectfox-multi-collection-per-chat.md)", () => {
+    it("leads every book's actions with Selection in use here: its selections, the one in use here chosen, then New selection; a book with none, None in use here and New selection (§1.2 of vectfox-multi-collection-per-chat.md)", () => {
         document.body.innerHTML = loreBaseBooksMarkup({
             hasChat: true,
             books: [
@@ -237,7 +237,10 @@ describe('loreBaseBooksMarkup', () => {
                 book: 'Keeper Notes', title: 'Selection in use here', isFirst: true,
                 options: [['', 'None in use here', true], ['k1', 'Keeper Notes', false], ['+new', 'New selection', false]],
             },
-            null,
+            {
+                book: 'Tide Tables', title: 'Selection in use here', isFirst: true,
+                options: [['', 'None in use here', true], ['+new', 'New selection', false]],
+            },
         ]);
         expect(document.querySelector('.vfx-row b')).toBeNull();
     });
