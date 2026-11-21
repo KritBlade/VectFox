@@ -128,7 +128,7 @@ A book already locked to this chat or this character stays as it is. And if you 
 
 So you can turn on 50 entries in Harbor Atlas in your Wren chat to try them. Only that chat changes, your other chats don't. If you like it, lock it to the character too.
 
-A group chat has no one character, so its character lock can't be turned on. With no chat open, neither lock can.
+In a group chat, a book a member loads, their own lorebook or one of their Additional Lorebooks, locks to that member. The note under the switches names who, and the lock works on that member's turns. The WorldInfo page lists every member's books too. A book no member loads, like one in the global list or the Chat Lorebook, can only be locked to the chat. With no chat open, neither lock can.
 
 ## More than one selection of a book
 
@@ -149,7 +149,7 @@ You don't even need this screen to switch. On the WorldInfo page, each book's ro
 
 ## Finding entries: the book and the filters
 
-The dropdown at the top lists every lorebook in SillyTavern. The books your open chat loads come first, marked "(this chat)", then the rest by name. A book with entries on says how many, like "Harbor Atlas (this chat), 12 selected".
+The dropdown at the top lists every lorebook in SillyTavern. The books your open chat loads come first, marked "(this chat)", then the rest by name. A book with entries on says how many of them LoreBase decides, the same number its WorldInfo row shows, like "Harbor Atlas (this chat), 12 selected".
 
 The row under the locks narrows the list. Filters only change what you see. They never turn anything on or off, and they stay as you set them until you close the screen.
 
@@ -203,7 +203,7 @@ One thing to watch. A tick stays when a filter hides its row. If you tick 10 ent
 
 The list draws 100 entries at a time. **Show more** draws the next 100.
 
-At the bottom, a line says what your entries cost each reply. On High Accuracy, it's how many titles the LoreBase model reads from this book, each with its keys, and about how many tokens that adds to every pick. Every entry you turn on is one more line it reads before every single reply. On Fast and Cheap [Jev], it's how many entries Jev is asked about: every one while the books locked to this chat have 100 or fewer turned on, and above that the 100 a search finds best. If the selection you see isn't the one this chat uses, the line says it takes no part here.
+At the bottom, a line says what your entries cost each reply, counting the ready ones, the only ones a reply sends. On High Accuracy, it's how many titles the LoreBase model reads from this book, each with its keys, and about how many tokens that adds to every pick. Every entry you turn on is one more line it reads before every single reply, once it's ready. On Fast and Cheap [Jev], it's how many ready entries Jev is asked about: every one while the books locked to this chat have 100 or fewer ready, and above that the 100 a search finds best. If the selection you see isn't the one this chat uses, the line says it takes no part here.
 
 ## The pills on a row
 
