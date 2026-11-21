@@ -167,6 +167,15 @@ describe('opening the screen', () => {
         expect($id('vectfox_lorebase_summary').textContent).toBe("LoreBase decides no entry in this selection: where it is in use, SillyTavern's keys decide them all.");
     });
 
+    it('counts in the book list the selected entries LoreBase decides, as the WorldInfo page does, never one SillyTavern keeps', async () => {
+        host.settings.vectfox.lorebase_books = {
+            'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1', '3'] }), 'Voyage Log': oneSelectionRecord({ selectedUids: ['7'] }),
+        };
+        await openScreen();
+        expect([...$id('vectfox_lorebase_book').options].map(option => option.textContent))
+            .toEqual(['Harbor Atlas (this chat), 1 selected', 'Voyage Log, 1 selected', 'Zeta Notes']);
+    });
+
     it('marks an entry added since the last opening as new, and drops deleted entries from the selection', async () => {
         host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['1', '9'], seenUids: ['0', '1', '2', '3'] }) };
         await openScreen();

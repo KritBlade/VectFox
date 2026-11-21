@@ -17,7 +17,7 @@ import {
     removeGlobalLorebook, selected_world_info, world_names,
 } from '../../sillytavern/world-info.js';
 import {
-    ensureLoreSelection, getLoreBook, loadDecidedEntries, loreSelectionsOf, newLoreSelection, selectionInUse, setLoreSelectionLock,
+    decidedCountOf, ensureLoreSelection, getLoreBook, loreSelectionsOf, newLoreSelection, selectionInUse, setLoreSelectionLock,
 } from './lorebase-books.js';
 import { activeBookNames } from './lorebase-reply-core.js';
 import { isSelectionLockedTo, unionOfSelections } from './lorebase-selections-core.js';
@@ -203,23 +203,6 @@ export async function addLoreBookToChat(bookName, place) {
     const lock = isToCharacter ? { characterAvatar } : { chatId };
     setLoreSelectionLock(bookName, ensureLoreSelection(bookName).id, lock, true);
     return lock;
-}
-
-/**
- * How many entries of a selection LoreBase decides in its book (loadDecidedEntries), as the keys count reads them; a
- * book that cannot be loaded counts the selection as saved, and the console says why.
- * @param {string} bookName
- * @param {{selectedUids: string[]}} selection - A selection, or every entry the book's selections hold
- * @returns {Promise<number>}
- */
-async function decidedCountOf(bookName, selection) {
-    if (!selection.selectedUids.length) return 0;
-    try {
-        return (await loadDecidedEntries(bookName, selection)).length;
-    } catch (error) {
-        log.warn(`LoreBase: lorebook "${bookName}" could not be loaded, so its row counts its saved selection:`, error);
-        return selection.selectedUids.length;
-    }
 }
 
 /**

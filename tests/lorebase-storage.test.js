@@ -592,7 +592,7 @@ describe("the Database Browser's rows", () => {
         embedding: { source, model: 'baai/bge-m3', dimension: 2 }, points,
     });
 
-    it("reads them from Similharity's listing once Qdrant is ready, with each book's selected count from its record, and none off Qdrant", async () => {
+    it("reads them from Similharity's listing once Qdrant is ready, with each book's selected entries LoreBase decides, and none off Qdrant", async () => {
         await selectBooks();
         host.worldNames.push(BOOK, 'Desert Atlas');
         host.listing = {
@@ -600,10 +600,11 @@ describe("the Database Browser's rows", () => {
             vectors: [{ collection: 'vf_lorebase_rabbit', tenant: 'vf_lorebase_qdrant_rabbit_harbor', book: BOOK, pointCount: 4, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3' }],
         };
         const rows = await storage.loreBaseStorageRows(QDRANT);
-        // Lost Atlas and Unused Atlas have records, but neither a book in SillyTavern nor anything stored.
+        // Lost Atlas and Unused Atlas have records, but neither a book in SillyTavern nor anything stored. Harbor Atlas
+        // selects 3 entries, its constant one SillyTavern's, so LoreBase decides 2, as the WorldInfo page's row counts them.
         expect(rows.map(row => [row.kind, row.book, row.selectedCount, row.isLeftover, row.kind === kinds.KEYS ? row.entryCount : row.pointCount])).toEqual([
             ['keys', 'Desert Atlas', 1, false, 0], ['vectors', 'Desert Atlas', 1, false, 0],
-            ['keys', BOOK, 3, false, 1], ['vectors', BOOK, 3, false, 4],
+            ['keys', BOOK, 2, false, 1], ['vectors', BOOK, 2, false, 4],
         ]);
         expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/books', request: {} });
         expect(host.getBackend).toHaveBeenCalledWith(expect.any(Object), 'qdrant');

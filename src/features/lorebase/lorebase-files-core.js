@@ -26,8 +26,13 @@ const NOT_A_FILE = Object.freeze({
     [VECTORS]: "This is not a LoreBase vectors file. Export on a lorebook's vectors row in the Database Browser makes one.",
 });
 
-/** An embedding model in words, as a collection import names one. */
-const modelWords = (source, model) => `${source || 'unknown'}/${model || 'default'}`;
+/**
+ * An embedding model in words, as a row, a delete and an import name the one that made a book's vectors.
+ * @param {string|null|undefined} source
+ * @param {string|null|undefined} model
+ * @returns {string}
+ */
+export const modelWords = (source, model) => `${source || 'unknown'}/${model || 'default'}`;
 
 const isKeyList = keys => Array.isArray(keys) && keys.length <= MOST_KEYS_PER_ENTRY
     && keys.every(key => typeof key === 'string' && key.trim() !== '' && key.length <= LONGEST_KEY);
@@ -298,8 +303,9 @@ export function nothingToImportText(kind, plan, bookName) {
 const NOTHING_IN_REPLIES = 'No entry of this lorebook takes part in replies now, so replies lose nothing. Export them first to keep a copy.';
 
 /**
- * What deleting a row loses, and what follows, for its confirm. Replies lose entries only when the row's book is listed
- * with entries selected; a leftover's book and a book with none selected have no entry in replies.
+ * What deleting a row loses, and what follows, for its confirm. Entries send nothing afterwards only when the row's book
+ * is listed with selected entries LoreBase decides (selectedCount, decidedCountOf), and only where a selection of them
+ * is in use; a leftover's book and a book that decides none have no entry in replies.
  * @param {{kind: string, entryCount?: number, pointCount?: number, isHere?: boolean, embeddingSource?: string,
  *   embeddingModel?: string, selectedCount: number, isLeftover: boolean}} row - From storageRowsOf
  * @returns {{lost: string, after: string}}
@@ -310,7 +316,7 @@ export function describeDelete(row) {
         return {
             lost: `the keys of ${counted(row.entryCount, 'entry', 'entries')}, those edited by hand included`,
             after: isInReplies
-                ? "Its selected entries leave replies until Generate keys writes their keys again, at the cost of LoreBase's model. LoreBase stays on. Export them first to keep a copy."
+                ? "Its selected entries send nothing where they are in use until Generate keys writes their keys again, at the cost of LoreBase's model. LoreBase stays on. Export them first to keep a copy."
                 : NOTHING_IN_REPLIES,
         };
     }
@@ -319,7 +325,7 @@ export function describeDelete(row) {
     return {
         lost,
         after: isInReplies
-            ? 'Its selected entries leave replies until Generate vectors writes their vectors again. LoreBase stays on. Export them first to keep a copy.'
+            ? 'Its selected entries send nothing where they are in use until Generate vectors writes their vectors again. LoreBase stays on. Export them first to keep a copy.'
             : NOTHING_IN_REPLIES,
     };
 }

@@ -47,7 +47,7 @@ export { initializeLoreBase, prepareLoreBesideRetrieval, tryLoreBasePick } from 
 export { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 export { openLoreBaseSelection } from './lorebase-selection-screen.js';
 export {
-    LOREBASE_KEYS_FILE_TYPE, LOREBASE_VECTORS_FILE_TYPE, describeDelete, describeExport, describeImport, describeImported,
+    LOREBASE_KEYS_FILE_TYPE, LOREBASE_VECTORS_FILE_TYPE, describeDelete, describeExport, describeImport, describeImported, modelWords,
     describeRemovedLoreBook, nothingToImportText,
 } from './lorebase-files-core.js';
 export { deleteLoreSelectionAfterConfirm, removeLoreBookAfterConfirm } from './lorebase-removal.js';
@@ -55,7 +55,7 @@ export {
     deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
     storedCountsOfBooks, writeImport, writeMissing,
 } from './lorebase-storage.js';
-export { tenantChunkSource } from './lorebase-vectors.js';
+export { currentEmbeddingModel, tenantChunkSource } from './lorebase-vectors.js';
 export { BOTH_KINDS, KEYS, VECTORS, kindsLacking } from './lorebase-storage-core.js';
 export { entryTitle } from './lorebase-splitter.js';
 export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';

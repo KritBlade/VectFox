@@ -72,6 +72,7 @@ import {
   LOREBASE_KEYS_FILE_TYPE,
   LOREBASE_VECTORS_FILE_TYPE,
   VECTORS,
+  currentEmbeddingModel,
   deleteStoredRow,
   describeDelete,
   describeExport,
@@ -82,6 +83,7 @@ import {
   exportStored,
   loreBaseImportRow,
   loreBaseStorageRows,
+  modelWords,
   nothingToImportText,
   planImport,
   removeLoreBookAfterConfirm,
@@ -97,7 +99,7 @@ import { getContext } from "../../sillytavern/chat.js";
 import { log } from "../../sillytavern/log.js";
 import { openChunkVisualizer } from "./chunk-visualizer.js";
 import { mergeSearchPieceResults } from "./search-results-core.js";
-import { getModelFromSettings, searchPieces } from "../embedding/index.js";
+import { searchPieces } from "../embedding/index.js";
 import { bindSizeInspector } from "./size-inspector.js";
 import { editCollectionSettings, renameCollection, switchCollectionModel } from "./collection-dialogs.js";
 import { activeLockLine } from "./collection-settings-core.js";
@@ -706,17 +708,17 @@ function shownLoreBaseBooks() {
 }
 
 // An embedding model in words, as a row names the one that made its vectors; "" for a row holding none.
-const embeddingWords = (row) => (row?.pointCount ? `${row.embeddingSource || "unknown"}/${row.embeddingModel || "default"}` : "");
+const embeddingWords = (row) => (row?.pointCount ? modelWords(row.embeddingSource, row.embeddingModel) : "");
 
 /**
- * What the ⚠ beside a lorebook with no entries selected says, on hover and opened under its name.
+ * What the ⚠ beside a lorebook with no selected entry LoreBase decides says, on hover and opened under its name.
  * @param {boolean} hasVectors
  * @returns {string}
  */
 function noSelectionWords(hasVectors) {
   return hasVectors
-    ? "No entries selected: LoreBase leaves this lorebook out, and its vectors are erased on the next write. Select its entries on VectFox's WorldInfo page to keep them."
-    : "No entries selected: LoreBase leaves this lorebook out. Select its entries on VectFox's WorldInfo page.";
+    ? "No selected entry LoreBase decides: it leaves this lorebook out, and its vectors are erased on the next write. Select its entries on VectFox's WorldInfo page to keep them."
+    : "No selected entry LoreBase decides: it leaves this lorebook out. Select its entries on VectFox's WorldInfo page.";
 }
 
 /**
@@ -1204,7 +1206,7 @@ async function importLoreBaseData(data, row) {
       toastr.error(nothingToImportText(row.kind, plan, row.book), LOREBASE_TOAST);
       return;
     }
-    const current = { source: browserState.settings.embedding_provider, model: getModelFromSettings(browserState.settings) };
+    const current = currentEmbeddingModel(browserState.settings);
     const isConfirmed = await confirmPopup([
       { text: `Import LoreBase ${words} into this lorebook?` },
       { text: "Lorebook:", name: row.book },

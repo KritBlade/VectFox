@@ -30,8 +30,8 @@ import { extension_settings } from '../../sillytavern/settings.js';
 import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import {
-    ensureLoreSelection, getLoreBook, getLoreSelection, loreBookRecordCounts, loreSelectionsOf, renameLoreSelection, selectionInUse,
-    setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
+    decidedCountOf, ensureLoreSelection, getLoreBook, getLoreSelection, loreBookRecordCounts, loreSelectionsOf, renameLoreSelection,
+    selectionInUse, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
 } from './lorebase-books.js';
 import { chatBookLocks, chatBookNames, lockTarget, newLoreSelectionHere } from './lorebase-chat-books.js';
 import { deleteLoreSelectionAfterConfirm } from './lorebase-removal.js';
@@ -39,12 +39,12 @@ import { editedKeys } from './lorebase-keys-core.js';
 import { keyStateOf, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys } from './lorebase-keys.js';
 import { keyWritingProblem } from './lorebase-setup.js';
 import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
-import { FAST_AND_CHEAP, loreBaseAccuracyOf } from './lorebase-reply-core.js';
+import { FAST_AND_CHEAP, decidedEntries, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 import { isEntryReady } from './lorebase-readiness.js';
 import { regenerateKeysOfEntries, selectedEntriesNotReady, storedCountsOfBooks } from './lorebase-storage.js';
 import { missingCountsOf } from './lorebase-storage-core.js';
 import { entryTitle } from './lorebase-splitter.js';
-import { isSelectionLockedTo } from './lorebase-selections-core.js';
+import { isSelectionLockedTo, unionOfSelections } from './lorebase-selections-core.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
 import { onVectorStateChange, pruneBookVectors, readBookVectors, vectorStateOf } from './lorebase-vectors.js';
 import {
@@ -104,9 +104,24 @@ function isKeyWritingBlocked(heading) {
     return Boolean(problem);
 }
 
-function currentChoices() {
-    const selectedCounts = Object.fromEntries(Object.entries(loreBookRecordCounts()).map(([bookName, counts]) => [bookName, counts.selectedCount]));
-    return bookChoices([...world_names], chatBookNames(), selectedCounts);
+/**
+ * How many entries LoreBase decides in each book with a record (decidedCountOf), for the book list, read as the screen
+ * opens.
+ * @returns {Promise<Map<string, number>>}
+ */
+async function decidedCountsOfRecordedBooks() {
+    const bookNames = Object.keys(loreBookRecordCounts());
+    return new Map(await Promise.all(bookNames.map(async bookName => [bookName, await decidedCountOf(bookName)])));
+}
+
+/**
+ * The book list's choices, each book with how many entries LoreBase decides in it: the book shown counted from its
+ * selections as they stand now, the others as the screen read them.
+ * @param {{decidedCounts: Map<string, number>, book: object|null, bookName?: string}} session
+ */
+function currentChoices(session) {
+    if (session.book) session.decidedCounts.set(session.bookName, decidedEntries(session.book, unionOfSelections(getLoreBook(session.bookName))).length);
+    return bookChoices([...world_names], chatBookNames(), Object.fromEntries(session.decidedCounts));
 }
 
 /** The rows the filters in the controls card and the category shown let through, drawn on the screen yet or not. */
@@ -224,7 +239,7 @@ function renderSelectionList(root, session) {
 function renderSelectionSummary(root, session) {
     byId(root, ids.pins).innerHTML = pinsMarkup(pinnableSections(session.book, shownSelectionOf(session), session.sectionNamesOf));
     renderSummaryText(root, session);
-    byId(root, ids.book).innerHTML = bookOptions(currentChoices(), session.bookName).join('');
+    byId(root, ids.book).innerHTML = bookOptions(currentChoices(session), session.bookName).join('');
     renderSelectionList(root, session);
 }
 
@@ -631,12 +646,14 @@ function bindScreen(root, session) {
  *   when its keys and vectors could not be read
  */
 export async function openLoreBaseSelection({ bookName = '', selectionId = null } = {}) {
-    const choices = currentChoices();
+    const decidedCounts = await decidedCountsOfRecordedBooks();
+    const choices = currentChoices({ decidedCounts, book: null });
     const first = choices.some(choice => choice.bookName === bookName) ? bookName : choices[0]?.bookName ?? '';
     const template = document.createElement('template');
     template.innerHTML = selectionScreenMarkup({ choices, bookName: first });
     const root = template.content.firstElementChild;
     const session = {
+        decidedCounts,
         bookName: first, selectionId: null, book: null, rows: [], entryByUid: new Map(), ticked: new Set(), anchorUid: null, shownCategory: null,
         shownLimit: PAGE_SIZE,
         searchTimer: null, sectionNamesOf: entrySectionNames, shownReadiness: new Map(), keyReadProblem: '', otherTakingPartCount: null,

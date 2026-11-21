@@ -52,7 +52,10 @@ vi.mock('../src/features/lorebase/index.js', async () => {
         describeImport: files.describeImport,
         describeImported: files.describeImported,
         describeRemovedLoreBook: files.describeRemovedLoreBook,
+        modelWords: files.modelWords,
         nothingToImportText: files.nothingToImportText,
+        // The embedding model set now, as lorebase-vectors.js reads it (lorebase-vectors.test.js holds it).
+        currentEmbeddingModel: settings => ({ source: settings.embedding_provider || 'transformers', model: settings.embedding_model ?? '' }),
         tenantChunkSource: (row, settings) => ({ collection: { id: row.tenant, name: row.book }, settings: { ...settings, readsIn: row.collection } }),
         loreBaseStorageRows: async () => {
             host.rowReads += 1;
@@ -110,7 +113,7 @@ const PIER_ELSEWHERE = {
 };
 const ROWS = [HARBOR_KEYS, HARBOR_VECTORS, WREN_KEYS, WREN_VECTORS, PIER_KEYS, PIER_ELSEWHERE];
 const SETTINGS = { vector_backend: 'qdrant', embedding_provider: 'openrouter', superadmin: true };
-const NO_SELECTION_WORDS = "No entries selected: LoreBase leaves this lorebook out, and its vectors are erased on the next write. Select its entries on VectFox's WorldInfo page to keep them.";
+const NO_SELECTION_WORDS = "No selected entry LoreBase decides: it leaves this lorebook out, and its vectors are erased on the next write. Select its entries on VectFox's WorldInfo page to keep them.";
 initializeDatabaseBrowser(SETTINGS);
 
 const books = () => [...document.querySelectorAll('[data-lorebase-book]')].map(book => book.dataset.lorebaseBook);
@@ -256,7 +259,7 @@ describe('LoreBase rows in the Database Browser', () => {
         host.rows = [{ ...WREN_KEYS }, { ...WREN_VECTORS, key: 'vectors|vf_lorebase_rook|Wren Journal', tenant: null, pointCount: 0, embeddingSource: '', embeddingModel: '' }];
         await closeBrowser();
         await openBrowser();
-        expect(flag().title).toBe("No entries selected: LoreBase leaves this lorebook out. Select its entries on VectFox's WorldInfo page.");
+        expect(flag().title).toBe("No selected entry LoreBase decides: it leaves this lorebook out. Select its entries on VectFox's WorldInfo page.");
     });
 
     it('shows what LoreBase cannot use here behind Show leftovers, each with Export and Delete, closed again on the next open', async () => {
@@ -363,7 +366,7 @@ describe('LoreBase rows in the Database Browser', () => {
             'Delete the LoreBase vectors of this lorebook?',
             'Lorebook:', 'Harbor Atlas',
             'Lost:', 'the vectors of 504 parts, made by openrouter/baai/bge-m3',
-            'Its selected entries leave replies until Generate vectors writes their vectors again. LoreBase stays on. Export them first to keep a copy.',
+            'Its selected entries send nothing where they are in use until Generate vectors writes their vectors again. LoreBase stays on. Export them first to keep a copy.',
             'Delete vectors deletes them. Cancel keeps them.',
         ]);
         expect(options).toEqual({ okButton: 'Delete vectors', isDestructive: true });

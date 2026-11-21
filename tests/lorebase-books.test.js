@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: { vectfox: {} }, saveSettingsDebounced: vi.fn() }));
+vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn(), verbose: vi.fn(), trace: vi.fn() } }));
 vi.mock('../src/sillytavern/world-info.js', () => ({ loadWorldInfo: vi.fn() }));
 
 const { extension_settings, saveSettingsDebounced } = await import('../src/sillytavern/settings.js');

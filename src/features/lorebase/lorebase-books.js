@@ -7,11 +7,13 @@
  * locked to it, else the one locked to its character (selectionInUse), and locking a selection takes that lock off the
  * book's others (setLoreSelectionLock). One record per book, keyed by the book's exact name, in VectFox's settings:
  * never a key per entry (§3.3), and never in the lorebook file. A book's selected entries LoreBase decides are read here
- * too, against the book as SillyTavern loads it: the one count every LoreBase screen and the reply share. Clean up locks,
+ * too, against the book as SillyTavern loads it (loadDecidedEntries): what the reply sends from, and the one count of
+ * them every LoreBase page shows (decidedCountOf). Clean up locks,
  * on the Action page, drops the locks on chats and characters that no longer exist, and Remove from LoreBase deletes a
  * book's record once its keys and vectors are deleted.
  */
 
+import { log } from '../../sillytavern/log.js';
 import { extension_settings, saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { loadWorldInfo } from '../../sillytavern/world-info.js';
 import { newTimeId, numberedName } from '../../shared/new-group-member.js';
@@ -86,6 +88,25 @@ export function selectionInUse(bookName, where) {
  */
 export async function loadDecidedEntries(bookName, selection = unionOfSelections(getLoreBook(bookName))) {
     return decidedEntries(await loadWorldInfo(bookName), selection);
+}
+
+/**
+ * How many entries LoreBase decides in a book (loadDecidedEntries): of one selection, or by default every entry its
+ * selections hold. The one "N selected" every LoreBase page shows: the WorldInfo page's rows, the selection screen's
+ * book list and the Database Browser's rows. A book SillyTavern cannot load counts its saved selection, and the console
+ * says why.
+ * @param {string} bookName
+ * @param {{selectedUids: string[]}} [selection] - A selection, or every entry the book's selections hold by default
+ * @returns {Promise<number>}
+ */
+export async function decidedCountOf(bookName, selection = unionOfSelections(getLoreBook(bookName))) {
+    if (!selection.selectedUids.length) return 0;
+    try {
+        return (await loadDecidedEntries(bookName, selection)).length;
+    } catch (error) {
+        log.warn(`LoreBase: lorebook "${bookName}" could not be loaded, so its saved selection is counted:`, error);
+        return selection.selectedUids.length;
+    }
 }
 
 /**

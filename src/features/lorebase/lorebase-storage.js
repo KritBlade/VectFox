@@ -25,8 +25,8 @@ import { exportFileHeader } from '../../shared/export-file-header.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import {
-    deleteLoreBookRecord, getLoreBook, getLoreSelection, loadBookEntries, loadDecidableEntries, loadDecidedEntries, loreBookRecordCounts,
-    selectedLoreBookNames,
+    decidedCountOf, deleteLoreBookRecord, getLoreBook, getLoreSelection, loadBookEntries, loadDecidableEntries, loadDecidedEntries,
+    loreBookRecordCounts, selectedLoreBookNames,
 } from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
@@ -389,8 +389,9 @@ export async function deleteStored(kinds, settings) {
 /**
  * The Database Browser's LoreBase rows (§3.2): this account's books with keys or vectors, from Similharity's listing
  * (listLoreBaseStorage), with every book that has a LoreBase record, the list's first, then the leftovers'; each knows
- * how many entries its book selects and whether SillyTavern still has the book (storageRowsOf). Off Qdrant, where
- * LoreBase keeps nothing, there are none.
+ * how many selected entries LoreBase decides in its book (decidedCountOf, as every LoreBase page counts them; a book
+ * SillyTavern no longer has keeps its saved count) and whether SillyTavern still has the book (storageRowsOf). Off
+ * Qdrant, where LoreBase keeps nothing, there are none.
  * @param {object} settings - VectFox settings
  * @returns {Promise<object[]>}
  * @throws {Error} When Similharity cannot list them
@@ -398,12 +399,11 @@ export async function deleteStored(kinds, settings) {
 export async function loreBaseStorageRows(settings) {
     if (!isLoreBaseBackend(settings)) return [];
     const listing = await listLoreBaseStorage();
-    return storageRowsOf({
-        listing,
-        recordCounts: loreBookRecordCounts(),
-        hereCollection: loreBaseVectorsCollection(settings),
-        sillyTavernBookNames: world_names,
-    });
+    const recordCounts = loreBookRecordCounts();
+    for (const bookName of Object.keys(recordCounts).filter(name => world_names.includes(name))) {
+        recordCounts[bookName].selectedCount = await decidedCountOf(bookName);
+    }
+    return storageRowsOf({ listing, recordCounts, hereCollection: loreBaseVectorsCollection(settings), sillyTavernBookNames: world_names });
 }
 
 /**

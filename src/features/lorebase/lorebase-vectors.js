@@ -117,13 +117,24 @@ function vectorSettings(settings) {
 }
 
 /**
- * The embedding model set now, as the key each point's model is compared with: the source and model the vector API's
- * insert sends, which Similharity stores on each point.
+ * The embedding model set now: the source and model the vector API's insert sends, which Similharity stores on each
+ * point. The one reading of it: what each point's model is compared with (currentEmbeddingModelKey), and what the
+ * Database Browser's import names as the model set now.
+ * @param {object} settings - VectFox settings
+ * @returns {{source: string, model: string}}
+ */
+export function currentEmbeddingModel(settings) {
+    return { source: settings.embedding_provider || 'transformers', model: getModelFromSettings(settings) };
+}
+
+/**
+ * The embedding model set now (currentEmbeddingModel), as the key each point's model is compared with.
  * @param {object} settings - VectFox settings
  * @returns {string}
  */
 export function currentEmbeddingModelKey(settings) {
-    return embeddingModelKey(settings.embedding_provider || 'transformers', getModelFromSettings(settings));
+    const { source, model } = currentEmbeddingModel(settings);
+    return embeddingModelKey(source, model);
 }
 
 /**
