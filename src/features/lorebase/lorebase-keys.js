@@ -103,6 +103,17 @@ export function keyStateOf(bookName, uid) {
     return state ?? { status: 'missing' };
 }
 
+/**
+ * Whether an entry's keys are stored, as this session last read or wrote them, while they are written anew too: half of
+ * whether it is ready (isEntryReady in lorebase-readiness.js). "No keys found" counts as stored.
+ * @param {string} bookName
+ * @param {string|number} uid
+ * @returns {boolean}
+ */
+export function hasStoredKeys(bookName, uid) {
+    return storedKeys.get(bookName)?.has(String(uid)) ?? false;
+}
+
 async function askForKeys(entry, ask) {
     const count = keyCount(entry);
     let lastProblem = UNREADABLE_ANSWER;

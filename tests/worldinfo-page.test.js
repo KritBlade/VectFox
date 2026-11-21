@@ -271,8 +271,9 @@ describe('loreBaseBooksMarkup', () => {
     });
 
     describe("each book's state, once its keys and vectors are read (§7.1 of lorebook-multi-vector.md)", () => {
+        // A book with its selection in use here, locked to this chat, as chatBookLocks gives it.
         const book = fields => listedBook({
-            bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false, decidedCount: 40, keyCount: 40, vectorCount: 40,
+            bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false, selectionInUseId: 'harbor-1', decidedCount: 40, keyCount: 40, vectorCount: 40,
             readyCount: 40, missingKeyCount: 0, missingVectorCount: 0, otherModelCount: 0, failedCount: 0, firstFailure: null, writing: null, ...fields,
         });
         const TONES = ['success', 'warning', 'danger', 'accent', 'neutral'];
@@ -332,11 +333,11 @@ describe('loreBaseBooksMarkup', () => {
             expect(lineOf([
                 book({ bookName: 'Harbor Atlas', selectedCount: 312, decidedCount: 312, readyCount: 312 }),
                 book({ bookName: 'Keeper Notes', selectedCount: 52, decidedCount: 40, readyCount: 0, isLockedToChat: false, isLockedToCharacter: true }),
-                book({ bookName: 'Tide Tables', selectedCount: 9, decidedCount: 9, readyCount: 9, isLockedToChat: false }),
+                book({ bookName: 'Tide Tables', selectedCount: 9, decidedCount: 9, readyCount: 9, isLockedToChat: false, selectionInUseId: null }),
             ])).toBe('2 books locked here: 312 entries ready, 40 entries waiting for keys or vectors.');
             expect(lineOf([book({ selectedCount: 1, decidedCount: 1, readyCount: 1 })])).toBe('1 book locked here: 1 entry ready.');
             expect(lineOf([book({ selectedCount: 75, decidedCount: 23, readyCount: 23 })])).toBe('1 book locked here: 23 entries ready.');
-            expect(lineOf([book({ isLockedToChat: false })])).toBe('No book with selected entries is locked here, so LoreBase sends none of them.');
+            expect(lineOf([book({ isLockedToChat: false, selectionInUseId: null })])).toBe('No book with selected entries is locked here, so LoreBase sends none of them.');
             expect(lineOf([listedBook({ bookName: 'Harbor Atlas', selectedCount: 40, isLockedToChat: true, isLockedToCharacter: false })])).toBeNull();
         });
     });

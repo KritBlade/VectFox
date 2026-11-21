@@ -40,7 +40,8 @@ import { keyStateOf, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedK
 import { keyWritingProblem } from './lorebase-setup.js';
 import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
 import { FAST_AND_CHEAP, loreBaseAccuracyOf } from './lorebase-reply-core.js';
-import { regenerateKeysOfEntries, selectedEntriesNotReady } from './lorebase-storage.js';
+import { isEntryReady } from './lorebase-readiness.js';
+import { regenerateKeysOfEntries, selectedEntriesNotReady, storedCountsOfBooks } from './lorebase-storage.js';
 import { missingCountsOf } from './lorebase-storage-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 import { isSelectionLockedTo } from './lorebase-selections-core.js';
@@ -74,7 +75,8 @@ const shownSelectionOf = session => getLoreSelection(session.bookName, session.s
 function readinessFor(session, row) {
     const entry = session.entryByUid.get(row.uid);
     if (!isDecidedRow(row) || !entry) return null;
-    return entryReadiness(keyStateOf(session.bookName, row.uid), vectorStateOf(session.bookName, entry, extension_settings.vectfox));
+    const settings = extension_settings.vectfox;
+    return entryReadiness(keyStateOf(session.bookName, row.uid), vectorStateOf(session.bookName, entry, settings), isEntryReady(session.bookName, entry, settings));
 }
 const readinessText = readiness => (readiness ? JSON.stringify(readiness) : '');
 
@@ -142,17 +144,17 @@ function renderCategories(root, session) {
     byId(root, ids.categories).innerHTML = categoryRowsMarkup(categoryList(session.rows), { shownCategory: session.shownCategory, entryCount: session.rows.length });
 }
 
-// Where each state of a selected entry counts in the summary.
+// Where a selected entry that is not ready counts in the summary, by the state its row shows; a ready one counts as
+// ready whatever its row shows, and one whose vectors this session has not read counts nowhere.
 const SUMMARY_COUNT_OF = Object.freeze({
-    'writing-keys': 'writing', vectorizing: 'writing', 'keys-failed': 'failed', 'vectors-failed': 'failed', missing: 'missing', ready: 'ready',
+    'writing-keys': 'writing', vectorizing: 'writing', 'keys-failed': 'failed', 'vectors-failed': 'failed', missing: 'missing',
 });
 
 /**
- * The selected entries LoreBase decides in the books taking part in the open chat, the selection shown's among them
- * while the chat loads its book and it is the one in use here, and whether it takes part; null while the other books'
- * are not counted.
+ * The ready entries in the books taking part in the open chat, the selection shown's among them while the chat loads its
+ * book and it is the one in use here, and whether it takes part; null while the other books' are not counted.
  * @param {object} session
- * @param {number} entryCount - This book's, from selectionFooter
+ * @param {number} entryCount - This book's ready entries, from selectionFooter
  * @returns {{count: number, isSelectionTakingPart: boolean}|null}
  */
 function takingPartOf(session, entryCount) {
@@ -163,8 +165,9 @@ function takingPartOf(session, entryCount) {
 }
 
 /**
- * Count the selected entries LoreBase decides in the open chat's other books locked to it or its character, for the
- * footer on Fast and Cheap [Jev]; with no chat open, or when they cannot be counted, they stay unknown.
+ * Count the ready entries of the open chat's other books with a selection in use here, as the WorldInfo page counts
+ * them (chatBookLocks, then storedCountsOfBooks), for the footer on Fast and Cheap [Jev]; with no chat open, or when they
+ * cannot be counted, they stay unknown.
  * @param {object} session
  * @param {string} bookName - The book shown
  * @returns {Promise<void>}
@@ -172,24 +175,26 @@ function takingPartOf(session, entryCount) {
 async function countOtherBooksTakingPart(session, bookName) {
     try {
         const { hasChat, books } = await chatBookLocks();
+        const inUse = books.filter(book => book.bookName !== bookName && book.selectionInUseId !== null)
+            .map(book => ({ bookName: book.bookName, selectionId: book.selectionInUseId }));
+        const counts = hasChat ? await storedCountsOfBooks(inUse, extension_settings.vectfox) : null;
         if (session.bookName !== bookName) return;
-        session.otherTakingPartCount = hasChat
-            ? books.filter(book => book.bookName !== bookName && (book.isLockedToChat || book.isLockedToCharacter)).reduce((sum, book) => sum + book.selectedCount, 0)
-            : null;
+        session.otherTakingPartCount = counts ? [...counts.values()].reduce((sum, count) => sum + count.readyCount, 0) : null;
     } catch (error) {
-        log.warn("LoreBase: the selection screen could not count the selected entries of the chat's other books:", error);
+        log.warn("LoreBase: the selection screen could not count the ready entries of the chat's other books:", error);
     }
 }
 
 /**
- * The footer's summary: on High Accuracy what the pick reads from the book, on Fast and Cheap [Jev] how many selected
+ * The footer's summary: on High Accuracy what the pick reads from the book, on Fast and Cheap [Jev] how many ready
  * entries Jev is asked about on every reply; then where the selected entries' keys and vectors stand.
  */
 function renderSummaryText(root, session) {
     const counts = { ready: 0, writing: 0, failed: 0, missing: 0 };
     for (const row of session.rows) {
         const readiness = readinessFor(session, row);
-        if (readiness) counts[SUMMARY_COUNT_OF[readiness.status]] += 1;
+        const count = readiness?.isReady ? 'ready' : SUMMARY_COUNT_OF[readiness?.status];
+        if (count) counts[count] += 1;
     }
     const readinessLine = session.keyReadProblem
         ? `The keys could not be read: ${session.keyReadProblem}`
@@ -198,7 +203,9 @@ function renderSummaryText(root, session) {
         const state = keyStateOf(session.bookName, uid);
         return state.status === 'ready' ? state.keys : [];
     };
-    const footer = selectionFooter(session.book, shownSelectionOf(session), keysOf);
+    const footer = selectionFooter(session.book, shownSelectionOf(session), {
+        keysOf, isReady: entry => isEntryReady(session.bookName, entry, extension_settings.vectfox),
+    });
     const choice = {
         isFastAndCheap: loreBaseAccuracyOf(extension_settings.vectfox?.lorebase_accuracy) === FAST_AND_CHEAP,
         takingPart: takingPartOf(session, footer.entryCount),

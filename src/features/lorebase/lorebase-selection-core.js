@@ -192,9 +192,9 @@ export function categoryList(rows) {
  * The rows the filters let through, in order. Text matches the title, comment, keys and text, case ignored.
  * @param {SelectionRow[]} rows
  * @param {{text?: string, category?: string|null, minimumTokens?: number, readiness?: string, readinessOf?:
- *   (row: SelectionRow) => {status: string}|null, badge?: string, isNewOnly?: boolean}} filters - category null for
+ *   (row: SelectionRow) => {isReady: boolean}|null, badge?: string, isNewOnly?: boolean}} filters - category null for
  *   every category; readiness one of READINESS_CHOICES, read through readinessOf, which gives a selected entry's state
- *   (entryReadiness) and null for any other; badge '' for any
+ *   (entryReadiness, its isReady) and null for any other; badge '' for any
  * @returns {SelectionRow[]}
  */
 export function filterRows(rows, {
@@ -204,7 +204,7 @@ export function filterRows(rows, {
     const isReadinessShown = row => {
         if (readiness === READINESS_CHOICES.any) return true;
         const state = readinessOf(row);
-        return Boolean(state) && (state.status === 'ready') === (readiness === READINESS_CHOICES.ready);
+        return Boolean(state) && state.isReady === (readiness === READINESS_CHOICES.ready);
     };
     return rows.filter(row => (category === null || row.category === category)
         && row.tokens >= minimumTokens
@@ -216,25 +216,28 @@ export function filterRows(rows, {
 
 /**
  * Where a selected entry stands with its keys and vectors, as its row says it (§7.3 of lorebook-multi-vector.md), one
- * state: its keys being written; its vectors being written; its keys failed, or else its vectors, with the reason; what
- * it still lacks; or ready. Each but the first carries the keys it has, for the row to show. Vectors this session has
- * not read count as had, so the row claims nothing of them.
+ * state: its keys being written; its vectors being written; its keys failed, or else its vectors, with the reason;
+ * ready; its keys stored and its vectors not read in this session ('unknown', so the row claims nothing of them); or
+ * what it still lacks. Each but the first carries the keys it has, for the row to show. `isReady` rides along on every
+ * state: whether it is ready (isEntryReady in lorebase-readiness.js), which the summary and the readiness filter count,
+ * so an entry whose keys are written anew stays ready on the keys it has.
  * @param {{status: string, keys?: string[], detail?: string}} keyState - From keyStateOf in lorebase-keys.js
  * @param {{status: string, detail?: string}} vectorState - From vectorStateOf in lorebase-vectors.js
- * @returns {{status: 'writing-keys'}|{status: 'vectorizing', keys: string[]|null}|{status: 'keys-failed', detail: string}|
- *   {status: 'vectors-failed', detail: string, keys: string[]|null}|{status: 'missing', lacksKeys: boolean,
- *   lacksVectors: boolean, isOtherModel: boolean, keys: string[]|null}|{status: 'ready', keys: string[]}}
+ * @param {boolean} isReady - From isEntryReady
+ * @returns {{status: string, isReady: boolean, keys?: string[]|null, detail?: string, lacksKeys?: boolean,
+ *   lacksVectors?: boolean, isOtherModel?: boolean}} status: 'writing-keys', 'vectorizing', 'keys-failed', 'vectors-failed',
+ *   'ready', 'unknown' or 'missing'
  */
-export function entryReadiness(keyState, vectorState) {
-    if (keyState.status === 'writing') return { status: 'writing-keys' };
+export function entryReadiness(keyState, vectorState, isReady) {
+    if (keyState.status === 'writing') return { status: 'writing-keys', isReady };
     const keys = keyState.status === 'ready' ? keyState.keys : null;
-    if (vectorState.status === 'writing') return { status: 'vectorizing', keys };
-    if (keyState.status === 'failed') return { status: 'keys-failed', detail: keyState.detail };
-    if (vectorState.status === 'failed') return { status: 'vectors-failed', detail: vectorState.detail, keys };
-    const lacksKeys = !keys;
+    if (vectorState.status === 'writing') return { status: 'vectorizing', keys, isReady };
+    if (keyState.status === 'failed') return { status: 'keys-failed', detail: keyState.detail, isReady };
+    if (vectorState.status === 'failed') return { status: 'vectors-failed', detail: vectorState.detail, keys, isReady };
+    if (isReady) return { status: 'ready', keys, isReady };
+    if (keys && vectorState.status === 'unknown') return { status: 'unknown', keys, isReady };
     const lacksVectors = vectorState.status !== 'ready' && vectorState.status !== 'unknown';
-    if (lacksKeys || lacksVectors) return { status: 'missing', lacksKeys, lacksVectors, isOtherModel: vectorState.status === 'other-model', keys };
-    return { status: 'ready', keys };
+    return { status: 'missing', lacksKeys: !keys, lacksVectors, isOtherModel: vectorState.status === 'other-model', keys, isReady };
 }
 
 const canBeOn = row => !row.undecidableReason;
@@ -352,18 +355,21 @@ export function seenUidsOf(book) {
 }
 
 /**
- * The footer: how many entries the pick reads from this book while the selection is in use, and about how many tokens
- * their lines, each a title and its keys, add to the table of contents of every pick.
+ * The footer: how many entries LoreBase decides in the selection; of them, how many a reply sends now, the ready ones,
+ * which the pick reads from this book while the selection is in use; and about how many tokens their lines, each a
+ * title and its keys, add to the table of contents of every pick.
  * @param {{entries?: object}|null} book
  * @param {{selectedUids: string[]}|null} selection
- * @param {(uid: string) => string[]} [keysOf] - An entry's keys, none when not written
- * @returns {{entryCount: number, titleTokens: number}}
+ * @param {{keysOf?: (uid: string) => string[], isReady?: (entry: object) => boolean}} [readers] - keysOf: an entry's keys,
+ *   none when not written; isReady: whether it is ready (isEntryReady in lorebase-readiness.js), none by default
+ * @returns {{decidedCount: number, entryCount: number, titleTokens: number}}
  */
-export function selectionFooter(book, selection, keysOf = () => []) {
-    const entries = decidedEntries(book, selection);
+export function selectionFooter(book, selection, { keysOf = () => [], isReady = () => false } = {}) {
+    const decided = decidedEntries(book, selection);
+    const entries = decided.filter(isReady);
     const titleTokens = entries.reduce((total, entry, index) => total
         + estimatedTokens(`${index + 1}. ${contentsLine({ title: entryTitle(entry), keys: keysOf(String(entry.uid)) })}`), 0);
-    return { entryCount: entries.length, titleTokens };
+    return { decidedCount: decided.length, entryCount: entries.length, titleTokens };
 }
 
 /**

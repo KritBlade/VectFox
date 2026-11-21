@@ -32,7 +32,8 @@ import { replyModel } from './lorebase-setup.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
 import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
 import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
-import { bookVectors, initializeLoreBaseVectors, searchReplyPool, uidsWithCurrentVectors } from './lorebase-vectors.js';
+import { bookVectors, initializeLoreBaseVectors, searchReplyPool } from './lorebase-vectors.js';
+import { isEntryReady } from './lorebase-readiness.js';
 
 const LOREBASE = 'LoreBase';
 // A try's report type: the pick for the next reply, with no reply sent.
@@ -85,9 +86,9 @@ export function initializeLoreBase() {
 
 /**
  * The books taking part in this reply (D11): those SillyTavern loads with a selection in use here, locked to this chat
- * or character, each with the entries LoreBase decides in that selection that are ready, its pinned sections, with their keys (D17) and their vectors from the
- * embedding model set now (§4.4 of lorebook-multi-vector.md), and those keys by uid; and each such book's count of
- * selected entries left out for not being ready.
+ * or character, each with the entries LoreBase decides in that selection that are ready (isEntryReady: their keys,
+ * D17, and their vectors from the embedding model set now, §4.4 of lorebook-multi-vector.md), its pinned sections, and
+ * its keys by uid; and each such book's count of selected entries left out for not being ready.
  * @param {object} settings - VectFox settings
  * @returns {Promise<{books: Array<{bookName: string, entries: object[], pinnedSections: string[], keysByUid: Record<string, string[]>}>,
  *   unreadyBooks: Array<{bookName: string, count: number}>}>}
@@ -104,13 +105,12 @@ async function booksTakingPart(settings) {
     }
     if (!books.length) return { books, unreadyBooks: [] };
     const bookNames = books.map(book => book.bookName);
-    const [keys, vectors] = await Promise.all([readBookKeys(bookNames), bookVectors(bookNames, settings)]);
+    const [keys] = await Promise.all([readBookKeys(bookNames), bookVectors(bookNames, settings)]);
     const ready = [];
     const unreadyBooks = [];
     for (const book of books) {
         const keysByUid = keys[book.bookName] ?? {};
-        const withVectors = uidsWithCurrentVectors(book.bookName, book.entries, vectors.get(book.bookName), settings);
-        const entries = book.entries.filter(entry => keysByUid[String(entry.uid)] && withVectors.has(String(entry.uid)));
+        const entries = book.entries.filter(entry => isEntryReady(book.bookName, entry, settings));
         const unready = book.entries.length - entries.length;
         if (unready) {
             log.verbose(`LoreBase: ${unready} selected entries of lorebook "${book.bookName}" have no keys or vectors yet, so they send nothing`);

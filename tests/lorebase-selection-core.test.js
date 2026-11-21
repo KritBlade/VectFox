@@ -133,12 +133,16 @@ describe('the filters', () => {
         expect(uids(filterRows(withNew, { isNewOnly: true, category: '[Harbor]' }))).toEqual(['5', '6', '9']);
     });
 
-    it('narrow to the selected entries that are ready, or to those without keys or vectors, as each row stands', () => {
-        // 0 is ready, 1 lacks vectors, 3 is having its keys written; the rest are not selected, so they stand nowhere.
-        const states = { 0: { status: 'ready' }, 1: { status: 'missing' }, 3: { status: 'writing-keys' } };
+    it('narrow to the selected entries that are ready, or to those that are not, by isEntryReady whatever each row shows', () => {
+        // 0 is ready, 1 lacks vectors, 3 is having its keys written, 4 has its keys written anew on the ones it has, 8's
+        // vectors are not read; the rest are not selected, so they stand nowhere.
+        const states = {
+            0: { status: 'ready', isReady: true }, 1: { status: 'missing', isReady: false }, 3: { status: 'writing-keys', isReady: false },
+            4: { status: 'writing-keys', isReady: true }, 8: { status: 'unknown', isReady: false },
+        };
         const readinessOf = row => states[row.uid] ?? null;
-        expect(uids(filterRows(rows, { readiness: READINESS_CHOICES.ready, readinessOf }))).toEqual(['0']);
-        expect(uids(filterRows(rows, { readiness: READINESS_CHOICES.notReady, readinessOf }))).toEqual(['1', '3']);
+        expect(uids(filterRows(rows, { readiness: READINESS_CHOICES.ready, readinessOf }))).toEqual(['0', '4']);
+        expect(uids(filterRows(rows, { readiness: READINESS_CHOICES.notReady, readinessOf }))).toEqual(['1', '3', '8']);
         expect(filterRows(rows, { readiness: READINESS_CHOICES.any, readinessOf })).toHaveLength(rows.length);
     });
 });
@@ -146,26 +150,30 @@ describe('the filters', () => {
 describe("a selected entry's keys and vectors, as its row says them", () => {
     const keys = { status: 'ready', keys: ['lighthouse'] };
 
-    it('says its keys or its vectors are being written, keys first, and carries the keys it has', () => {
-        expect(entryReadiness({ status: 'writing' }, { status: 'writing' })).toEqual({ status: 'writing-keys' });
-        expect(entryReadiness(keys, { status: 'writing' })).toEqual({ status: 'vectorizing', keys: ['lighthouse'] });
+    it('says its keys or its vectors are being written, keys first, carrying the keys it has and whether it is ready on what it has', () => {
+        expect(entryReadiness({ status: 'writing' }, { status: 'writing' }, false)).toEqual({ status: 'writing-keys', isReady: false });
+        expect(entryReadiness({ status: 'writing' }, { status: 'ready' }, true)).toEqual({ status: 'writing-keys', isReady: true });
+        expect(entryReadiness(keys, { status: 'writing' }, false)).toEqual({ status: 'vectorizing', keys: ['lighthouse'], isReady: false });
     });
 
     it('says which failed with the reason, keys first', () => {
-        expect(entryReadiness({ status: 'failed', detail: 'no list' }, { status: 'failed', detail: 'refused' })).toEqual({ status: 'keys-failed', detail: 'no list' });
-        expect(entryReadiness(keys, { status: 'failed', detail: 'refused' })).toEqual({ status: 'vectors-failed', detail: 'refused', keys: ['lighthouse'] });
+        expect(entryReadiness({ status: 'failed', detail: 'no list' }, { status: 'failed', detail: 'refused' }, false))
+            .toEqual({ status: 'keys-failed', detail: 'no list', isReady: false });
+        expect(entryReadiness(keys, { status: 'failed', detail: 'refused' }, false)).toEqual({ status: 'vectors-failed', detail: 'refused', keys: ['lighthouse'], isReady: false });
     });
 
-    it("says what it lacks, another embedding model's vectors among them, and claims nothing of vectors not read", () => {
-        expect(entryReadiness({ status: 'missing' }, { status: 'missing' })).toEqual({ status: 'missing', lacksKeys: true, lacksVectors: true, isOtherModel: false, keys: null });
-        expect(entryReadiness(keys, { status: 'other-model' })).toEqual({ status: 'missing', lacksKeys: false, lacksVectors: true, isOtherModel: true, keys: ['lighthouse'] });
-        expect(entryReadiness({ status: 'missing' }, { status: 'unknown' })).toMatchObject({ status: 'missing', lacksKeys: true, lacksVectors: false });
-        expect(entryReadiness(keys, { status: 'unknown' })).toEqual({ status: 'ready', keys: ['lighthouse'] });
+    it("says what it lacks, another embedding model's vectors among them, and claims nothing of vectors not read, which are not ready", () => {
+        expect(entryReadiness({ status: 'missing' }, { status: 'missing' }, false))
+            .toEqual({ status: 'missing', lacksKeys: true, lacksVectors: true, isOtherModel: false, keys: null, isReady: false });
+        expect(entryReadiness(keys, { status: 'other-model' }, false))
+            .toEqual({ status: 'missing', lacksKeys: false, lacksVectors: true, isOtherModel: true, keys: ['lighthouse'], isReady: false });
+        expect(entryReadiness({ status: 'missing' }, { status: 'unknown' }, false)).toMatchObject({ status: 'missing', lacksKeys: true, lacksVectors: false });
+        expect(entryReadiness(keys, { status: 'unknown' }, false)).toEqual({ status: 'unknown', keys: ['lighthouse'], isReady: false });
     });
 
     it('is ready with its keys and its vectors, an empty list of keys included', () => {
-        expect(entryReadiness(keys, { status: 'ready' })).toEqual({ status: 'ready', keys: ['lighthouse'] });
-        expect(entryReadiness({ status: 'ready', keys: [] }, { status: 'ready' })).toEqual({ status: 'ready', keys: [] });
+        expect(entryReadiness(keys, { status: 'ready' }, true)).toEqual({ status: 'ready', keys: ['lighthouse'], isReady: true });
+        expect(entryReadiness({ status: 'ready', keys: [] }, { status: 'ready' }, true)).toEqual({ status: 'ready', keys: [], isReady: true });
     });
 });
 
@@ -202,10 +210,15 @@ describe('what the screen keeps and shows about the selection', () => {
         expect(liveSelection(null, { selectedUids: ['1'] })).toEqual([]);
     });
 
-    it('counts the entries the pick reads and the tokens their lines add to its table of contents', () => {
+    it('counts the entries LoreBase decides, the ready ones the pick reads, and the tokens their lines add to its table of contents', () => {
         const record = { selectedUids: ['1', '3', '5', '8'] };
-        expect(selectionFooter(BOOK, record)).toEqual({ entryCount: 2, titleTokens: estimatedTokens('1. Tidewardens') + estimatedTokens('2. Fog Season') });
-        expect(selectionFooter(BOOK, { selectedUids: [] })).toEqual({ entryCount: 0, titleTokens: 0 });
+        const isReady = () => true;
+        expect(selectionFooter(BOOK, record, { isReady }))
+            .toEqual({ decidedCount: 2, entryCount: 2, titleTokens: estimatedTokens('1. Tidewardens') + estimatedTokens('2. Fog Season') });
+        expect(selectionFooter(BOOK, record, { isReady: entry => entry.uid === 3 }))
+            .toEqual({ decidedCount: 2, entryCount: 1, titleTokens: estimatedTokens('1. Fog Season') });
+        expect(selectionFooter(BOOK, record)).toEqual({ decidedCount: 2, entryCount: 0, titleTokens: 0 });
+        expect(selectionFooter(BOOK, { selectedUids: [] }, { isReady })).toEqual({ decidedCount: 0, entryCount: 0, titleTokens: 0 });
     });
 
     it('offers the section names of the entries the pick reads, most held first, and keeps a pinned name', () => {

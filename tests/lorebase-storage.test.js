@@ -84,7 +84,7 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', async () => {
         forgetBookVectors: vi.fn(),
         bookVectors: vi.fn(noVectorsOf),
         readBookVectors: vi.fn(noVectorsOf),
-        uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid)).filter(uid => host.vectorized.has(`${bookName}/${uid}`)))),
+        hasStoredCurrentVectors: vi.fn((bookName, entry) => host.vectorized.has(`${bookName}/${entry.uid}`)),
         vectorStateOf: (bookName, entry) => ({ status: host.vectorized.has(`${bookName}/${entry.uid}`) ? 'ready' : 'missing' }),
         writeBookVectors: vi.fn(async (bookName, decidedEntries, entries, settings, { run = null, onEntryDone = null } = {}) => {
             const result = { written: 0, failures: [], stopped: 0 };
@@ -175,7 +175,7 @@ beforeEach(async () => {
     keyRunLockPlace.mockClear();
     lockKeyedBooks.mockClear();
     const vectorsModule = await import('../src/features/lorebase/lorebase-vectors.js');
-    for (const name of ['bookVectors', 'readBookVectors', 'uidsWithCurrentVectors', 'writeBookVectors', 'deleteAllVectors', 'showVectorFailures',
+    for (const name of ['bookVectors', 'readBookVectors', 'hasStoredCurrentVectors', 'writeBookVectors', 'deleteAllVectors', 'showVectorFailures',
         'readTenantPoints', 'importBookPoints', 'deleteTenantPoints', 'forgetBookVectors']) {
         vectorsModule[name].mockClear();
     }

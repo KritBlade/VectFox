@@ -257,14 +257,14 @@ function bookTrashButton({ bookName, selections, selectionInUseId, canRemove }) 
 }
 
 /**
- * The line under the book list (§7.1): the ready entries of the books taking part in this chat, locked to it or its
- * character, and those LoreBase decides still waiting for keys or vectors, so a book that waits shows while LoreBase
+ * The line under the book list (§7.1): the ready entries of the books taking part in this chat, those with a selection
+ * in use here, and those LoreBase decides still waiting for keys or vectors, so a book that waits shows while LoreBase
  * goes on with the rest; or that no book with selected entries is locked here. Nothing before the counts are read.
  */
 function readyLine(books) {
     const selected = books.filter(book => book.selectedCount && book.readyCount !== undefined);
     if (!selected.length) return '';
-    const takingPart = selected.filter(book => book.isLockedToChat || book.isLockedToCharacter);
+    const takingPart = selected.filter(book => Boolean(book.selectionInUseId));
     if (!takingPart.length) return hint({ text: 'No book with selected entries is locked here, so LoreBase sends none of them.' });
     const ready = takingPart.reduce((sum, book) => sum + book.readyCount, 0);
     const waiting = takingPart.reduce((sum, book) => sum + book.decidedCount - book.readyCount, 0);

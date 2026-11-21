@@ -110,8 +110,7 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
         if (host.vectorsReadError) throw host.vectorsReadError;
         return new Map(bookNames.map(bookName => [bookName, new Map()]));
     }),
-    uidsWithCurrentVectors: vi.fn((bookName, entries) => new Set(entries.map(entry => String(entry.uid))
-        .filter(uid => !host.unvectorizedUids.has(`${bookName}/${uid}`)))),
+    hasStoredCurrentVectors: vi.fn((bookName, entry) => !host.unvectorizedUids.has(`${bookName}/${entry.uid}`)),
     searchReplyPool: vi.fn(async (books, contents) => {
         if (host.searchError) throw host.searchError;
         return contents.slice(-2);
@@ -121,6 +120,7 @@ vi.mock('../src/features/lorebase/lorebase-routes.js', () => ({ postLoreBaseRout
 // The reply's model is lorebase-setup.js's (replyModel), read as it is from the Jev and LoreBase connections above.
 vi.mock('../src/features/embedding/index.js', () => ({ embeddingSetupProblem: () => '' }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
+    hasStoredKeys: (bookName, uid) => !host.unkeyedUids.has(`${bookName}/${uid}`),
     readBookKeys: vi.fn(async bookNames => {
         if (host.keysReadError) throw host.keysReadError;
         return Object.fromEntries(bookNames.map(bookName => [bookName, Object.fromEntries(Object.values(host.books[bookName]?.entries ?? {})

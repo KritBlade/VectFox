@@ -31,9 +31,10 @@ import {
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
 import {
-    deleteAllKeys, deleteBookKeys, isWritingKeys, keyStateOf, readBookKeys, readBookKeysWithTitles, stopKeyRun,
+    deleteAllKeys, deleteBookKeys, hasStoredKeys, isWritingKeys, keyStateOf, readBookKeys, readBookKeysWithTitles, stopKeyRun,
     writeImportedKeys, writeKeys,
 } from './lorebase-keys.js';
+import { isEntryReady } from './lorebase-readiness.js';
 import { postLoreBaseRoute } from './lorebase-routes.js';
 import { unionOfSelections } from './lorebase-selections-core.js';
 import { qdrantProblem, writingProblem } from './lorebase-setup.js';
@@ -42,9 +43,8 @@ import {
 } from './lorebase-storage-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
-    bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, forgetBookVectors, importBookPoints,
-    loreBaseVectorsCollection, readBookVectors, readTenantPoints, showVectorFailures, uidsWithCurrentVectors, vectorStateOf,
-    writeBookVectors,
+    bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, forgetBookVectors, hasStoredCurrentVectors,
+    importBookPoints, loreBaseVectorsCollection, readBookVectors, readTenantPoints, showVectorFailures, vectorStateOf, writeBookVectors,
 } from './lorebase-vectors.js';
 
 const uidOf = entry => String(entry.uid);
@@ -152,10 +152,10 @@ export async function saveEntryWithVectors(bookName, uid, fields, settings) {
  * What the selected entries LoreBase decides lack, by book (§4.3, §4.4 of lorebook-multi-vector.md): every book with a
  * selection loaded, its keys read from Similharity now and its vectors as this session holds them, or read from Qdrant
  * now when `isRereading`, as turning LoreBase on and the Generate buttons ask, so edits made while SillyTavern was
- * closed are found. Each book names every entry LoreBase decides in it, those with no keys and not being written, and
- * those without vectors from the embedding model set now. `count` is every entry missing either, each once;
- * `readyCount` those with both; `decidedCount` every selected entry LoreBase decides. A book that cannot be loaded is
- * logged and counted.
+ * closed are found. Each book with something to write names every entry LoreBase decides in it, those with no keys and
+ * not being written, and those without vectors from the embedding model set now. `count` is every entry not ready
+ * (isEntryReady), each once; `readyCount` those ready; `decidedCount` every selected entry LoreBase decides. A book that
+ * cannot be loaded is logged and counted.
  * @param {object} settings - VectFox settings
  * @param {{isRereading?: boolean}} [options]
  * @returns {Promise<{books: Array<{bookName: string, decidedEntries: object[], keyEntries: object[], vectorEntries: object[]}>,
@@ -175,20 +175,18 @@ export async function selectedEntriesNotReady(settings, { isRereading = false } 
         }
     }
     const bookNames = loaded.map(book => book.bookName);
-    const keys = await readBookKeys(bookNames);
-    const vectors = isRereading ? await readBookVectors(bookNames, settings) : await bookVectors(bookNames, settings);
+    await readBookKeys(bookNames);
+    await (isRereading ? readBookVectors(bookNames, settings) : bookVectors(bookNames, settings));
     let count = 0;
     let readyCount = 0;
     const books = [];
     for (const { bookName, entries } of loaded) {
-        const withVectors = uidsWithCurrentVectors(bookName, entries, vectors.get(bookName), settings);
-        const hasKeys = entry => Boolean(keys[bookName]?.[uidOf(entry)]);
-        const keyEntries = entries.filter(entry => !hasKeys(entry) && keyStateOf(bookName, uidOf(entry)).status !== 'writing');
-        const vectorEntries = entries.filter(entry => !withVectors.has(uidOf(entry)));
-        const lacking = new Set([...keyEntries, ...vectorEntries].map(uidOf));
-        count += lacking.size;
-        readyCount += entries.filter(entry => hasKeys(entry) && withVectors.has(uidOf(entry))).length;
-        if (lacking.size) books.push({ bookName, decidedEntries: entries, keyEntries, vectorEntries });
+        const keyEntries = entries.filter(entry => !hasStoredKeys(bookName, uidOf(entry)) && keyStateOf(bookName, uidOf(entry)).status !== 'writing');
+        const vectorEntries = entries.filter(entry => !hasStoredCurrentVectors(bookName, entry, settings));
+        const bookReadyCount = entries.filter(entry => isEntryReady(bookName, entry, settings)).length;
+        count += entries.length - bookReadyCount;
+        readyCount += bookReadyCount;
+        if (keyEntries.length || vectorEntries.length) books.push({ bookName, decidedEntries: entries, keyEntries, vectorEntries });
     }
     return { books, count, readyCount, decidedCount: loaded.reduce((sum, book) => sum + book.entries.length, 0), unreadBooks };
 }
@@ -215,12 +213,18 @@ export async function storedCountsOfBooks(books, settings) {
     }
     if (!loaded.length) return new Map();
     const names = loaded.map(book => book.bookName);
-    const [keys] = await Promise.all([readBookKeys(names), bookVectors(names, settings)]);
+    await Promise.all([readBookKeys(names), bookVectors(names, settings)]);
     return new Map(loaded.map(({ bookName, entries }) => [bookName, storedCountsOf(entries.map(entry => {
         const keyState = keyStateOf(bookName, uidOf(entry));
         const vectorState = vectorStateOf(bookName, entry, settings);
         const failure = [keyState, vectorState].find(state => state.status === 'failed')?.detail ?? null;
-        return { hasKeys: Boolean(keys[bookName]?.[uidOf(entry)]), vectorStatus: vectorState.status, failure };
+        return {
+            hasKeys: hasStoredKeys(bookName, uidOf(entry)),
+            hasVectors: hasStoredCurrentVectors(bookName, entry, settings),
+            isReady: isEntryReady(bookName, entry, settings),
+            vectorStatus: vectorState.status,
+            failure,
+        };
     }))]));
 }
 

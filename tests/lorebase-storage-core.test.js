@@ -70,7 +70,15 @@ describe('the progress panel', () => {
 });
 
 describe("a book's selected entries, by what they have", () => {
-    const standing = (hasKeys, vectorStatus, failure = null) => ({ hasKeys, vectorStatus, failure });
+    // An entry's stored keys and vectors, ready with both (isEntryReady), and its vectors' state as its row shows it.
+    const standing = (hasKeys, vectorStatus, failure = null, hasVectors = vectorStatus === 'ready') => ({
+        hasKeys, hasVectors, isReady: hasKeys && hasVectors, vectorStatus, failure,
+    });
+
+    it('counts an entry whose vectors are written anew as ready on the ones it has, as a reply sends it', () => {
+        expect(storedCountsOf([standing(true, 'writing', null, true), standing(true, 'writing')]))
+            .toMatchObject({ vectorCount: 1, readyCount: 1, missingVectorCount: 1 });
+    });
 
     it('counts the entries it decides, those with keys and with vectors from the model set now, those ready with both, and what the rest lack', () => {
         expect(storedCountsOf([standing(true, 'ready'), standing(true, 'missing'), standing(false, 'ready'), standing(false, 'writing')])).toEqual({

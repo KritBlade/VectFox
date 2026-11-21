@@ -174,8 +174,8 @@ describe('a book tenant, for the Database Browser', () => {
         const stored = host.qdrant.get(`vf_lorebase_rabbit|${bookId}`);
         expect([...stored.values()].map(point => [point.id, point.entryUid, point.partNumber, point.vector])).toEqual(
             points.map(point => [point.id, '3', point.partNumber, [0.5, 0.5]]));
-        const held = (await vectors.bookVectors([BOOK], SETTINGS)).get(BOOK);
-        expect(vectors.uidsWithCurrentVectors(BOOK, [lighthouse], held, SETTINGS)).toEqual(new Set(['3']));
+        await vectors.bookVectors([BOOK], SETTINGS);
+        expect(vectors.hasStoredCurrentVectors(BOOK, lighthouse, SETTINGS)).toBe(true);
         expect(listed()).toHaveLength(1);
     });
 
@@ -269,8 +269,8 @@ describe('writing vectors', () => {
         const [stored] = [...host.qdrant.values()];
         const firstPart = core.entryPoints(lighthouse, core.loreBaseBookCollectionId(BOOK, 'rabbit'))[0];
         expect(stored.get(firstPart.hash)).toMatchObject({ id: firstPart.id, text: firstPart.text, entryUid: '3' });
-        expect(vectors.uidsWithCurrentVectors(BOOK, [lighthouse, buoy, pier], (await vectors.bookVectors([BOOK], SETTINGS)).get(BOOK), SETTINGS))
-            .toEqual(new Set(['3', '4', '5']));
+        await vectors.bookVectors([BOOK], SETTINGS);
+        expect([lighthouse, buoy, pier].map(entry => vectors.hasStoredCurrentVectors(BOOK, entry, SETTINGS))).toEqual([true, true, true]);
     });
 
     it('writes nothing for an entry whose parts are stored by the model set now, and counts it written', async () => {

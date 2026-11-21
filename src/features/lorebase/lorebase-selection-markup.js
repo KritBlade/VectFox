@@ -517,28 +517,29 @@ export function entriesFooterMarkup({ shownCount, matchCount, hasMore }) {
 }
 
 /**
- * The footer line. On High Accuracy: how many titles the pick reads from the book, and what they add to every pick. On
- * Fast and Cheap [Jev] (§7.3 of lorebook-multi-vector.md): how many selected entries Jev is asked about on every reply,
- * every one up to POOL_SEATS, else the search's best POOL_SEATS, counted over the books taking part in the open chat;
- * that the selection shown takes no part there; or the rule alone while the count is not known.
- * @param {{entryCount: number, titleTokens: number}} footer - From selectionFooter
+ * The footer line, of the ready entries a reply sends (isEntryReady in lorebase-readiness.js). On High Accuracy: how
+ * many titles the pick reads from the book, and what they add to every pick. On Fast and Cheap [Jev] (§7.3 of
+ * lorebook-multi-vector.md): how many ready entries Jev is asked about on every reply, every one up to POOL_SEATS, else
+ * the search's best POOL_SEATS, counted over the books taking part in the open chat; that the selection shown takes no
+ * part there; or the rule alone while the count is not known. With nothing LoreBase decides selected, that it decides
+ * none.
+ * @param {{decidedCount: number, entryCount: number, titleTokens: number}} footer - From selectionFooter
  * @param {{isFastAndCheap?: boolean, takingPart?: {count: number, isSelectionTakingPart: boolean}|null}} [choice] -
- *   isFastAndCheap: LoreBase's Accuracy is Fast and Cheap [Jev]; takingPart: the selected entries LoreBase decides in the
- *   books taking part in the open chat, the selection shown's among them, and whether it takes part, or null while not
- *   known
+ *   isFastAndCheap: LoreBase's Accuracy is Fast and Cheap [Jev]; takingPart: the ready entries in the books taking part
+ *   in the open chat, the selection shown's among them, and whether it takes part, or null while not known
  * @returns {string}
  */
-export function summaryText({ entryCount, titleTokens }, { isFastAndCheap = false, takingPart = null } = {}) {
-    if (!entryCount) return 'LoreBase decides no entry in this selection: where it is in use, SillyTavern\'s keys decide them all.';
+export function summaryText({ decidedCount, entryCount, titleTokens }, { isFastAndCheap = false, takingPart = null } = {}) {
+    if (!decidedCount) return 'LoreBase decides no entry in this selection: where it is in use, SillyTavern\'s keys decide them all.';
     if (!isFastAndCheap) {
         return `The pick reads ${counted(entryCount, 'title')} and their keys from this book, about ${formatCount(titleTokens)} tokens on every pick.`;
     }
     if (!takingPart) {
-        return `Jev is asked about every selected entry of the books a chat locks, up to ${formatCount(POOL_SEATS)} in all, `
+        return `Jev is asked about every ready entry of the books a chat locks, up to ${formatCount(POOL_SEATS)} in all, `
             + `and above that about the ${formatCount(POOL_SEATS)} a search finds best, on every reply.`;
     }
     if (!takingPart.isSelectionTakingPart) return 'This selection takes no part in this chat, so Jev is never asked about its entries here.';
-    const entries = `${counted(takingPart.count, 'selected entry', 'selected entries')} taking part in this chat`;
+    const entries = `${counted(takingPart.count, 'ready entry', 'ready entries')} taking part in this chat`;
     return takingPart.count > POOL_SEATS
         ? `Jev is asked about the ${formatCount(POOL_SEATS)} a search finds best of the ${entries}, on every reply.`
         : `Jev is asked about every one of the ${entries}, on every reply.`;

@@ -21,9 +21,12 @@ const host = vi.hoisted(() => ({
     formPopup: vi.fn(), confirmPopup: vi.fn(), closeScreen: null,
     // The key store: each entry's state by "book/uid", why keys cannot be written, its listeners, the missing keys it
     // counts once the screen closes, and the writings asked.
-    keyStates: new Map(), keyProblem: null, keyListeners: new Set(), pending: null,
+    keyStates: new Map(), storedKeyUids: new Set(), keyProblem: null, keyListeners: new Set(), pending: null,
     regenerateKeys: vi.fn(), saveEditedKeys: vi.fn(), regenerateKeysOfEntries: vi.fn(async () => ({})),
     writeMissing: vi.fn(async () => ({})), selectedEntriesNotReady: vi.fn(async () => host.pending),
+    // The ready entries of the chat's other books in use here, by book, as the WorldInfo page counts them.
+    otherReadyCounts: new Map(), storedCountsOfBooks: vi.fn(async books => new Map(books
+        .filter(book => host.otherReadyCounts.has(book.bookName)).map(book => [book.bookName, { readyCount: host.otherReadyCounts.get(book.bookName) }]))),
     // The vectors: the books read as the screen opens one, and those pruned as it closes; each entry's state by
     // "book/uid", every one ready unless a test sets it, and their listeners.
     readBookVectors: vi.fn(async () => new Map()), pruneBookVectors: vi.fn(async () => {}), vectorStates: new Map(), vectorListeners: new Set(),
@@ -58,6 +61,8 @@ vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: () => 'k
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     keyStateOf: (bookName, uid) => host.keyStates.get(`${bookName}/${uid}`) ?? { status: 'missing' },
+    // Keys are stored once written; host.storedKeyUids holds those kept while they are written anew.
+    hasStoredKeys: (bookName, uid) => host.keyStates.get(`${bookName}/${uid}`)?.status === 'ready' || host.storedKeyUids.has(`${bookName}/${uid}`),
     onKeyStateChange: listener => {
         host.keyListeners.add(listener);
         return () => host.keyListeners.delete(listener);
@@ -72,11 +77,13 @@ vi.mock('../src/features/lorebase/lorebase-storage.js', () => ({
     regenerateKeysOfEntries: host.regenerateKeysOfEntries,
     writeMissing: host.writeMissing,
     selectedEntriesNotReady: host.selectedEntriesNotReady,
+    storedCountsOfBooks: host.storedCountsOfBooks,
 }));
 vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
     readBookVectors: host.readBookVectors,
     pruneBookVectors: host.pruneBookVectors,
     vectorStateOf: (bookName, entry) => host.vectorStates.get(`${bookName}/${entry.uid}`) ?? { status: 'ready' },
+    hasStoredCurrentVectors: (bookName, entry) => (host.vectorStates.get(`${bookName}/${entry.uid}`) ?? { status: 'ready' }).status === 'ready',
     onVectorStateChange: listener => {
         host.vectorListeners.add(listener);
         return () => host.vectorListeners.delete(listener);
@@ -139,6 +146,9 @@ beforeEach(() => {
     host.saveEditedKeys.mockReset();
     vi.mocked(notifyInvalidModel).mockClear();
     host.keyStates = new Map();
+    host.storedKeyUids = new Set();
+    host.otherReadyCounts = new Map();
+    host.storedCountsOfBooks.mockClear();
     host.keyProblem = null;
     host.keyListeners.clear();
     host.vectorStates = new Map();
@@ -227,6 +237,17 @@ describe('keys (D17)', () => {
         expect(host.regenerateKeysOfEntries).toHaveBeenCalledTimes(1);
         const [bookName, entries] = host.regenerateKeysOfEntries.mock.calls[0];
         expect([bookName, entries.map(each => String(each.uid))]).toEqual(['Harbor Atlas', ['1']]);
+    });
+
+    it('counts an entry ready on the keys it has while they are written anew, as a reply sends it, and never one whose vectors are not read', async () => {
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['0', '1'] }) };
+        host.keyStates.set('Harbor Atlas/0', { status: 'writing' });
+        host.storedKeyUids.add('Harbor Atlas/0');
+        host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens'] });
+        host.vectorStates.set('Harbor Atlas/1', { status: 'unknown' });
+        await openScreen();
+        expect(rowText('0')).toContain('Writing keys');
+        expect($id('vectfox_lorebase_summary').textContent).toMatch(/Keys and vectors: 1 ready\.$/);
     });
 
     it('leaves an entry disabled in SillyTavern out of Regenerate keys and the keys pencil, as every writing does', async () => {
@@ -500,7 +521,10 @@ describe('choosing entries', () => {
         expect(entryToggle('1').getAttribute('aria-pressed')).toBe('true');
         expect(document.querySelector('[data-lorebase-selected-count]').textContent).toBe('1 selected');
         expect($id('vectfox_lorebase_summary').textContent).toMatch(
-            /^The pick reads 1 title and their keys from this book, about \d+ tokens on every pick\. Keys and vectors: 0 ready, 1 not written yet\. 1 selected entry sends nothing until its keys and vectors are written\. Closing this screen asks to write the missing ones\.$/);
+            /^The pick reads 0 titles and their keys from this book, about 0 tokens on every pick\. Keys and vectors: 0 ready, 1 not written yet\. 1 selected entry sends nothing until its keys and vectors are written\. Closing this screen asks to write the missing ones\.$/);
+        host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens'] });
+        host.keyListeners.forEach(listener => listener('Harbor Atlas'));
+        expect($id('vectfox_lorebase_summary').textContent).toMatch(/^The pick reads 1 title and their keys from this book, about \d+ tokens on every pick\. Keys and vectors: 1 ready\.$/);
         expect(entryToggle('3').disabled).toBe(true);
         expect(tickBox('3').disabled).toBe(true);
     });
@@ -821,26 +845,36 @@ describe('vectors on each row, the readiness filter, and the footer on Fast and 
         expect(rowUids()).toEqual([]);
     });
 
-    it("says on Fast and Cheap [Jev] how many selected entries taking part in this chat Jev is asked about, or that the selection shown takes no part", async () => {
+    it('says on Fast and Cheap [Jev] how many ready entries taking part in this chat Jev is asked about, as the reply counts them, or that the selection shown takes no part', async () => {
         host.settings.vectfox.lorebase_accuracy = 'fast';
         selectHarbor(['0', '1'], { lockedToChatIds: ['chat-harbor'] });
-        await openScreen();
+        // Voyage Log, in the global list, has its selection in use here too, 99 of its entries ready.
+        host.globalBooks.push('Voyage Log');
+        host.settings.vectfox.lorebase_books['Voyage Log'] = oneSelectionRecord({ selectedUids: ['7'], lockedToChatIds: ['chat-harbor'] });
+        host.otherReadyCounts.set('Voyage Log', 99);
+        host.keyStates.set('Harbor Atlas/0', { status: 'ready', keys: ['lighthouse'] });
+        await openScreen({ bookName: 'Harbor Atlas' });
         await vi.waitFor(() => expect($id('vectfox_lorebase_summary').textContent)
-            .toMatch(/^Jev is asked about every one of the 2 selected entries taking part in this chat, on every reply\./));
+            .toMatch(/^Jev is asked about every one of the 100 ready entries taking part in this chat, on every reply\./));
+        host.keyStates.set('Harbor Atlas/1', { status: 'ready', keys: ['tidewardens'] });
+        host.keyListeners.forEach(listener => listener('Harbor Atlas'));
+        expect($id('vectfox_lorebase_summary').textContent)
+            .toMatch(/^Jev is asked about the 100 a search finds best of the 101 ready entries taking part in this chat, on every reply\./);
         change($id('vectfox_lorebase_lock_chat'), false);
         expect($id('vectfox_lorebase_summary').textContent).toMatch(/^This selection takes no part in this chat, so Jev is never asked about its entries here\./);
     });
 
     it("words the footer's rule: the search's best 100 above 100, the rule alone while the count is not known, and the pick's titles on High Accuracy", () => {
-        const footer = { entryCount: 40, titleTokens: 600 };
+        const footer = { decidedCount: 52, entryCount: 40, titleTokens: 600 };
         expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 313, isSelectionTakingPart: true } }))
-            .toBe('Jev is asked about the 100 a search finds best of the 313 selected entries taking part in this chat, on every reply.');
+            .toBe('Jev is asked about the 100 a search finds best of the 313 ready entries taking part in this chat, on every reply.');
         expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 100, isSelectionTakingPart: true } }))
-            .toBe('Jev is asked about every one of the 100 selected entries taking part in this chat, on every reply.');
+            .toBe('Jev is asked about every one of the 100 ready entries taking part in this chat, on every reply.');
         expect(summaryText(footer, { isFastAndCheap: true, takingPart: null }))
-            .toBe('Jev is asked about every selected entry of the books a chat locks, up to 100 in all, and above that about the 100 a search finds best, on every reply.');
+            .toBe('Jev is asked about every ready entry of the books a chat locks, up to 100 in all, and above that about the 100 a search finds best, on every reply.');
         expect(summaryText(footer, { isFastAndCheap: false, takingPart: { count: 313, isSelectionTakingPart: true } }))
             .toBe('The pick reads 40 titles and their keys from this book, about 600 tokens on every pick.');
-        expect(summaryText({ entryCount: 0, titleTokens: 0 }, { isFastAndCheap: true })).toBe("LoreBase decides no entry in this selection: where it is in use, SillyTavern's keys decide them all.");
+        expect(summaryText({ decidedCount: 0, entryCount: 0, titleTokens: 0 }, { isFastAndCheap: true }))
+            .toBe("LoreBase decides no entry in this selection: where it is in use, SillyTavern's keys decide them all.");
     });
 });

@@ -176,19 +176,6 @@ export async function bookVectors(bookNames, settings) {
     return new Map(bookNames.map(bookName => [bookName, storedVectors.get(bookName)]));
 }
 
-/**
- * The uids of a book's entries that have their vectors from the embedding model set now (hasCurrentVectors), as
- * `stored` holds them.
- * @param {string} bookName
- * @param {object[]} entries
- * @param {Map<number, {modelKey: string}>} stored - From bookVectors
- * @param {object} settings - VectFox settings
- * @returns {Set<string>}
- */
-export function uidsWithCurrentVectors(bookName, entries, stored, settings) {
-    const modelKey = currentEmbeddingModelKey(settings);
-    return new Set(entriesWithPoints(bookName, entries).filter(({ points }) => hasCurrentVectors(points, stored, modelKey)).map(({ uid }) => uid));
-}
 
 /**
  * Where an entry's vectors stand, as this session knows them (§7.3): being written; ready, every part stored by the
@@ -205,11 +192,23 @@ export function vectorStateOf(bookName, entry, settings) {
     if (state?.status === 'writing') return state;
     const stored = storedVectors.get(bookName);
     if (!stored) return { status: 'unknown' };
-    const points = pointsOf(bookCollectionIdOf(bookName), entry);
-    const modelKey = currentEmbeddingModelKey(settings);
-    if (hasCurrentVectors(points, stored, modelKey)) return { status: 'ready' };
+    if (hasStoredCurrentVectors(bookName, entry, settings)) return { status: 'ready' };
     if (state) return state;
-    return { status: hasOtherModelVectors(points, stored, modelKey) ? 'other-model' : 'missing' };
+    return { status: hasOtherModelVectors(pointsOf(bookCollectionIdOf(bookName), entry), stored, currentEmbeddingModelKey(settings)) ? 'other-model' : 'missing' };
+}
+
+/**
+ * Whether Qdrant holds every part of an entry's vectors from the embedding model set now (hasCurrentVectors), as this
+ * session last read or wrote them, while they are written anew too: half of whether it is ready (isEntryReady in
+ * lorebase-readiness.js). False for a book whose vectors this session has not read.
+ * @param {string} bookName
+ * @param {object} entry - The book's entry, as loadWorldInfo returns it
+ * @param {object} settings - VectFox settings
+ * @returns {boolean}
+ */
+export function hasStoredCurrentVectors(bookName, entry, settings) {
+    const stored = storedVectors.get(bookName);
+    return Boolean(stored) && hasCurrentVectors(pointsOf(bookCollectionIdOf(bookName), entry), stored, currentEmbeddingModelKey(settings));
 }
 
 /**
