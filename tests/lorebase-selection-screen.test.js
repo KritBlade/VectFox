@@ -228,6 +228,18 @@ describe('keys (D17)', () => {
         expect([bookName, entries.map(each => String(each.uid))]).toEqual(['Harbor Atlas', ['1']]);
     });
 
+    it('leaves an entry disabled in SillyTavern out of Regenerate keys and the keys pencil, as every writing does', async () => {
+        host.books['Harbor Atlas'].entries[1].disable = true;
+        host.settings.vectfox.lorebase_books = { 'Harbor Atlas': oneSelectionRecord({ selectedUids: ['0', '1'] }) };
+        await openScreen();
+        expect(actionButton('edit-keys', '[data-lorebase-uid="0"]')).not.toBeNull();
+        expect(actionButton('edit-keys', '[data-lorebase-uid="1"]')).toBeNull();
+        tickBox('1').click();
+        actionButton('regenerate-keys').click();
+        expect(host.regenerateKeysOfEntries).not.toHaveBeenCalled();
+        expect(host.noticePopup.mock.calls[0][0][0].text).toContain('LoreBase writes keys only for entries it decides.');
+    });
+
     it('says why Regenerate keys did not run, as when another run is on the progress panel', async () => {
         host.regenerateKeysOfEntries.mockRejectedValueOnce(new Error('LoreBase is already writing keys on the progress panel. Wait for it, or press Stop there.'));
         await openScreen();

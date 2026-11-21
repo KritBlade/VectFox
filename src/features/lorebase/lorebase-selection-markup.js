@@ -39,7 +39,7 @@ import { cardHeader, navBrand, pageHeader, switchRow } from '../../shared/gui-dn
 import { counted } from '../../shared/counted.js';
 import { escapeHtmlAttribute as escape } from '../../shared/html-escape.js';
 import { POOL_SEATS } from './lorebase-jev-core.js';
-import { BADGES, READINESS_CHOICES, SIZE_CHOICES, isEngineLike, keyListOf } from './lorebase-selection-core.js';
+import { BADGES, READINESS_CHOICES, SIZE_CHOICES, canToggleRow, isDecidedRow, isEngineLike, keyListOf } from './lorebase-selection-core.js';
 
 /** The ids lorebase-selection-screen.js finds the screen's controls by. */
 export const SELECTION_IDS = Object.freeze({
@@ -392,7 +392,7 @@ function failureLine(readiness) {
  * @returns {string}
  */
 export function entryRowMarkup(row, { isTicked, readiness = null }) {
-    const canToggle = !row.undecidableReason || row.isSelected;
+    const canToggle = canToggleRow(row);
     const pill = readinessPill(readiness);
     const body = listRow({
         icon: 'fa-file-lines',
@@ -407,7 +407,7 @@ export function entryRowMarkup(row, { isTicked, readiness = null }) {
         actions: [
             iconButton({ icon: 'fa-eye', title: 'Show this entry', data: action('show-entry', { 'lorebase-uid': row.uid }) }),
             // An entry LoreBase decides has keys to edit; not while its keys are being written.
-            row.isSelected && !row.undecidableReason ? iconButton({
+            isDecidedRow(row) ? iconButton({
                 icon: 'fa-pen',
                 title: 'Edit LoreBase keys',
                 isDisabled: readiness?.status === 'writing-keys',

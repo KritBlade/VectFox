@@ -46,8 +46,9 @@ import { isSelectionLockedTo } from './lorebase-selections-core.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
 import { onVectorStateChange, pruneBookVectors, readBookVectors, vectorStateOf } from './lorebase-vectors.js';
 import {
-    bookChoices, categoryList, entryReadiness, entrySectionNames, filterRows, invertTicks, liveSelection, pinnableSections, selectionAfterBulk,
-    selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange, BADGES,
+    bookChoices, canToggleRow, categoryList, entryReadiness, entrySectionNames, filterRows, invertTicks, isDecidedRow, liveSelection,
+    pinnableSections, selectionAfterBulk, selectionAfterCategory, selectionFooter, selectionRows, seenUidsOf, tickAllMatching, tickRange,
+    BADGES,
 } from './lorebase-selection-core.js';
 import {
     NEWNESS_CHOICES, SELECTION_IDS as ids, bookFailedMarkup, bookOptions, categoryRowsMarkup, entriesFooterMarkup,
@@ -64,8 +65,6 @@ const entryElementOf = (root, uid) => [...root.querySelectorAll('[data-lorebase-
 const selectedUidsOf = session => session.rows.filter(row => row.isSelected).map(row => row.uid);
 // The selection the screen shows, of the book shown.
 const shownSelectionOf = session => getLoreSelection(session.bookName, session.selectionId);
-// A selected row LoreBase decides, as isDecidedEntry: one disabled in SillyTavern is skipped until it is enabled again.
-const isDecidedRow = row => row.isSelected && !row.undecidableReason && !row.isDisabled;
 
 /**
  * A selected row's keys and vectors as this session knows them (entryReadiness); a row LoreBase does not decide shows
@@ -266,7 +265,7 @@ function saveSelection(root, session, selectedUids) {
 /** Turn one entry on or off, redrawing only its row so the keyboard stays on its toggle. */
 function toggleEntry(root, session, uid) {
     const row = session.rows.find(candidate => candidate.uid === uid);
-    if (!row || (row.undecidableReason && !row.isSelected)) return;
+    if (!row || !canToggleRow(row)) return;
     row.isSelected = !row.isSelected;
     saveBookSelection(session, session.bookName, selectedUidsOf(session));
     const element = entryElementOf(root, uid);
@@ -280,13 +279,13 @@ function toggleEntry(root, session, uid) {
 }
 
 /**
- * Regenerate keys: write the keys of the ticked entries that are turned on anew (D17), under the progress panel, which
- * shows in front of the screen with its Stop. While another run is on the panel, a notice says so.
+ * Regenerate keys: write the keys of the ticked entries LoreBase decides (isDecidedRow) anew (D17), under the progress
+ * panel, which shows in front of the screen with its Stop. While another run is on the panel, a notice says so.
  */
 function regenerateTickedKeys(session) {
-    const uids = new Set(session.rows.filter(row => row.isSelected && !row.undecidableReason && session.ticked.has(row.uid)).map(row => row.uid));
+    const uids = new Set(session.rows.filter(row => isDecidedRow(row) && session.ticked.has(row.uid)).map(row => row.uid));
     if (!uids.size) {
-        void noticePopup([{ icon: 'fa-key', text: 'None of the ticked entries is turned on. LoreBase writes keys only for entries it decides.' }]);
+        void noticePopup([{ icon: 'fa-key', text: 'None of the ticked entries is turned on and enabled in SillyTavern. LoreBase writes keys only for entries it decides.' }]);
         return;
     }
     if (isKeyWritingBlocked('LoreBase cannot write keys yet.')) return;

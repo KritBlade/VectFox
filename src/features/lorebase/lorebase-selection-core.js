@@ -6,9 +6,8 @@
  * the ticks the bulk bar acts on; what the bar and a category's toggle select; the entries new since the book was last
  * opened; the footer's count and title tokens; and the section names a book can pin. Pure: no SillyTavern, no DOM.
  */
-import { ACTIVATE_DECORATOR, DONT_ACTIVATE_DECORATOR, activationDecoratorOf } from './lorebase-decorators-core.js';
 import { contentsLine } from './lorebase-pick-core.js';
-import { decidedEntries } from './lorebase-reply-core.js';
+import { decidedEntries, undecidableReasonOf } from './lorebase-reply-core.js';
 import { hasTemplateCode } from './lorebase-review-core.js';
 import { INTRO_SECTION, entryCategory, entryTitle, estimatedTokens, splitEntry } from './lorebase-splitter.js';
 
@@ -72,19 +71,23 @@ function badgesOf(entry, { content, tokens, keys }) {
 }
 
 /**
- * Why LoreBase cannot decide an entry, so it cannot be selected (§5.2), or null: SillyTavern keeps it its own
- * (constant, sticky, cooldown, or an @@activate or @@dont_activate line opens it), or it has no text to key, pick or
- * send (empty).
+ * Whether LoreBase decides a row's entry: isDecidedEntry on the row, selected, enabled in SillyTavern and with no
+ * undecidableReason. What every row's keys, vectors, pencil and Regenerate keys go by.
+ * @param {{isSelected: boolean, undecidableReason: string|null, isDisabled: boolean}} row
+ * @returns {boolean}
  */
-function undecidableReasonOf(entry) {
-    if (entry.constant) return 'constant';
-    if (Number(entry.sticky) > 0) return 'sticky';
-    if (Number(entry.cooldown) > 0) return 'cooldown';
-    const decorator = activationDecoratorOf(entry.content);
-    if (decorator === ACTIVATE_DECORATOR) return 'activate_decorator';
-    if (decorator === DONT_ACTIVATE_DECORATOR) return 'dont_activate_decorator';
-    if (!String(entry.content ?? '').trim()) return 'empty';
-    return null;
+export function isDecidedRow(row) {
+    return row.isSelected && !row.isDisabled && !row.undecidableReason;
+}
+
+/**
+ * Whether a row's switch can be pressed: an entry LoreBase can decide turns on and off; one it cannot decide only turns
+ * off, when it was selected before.
+ * @param {{isSelected: boolean, undecidableReason: string|null}} row
+ * @returns {boolean}
+ */
+export function canToggleRow(row) {
+    return !row.undecidableReason || row.isSelected;
 }
 
 /** Whether a row drives a game rather than holding lore, so bulk selection leaves it out. */
