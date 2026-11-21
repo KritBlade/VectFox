@@ -24,6 +24,10 @@ vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
     resolveLoreBaseLlmConfig: () => host.connection,
     describeLoreBaseConnectionProblem: (reason, problem) => `${problem} Until then the entries selected for LoreBase stay out of replies.`,
 }));
+// What keys need is lorebase-setup.js's (keyWritingProblem), read here as it is: its other checks stand in.
+vi.mock('../src/features/embedding/index.js', () => ({ embeddingSetupProblem: () => '' }));
+vi.mock('../src/features/lorebase/lorebase-jev.js', () => ({ resolveJevConnection: () => ({ ok: true }) }));
+vi.mock('../src/features/lorebase/lorebase-switch.js', () => ({ isLoreBaseBackend: settings => settings?.vector_backend === 'qdrant' }));
 
 const BOOK = 'Harbor Atlas';
 const entry = (uid, comment) => ({ uid, comment, content: `${comment} stands by the harbor.` });
@@ -279,14 +283,16 @@ describe('titles, a keys file, and one book', () => {
 
 describe('what keys need', () => {
     it('writes nothing off Qdrant, and says LoreBase keeps them there', async () => {
-        expect(keysModule.keyWritingProblem({ vector_backend: 'standard' })).toContain('Choose Qdrant as the vector backend');
+        const { keyWritingProblem } = await import('../src/features/lorebase/lorebase-setup.js');
+        expect(keyWritingProblem({ vector_backend: 'standard' })).toContain('Choose Qdrant as the vector backend');
         expect(await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], { vector_backend: 'standard' })).toEqual({ written: 0, failed: 0, stopped: 0 });
         expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
     it('writes nothing without LoreBase\'s model, and says where to set it', async () => {
         host.connection = { ok: false, reason: 'no_model', problem: 'LoreBase has no model.' };
-        expect(keysModule.keyWritingProblem(QDRANT)).toBe('LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.');
+        const { keyWritingProblem } = await import('../src/features/lorebase/lorebase-setup.js');
+        expect(keyWritingProblem(QDRANT)).toBe('LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.');
         expect(await keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT)).toEqual({ written: 0, failed: 0, stopped: 0 });
         expect(host.ask).not.toHaveBeenCalled();
     });

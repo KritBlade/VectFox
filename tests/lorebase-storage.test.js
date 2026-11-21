@@ -58,6 +58,9 @@ vi.mock('../src/features/lorebase/lorebase-connection.js', () => ({
     describeLoreBaseConnectionProblem: (reason, problem) => `${problem} Until then the entries selected for LoreBase stay out of replies.`,
 }));
 vi.mock('../src/features/lorebase/lorebase-switch.js', () => ({ isLoreBaseBackend: settings => settings?.vector_backend === 'qdrant' }));
+// What each kind needs is lorebase-setup.js's (writingProblem), read here as it is: its other checks stand in.
+vi.mock('../src/features/embedding/index.js', () => ({ embeddingSetupProblem: () => '' }));
+vi.mock('../src/features/lorebase/lorebase-jev.js', () => ({ resolveJevConnection: () => ({ ok: true }) }));
 // Where a run locks, and a lock that takes every book it is given: lorebase-chat-books.test.js holds which books lock.
 vi.mock('../src/features/lorebase/lorebase-chat-books.js', () => ({
     keyRunLockPlace: vi.fn(() => host.lockPlace),
@@ -293,18 +296,6 @@ describe("each book's keys and vectors, counted", () => {
         expect(await storage.storedCountsOfBooks(shownBooks(BOOK), { ...QDRANT, enabled: false })).toEqual(new Map());
         expect(globalThis.fetch).not.toHaveBeenCalled();
         expect(loadWorldInfo).not.toHaveBeenCalled();
-    });
-});
-
-describe('what each kind needs', () => {
-    it("needs Qdrant and LoreBase's model for keys, and only Qdrant for vectors", () => {
-        expect(storage.writingProblem(QDRANT, [kinds.KEYS])).toBeNull();
-        expect(storage.writingProblem({ vector_backend: 'standard' }, kinds.BOTH_KINDS)).toContain('Choose Qdrant as the vector backend');
-        expect(storage.writingProblem({ vector_backend: 'standard' }, [kinds.VECTORS]))
-            .toBe('LoreBase keeps the vectors of each entry in Qdrant. Choose Qdrant as the vector backend first.');
-        host.connection = { ok: false, reason: 'no_model', problem: 'LoreBase has no model.' };
-        expect(storage.writingProblem(QDRANT, [kinds.KEYS])).toBe('LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.');
-        expect(storage.writingProblem(QDRANT, [kinds.VECTORS])).toBeNull();
     });
 });
 
@@ -624,7 +615,7 @@ describe("the Database Browser's rows", () => {
         expect(() => storage.loreBaseImportRow(kinds.KEYS, 'Lost Atlas', listed, QDRANT))
             .toThrow('SillyTavern has no lorebook named "Lost Atlas". Bring the lorebook into SillyTavern first, or use Import on the keys row of the lorebook you want this file in.');
         expect(() => storage.loreBaseImportRow(kinds.KEYS, BOOK, listed, { vector_backend: 'standard' }))
-            .toThrow('LoreBase keeps the vectors of each entry in Qdrant. Choose Qdrant as the vector backend first.');
+            .toThrow("LoreBase keeps each entry's keys and vectors in Qdrant. Choose Qdrant as the vector backend on the Core page.");
     });
 
     it("exports a book's keys, each title from SillyTavern's book or the stored one, an entry with neither left out", async () => {
@@ -743,7 +734,7 @@ describe("the Database Browser's rows", () => {
 
 describe('removing a book from LoreBase', () => {
     const HARBOR_TENANT = 'vf_lorebase_qdrant_rabbit_harbor_atlas_19qag9zxydm';
-    const OFF_QDRANT = "LoreBase keeps each lorebook's keys and vectors in Qdrant. Choose Qdrant as the vector backend first, so they go with the lorebook.";
+    const OFF_QDRANT = "LoreBase keeps each entry's keys and vectors in Qdrant. Choose Qdrant as the vector backend on the Core page.";
     const tenantOf = (book, tenant, collection, pointCount) => ({ collection, tenant, book, pointCount, embeddingSource: 'openrouter', embeddingModel: 'baai/bge-m3' });
 
     // Harbor Atlas: 3 selected entries, a pinned section, a lock on a chat and one on a character, the keys of 2 entries,
@@ -898,7 +889,7 @@ describe("the entry editor's save", () => {
     it('writes no vectors off Qdrant, and says why, the entry saved', async () => {
         await selectBooks();
         const outcome = await storage.saveEntryWithVectors(BOOK, '1', EDITED, { vector_backend: 'standard' });
-        expect(outcome).toEqual({ isDecided: true, failure: null, vectorProblem: 'LoreBase keeps the vectors of each entry in Qdrant. Choose Qdrant as the vector backend first.' });
+        expect(outcome).toEqual({ isDecided: true, failure: null, vectorProblem: "LoreBase keeps each entry's keys and vectors in Qdrant. Choose Qdrant as the vector backend on the Core page." });
         expect(saveLorebookEntry).toHaveBeenCalledTimes(1);
         expect(writeBookVectors).not.toHaveBeenCalled();
     });

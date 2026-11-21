@@ -5,16 +5,17 @@
  * under one rule: LoreBase stays on while any selected entry is ready, with its keys and vectors, and a book whose
  * entries are not ready waits. So it may be on when nothing is missing, when the user says to write them, or when some
  * entry is ready whatever the answer; it is off when the keys or vectors cannot be read, and when no entry is ready and
- * the user declines or LoreBase's model cannot write keys yet. Each caller sets the switch from the answer. A writing
+ * the user declines or LoreBase cannot write what they lack yet (writingProblem in lorebase-setup.js, for the kinds
+ * they lack). Each caller sets the switch from the answer. A writing
  * that does not start, as while another run is on the progress panel, says why in a notice.
  */
 import { log } from '../../sillytavern/log.js';
 import { confirmPopup, noticePopup } from '../../sillytavern/popup.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { missingKeysAndVectorsLines } from './lorebase-keys-core.js';
-import { keyWritingProblem } from './lorebase-keys.js';
+import { writingProblem } from './lorebase-setup.js';
 import { selectedEntriesNotReady, writeMissing } from './lorebase-storage.js';
-import { BOTH_KINDS } from './lorebase-storage-core.js';
+import { BOTH_KINDS, kindsLacking, missingCountsOf } from './lorebase-storage-core.js';
 
 const readyEntries = count => `${count.toLocaleString('en-US')} ${count === 1 ? 'entry that is' : 'entries that are'} ready`;
 
@@ -46,11 +47,11 @@ export async function askToWriteMissingKeysAndVectors({ isTurningOn }) {
     const meanwhile = isAnyReady
         ? `Until they are written, LoreBase goes on with the ${readyEntries(pending.readyCount)}.`
         : `Without them, LoreBase ${offWord}.`;
-    const problem = keyWritingProblem(extension_settings.vectfox);
+    const problem = writingProblem(extension_settings.vectfox, kindsLacking(missingCountsOf(pending)));
     if (problem) {
         await noticePopup([
             ...missingKeysAndVectorsLines(pending.count),
-            { text: `LoreBase's model cannot write their keys yet. ${meanwhile}` },
+            { text: `LoreBase cannot write them yet. ${meanwhile}` },
             { name: problem },
         ]);
         return { canBeOn: isAnyReady, shouldWrite: false, pending };

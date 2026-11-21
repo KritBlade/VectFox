@@ -58,7 +58,6 @@ vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: () => 'k
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     keyStateOf: (bookName, uid) => host.keyStates.get(`${bookName}/${uid}`) ?? { status: 'missing' },
-    keyWritingProblem: () => host.keyProblem,
     onKeyStateChange: listener => {
         host.keyListeners.add(listener);
         return () => host.keyListeners.delete(listener);
@@ -67,6 +66,8 @@ vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     regenerateKeys: host.regenerateKeys,
     saveEditedKeys: host.saveEditedKeys,
 }));
+// What writing needs (lorebase-setup.js), the screen's Regenerate keys and its closing question alike.
+vi.mock('../src/features/lorebase/lorebase-setup.js', () => ({ keyWritingProblem: () => host.keyProblem, writingProblem: () => host.keyProblem }));
 vi.mock('../src/features/lorebase/lorebase-storage.js', () => ({
     regenerateKeysOfEntries: host.regenerateKeysOfEntries,
     writeMissing: host.writeMissing,
@@ -453,7 +454,7 @@ describe('closing the screen (D17, §4.3 and §4.4 of lorebook-multi-vector.md)'
         host.keyProblem = 'Choose a model for LoreBase first.';
         expect(await closeAndAnswer()).toEqual({ missingCount: 2, missingKeyCount: 1, missingVectorCount: 2, decidedCount: 5, isWriting: false });
         expect(host.confirmPopup).not.toHaveBeenCalled();
-        expect(host.noticePopup.mock.calls[0][0]).toContainEqual({ text: "LoreBase's model cannot write their keys yet. Without them, LoreBase turns off." });
+        expect(host.noticePopup.mock.calls[0][0]).toContainEqual({ text: 'LoreBase cannot write them yet. Without them, LoreBase turns off.' });
         expect(host.noticePopup.mock.calls[0][0].at(-1)).toEqual({ name: 'Choose a model for LoreBase first.' });
         expect(host.settings.vectfox.lorebase_enabled).toBe(false);
     });
@@ -463,7 +464,7 @@ describe('closing the screen (D17, §4.3 and §4.4 of lorebook-multi-vector.md)'
         host.keyProblem = 'Choose a model for LoreBase first.';
         await closeAndAnswer();
         expect(host.noticePopup.mock.calls[0][0]).toContainEqual({
-            text: "LoreBase's model cannot write their keys yet. Until they are written, LoreBase goes on with the 3 entries that are ready.",
+            text: 'LoreBase cannot write them yet. Until they are written, LoreBase goes on with the 3 entries that are ready.',
         });
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
     });

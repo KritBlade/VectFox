@@ -51,6 +51,16 @@ export function missingCountsOf({ books }) {
 }
 
 /**
+ * The kinds some entry lacks, in the order a run writes them: what writing them needs (writingProblem), and the Generate
+ * button that writes them.
+ * @param {{missingKeyCount: number, missingVectorCount: number}} counts - From missingCountsOf
+ * @returns {string[]} KEYS, VECTORS, both, or none
+ */
+export function kindsLacking({ missingKeyCount, missingVectorCount }) {
+    return [missingKeyCount ? KEYS : null, missingVectorCount ? VECTORS : null].filter(Boolean);
+}
+
+/**
  * The progress panel's title for a run of `kinds`.
  * @param {readonly string[]} kinds
  * @returns {string}

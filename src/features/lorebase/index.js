@@ -38,7 +38,7 @@ export { addLoreBookToChat, booksToAdd, chatBookLocks, newLoreSelectionHere, use
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { editLoreBookEntry } from './lorebase-entry-editor.js';
 export { testLoreBaseConnection } from './lorebase-connection.js';
-export { loreBaseSetupProblem } from './lorebase-setup.js';
+export { loreBaseSetupProblem, writingProblem } from './lorebase-setup.js';
 export { JEV_PROFILE_SETTING, resolveJevConnection, testJevConnection } from './lorebase-jev.js';
 export { KEY_CALLS_AT_ONCE_DEFAULT, keyCallsAtOnceOf } from './lorebase-keys-core.js';
 export { deleteOldLorebookCollections } from './lorebase-old-collections.js';
@@ -53,10 +53,10 @@ export {
 export { deleteLoreSelectionAfterConfirm, removeLoreBookAfterConfirm } from './lorebase-removal.js';
 export {
     deleteStored, deleteStoredRow, exportStored, loreBaseImportRow, loreBaseStorageRows, onWritingProgress, onWritingRunChange, planImport,
-    storedCountsOfBooks, writeImport, writeMissing, writingProblem,
+    storedCountsOfBooks, writeImport, writeMissing,
 } from './lorebase-storage.js';
 export { tenantChunkSource } from './lorebase-vectors.js';
-export { BOTH_KINDS, KEYS, VECTORS } from './lorebase-storage-core.js';
+export { BOTH_KINDS, KEYS, VECTORS, kindsLacking } from './lorebase-storage-core.js';
 export { entryTitle } from './lorebase-splitter.js';
 export { isLoreBaseSwitchedOn, onLoreBaseSwitchChange, turnLoreBaseOff } from './lorebase-switch.js';
 export { loreBaseReports, measureLoreBaseReport, onLoreBaseReportsChange } from './lorebase-tester.js';

@@ -31,11 +31,12 @@ import {
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
 import {
-    deleteAllKeys, deleteBookKeys, isWritingKeys, keyStateOf, keyWritingProblem, readBookKeys, readBookKeysWithTitles, stopKeyRun,
+    deleteAllKeys, deleteBookKeys, isWritingKeys, keyStateOf, readBookKeys, readBookKeysWithTitles, stopKeyRun,
     writeImportedKeys, writeKeys,
 } from './lorebase-keys.js';
 import { postLoreBaseRoute } from './lorebase-routes.js';
 import { unionOfSelections } from './lorebase-selections-core.js';
+import { qdrantProblem, writingProblem } from './lorebase-setup.js';
 import {
     KEYS, VECTORS, emptyRowOf, pendingOfKinds, storageRowsOf, storedCountsOf, writingPanelTitle, writtenSummary,
 } from './lorebase-storage-core.js';
@@ -145,18 +146,6 @@ export async function saveEntryWithVectors(bookName, uid, fields, settings) {
     const { failures } = await writeBookVectors(bookName, decidedEntries, [entry], settings);
     log.lifecycle(`LoreBase: saved entry ${uid} of lorebook "${bookName}" from its editor${failures.length ? '; its vectors failed' : ', and wrote its vectors'}`);
     return { isDecided: true, failure: failures[0] ?? null, vectorProblem: null };
-}
-
-/**
- * Why `kinds` cannot be written now, or null: keys need Qdrant and LoreBase's model (keyWritingProblem); vectors need
- * Qdrant, where LoreBase keeps them, and VectFox's embedding model writes them.
- * @param {object} settings - VectFox settings
- * @param {readonly string[]} kinds - KEYS, VECTORS or BOTH_KINDS
- * @returns {string|null}
- */
-export function writingProblem(settings, kinds) {
-    if (kinds.includes(KEYS)) return keyWritingProblem(settings);
-    return isLoreBaseBackend(settings) ? null : 'LoreBase keeps the vectors of each entry in Qdrant. Choose Qdrant as the vector backend first.';
 }
 
 /**
@@ -402,7 +391,7 @@ export async function loreBaseStorageRows(settings) {
  * @throws {Error} Off Qdrant, or when SillyTavern has no book of that name
  */
 export function loreBaseImportRow(kind, bookName, rows, settings) {
-    const problem = writingProblem(settings, [VECTORS]);
+    const problem = qdrantProblem(settings);
     if (problem) throw new Error(problem);
     const listed = rows.find(row => row.kind === kind && row.book === bookName && !row.isLeftover && (kind === KEYS || row.isHere));
     if (listed) return listed;
@@ -534,9 +523,6 @@ export async function deleteStoredRow(row, settings) {
     return row.pointCount;
 }
 
-const REMOVAL_OFF_QDRANT = "LoreBase keeps each lorebook's keys and vectors in Qdrant. Choose Qdrant as the vector backend first, so they "
-    + 'go with the lorebook.';
-
 /**
  * What a book holds in LoreBase, for the confirm of Remove from LoreBase and Unlink (removalConfirmLines in
  * lorebase-files-core.js): its selections, how many entries they hold together, their pinned sections, their locks on
@@ -552,7 +538,8 @@ const REMOVAL_OFF_QDRANT = "LoreBase keeps each lorebook's keys and vectors in Q
  */
 export async function loreBookHoldings(bookName, settings) {
     refuseWhileWriting();
-    if (!isLoreBaseBackend(settings)) throw new Error(REMOVAL_OFF_QDRANT);
+    const offQdrant = qdrantProblem(settings);
+    if (offQdrant) throw new Error(offQdrant);
     const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
     const record = getLoreBook(bookName);
     const selections = record?.selections ?? [];

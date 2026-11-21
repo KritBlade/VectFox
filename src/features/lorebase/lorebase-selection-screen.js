@@ -36,7 +36,8 @@ import {
 import { chatBookLocks, chatBookNames, lockTarget, newLoreSelectionHere } from './lorebase-chat-books.js';
 import { deleteLoreSelectionAfterConfirm } from './lorebase-removal.js';
 import { editedKeys } from './lorebase-keys-core.js';
-import { keyStateOf, keyWritingProblem, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys } from './lorebase-keys.js';
+import { keyStateOf, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys } from './lorebase-keys.js';
+import { keyWritingProblem } from './lorebase-setup.js';
 import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
 import { FAST_AND_CHEAP, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 import { regenerateKeysOfEntries, selectedEntriesNotReady } from './lorebase-storage.js';

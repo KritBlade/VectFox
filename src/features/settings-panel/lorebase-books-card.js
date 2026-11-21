@@ -30,7 +30,7 @@ import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
     BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteLoreSelectionAfterConfirm, deleteStored,
-    describeRemovedLoreBook, isLoreBaseSwitchedOn, newLoreSelectionHere, onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange,
+    describeRemovedLoreBook, isLoreBaseSwitchedOn, kindsLacking, newLoreSelectionHere, onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange,
     openLoreBaseSelection, removeLoreBookAfterConfirm, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn,
     useLoreSelectionHere, writeMissing, writingProblem,
 } from '../lorebase/index.js';
@@ -480,8 +480,8 @@ function missingText({ missingKeyCount, missingVectorCount }) {
  * @param {{missingKeyCount: number, missingVectorCount: number}} chosen - From openLoreBaseSelection, lacking either
  * @returns {string} The button's name
  */
-function generateButtonNameFor({ missingKeyCount, missingVectorCount }) {
-    const lacked = [missingKeyCount && KEYS, missingVectorCount && VECTORS].filter(Boolean);
+function generateButtonNameFor(chosen) {
+    const lacked = kindsLacking(chosen);
     return GENERATE_BUTTONS.find(button => button.kinds.join() === lacked.join()).name;
 }
 

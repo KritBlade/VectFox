@@ -13,14 +13,14 @@ import { log } from '../../sillytavern/log.js';
 import { extension_settings } from '../../sillytavern/settings.js';
 import { notifyInvalidModel } from '../../shared/model-config-notifier.js';
 import { PLUGIN_UPDATE_INSTRUCTIONS, similharityStanding } from '../../shared/similharity-plugin.js';
-import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
+import { askOnLoreBase, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
 import {
     KEYS_ASKS, KEYS_MAX_TOKENS, KEYS_REASONING_EFFORT, keyCallsAtOnceOf, keyCount, keysMessages, readKeys, writingFailuresMessage,
 } from './lorebase-keys-core.js';
 import { postLoreBaseRoute } from './lorebase-routes.js';
+import { keyWritingProblem } from './lorebase-setup.js';
 import { entryTitle } from './lorebase-splitter.js';
 
-const QDRANT_BACKEND = 'qdrant';
 // Similharity takes at most this many entries in one write (MOST_ENTRIES_PER_WRITE in its lorebase-keys.js).
 const ENTRIES_PER_WRITE = 2000;
 const UNREADABLE_ANSWER = 'its answer held no list of keys';
@@ -101,19 +101,6 @@ export function keyStateOf(bookName, uid) {
     const keys = storedKeys.get(bookName)?.get(String(uid));
     if (keys) return { status: 'ready', keys };
     return state ?? { status: 'missing' };
-}
-
-/**
- * Why keys cannot be written now, or null: LoreBase keeps them in Qdrant (D15), and its model writes them (D17).
- * @param {object} settings - VectFox settings
- * @returns {string|null}
- */
-export function keyWritingProblem(settings) {
-    if (settings?.vector_backend !== QDRANT_BACKEND) {
-        return 'LoreBase keeps the keys its model writes for each entry in Qdrant. Choose Qdrant as the vector backend first.';
-    }
-    const connection = resolveLoreBaseLlmConfig(settings);
-    return connection.ok ? null : describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings);
 }
 
 async function askForKeys(entry, ask) {

@@ -35,6 +35,7 @@ vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(async () => 
 vi.mock('../src/sillytavern/chat.js', () => ({ getCurrentChatId: () => host.chatId }));
 vi.mock('../src/features/lorebase/index.js', async () => ({
     describeRemovedLoreBook: (await import('../src/features/lorebase/lorebase-files-core.js')).describeRemovedLoreBook,
+    kindsLacking: (await import('../src/features/lorebase/lorebase-storage-core.js')).kindsLacking,
     // What was removed, null on Cancel, or the error that refused it.
     removeLoreBookAfterConfirm: vi.fn(async () => {
         if (host.removed instanceof Error) throw host.removed;

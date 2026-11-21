@@ -20,14 +20,15 @@ import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-co
 import { renamedChatIds } from '../../shared/renamed-chat.js';
 import { loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat, selectionInUse } from './lorebase-books.js';
 import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
-import { askOnLoreBase, describeLoreBaseConnectionProblem, resolveLoreBaseLlmConfig } from './lorebase-connection.js';
-import { askJev, resolveJevConnection } from './lorebase-jev.js';
+import { askOnLoreBase } from './lorebase-connection.js';
+import { askJev } from './lorebase-jev.js';
 import { loreBudgetOf, loreForReplyByJev } from './lorebase-jev-core.js';
 import { holdLoreForNextScan, initializeLoreBaseDelivery } from './lorebase-delivery.js';
 import { readBookKeys } from './lorebase-keys.js';
-import { FAST_AND_CHEAP, isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unreadyEntriesNotice } from './lorebase-reply-core.js';
+import { isReplyGeneration, loreBaseAccuracyOf, loreForReply, leftOutLoreMessage, unreadyEntriesNotice } from './lorebase-reply-core.js';
 import { sceneText } from './lorebase-scene-core.js';
 import { sceneMessagesFromChat } from './lorebase-scene.js';
+import { replyModel } from './lorebase-setup.js';
 import { isLoreBaseActive, loreBaseInactiveReason } from './lorebase-switch.js';
 import { initializeLoreBaseTester, keepReplyScan, recordReplyReport } from './lorebase-tester.js';
 import { settleVectorStorageConflict } from './lorebase-vector-storage.js';
@@ -166,26 +167,21 @@ function reportReplyLore(lore, seconds) {
  * @returns {Promise<import('./lorebase-reply-core.js').ReplyLore|null>}
  */
 async function askForReplyLore(settings, { books, scene, messages }) {
-    if (loreBaseAccuracyOf(settings.lorebase_accuracy) === FAST_AND_CHEAP) {
-        const jev = resolveJevConnection(settings);
-        if (!jev.ok) {
-            notifySetupIncomplete(LOREBASE, jev.problem);
-            return null;
-        }
+    const model = replyModel(settings);
+    if (model.problem) {
+        notifySetupIncomplete(LOREBASE, model.problem);
+        return null;
+    }
+    if (model.isJev) {
         return loreForReplyByJev({
             scene,
             books,
-            ask: (state, questions) => askJev(jev.fields, state, questions),
+            ask: (state, questions) => askJev(model.jev.fields, state, questions),
             searchPool: contents => searchReplyPool(books, contents, messages, settings),
             loreBudget: loreBudgetOf(settings.lorebase_lore_budget_tokens),
         });
     }
-    const connection = resolveLoreBaseLlmConfig(settings);
-    if (!connection.ok) {
-        notifySetupIncomplete(LOREBASE, describeLoreBaseConnectionProblem(connection.reason, connection.problem, settings));
-        return null;
-    }
-    return loreForReply({ scene, books, ask: askOnLoreBase(connection) });
+    return loreForReply({ scene, books, ask: askOnLoreBase(model.connection) });
 }
 
 /**

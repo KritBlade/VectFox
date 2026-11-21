@@ -18,8 +18,7 @@ const host = vi.hoisted(() => ({ settings: { vectfox: {} }, isWorldInfoSearchOn:
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/log.js', () => ({ log: { verbose: vi.fn(), warn: vi.fn() } }));
 vi.mock('../src/sillytavern/popup.js', () => ({ confirmPopup: vi.fn(), choicePopup: vi.fn(), noticePopup: vi.fn() }));
-vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({ keyWritingProblem: () => host.keyProblem }));
-vi.mock('../src/features/lorebase/lorebase-setup.js', () => ({ replyModelProblem: () => host.replyProblem }));
+vi.mock('../src/features/lorebase/lorebase-setup.js', () => ({ replyModelProblem: () => host.replyProblem, writingProblem: vi.fn(() => host.keyProblem) }));
 vi.mock('../src/features/lorebase/lorebase-storage.js', () => ({
     selectedEntriesNotReady: vi.fn(async () => {
         if (host.pending instanceof Error) throw host.pending;
@@ -147,9 +146,18 @@ describe('turning LoreBase on and off', () => {
 
         expect(await turnLoreBaseOn()).toBe(false);
         expect(confirmPopup).not.toHaveBeenCalled();
-        expect(noticePopup.mock.calls[0][0]).toContainEqual({ text: "LoreBase's model cannot write their keys yet. Without them, LoreBase stays off." });
+        expect(noticePopup.mock.calls[0][0]).toContainEqual({ text: 'LoreBase cannot write them yet. Without them, LoreBase stays off.' });
         expect(noticePopup.mock.calls[0][0]).toContainEqual({ name: host.keyProblem });
         expect(isLoreBaseSwitchedOn()).toBe(false);
+    });
+
+    it('asks what writing needs for the kinds the entries lack alone, so missing vectors wait on no key model', async () => {
+        const { writingProblem } = await import('../src/features/lorebase/lorebase-setup.js');
+        host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [], vectorEntries: [{ uid: 0 }] }], count: 1, readyCount: 0, unreadBooks: 0 };
+        confirmPopup.mockResolvedValueOnce(true);
+
+        expect(await turnLoreBaseOn()).toBe(true);
+        expect(writingProblem).toHaveBeenCalledWith(host.settings.vectfox, ['vectors']);
     });
 
     it('stays off, saying why, when the keys and vectors cannot be read', async () => {

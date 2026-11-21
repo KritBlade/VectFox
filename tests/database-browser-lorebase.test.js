@@ -475,7 +475,7 @@ describe("Remove from LoreBase on a lorebook's row", () => {
         expect(toastr.success).not.toHaveBeenCalled();
         expect(host.rowReads).toBe(1);
 
-        const offQdrant = "LoreBase keeps each lorebook's keys and vectors in Qdrant. Choose Qdrant as the vector backend first, so they go with the lorebook.";
+        const offQdrant = "LoreBase keeps each entry's keys and vectors in Qdrant. Choose Qdrant as the vector backend on the Core page.";
         storage.removeLoreBookAfterConfirm.mockRejectedValue(new Error(offQdrant));
         remover('list|Harbor Atlas').click();
         await vi.waitFor(() => expect(toastr.error).toHaveBeenCalledTimes(1));

@@ -118,8 +118,8 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', () => ({
     }),
 }));
 vi.mock('../src/features/lorebase/lorebase-routes.js', () => ({ postLoreBaseRoute: vi.fn() }));
-// Turning LoreBase on, which a reply never does, checks its reply model there.
-vi.mock('../src/features/lorebase/lorebase-setup.js', () => ({ replyModelProblem: () => '' }));
+// The reply's model is lorebase-setup.js's (replyModel), read as it is from the Jev and LoreBase connections above.
+vi.mock('../src/features/embedding/index.js', () => ({ embeddingSetupProblem: () => '' }));
 vi.mock('../src/features/lorebase/lorebase-keys.js', () => ({
     readBookKeys: vi.fn(async bookNames => {
         if (host.keysReadError) throw host.keysReadError;
