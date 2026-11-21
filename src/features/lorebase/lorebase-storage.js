@@ -26,7 +26,7 @@ import { isVectFoxEnabled } from '../../shared/feature-gate.js';
 import { progressTracker } from '../../shared/progress-tracker.js';
 import {
     deleteLoreBookRecord, getLoreBook, getLoreSelection, loadBookEntries, loadDecidableEntries, loadDecidedEntries, loreBookRecordCounts,
-    recordedLoreBookNames, selectedLoreBookNames,
+    selectedLoreBookNames,
 } from './lorebase-books.js';
 import { keyRunLockPlace, lockKeyedBooks } from './lorebase-chat-books.js';
 import { keysFileOf, planKeysImport, planVectorsImport, vectorsFileOf } from './lorebase-files-core.js';
@@ -43,7 +43,7 @@ import {
 } from './lorebase-storage-core.js';
 import { isLoreBaseBackend } from './lorebase-switch.js';
 import {
-    bookVectors, currentEmbeddingModelKey, deleteAllVectors, deleteTenantPoints, entriesWithPoints, forgetBookVectors, hasStoredCurrentVectors,
+    bookVectors, currentEmbeddingModelKey, deleteTenantPoints, entriesWithPoints, forgetBookVectors, forgetVectorWriteFailures, hasStoredCurrentVectors,
     importBookPoints, loreBaseVectorsCollection, readBookVectors, readTenantPoints, showVectorFailures, vectorStateOf, writeBookVectors,
 } from './lorebase-vectors.js';
 
@@ -350,23 +350,45 @@ export async function regenerateKeysOfEntries(bookName, entries, settings) {
 }
 
 /**
- * Delete every book's stored `kinds` of this SillyTavern user, the entries turned off included: the vectors first,
- * which cost little to write again, then the keys. Selections stay, so the selected entries send nothing until both are
- * written again. Refused while LoreBase writes, which would put some back.
+ * What Similharity lists of this SillyTavern user's LoreBase keys and vectors (`/lorebase/books`): each book's keys,
+ * and every tenant of its vectors in either Qdrant collection. The one read of it: the Database Browser's rows, what
+ * Remove from LoreBase deletes, and Delete all.
+ * @returns {Promise<{keys: Array<{book: string, entryCount: number}>, vectors: Array<{book: string|null, collection: string,
+ *   tenant: string, pointCount: number}>}>}
+ * @throws {Error} When Similharity cannot list them
+ */
+function listLoreBaseStorage() {
+    return postLoreBaseRoute('books', {}, "list LoreBase's books");
+}
+
+/**
+ * Delete all (§4.3): every `kinds` Similharity lists for this SillyTavern user (listLoreBaseStorage), in every book and
+ * either Qdrant collection, the entries turned off and books with no record included: each tenant of the vectors
+ * first, which cost little to write again, by the delete Remove and a row's delete run (deleteTenantPoints), then the
+ * keys. Selections stay, so the selected entries send nothing until both are written again. Refused while LoreBase
+ * writes, which would put some back, and off Qdrant, as Remove is.
  * @param {readonly string[]} kinds - KEYS, VECTORS or BOTH_KINDS
  * @param {object} settings - VectFox settings
  * @returns {Promise<number>} How many entries' keys were deleted; 0 when keys are not among `kinds`
- * @throws {Error} While LoreBase writes, or when Similharity cannot delete them
+ * @throws {Error} While LoreBase writes, off Qdrant, or when Similharity cannot list or delete them; a tenant that
+ *   would not go stops it before the keys
  */
 export async function deleteStored(kinds, settings) {
     refuseWhileWriting();
-    if (kinds.includes(VECTORS)) await deleteAllVectors(recordedLoreBookNames(), settings);
+    const offQdrant = qdrantProblem(settings);
+    if (offQdrant) throw new Error(offQdrant);
+    if (kinds.includes(VECTORS)) {
+        const { vectors } = await listLoreBaseStorage();
+        for (const { tenant, collection } of vectors) await deleteTenantPoints(tenant, collection, settings);
+        forgetVectorWriteFailures();
+        log.lifecycle(`LoreBase: Delete all deleted the vectors of ${vectors.length} tenants`);
+    }
     return kinds.includes(KEYS) ? deleteAllKeys() : 0;
 }
 
 /**
  * The Database Browser's LoreBase rows (§3.2): this account's books with keys or vectors, from Similharity's listing
- * (`/lorebase/books`), with every book that has a LoreBase record, the list's first, then the leftovers'; each knows
+ * (listLoreBaseStorage), with every book that has a LoreBase record, the list's first, then the leftovers'; each knows
  * how many entries its book selects and whether SillyTavern still has the book (storageRowsOf). Off Qdrant, where
  * LoreBase keeps nothing, there are none.
  * @param {object} settings - VectFox settings
@@ -375,7 +397,7 @@ export async function deleteStored(kinds, settings) {
  */
 export async function loreBaseStorageRows(settings) {
     if (!isLoreBaseBackend(settings)) return [];
-    const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
+    const listing = await listLoreBaseStorage();
     return storageRowsOf({
         listing,
         recordCounts: loreBookRecordCounts(),
@@ -544,7 +566,7 @@ export async function loreBookHoldings(bookName, settings) {
     refuseWhileWriting();
     const offQdrant = qdrantProblem(settings);
     if (offQdrant) throw new Error(offQdrant);
-    const listing = await postLoreBaseRoute('books', {}, "list LoreBase's books");
+    const listing = await listLoreBaseStorage();
     const record = getLoreBook(bookName);
     const selections = record?.selections ?? [];
     return {

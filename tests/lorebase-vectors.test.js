@@ -372,18 +372,25 @@ describe('deleting vectors', () => {
         expect(inserted()).toEqual([]);
     });
 
-    it("Delete all deletes the account's own collection while One shared collection is off", async () => {
-        await vectors.deleteAllVectors([BOOK, 'Desert Atlas'], SETTINGS);
-        expect(host.calls).toEqual([{ action: 'purge', target: { collectionId: 'vf_lorebase_rabbit', filters: {} }, isShared: false }]);
+    it('keeps what it read per collection, so flipping One shared collection reads that collection and never answers from the other', async () => {
+        selectEntries([buoy]);
+        await vectors.writeBookVectors(BOOK, [buoy], [buoy], SETTINGS);
+        expect(vectors.hasStoredCurrentVectors(BOOK, buoy, SETTINGS)).toBe(true);
+        const shared = { ...SETTINGS, qdrant_multitenancy: true };
+        expect(vectors.vectorStateOf(BOOK, buoy, shared)).toEqual({ status: 'unknown' });
+        expect(vectors.hasStoredCurrentVectors(BOOK, buoy, shared)).toBe(false);
+        host.calls = [];
+        await vectors.bookVectors([BOOK], shared);
+        expect(host.calls.map(call => [call.action, call.target.collectionId])).toEqual([['list', 'vectfox_main']]);
+        expect([vectors.hasStoredCurrentVectors(BOOK, buoy, shared), vectors.hasStoredCurrentVectors(BOOK, buoy, SETTINGS)]).toEqual([false, true]);
     });
 
-    it("Delete all deletes each book's tenant in vectfox_main while it is on, and forgets what it held", async () => {
-        await vectors.writeBookVectors(BOOK, [buoy], [buoy], { ...SETTINGS, qdrant_multitenancy: true });
+    it('deletes one tenant whole, and forgets what it held so the next read finds what is left', async () => {
+        await vectors.writeBookVectors(BOOK, [buoy], [buoy], SETTINGS);
         host.calls = [];
-        await vectors.deleteAllVectors([BOOK, 'Desert Atlas'], { ...SETTINGS, qdrant_multitenancy: true });
+        await vectors.deleteTenantPoints(core.loreBaseBookCollectionId(BOOK, 'rabbit'), 'vectfox_main', SETTINGS);
         expect(host.calls.map(call => call.target)).toEqual([
             { collectionId: 'vectfox_main', filters: { content_type: core.loreBaseBookCollectionId(BOOK, 'rabbit') } },
-            { collectionId: 'vectfox_main', filters: { content_type: core.loreBaseBookCollectionId('Desert Atlas', 'rabbit') } },
         ]);
         await vectors.bookVectors([BOOK], SETTINGS);
         expect(host.calls.at(-1).action).toBe('list');
@@ -479,7 +486,8 @@ describe("each entry's vectors, as this session knows them (§7.1, §7.3 of lore
         host.insertFailure = () => new Error('the embedding server refused');
         await vectors.writeBookVectors(BOOK, [lighthouse, buoy], [buoy], SETTINGS);
         expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS).status).toBe('failed');
-        await vectors.deleteAllVectors([BOOK], SETTINGS);
+        await vectors.deleteTenantPoints(core.loreBaseBookCollectionId(BOOK, 'rabbit'), 'vf_lorebase_rabbit', SETTINGS);
+        vectors.forgetVectorWriteFailures();
         await vectors.bookVectors([BOOK], SETTINGS);
         expect(vectors.vectorStateOf(BOOK, buoy, SETTINGS)).toEqual({ status: 'missing' });
     });

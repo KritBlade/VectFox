@@ -103,7 +103,7 @@ vi.mock('../src/features/lorebase/lorebase-vectors.js', async () => {
             }
             return result;
         }),
-        deleteAllVectors: vi.fn(async () => host.vectorized.clear()),
+        forgetVectorWriteFailures: vi.fn(),
         showVectorFailures: vi.fn(),
     };
 });
@@ -175,7 +175,7 @@ beforeEach(async () => {
     keyRunLockPlace.mockClear();
     lockKeyedBooks.mockClear();
     const vectorsModule = await import('../src/features/lorebase/lorebase-vectors.js');
-    for (const name of ['bookVectors', 'readBookVectors', 'hasStoredCurrentVectors', 'writeBookVectors', 'deleteAllVectors', 'showVectorFailures',
+    for (const name of ['bookVectors', 'readBookVectors', 'hasStoredCurrentVectors', 'writeBookVectors', 'forgetVectorWriteFailures', 'showVectorFailures',
         'readTenantPoints', 'importBookPoints', 'deleteTenantPoints', 'forgetBookVectors']) {
         vectorsModule[name].mockClear();
     }
@@ -504,39 +504,59 @@ describe('writing on the progress panel', () => {
 });
 
 describe('deleting', () => {
-    it('Delete all deletes every vector, then every key the user has, forgets the keys it knew, and tells the listeners', async () => {
+    // What Similharity lists: Harbor Atlas's tenants in both collections, and one of a book with no record.
+    const LISTED_TENANTS = [
+        { book: BOOK, collection: 'vf_lorebase_rabbit', tenant: 'harbor-own', pointCount: 4 },
+        { book: BOOK, collection: 'vectfox_main', tenant: 'harbor-shared', pointCount: 2 },
+        { book: 'Imported Atlas', collection: 'vf_lorebase_rabbit', tenant: 'imported-own', pointCount: 3 },
+    ];
+
+    it('Delete all deletes every tenant Similharity lists, a book with no record and the other collection included, then every key, and forgets them', async () => {
         const { extension_settings } = await import('../src/sillytavern/settings.js');
-        const { deleteAllVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
+        const { deleteTenantPoints, forgetVectorWriteFailures } = await import('../src/features/lorebase/lorebase-vectors.js');
         extension_settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: ['0'] }), 'Desert Atlas': oneSelectionRecord({ selectedUids: [] }) };
+        host.listing = { keys: [], vectors: LISTED_TENANTS };
         stored = { [BOOK]: { 0: ['lighthouse'], 1: ['tidewardens'] }, 'Desert Atlas': { 5: ['dunes'] } };
         await keysModule.readBookKeys([BOOK]);
         const seen = [];
         keysModule.onKeyStateChange(bookName => seen.push(bookName));
 
         expect(await storage.deleteStored(kinds.BOTH_KINDS, QDRANT)).toBe(3);
-        expect(deleteAllVectors).toHaveBeenCalledWith([BOOK, 'Desert Atlas'], QDRANT);
-        expect(deleteAllVectors.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(globalThis.fetch).mock.invocationCallOrder.at(-1));
+        expect(deleteTenantPoints.mock.calls).toEqual(LISTED_TENANTS.map(({ tenant, collection }) => [tenant, collection, QDRANT]));
+        expect(forgetVectorWriteFailures).toHaveBeenCalledTimes(1);
+        expect(deleteTenantPoints.mock.invocationCallOrder.at(-1)).toBeLessThan(vi.mocked(globalThis.fetch).mock.invocationCallOrder.at(-1));
         expect(routeCalls.at(-1)).toEqual({ url: '/api/plugins/similharity/lorebase/keys/delete', request: {} });
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'missing' });
         expect(seen).toEqual([BOOK]);
     });
 
     it('deletes only the kind asked for', async () => {
-        const { extension_settings } = await import('../src/sillytavern/settings.js');
-        const { deleteAllVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
-        extension_settings.vectfox.lorebase_books = { [BOOK]: oneSelectionRecord({ selectedUids: ['0'] }) };
+        const { deleteTenantPoints } = await import('../src/features/lorebase/lorebase-vectors.js');
+        host.listing = { keys: [], vectors: LISTED_TENANTS };
         stored = { [BOOK]: { 0: ['lighthouse'] } };
         expect(await storage.deleteStored([kinds.VECTORS], QDRANT)).toBe(0);
-        expect(deleteAllVectors).toHaveBeenCalledTimes(1);
-        expect(routeCalls).toEqual([]);
+        expect(deleteTenantPoints).toHaveBeenCalledTimes(3);
+        expect(routeCalls.map(call => call.url)).toEqual(['/api/plugins/similharity/lorebase/books']);
 
         expect(await storage.deleteStored([kinds.KEYS], QDRANT)).toBe(1);
-        expect(deleteAllVectors).toHaveBeenCalledTimes(1);
-        expect(routeCalls.map(call => call.url)).toEqual(['/api/plugins/similharity/lorebase/keys/delete']);
+        expect(deleteTenantPoints).toHaveBeenCalledTimes(3);
+        expect(routeCalls.map(call => call.url).at(-1)).toBe('/api/plugins/similharity/lorebase/keys/delete');
+    });
+
+    it('stops before the keys when a tenant will not go, and is refused off Qdrant, as Remove is', async () => {
+        const { deleteTenantPoints } = await import('../src/features/lorebase/lorebase-vectors.js');
+        host.listing = { keys: [], vectors: LISTED_TENANTS };
+        deleteTenantPoints.mockRejectedValueOnce(new Error('Similharity could not delete the vectors of harbor-own in vf_lorebase_rabbit. The console says why.'));
+        await expect(storage.deleteStored(kinds.BOTH_KINDS, QDRANT)).rejects.toThrow('could not delete the vectors of harbor-own');
+        expect(routeCalls.some(call => call.url.endsWith('/keys/delete'))).toBe(false);
+
+        routeCalls.length = 0;
+        await expect(storage.deleteStored(kinds.BOTH_KINDS, { vector_backend: 'standard' })).rejects.toThrow('Choose Qdrant as the vector backend');
+        expect(routeCalls).toEqual([]);
     });
 
     it('is refused while keys are being written, and deletes nothing', async () => {
-        const { deleteAllVectors } = await import('../src/features/lorebase/lorebase-vectors.js');
+        const { deleteTenantPoints } = await import('../src/features/lorebase/lorebase-vectors.js');
         let answer;
         host.ask = vi.fn(() => new Promise(resolve => { answer = resolve; }));
         const writing = keysModule.writeKeys(BOOK, [entry(0, 'Lighthouse')], QDRANT);
@@ -544,17 +564,17 @@ describe('deleting', () => {
 
         await expect(storage.deleteStored(kinds.BOTH_KINDS, QDRANT)).rejects.toThrow(STILL_WRITING);
         expect(host.panel.reopen).toHaveBeenCalledTimes(1);
-        expect(deleteAllVectors).not.toHaveBeenCalled();
+        expect(deleteTenantPoints).not.toHaveBeenCalled();
         expect(routeCalls.some(call => call.url.endsWith('/delete'))).toBe(false);
         answer(answerWith(['lighthouse']));
         await writing;
     });
 
-    it('says what Similharity answered when the keys cannot be deleted, and keeps knowing them', async () => {
+    it('says what Similharity answered when it cannot list what to delete, deletes nothing, and keeps knowing the keys', async () => {
         stored[BOOK] = { 0: ['lighthouse'] };
         await keysModule.readBookKeys([BOOK]);
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, statusText: 'Server Error', text: async () => '{"error":"Qdrant is down"}' }));
-        await expect(storage.deleteStored(kinds.BOTH_KINDS, QDRANT)).rejects.toThrow("Similharity could not delete LoreBase's keys (HTTP 500)");
+        await expect(storage.deleteStored(kinds.BOTH_KINDS, QDRANT)).rejects.toThrow("Similharity could not list LoreBase's books (HTTP 500)");
         expect(keysModule.keyStateOf(BOOK, '0')).toEqual({ status: 'ready', keys: ['lighthouse'] });
     });
 });

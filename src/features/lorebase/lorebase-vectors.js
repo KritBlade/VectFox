@@ -2,9 +2,10 @@
  * LoreBase's vectors in Qdrant (§4 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): the points of each
  * selected entry, embedded by VectFox's embedding model through the vector API every collection goes through, every book
  * of a SillyTavern account a tenant inside one Qdrant collection (Q6): vectfox_main while "One shared collection" is on,
- * the account's own otherwise. What Qdrant holds for a book is read the first time this session needs it, again when the
- * selection screen opens the book, at turning LoreBase on and at Generate all, and kept current by what this session
- * writes and deletes. An entry is ready once it has its keys and its vectors from the embedding model set now (§4.4).
+ * the account's own otherwise. What Qdrant holds for a book is read the first time this session needs it in the
+ * collection read now, again when the selection screen opens the book, at turning LoreBase on and at each Generate
+ * button, and kept current by what this session writes and deletes. An entry is ready once it has its keys and its
+ * vectors from the embedding model set now (§4.4, isEntryReady in lorebase-readiness.js).
  * While an entry's vectors are written, and after they fail, its state is kept for this session and told to the vector
  * listeners, so the selection screen's row and the books card say so (§7.1, §7.3). An
  * edit SillyTavern saves writes the changed parts of the entries that had vectors again in the background and deletes
@@ -12,7 +13,8 @@
  * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), a book tenant's
  * points are read whole, vectors included, in whichever collection holds them, and its View chunks reads them there
  * (tenantChunkSource), a vectors file's points are stored with
- * their vectors and no embedding call, and a tenant is deleted whole. A reply on Fast and Cheap [Jev] searches every
+ * their vectors and no embedding call, and a tenant is deleted whole (deleteTenantPoints, the one delete of a tenant,
+ * Delete all's too). A reply on Fast and Cheap [Jev] searches every
  * book taking part in one request for each of its two texts (§4.5).
  */
 import { eventSource, event_types } from '../../sillytavern/events.js';
@@ -43,7 +45,8 @@ const DEFAULT_BATCH_SIZE = 50;
 // the user types writes once.
 const EDIT_SETTLE_MS = 2000;
 
-// What Qdrant holds, as last read or written in this session: book name -> hash -> {uid, modelKey}.
+// What Qdrant holds, as last read or written in this session: Qdrant collection -> book name -> hash -> {uid, modelKey},
+// read through storedPointsHere.
 const storedVectors = new Map();
 // Each entry's points, made again only when its title or text changes: collection ID and uid -> {comment, content, points}.
 const pointsMemo = new Map();
@@ -150,7 +153,24 @@ export function entriesWithPoints(bookName, entries) {
 }
 
 /**
- * Read what Qdrant holds for the named books now, and keep it for this session.
+ * What this session read of the books' points in the collection LoreBase reads now (loreBaseVectorsCollection): every
+ * reader of the session's points goes through here, so flipping "One shared collection" reads the other collection's.
+ * @param {object} settings - VectFox settings
+ * @returns {Map<string, Map<number, {uid: string, modelKey: string}>>} book name -> hash -> point, kept for the session
+ */
+function storedPointsHere(settings) {
+    const collection = loreBaseVectorsCollection(settings);
+    if (!storedVectors.has(collection)) storedVectors.set(collection, new Map());
+    return storedVectors.get(collection);
+}
+
+/** Forget what this session read of a book's points in every collection, so the next read finds what is there. */
+function forgetStoredPoints(bookName) {
+    for (const books of storedVectors.values()) books.delete(bookName);
+}
+
+/**
+ * Read what Qdrant holds for the named books now, in the collection LoreBase reads now, and keep it for this session.
  * @param {string[]} bookNames
  * @param {object} settings - VectFox settings
  * @returns {Promise<Map<string, Map<number, {uid: string, modelKey: string}>>>}
@@ -159,21 +179,24 @@ export function entriesWithPoints(bookName, entries) {
 export async function readBookVectors(bookNames, settings) {
     const requestSettings = vectorSettings(settings);
     const listed = await Promise.all(bookNames.map(bookName => listChunks(bookCollectionIdOf(bookName), requestSettings, { limit: ALL_POINTS })));
-    bookNames.forEach((bookName, index) => storedVectors.set(bookName, storedPointsOf(listed[index]?.items)));
-    return new Map(bookNames.map(bookName => [bookName, storedVectors.get(bookName)]));
+    const held = storedPointsHere(settings);
+    bookNames.forEach((bookName, index) => held.set(bookName, storedPointsOf(listed[index]?.items)));
+    return new Map(bookNames.map(bookName => [bookName, held.get(bookName)]));
 }
 
 /**
- * What Qdrant holds for the named books, read from Qdrant only for those this session has not read yet.
+ * What Qdrant holds for the named books, in the collection LoreBase reads now, read from Qdrant only for those this
+ * session has not read there yet.
  * @param {string[]} bookNames
  * @param {object} settings - VectFox settings
  * @returns {Promise<Map<string, Map<number, {uid: string, modelKey: string}>>>}
  * @throws {Error} When Similharity cannot list a book's points
  */
 export async function bookVectors(bookNames, settings) {
-    const unread = bookNames.filter(bookName => !storedVectors.has(bookName));
+    const unread = bookNames.filter(bookName => !storedPointsHere(settings).has(bookName));
     if (unread.length) await readBookVectors(unread, settings);
-    return new Map(bookNames.map(bookName => [bookName, storedVectors.get(bookName)]));
+    const held = storedPointsHere(settings);
+    return new Map(bookNames.map(bookName => [bookName, held.get(bookName)]));
 }
 
 
@@ -190,7 +213,7 @@ export async function bookVectors(bookNames, settings) {
 export function vectorStateOf(bookName, entry, settings) {
     const state = writeStates.get(bookName)?.get(String(entry.uid));
     if (state?.status === 'writing') return state;
-    const stored = storedVectors.get(bookName);
+    const stored = storedPointsHere(settings).get(bookName);
     if (!stored) return { status: 'unknown' };
     if (hasStoredCurrentVectors(bookName, entry, settings)) return { status: 'ready' };
     if (state) return state;
@@ -207,7 +230,7 @@ export function vectorStateOf(bookName, entry, settings) {
  * @returns {boolean}
  */
 export function hasStoredCurrentVectors(bookName, entry, settings) {
-    const stored = storedVectors.get(bookName);
+    const stored = storedPointsHere(settings).get(bookName);
     return Boolean(stored) && hasCurrentVectors(pointsOf(bookCollectionIdOf(bookName), entry), stored, currentEmbeddingModelKey(settings));
 }
 
@@ -253,7 +276,7 @@ async function deleteStoredPoints(bookName, hashes, settings) {
     if (!hashes.length) return;
     try {
         await deleteVectorItems(bookCollectionIdOf(bookName), hashes, vectorSettings(settings));
-        const stored = storedVectors.get(bookName);
+        const stored = storedPointsHere(settings).get(bookName);
         for (const hash of hashes) stored?.delete(hash);
         log.verbose(`LoreBase: deleted ${hashes.length} vectors of lorebook "${bookName}" that no selected entry holds`);
     } catch (error) {
@@ -445,7 +468,7 @@ export async function importBookPoints(bookName, writes, settings, onProgress) {
     try {
         await insertVectorItems(bookCollectionIdOf(bookName), items, vectorSettings(settings), onProgress);
     } catch (error) {
-        storedVectors.delete(bookName);
+        forgetStoredPoints(bookName);
         throw error;
     }
     const stored = (await bookVectors([bookName], settings)).get(bookName);
@@ -456,7 +479,8 @@ export async function importBookPoints(bookName, writes, settings, onProgress) {
 
 /**
  * Delete every point of one book tenant in one Qdrant collection, and forget what this session read of the books, so
- * the next read finds what is left.
+ * the next read finds what is left: the one delete of a tenant, which Remove from LoreBase, a Database Browser row's
+ * delete and Delete all run.
  * @param {string} tenant - The tenant's ID, as Similharity's listing names it
  * @param {string} collection - The Qdrant collection holding it
  * @param {object} settings - VectFox settings
@@ -477,31 +501,18 @@ export async function deleteTenantPoints(tenant, collection, settings) {
  * @param {string} bookName
  */
 export function forgetBookVectors(bookName) {
-    storedVectors.delete(bookName);
+    forgetStoredPoints(bookName);
     if (writeStates.delete(bookName)) tellStateListeners(bookName);
 }
 
 /**
- * Delete every LoreBase vector of this SillyTavern account (Delete all, §4.3), and forget the entries whose writing
- * failed, telling the vector listeners: its own Qdrant collection while "One
- * shared collection" is off, else each named book's points in vectfox_main.
- * @param {string[]} bookNames - Every book VectFox keeps a LoreBase record of
- * @param {object} settings - VectFox settings
- * @returns {Promise<void>}
- * @throws {Error} When Similharity cannot delete them
+ * Forget every book's entries whose writing failed, telling the vector listeners: Delete all deleted every vector
+ * (deleteStored in lorebase-storage.js), so no failure stands for vectors that are gone.
  */
-export async function deleteAllVectors(bookNames, settings) {
-    if (settings.qdrant_multitenancy) {
-        const requestSettings = vectorSettings(settings);
-        for (const bookName of bookNames) await purgeVectorIndex(bookCollectionIdOf(bookName), requestSettings);
-    } else {
-        await purgeVectorIndex(loreBaseAccountCollection(getCurrentUserHandle()), { ...settings, qdrant_multitenancy: false });
-    }
-    storedVectors.clear();
-    const failedBookNames = [...writeStates.keys()];
+export function forgetVectorWriteFailures() {
+    const bookNames = [...writeStates.keys()];
     writeStates.clear();
-    for (const bookName of failedBookNames) tellStateListeners(bookName);
-    log.lifecycle('LoreBase: deleted every vector of this account');
+    for (const bookName of bookNames) tellStateListeners(bookName);
 }
 
 /**

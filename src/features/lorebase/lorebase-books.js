@@ -112,14 +112,6 @@ export async function loadBookEntries(bookName) {
 }
 
 /**
- * The names of every book with a record: each one LoreBase may have keys or vectors for.
- * @returns {string[]}
- */
-export function recordedLoreBookNames() {
-    return Object.keys(extension_settings.vectfox[BOOKS_KEY] ?? {});
-}
-
-/**
  * Every book with a record, by name, with how many entries its selections hold together and how many selections it
  * has: the Database Browser's lorebooks with a record, and which of them selects none.
  * @returns {Record<string, {selectedCount: number, selectionCount: number}>}
