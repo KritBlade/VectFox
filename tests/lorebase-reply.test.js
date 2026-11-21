@@ -55,13 +55,15 @@ vi.mock('../src/sillytavern/events.js', () => ({
     },
 }));
 vi.mock('../src/sillytavern/identifiers.js', () => ({
-    getCharaFilename: id => (id === '3' ? 'keeper-orrin' : null),
+    // SillyTavern's file name of a character: its avatar's without the extension.
+    getCharaFilename: (id, { manualAvatarKey = null } = {}) => manualAvatarKey?.replace(/\.[^/.]+$/, '') ?? null,
     // SillyTavern's server cleaner, which drops what a file name cannot hold.
     getSanitizedFilename: vi.fn(async fileName => fileName.replace(/[/?<>\\:*|"]/gu, '')),
 }));
 vi.mock('../src/sillytavern/world-info.js', () => ({
     METADATA_KEY: 'world_info',
     getWorldInfoSettings: () => ({ world_info: { charLore: host.charLore } }),
+    characterLorebooks: characterFileName => host.charLore.find(item => item.name === characterFileName)?.extraBooks ?? [],
     loadWorldInfo: vi.fn(async name => host.books[name] ?? null),
     selected_world_info: host.globalBooks,
 }));

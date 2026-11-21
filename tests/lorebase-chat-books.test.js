@@ -3,9 +3,9 @@
  * plan §5.2 and D11 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): each book
  * SillyTavern loads here and has, in the order its scan loads them, with how many of its selected entries LoreBase
  * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded,
- * whether it is locked to this chat or to the character, by the character's avatar file name, whether its row's
- * Remove from LoreBase has a LoreBase record of the book to delete, and whether its row offers Unlink: a list Unlink
- * takes books out of loads it. And the lock a key run
+ * whether it is locked to this chat or to the character it loads the book through, by the character's avatar file name,
+ * in a group chat between replies each member's books with that member's lock, and whether its row offers Unlink: a
+ * list Unlink takes books out of loads it. And the lock a key run
  * makes (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): where, read as the run starts, and which of
  * the books it wrote keys for lock to that chat. And Add a lorebook (§6 of lorebook-multi-vector.md): the books the
  * chat does not load, each added to this chat as its Chat Lorebook or to the character through SillyTavern's own places
@@ -50,6 +50,7 @@ vi.mock('../src/sillytavern/world-info.js', () => ({
         if (host.context.chatMetadata.world_info === bookName) delete host.context.chatMetadata.world_info;
     }),
     getWorldInfoSettings: () => ({ world_info: { charLore: host.charLore } }),
+    characterLorebooks: characterFileName => host.charLore.find(item => item.name === characterFileName)?.extraBooks ?? [],
     loadWorldInfo: vi.fn(async bookName => {
         if (host.books[bookName] instanceof Error) throw host.books[bookName];
         return host.books[bookName] ?? null;
@@ -58,7 +59,8 @@ vi.mock('../src/sillytavern/world-info.js', () => ({
     world_names: host.worldNames,
 }));
 vi.mock('../src/sillytavern/chat.js', () => ({ getContext: () => host.context, getCurrentChatId: () => host.chatId }));
-vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: id => (id === '3' ? 'keeper-orrin' : null) }));
+// SillyTavern's file name of a character: its avatar's without the extension.
+vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: (id, { manualAvatarKey = null } = {}) => manualAvatarKey?.replace(/\.[^/.]+$/, '') ?? null }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 
 const { log } = await import('../src/sillytavern/log.js');
@@ -181,10 +183,11 @@ describe('chatBookLocks', () => {
 describe('the lock a key run makes', () => {
     const firstOf = bookName => host.settings.vectfox.lorebase_books[bookName].selections[0];
 
-    it('is read as the run starts: the open chat, its character, and the books the chat loads, but those whose lock the user set', () => {
-        expect(keyRunLockPlace(['Keeper Notes'])).toEqual({
-            chatId: 'chat-harbor', characterAvatar: 'keeper-orrin.png', lockableBookNames: new Set(['Tide Tables', 'Lost Charts', 'Harbor Atlas']),
-        });
+    it('is read as the run starts: the open chat, and the books the chat loads with where each is in use, but those whose lock the user set', () => {
+        const place = keyRunLockPlace(['Keeper Notes']);
+        expect([place.chatId, [...place.whereByBook.keys()], place.whereByBook.get('Harbor Atlas')]).toEqual([
+            'chat-harbor', ['Tide Tables', 'Lost Charts', 'Harbor Atlas'], { chatId: 'chat-harbor', characterAvatar: 'keeper-orrin.png', characterName: 'Keeper Orrin' },
+        ]);
         host.chatId = undefined;
         expect(keyRunLockPlace()).toBeNull();
     });
@@ -234,9 +237,68 @@ describe('the lock a key run makes', () => {
         host.context = { characters: host.context.characters, characterId: undefined, chatMetadata: {}, powerUserSettings: {} };
         host.settings.vectfox.lorebase_books = { 'Tide Tables': recordOf({ selected: ['2'], characters: ['keeper-orrin.png'] }) };
         const place = keyRunLockPlace();
-        expect(place).toEqual({ chatId: 'group-harbor', characterAvatar: null, lockableBookNames: new Set(['Tide Tables']) });
+        expect(place).toEqual({ chatId: 'group-harbor', whereByBook: new Map([['Tide Tables', { chatId: 'group-harbor', characterAvatar: null, characterName: '' }]]) });
         expect(lockKeyedBooks(place, ['Tide Tables'])).toEqual({ chatId: 'group-harbor', bookNames: ['Tide Tables'] });
         expect(firstOf('Tide Tables').lockedToChatIds).toEqual(['group-harbor']);
+    });
+});
+
+describe('a group chat: each member\'s books, in use through that member (option b)', () => {
+    // Keeper Orrin and Wren in a group, Mara muted. SillyTavern loads a member's own lorebook and Additional Lorebooks on
+    // that member's turn, so between replies the pages list every unmuted member's books, each "here" through its member.
+    beforeEach(() => {
+        host.chatId = 'group-harbor';
+        host.worldNames.push('Wren Journal', 'Mara Notes');
+        host.charLore.push({ name: 'wren', extraBooks: ['Voyage Log'] });
+        host.context = {
+            characters: [
+                { name: 'Keeper Orrin', avatar: 'keeper-orrin.png', data: { extensions: { world: 'Keeper Notes' } } },
+                { name: 'Wren', avatar: 'wren.png', data: { extensions: { world: 'Wren Journal' } } },
+                { name: 'Mara', avatar: 'mara.png', data: { extensions: { world: 'Mara Notes' } } },
+            ],
+            characterId: undefined,
+            groupId: 'harbor-crew',
+            groups: [{ id: 'harbor-crew', members: ['keeper-orrin.png', 'wren.png', 'mara.png'], disabled_members: ['mara.png'] }],
+            chatMetadata: {},
+            powerUserSettings: {},
+        };
+        host.books['Wren Journal'] = bookWith(9);
+    });
+
+    it("lists every unmuted member's books between replies, each in use through the member that loads it", async () => {
+        host.settings.vectfox.lorebase_books = {
+            'Wren Journal': recordOf({ selected: ['9'], characters: ['wren.png'] }),
+            'Keeper Notes': recordOf({ selected: ['7'], characters: ['wren.png'] }),
+        };
+        expect(chatBookNames()).toEqual(['Tide Tables', 'Keeper Notes', 'Lost Charts', 'Wren Journal', 'Voyage Log']);
+        const { books } = await chatBookLocks();
+        expect(books.find(book => book.bookName === 'Wren Journal')).toMatchObject({ selectionInUseId: 'first', selectedCount: 1, isLockedToCharacter: true });
+        // Keeper Notes is Keeper Orrin's lorebook, so a lock to Wren does not put it in use here.
+        expect(books.find(book => book.bookName === 'Keeper Notes')).toMatchObject({ selectionInUseId: null, isLockedToCharacter: false });
+    });
+
+    it("reads the drafted member alone on that member's turn, as SillyTavern's scan loads its books", async () => {
+        host.settings.vectfox.lorebase_books = { 'Tide Tables': recordOf({ selected: ['2'], characters: ['wren.png'] }) };
+        host.context.characterId = 1;
+        expect(chatBookNames()).toEqual(['Tide Tables', 'Wren Journal', 'Voyage Log']);
+        expect((await chatBookLocks()).books[0]).toMatchObject({ bookName: 'Tide Tables', selectionInUseId: 'first', isLockedToCharacter: true });
+        host.context.characterId = undefined;
+        expect((await chatBookLocks()).books[0]).toMatchObject({ bookName: 'Tide Tables', selectionInUseId: null });
+    });
+
+    it("reads each book's member where a key run locks, and locks to the group chat", () => {
+        host.settings.vectfox.lorebase_books = { 'Wren Journal': recordOf({ selected: ['9'], characters: ['wren.png'] }), 'Voyage Log': recordOf({ selected: ['5'] }) };
+        const place = keyRunLockPlace();
+        expect(place.whereByBook.get('Voyage Log')).toEqual({ chatId: 'group-harbor', characterAvatar: 'wren.png', characterName: 'Wren' });
+        expect(place.whereByBook.get('Tide Tables')).toEqual({ chatId: 'group-harbor', characterAvatar: null, characterName: '' });
+        // Wren Journal is in use through Wren's lock already; Voyage Log has none in use, so it locks to the group chat.
+        expect(lockKeyedBooks(place, ['Wren Journal', 'Voyage Log'])).toEqual({ chatId: 'group-harbor', bookNames: ['Voyage Log'] });
+    });
+
+    it("unlinks a book from the Additional Lorebooks of the member that lists it", async () => {
+        expect(chatBookLinks('Voyage Log')).toEqual({ unlinkedFrom: ['characterBooks'], stillLoadedBy: [] });
+        expect(await unlinkLoreBookFromChat('Voyage Log')).toEqual({ unlinkedFrom: ['characterBooks'], stillLoadedBy: [] });
+        expect(removeCharacterLorebook).toHaveBeenCalledWith('wren', 'Voyage Log');
     });
 });
 

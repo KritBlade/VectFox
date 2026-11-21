@@ -33,7 +33,7 @@ vi.mock('../src/sillytavern/events.js', () => ({
 }));
 vi.mock('../src/sillytavern/identifiers.js', () => ({ getCharaFilename: () => 'keeper-orrin' }));
 vi.mock('../src/sillytavern/world-info.js', () => ({
-    METADATA_KEY: 'world_info', getWorldInfoSettings: () => ({ world_info: { charLore: [] } }), selected_world_info: [], world_names: [],
+    METADATA_KEY: 'world_info', getWorldInfoSettings: () => ({ world_info: { charLore: [] } }), characterLorebooks: () => [], selected_world_info: [], world_names: [],
 }));
 vi.mock('../src/sillytavern/settings.js', () => ({ extension_settings: host.settings, saveSettingsDebounced: vi.fn() }));
 vi.mock('../src/sillytavern/vector-storage.js', () => ({ isVectorStorageWorldInfoOn: () => host.isWorldInfoSearchOn }));

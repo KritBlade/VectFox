@@ -52,6 +52,7 @@ vi.mock('../src/shared/model-config-notifier.js', () => ({ notifyInvalidModel: v
 vi.mock('../src/sillytavern/world-info.js', () => ({
     METADATA_KEY: 'world_info',
     getWorldInfoSettings: () => ({ world_info: { charLore: [] } }),
+    characterLorebooks: () => [],
     loadWorldInfo: vi.fn(async name => host.books[name] ?? null),
     selected_world_info: host.globalBooks,
     world_names: host.worldNames,
@@ -665,13 +666,22 @@ describe('locks, pins and books', () => {
         expect($id('vectfox_lorebase_lock_character').disabled).toBe(true);
         expect($id('vectfox_lorebase_lock_notice').textContent).toContain('Open a chat to lock this selection');
 
-        // A group chat: the chat can be locked, and no one character.
+        // A group chat no member of which loads the book: the chat can be locked, and no one character.
         document.body.innerHTML = '';
         host.chatId = 'chat-harbor-crew';
         await openScreen({ bookName: 'Harbor Atlas' });
         expect($id('vectfox_lorebase_lock_chat').disabled).toBe(false);
         expect($id('vectfox_lorebase_lock_character').disabled).toBe(true);
-        expect($id('vectfox_lorebase_lock_notice').textContent).toContain('A group chat has no one character');
+        expect($id('vectfox_lorebase_lock_notice').textContent).toContain('In this group chat no one member loads this lorebook');
+
+        // Between replies in a group whose member Keeper Orrin loads the book: Lock to this character is Keeper Orrin's.
+        document.body.innerHTML = '';
+        host.context = { ...host.context, groupId: 'harbor-crew', groups: [{ id: 'harbor-crew', members: ['keeper-orrin.png'], disabled_members: [] }] };
+        await openScreen({ bookName: 'Harbor Atlas' });
+        expect([$id('vectfox_lorebase_lock_character').disabled, $id('vectfox_lorebase_lock_character').checked]).toEqual([false, true]);
+        expect($id('vectfox_lorebase_lock_notice').textContent).toContain('In this group chat this is the lorebook of Keeper Orrin');
+        change($id('vectfox_lorebase_lock_character'), false);
+        expect(selection().lockedToCharacterAvatars).toEqual([]);
     });
 
     it("pins a section of the entries the pick reads", async () => {

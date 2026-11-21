@@ -18,8 +18,8 @@ import { eventSource, event_types } from '../../sillytavern/events.js';
 import { log } from '../../sillytavern/log.js';
 import { notifyInvalidModel, notifySetupIncomplete } from '../../shared/model-config-notifier.js';
 import { renamedChatIds } from '../../shared/renamed-chat.js';
-import { loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat, selectionInUse } from './lorebase-books.js';
-import { chatBookNames, lockTarget } from './lorebase-chat-books.js';
+import { loadDecidedEntries, renameLoreBookCharacter, renameLoreBookChat } from './lorebase-books.js';
+import { chatBookNames, lockTarget, selectionInUseHere } from './lorebase-chat-books.js';
 import { askOnLoreBase } from './lorebase-connection.js';
 import { askJev } from './lorebase-jev.js';
 import { loreBudgetOf, loreForReplyByJev } from './lorebase-jev-core.js';
@@ -95,10 +95,9 @@ export function initializeLoreBase() {
  * @throws {Error} When the keys or vectors cannot be read
  */
 async function booksTakingPart(settings) {
-    const where = lockTarget();
     const books = [];
     for (const bookName of chatBookNames()) {
-        const selection = selectionInUse(bookName, where);
+        const selection = selectionInUseHere(bookName);
         if (!selection?.selectedUids.length) continue;
         const entries = await loadDecidedEntries(bookName, selection);
         if (entries.length) books.push({ bookName, entries, pinnedSections: selection.pinnedSections });

@@ -13,7 +13,7 @@ import { getContext, getCurrentChatId } from '../../sillytavern/chat.js';
 import { getCharaFilename } from '../../sillytavern/identifiers.js';
 import { log } from '../../sillytavern/log.js';
 import {
-    METADATA_KEY, addCharacterLorebook, addChatLorebook, getWorldInfoSettings, removeCharacterLorebook, removeChatLorebook,
+    METADATA_KEY, addCharacterLorebook, addChatLorebook, characterLorebooks, removeCharacterLorebook, removeChatLorebook,
     removeGlobalLorebook, selected_world_info, world_names,
 } from '../../sillytavern/world-info.js';
 import {
@@ -30,32 +30,56 @@ const CHAT_BOOK_PLACES = ['globalList', 'characterBooks', 'characterOwnBook', 'c
 const UNLINKABLE_PLACES = new Set(['globalList', 'characterBooks', 'chatBook']);
 
 /**
- * The books each place loads for the open chat: the global list, the character's Additional Lorebooks and own book, the
- * chat's and the persona's; and the character's file name, which keys its Additional Lorebooks.
+ * The characters whose own lorebook and Additional Lorebooks the open chat loads: the chat's character; in a group
+ * chat, the member SillyTavern drafted for the reply it writes now, as its scan loads that member's books alone, and
+ * between replies every member not muted, in the group's order, so the WorldInfo page, the selection screen and Try a
+ * pick show each member's books and locks, which count on that member's turn. Each by its avatar file name, its name,
+ * its file name (which keys its Additional Lorebooks), its own book and its Additional Lorebooks.
+ * @returns {Array<{avatar: string, name: string, fileName: string, ownBook: string|null, extraBooks: string[]}>}
+ */
+function chatCharacters() {
+    const context = getContext();
+    const characterOf = character => {
+        const avatar = String(character.avatar);
+        const fileName = getCharaFilename(null, { manualAvatarKey: avatar });
+        return { avatar, name: String(character.name ?? ''), fileName, ownBook: character.data?.extensions?.world || null, extraBooks: characterLorebooks(fileName) };
+    };
+    const drafted = context.characterId === undefined || context.characterId === null ? null : context.characters?.[context.characterId];
+    if (drafted?.avatar) return [characterOf(drafted)];
+    const group = context.groupId ? context.groups?.find(item => item.id === context.groupId) : null;
+    const muted = new Set(group?.disabled_members ?? []);
+    const characters = Object.values(context.characters ?? {});
+    return (group?.members ?? []).filter(avatar => !muted.has(avatar))
+        .map(avatar => characters.find(character => character?.avatar === avatar)).filter(character => character?.avatar).map(characterOf);
+}
+
+/**
+ * The books each place loads for the open chat: the global list, the Additional Lorebooks and own lorebooks of its
+ * characters (chatCharacters), the chat's and the persona's; and those characters.
  */
 function chatBookPlaces() {
     const context = getContext();
-    const character = context.characters?.[context.characterId];
-    const characterFileName = getCharaFilename(context.characterId);
+    const characters = chatCharacters();
     return {
-        characterFileName,
+        characters,
         globalList: [...selected_world_info],
-        characterBooks: getWorldInfoSettings().world_info?.charLore?.find(item => item.name === characterFileName)?.extraBooks ?? [],
-        characterOwnBook: character?.data?.extensions?.world || null,
+        characterBooks: [...new Set(characters.flatMap(character => character.extraBooks))],
+        characterOwnBook: [...new Set(characters.map(character => character.ownBook).filter(Boolean))],
         chatBook: context.chatMetadata?.[METADATA_KEY] || null,
         personaBook: context.powerUserSettings?.persona_description_lorebook || null,
     };
 }
 
 /**
- * The books SillyTavern loads for the open chat, each once, in the order its scan loads them.
+ * The books SillyTavern loads for the open chat, each once, in the order its scan loads them; between replies in a
+ * group chat, every member's (chatCharacters).
  * @returns {string[]}
  */
 export function chatBookNames() {
     const places = chatBookPlaces();
     return activeBookNames({
         globalBooks: places.globalList,
-        characterBooks: [places.characterOwnBook, ...places.characterBooks].filter(Boolean),
+        characterBooks: places.characters.flatMap(character => [character.ownBook, ...character.extraBooks]).filter(Boolean),
         chatBook: places.chatBook,
         personaBook: places.personaBook,
     });
@@ -81,16 +105,18 @@ export function chatBookLinks(bookName) {
 }
 
 /**
- * Unlink a book from the open chat: take it out of the open character's Additional Lorebooks and SillyTavern's global
- * list, and off the open chat as its Chat Lorebook, wherever the chat loads it from them (chatBookLinks), through
- * SillyTavern's own lists. A list SillyTavern did not take it out of is among the places that still load it, and the
- * console says why.
+ * Unlink a book from the open chat: take it out of the Additional Lorebooks of the chat's characters that list it, in a
+ * group chat each member's, and SillyTavern's global list, and off the open chat as its Chat Lorebook, wherever the chat
+ * loads it from them (chatBookLinks), through SillyTavern's own lists. A list SillyTavern did not take it out of is
+ * among the places that still load it, and the console says why.
  * @param {string} bookName
  * @returns {Promise<{unlinkedFrom: string[], stillLoadedBy: string[]}>} The places it went from, and those still loading it
  */
 export async function unlinkLoreBookFromChat(bookName) {
     const { unlinkedFrom: places } = chatBookLinks(bookName);
-    if (places.includes('characterBooks')) removeCharacterLorebook(chatBookPlaces().characterFileName, bookName);
+    if (places.includes('characterBooks')) {
+        for (const character of chatCharacters().filter(each => each.extraBooks.includes(bookName))) removeCharacterLorebook(character.fileName, bookName);
+    }
     if (places.includes('globalList')) {
         try {
             removeGlobalLorebook(bookName);
@@ -104,10 +130,10 @@ export async function unlinkLoreBookFromChat(bookName) {
 }
 
 /**
- * What a book can be locked to here: the open chat, and its character by its avatar file name, with that character's
- * name. SillyTavern keys its own per-character settings by the avatar file name, which stays the same when characters
- * are added or deleted, where the character's place in its list does not. Each is null when there is none, as in a
- * group chat for the character.
+ * The open chat and its one character, by its avatar file name, with that character's name: what Add a lorebook adds
+ * to. SillyTavern keys its own per-character settings by the avatar file name, which stays the same when characters are
+ * added or deleted, where the character's place in its list does not. Each is null when there is none, as in a group
+ * chat between replies for the character; a book's own "here" is whereFor's.
  * @returns {{chatId: string|null, characterAvatar: string|null, characterName: string}}
  */
 export function lockTarget() {
@@ -121,34 +147,59 @@ export function lockTarget() {
 }
 
 /**
+ * Where a book's selection is in use here (D11): the open chat, and the character the chat loads the book through, by
+ * its avatar file name and name: the chat's character, or in a group chat the member SillyTavern drafted for the reply
+ * it writes now; between replies, the first member whose own lorebook or Additional Lorebooks load the book, none for a
+ * book another place loads. The one "here" of a book: the selection in use (selectionInUseHere), its row's locks, the
+ * selection screen's lock switches and the locks a key run sets go by it.
+ * @param {string} bookName
+ * @returns {{chatId: string|null, characterAvatar: string|null, characterName: string}}
+ */
+export function whereFor(bookName) {
+    const target = lockTarget();
+    if (target.characterAvatar || !target.chatId) return target;
+    const member = chatCharacters().find(character => character.ownBook === bookName || character.extraBooks.includes(bookName));
+    return { chatId: target.chatId, characterAvatar: member?.avatar ?? null, characterName: member?.name ?? '' };
+}
+
+/**
+ * The selection of a book the open chat uses (selectionInUse where whereFor says): the one route every reader of it
+ * takes, the reply, the scan, the WorldInfo page, the selection screen and New selection alike.
+ * @param {string} bookName
+ * @returns {import('./lorebase-selections-core.js').LoreSelection|null}
+ */
+export function selectionInUseHere(bookName) {
+    return selectionInUse(bookName, whereFor(bookName));
+}
+
+/**
  * Where a key run locks the books it writes keys for (§6.1 of lorebook-multi-vector.md): the chat open as the run
- * starts, its character, and the books that chat loads, read then, so that a chat opened while the run goes is never
- * the one locked. Null with no chat open.
+ * starts, and each book that chat loads with where its selection is in use (whereFor), read then, so that a chat opened
+ * while the run goes is never the one locked. Null with no chat open.
  * @param {Iterable<string>} [booksWithChosenLocks] - Books whose lock the user set on the selection screen that started
  *   the run: they keep the locks the user set
- * @returns {{chatId: string, characterAvatar: string|null, lockableBookNames: Set<string>}|null}
+ * @returns {{chatId: string, whereByBook: Map<string, ReturnType<typeof whereFor>>}|null}
  */
 export function keyRunLockPlace(booksWithChosenLocks = []) {
-    const { chatId, characterAvatar } = lockTarget();
+    const { chatId } = lockTarget();
     if (!chatId) return null;
     const chosen = new Set(booksWithChosenLocks);
-    return { chatId, characterAvatar, lockableBookNames: new Set(chatBookNames().filter(bookName => !chosen.has(bookName))) };
+    return { chatId, whereByBook: new Map(chatBookNames().filter(bookName => !chosen.has(bookName)).map(bookName => [bookName, whereFor(bookName)])) };
 }
 
 /**
  * Lock each book a key run wrote keys for to the chat the run started in (§6.1 of lorebook-multi-vector.md): its one
- * selection, when that chat loads the book and uses no selection of it, locked neither to the chat nor to its character.
- * A book with more than one selection stays as the user set it, as New selection locks the one it makes (§3.7 of
- * vectfox-multi-collection-per-chat.md).
+ * selection, when that chat loads the book and uses no selection of it, locked neither to the chat nor to the character
+ * it loads the book through. A book with more than one selection stays as the user set it, as New selection locks the
+ * one it makes (§3.7 of vectfox-multi-collection-per-chat.md).
  * @param {ReturnType<typeof keyRunLockPlace>} place - Read as the run started; null locks nothing
  * @param {string[]} keyedBookNames - The books the run wrote at least one entry's keys for
  * @returns {{chatId: string, bookNames: string[]}|null} The chat and the books locked to it, or null when none was
  */
 export function lockKeyedBooks(place, keyedBookNames) {
     if (!place) return null;
-    const where = { chatId: place.chatId, characterAvatar: place.characterAvatar };
-    const bookNames = keyedBookNames.filter(bookName => place.lockableBookNames.has(bookName)
-        && loreSelectionsOf(bookName).length === 1 && !selectionInUse(bookName, where));
+    const bookNames = keyedBookNames.filter(bookName => place.whereByBook.has(bookName)
+        && loreSelectionsOf(bookName).length === 1 && !selectionInUse(bookName, place.whereByBook.get(bookName)));
     for (const bookName of bookNames) setLoreSelectionLock(bookName, loreSelectionsOf(bookName)[0].id, { chatId: place.chatId }, true);
     return bookNames.length ? { chatId: place.chatId, bookNames } : null;
 }
@@ -217,18 +268,18 @@ export async function addLoreBookToChat(bookName, place) {
  *   canUnlink: boolean}>}>}
  */
 export async function chatBookLocks() {
-    const where = lockTarget();
     const known = new Set(world_names);
     const bookNames = chatBookNames().filter(bookName => known.has(bookName));
-    const inUse = bookNames.map(bookName => selectionInUse(bookName, where));
+    const wheres = bookNames.map(whereFor);
+    const inUse = bookNames.map(selectionInUseHere);
     const counts = await Promise.all(bookNames.map((bookName, index) => decidedCountOf(bookName, inUse[index] ?? unionOfSelections(getLoreBook(bookName)))));
     return {
-        hasChat: Boolean(where.chatId),
+        hasChat: Boolean(lockTarget().chatId),
         books: bookNames.map((bookName, index) => ({
             bookName,
             selectedCount: counts[index],
-            isLockedToChat: Boolean(inUse[index]) && isSelectionLockedTo(inUse[index], { chatId: where.chatId }),
-            isLockedToCharacter: Boolean(inUse[index]) && isSelectionLockedTo(inUse[index], { characterAvatar: where.characterAvatar }),
+            isLockedToChat: Boolean(inUse[index]) && isSelectionLockedTo(inUse[index], { chatId: wheres[index].chatId }),
+            isLockedToCharacter: Boolean(inUse[index]) && isSelectionLockedTo(inUse[index], { characterAvatar: wheres[index].characterAvatar }),
             selections: loreSelectionsOf(bookName).map(({ id, name }) => ({ id, name })),
             selectionInUseId: inUse[index]?.id ?? null,
             canUnlink: chatBookLinks(bookName).unlinkedFrom.length > 0,
@@ -258,10 +309,10 @@ export function useLoreSelectionHere(bookName, selectionId) {
  * @returns {import('./lorebase-selections-core.js').LoreSelection}
  */
 export function newLoreSelectionHere(bookName, sourceSelectionId = null) {
-    const where = lockTarget();
+    const { chatId } = lockTarget();
     const selection = loreSelectionsOf(bookName).length
-        ? newLoreSelection(bookName, sourceSelectionId ?? selectionInUse(bookName, where)?.id ?? null)
+        ? newLoreSelection(bookName, sourceSelectionId ?? selectionInUseHere(bookName)?.id ?? null)
         : ensureLoreSelection(bookName);
-    if (where.chatId) setLoreSelectionLock(bookName, selection.id, { chatId: where.chatId }, true);
+    if (chatId) setLoreSelectionLock(bookName, selection.id, { chatId }, true);
     return selection;
 }

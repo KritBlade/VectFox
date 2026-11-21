@@ -169,6 +169,34 @@ describe('Dead code is removed (cleanup contract)', () => {
         });
     });
 
+    describe('LoreBase — one route per question (the user, 2026-11-21)', () => {
+        it('the near-copies that each answered a LoreBase question by a rule of their own are gone', () => {
+            const offenders = grepSourcesWithLines(/\b(?:uidsWithCurrentVectors|deleteAllVectors|recordedLoreBookNames|REMOVAL_OFF_QDRANT)\b/);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+        });
+
+        it("no one reads a book's selection in use here but through selectionInUseHere", () => {
+            const offenders = grepSourcesWithLines(/selectionInUse\([^)]*lockTarget\(\)/);
+            expect(offenders, offenders.join('\n')).toEqual([]);
+        });
+
+        it('each question has its one route, defined once', () => {
+            const routes = [
+                ['src/features/lorebase/lorebase-reply-core.js', /export\s+function\s+(?:isDecidedEntry|undecidableReasonOf)\b/g, 2],
+                ['src/features/lorebase/lorebase-selection-core.js', /export\s+function\s+(?:isDecidedRow|canToggleRow)\b/g, 2],
+                ['src/features/lorebase/lorebase-readiness.js', /export\s+function\s+isEntryReady\b/g, 1],
+                ['src/features/lorebase/lorebase-setup.js', /export\s+function\s+(?:qdrantProblem|keyWritingProblem|vectorWritingProblem|writingProblem|replyModel)\b/g, 5],
+                ['src/features/lorebase/lorebase-books.js', /export\s+async\s+function\s+decidedCountOf\b/g, 1],
+                ['src/features/lorebase/lorebase-storage-core.js', /export\s+function\s+hasLoreBaseHoldings\b/g, 1],
+                ['src/features/lorebase/lorebase-chat-books.js', /export\s+function\s+(?:whereFor|selectionInUseHere)\b/g, 2],
+            ];
+            expect(routes.map(([file, pattern]) => [file, (readRel(file).match(pattern) ?? []).length])).toEqual(routes.map(([file, , count]) => [file, count]));
+            const copies = grepSourcesWithLines(/(?:const\s+isDecidedRow\s*=|function\s+keyWritingProblem\b|function\s+undecidableReasonOf\b|async\s+function\s+decidedCountOf\b)/)
+                .filter(line => !/lorebase-(?:selection-core|setup|reply-core|books)\.js/.test(line));
+            expect(copies, copies.join('\n')).toEqual([]);
+        });
+    });
+
     describe('Phase B — DEAD-CHUNK-CHAT', () => {
         it('No source file contains the DEAD-CHUNK-CHAT marker', () => {
             const offenders = grepSourcesWithLines(/DEAD-CHUNK-CHAT/);

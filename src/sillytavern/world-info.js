@@ -36,8 +36,17 @@ export async function addCharacterLorebook(characterAvatar, bookName) {
  * @param {string} bookName
  */
 export function removeCharacterLorebook(characterFileName, bookName) {
-    const extraBooks = getWorldInfoSettings().world_info?.charLore?.find(item => item.name === characterFileName)?.extraBooks ?? [];
-    charSetAuxWorlds(characterFileName, extraBooks.filter(name => name !== bookName));
+    charSetAuxWorlds(characterFileName, characterLorebooks(characterFileName).filter(name => name !== bookName));
+}
+
+/**
+ * A character's Additional Lorebooks, as its World Info button in SillyTavern lists them.
+ * @param {string} characterFileName - The character's file name, its avatar's without the extension (getCharaFilename),
+ *   which SillyTavern keys the list by
+ * @returns {string[]}
+ */
+export function characterLorebooks(characterFileName) {
+    return getWorldInfoSettings().world_info?.charLore?.find(item => item.name === characterFileName)?.extraBooks ?? [];
 }
 
 /**

@@ -273,10 +273,21 @@ export function bookFailedMarkup(reason) {
     return notice({ status: 'danger', text: 'This lorebook could not be read', name: reason });
 }
 
-/** Why a lock switch cannot act now, or '' when both can. */
-export function lockNoticeMarkup({ hasChat, hasCharacter }) {
+/**
+ * Why a lock switch cannot act now, or which character Lock to this character means in a group chat, the member whose
+ * lorebook this is; '' in a chat of one character.
+ * @param {{hasChat: boolean, hasCharacter: boolean, groupMemberName?: string}} where
+ * @returns {string}
+ */
+export function lockNoticeMarkup({ hasChat, hasCharacter, groupMemberName = '' }) {
     if (!hasChat) return notice({ status: 'info', text: 'Open a chat to lock this selection to it or to its character.' });
-    if (!hasCharacter) return notice({ status: 'info', text: 'A group chat has no one character to lock this selection to.' });
+    if (!hasCharacter) return notice({ status: 'info', text: 'In this group chat no one member loads this lorebook, so lock this selection to the chat.' });
+    if (groupMemberName) {
+        return notice({
+            status: 'info',
+            parts: [{ text: 'In this group chat this is the lorebook of ' }, { name: groupMemberName }, { text: ': Lock to this character locks it to that member, in every chat with that member.' }],
+        });
+    }
     return '';
 }
 

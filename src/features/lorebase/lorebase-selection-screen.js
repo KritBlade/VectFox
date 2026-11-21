@@ -31,9 +31,9 @@ import { loadWorldInfo, world_names } from '../../sillytavern/world-info.js';
 import { bindGeneBehaviours } from '../../shared/gui-dna/gene-behaviours.js';
 import {
     decidedCountOf, ensureLoreSelection, getLoreBook, getLoreSelection, loreBookRecordCounts, loreSelectionsOf, renameLoreSelection,
-    selectionInUse, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
+    setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
 } from './lorebase-books.js';
-import { chatBookLocks, chatBookNames, lockTarget, newLoreSelectionHere } from './lorebase-chat-books.js';
+import { chatBookLocks, chatBookNames, lockTarget, newLoreSelectionHere, selectionInUseHere, whereFor } from './lorebase-chat-books.js';
 import { deleteLoreSelectionAfterConfirm } from './lorebase-removal.js';
 import { editedKeys } from './lorebase-keys-core.js';
 import { keyStateOf, onKeyStateChange, readBookKeys, regenerateKeys, saveEditedKeys } from './lorebase-keys.js';
@@ -67,6 +67,8 @@ const entryElementOf = (root, uid) => [...root.querySelectorAll('[data-lorebase-
 const selectedUidsOf = session => session.rows.filter(row => row.isSelected).map(row => row.uid);
 // The selection the screen shows, of the book shown.
 const shownSelectionOf = session => getLoreSelection(session.bookName, session.selectionId);
+// The selection a book opens on with none named: the one in use here, else the book's first, made when it has none.
+const selectionShownFor = bookName => selectionInUseHere(bookName) ?? ensureLoreSelection(bookName);
 
 /**
  * A selected row's keys and vectors as this session knows them (entryReadiness); a row LoreBase does not decide shows
@@ -174,7 +176,7 @@ const SUMMARY_COUNT_OF = Object.freeze({
  */
 function takingPartOf(session, entryCount) {
     if (session.otherTakingPartCount === null) return null;
-    const isInUseHere = selectionInUse(session.bookName, lockTarget())?.id === session.selectionId;
+    const isInUseHere = selectionInUseHere(session.bookName)?.id === session.selectionId;
     const isSelectionTakingPart = isInUseHere && chatBookNames().includes(session.bookName);
     return { count: session.otherTakingPartCount + (isSelectionTakingPart ? entryCount : 0), isSelectionTakingPart };
 }
@@ -231,7 +233,7 @@ function renderSummaryText(root, session) {
 /** The book's selections in the list, the one shown chosen; Delete waits while the book has only one. */
 function renderSelectionList(root, session) {
     const selections = loreSelectionsOf(session.bookName);
-    const inUseId = selectionInUse(session.bookName, lockTarget())?.id ?? null;
+    const inUseId = selectionInUseHere(session.bookName)?.id ?? null;
     byId(root, ids.selectionList).innerHTML = selectionOptions(selections, { selectionId: session.selectionId, inUseId }).join('');
     root.querySelector('[data-lorebase-action="delete-selection"]').disabled = selections.length < 2;
 }
@@ -257,8 +259,12 @@ function renderReadiness(root, session) {
     renderSummaryText(root, session);
 }
 
+/**
+ * The lock switches of the selection shown, for where the book's selection is in use here (whereFor): the chat, and the
+ * character the chat loads the book through, in a group chat the member whose lorebook it is, named in the notice.
+ */
 function renderLocks(root, session) {
-    const target = lockTarget();
+    const target = whereFor(session.bookName);
     const chatSwitch = byId(root, ids.lockChat);
     const characterSwitch = byId(root, ids.lockCharacter);
     chatSwitch.disabled = !target.chatId;
@@ -266,7 +272,8 @@ function renderLocks(root, session) {
     const selection = shownSelectionOf(session);
     chatSwitch.checked = Boolean(target.chatId && selection) && isSelectionLockedTo(selection, { chatId: target.chatId });
     characterSwitch.checked = Boolean(target.characterAvatar && selection) && isSelectionLockedTo(selection, { characterAvatar: target.characterAvatar });
-    byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterAvatar) });
+    const groupMemberName = target.characterAvatar && !lockTarget().characterAvatar ? target.characterName : '';
+    byId(root, ids.lockNotice).innerHTML = lockNoticeMarkup({ hasChat: Boolean(target.chatId), hasCharacter: Boolean(target.characterAvatar), groupMemberName });
 }
 
 /** Save the selection shown, noting its book, so the vectors of the entries turned off go as the screen closes. */
@@ -476,7 +483,7 @@ async function showBook(root, session, bookName, selectionId = null) {
         setLoreBookSelection(bookName, selection.id, live);
         session.booksWithChangedSelection.add(bookName);
     }
-    const selection = selectionId ? getLoreSelection(bookName, selectionId) : selectionInUse(bookName, lockTarget()) ?? ensureLoreSelection(bookName);
+    const selection = selectionId ? getLoreSelection(bookName, selectionId) : selectionShownFor(bookName);
     session.selectionId = selection.id;
     session.book = book;
     session.entryByUid = new Map(Object.values(book.entries ?? {}).map(entry => [String(entry.uid), entry]));
@@ -535,7 +542,7 @@ async function deleteSelection(root, session) {
     const selection = shownSelectionOf(session);
     if (!selection || loreSelectionsOf(session.bookName).length < 2) return;
     if (!await deleteLoreSelectionAfterConfirm(session.bookName, selection.id, extension_settings.vectfox)) return;
-    showSelection(root, session, (selectionInUse(session.bookName, lockTarget()) ?? loreSelectionsOf(session.bookName)[0]).id);
+    showSelection(root, session, selectionShownFor(session.bookName).id);
 }
 
 function onAction(root, session, element, event) {
@@ -610,7 +617,7 @@ function bindScreen(root, session) {
         } else if (target.id === ids.selectionList && session.book) {
             showSelection(root, session, target.value);
         } else if ((target.id === ids.lockChat || target.id === ids.lockCharacter) && session.selectionId) {
-            const { chatId, characterAvatar } = lockTarget();
+            const { chatId, characterAvatar } = whereFor(session.bookName);
             setLoreSelectionLock(session.bookName, session.selectionId, target.id === ids.lockChat ? { chatId } : { characterAvatar }, target.checked);
             session.booksWithChosenLocks.add(session.bookName);
             renderLocks(root, session);
