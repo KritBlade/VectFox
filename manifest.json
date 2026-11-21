@@ -7,7 +7,7 @@
     "js": "src/index.js",
     "css": "src/vectfox.css",
     "author": "Kritbalde",
-    "version": "3.6.216",
+    "version": "3.6.217",
     "similharity_minimum_version": "3.4.14",
     "homePage": "https://github.com/KritBlade/VectFox",
     "description": "Chat memory from EventBase events, with StoryArc, Agent Mode and LoreBase lorebook picks",
