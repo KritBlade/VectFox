@@ -149,15 +149,37 @@ export function measureStoryLinkCoverage(events) {
     };
 }
 
+/** How far a collection is linked, for the StoryArc tab's colour (storyLinkState). */
+export const STORY_LINK_STATE = Object.freeze({
+    /** Every event decided: green. */
+    LINKED: 'linked',
+    /** Some decided: yellow, for Regenerate links to catch up. */
+    PARTLY_LINKED: 'partly-linked',
+    /** None decided: red, for Regenerate links to link, its cost shown first. */
+    UNLINKED: 'unlinked',
+});
+
 /**
- * Whether older events are decided well enough for a new event's link pass to be
- * worth paying for. A chat that never had a link pass waits for the StoryArc button.
+ * How far a collection's events are linked, from its coverage (measureStoryLinkCoverage).
+ * @param {{totalCount: number, decidedCount: number}} coverage - Of a collection with events
+ * @returns {string} A STORY_LINK_STATE
+ */
+export function storyLinkState({ totalCount, decidedCount }) {
+    if (decidedCount === 0) return STORY_LINK_STATE.UNLINKED;
+    return decidedCount >= totalCount ? STORY_LINK_STATE.LINKED : STORY_LINK_STATE.PARTLY_LINKED;
+}
+
+/**
+ * Whether a run's new events get their links in the background: only in a collection that has had a link pass, its
+ * older events decided well enough for a new event's link to be worth paying for. A collection with no older event
+ * (a chat's first read, New collection, Start over), or with older events never linked, waits for Regenerate links,
+ * which shows the cost first, so no link is paid for unasked.
  *
  * @param {object[]} olderEvents - Stored events other than the new ones
  * @returns {boolean}
  */
 export function shouldLinkNewEvents(olderEvents) {
-    return olderEvents.filter(isDecided).length >= olderEvents.length * USABLE_DECIDED_SHARE;
+    return olderEvents.length > 0 && olderEvents.filter(isDecided).length >= olderEvents.length * USABLE_DECIDED_SHARE;
 }
 
 /**

@@ -396,12 +396,24 @@ describe('linkNewStoryEvents', () => {
         expect(queryCollectionMock.mock.calls[0][3].score_threshold).toBe(0);
     });
 
-    it('decides the first event of a chat with no call and no search', async () => {
-        listStoryEventsMock.mockResolvedValue([stored(1, 10)]);
-        await run(['id1']);
+    it('decides a new event with nothing earlier with no call and no search', async () => {
+        listStoryEventsMock.mockResolvedValue([...decidedOlder, stored(3, 5)]);
+        await run(['id3']);
         expect(queryCollectionMock).not.toHaveBeenCalled();
         expect(callLlmForJsonMock).not.toHaveBeenCalled();
-        expect(writtenLinks()).toEqual({ 1: [] });
+        expect(writtenLinks()).toEqual({ 3: [] });
+    });
+
+    // A chat's first read, New collection and Start over: a whole chat's links are paid for only from Regenerate
+    // links, which shows the cost first.
+    it('waits for the button in a collection with no older event, however few its new events', async () => {
+        const firstRead = Array.from({ length: 12 }, (_, i) => stored(i + 1, (i + 1) * 10));
+        listStoryEventsMock.mockResolvedValue(firstRead);
+        await run(firstRead.map(item => item.event_id));
+        expect(queryCollectionMock).not.toHaveBeenCalled();
+        expect(callLlmForJsonMock).not.toHaveBeenCalled();
+        expect(updateChunkMetadataMock).not.toHaveBeenCalled();
+        expect(globalThis.toastr.info).not.toHaveBeenCalled();
     });
 
     // A chat that never had a link pass would otherwise pay on every reply for links nothing can walk yet.

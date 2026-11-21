@@ -8,9 +8,9 @@
  * ============================================================================
  */
 
-import { button, detail, fieldLabel, grid, hint, iconButton, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
+import { button, detail, fieldLabel, grid, hint, iconButton, resultList, selectOption, select, field } from '../../shared/gui-dna/gui-dna-core.js';
 import { cardHeader, pageHeader, sliderNumber, switchRow } from '../../shared/gui-dna/panel-page-genes.js';
-import { LINK_PARALLEL_CALLS_DEFAULT, LINK_PARALLEL_CALLS_MAX } from './story-arc-links-core.js';
+import { LINK_PARALLEL_CALLS_DEFAULT, LINK_PARALLEL_CALLS_MAX, STORY_LINK_STATE, storyLinkState } from './story-arc-links-core.js';
 import { chatProviderOptions, connectionProfileRows, testConnectionButton } from '../../shared/connection-profile-rows-markup.js';
 
 /** The rail finds each page as VectFox_panel_<name> (settings-panel/panel-shell-markup.js). */
@@ -85,10 +85,62 @@ function modeCard() {
             <div class="vfx-control-row">
                 <button type="button" id="VectFox_story_arc_regenerate_links" class="vfx-btn vfx-btn-primary"><i class="fa-solid fa-link"></i><span>Regenerate links</span></button>
             </div>
-            <p id="VectFox_story_arc_link_status" class="vfx-hint"></p>
+            <div id="VectFox_story_arc_link_status"></div>
             ${hint({ text: 'The Database Browser saves each chat\'s links to a file and puts them back.' })}
         </div>
     </section>`;
+}
+
+/** The colour of each STORY_LINK_STATE, on the links line and the pill: green, yellow, red. */
+const LINK_STATE_STATUS = Object.freeze({
+    [STORY_LINK_STATE.LINKED]: 'success',
+    [STORY_LINK_STATE.PARTLY_LINKED]: 'warning',
+    [STORY_LINK_STATE.UNLINKED]: 'danger',
+});
+
+/**
+ * The links line under Regenerate links: how far the collection in use is linked, coloured by storyLinkState, green
+ * with every event decided, yellow with some, red with none, and what Regenerate links does about it; or, with no
+ * collection to read, why (readStoryLinkCoverage's problem), uncoloured.
+ * @param {{problem?: string, collectionName?: string, totalCount?: number, decidedCount?: number, linkedCount?: number,
+ *   hasUsableLinks?: boolean}} coverage - readStoryLinkCoverage's answer
+ * @returns {string}
+ */
+export function storyLinkStatusMarkup(coverage) {
+    if (coverage.problem) return resultList({ lines: [{ name: coverage.problem }] });
+    const { collectionName, totalCount, decidedCount, linkedCount, hasUsableLinks } = coverage;
+    const state = storyLinkState(coverage);
+    const counts = `"${collectionName}": ${decidedCount} of ${totalCount} events decided, ${linkedCount} with links.`;
+    let next;
+    if (state === STORY_LINK_STATE.UNLINKED) {
+        next = 'StoryArc searches without links until Regenerate links links them, after showing the cost.';
+    } else {
+        next = hasUsableLinks ? 'StoryArc follows threads through these links.' : 'StoryArc searches without links until this pass is mostly done.';
+        if (state === STORY_LINK_STATE.PARTLY_LINKED) next += ' Regenerate links catches up the events not decided.';
+    }
+    return resultList({ lines: [{ status: LINK_STATE_STATUS[state], name: `${counts} ${next}` }] });
+}
+
+/**
+ * The StoryArc page's links pill for a collection with events: its decided events, coloured as the links line is.
+ * @param {{totalCount: number, decidedCount: number}} coverage
+ * @returns {{status: string, text: string}} status: success, warning or danger, the pill's is- class
+ */
+export function storyLinkPill(coverage) {
+    return { status: LINK_STATE_STATUS[storyLinkState(coverage)], text: `${coverage.decidedCount} of ${coverage.totalCount} events decided` };
+}
+
+/**
+ * Regenerate links' choices, by how far the collection is linked: Link with none decided, Catch up for the events not
+ * decided beside Relink all with some, Relink all with every one.
+ * @param {{undecidedCount: number, decidedCount: number, totalCount: number}} counts
+ * @returns {Array<{text: string, value: 'undecided'|'all'}>} 'undecided' links the events not decided, 'all' every one
+ */
+export function linkPassChoices({ undecidedCount, decidedCount, totalCount }) {
+    return [
+        ...(undecidedCount > 0 ? [{ text: `${decidedCount > 0 ? 'Catch up' : 'Link'} ${undecidedCount} events`, value: 'undecided' }] : []),
+        ...(decidedCount > 0 || undecidedCount === 0 ? [{ text: `Relink all ${totalCount} events`, value: 'all' }] : []),
+    ];
 }
 
 function blockSizeCard() {

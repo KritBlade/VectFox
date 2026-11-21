@@ -21,7 +21,10 @@ import {
 } from '../../shared/api-keys.js';
 import { resetBackendHealth } from '../vector-backend/index.js';
 import { isVectFoxEnabled } from '../../shared/feature-gate.js';
-import { describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass, showNoCollectionInUse, showStoryArcPage, storyArcPageMarkup, wireStoryArcPage } from '../eventbase/index.js';
+import {
+    describeStoryLinkPass, hideStoryArcPage, linkParallelCallsOf, linkPassChoices, openContentVectorizer, readStoryLinkCoverage, runStoryLinkPass,
+    showNoCollectionInUse, showStoryArcPage, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup, wireStoryArcPage,
+} from '../eventbase/index.js';
 import { getHealthPillHtml, refreshHealthPill } from '../diagnostics/index.js';
 import { keyCallsAtOnceOf, loreBaseAccuracyOf, loreBudgetOf } from '../lorebase/index.js';
 import { PANEL_TABS, panelNavMarkup, panelPageMarkup, vectfoxOffNoticeMarkup } from './panel-shell-markup.js';
@@ -136,33 +139,36 @@ function panelTabsWithHooks() {
     return PANEL_TABS.map(tab => ({ name: tab.name, ...hooks[tab.name] }));
 }
 
-/** Show how far this chat's link pass has got, in the StoryArc tab. */
+/** The pill's status classes, one at a time (storyLinkPill). */
+const LINK_PILL_STATUS_CLASSES = 'is-accent is-success is-warning is-danger';
+
+/**
+ * Show how far the collection in use is linked, in the StoryArc tab: the links line and the pill, green with every
+ * event decided, yellow with some, red with none (storyLinkStatusMarkup); the pill hidden on a problem.
+ */
 async function refreshStoryLinkStatus(settings) {
     const $status = $('#VectFox_story_arc_link_status');
+    const $pill = $('#VectFox_story_arc_link_pill');
     let coverage;
     try {
         coverage = await readStoryLinkCoverage(settings);
     } catch (err) {
         log.warn('VectFox StoryArc: could not read link status:', err);
-        $status.text('Could not read this chat\'s links. See the console.');
-        return;
+        coverage = { problem: 'Could not read this chat\'s links. See the console.' };
     }
+    $status.html(storyLinkStatusMarkup(coverage));
     if (coverage.problem) {
-        $status.text(coverage.problem);
-        $('#VectFox_story_arc_link_pill').hide();
+        $pill.hide();
         return;
     }
-    const usability = coverage.hasUsableLinks
-        ? 'StoryArc follows threads through these links.'
-        : 'StoryArc searches without links until this pass is mostly done.';
-    $status.text(`"${coverage.collectionName}": ${coverage.decidedCount} of ${coverage.totalCount} events decided, ${coverage.linkedCount} with links. ${usability}`);
-    $('#VectFox_story_arc_link_pill').text(`${coverage.linkedCount} of ${coverage.totalCount} linked`).show();
+    const pill = storyLinkPill(coverage);
+    $pill.removeClass(LINK_PILL_STATUS_CLASSES).addClass(`is-${pill.status}`).text(pill.text).show();
 }
 
 /** One line of what a link pass would likely cost. */
 function _describeLinkEstimate({ eventCount, inputTokens, outputTokens, minutes, costUsd }) {
     const cost = costUsd === null ? 'price unknown' : `about $${costUsd.toFixed(2)}`;
-    return `${eventCount} events: ${cost}, about ${minutes} minutes, about ${Math.round(inputTokens / 1000)}k input and ${Math.round(outputTokens / 1000)}k output tokens`;
+    return `${eventCount} events: ${cost}, about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}, about ${Math.round(inputTokens / 1000)}k input and ${Math.round(outputTokens / 1000)}k output tokens`;
 }
 
 /** Show a link pass's cost, and run it if the player accepts, with as many events at once as the card's slider says. */
@@ -189,10 +195,7 @@ async function _runStoryLinkButton(settings) {
         ...(hasDecided ? [{ text: 'All events, replacing their links:', name: _describeLinkEstimate(allEstimate) }] : []),
         { text: 'Estimated from one chat on GPT-6 Luna, and a model that thinks more costs more. You can stop at any time, and finished events keep their links.' },
     ], {
-        choices: [
-            ...(hasUndecided ? [{ text: `Link ${undecidedEstimate.eventCount} events`, value: 'undecided' }] : []),
-            ...(hasDecided || !hasUndecided ? [{ text: `Relink all ${allEstimate.eventCount} events`, value: 'all' }] : []),
-        ],
+        choices: linkPassChoices({ undecidedCount: undecidedEstimate.eventCount, decidedCount: coverage.decidedCount, totalCount: allEstimate.eventCount }),
     });
     if (!choice) return;
     await runStoryLinkPass({ collectionId, settings, shouldRelinkDecided: choice === 'all', parallelCalls });

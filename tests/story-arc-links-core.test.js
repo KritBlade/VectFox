@@ -9,6 +9,7 @@ import {
     ALL_STORY_LINK_TYPES,
     STORY_LINKS_FILE_TYPE,
     STORY_LINK_PROMPT,
+    STORY_LINK_STATE,
     STORY_LINK_TYPE,
     buildStoryLinkGraph,
     buildStoryLinkMessage,
@@ -27,6 +28,7 @@ import {
     readStoryLinks,
     readStoryLinksFile,
     shouldLinkNewEvents,
+    storyLinkState,
     walkStoryLinks,
 } from '../src/features/eventbase/story-arc-links-core.js';
 
@@ -90,14 +92,33 @@ describe('measureStoryLinkCoverage', () => {
 });
 
 describe('shouldLinkNewEvents', () => {
-    it('links in a new chat, and in a chat whose older events are decided', () => {
-        expect(shouldLinkNewEvents([])).toBe(true);
+    it('links in a collection whose older events are decided', () => {
         expect(shouldLinkNewEvents([event(1, 1, { story_links: [] })])).toBe(true);
+        expect(shouldLinkNewEvents([event(1, 1, { story_links: [link(2)] }), event(2, 2, { story_links: [] })])).toBe(true);
     });
 
     // Otherwise every reply would pay for links nothing can walk yet.
-    it('waits when the chat has never had a link pass', () => {
+    it('waits when the collection has never had a link pass', () => {
         expect(shouldLinkNewEvents([event(1, 1), event(2, 2)])).toBe(false);
+    });
+
+    // A chat's first read, New collection and Start over write into a collection with no older event: a whole chat's
+    // links are paid for only from Regenerate links, which shows the cost first.
+    it('waits with no older event', () => {
+        expect(shouldLinkNewEvents([])).toBe(false);
+    });
+});
+
+describe('storyLinkState', () => {
+    it('is linked with every event decided, partly linked with some, unlinked with none', () => {
+        expect(storyLinkState({ totalCount: 11, decidedCount: 11 })).toBe(STORY_LINK_STATE.LINKED);
+        expect(storyLinkState({ totalCount: 15, decidedCount: 11 })).toBe(STORY_LINK_STATE.PARTLY_LINKED);
+        expect(storyLinkState({ totalCount: 15, decidedCount: 0 })).toBe(STORY_LINK_STATE.UNLINKED);
+    });
+
+    it('reads a coverage as measureStoryLinkCoverage gives it', () => {
+        const coverage = measureStoryLinkCoverage([event(1, 1, { story_links: [] }), event(2, 2)]);
+        expect(storyLinkState(coverage)).toBe(STORY_LINK_STATE.PARTLY_LINKED);
     });
 });
 

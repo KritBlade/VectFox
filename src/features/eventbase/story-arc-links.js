@@ -310,9 +310,10 @@ export async function runStoryLinkPass({ collectionId, settings, shouldRelinkDec
 }
 
 /**
- * Give an ingestion run's new events their links, in the background. Never throws,
- * since ingestion has already succeeded, and a failed event stays undecided for
- * the StoryArc button to pick up.
+ * Give an ingestion run's new events their links, in the background, in a collection
+ * that has had a link pass (shouldLinkNewEvents); any other waits for Regenerate
+ * links, which shows the cost first. Never throws, since ingestion has already
+ * succeeded, and a failed event stays undecided for the StoryArc button to pick up.
  *
  * @param {object} params
  * @param {string} params.collectionId
@@ -337,7 +338,7 @@ export async function linkNewStoryEvents({ collectionId, newEventIds, settings }
         const newIds = new Set(newEventIds);
         const newEvents = inTimelineOrder(events.filter(event => newIds.has(event.event_id)));
         if (!shouldLinkNewEvents(events.filter(event => !newIds.has(event.event_id)))) {
-            log.domain('story_arc', 'lifecycle', '[VectFox-StoryArc] This chat has had no link pass, so its new events wait for the StoryArc button');
+            log.domain('story_arc', 'lifecycle', `[VectFox-StoryArc] ${collectionId} has had no link pass, so its ${newEvents.length} new events wait for Regenerate links`);
             return;
         }
         const ordered = inTimelineOrder(events);

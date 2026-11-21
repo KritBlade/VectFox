@@ -9,7 +9,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { STORY_ARC_ELEMENT_ID, storyArcPageMarkup } from '../src/features/eventbase/story-arc-page-markup.js';
+import {
+    STORY_ARC_ELEMENT_ID, linkPassChoices, storyArcPageMarkup, storyLinkPill, storyLinkStatusMarkup,
+} from '../src/features/eventbase/story-arc-page-markup.js';
 import { ENTITY_ROWS_PER_PAGE, entityListMarkup, hiddenNamesButton } from '../src/features/eventbase/story-arc-entity-ui.js';
 
 const rowsOf = count => Array.from({ length: count }, (_, place) => ({ name: `Name ${place}`, otherNames: [], eventCount: count - place }));
@@ -157,5 +159,65 @@ describe('hiddenNamesButton', () => {
         expect(toList).toContain('Show hidden');
         expect(back).toContain('Back to names');
         for (const markup of [toList, back]) expect(markup).toContain('data-entity-action="toggle-hidden"');
+    });
+});
+
+describe('the links line and pill: how far the collection in use is linked', () => {
+    const coverage = (decidedCount, totalCount = 12) => ({
+        collectionName: 'Harbor <b>Keeper</b> 3',
+        totalCount,
+        decidedCount,
+        linkedCount: Math.max(0, decidedCount - 2),
+        hasUsableLinks: decidedCount > 2 && decidedCount >= totalCount * 0.9,
+    });
+
+    it('is green with every event decided', () => {
+        const line = storyLinkStatusMarkup(coverage(12));
+        expect(line).toContain('vfx-result-line is-success');
+        expect(line).toContain('12 of 12 events decided, 10 with links. StoryArc follows threads through these links.');
+        expect(line).not.toContain('Regenerate links');
+        expect(storyLinkPill(coverage(12))).toEqual({ status: 'success', text: '12 of 12 events decided' });
+    });
+
+    it('is yellow with some decided, for Regenerate links to catch up', () => {
+        const line = storyLinkStatusMarkup(coverage(8));
+        expect(line).toContain('vfx-result-line is-warning');
+        expect(line).toContain('8 of 12 events decided, 6 with links. StoryArc searches without links until this pass is mostly done.'
+            + ' Regenerate links catches up the events not decided.');
+        expect(storyLinkPill(coverage(8))).toEqual({ status: 'warning', text: '8 of 12 events decided' });
+    });
+
+    it('is red with none decided, as a new collection is until Regenerate links links it', () => {
+        const line = storyLinkStatusMarkup(coverage(0));
+        expect(line).toContain('vfx-result-line is-danger');
+        expect(line).toContain('0 of 12 events decided, 0 with links. StoryArc searches without links until Regenerate links links them, after showing the cost.');
+        expect(storyLinkPill(coverage(0))).toEqual({ status: 'danger', text: '0 of 12 events decided' });
+    });
+
+    it('names the collection as text', () => {
+        expect(storyLinkStatusMarkup(coverage(12))).toContain('&quot;Harbor &lt;b&gt;Keeper&lt;/b&gt; 3&quot;: 12 of 12');
+    });
+
+    it('says why, uncoloured, with no collection to read', () => {
+        const line = storyLinkStatusMarkup({ problem: 'No collection is in use in this chat, so StoryArc has no events or links here.' });
+        expect(line).toContain('No collection is in use in this chat, so StoryArc has no events or links here.');
+        expect(line).not.toMatch(/is-(success|warning|danger)/);
+    });
+});
+
+describe("Regenerate links' choices", () => {
+    it('offers Link with none decided', () => {
+        expect(linkPassChoices({ undecidedCount: 12, decidedCount: 0, totalCount: 12 })).toEqual([{ text: 'Link 12 events', value: 'undecided' }]);
+    });
+
+    it('offers Catch up beside Relink all with some decided', () => {
+        expect(linkPassChoices({ undecidedCount: 4, decidedCount: 11, totalCount: 15 })).toEqual([
+            { text: 'Catch up 4 events', value: 'undecided' },
+            { text: 'Relink all 15 events', value: 'all' },
+        ]);
+    });
+
+    it('offers Relink all alone with every one decided', () => {
+        expect(linkPassChoices({ undecidedCount: 0, decidedCount: 11, totalCount: 11 })).toEqual([{ text: 'Relink all 11 events', value: 'all' }]);
     });
 });
