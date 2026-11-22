@@ -4,9 +4,10 @@
  * collection's ID in the tenant field `content_type`, which Similharity indexes as a tenant (its TENANT_FIELD), so every
  * request about a collection's points sends that tenant as a filter. A request's settings can name another shared
  * collection in `qdrant_shared_collection`: LoreBase keeps every book of an account in one Qdrant collection, its own
- * when "One shared collection" is off (features/lorebase/lorebase-vectors.js). Imports nothing, so any module can route
- * a request without taking in the Qdrant backend.
+ * when "One shared collection" is off (features/lorebase/lorebase-vectors.js). Imports only the pure point ID
+ * (shared/point-ids.js), so any module can route a request without taking in the Qdrant backend.
  */
+import { tenantPointId } from '../../shared/point-ids.js';
 
 // NOTE: `vectfox_main` is kept verbatim for on-disk compatibility
 // with existing user Qdrant data. Do not rebrand. See InternalProject/Vectfox/plans/executed/vectfox-rename-plan.md §1.5.
@@ -65,4 +66,21 @@ export function qdrantTarget(collectionId, settings) {
     return settings?.qdrant_multitenancy
         ? { collectionId: settings.qdrant_shared_collection || MULTITENANCY_COLLECTION, filters: { [TENANT_FIELD]: ownId } }
         : { collectionId: ownId, filters: {} };
+}
+
+/**
+ * The ID a point copied into one VectFox collection is stored under: a fork's copy of its parent's events, or an
+ * imported collection's points. A copy keeps its source's hash, and in the shared collection the source's point may be
+ * stored under that hash, which the copy would replace, so there it takes an ID of the collection it goes into
+ * (tenantPointId). Elsewhere none: in a Qdrant collection of its own, Similharity stores it under its hash, as every
+ * other point there, and finds it by that ID.
+ * @param {string} collectionId - The collection the copy goes into: its ID or registry key
+ * @param {number} hash - The copy's hash
+ * @param {object} settings - VectFox settings
+ * @returns {string|undefined}
+ */
+export function copiedPointId(collectionId, hash, settings) {
+    if (settings?.vector_backend !== 'qdrant') return undefined;
+    const tenant = qdrantTarget(collectionId, settings).filters[TENANT_FIELD];
+    return tenant ? tenantPointId(tenant, hash) : undefined;
 }

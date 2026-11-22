@@ -51,6 +51,7 @@ vi.mock('../src/features/vector-backend/index.js', async () => ({
     getBackend: vi.fn(),
     setInsertedCollectionRegistrar: vi.fn(),
     qdrantTarget: (await import('../src/features/vector-backend/qdrant-target.js')).qdrantTarget,
+    copiedPointId: (await import('../src/features/vector-backend/qdrant-target.js')).copiedPointId,
 }));
 
 import { extension_settings } from '../../../../extensions.js';

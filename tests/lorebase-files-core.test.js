@@ -14,6 +14,7 @@ vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn
 
 const files = await import('../src/features/lorebase/lorebase-files-core.js');
 const core = await import('../src/features/lorebase/lorebase-vectors-core.js');
+const { tenantPointId } = await import('../src/shared/point-ids.js');
 
 const HEADER = { version: '1.0.0', exportDate: '2026-11-19T08:00:00.000Z', generator: 'VectFox' };
 const BOOK = 'Harbor Atlas';
@@ -111,7 +112,7 @@ describe('a vectors file', () => {
             { uid: '3', partNumber: 0, text: pierPart.text, vector: [0.1, Number.NaN] },
         ]), { candidates, selectedUids, stored: new Map([[lighthousePart.hash, { uid: '0', modelKey: MODEL }]]), modelKey: MODEL });
         expect(plan.writes).toEqual([{ point: lighthousePart, vector: [0.1, 0.2] }, { point: pierPart, vector: [0.3, 0.4] }]);
-        expect(plan.writes[0].point.id).toBe(core.pointId(BOOK_ID, lighthousePart.hash));
+        expect(plan.writes[0].point.id).toBe(tenantPointId(BOOK_ID, lighthousePart.hash));
         expect([plan.uids, plan.replaceCount, plan.unselectedCount, plan.unmatchedCount, plan.damagedCount, plan.needsEmbedding])
             .toEqual([['0', '3'], 1, 1, 1, 3, false]);
     });

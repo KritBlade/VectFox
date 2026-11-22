@@ -18,6 +18,7 @@ vi.mock('../../../../popup.js', () => ({}));
 vi.mock('../../../../world-info.js', () => ({}));
 
 const { fetchPortableChunks, insertChunksWithVectors } = await import('../src/features/collections/collection-export.js');
+const { tenantPointId } = await import('../src/shared/point-ids.js');
 
 const SHARED = { vector_backend: 'qdrant', qdrant_multitenancy: true, embedding_provider: 'openrouter', cjk_tokenizer_mode: 'jieba_tw' };
 const OWN = { ...SHARED, qdrant_multitenancy: false };
@@ -56,5 +57,20 @@ describe('export and import with the shared Qdrant collection', () => {
         const insert = bodyOf('/api/plugins/similharity/chunks/insert');
         expect(insert.collectionId).toBe('vf_eventbase_qdrant_tester_fork');
         expect(insert.items[0].metadata).toEqual({ importance: 7 });
+        // Its own collection holds no other collection's point, so it is stored under its hash, as every point there.
+        expect(insert.items[0]).not.toHaveProperty('id');
+    });
+
+    // A fork's copy keeps its parent's hash, under which the parent's point is stored in vectfox_main: stored under
+    // that hash, the copy replaced it (B3, probed on the NAS Qdrant on 2026-11-22).
+    it('stores a copy in the shared collection under an ID of the collection it goes into, keeping its hash', async () => {
+        const parentEvent = { hash: 52001, index: 0, text: 'Keeper Orrin trims the lamp.', vector: [0.1, 0.2], metadata: { content_type: 'vf_eventbase_qdrant_tester_source' } };
+
+        await insertChunksWithVectors('vf_eventbase_qdrant_tester_fork', [parentEvent], SHARED);
+
+        const insert = bodyOf('/api/plugins/similharity/chunks/insert');
+        expect(insert.items[0].id).toBe(tenantPointId('vf_eventbase_qdrant_tester_fork', 52001));
+        expect(insert.items[0].id).not.toBe(tenantPointId('vf_eventbase_qdrant_tester_source', 52001));
+        expect(insert.items[0].hash).toBe(52001);
     });
 });

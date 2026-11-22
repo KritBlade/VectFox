@@ -59,6 +59,7 @@ vi.mock('../src/features/vector-backend/index.js', async () => ({
     getBackend: vi.fn(),
     setInsertedCollectionRegistrar: vi.fn(),
     qdrantTarget: (await import('../src/features/vector-backend/qdrant-target.js')).qdrantTarget,
+    copiedPointId: (await import('../src/features/vector-backend/qdrant-target.js')).copiedPointId,
 }));
 
 import { extension_settings } from '../../../../extensions.js';
@@ -67,6 +68,7 @@ import { getBackend, insertVectorItems, purgeVectorIndex } from '../src/features
 import { exportCollection, importCollection } from '../src/features/collections/collection-export.js';
 import { getCollectionMeta } from '../src/features/collections/collection-metadata.js';
 import { buildRegistryKey } from '../src/shared/collection-ids.js';
+import { tenantPointId } from '../src/shared/point-ids.js';
 import { deleteCollection, setDeletedOrImportedCollectionCleanup } from '../src/features/collections/collection-loader.js';
 import {
     clearCachesForDeletedOrImportedCollection,
@@ -275,5 +277,26 @@ describe('importing a collection keeps its name', () => {
     it('keeps a name the user typed', async () => {
         const named = { ...exportFile(SAME_PERSONA_ID), collection: { id: SAME_PERSONA_ID, name: 'Kagami at the shrine' } };
         expect(await displayNameAfterImport(named)).toBe('Kagami at the shrine');
+    });
+});
+
+// An import keeps the hash of the point it was exported from, under which that point may still be stored in the shared
+// collection (B3, probed on the NAS Qdrant on 2026-11-22).
+describe("an import's point IDs", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        extension_settings.vectfox = { collections: {}, vectfox_collection_registry: [] };
+        purgeVectorIndex.mockResolvedValue(true);
+        insertVectorItems.mockResolvedValue(undefined);
+    });
+
+    it('gives each point embedded again an ID of the collection it goes into, in the shared collection only', async () => {
+        await importCollection(exportFile(), { ...SETTINGS, qdrant_multitenancy: true }, { overwrite: true });
+        const [collectionId, chunks] = insertVectorItems.mock.calls[0];
+        expect(chunks[0].id).toBe(tenantPointId(collectionId, chunks[0].hash));
+
+        insertVectorItems.mockClear();
+        await importCollection(exportFile(), SETTINGS, { overwrite: true });
+        expect(insertVectorItems.mock.calls[0][1][0]).not.toHaveProperty('id');
     });
 });

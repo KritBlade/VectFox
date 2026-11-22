@@ -6,6 +6,7 @@
  * Pure: no SillyTavern, no network.
  */
 import { COLLECTION_PREFIXES, sanitizeNameSegment } from '../../shared/collection-ids.js';
+import { cyrb53, tenantPointId } from '../../shared/point-ids.js';
 import { entryPassages } from './lorebase-splitter.js';
 
 // A book's collection ID keeps at most this many characters of its name, for people reading it; the hash tells apart
@@ -19,28 +20,6 @@ const SEPARATOR = '\u001f';
 export const PARTS_PER_SEAT = 4;
 // How much of a text over the size a cut keeps each time it tries again, the tokens of its characters being uneven.
 const SHORTEN_BY = 0.9;
-
-/**
- * cyrb53: a fast 53-bit string hash with good spread (public domain, bryc). 53 bits keep it a whole number JavaScript
- * holds exactly and Qdrant stores as an integer.
- * @param {string} text
- * @param {number} [seed]
- * @returns {number}
- */
-function cyrb53(text, seed = 0) {
-    let h1 = 0xdeadbeef ^ seed;
-    let h2 = 0x41c6ce57 ^ seed;
-    for (let index = 0; index < text.length; index++) {
-        const code = text.charCodeAt(index);
-        h1 = Math.imul(h1 ^ code, 2654435761);
-        h2 = Math.imul(h2 ^ code, 1597334677);
-    }
-    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-    return 4294967296 * (2097151 & h2) + (h1 >>> 0);
-}
 
 /**
  * An account's handle as an ID segment. SillyTavern makes handles of a to z, 0 to 9 and hyphens; anything else becomes
@@ -86,21 +65,6 @@ export function pointHash(uid, text) {
 }
 
 /**
- * A point's ID: a UUID from its book's collection ID and its hash, so two books' points never meet inside one Qdrant
- * collection, and a point written again by another embedding model replaces the old one.
- * @param {string} bookCollectionId
- * @param {number} hash
- * @returns {string}
- */
-export function pointId(bookCollectionId, hash) {
-    const key = `${bookCollectionId}${SEPARATOR}${hash}`;
-    const hex = [1, 2, 3].map(seed => cyrb53(key, seed).toString(16).padStart(14, '0')).join('').slice(0, 32);
-    // Version 8 (custom) and the RFC 4122 variant, so it reads as a UUID everywhere.
-    const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-/**
  * The embedding model a point was made by, as one key: its source and model.
  * @param {string} source
  * @param {string} model
@@ -122,7 +86,9 @@ export function entryPoints(entry, bookCollectionId) {
     return passages.filter(passage => passage.text).map(passage => {
         const text = `${title}\n${passage.text}`;
         const hash = pointHash(entry.uid, text);
-        return { id: pointId(bookCollectionId, hash), hash, text, uid: String(entry.uid), partNumber: passage.passageIndex + 1 };
+        // A UUID from the book's collection ID and the hash, so two books' points never meet inside one Qdrant
+        // collection, and a point written again by another embedding model replaces the old one.
+        return { id: tenantPointId(bookCollectionId, hash), hash, text, uid: String(entry.uid), partNumber: passage.passageIndex + 1 };
     });
 }
 

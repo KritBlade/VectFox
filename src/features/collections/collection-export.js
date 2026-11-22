@@ -20,7 +20,7 @@ import { getContext } from '../../sillytavern/chat.js';
 import { getRequestHeaders } from '../../sillytavern/requests.js';
 import { saveSettingsDebounced } from '../../sillytavern/settings.js';
 import { getStringHash } from '../../sillytavern/identifiers.js';
-import { insertVectorItems, purgeVectorIndex, encodeSparseVector, qdrantTarget, textWithKeywordSuffix } from '../vector-backend/index.js';
+import { copiedPointId, insertVectorItems, purgeVectorIndex, encodeSparseVector, qdrantTarget, textWithKeywordSuffix } from '../vector-backend/index.js';
 import {
     getCollectionMeta,
     setCollectionMeta,
@@ -399,7 +399,10 @@ export async function insertChunksWithVectors(collectionId, chunks, settings, on
     const BATCH_SIZE = 100;
     const target = backendName === 'qdrant' ? qdrantTarget(collectionId, settings) : { collectionId, filters: {} };
     const items = chunks.map(c => {
+        // A copy keeps its source's hash: in the shared collection it is stored under an ID of this collection.
+        const id = copiedPointId(collectionId, c.hash, settings);
         const item = {
+            ...(id ? { id } : {}),
             hash: c.hash,
             text: c.text,
             index: c.index,
@@ -647,7 +650,13 @@ export async function importCollection(exportData, settings, options = {}) {
             // Need to embed (slow)
             progressTracker.updateProgress(3, `Embedding ${preparedChunks.length} chunks...`);
             try {
-                await insertVectorItems(collectionId, preparedChunks, settings, null, abortController.signal);
+                // Each keeps the hash it was exported with: in the shared collection it is stored under an ID of this
+                // collection, as insertChunksWithVectors stores a copy.
+                const chunksWithIds = preparedChunks.map(chunk => {
+                    const id = copiedPointId(collectionId, chunk.hash, settings);
+                    return id ? { ...chunk, id } : chunk;
+                });
+                await insertVectorItems(collectionId, chunksWithIds, settings, null, abortController.signal);
                 log.lifecycle(`VectFox Import: Embedded and inserted ${preparedChunks.length} chunks`);
             } catch (error) {
                 if (error?.name === 'AbortError') throw error;

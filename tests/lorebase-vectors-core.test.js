@@ -13,8 +13,9 @@ vi.mock('../src/sillytavern/log.js', () => ({ log: { error: vi.fn(), warn: vi.fn
 
 const {
     PARTS_PER_SEAT, bookVectorWork, embeddingModelKey, entryPoints, hasCurrentVectors, hasOtherModelVectors, loreBaseAccountCollection, loreBaseBookCollectionId,
-    newestWithin, pointBatches, pointHash, pointId, searchPool, searchTextsOf, storedPointsOf, uidsWithStoredVectors,
+    newestWithin, pointBatches, pointHash, searchPool, searchTextsOf, storedPointsOf, uidsWithStoredVectors,
 } = await import('../src/features/lorebase/lorebase-vectors-core.js');
+const { tenantPointId } = await import('../src/shared/point-ids.js');
 
 const BOOK_ID = loreBaseBookCollectionId('Harbor Atlas', 'rabbit');
 const MODEL = embeddingModelKey('openrouter', 'baai/bge-m3');
@@ -56,7 +57,7 @@ describe('points (§4.1)', () => {
             { text: 'Lighthouse of Vell\n[History]\nThe lighthouse was raised in the year of the long storm.', uid: '3', partNumber: 1 },
             { text: 'Lighthouse of Vell\n[Keeper]\nKeeper Orrin trims the wick each dusk.', uid: '3', partNumber: 2 },
         ]);
-        expect(points.every(point => point.hash === pointHash(3, point.text) && point.id === pointId(BOOK_ID, point.hash))).toBe(true);
+        expect(points.every(point => point.hash === pointHash(3, point.text) && point.id === tenantPointId(BOOK_ID, point.hash))).toBe(true);
     });
 
     it("hashes a part with its entry's uid, as a whole number Qdrant keeps exactly", () => {
@@ -68,9 +69,9 @@ describe('points (§4.1)', () => {
 
     it("gives each point a UUID from its book's ID and hash, so two books' same part never meet", () => {
         const hash = pointHash(3, 'Buoy\nA single red buoy marks the reef.');
-        expect(pointId(BOOK_ID, hash)).toMatch(UUID);
-        expect(pointId(BOOK_ID, hash)).toBe(pointId(BOOK_ID, hash));
-        expect(pointId(loreBaseBookCollectionId('Desert Atlas', 'rabbit'), hash)).not.toBe(pointId(BOOK_ID, hash));
+        expect(tenantPointId(BOOK_ID, hash)).toMatch(UUID);
+        expect(tenantPointId(BOOK_ID, hash)).toBe(tenantPointId(BOOK_ID, hash));
+        expect(tenantPointId(loreBaseBookCollectionId('Desert Atlas', 'rabbit'), hash)).not.toBe(tenantPointId(BOOK_ID, hash));
     });
 
     it('reads what Qdrant holds by hash, with each entry and model, leaving out a point with no hash', () => {

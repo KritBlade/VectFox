@@ -21,7 +21,7 @@ export { runBoundedRetrieval } from './bounded-retrieval.js';
 export { clearCorpusStatsCache } from './corpus-stats.js';
 export { reciprocalRankFusion, weightedCombination } from './hybrid-search.js';
 export { setInsertedCollectionRegistrar } from './qdrant.js';
-export { MULTITENANCY_COLLECTION, qdrantTarget } from './qdrant-target.js';
+export { MULTITENANCY_COLLECTION, copiedPointId, qdrantTarget } from './qdrant-target.js';
 export { describeEmbeddingFailure } from './embedding-failure.js';
 export { encodeSparseVector } from './sparse-vector-encoder.js';
 export { textWithKeywordSuffix, textWithoutKeywordSuffix } from './stored-chunk.js';
