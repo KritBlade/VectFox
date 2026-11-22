@@ -1225,7 +1225,7 @@ function bindSettingsEvents(settings, callbacks) {
     });
 
     // --- Summarizer Injection (AutoSync page) ---
-    bindNumberSetting(settings, { id: 'VectFox_summarizer_injection_count', key: 'summarizer_injection_count', initial: settings.summarizer_injection_count ?? 20, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_summarizer_injection_count', key: 'summarizer_injection_count', initial: settings.summarizer_injection_count ?? 15, isInteger: true });
 
     // Full event detail toggle (default ON — includes structured fields per event).
     $('#VectFox_summarizer_injection_full_detail')
@@ -1284,7 +1284,7 @@ function bindSettingsEvents(settings, callbacks) {
             _applyGhostAvailability();
         });
 
-    bindNumberSetting(settings, { id: 'VectFox_eventbase_ghost_keep_recent', key: 'eventbase_ghost_keep_recent', initial: settings.eventbase_ghost_keep_recent ?? 10, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_ghost_keep_recent', key: 'eventbase_ghost_keep_recent', initial: settings.eventbase_ghost_keep_recent ?? 1, isInteger: true });
 
     // While Summarizer Injection is on, the auto-sync window is held at 1 turn, so each reply
     // is extracted before the next injection. The box's own events set it, which saves it and

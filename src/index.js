@@ -245,7 +245,7 @@ const defaultSettings = {
     // independent of semantic retrieval. Only meaningful with auto-sync active, so
     // it lives on the AutoSync tab and forces the auto-sync window to 1 turn while on.
     summarizer_injection_enabled: false,
-    summarizer_injection_count: 20,               // recent events to inject; range 1-50
+    summarizer_injection_count: 15,               // recent events to inject; range 1-50
     // When on (default), each injected event also includes its structured fields
     // (cause, result, characters, locations, items, DateTime, concepts, keywords,
     // open_threads, message index) beneath the summary line. Off = summary only.
@@ -267,7 +267,7 @@ const defaultSettings = {
     // that forces auto-sync window=1, guaranteeing every message below the vectorization
     // tip is extracted before it could be wiped.
     eventbase_ghost_enabled: false,
-    eventbase_ghost_keep_recent: 10,              // recent messages kept verbatim; everything older that's vectorized is wiped. range 1-50 (summarizer injects ~20 events to cover the wiped span)
+    eventbase_ghost_keep_recent: 1,               // recent messages kept verbatim; everything older that's vectorized is wiped. range 1-50 (Summarizer Injection's recent events cover the wiped span)
     eventbase_min_importance_store: 3,            // Drop events below this importance before storing
     eventbase_max_events_per_window: 3,           // Hard cap on events returned per LLM call
     eventbase_retrieval_top_k: 10,                // Events to retrieve per generation

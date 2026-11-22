@@ -274,7 +274,7 @@ export function applyGhosting(chat, settings, inUse = null) {
  *   `paused`, or a read that failed.
  */
 export async function buildSummarizerInjection(settings, inUse = null) {
-    const n = Math.max(1, Math.min(50, settings.summarizer_injection_count ?? 20));
+    const n = Math.max(1, Math.min(50, settings.summarizer_injection_count ?? 15));
     // The chat's collection in use, from the one route the auto-sync marker and status read too.
     const route = inUse ?? collectionInUse(settings);
     if (route.reason === NOT_IN_USE_REASON.NO_CHAT) return { text: '', count: 0, reason: 'no-chat', requested: n };

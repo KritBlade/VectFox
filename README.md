@@ -152,7 +152,7 @@ The normal search keeps every event it found a seat for, and these searches **ad
 
 Semantic retrieval answers *"which old event is relevant to this message?"*. But every reply also needs a second, different question answered: *"what just happened over the last few turns?"* — the running thread, who's present, the deal struck two replies ago. That continuity shouldn't have to **win** a relevance contest to be remembered; it should always be there.
 
-**Summarizer Injection** does exactly that. Every turn it pulls the **most recent N extracted events** (default 20) straight off the EventBase collection — newest-first by message index — and pins them into the prompt in chronological order, each tagged with how far back it is:
+**Summarizer Injection** does exactly that. Every turn it pulls the **most recent N extracted events** (default 15) straight off the EventBase collection — newest-first by message index — and pins them into the prompt in chronological order, each tagged with how far back it is:
 
 ```
 <VectFoxSummarizer>
@@ -324,7 +324,7 @@ Both signals (meaning + keywords) operate over this rich field set, so a query l
 
 ### 🧠 Summarizer Injection — guaranteed recent-turn memory
 
-Pins the most recent **N extracted events** (default 20) into every prompt, in chronological order, each labeled with its recency (`latest turn`, `3 turns ago`). Independent of — and stacked on top of — semantic retrieval, so short-term continuity is *always* present while long-term recall stays relevance-driven. With **full detail** on (default) each event carries its structured fields (cause, result, characters, locations, items, time, concepts, keywords, open threads); a character budget (default 10 000) caps the block, dropping oldest-first if it overflows so it can never blow out the model's context.
+Pins the most recent **N extracted events** (default 15) into every prompt, in chronological order, each labeled with its recency (`latest turn`, `3 turns ago`). Independent of — and stacked on top of — semantic retrieval, so short-term continuity is *always* present while long-term recall stays relevance-driven. With **full detail** on (default) each event carries its structured fields (cause, result, characters, locations, items, time, concepts, keywords, open threads); a character budget (default 10 000) caps the block, dropping oldest-first if it overflows so it can never blow out the model's context.
 
 It's the useful half of a rolling summary — *"always remind the AI what just happened"* — rebuilt on structured events instead of a lossy recursive text blob, so recent context is guaranteed without the detail loss. Requires auto-sync (forces the window to 1 turn while on, keeping the database current). **Summarizer preview** on the Action page shows the exact block that would be injected — same code path, minus the injection. Configure it in the **AutoSync** tab; default off. Needs the Similharity plugin on the Standard backend (it reads per-event metadata); works natively on Qdrant.
 
