@@ -1,6 +1,6 @@
 /**
  * LoreBase's selection screen, the pure rules (plan §5.2 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): each entry of a book as a row, with its badges and, for an entry
+ * executed/lorebook-semantic-overhaul-passage-index.md): each entry of a book as a row, with its badges and, for an entry
  * LoreBase cannot decide (SillyTavern keeps it its own, or it is empty), why; the books the screen offers; the categories the comment prefixes make; the filters;
  * where a selected entry stands with its keys and vectors;
  * the ticks the bulk bar acts on; what the bar and a category's toggle select; the entries new since the book was last

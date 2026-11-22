@@ -1,6 +1,6 @@
 /**
  * Deleting the old vectorized lorebook collections LoreBase replaced (D5 and §6.4 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md), once collection discovery has filled the registry and SillyTavern has
+ * executed/lorebook-semantic-overhaul-passage-index.md), once collection discovery has filled the registry and SillyTavern has
  * loaded (src/app/retired-collections.js runs it then). Each collection's chat and character locks move to its book's
  * first selection first, then it is deleted with every index discovery found it in, and the notice's lines name the books to
  * choose entries for again. It asks nothing (D5): no old collection can serve LoreBase. A collection that could not be

@@ -1,7 +1,7 @@
 /**
  * EventBase's pointer, how far it has read a chat into one collection, kept in that collection's record
  * (`collections[<registry key>].eventbaseProgress`, §2.3 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): each part read and written through the store, two collections of one chat
+ * executed/vectfox-multi-collection-per-chat.md): each part read and written through the store, two collections of one chat
  * never sharing one, the window records' in-memory Sets following the record, no message read twice in windows of any
  * size (§2.7), Start over's emptying (§2.6), and a deleted or imported collection forgotten in memory.
  *

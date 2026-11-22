@@ -1,6 +1,6 @@
 /**
  * LoreBase and SillyTavern's Vector Storage (plan §5.9 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md). Vector Storage's World Info search force-activates lorebook entries by
+ * executed/lorebook-semantic-overhaul-passage-index.md). Vector Storage's World Info search force-activates lorebook entries by
  * similarity, so a selected entry would go in whole even when Luna leaves it out, and LoreBase cannot take those
  * entries back; so the two never run together. Turning LoreBase on needs the model that picks each reply's entries, then
  * asks to write the keys and vectors the selected entries lack (D17, §4.3 of lorebook-multi-vector.md), then asks to

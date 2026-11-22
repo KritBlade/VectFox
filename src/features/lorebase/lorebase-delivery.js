@@ -1,6 +1,6 @@
 /**
  * LoreBase's delivery through SillyTavern's World Info scan (plan §5.7, §6.6 and §6.8 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md). The generation interceptor holds a reply's picks for the scan that
+ * executed/lorebook-semantic-overhaul-passage-index.md). The generation interceptor holds a reply's picks for the scan that
  * follows it; at WORLDINFO_ENTRIES_LOADED, before SillyTavern scans, every entry LoreBase decides loses its keys in
  * the scan's copy, and the held picks are force-activated inside LoreBase's <VectLorebook> block (lorebase-delivery-core.js),
  * so a selected entry goes in only when LoreBase picks it, Jev or Luna (D14, D16).

@@ -1,6 +1,6 @@
 /**
  * Clean up locks, in the Action page's Stored data (§1.1 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md). It reads which chats and characters exist: every character's chats as
+ * executed/vectfox-multi-collection-per-chat.md). It reads which chats and characters exist: every character's chats as
  * SillyTavern lists its chat files, every group's chats and the open chat; and the character list, by avatar file name
  * and by place. Then it counts the locks of collections and lorebooks on chats and characters that no longer exist,
  * and the chat lock index entries the collections' own locks do not back or that they lack. Once the user confirms,

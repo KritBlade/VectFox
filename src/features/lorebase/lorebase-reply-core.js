@@ -1,6 +1,6 @@
 /**
  * LoreBase on a reply, the pure rules (plan §5.6, §5.8 and D8 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): which generations it serves, the books taking part and the entries it
+ * executed/lorebook-semantic-overhaul-passage-index.md): which generations it serves, the books taking part and the entries it
  * decides in them, the pick and one review per pick, all sent at once on a call the caller supplies and each timed for
  * the tester (§5.10), the toast for a turn that left lore out (D14), and when a reply says it leaves out selected entries
  * that have no keys (D17). Pure: no SillyTavern, no network.

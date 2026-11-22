@@ -1,13 +1,13 @@
 /**
  * LoreBase on each reply (plan §5.5 to §5.9 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md), while it acts: its switch on, and Vector Storage's World Info search
+ * executed/lorebook-semantic-overhaul-passage-index.md), while it acts: its switch on, and Vector Storage's World Info search
  * off, which a reply first settles with the user when both are on (lorebase-switch.js, lorebase-vector-storage.js).
  * VectFox's generation interceptor asks it for a reply's lore beside its retrieval, after SillyTavern's slash commands
  * and never on a dry run, so a send that is only commands runs no pick (#29). The books taking part are those
  * SillyTavern loads that the user locked to the chat or character (D11), and a lock follows its chat or character
  * through a rename; the pick reads the entries selected in them that are ready, with their keys (D17,
  * lorebase-keys.js) and their vectors from the embedding model set now (§4.4 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md, lorebase-vectors.js), and a reply that leaves out selected entries not ready says so, once
+ * executed/lorebook-multi-vector.md, lorebase-vectors.js), and a reply that leaves out selected entries not ready says so, once
  * per chat and again when their number changes. On Fast and Cheap [Jev] Jev rates them, above 100 only a search's 100
  * best, and its picks go whole within the lore budget (§5, lorebase-jev-core.js); on High Accuracy Luna picks, then
  * reviews each pick, all at once. Once the retrieval is done too the picks are held for the World Info scan that

@@ -3,7 +3,7 @@
  *
  * The WorldInfo page's LoreBase controls (src/features/settings-panel/lorebase-books-card.js, plan §5.2 and §5.9 of
  * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md, §3.4 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): LoreBase's switch shows as saved; while it is off the user still chooses
+ * executed/vectfox-multi-collection-per-chat.md): LoreBase's switch shows as saved; while it is off the user still chooses
  * entries and sets the model, a notice says to do that first, and only the Generate buttons wait; turning it on can end
  * off when the user keeps Vector Storage's World Info search, and with nothing selected anywhere the status line says
  * to choose entries next. The books card draws the open chat's books, then how many of each book's selected entries

@@ -1,6 +1,6 @@
 /**
  * LoreBase's tester, the pure rules (plan §5.10 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): one reply's report, built from its lore as the pick and the reviews
+ * executed/lorebook-semantic-overhaul-passage-index.md): one reply's report, built from its lore as the pick and the reviews
  * left it: each pick with Luna's reasons, what its review kept and left out, part by part, and the text it sends; the
  * selected entries the pick skipped; on Fast and Cheap [Jev] the search before Jev, or that none ran; on High Accuracy
  * the pick's prompt tokens and those read from the provider's cache; and the seconds, the search's among them. Its

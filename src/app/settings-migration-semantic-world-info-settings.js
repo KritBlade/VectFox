@@ -6,7 +6,7 @@
  *
  * THIS MIGRATION deletes the settings of the vectorized lorebook search that
  * LoreBase replaced (B7 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): the WorldInfo page's Semantic
+ * executed/lorebook-semantic-overhaul-passage-index.md): the WorldInfo page's Semantic
  * activation switch and Matching controls, the XML tag of the lorebook block it
  * sent, and the stamp of that search's one-time threshold reset. Nothing reads them,
  * and SillyTavern saves every key of `extension_settings.vectfox`, so they would

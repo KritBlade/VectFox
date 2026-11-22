@@ -439,7 +439,7 @@ export async function readTenantPoints(tenant, collection, settings) {
 
 /**
  * What the Database Browser's View chunks reads for a book tenant (§3.2 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): the tenant as a lorebook's collection, and the settings that read it in the
+ * executed/vectfox-multi-collection-per-chat.md): the tenant as a lorebook's collection, and the settings that read it in the
  * Qdrant collection holding it, whichever that is.
  * @param {{tenant: string, collection: string, book: string|null, pointCount: number, embeddingSource: string,
  *   embeddingModel: string}} row - A Vectors row holding points, from loreBaseStorageRows

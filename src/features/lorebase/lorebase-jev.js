@@ -1,6 +1,6 @@
 /**
  * LoreBase's Fast and Cheap [Jev] choice, its connection (plan D16 and §5.6 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): Jev runs on the SillyTavern profile chosen on its own row of the
+ * executed/lorebook-semantic-overhaul-passage-index.md): Jev runs on the SillyTavern profile chosen on its own row of the
  * WorldInfo page, an OpenRouter or Custom profile naming Jev's model. VectFox sends Similharity the profile's source,
  * URL, model and key ID, never a key; Similharity reads the key on SillyTavern's server and asks Jev at the URL's
  * `/systemone`, sending a key only where SillyTavern sends it.

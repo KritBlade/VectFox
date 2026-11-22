@@ -1,6 +1,6 @@
 /**
  * The WorldInfo page's LoreBase tester card (plan §5.10 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): Try a pick, which runs the next reply's pick with no reply; this
+ * executed/lorebook-semantic-overhaul-passage-index.md): Try a pick, which runs the next reply's pick with no reply; this
  * session's reports for the open chat, the newest first in its Reply list, and the one picked there drawn in full. Picking the newest follows each new reply; picking an older one keeps
  * it. A report is measured once the card is shown, and drawn again on each change, with the parts and lists the user
  * opened kept open.

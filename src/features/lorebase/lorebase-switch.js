@@ -1,6 +1,6 @@
 /**
  * LoreBase's switch, on the WorldInfo page (plan §5.9 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md). Off by default; while off, LoreBase picks nothing and leaves every
+ * executed/lorebook-semantic-overhaul-passage-index.md). Off by default; while off, LoreBase picks nothing and leaves every
  * World Info scan to SillyTavern, so every entry fires by its keys, and the selections, pins and locks are kept.
  * LoreBase acts only while VectFox is on, its switch is on, the vector backend is Qdrant (D15), and SillyTavern's
  * Vector Storage has its World Info search off: that search force-activates lorebook entries by similarity, a selected

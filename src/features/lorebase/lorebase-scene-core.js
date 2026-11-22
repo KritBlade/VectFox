@@ -1,6 +1,6 @@
 /**
  * The scene LoreBase's pick and review read (plan §5.5 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): the chat's last 6 messages up to the user's last message, each as
+ * executed/lorebook-semantic-overhaul-passage-index.md): the chat's last 6 messages up to the user's last message, each as
  * "name: text", as the route trials showed them to GPT-6 Luna. Pure: no SillyTavern.
  */
 

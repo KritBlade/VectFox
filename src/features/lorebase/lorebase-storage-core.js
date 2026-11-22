@@ -1,6 +1,6 @@
 /**
  * The rules of LoreBase's storage module (lorebase-storage.js, §3.1 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md), with no host imports: the two kinds LoreBase stores for each selected entry,
+ * executed/vectfox-multi-collection-per-chat.md), with no host imports: the two kinds LoreBase stores for each selected entry,
  * what of the selection's lack a run of some kinds writes, the progress panel's title and closing line for it, where a
  * book's selected entries stand, and the Database Browser's rows of each book's keys and vectors, the
  * list's and the leftovers' (§3.2). Its files are lorebase-files-core.js's.

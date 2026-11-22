@@ -1,6 +1,6 @@
 /**
  * What a VectFox file is, and the header each opens with (§1 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): exportFileKind in src/features/collections/collection-export.js tells a
+ * executed/vectfox-multi-collection-per-chat.md): exportFileKind in src/features/collections/collection-export.js tells a
  * collection export, of one collection or several, from a row's own file by the type it names, which the Database
  * Browser's Import a collection refuses; and exportFileHeader in src/shared/export-file-header.js dates each new file.
  */

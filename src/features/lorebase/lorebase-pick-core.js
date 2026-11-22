@@ -62,7 +62,7 @@ export function contentsLine({ title, keys = [] }) {
  * title and keys; then the scene and the instructions. The table stays the same from turn to turn while the selection,
  * the titles and the keys do, and a provider reads its cache back only for text at the end of the system message, so
  * every turn after the first reads the table from the cache (T28, T30, plan §3 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md).
+ * executed/lorebook-multi-vector.md).
  * @param {string} scene - From sceneText
  * @param {Array<{number: number, title: string, keys?: string[]}>} contents - From tableOfContents
  * @returns {Array<{role: string, content: string}>}

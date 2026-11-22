@@ -1,6 +1,6 @@
 /**
  * LoreBase's storage module (src/features/lorebase/lorebase-storage.js, §3.1 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): what the selected entries of every book with a selection lack, and how many of
+ * executed/vectfox-multi-collection-per-chat.md): what the selected entries of every book with a selection lack, and how many of
  * each book's selected entries have keys and vectors; the progress panel's run of keys, vectors or both (§4.3 of
  * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md), each entry counted once, whose Stop drops what is not yet
  * sent, telling its run listeners as it starts and ends, and Regenerate keys there; one run at a time. A run that

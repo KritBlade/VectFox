@@ -1,6 +1,6 @@
 /**
  * The keys LoreBase's model writes for each entry turned on (plan D17 and §5.6 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md) are asked with T20's prompt word for word, for as many keys as T20 asked,
+ * executed/lorebook-semantic-overhaul-passage-index.md) are asked with T20's prompt word for word, for as many keys as T20 asked,
  * and read as T20 read them. The fixture holds made-up entries and the prompts segment_trials.py itself renders from
  * them; InternalProject/Vectfox/tools/lorebase-benchmark/export_trial_prompts.py writes it.
  */

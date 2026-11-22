@@ -1,7 +1,7 @@
 /**
  * The name the Database Browser lists a chat's EventBase collection under (getCollectionDisplayName through
  * loadAllCollections, in src/features/collections/collection-loader.js; §2.5 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): the name stored in its record, else its automatic name, the ID before the
+ * executed/vectfox-multi-collection-per-chat.md): the name stored in its record, else its automatic name, the ID before the
  * chat's UUID. A later collection, whose ID ends in the time it was made after the UUID, gets the automatic name of the
  * chat's first collection; a legacy ID with no backend keeps its own.
  *

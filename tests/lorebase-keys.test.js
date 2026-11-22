@@ -1,6 +1,6 @@
 /**
  * LoreBase's keys (src/features/lorebase/lorebase-keys.js, plan D15 and D17 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on
+ * executed/lorebook-semantic-overhaul-passage-index.md): written for entries that have none, or for every one given on
  * Regenerate keys, at most 6 calls at once, an unreadable answer asked again up to 3 asks; each written entry's keys go to
  * Similharity's key route, a failed one is marked and named in a toast; and nothing is written off Qdrant or without
  * LoreBase's model; one entry's keys are regenerated to read, or stored as the user edited them; every write names the

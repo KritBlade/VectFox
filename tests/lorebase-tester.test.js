@@ -1,6 +1,6 @@
 /**
  * LoreBase's tester (src/features/lorebase/lorebase-tester.js, plan §5.10 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): this session's reports, the newest 20, each listed only in its own
+ * executed/lorebook-semantic-overhaul-passage-index.md): this session's reports, the newest 20, each listed only in its own
  * chat; at the interceptor's end a report keeps what the World Info scan reads next, as SillyTavern reads it; the scan
  * that follows says which picks SillyTavern kept; the reply's end ties the report to its message and the World Info
  * its prompt held; and a report is measured once its reply ended, with what SillyTavern's keys would send waiting for a

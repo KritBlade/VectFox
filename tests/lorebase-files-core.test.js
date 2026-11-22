@@ -1,6 +1,6 @@
 /**
  * LoreBase's files, the pure part (src/features/lorebase/lorebase-files-core.js, §3.3 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): a book's keys file, each title from SillyTavern's book or the one stored with
+ * executed/vectfox-multi-collection-per-chat.md): a book's keys file, each title from SillyTavern's book or the one stored with
  * its keys, an entry with neither left out; a keys file's import matching by number and title together, selected or not;
  * a tenant's vectors file of one embedding model; a vectors file's import matching each point's hash, made again, to a
  * part of an entry selected or not, counting the unselected entries' parts, and embedding a selected entry's again when

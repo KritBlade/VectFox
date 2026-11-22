@@ -1,6 +1,6 @@
 /**
  * What VectFox keeps per lorebook for LoreBase (plan §5.2, §5.4, and §3.7 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md): the book's selections, each with the entries the user selected for LoreBase to
+ * executed/vectfox-multi-collection-per-chat.md): the book's selections, each with the entries the user selected for LoreBase to
  * decide, the section names whose parts are kept whenever their entry is picked (pins, D10), and the chats and
  * characters it is locked to (D11), each character by its avatar file name; and the entries the book held when the
  * selection screen last opened it, so a later one shows as new. A chat uses one selection of a book at a time, the one

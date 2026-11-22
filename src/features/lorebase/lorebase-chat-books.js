@@ -3,7 +3,7 @@
  * a book's selection can be locked to there: the open chat and its character (plan §5.2, §5.8 and D11 of
  * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md). The reply, the selection screen and the
  * WorldInfo page read them, each book through the selection in use here (§3.7 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md), which the page's switcher changes or makes anew; and a key run locks the books
+ * executed/vectfox-multi-collection-per-chat.md), which the page's switcher changes or makes anew; and a key run locks the books
  * it writes keys for to the chat it started in (§6.1 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md). Add a
  * lorebook adds a book the chat does not load, as its Chat Lorebook or to its character's Additional Lorebooks, through
  * SillyTavern's own places, and locks it where it was added (§6 of lorebook-multi-vector.md); the WorldInfo page's Unlink

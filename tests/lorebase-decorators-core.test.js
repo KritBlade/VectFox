@@ -1,7 +1,7 @@
 /**
  * SillyTavern's decorators, read as its World Info scan reads them (src/features/lorebase/lorebase-decorators-core.js,
  * parseDecorators in world-info.js, SillyTavern 1.19.0, plan §5.2 and §5.7 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): the content a scanned entry sends, and the decorator by which the scan
+ * executed/lorebook-semantic-overhaul-passage-index.md): the content a scanned entry sends, and the decorator by which the scan
  * decides an entry whatever its keys.
  */
 import { describe, expect, it } from 'vitest';

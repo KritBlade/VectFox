@@ -8,7 +8,7 @@
  * five stores keyed by the chat's UUID, into the record of each of the chat's
  * collections (`collections[<registry key>].eventbaseProgress`), so every
  * collection carries on where it was (§2.4 of InternalProject/Vectfox/plans/
- * vectfox-multi-collection-per-chat.md):
+ * executed/vectfox-multi-collection-per-chat.md):
  *   eventbase_vectorization_tip      → vectorizationTip
  *   eventbase_extracted_windows      → extractedWindows
  *   eventbase_unfinished_windows     → unfinishedWindows

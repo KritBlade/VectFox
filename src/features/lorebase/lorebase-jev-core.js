@@ -1,6 +1,6 @@
 /**
  * LoreBase's Fast and Cheap [Jev] choice (plan D16 and §5.6 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md, §5 of lorebook-multi-vector.md): Jev, a decisions model, reads the scene
+ * executed/lorebook-semantic-overhaul-passage-index.md, §5 of lorebook-multi-vector.md): Jev, a decisions model, reads the scene
  * and one yes-or-no question per entry, its title and keys, and answers each with its chance of yes; the entries above
  * 0.25 go whole, with no review, best first, within the lore budget. Above POOL_SEATS entries, a search first finds the
  * POOL_SEATS that Jev is asked about. The state and questions are T22's word for word (`decision_state` and

@@ -1,6 +1,6 @@
 /**
  * The WorldInfo page's LoreBase controls (plan §5.2 and §5.9 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md, §4.3 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md, §3.4 of
+ * executed/lorebook-semantic-overhaul-passage-index.md, §4.3 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md, §3.4 of
  * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). LoreBase's switch: turning it on asks first
  * about the keys and vectors the selected entries lack and Vector Storage's World Info search, then whatever the answer
  * says what the selection lacks, and with nothing selected to choose entries. While it is off, the user still chooses entries and sets its model, and a notice

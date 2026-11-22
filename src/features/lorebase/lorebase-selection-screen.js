@@ -9,7 +9,7 @@
  * (deleteLoreSelectionAfterConfirm), a book's last selection staying. Its lock switches and pins are the shown selection's. Every
  * control saves as it changes, as GUI-DNA asks. Turning entries on only selects them: once the screen closes while LoreBase is
  * on, it asks to write the keys and vectors the selected entries lack (D17, §4.3 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md), under the progress panel, and turns LoreBase off when they are not written and no entry is
+ * executed/lorebook-multi-vector.md), under the progress panel, and turns LoreBase off when they are not written and no entry is
  * ready, by the question turning LoreBase on asks (lorebase-keys-question.js). The books that writing keys lock to the
  * open chat, but for those whose lock the user set while the screen was open, which stay as the user set them (§6.1).
  * While LoreBase is off, turning it on asks. Closing counts what the selection lacks either way, for the books card's

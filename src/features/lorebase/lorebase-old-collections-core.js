@@ -1,6 +1,6 @@
 /**
  * The old vectorized lorebook collections LoreBase replaced (D5 and §6.4 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md): which collections they are, the book each was made from, the chats and
+ * executed/lorebook-semantic-overhaul-passage-index.md): which collections they are, the book each was made from, the chats and
  * characters each was locked to, and the notice that says they are deleted. Pure: no SillyTavern, no network.
  */
 import { COLLECTION_PREFIXES, parseRegistryKey, sanitizeNameSegment } from '../../shared/collection-ids.js';

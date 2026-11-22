@@ -1,6 +1,6 @@
 /**
  * What LoreBase's setup lacks (src/features/lorebase/lorebase-setup.js, §2 and §7.2 of InternalProject/Vectfox/plans/
- * lorebook-multi-vector.md): the first thing missing, in the order a new user sets it up: Qdrant, VectFox's embedding
+ * executed/lorebook-multi-vector.md): the first thing missing, in the order a new user sets it up: Qdrant, VectFox's embedding
  * model, LoreBase's model, then Jev's profile, on Fast and Cheap [Jev] alone; and the model that picks each reply's
  * entries, which turning LoreBase on needs: Jev on Fast and Cheap [Jev], LoreBase's own model on High Accuracy.
  */

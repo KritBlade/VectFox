@@ -1,6 +1,6 @@
 /**
  * This turn's scene, read from SillyTavern's stored chat (plan §5.5 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md), never the interceptor's working copy, which ghosting edits.
+ * executed/lorebook-semantic-overhaul-passage-index.md), never the interceptor's working copy, which ghosting edits.
  */
 import { getContext, substituteParams } from '../../sillytavern/chat.js';
 import { cleanText, stripGameSystemBlocks, stripReasoningBlocks } from '../text-cleaning/index.js';
