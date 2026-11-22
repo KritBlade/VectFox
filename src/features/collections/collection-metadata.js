@@ -447,7 +447,8 @@ export function moveCollectionChatLocks(oldChatId, newChatId) {
 /**
  * Follow a chat's rename (SillyTavern's CHAT_RENAMED): every collection locked to it stays locked to it, under the name
  * the server saved its file as (renamedChatIds). The locks stay on the old name, with a warning, when the server cannot
- * say that name.
+ * say that name. Once locks moved, `vectfox:collections-updated` redraws the AutoSync page: SillyTavern opens the
+ * renamed chat (CHAT_CHANGED) before CHAT_RENAMED, so the page was drawn while the locks were still on the old name.
  * @param {{oldFileName?: string, newFileName?: string}} renamed - CHAT_RENAMED's data
  * @returns {Promise<void>}
  */
@@ -460,7 +461,9 @@ export async function followChatRenameOfCollections(renamed) {
         return;
     }
     const movedCount = moveCollectionChatLocks(chatIds.oldChatId, chatIds.newChatId);
-    if (movedCount) log.lifecycle(`VectFox: moved the chat locks of ${movedCount} collection(s) to the renamed chat "${chatIds.newChatId}"`);
+    if (!movedCount) return;
+    log.lifecycle(`VectFox: moved the chat locks of ${movedCount} collection(s) to the renamed chat "${chatIds.newChatId}"`);
+    globalThis.document?.dispatchEvent(new CustomEvent('vectfox:collections-updated'));
 }
 
 /**

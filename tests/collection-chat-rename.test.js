@@ -54,6 +54,22 @@ describe("a chat's rename", () => {
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('collection locks stay on the old name'), expect.any(Error));
     });
 
+    // SillyTavern opens the renamed chat (CHAT_CHANGED) before CHAT_RENAMED, so the AutoSync page drew it with no lock.
+    it('redraws the pages that show the locks once the locks moved, and not when none did', async () => {
+        const dispatchEvent = vi.fn();
+        vi.stubGlobal('document', { dispatchEvent });
+        try {
+            await metadata.followChatRenameOfCollections({ oldFileName: 'Wren - tide.jsonl', newFileName: 'Wren - calm.jsonl' });
+            expect(dispatchEvent.mock.calls.map(([event]) => event.type)).toEqual(['vectfox:collections-updated']);
+
+            dispatchEvent.mockClear();
+            await metadata.followChatRenameOfCollections({ oldFileName: 'Wren - nobody.jsonl', newFileName: 'Wren - still nobody.jsonl' });
+            expect(dispatchEvent).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('moves nothing when the name saved is the old one', () => {
         expect(metadata.moveCollectionChatLocks('Wren - harbor', 'Wren - harbor')).toBe(0);
         expect(metadata.getCollectionLocks(HARBOR)).toEqual(['Wren - harbor']);
