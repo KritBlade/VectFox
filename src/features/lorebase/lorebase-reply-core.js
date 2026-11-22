@@ -23,7 +23,7 @@ const REVIEW_MAX_TOKENS = 2000 + THINKING_TOKEN_ALLOWANCE;
 // The pick and every review run at low reasoning effort (D6).
 const REASONING_EFFORT = 'low';
 /**
- * The lorebase_accuracy values (plan §2 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): Fast and Cheap
+ * The lorebase_accuracy values (plan §2 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): Fast and Cheap
  * [Jev], the default, Jev in place of Luna's pick and reviews (D16); and High Accuracy, Luna's pick and reviews.
  */
 export const FAST_AND_CHEAP = 'fast';

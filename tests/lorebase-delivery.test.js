@@ -1,6 +1,6 @@
 /**
  * LoreBase's delivery through SillyTavern's World Info scan (src/features/lorebase/lorebase-delivery.js, plan §5.7 and
- * §6.8 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the listener is made the last
+ * §6.8 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): the listener is made the last
  * once the app is ready, and again each time the interceptor holds, after any listener added since; a reply's picks go
  * to the next scan in the same chat, and only to it; every scan blanks the keys of the entries LoreBase decides in the
  * books locked here (D11); while LoreBase does not act, with VectFox or its switch off or Vector Storage's World Info

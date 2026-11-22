@@ -1,6 +1,6 @@
 /**
  * LoreBase's selection screen, the pure rules (src/features/lorebase/lorebase-selection-core.js, plan §5.2 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the rows and their badges, the books
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): the rows and their badges, the books
  * offered, the categories, the filters, the ticks, what the bulk bar and a category's toggle select, the entries new
  * since the book was last opened, the footer and the pinnable sections.
  */

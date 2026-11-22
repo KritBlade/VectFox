@@ -1,8 +1,8 @@
 /**
- * LoreBase's selection screen (plan §5.2 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
+ * LoreBase's selection screen (plan §5.2 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md):
  * a dialog of its own where the user chooses a lorebook's entries for LoreBase to decide, reads any entry whole in a
  * dialog over it, locks the selection it shows to the open chat or its character (D11), and pins section names (D10). It
- * edits one of the book's selections (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the
+ * edits one of the book's selections (§3.7 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): the
  * one named, else the one in use here, else the book's first, made when it has none. Its list changes which one it edits, not which is
  * in use; New selection copies the one shown and puts the copy in use here, Rename renames it, and Delete, once
  * confirmed, deletes it with the vectors no other selection holds, the WorldInfo row's trash's one delete

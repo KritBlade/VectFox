@@ -1,6 +1,6 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D17 and §5.6 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md): T20's prompt word for word (`LUNA_KEYS_SYSTEM` and
+ * plans/executed/lorebook-semantic-overhaul-passage-index.md): T20's prompt word for word (`LUNA_KEYS_SYSTEM` and
  * `LUNA_KEYS_PROMPT` in tools/lorebase-benchmark/segment_trials.py), on the entry's text, and its answer read as T20
  * read it (`read_luna_keys`); and the keys the user types in an entry's edit dialog. tests/lorebase-keys-core.test.js
  * holds the prompt to T20's own rendering. Pure: no SillyTavern, no network.

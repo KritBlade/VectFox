@@ -1,6 +1,6 @@
 /**
  * A chat's EventBase collections, found by the chat UUID their IDs hold (findEventBaseCollectionsForChat in
- * src/features/eventbase/eventbase-store.js, §2.5 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * src/features/eventbase/eventbase-store.js, §2.5 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  * its first collection and a later one, on every backend, and a legacy ID with no backend, in registry order, each with
  * its backend; never an archive holding the same UUID, nor another chat's collections; and no ranking by lock, as which
  * one the chat uses is the one route's answer (collectionInUse, D18).

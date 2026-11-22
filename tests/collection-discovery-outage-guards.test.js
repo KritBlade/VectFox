@@ -256,7 +256,7 @@ describe('discoverViaFallback outage handling', () => {
 });
 
 // ---------------------------------------------------------------------------
-// LoreBase's vectors (§4.2 of InternalProject/Vectfox/plans/lorebook-multi-vector.md) are LoreBase's tab's to keep: a
+// LoreBase's vectors (§4.2 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md) are LoreBase's tab's to keep: a
 // book's tenant and the account's own collection never enter the registry, so the Database Browser never lists them.
 // ---------------------------------------------------------------------------
 describe("LoreBase's vectors and the registry", () => {

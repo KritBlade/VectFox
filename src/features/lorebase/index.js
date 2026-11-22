@@ -1,4 +1,4 @@
-// features/lorebase — LoreBase (InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md and
+// features/lorebase — LoreBase (InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md and
 // lorebook-multi-vector.md): for the lorebook entries the user selects, a model picks the ones the next reply needs. On
 // Fast and Cheap [Jev], the default, Jev rates each entry, above 100 entries only a search's 100 best, and its picks go
 // whole within the lore budget; on High Accuracy GPT-6 Luna picks, then keeps only the parts of each the moment needs.

@@ -2,7 +2,7 @@
  * Deleting the collections VectFox no longer reads, once collection discovery has filled the registry: the old
  * vectorized lorebooks LoreBase replaced (features/lorebase/lorebase-old-collections.js) and the collections Vectorize
  * Content made from sources it no longer reads (features/collections/retired-content-collections.js). One notice says
- * both (D5 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md). It asks nothing: none of them
+ * both (D5 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md). It asks nothing: none of them
  * can serve VectFox again. A collection that could not be deleted is tried again at the next start.
  */
 import { deleteRetiredContentCollections } from '../features/collections/index.js';

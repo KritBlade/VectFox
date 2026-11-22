@@ -365,7 +365,7 @@ export function renameLoreBookChat(oldChatId, newChatId) {
 }
 
 /**
- * Clean up locks, LoreBase's part (§1.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): count,
+ * Clean up locks, LoreBase's part (§1.1 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): count,
  * and with `shouldApply` remove, each selection's locks on a chat or a character that no longer exists. A null test
  * judges no lock of its kind: the chat list could not be read whole, or no character list is loaded. Saves only when a
  * lock goes.

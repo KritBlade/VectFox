@@ -1,6 +1,6 @@
 /**
  * What a reply's EventBase retrieval reads (runEventBaseRetrieval, src/features/eventbase/eventbase-workflow.js; §2.2 and
- * D18 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the chat's collection in use, from the one
+ * D18 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): the chat's collection in use, from the one
  * route (collectionInUse), unless it is paused, beside the collections of other chats and chat files locked here, each
  * unless paused; StoryArc reads the collection in use alone. With none in use, the chat's own events are read nowhere.
  *

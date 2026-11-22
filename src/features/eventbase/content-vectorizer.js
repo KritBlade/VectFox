@@ -6,7 +6,7 @@
  * file, read in windows of messages (content-vectorizer-markup.js draws it, and
  * content-vectorizer-core.js holds its rules). On a chat that has a collection,
  * Vectorize asks Catch up, Start over or New collection (§2.1 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). A run goes
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). A run goes
  * on with the dialog closed, and the progress panel shows it. Sync chat and the
  * auto-sync switch's catch-up run here too, without the dialog.
  * ============================================================================
@@ -363,7 +363,7 @@ async function resumeChat() {
 
 /**
  * Vectorize's question on a chat whose collection is in use (§2.1 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md).
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md).
  * @param {number} startFromMessage
  * @returns {Promise<'catch-up'|'start-over'|'new-collection'|null>} Null on Cancel
  */

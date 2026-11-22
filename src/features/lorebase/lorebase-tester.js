@@ -1,5 +1,5 @@
 /**
- * LoreBase's tester (plan §5.10 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): what
+ * LoreBase's tester (plan §5.10 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): what
  * LoreBase did on each reply of this session, for the WorldInfo page's tester card. A reply's report is made once its
  * pick and reviews are done; at the end of the generation interceptor it keeps what SillyTavern's World Info scan reads
  * next (the chat, the context size and the card's fields); the scan that follows says which picks went in, as

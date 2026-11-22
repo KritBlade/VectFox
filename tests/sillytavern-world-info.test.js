@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * Adding a lorebook through SillyTavern's own controls (src/sillytavern/world-info.js, §6 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md): to a character's Additional Lorebooks through
+ * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): to a character's Additional Lorebooks through
  * charUpdateAddAuxWorld, by the character's avatar file name; and as the open chat's Chat Lorebook, as SillyTavern's
  * Chat Lorebook popup does: the metadata naming it, the Chat Lore buttons marked and the metadata saved, a book
  * SillyTavern lacks refused. Taking a lorebook out again: the character's Additional Lorebooks set without it through

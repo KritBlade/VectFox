@@ -1,5 +1,5 @@
 /**
- * LoreBase's book record (plan §5.4 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md, and
+ * LoreBase's book record (plan §5.4 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md, and
  * §3.7 of vectfox-multi-collection-per-chat.md): a book's selections, each with the entries selected for LoreBase to
  * decide, the pinned section names and the locks, and the entries the book held when the selection screen last opened
  * it, in one settings record per book; making, copying, renaming and deleting selections; one selection of a book per

@@ -1,6 +1,6 @@
 /**
  * LoreBase's vectors in Qdrant (src/features/lorebase/lorebase-vectors.js, §4.2 to §4.4 of InternalProject/Vectfox/
- * plans/lorebook-multi-vector.md): every book of an account a tenant inside vectfox_main while "One shared collection"
+ * plans/executed/lorebook-multi-vector.md): every book of an account a tenant inside vectfox_main while "One shared collection"
  * is on and inside the account's own collection while it is off (Q6); what Qdrant holds read once a session and kept
  * current by what is written and deleted; writes in batches of whole entries, stored before the stale points are
  * deleted; a wrong embedding setup fails the rest of a run at once; a stop leaves the batches not yet sent; the points

@@ -1,6 +1,6 @@
 /**
  * The start-up deletion of the old vectorized lorebook collections LoreBase replaced (src/features/lorebase/
- * lorebase-old-collections.js, plan D5 and §6.4 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
+ * lorebase-old-collections.js, plan D5 and §6.4 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md):
  * each collection's locks move to its book, it goes to the collections feature's delete where discovery found it, with
  * its own backend as the fallback and LoreBase as the name its log gives, and the notice's lines, naming the books, go
  * back to src/app/retired-collections.js, which shows them in its one notice; this part shows and asks nothing itself.

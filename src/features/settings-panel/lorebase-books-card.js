@@ -1,7 +1,7 @@
 /**
  * The WorldInfo page's LoreBase controls (plan §5.2 and §5.9 of InternalProject/Vectfox/plans/
- * lorebook-semantic-overhaul-passage-index.md, §4.3 of InternalProject/Vectfox/plans/lorebook-multi-vector.md, §3.4 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). LoreBase's switch: turning it on asks first
+ * lorebook-semantic-overhaul-passage-index.md, §4.3 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md, §3.4 of
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). LoreBase's switch: turning it on asks first
  * about the keys and vectors the selected entries lack and Vector Storage's World Info search, then whatever the answer
  * says what the selection lacks, and with nothing selected to choose entries. While it is off, the user still chooses entries and sets its model, and a notice
  * says to do that before turning it on; only the Generate buttons wait, since turning LoreBase on asks to write them.
@@ -21,7 +21,7 @@
  * the chat loads through its Chat Lorebook, the character's Additional Lorebooks or the global list, confirms and
  * removes it the same, then takes it out of those lists. Selection in use here, leading a book's row, puts the
  * selection chosen in use in this chat, or makes a new one and opens the selection screen on it (§1.2 and §3.7 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). Each goes through LoreBase's storage module. The card's status line says how each went, and shows every writing run on the progress panel,
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). Each goes through LoreBase's storage module. The card's status line says how each went, and shows every writing run on the progress panel,
  * whichever started it: the entries being written, then what was written and the books the run locked to its chat
  * (§6.1 of lorebook-multi-vector.md), a line that goes once another chat is open.
  */

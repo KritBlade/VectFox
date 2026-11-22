@@ -1,6 +1,6 @@
 /**
  * Similharity's LoreBase routes, the one door every LoreBase call to them goes through (§3.1 and §3.5 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): its keys, read, written and deleted
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): its keys, read, written and deleted
  * (lorebase-keys.js), and its listing of this account's books with their keys and vectors (lorebase-storage.js). Each
  * call gets Similharity's Qdrant connection ready first, through the vector backend as every vector call does: after a
  * SillyTavern restart Similharity holds none until a VectFox sends it one, which a VectFox turned off never does.

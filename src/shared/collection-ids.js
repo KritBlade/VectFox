@@ -425,7 +425,7 @@ const UUID_FORM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 /**
  * The chat UUID an EventBase or archive collection's ID holds, read from the ID after its prefix: its last segment, or
  * the one before it when that has a UUID's form and the last has not, as a later collection of a chat ends in the time
- * it was made (`…_{chatUUID}_mh3k2x1a`, §2.5 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). A
+ * it was made (`…_{chatUUID}_mh3k2x1a`, §2.5 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). A
  * chat whose UUID is its file name (getChatUUID's fallback, for a chat with no integrity UUID, which SillyTavern gives
  * every chat it loads) gives the ID's last segment, all of the file name only when the name holds no underscore.
  * @param {string} rawId - The ID after its prefix

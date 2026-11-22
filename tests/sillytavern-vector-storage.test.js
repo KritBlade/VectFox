@@ -1,6 +1,6 @@
 /**
  * SillyTavern's Vector Storage where LoreBase meets it (src/sillytavern/vector-storage.js, plan §5.9 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): its World Info search reads as on only
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): its World Info search reads as on only
  * while the extension runs with Enabled for World Info, and turning it off goes through Vector Storage's own command,
  * leaving its chat search alone and saying whether the search is off afterwards.
  */

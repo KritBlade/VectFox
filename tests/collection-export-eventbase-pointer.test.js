@@ -1,6 +1,6 @@
 /**
  * A collection's EventBase pointer (how far EventBase has read the chat into it, kept in its record) through an
- * export, an import and a delete (§2.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md).
+ * export, an import and a delete (§2.3 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md).
  *
  * An import purges the collection and writes the file's events, so a pointer left behind would win over what the
  * collection now holds: ensureVectorizationTip probes only when nothing is saved, the panel reports the old number,

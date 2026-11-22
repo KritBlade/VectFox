@@ -1,6 +1,6 @@
 /**
  * Remove from LoreBase's one confirm and removal (removeLoreBookAfterConfirm in src/features/lorebase/lorebase-removal.js,
- * §3.6 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), which the Database Browser's lorebook
+ * §3.6 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), which the Database Browser's lorebook
  * row and the WorldInfo page's book row both run: what the book holds read first, then the confirm naming it, which
  * opens on Cancel; Remove deleting it all and unlinking nothing, Cancel nothing; and a refusal before the confirm, as
  * while LoreBase writes, showing none. The WorldInfo page's Unlink runs them too: its confirm, whose button is Unlink,

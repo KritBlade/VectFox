@@ -1,6 +1,6 @@
 /**
  * Where a branch chat's events come from (findEventBaseForkSource in src/features/eventbase/eventbase-fork.js, §2.2,
- * §2.3 and §2.5 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): another chat's collection, a
+ * §2.3 and §2.5 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): another chat's collection, a
  * later one included, and never one of the branch's own, its later ones included, whichever way the parent is found:
  * by the window records of the parent's collections in use there, or by reading a collection locked to the branch. A
  * collection of the parent not in use there is never read, and the fork says so (D18).

@@ -281,7 +281,7 @@ function loreBaseRowMarkup(row) {
 const BLANK_PICK_CHECK = '<span class="vfx-pick-check is-blank" aria-hidden="true"><input type="checkbox" class="vfx-check" tabindex="-1" disabled></span>';
 
 /**
- * One lorebook's LoreBase rows (§3.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), shaped as a
+ * One lorebook's LoreBase rows (§3.2 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), shaped as a
  * chat collection's: the lorebook's row, in the collections' column, with the entries its selections hold, and how
  * many selections when there are more than one, where its vectors are
  * stored and their ID, the ⚠ flag when the view gives one, and Remove from LoreBase when the view allows it, then a

@@ -1,6 +1,6 @@
 /**
  * LoreBase's vectors, the pure part (src/features/lorebase/lorebase-vectors-core.js, §4.1 to §4.5 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md): the account's Qdrant collection and each book's ID inside it
+ * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): the account's Qdrant collection and each book's ID inside it
  * (Q6), one point per part with its entry's title before the part, hashes and point IDs that keep entries and books
  * apart, which entries have their vectors from the model set now, what brings a book in line with its selection,
  * insert batches of whole entries, and a reply's search: its two texts, each cut to its newest tokens, and the pool

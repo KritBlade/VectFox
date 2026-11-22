@@ -1,6 +1,6 @@
 /**
  * LoreBase's delivery through SillyTavern's World Info scan, the pure rules (plan §5.7 and D14 of InternalProject/
- * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): what each picked entry sends, and how a scan is armed with
+ * Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): what each picked entry sends, and how a scan is armed with
  * it. In the scan's copy of the books, every entry LoreBase decides loses its keys, so SillyTavern's keyword step skips
  * it, and the picks go in as one <VectLorebook> block for each place in the prompt they take, so the prompt shows what
  * LoreBase sent: each pick inside a tag of its own, and the block force-activated as its most needed pick, which

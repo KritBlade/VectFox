@@ -3,7 +3,7 @@
  * LOREBASE SELECTION SCREEN, MARKUP
  * ============================================================================
  * The screen where the user picks the entries LoreBase decides (plan §5.2 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), on
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md), on
  * GUI-DNA (mvu-helper/devdoc/gui-dna.md): a top-bar shell holding one workbench
  * page, the book, the selection of it shown (the book's selections in a list,
  * with New selection, Rename and Delete), that selection's locks and the

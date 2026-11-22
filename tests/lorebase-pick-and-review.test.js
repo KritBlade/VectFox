@@ -1,5 +1,5 @@
 /**
- * LoreBase's pick and review (plan §5.6 and D6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md)
+ * LoreBase's pick and review (plan §5.6 and D6 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md)
  * ask GPT-6 Luna the route trials' prompts word for word, and read its answers as the trials did. The fixture holds
  * made-up inputs and the prompts route_trials.py and segment_trials.py themselves render from them; InternalProject/
  * Vectfox/tools/lorebase-benchmark/export_trial_prompts.py writes it.

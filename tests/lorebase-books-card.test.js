@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * The WorldInfo page's LoreBase controls (src/features/settings-panel/lorebase-books-card.js, plan §5.2 and §5.9 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md, §3.4 of InternalProject/Vectfox/plans/
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md, §3.4 of InternalProject/Vectfox/plans/
  * vectfox-multi-collection-per-chat.md): LoreBase's switch shows as saved; while it is off the user still chooses
  * entries and sets the model, a notice says to do that first, and only the Generate buttons wait; turning it on can end
  * off when the user keeps Vector Storage's World Info search, and with nothing selected anywhere the status line says
@@ -10,7 +10,7 @@
  * have keys and vectors, opens the selection screen on the book a row names or, from the card's own button, on the
  * chat's first book, and draws the list again once the screen closes, a screen that failed included, saying what the
  * selection lacks of each kind and, while LoreBase is on, which Generate button writes it. Add a lorebook (§6 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md) lists the books the chat does not load, adds the chosen one
+ * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md) lists the books the chat does not load, adds the chosen one
  * to this chat or to this character, says where it went or why it was not, and opens the screen on it. Generate keys, Generate
  * vectors and Generate all write the missing ones of their kinds, or say why they cannot; Delete all asks first, and
  * once it has deleted both turns LoreBase off; Remove from LoreBase on a book's row runs LoreBase's one confirm and
@@ -18,7 +18,7 @@
  * still loads the book, or why it was not removed or unlinked, and draws the list again; on a row showing one of its
  * several selections the trash deletes that selection alone, through LoreBase's one selection delete; the status line
  * says how each went, one entry as one, and names the
- * books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md),
+ * books a writing run locked to its chat (§4.3 and §6.1 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md),
  * "this chat" while it is open, a line that goes once another chat is open.
  */
 /* global document -- this file runs under the jsdom environment */

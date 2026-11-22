@@ -1,5 +1,5 @@
 /**
- * One in use per place (§1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): a chat uses one of
+ * One in use per place (§1 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): a chat uses one of
  * its own EventBase collections, and one selection of each lorebook, at a time. Which locks change when one member of
  * such a group is put in use is this one rule, which EventBase's and LoreBase's lock functions both follow. Pure: no
  * settings, no host.

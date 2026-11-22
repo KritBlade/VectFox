@@ -1,6 +1,6 @@
 /**
  * LoreBase's storage: the one module every page calls to count, write, export, import or delete the keys and vectors of
- * LoreBase's books (§3.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), so a change to how one
+ * LoreBase's books (§3.1 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), so a change to how one
  * kind is written or deleted reaches each page. The WorldInfo page's books card, the selection screen, turning LoreBase
  * on and the Database Browser all call it. It counts what the selected entries lack (selectedEntriesNotReady) and what
  * each book's selected entries have, are ready with, lack or failed to get (storedCountsOfBooks); runs the progress
@@ -14,7 +14,7 @@
  * (removeLoreBook). LoreBase's entry editor saves an entry through it and has its vectors written
  * (saveEntryWithVectors). One guard refuses a run, an import, a delete, a removal or an entry's save while LoreBase
  * writes. A run that writes missing keys locks each book it wrote keys for to the chat it started in (§6.1 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock
+ * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md); a run of vectors alone, Regenerate keys and an import lock
  * nothing. The keys and vectors themselves are written, read and kept for the session by lorebase-keys.js and
  * lorebase-vectors.js.
  */

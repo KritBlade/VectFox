@@ -693,7 +693,7 @@ async function embedWithOneRetry(embed) {
 
 /**
  * Search several collections of one shared Qdrant collection together, one fused search for each text, as LoreBase
- * searches every book taking part in a reply (§4.5 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): the
+ * searches every book taking part in a reply (§4.5 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): the
  * texts embedded in one request, retried once as getQueryVector retries, then their searches sent at once, each
  * reading every collection listed in one request (QdrantBackend.hybridQueryCollections).
  * @param {string[]} collectionIds - The collections, each a tenant of the shared collection the settings name

@@ -1,5 +1,5 @@
 /**
- * Remove from LoreBase and Unlink (§3.6 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the
+ * Remove from LoreBase and Unlink (§3.6 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): the
  * one confirm and removal the Database Browser's lorebook row and the WorldInfo page's book row both run as Remove, so
  * both name and delete the same, and the WorldInfo page's Unlink runs too. The confirm names what the book holds now
  * (loreBookHoldings, removalConfirmLines) and opens on Cancel; then its vectors, its keys and its record go, with its

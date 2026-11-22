@@ -1,12 +1,12 @@
 /**
  * The open chat's books as the WorldInfo page lists them (chatBookLocks in src/features/lorebase/lorebase-chat-books.js,
- * plan §5.2 and D11 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): each book
+ * plan §5.2 and D11 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): each book
  * SillyTavern loads here and has, in the order its scan loads them, with how many of its selected entries LoreBase
  * decides (loadDecidedEntries, the count the keys line reads), its saved selection when the book cannot be loaded,
  * whether it is locked to this chat or to the character it loads the book through, by the character's avatar file name,
  * in a group chat between replies each member's books with that member's lock, and whether its row offers Unlink: a
  * list Unlink takes books out of loads it. And the lock a key run
- * makes (§6.1 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): where, read as the run starts, and which of
+ * makes (§6.1 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): where, read as the run starts, and which of
  * the books it wrote keys for lock to that chat. And Add a lorebook (§6 of lorebook-multi-vector.md): the books the
  * chat does not load, each added to this chat as its Chat Lorebook or to the character through SillyTavern's own places
  * and locked where it went, or refused, linking and locking nothing, a chat's Chat Lorebook never replaced. And

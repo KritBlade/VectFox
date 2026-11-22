@@ -1,6 +1,6 @@
 /**
  * LoreBase's model connection (src/features/lorebase/lorebase-connection.js, plan §5.6 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md): its own row on the WorldInfo page runs on a SillyTavern profile,
+ * plans/executed/lorebook-semantic-overhaul-passage-index.md): its own row on the WorldInfo page runs on a SillyTavern profile,
  * OpenRouter or vLLM through the llm-provider feature's one connection check, never sends a temperature, says what is
  * wrong, where to fix it and what that costs as LoreBase stands (connectionConsequence, for Jev's sentences too), and
  * its Test connection sends the fixed test message on that connection.

@@ -6,7 +6,7 @@
  *
  * THIS MIGRATION deletes, from each entry of `extension_settings.vectfox.collections`,
  * the fields nothing reads once ChunkBase retired (B9 and B29 of InternalProject/
- * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the activation
+ * Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): the activation
  * triggers and Advanced Conditions, the prompt context only chunk retrieval read
  * (context, XML tag, position and depth), and fields no code had read for a long
  * time (`alwaysActive`, `temporalDecay`, `lastUsed`, `queryCount`). Every other

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * The WorldInfo page's LoreBase model card lines (src/features/settings-panel/lorebase-model-card.js, §7.2 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md): the setup notice names the first thing LoreBase lacks and
+ * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): the setup notice names the first thing LoreBase lacks and
  * hides while nothing is missing; the Vectors line names VectFox's embedding model, and its button shows the Core page
  * that sets it; both are drawn again as a control on the card changes, as LoreBase's switch is saved, as SillyTavern's
  * connection profiles change, and as the page opens.

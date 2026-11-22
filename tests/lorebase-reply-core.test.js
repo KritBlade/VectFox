@@ -1,11 +1,11 @@
 /**
  * LoreBase on a reply, the pure rules (src/features/lorebase/lorebase-reply-core.js, plan §5.6, §5.8 and D8 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): which generations get a pick, the books
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): which generations get a pick, the books
  * taking part and the entries LoreBase decides in them, the pick with each entry's keys and one review per pick of more
  * than one part sent at once as the route trials sent them, a one-part or template-code pick sent whole with no review
  * (T20), what a failed call leaves out (D14), and the toast that says so; when a reply says it leaves out selected
  * entries that have no keys (D17): once per chat, and again when the books or their counts change; and the choice a
- * lorebase_accuracy value runs (plan §2 of InternalProject/Vectfox/plans/lorebook-multi-vector.md).
+ * lorebase_accuracy value runs (plan §2 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { pickMessages, tableOfContents } from '../src/features/lorebase/lorebase-pick-core.js';

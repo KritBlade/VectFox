@@ -1,5 +1,5 @@
 /**
- * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  * the selection a chat uses, and every entry a book's selections hold. Which locks change when one is put in use is
  * src/shared/one-in-use-locks.js's (one-in-use-locks.test.js), and the name and ID New selection gives are
  * src/shared/new-group-member.js's (new-group-member.test.js).

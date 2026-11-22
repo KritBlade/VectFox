@@ -1,7 +1,7 @@
 /**
  * The one question before LoreBase writes what its selected entries lack: keys and vectors (plan D17 and §5.2 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md, §4.3 and §4.4 of InternalProject/Vectfox/
- * plans/lorebook-multi-vector.md). Turning LoreBase on and closing the selection screen while it is on both ask it here,
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md, §4.3 and §4.4 of InternalProject/Vectfox/
+ * plans/executed/lorebook-multi-vector.md). Turning LoreBase on and closing the selection screen while it is on both ask it here,
  * under one rule: LoreBase stays on while any selected entry is ready, with its keys and vectors, and a book whose
  * entries are not ready waits. So it may be on when nothing is missing, when the user says to write them, or when some
  * entry is ready whatever the answer; it is off when the keys or vectors cannot be read, and when no entry is ready and

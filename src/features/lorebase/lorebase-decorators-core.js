@@ -1,7 +1,7 @@
 /**
  * SillyTavern's decorators, the `@@` lines that open a lorebook entry's content, read as its World Info scan reads them
  * (parseDecorators in world-info.js, SillyTavern 1.19.0): the entries they keep SillyTavern's own, and the content a
- * scanned entry sends (plan §5.2 and §5.7 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md).
+ * scanned entry sends (plan §5.2 and §5.7 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md).
  * Pure: no SillyTavern.
  */
 

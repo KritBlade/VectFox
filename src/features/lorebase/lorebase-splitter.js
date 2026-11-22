@@ -1,6 +1,6 @@
 /**
  * Cuts a lorebook entry into the passages LoreBase's review numbers as its parts (plan §5.3 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md): the author's own markers first, then 300-token windows at line
+ * plans/executed/lorebook-semantic-overhaul-passage-index.md): the author's own markers first, then 300-token windows at line
  * and sentence ends, only inside a section that is still too long. A passage never crosses a section. A <tag> wrapper
  * around the whole entry is its frame, kept apart so what is sent can keep the tags balanced.
  *

@@ -1,5 +1,5 @@
 /**
- * LoreBase's pick (plan §5.6 and D6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
+ * LoreBase's pick (plan §5.6 and D6 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md):
  * GPT-6 Luna reads the scene and the titles of the selected entries, each followed by the keys LoreBase's model wrote
  * for it (D17), and picks the entries the next reply needs. The prompt is the route trials' toc_focus word for word
  * (InternalProject/Vectfox/tools/lorebase-benchmark/route_trials.py), with the table of contents at the end of the

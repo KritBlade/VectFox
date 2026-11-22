@@ -1,6 +1,6 @@
 /**
  * LoreBase's Fast and Cheap [Jev] choice, the pure rules (src/features/lorebase/lorebase-jev-core.js, plan D16 and §5.6 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md, §5 of lorebook-multi-vector.md): Jev's
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md, §5 of lorebook-multi-vector.md): Jev's
  * state and questions are T22's word for word, as segment_trials.py renders them in the fixture export_trial_prompts.py
  * writes; the entries above 0.25 go whole with no review, best first, within the lore budget, as T37's budgeted_entries
  * sent them; above 100 entries a search's pool is asked about, at 100 or fewer every entry; and a failed search or

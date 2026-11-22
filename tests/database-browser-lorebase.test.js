@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * LoreBase's rows in the Database Browser (src/features/database-browser/database-browser.js, §3.2 and §3.3 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), pressed as a user would: each lorebook of the list
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), pressed as a user would: each lorebook of the list
  * after the collections, under All types and LoreBase alone, its row shaped as a chat collection's, in their column,
  * with its selected entries, where its vectors are stored and their ID, and its keys and vectors rows in one line each;
  * the ⚠ beside a lorebook with no entries selected, its words opening under the name on a click; what LoreBase cannot

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * A chat's own EventBase collections and the one it uses (src/features/eventbase/eventbase-chat-collections.js, §2.2 and
- * D18 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the one route every reader and writer asks,
+ * D18 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): the one route every reader and writer asks,
  * collectionInUse, and why a chat has none in use; its words and its red toast; which collections are the chat's own
  * and listed; the collections of other chats and chat files locked in beside them; the one lock function, which locks
  * the one chosen and unlocks the chat's other own collections on every backend and under every persona, never another

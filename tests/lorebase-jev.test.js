@@ -1,6 +1,6 @@
 /**
  * LoreBase's Fast and Cheap [Jev] connection (src/features/lorebase/lorebase-jev.js, plan D16 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md): Jev runs on the OpenRouter or Custom profile chosen for it; VectFox
+ * plans/executed/lorebook-semantic-overhaul-passage-index.md): Jev runs on the OpenRouter or Custom profile chosen for it; VectFox
  * sends Similharity's decisions route the profile's source, URL, model and key ID, never a key; each setup that cannot
  * run says what is wrong, then what that costs (connectionConsequence, a stand-in here: lorebase-connection.test.js
  * covers it); a refusal says what Similharity answered; and Test connection asks one made-up question. The real profile

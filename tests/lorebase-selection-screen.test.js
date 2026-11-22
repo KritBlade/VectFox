@@ -2,14 +2,14 @@
  * @vitest-environment jsdom
  *
  * LoreBase's selection screen (src/features/lorebase/lorebase-selection-screen.js, plan §5.2 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md), driven as a user would while it is open: it opens on the chat's
+ * plans/executed/lorebook-semantic-overhaul-passage-index.md), driven as a user would while it is open: it opens on the chat's
  * book with the chat's books first; each row's toggle, a category's toggle and the bulk bar save the selection at
  * once; ticks follow the filters and shift-click; a row's eye button shows its entry and saves nothing; the locks and
  * the pins save; opening a book keeps its uids for the new marks, drops deleted ones from the selection and reads its
  * vectors from Qdrant again. Turning entries on only selects them, writing no keys and needing no model; once the screen
  * closes, it deletes the vectors of the entries turned off, and while LoreBase is on asks to write the keys and vectors
  * the selected entries lack under the progress panel, turning LoreBase off on no only when no entry is ready (§4.3 and
- * §4.4 of InternalProject/Vectfox/plans/lorebook-multi-vector.md); while LoreBase is off it asks nothing. Each selected
+ * §4.4 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md); while LoreBase is off it asks nothing. Each selected
  * row shows where its keys stand, and Regenerate keys writes the ticked entries' keys anew on the panel (D17).
  */
 /* global document, MouseEvent -- this file runs under the jsdom environment */

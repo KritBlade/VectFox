@@ -601,7 +601,7 @@ export async function stampAutoSyncMarker(registryKey, settings, options = {}) {
 }
 
 /**
- * The window size a collection is read with (§2.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * The window size a collection is read with (§2.7 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  * the Vectorize dialog's size at the chat's first read, at New collection or at Start over, which Catch up reads with
  * too. No run changes it afterwards; auto-sync reads at the AutoSync page's own size.
  * @param {string} registryKey - The collection's registry key ("backend:id")
@@ -817,7 +817,7 @@ export function clearExtractionCaches(registryKey) {
 }
 
 /**
- * Start over's emptying (§2.6 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): delete every event
+ * Start over's emptying (§2.6 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): delete every event
  * a collection holds, and with them the StoryArc links stored on them; only once none is left, forget the windows it
  * read, the windows that failed and how far it read, and take the window size given. Where auto-sync started stays, as
  * do the collection's ID, name, locks, auto-sync switch and StoryArc merges, and the collection itself, empty, so
@@ -897,7 +897,7 @@ export function isLastWindowExtracted(messages, windowSize, step, registryKey, h
 /**
  * Whether a collection has read a window (no DB query), from its window record: the window's fingerprint is on it, or
  * every message in the window is in a window read already, of any size (§2.7 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). So a Catch up after auto-sync read at another
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md). So a Catch up after auto-sync read at another
  * size reads only the unread messages, and a deleted message or a changed overlap, which move every later window,
  * read nothing again.
  *

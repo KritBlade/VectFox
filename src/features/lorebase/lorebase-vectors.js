@@ -1,5 +1,5 @@
 /**
- * LoreBase's vectors in Qdrant (§4 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): the points of each
+ * LoreBase's vectors in Qdrant (§4 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): the points of each
  * selected entry, embedded by VectFox's embedding model through the vector API every collection goes through, every book
  * of a SillyTavern account a tenant inside one Qdrant collection (Q6): vectfox_main while "One shared collection" is on,
  * the account's own otherwise. What Qdrant holds for a book is read the first time this session needs it in the
@@ -10,7 +10,7 @@
  * listeners, so the selection screen's row and the books card say so (§7.1, §7.3). An
  * edit SillyTavern saves writes the changed parts of the entries that had vectors again in the background and deletes
  * their gone parts; the points of an entry no longer selected go when the selection screen closes. For the Database
- * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), a book tenant's
+ * Browser's rows (§3.2 and §3.3 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), a book tenant's
  * points are read whole, vectors included, in whichever collection holds them, and its View chunks reads them there
  * (tenantChunkSource), a vectors file's points are stored with
  * their vectors and no embedding call, and a tenant is deleted whole (deleteTenantPoints, the one delete of a tenant,

@@ -1,6 +1,6 @@
 /**
  * LoreBase's tester, the pure rules (src/features/lorebase/lorebase-tester-core.js, plan §5.10 of InternalProject/
- * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): a reply's report joins each pick with Luna's reasons and
+ * Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): a reply's report joins each pick with Luna's reasons and
  * its review, part by part, with the text it sends as the World Info scan gets it; lists the selected entries the pick
  * skipped; takes the reviews' wait as the slowest one's, as they run at once; counts the picks' tokens; and finds what
  * SillyTavern's keys would send among the entries a scan as SillyTavern alone activated.

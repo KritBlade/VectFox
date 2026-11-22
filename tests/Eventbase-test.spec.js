@@ -1852,7 +1852,7 @@ test('TEST 013 — Synthetic E2E qdrant: EventBase round-trip', async () => {
 //   - isWindowAlreadyExtracted reports true for a window of another size
 //     whose messages were all read, and false for one holding an unread
 //     message: no message is read twice, in windows of any size (§2.7 of
-//     InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md).
+//     InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md).
 //   - The persisted array length equals the expected window count
 //     (survives page reload — key correctness property for auto-sync
 //     across browser restarts).

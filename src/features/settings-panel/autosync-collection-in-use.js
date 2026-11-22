@@ -1,5 +1,5 @@
 /**
- * Collection in use here, on the AutoSync page (§1.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * Collection in use here, on the AutoSync page (§1.2 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  * a collection chosen in its dropdown is put in use in the open chat through EventBase's one lock function, which
  * unlocks the chat's other own collections there, and the page is drawn again, so the auto-sync status and switch follow
  * the collection now in use. New collection, its last choice, opens Vectorize Content on New collection and changes

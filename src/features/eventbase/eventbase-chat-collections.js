@@ -1,6 +1,6 @@
 /**
  * A chat's own EventBase collections and the one it uses (§2.2 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): a chat reads and writes one of its own collections
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): a chat reads and writes one of its own collections
  * at a time, the one locked to it. Every reader and writer asks one function which that is (collectionInUse), so none
  * guesses: with none in use, nothing reads or writes the chat's events or StoryArc, and whatever is switched on says so
  * in red (noCollectionInUseText, showNoCollectionInUse; D18). One lock function puts a collection in use
@@ -323,7 +323,7 @@ export async function askWhichChatCollection(settings, { canMakeNew = false } = 
 }
 
 /**
- * New collection's collection (§2.5 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): the chat's
+ * New collection's collection (§2.5 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): the chat's
  * first ID with the time it was made in base 36 after it, never made twice (newTimeId); named as the chat's first
  * collection is, with the lowest number from 2 the names of its collections do not use (numberedName), as "Harbor Night
  * 2"; read at the window size given; scoped to chats and listed at once. Its run locks it to the chat as it starts,

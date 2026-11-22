@@ -1,6 +1,6 @@
 /**
  * The chat UUID a collection's ID holds (parseCollectionId in src/shared/collection-ids.js, §2.5 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): a chat's first EventBase collection, a later
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): a chat's first EventBase collection, a later
  * one, whose ID ends in the time it was made after the UUID, a legacy ID with no backend, and an archive each give the
  * UUID they hold; a chat whose UUID is its file name gives the ID's last segment; every other collection gives none.
  * Moving a later collection to another backend or persona, as an import does, keeps its suffix and its chat.

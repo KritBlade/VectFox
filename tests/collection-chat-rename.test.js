@@ -1,6 +1,6 @@
 /**
  * A chat's rename keeps its collections' locks (src/features/collections/collection-metadata.js, §2.2 of
- * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): every collection locked to the old chat ID is
+ * InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): every collection locked to the old chat ID is
  * locked to the name the server saved its file under, in the records and in the chat lock index, a colon or question
  * mark in the name typed included; other chats' locks stay; and the locks stay on the old name, with a warning, when
  * the server cannot say the name it saved.

@@ -1,5 +1,5 @@
 /**
- * LoreBase's model (plan §5.6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): its own
+ * LoreBase's model (plan §5.6 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): its own
  * row on the WorldInfo page, on a SillyTavern profile, OpenRouter or vLLM. The llm-provider feature resolves it as it
  * resolves every other consumer's, so LoreBase holds no manual-provider code of its own. A call can hand its token
  * counts to the caller, as the tester's report of High Accuracy's pick reads them. A sentence saying that LoreBase's

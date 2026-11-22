@@ -1,5 +1,5 @@
 /**
- * LoreBase's files (§3.3 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md), with no host imports:
+ * LoreBase's files (§3.3 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md), with no host imports:
  * a book's keys file and a book tenant's vectors file, each opening with the header every VectFox file has, and what
  * a file would write to a book before anything is written: the keys of the entries whose number and title both match,
  * selected or not, and the vectors of the parts of the entries LoreBase would decide now, selected or not. The Database

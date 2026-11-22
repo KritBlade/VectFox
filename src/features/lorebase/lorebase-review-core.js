@@ -1,5 +1,5 @@
 /**
- * LoreBase's review (plan §5.6 and D6 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
+ * LoreBase's review (plan §5.6 and D6 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md):
  * GPT-6 Luna reads one picked entry's text, cut into numbered parts, and says how much of it the next reply will use
  * and which parts are of no use for the moment. Each picked entry has its own call, showing it alone as entry 1, at
  * low reasoning effort, with one prompt: the route trials' review_topic_cuts_lean word for word (InternalProject/

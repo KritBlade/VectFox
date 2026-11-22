@@ -1,8 +1,8 @@
 /**
  * The keys LoreBase's model writes for each entry the user turns on (plan D15, D17 and §5.2 of InternalProject/
- * Vectfox/plans/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes
+ * Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md), kept in Qdrant through Similharity's LoreBase key routes
  * (lorebase-routes.js), each SillyTavern user's own, every entry's with its title (D11 of InternalProject/Vectfox/
- * plans/vectfox-multi-collection-per-chat.md). A book's keys are written as many calls at once as the WorldInfo page's
+ * plans/executed/vectfox-multi-collection-per-chat.md). A book's keys are written as many calls at once as the WorldInfo page's
  * Entries at once (1 to 8), each entry's state kept for this session and told to the key listeners. lorebase-storage.js
  * runs them on the progress panel, whose Stop drops the calls not yet sent (stopKeyRun), stores a keys file's keys
  * (writeImportedKeys), and deletes one book's keys or every book's (deleteBookKeys, deleteAllKeys). The user can also

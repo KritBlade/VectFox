@@ -1,6 +1,6 @@
 /**
  * The old vectorized lorebook collections LoreBase replaced (src/features/lorebase/lorebase-old-collections-core.js,
- * plan D5 and §6.4 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): which registry
+ * plan D5 and §6.4 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): which registry
  * entries they are, the book each came from by its ID, the locks each carries to its book, and the notice's lines.
  */
 import { describe, expect, it, vi } from 'vitest';

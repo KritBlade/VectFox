@@ -1,5 +1,5 @@
 /**
- * Clean up locks, the collections' part (§1.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * Clean up locks, the collections' part (§1.1 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  * which of a collection's locks name a chat or a character that no longer exists, and the reverse lock index
  * (`chat_lock_index`) its records' chat locks give. A chat lock is the chat's ID, in `lockedToChatIds` or the single
  * `lockedToChatId` saved before them; a character lock is the character's place in SillyTavern's character list (D9),

@@ -1,5 +1,5 @@
 /**
- * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * A lorebook's selections, the pure half (§3.7 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  * a book holds one or more selections, each its own selected entries, pinned sections and locks on chats and
  * characters. A chat uses one selection of a book at a time: the one locked to the chat, else the one locked to its
  * character (selectionInUseOf). Putting one in use at a place takes that place's lock off the book's others, by the

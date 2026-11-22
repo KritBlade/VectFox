@@ -1,6 +1,6 @@
 /**
  * Auto-sync writes only the chat's collection in use (synchronizeChat, src/features/eventbase/eventbase-chat-sync.js;
- * §2.2 and D18 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): it asks the one route
+ * §2.2 and D18 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): it asks the one route
  * (collectionInUse) and writes the collection it gives, while that one's auto-sync is on. With none in use it writes
  * nothing, and while one of the chat's collections has auto-sync on, it says so in red for each message; a model the
  * provider no longer knows turns auto-sync off for the collection in use alone.

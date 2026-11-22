@@ -1,7 +1,7 @@
 /**
  * The collections Vectorize Content made from the sources it no longer reads
  * (src/features/collections/retired-content-collections-core.js, D12 and §4.5 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): which source a collection came from, by
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): which source a collection came from, by
  * its ID or the type its metadata stores, which registry entries they are, and the lines of the notice once they are
  * deleted.
  */

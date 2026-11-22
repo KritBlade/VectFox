@@ -1,5 +1,5 @@
 /**
- * LoreBase's scene (plan §5.5 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the last
+ * LoreBase's scene (plan §5.5 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): the last
  * 6 messages of the stored chat up to the user's last message, hidden ones left out, each cleaned as the route trials
  * cleaned their chats.
  */

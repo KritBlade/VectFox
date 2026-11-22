@@ -1,6 +1,6 @@
 /**
  * searchCollectionsTogether (src/features/vector-backend/vector-api.js, §4.5 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md): the texts are embedded in one request, tried again once as
+ * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): the texts are embedded in one request, tried again once as
  * a single query's embedding is, and each text gets one fused search over every collection listed, all sent at once.
  *
  * Isolation: vector-api.js reaches ST modules that don't resolve under vitest, so its import graph is stubbed, as in

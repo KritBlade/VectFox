@@ -1,6 +1,6 @@
 /**
  * LoreBase on each reply (src/features/lorebase/lorebase-reply.js, plan §5.5 to §5.9 of InternalProject/Vectfox/
- * plans/lorebook-semantic-overhaul-passage-index.md): the generation interceptor's ask for a reply's lore runs the pick
+ * plans/executed/lorebook-semantic-overhaul-passage-index.md): the generation interceptor's ask for a reply's lore runs the pick
  * only on replies (D8), a quiet-to-loud generation included, and only while LoreBase acts, a reply first settling
  * Vector Storage's World Info search with the user; reads the books SillyTavern loads that are locked to the chat or
  * character (D11); sends each call on LoreBase's connection as the trials sent them; goes on without the lore a failed

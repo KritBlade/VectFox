@@ -589,7 +589,7 @@ export function getCollectionCharacterLockCount(collectionId) {
 // ============================================================================
 
 /**
- * Clean up locks, the collections' part (§1.1 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * Clean up locks, the collections' part (§1.1 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  * count, and with `shouldApply` remove, each chat lock on a chat that no longer exists and each character lock past
  * the character list's end, then rebuild `chat_lock_index` from the chat locks left (planCollectionLockCleanup).
  * Nothing is written when nothing changes.

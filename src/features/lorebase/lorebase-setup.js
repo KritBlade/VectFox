@@ -1,6 +1,6 @@
 /**
- * Whether LoreBase can write and run, and why not (§2 and §7.2 of InternalProject/Vectfox/plans/lorebook-multi-vector.md,
- * §5.9 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): the one place each check lives, so
+ * Whether LoreBase can write and run, and why not (§2 and §7.2 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md,
+ * §5.9 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): the one place each check lives, so
  * the WorldInfo page's model card, the Generate buttons, turning LoreBase on, closing the selection screen, Regenerate
  * keys, the entry editor and every run say the same. Keys need Qdrant and LoreBase's own model; vectors need Qdrant and
  * VectFox's embedding model; each reply's pick needs Jev's profile on Fast and Cheap [Jev], or LoreBase's own model on

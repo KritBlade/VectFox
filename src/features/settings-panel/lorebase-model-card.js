@@ -1,6 +1,6 @@
 /**
  * The WorldInfo page's LoreBase model card, the two lines it draws from settings of every page (§7.2 of
- * InternalProject/Vectfox/plans/lorebook-multi-vector.md): the setup notice, naming the first thing LoreBase lacks
+ * InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): the setup notice, naming the first thing LoreBase lacks
  * (loreBaseSetupProblem: Qdrant, VectFox's embedding model, LoreBase's model, then Jev's profile on Fast and Cheap
  * [Jev]), hidden while nothing is missing; and the Vectors line, naming VectFox's embedding model, whose button shows
  * the Core page that sets it. Both are drawn as the page opens, and again as a control on the card changes, as

@@ -1,6 +1,6 @@
 /**
  * The rules of LoreBase's storage module (src/features/lorebase/lorebase-storage-core.js, §3.1 of InternalProject/
- * Vectfox/plans/vectfox-multi-collection-per-chat.md): a run of keys writes only the entries without keys, a run of
+ * Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): a run of keys writes only the entries without keys, a run of
  * vectors only those without vectors, and a run of both each entry once; the selection's lack counted by kind; the
  * progress panel's title and closing line; a book's selected entries counted by what they have; and the Database
  * Browser's rows of each book's keys and vectors, the list's and the leftovers', and the row an import writes to in a

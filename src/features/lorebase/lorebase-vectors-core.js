@@ -1,5 +1,5 @@
 /**
- * LoreBase's vectors (§4.1 to §4.5 of InternalProject/Vectfox/plans/lorebook-multi-vector.md): the IDs that keep a
+ * LoreBase's vectors (§4.1 to §4.5 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md): the IDs that keep a
  * SillyTavern account's books apart inside one Qdrant collection (Q6), one point for each part of each selected entry,
  * which entries have their vectors from the embedding model set now, what brings a book's vectors in line with its
  * selection, and a reply's search: its two texts, and the pool of entries Jev is asked about from the searches' points.

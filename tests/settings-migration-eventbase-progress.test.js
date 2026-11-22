@@ -1,7 +1,7 @@
 /**
  * settings-migration-eventbase-progress.test.js — how far EventBase has read each chat moves from five stores keyed by
  * the chat's UUID into the record of each of the chat's collections (src/app/settings-migration-eventbase-progress.js,
- * §2.4 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md):
+ * §2.4 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md):
  *   - a chat with one collection: each store's entry becomes its part of the pointer
  *   - a chat with collections on two backends and under two personas: each gets the same pointer, as they shared it
  *   - a chat's later collection, whose ID ends in the time it was made after the UUID, gets the chat's pointer too

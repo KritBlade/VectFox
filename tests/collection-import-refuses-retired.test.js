@@ -1,7 +1,7 @@
 /**
  * An import refuses a collection from a source Vectorize Content no longer reads (validateImportData in
  * src/features/collections/collection-export.js, §4.5 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): an export of a character card's, a
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): an export of a character card's, a
  * document's, a web page's, a wiki's or a YouTube transcript's collection, known by its ID or by the type the export
  * carries, gives an error, so the Database Browser imports nothing from the file; an EventBase export gives none.
  */

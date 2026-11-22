@@ -1,10 +1,10 @@
 /**
  * LoreBase's switch and SillyTavern's Vector Storage (src/features/lorebase/lorebase-switch.js and
- * lorebase-vector-storage.js, plan §5.9 of InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md):
+ * lorebase-vector-storage.js, plan §5.9 of InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md):
  * LoreBase acts only while VectFox and its switch are on, on Qdrant (D15), and Vector Storage's World Info search is
  * off; turning LoreBase on off Qdrant says it needs Qdrant and stays off; so does turning it on while the model that
  * picks each reply's entries cannot run, before any question; turning it on asks first to write the keys and
- * vectors the selected entries lack (D17, §4.3 and §4.4 of InternalProject/Vectfox/plans/lorebook-multi-vector.md,
+ * vectors the selected entries lack (D17, §4.3 and §4.4 of InternalProject/Vectfox/plans/executed/lorebook-multi-vector.md,
  * lorebase-keys-question.js), says why when they cannot be, and stays off when the user declines with no entry ready,
  * turning on with the ready ones on Not now; then it asks to turn that search off, LoreBase staying off when the user
  * keeps it; once on, what the user agreed to is written, and a writing that does not start says why. A reply

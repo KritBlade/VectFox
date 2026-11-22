@@ -1,5 +1,5 @@
 /**
- * The in-use switcher (§1.2 of InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md): one dropdown that
+ * The in-use switcher (§1.2 of InternalProject/Vectfox/plans/executed/vectfox-multi-collection-per-chat.md): one dropdown that
  * shows and changes which member of a group the open chat uses, drawn alike wherever a group is. Selection in use here,
  * on each book row of the WorldInfo page's LoreBase books card, holds the book's selections; Collection in use here, on
  * the AutoSync page, holds the open chat's own EventBase collections. It lists each member by its name, the one in use

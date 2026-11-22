@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * The WorldInfo page's LoreBase tester card (src/features/settings-panel/lorebase-tester-card.js, plan §5.10 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): it lists the open chat's reports newest
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): it lists the open chat's reports newest
  * first and draws the picked one, hiding the Reply list while there is none; it follows the newest report until the
  * user picks an older one; drawing the same report again keeps the parts the user opened; and it measures the report it
  * draws only while the card is shown.

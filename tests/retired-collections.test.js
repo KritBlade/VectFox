@@ -1,6 +1,6 @@
 /**
  * The start-up deletion of the collections VectFox no longer reads (src/app/retired-collections.js, D5 and §4.5 of
- * InternalProject/Vectfox/plans/lorebook-semantic-overhaul-passage-index.md): once SillyTavern has loaded it runs the
+ * InternalProject/Vectfox/plans/executed/lorebook-semantic-overhaul-passage-index.md): once SillyTavern has loaded it runs the
  * old lorebook collections' part, then the part for the collections of Vectorize Content's retired sources, and shows
  * one notice holding the lorebook lines, then the content lines; it shows nothing when neither part deleted anything.
  * A second call while a run is going joins it, and an error from either part is logged, never thrown. Both parts are
