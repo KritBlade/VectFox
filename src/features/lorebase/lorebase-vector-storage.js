@@ -17,6 +17,7 @@ import { extension_settings } from '../../sillytavern/settings.js';
 import { isVectorStorageWorldInfoOn, turnOffVectorStorageWorldInfo } from '../../sillytavern/vector-storage.js';
 import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './lorebase-keys-question.js';
 import { replyModelProblem } from './lorebase-setup.js';
+import { missingSummaryOf } from './lorebase-storage-core.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, saveLoreBaseSwitch, turnLoreBaseOff } from './lorebase-switch.js';
 
 const WHY_THEY_CONFLICT = {
@@ -39,9 +40,10 @@ function showNotTurnedOffToast() {
  * closing the selection screen asks too): the user has them written, or some entry is ready already; and after asking
  * to turn off Vector Storage's World Info search when it is on. Once on, what the user agreed to is written under
  * VectFox's progress panel.
- * @returns {Promise<boolean>} Whether LoreBase is on afterwards: not off Qdrant, not while that model cannot run, not
- *   when keys and vectors cannot be read, not when no entry is ready and none will be written, not when the user keeps
- *   that search, and not when it would not turn off
+ * @returns {Promise<{isOn: boolean, missing: ReturnType<typeof missingSummaryOf>|null}>} isOn: whether LoreBase is on
+ *   afterwards: not off Qdrant, not while that model cannot run, not when keys and vectors cannot be read, not when no
+ *   entry is ready and none will be written, not when the user keeps that search, and not when it would not turn off;
+ *   missing: what the selected entries lack, as read before the question, or null when they were not read
  */
 export async function turnLoreBaseOn() {
     if (!isLoreBaseBackend()) {
@@ -49,7 +51,7 @@ export async function turnLoreBaseOn() {
             { icon: 'fa-database', text: 'LoreBase needs Qdrant: it keeps the keys and vectors of each entry there.' },
             { text: 'Choose Qdrant as the vector backend, then turn LoreBase on.' },
         ]);
-        return false;
+        return { isOn: false, missing: null };
     }
     const replyProblem = replyModelProblem(extension_settings.vectfox);
     if (replyProblem) {
@@ -57,25 +59,26 @@ export async function turnLoreBaseOn() {
             { icon: 'fa-plug', text: "LoreBase stays off: the model that picks each reply's entries cannot run yet." },
             { name: replyProblem },
         ]);
-        return false;
+        return { isOn: false, missing: null };
     }
     const { canBeOn, shouldWrite, pending } = await askToWriteMissingKeysAndVectors({ isTurningOn: true });
-    if (!canBeOn) return false;
+    const offOutcome = { isOn: false, missing: pending && missingSummaryOf(pending, false) };
+    if (!canBeOn) return offOutcome;
     if (isVectorStorageWorldInfoOn()) {
         const isAgreed = await confirmPopup([
             { icon: 'fa-triangle-exclamation', text: "SillyTavern's Vector Storage has World Info on, and it conflicts with LoreBase." },
             WHY_THEY_CONFLICT,
             { text: "Turn it off? Vector Storage's chat and file search stay on. Keep it on, and LoreBase stays off." },
         ], { okButton: 'Turn it off', cancelButton: 'Keep it on' });
-        if (!isAgreed) return false;
+        if (!isAgreed) return offOutcome;
         if (!await turnOffVectorStorageWorldInfo()) {
             showNotTurnedOffToast();
-            return false;
+            return offOutcome;
         }
     }
     saveLoreBaseSwitch(true);
-    if (shouldWrite) writeMissingKeysAndVectors(pending);
-    return true;
+    const isWriting = shouldWrite && writeMissingKeysAndVectors(pending);
+    return { isOn: true, missing: missingSummaryOf(pending, isWriting) };
 }
 
 /**

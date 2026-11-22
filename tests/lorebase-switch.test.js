@@ -85,7 +85,7 @@ describe('when LoreBase acts', () => {
 
 describe('turning LoreBase on and off', () => {
     it("turns on with no question when every selected entry is ready and Vector Storage's World Info search is off", async () => {
-        expect(await turnLoreBaseOn()).toBe(true);
+        expect((await turnLoreBaseOn()).isOn).toBe(true);
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
         expect(saveSettingsDebounced).toHaveBeenCalled();
@@ -97,7 +97,7 @@ describe('turning LoreBase on and off', () => {
         host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 311, readyCount: 0, unreadBooks: 0 };
         confirmPopup.mockResolvedValueOnce(true);
 
-        expect(await turnLoreBaseOn()).toBe(true);
+        expect((await turnLoreBaseOn()).isOn).toBe(true);
         expect(selectedEntriesNotReady).toHaveBeenCalledWith(host.settings.vectfox, { isRereading: true });
         expect(confirmPopup).toHaveBeenCalledWith(expect.any(Array), { okButton: 'Write keys and vectors', cancelButton: 'Leave off' });
         expect(confirmPopup.mock.calls[0][0]).toContainEqual({ text: 'Selected entries without keys or vectors:', name: '311' });
@@ -108,22 +108,31 @@ describe('turning LoreBase on and off', () => {
         expect(isLoreBaseSwitchedOn()).toBe(true);
     });
 
+    it('tells that a writing run started, so the books card leaves its line to the run', async () => {
+        host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [{ uid: 0 }] }], count: 1, readyCount: 0, decidedCount: 1, unreadBooks: 0 };
+        confirmPopup.mockResolvedValueOnce(true);
+
+        expect((await turnLoreBaseOn()).missing).toEqual({ missingCount: 1, missingKeyCount: 1, missingVectorCount: 0, decidedCount: 1, isWriting: true });
+    });
+
     it('turns on, and says why in a notice, when the writing does not start', async () => {
         host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 4, readyCount: 0, unreadBooks: 0 };
         confirmPopup.mockResolvedValueOnce(true);
         const refusal = new Error('LoreBase is already writing keys or vectors on the progress panel. Wait for it, or press Stop there.');
         writeMissing.mockRejectedValueOnce(refusal);
 
-        expect(await turnLoreBaseOn()).toBe(true);
+        expect((await turnLoreBaseOn()).isOn).toBe(true);
         await vi.waitFor(() => expect(noticePopup).toHaveBeenCalledWith([{ icon: 'fa-key', text: refusal.message }]));
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('were not written'), refusal);
     });
 
-    it('stays off and writes nothing when the user leaves it off with no entry ready', async () => {
-        host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 4, readyCount: 0, unreadBooks: 0 };
+    it('stays off and writes nothing when the user leaves it off with no entry ready, telling what the selection lacks', async () => {
+        host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [{ uid: 0 }, { uid: 1 }], vectorEntries: [{ uid: 1 }] }], count: 4, readyCount: 0, decidedCount: 4, unreadBooks: 0 };
         confirmPopup.mockResolvedValueOnce(false);
 
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect(await turnLoreBaseOn()).toEqual({
+            isOn: false, missing: { missingCount: 4, missingKeyCount: 2, missingVectorCount: 1, decidedCount: 4, isWriting: false },
+        });
         expect(writeMissing).not.toHaveBeenCalled();
         expect(isLoreBaseSwitchedOn()).toBe(false);
         expect(showsSwitch).not.toHaveBeenCalled();
@@ -134,7 +143,7 @@ describe('turning LoreBase on and off', () => {
         host.isWorldInfoSearchOn = true;
         confirmPopup.mockResolvedValueOnce(false);
 
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect((await turnLoreBaseOn()).isOn).toBe(false);
         expect(confirmPopup).toHaveBeenCalledTimes(1);
         expect(confirmPopup.mock.calls[0][1].okButton).toBe('Write keys and vectors');
         expect(turnOffVectorStorageWorldInfo).not.toHaveBeenCalled();
@@ -144,7 +153,7 @@ describe('turning LoreBase on and off', () => {
         host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 4, readyCount: 0, unreadBooks: 0 };
         host.keyProblem = 'LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.';
 
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect((await turnLoreBaseOn()).isOn).toBe(false);
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(noticePopup.mock.calls[0][0]).toContainEqual({ text: 'LoreBase cannot write them yet. Without them, LoreBase stays off.' });
         expect(noticePopup.mock.calls[0][0]).toContainEqual({ name: host.keyProblem });
@@ -156,14 +165,14 @@ describe('turning LoreBase on and off', () => {
         host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [], vectorEntries: [{ uid: 0 }] }], count: 1, readyCount: 0, unreadBooks: 0 };
         confirmPopup.mockResolvedValueOnce(true);
 
-        expect(await turnLoreBaseOn()).toBe(true);
+        expect((await turnLoreBaseOn()).isOn).toBe(true);
         expect(writingProblem).toHaveBeenCalledWith(host.settings.vectfox, ['vectors']);
     });
 
     it('stays off, saying why, when the keys and vectors cannot be read', async () => {
         host.pending = new Error("Similharity could not read LoreBase's keys (HTTP 500): Qdrant is down");
 
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect((await turnLoreBaseOn()).isOn).toBe(false);
         expect(noticePopup.mock.calls[0][0][0].text).toContain('could not read the keys and vectors');
         expect(noticePopup.mock.calls[0][0]).toContainEqual({ name: host.pending.message });
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('could not be read'), host.pending);
@@ -174,7 +183,7 @@ describe('turning LoreBase on and off', () => {
         host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 4, readyCount: 357, unreadBooks: 0 };
         confirmPopup.mockResolvedValueOnce(false);
 
-        expect(await turnLoreBaseOn()).toBe(true);
+        expect((await turnLoreBaseOn()).isOn).toBe(true);
         expect(confirmPopup.mock.calls[0][1]).toEqual({ okButton: 'Write keys and vectors', cancelButton: 'Not now' });
         expect(confirmPopup.mock.calls[0][0].at(-1).text)
             .toBe('Write them and turn LoreBase on? A progress panel shows the writing. Until they are written, LoreBase goes on with the 357 entries that are ready.');
@@ -183,7 +192,7 @@ describe('turning LoreBase on and off', () => {
 
         turnLoreBaseOff();
         host.keyProblem = 'LoreBase has no model. Until then the entries selected for LoreBase stay out of replies.';
-        expect(await turnLoreBaseOn()).toBe(true);
+        expect((await turnLoreBaseOn()).isOn).toBe(true);
         expect(writeMissing).not.toHaveBeenCalled();
     });
 
@@ -192,7 +201,7 @@ describe('turning LoreBase on and off', () => {
         host.pending = { books: [{ bookName: 'Harbor Atlas', keyEntries: [] }], count: 4, readyCount: 357, unreadBooks: 0 };
         host.isWorldInfoSearchOn = true;
 
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect((await turnLoreBaseOn()).isOn).toBe(false);
         expect(noticePopup).toHaveBeenCalledWith([
             { icon: 'fa-plug', text: "LoreBase stays off: the model that picks each reply's entries cannot run yet." },
             { name: host.replyProblem },
@@ -204,9 +213,9 @@ describe('turning LoreBase on and off', () => {
         expect(showsSwitch).not.toHaveBeenCalled();
     });
 
-    it('stays off on the Standard backend, and says LoreBase needs Qdrant', async () => {
+    it('stays off on the Standard backend, and says LoreBase needs Qdrant, reading nothing', async () => {
         host.settings.vectfox.vector_backend = 'standard';
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect(await turnLoreBaseOn()).toEqual({ isOn: false, missing: null });
         expect(noticePopup.mock.calls[0][0][0].text).toContain('LoreBase needs Qdrant');
         expect(isLoreBaseSwitchedOn()).toBe(false);
         expect(writeMissing).not.toHaveBeenCalled();
@@ -216,7 +225,7 @@ describe('turning LoreBase on and off', () => {
         host.isWorldInfoSearchOn = true;
         confirmPopup.mockResolvedValueOnce(true);
 
-        expect(await turnLoreBaseOn()).toBe(true);
+        expect((await turnLoreBaseOn()).isOn).toBe(true);
         expect(confirmPopup).toHaveBeenCalledWith(expect.any(Array), { okButton: 'Turn it off', cancelButton: 'Keep it on' });
         expect(turnOffVectorStorageWorldInfo).toHaveBeenCalledTimes(1);
         expect(host.settings.vectfox.lorebase_enabled).toBe(true);
@@ -227,7 +236,7 @@ describe('turning LoreBase on and off', () => {
         host.isWorldInfoSearchOn = true;
         confirmPopup.mockResolvedValueOnce(false);
 
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect((await turnLoreBaseOn()).isOn).toBe(false);
         expect(turnOffVectorStorageWorldInfo).not.toHaveBeenCalled();
         expect(host.isWorldInfoSearchOn).toBe(true);
         expect(isLoreBaseSwitchedOn()).toBe(false);
@@ -239,7 +248,7 @@ describe('turning LoreBase on and off', () => {
         host.canTurnOff = false;
         confirmPopup.mockResolvedValueOnce(true);
 
-        expect(await turnLoreBaseOn()).toBe(false);
+        expect((await turnLoreBaseOn()).isOn).toBe(false);
         expect(isLoreBaseSwitchedOn()).toBe(false);
         expect(globalThis.toastr.warning).toHaveBeenCalledWith(expect.stringContaining('Enabled for World Info'), 'VectFox — LoreBase', expect.any(Object));
     });

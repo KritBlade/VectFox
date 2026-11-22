@@ -2,8 +2,8 @@
  * The WorldInfo page's LoreBase controls (plan §5.2 and §5.9 of InternalProject/Vectfox/plans/
  * lorebook-semantic-overhaul-passage-index.md, §4.3 of InternalProject/Vectfox/plans/lorebook-multi-vector.md, §3.4 of
  * InternalProject/Vectfox/plans/vectfox-multi-collection-per-chat.md). LoreBase's switch: turning it on asks first
- * about the keys and vectors the selected entries lack and Vector Storage's World Info search, and with nothing
- * selected says to choose entries. While it is off, the user still chooses entries and sets its model, and a notice
+ * about the keys and vectors the selected entries lack and Vector Storage's World Info search, then whatever the answer
+ * says what the selection lacks, and with nothing selected to choose entries. While it is off, the user still chooses entries and sets its model, and a notice
  * says to do that before turning it on; only the Generate buttons wait, since turning LoreBase on asks to write them.
  * The books card: it draws the open chat's books with their selected counts and locks, then how many of each book's
  * selected entries have keys and vectors, and each book's state (§7.1 of lorebook-multi-vector.md): ready, what its
@@ -49,7 +49,7 @@ const DELETE_ALL_ID = 'VectFox_lorebase_delete_all';
 const BOOKS_STATUS_ID = 'VectFox_lorebase_books_status';
 // Add a lorebook's list of the books the chat does not load, drawn with the books (loreBaseBooksMarkup).
 const ADD_BOOK_SELECT_ID = 'VectFox_lorebase_add_book';
-const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.';
+const NOTHING_SELECTED_TEXT = 'LoreBase is on, with nothing selected yet. Choose entries: when you close the selection screen, LoreBase asks to write the keys and vectors of the entries you turned on.';
 let isGenerating = false;
 // Counts the card's refreshes, so a refresh whose books loaded after a newer one began draws nothing.
 let refreshCount = 0;
@@ -257,9 +257,14 @@ async function generate(settings, { kinds, name }) {
     }
 }
 
-/** Turn LoreBase on from its switch; with nothing selected anywhere, the status line says to choose entries next. */
+/**
+ * Turn LoreBase on from its switch; whatever the answer, the status line then says what the selection lacks, as once
+ * the selection screen closes (showWhatSelectionLacks), with nothing selected anywhere that LoreBase is on and entries
+ * are chosen next.
+ */
 async function switchLoreBaseOn() {
-    if (await turnLoreBaseOn() && !selectedLoreBookNames().length) showBooksStatus(NOTHING_SELECTED_TEXT);
+    const { missing } = await turnLoreBaseOn();
+    showWhatSelectionLacks(missing);
 }
 
 /**
@@ -415,7 +420,7 @@ export function bindLoreBaseBooksCard(settings) {
 /**
  * Open the selection screen on a book, or on the chat's first with none named, and on a selection of it, or the one in
  * use here with none named; once it closes, draw the list again, a screen that failed included, and say what the
- * selection lacks (showChosenSelection).
+ * selection lacks (showWhatSelectionLacks).
  * @param {string} bookName
  * @param {string|null} [selectionId]
  * @returns {Promise<void>}
@@ -428,7 +433,7 @@ async function chooseEntries(bookName, selectionId = null) {
         log.error('LoreBase: the selection screen failed:', error);
     }
     void refreshLoreBaseBooks();
-    showChosenSelection(chosen);
+    showWhatSelectionLacks(chosen);
 }
 
 /**
@@ -494,15 +499,15 @@ function generateButtonNameFor(chosen) {
 }
 
 /**
- * What the selection lacks once the selection screen closed, LoreBase on or off: nothing, or how many entries have no
- * keys and how many no vectors yet, which LoreBase leaves out while it is on, until the Generate button for what they
- * lack writes it (generateButtonNameFor), and which turning it on writes while it is off; with nothing selected, the
- * line goes, or calls to choose entries while LoreBase is on; with the keys and vectors unread, the line goes. A run
- * started on the screen's question writes its own lines (showWritingRun).
+ * What the selection lacks once the selection screen closed or LoreBase's switch was turned on, LoreBase on or off:
+ * nothing, or how many entries have no keys and how many no vectors yet, which LoreBase leaves out while it is on,
+ * until the Generate button for what they lack writes it (generateButtonNameFor), and which turning it on writes while
+ * it is off; with nothing selected, the line goes, or calls to choose entries while LoreBase is on; with the keys and
+ * vectors unread, the line goes. A run started on the question writes its own lines (showWritingRun).
  * @param {{missingCount: number, missingKeyCount: number, missingVectorCount: number, decidedCount: number,
- *   isWriting: boolean}|null} chosen - From openLoreBaseSelection
+ *   isWriting: boolean}|null} chosen - From openLoreBaseSelection or turnLoreBaseOn (missingSummaryOf)
  */
-function showChosenSelection(chosen) {
+function showWhatSelectionLacks(chosen) {
     if (chosen?.isWriting) return;
     if (!chosen?.decidedCount) {
         showBooksStatus(chosen && isLoreBaseSwitchedOn() && !selectedLoreBookNames().length ? NOTHING_SELECTED_TEXT : '');

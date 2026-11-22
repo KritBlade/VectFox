@@ -234,7 +234,7 @@ export async function storedCountsOfBooks(books, settings) {
  * (lockKeyedBooks), and tell the run listeners as it starts and ends. An entry counts once on the panel, done when the
  * last of what it lacked is written or fails; one whose keys this run asked for gets vectors only once they are
  * written, so one whose keys failed or were stopped gets none. Each book's failures get its toasts and the panel's list.
- * Nothing to write shows no panel.
+ * Nothing to write shows no panel. Refused while LoreBase writes, even with nothing to write.
  * @param {object} settings - VectFox settings
  * @param {{books: Array<{bookName: string, decidedEntries?: object[], keyEntries?: object[], vectorEntries?: object[]}>,
  *   count: number, unreadBooks?: number}} pending - What to write
@@ -244,9 +244,9 @@ export async function storedCountsOfBooks(books, settings) {
  * @throws {Error} While LoreBase writes already, the panel brought to the front
  */
 async function runOnPanel(settings, { books, count, unreadBooks = 0 }, { kinds, isRegenerating = false, lockPlace = null }) {
+    refuseWhileWriting();
     const outcome = { keysWritten: 0, vectorsWritten: 0, failed: 0, stopped: 0, unreadBooks, chatLock: null };
     if (!count) return outcome;
-    refuseWhileWriting();
     const run = { isStopped: false };
     panelRun = run;
     try {
@@ -337,16 +337,15 @@ export async function writeMissing(settings, kinds, { pending = null, booksWithC
 /**
  * Regenerate keys: write the given entries' keys anew, hand-edited ones included, under the progress panel (D17 of
  * lorebook-semantic-overhaul-passage-index.md). Their vectors stay as they are: they hold the entry's title and text,
- * not its keys. Entries already being written are left to that writing. It locks no book.
+ * not its keys. It locks no book.
  * @param {string} bookName
  * @param {object[]} entries - The book's entries, as loadWorldInfo returns them
  * @param {object} settings - VectFox settings
  * @returns {Promise<WritingRunOutcome>}
- * @throws {Error} While LoreBase writes already
+ * @throws {Error} While LoreBase writes already, these entries' keys included
  */
 export async function regenerateKeysOfEntries(bookName, entries, settings) {
-    const wanted = entries.filter(entry => keyStateOf(bookName, uidOf(entry)).status !== 'writing');
-    return runOnPanel(settings, { books: [{ bookName, keyEntries: wanted }], count: wanted.length }, { kinds: [KEYS], isRegenerating: true });
+    return runOnPanel(settings, { books: [{ bookName, keyEntries: entries }], count: entries.length }, { kinds: [KEYS], isRegenerating: true });
 }
 
 /**

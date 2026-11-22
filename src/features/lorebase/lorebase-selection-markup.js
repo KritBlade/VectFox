@@ -531,9 +531,9 @@ export function entriesFooterMarkup({ shownCount, matchCount, hasMore }) {
  * The footer line, of the ready entries a reply sends (isEntryReady in lorebase-readiness.js). On High Accuracy: how
  * many titles the pick reads from the book, and what they add to every pick. On Fast and Cheap [Jev] (§7.3 of
  * lorebook-multi-vector.md): how many ready entries Jev is asked about on every reply, every one up to POOL_SEATS, else
- * the search's best POOL_SEATS, counted over the books taking part in the open chat; that the selection shown takes no
- * part there; or the rule alone while the count is not known. With nothing LoreBase decides selected, that it decides
- * none.
+ * the search's best POOL_SEATS, counted over the books taking part in the open chat, or that none is ready yet; that the
+ * selection shown takes no part there; or the rule alone while the count is not known. With nothing LoreBase decides
+ * selected, that it decides none.
  * @param {{decidedCount: number, entryCount: number, titleTokens: number}} footer - From selectionFooter
  * @param {{isFastAndCheap?: boolean, takingPart?: {count: number, isSelectionTakingPart: boolean}|null}} [choice] -
  *   isFastAndCheap: LoreBase's Accuracy is Fast and Cheap [Jev]; takingPart: the ready entries in the books taking part
@@ -550,6 +550,7 @@ export function summaryText({ decidedCount, entryCount, titleTokens }, { isFastA
             + `and above that about the ${formatCount(POOL_SEATS)} a search finds best, on every reply.`;
     }
     if (!takingPart.isSelectionTakingPart) return 'This selection takes no part in this chat, so Jev is never asked about its entries here.';
+    if (!takingPart.count) return 'No entry taking part in this chat is ready yet, so Jev is asked about none until their keys and vectors are written.';
     const entries = `${counted(takingPart.count, 'ready entry', 'ready entries')} taking part in this chat`;
     return takingPart.count > POOL_SEATS
         ? `Jev is asked about the ${formatCount(POOL_SEATS)} a search finds best of the ${entries}, on every reply.`

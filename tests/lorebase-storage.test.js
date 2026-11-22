@@ -486,17 +486,20 @@ describe('writing on the progress panel', () => {
         expect(writeBookVectors).not.toHaveBeenCalled();
     });
 
-    it('runs one writing run on the panel at a time: a second is refused and brings the running one up', async () => {
+    it('runs one writing run on the panel at a time: a second is refused and brings the running one up, on the same entries or nothing to write too', async () => {
         const answers = [];
         host.ask = vi.fn(() => new Promise(resolve => answers.push(resolve)));
         const first = storage.regenerateKeysOfEntries(BOOK, [entry(0, 'Lighthouse')], QDRANT);
         await vi.waitFor(() => expect(host.ask).toHaveBeenCalledTimes(1));
 
         await expect(storage.regenerateKeysOfEntries(BOOK, [entry(1, 'Tidewardens')], QDRANT)).rejects.toThrow(STILL_WRITING);
+        await expect(storage.regenerateKeysOfEntries(BOOK, [entry(0, 'Lighthouse')], QDRANT)).rejects.toThrow(STILL_WRITING);
         await expect(storage.writeMissing(QDRANT, [kinds.VECTORS], {
             pending: { books: [{ bookName: BOOK, vectorEntries: [entry(1, 'Tidewardens')] }], count: 1, unreadBooks: 0 },
         })).rejects.toThrow(STILL_WRITING);
-        expect(host.panel.reopen).toHaveBeenCalledTimes(2);
+        await expect(storage.writeMissing(QDRANT, [kinds.VECTORS], { pending: { books: [], count: 0, unreadBooks: 0 } }))
+            .rejects.toThrow(STILL_WRITING);
+        expect(host.panel.reopen).toHaveBeenCalledTimes(4);
         answers[0](answerWith(['lighthouse']));
         await first;
         expect(await storage.regenerateKeysOfEntries(BOOK, [], QDRANT)).toEqual(outcomeOf({}));

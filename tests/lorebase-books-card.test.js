@@ -25,7 +25,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
-    status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, writingProgressListener: null,
+    status: null, screen: null, isOn: true, willTurnOn: true, turnOnMissing: null, switchListener: null, writingRunListener: null, writingProgressListener: null,
     chatLocksMovedListener: null,
     selectedBooks: [], settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
     counts: null, add: null, added: null, removed: null, deletedSelection: null, useError: null,
@@ -82,8 +82,8 @@ vi.mock('../src/features/lorebase/index.js', async () => ({
     onLoreBookChatLocksMoved: listener => { host.chatLocksMovedListener = listener; },
     // Tells the page, as saving the switch does.
     turnLoreBaseOff: vi.fn(() => { host.isOn = false; host.switchListener?.(false); }),
-    // On, unless the user keeps Vector Storage's World Info search.
-    turnLoreBaseOn: vi.fn(async () => { host.isOn = host.willTurnOn; return host.isOn; }),
+    // On, unless the user keeps Vector Storage's World Info search, with what the selection lacks.
+    turnLoreBaseOn: vi.fn(async () => { host.isOn = host.willTurnOn; return { isOn: host.isOn, missing: host.turnOnMissing }; }),
 }));
 
 const {
@@ -118,6 +118,7 @@ beforeEach(() => {
     host.removable = new Set();
     host.isOn = true;
     host.willTurnOn = true;
+    host.turnOnMissing = { missingCount: 0, missingKeyCount: 0, missingVectorCount: 0, decidedCount: 0, isWriting: false };
     host.keyProblem = null;
     host.outcome = outcomeOf({ keysWritten: 2, vectorsWritten: 2 });
     host.chatId = 'chat-harbor';
@@ -187,11 +188,11 @@ describe("LoreBase's switch", () => {
         host.selectedBooks = [];
         flipSwitch(true);
         await vi.waitFor(() => expect(status().textContent).toBe(
-            'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.'));
+            'LoreBase is on, with nothing selected yet. Choose entries: when you close the selection screen, LoreBase asks to write the keys and vectors of the entries you turned on.'));
     });
 
     it('drops the call to choose entries once entries are chosen, and once LoreBase is turned off', async () => {
-        const nothingSelected = 'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.';
+        const nothingSelected = 'LoreBase is on, with nothing selected yet. Choose entries: when you close the selection screen, LoreBase asks to write the keys and vectors of the entries you turned on.';
         const switchOnWithNothing = async () => {
             host.isOn = false;
             host.selectedBooks = [];
@@ -219,6 +220,37 @@ describe("LoreBase's switch", () => {
         await vi.waitFor(() => expect(turnLoreBaseOn).toHaveBeenCalledTimes(1));
         await vi.waitFor(() => expect(toggle().checked).toBe(false));
         expect([generate().disabled, status().hidden]).toEqual([true, true]);
+    });
+
+    it("says what the selection lacks once the switch's question is answered, in place of the last run's line, and leaves a run it started its own line", async () => {
+        host.isOn = false;
+        await refreshLoreBaseBooks();
+        host.writingRunListener({ count: 358, outcome: outcomeOf({ keysWritten: 29, stopped: 329 }) });
+        expect(status().textContent).toBe('Wrote the keys of 29 entries. Stopped before 329 entries.');
+        // Leave off.
+        host.willTurnOn = false;
+        host.turnOnMissing = { missingCount: 358, missingKeyCount: 358, missingVectorCount: 358, decidedCount: 358, isWriting: false };
+        flipSwitch(true);
+        await vi.waitFor(() => expect(status().textContent)
+            .toBe('358 selected entries have no keys, and 358 entries have no vectors yet. Turn on Use LoreBase to write them.'));
+        expect(toggle().checked).toBe(false);
+        // Write keys and vectors: the run's line stays.
+        host.willTurnOn = true;
+        host.turnOnMissing = { ...host.turnOnMissing, isWriting: true };
+        turnLoreBaseOn.mockImplementationOnce(async () => {
+            host.isOn = true;
+            host.writingRunListener({ count: 358, outcome: null });
+            return { isOn: true, missing: host.turnOnMissing };
+        });
+        flipSwitch(true);
+        await vi.waitFor(() => expect(toggle().checked).toBe(true));
+        expect(status().textContent).toBe('Writing what 358 selected entries lack; the progress panel counts them.');
+        // Keys and vectors that could not be read, or LoreBase off Qdrant: the line goes, the notice having said why.
+        host.isOn = false;
+        host.willTurnOn = false;
+        host.turnOnMissing = null;
+        flipSwitch(true);
+        await vi.waitFor(() => expect(status().hidden).toBe(true));
     });
 
     it('turns off from the switch, the Generate buttons waiting again', async () => {
@@ -344,7 +376,7 @@ describe('the LoreBase books card', () => {
         host.selectedBooks = [];
         await closeWith({ ...lacking(0, 0), decidedCount: 0 });
         await vi.waitFor(() => expect(status().textContent).toBe(
-            'LoreBase is on, with nothing selected yet. Choose entries: each one you turn on has its keys and vectors written then.'));
+            'LoreBase is on, with nothing selected yet. Choose entries: when you close the selection screen, LoreBase asks to write the keys and vectors of the entries you turned on.'));
         // Keys and vectors that could not be read: the line goes, the screen's notice having said why.
         await closeWith(null);
         await vi.waitFor(() => expect(status().hidden).toBe(true));

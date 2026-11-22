@@ -42,7 +42,7 @@ import { askToWriteMissingKeysAndVectors, writeMissingKeysAndVectors } from './l
 import { FAST_AND_CHEAP, decidedEntries, loreBaseAccuracyOf } from './lorebase-reply-core.js';
 import { isEntryReady } from './lorebase-readiness.js';
 import { regenerateKeysOfEntries, selectedEntriesNotReady, storedCountsOfBooks } from './lorebase-storage.js';
-import { missingCountsOf } from './lorebase-storage-core.js';
+import { missingSummaryOf } from './lorebase-storage-core.js';
 import { entryTitle } from './lorebase-splitter.js';
 import { isSelectionLockedTo, unionOfSelections } from './lorebase-selections-core.js';
 import { isLoreBaseBackend, isLoreBaseSwitchedOn, turnLoreBaseOff } from './lorebase-switch.js';
@@ -347,11 +347,10 @@ async function settleSelectionOnClose({ booksWithChosenLocks, booksWithChangedSe
         const { canBeOn, shouldWrite, pending } = await askToWriteMissingKeysAndVectors({ isTurningOn: false });
         if (!canBeOn) turnLoreBaseOff();
         const isWriting = shouldWrite && writeMissingKeysAndVectors(pending, { booksWithChosenLocks: [...booksWithChosenLocks] });
-        return pending && { missingCount: pending.count, ...missingCountsOf(pending), decidedCount: pending.decidedCount, isWriting };
+        return pending && missingSummaryOf(pending, isWriting);
     }
     try {
-        const pending = await selectedEntriesNotReady(settings);
-        return { missingCount: pending.count, ...missingCountsOf(pending), decidedCount: pending.decidedCount, isWriting: false };
+        return missingSummaryOf(await selectedEntriesNotReady(settings), false);
     } catch (error) {
         log.warn("LoreBase: the selected entries' keys and vectors could not be counted once the selection screen closed:", error);
         return null;

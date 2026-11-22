@@ -51,6 +51,19 @@ export function missingCountsOf({ books }) {
 }
 
 /**
+ * What the selected entries lack, for the books card's line once the selection screen closes or LoreBase's switch is
+ * turned on: every entry missing either kind, each once, those missing each kind, how many LoreBase decides, and
+ * whether a writing run was started for them, which writes its own lines.
+ * @param {{books: Array<{keyEntries?: object[], vectorEntries?: object[]}>, count: number, decidedCount: number}} pending
+ *   From selectedEntriesNotReady
+ * @param {boolean} isWriting - Whether a writing run was started for them
+ * @returns {{missingCount: number, missingKeyCount: number, missingVectorCount: number, decidedCount: number, isWriting: boolean}}
+ */
+export function missingSummaryOf(pending, isWriting) {
+    return { missingCount: pending.count, ...missingCountsOf(pending), decidedCount: pending.decidedCount, isWriting };
+}
+
+/**
  * The kinds some entry lacks, in the order a run writes them: what writing them needs (writingProblem), and the Generate
  * button that writes them.
  * @param {{missingKeyCount: number, missingVectorCount: number}} counts - From missingCountsOf

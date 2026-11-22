@@ -883,12 +883,14 @@ describe('vectors on each row, the readiness filter, and the footer on Fast and 
         expect($id('vectfox_lorebase_summary').textContent).toMatch(/^This selection takes no part in this chat, so Jev is never asked about its entries here\./);
     });
 
-    it("words the footer's rule: the search's best 100 above 100, the rule alone while the count is not known, and the pick's titles on High Accuracy", () => {
+    it("words the footer's rule: the search's best 100 above 100, none ready, the rule alone while the count is not known, and the pick's titles on High Accuracy", () => {
         const footer = { decidedCount: 52, entryCount: 40, titleTokens: 600 };
         expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 313, isSelectionTakingPart: true } }))
             .toBe('Jev is asked about the 100 a search finds best of the 313 ready entries taking part in this chat, on every reply.');
         expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 100, isSelectionTakingPart: true } }))
             .toBe('Jev is asked about every one of the 100 ready entries taking part in this chat, on every reply.');
+        expect(summaryText(footer, { isFastAndCheap: true, takingPart: { count: 0, isSelectionTakingPart: true } }))
+            .toBe('No entry taking part in this chat is ready yet, so Jev is asked about none until their keys and vectors are written.');
         expect(summaryText(footer, { isFastAndCheap: true, takingPart: null }))
             .toBe('Jev is asked about every ready entry of the books a chat locks, up to 100 in all, and above that about the 100 a search finds best, on every reply.');
         expect(summaryText(footer, { isFastAndCheap: false, takingPart: { count: 313, isSelectionTakingPart: true } }))
