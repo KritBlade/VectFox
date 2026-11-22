@@ -821,6 +821,8 @@ The plugin supports all SillyTavern embedding providers:
 
 `llamacpp`, `koboldcpp` and `custom` need `apiUrl`, the server's URL, and take `model` when the server needs one. Their key is sent as `secret_id`, the ID of a key saved in SillyTavern, which the plugin reads on SillyTavern's server, so the key never leaves it. With no `secret_id` no key is sent, not even SillyTavern's active one. The request goes to `/v1/embeddings` on a llama.cpp or KoboldCPP URL, and to the URL plus `/embeddings` for `custom`, at most 32 texts at a time. A URL that already ends in `/embeddings` is used as it is, such as an OpenRouter profile's `https://openrouter.ai/api/v1/embeddings`, under which SillyTavern finds OpenRouter's embedding models. A failed request gives back its status and a fixed hint, such as `401 Unauthorized (the server refused the API key)`, never the server's own reply, which can quote the key.
 
+`vllm` takes `apiUrl`, the server's URL (`http://127.0.0.1:8000` when the request names none), and `model`. It sends the vLLM key saved in SillyTavern, through SillyTavern's own vLLM embedding function, or `apiKey` when the request gives one. The request goes to `/v1/embeddings` on the URL, at most 32 texts at a time, and a failed one gives back its status and a fixed hint, never the server's reply.
+
 ---
 
 ## Metadata Schema

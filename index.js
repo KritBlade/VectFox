@@ -52,7 +52,8 @@ import { listLoreBooks } from './lorebase-books.js';
 import { askDecisions } from './lorebase-decisions.js';
 import { deleteLoreKeys, readLoreKeys, writeLoreKeys } from './lorebase-keys.js';
 import { getOpenAiStyleEmbeddings, isOpenAiStyleEmbeddingSource } from './openai-style-embedding.js';
-import { loadSillyTavernRequestHost } from './sillytavern-request-host.js';
+import { getVllmEmbeddings } from './vllm-embedding.js';
+import { loadSillyTavernRequestHost, loadVllmRequestHost } from './sillytavern-request-host.js';
 import { errorFreeOfServerReply, errorWithoutServerReply, redactKeyMaterial, serverFailureText } from './server-failure-text.js';
 import { assertSendableHeaders } from './request-safety.js';
 import { moveTopLevelTransformersIndexes, vectraIndexFolder, vectraModelFolder } from './vectra-folders.js';
@@ -733,6 +734,11 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     // 3. Custom: the user's own OpenAI-style server, sent in the batches
     //    openai-style-embedding.js allows.
     //
+    // 4. vLLM: often a remote server, such as NanoGPT or SiliconFlow, where
+    //    one request per text can take longer than VectFox waits for an
+    //    insert. Sent in the batches vllm-embedding.js allows, with the same
+    //    key and route as one text.
+    //
     // Local GPU sources (transformers, ollama, llamacpp, koboldcpp) serialize
     // on the model, so parallel JS calls just queue. Default branch below
     // keeps them sequential to avoid OOM.
@@ -759,6 +765,10 @@ async function getVectorsForSource(source, texts, model, directories, req) {
 
     if (source === 'custom') {
         return await embedOpenAiStyle(source, texts, model, directories, req);
+    }
+
+    if (source === 'vllm') {
+        return await embedVllm(texts, model, directories, req);
     }
 
     const parallelSources = new Set(['nomicai', 'cohere']);
@@ -1600,6 +1610,21 @@ async function embedOpenAiStyle(source, texts, model, directories, req) {
     }, _sillyTavernRequestHost);
 }
 
+// SillyTavern's vLLM embedding function and what a request with its own key needs, loaded once.
+let _vllmRequestHost = null;
+
+/**
+ * Embed texts on vLLM, with the server URL and model the client sent, and the key it sent or the vLLM key saved in
+ * SillyTavern.
+ */
+async function embedVllm(texts, model, directories, req) {
+    const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8000';
+    const apiKey = req.body?.apiKey || '';
+    if (req.body?.hybridOptions?.eventbaseDebug || req.body?.options?.eventbaseDebug) console.log(`[similharity] DEBUG vllm embed: apiUrl="${apiUrl}", model="${model}", hasKey=${!!apiKey}, texts=${texts.length}`);
+    _vllmRequestHost ??= await loadVllmRequestHost();
+    return await getVllmEmbeddings(texts, { apiUrl, model, apiKey, directories }, _vllmRequestHost);
+}
+
 /**
  * One text's embedding from the given source: for the single-text routes, and for the batch route's sources that
  * send one text per request.
@@ -1607,6 +1632,10 @@ async function embedOpenAiStyle(source, texts, model, directories, req) {
 async function getEmbeddingForSource(source, text, model, directories, req) {
     if (isOpenAiStyleEmbeddingSource(source)) {
         const [embedding] = await embedOpenAiStyle(source, [text], model, directories, req);
+        return embedding;
+    }
+    if (source === 'vllm') {
+        const [embedding] = await embedVllm([text], model, directories, req);
         return embedding;
     }
     try {
@@ -1617,8 +1646,8 @@ async function getEmbeddingForSource(source, text, model, directories, req) {
 }
 
 /**
- * One text's embedding from a source SillyTavern's own embedding functions serve, or from Ollama and vLLM with a key
- * the request gives.
+ * One text's embedding from a source SillyTavern's own embedding functions serve, or from Ollama with a key the
+ * request gives.
  */
 async function getEmbeddingFromSillyTavernSource(source, text, model, directories, req) {
     switch (source) {
@@ -1667,34 +1696,6 @@ async function getEmbeddingFromSillyTavernSource(source, text, model, directorie
             const ollamaData = await ollamaResp.json();
             if (!Array.isArray(ollamaData?.embedding)) throw new Error('Ollama: API response missing embedding array');
             return ollamaData.embedding;
-        }
-        case 'vllm': {
-            const apiUrl = req.body?.apiUrl || 'http://127.0.0.1:8000';
-            const apiKey = req.body?.apiKey || '';
-            if (req.body?.hybridOptions?.eventbaseDebug || req.body?.options?.eventbaseDebug) console.log(`[similharity] DEBUG vllm embed: apiUrl="${apiUrl}", model="${model}", hasKey=${!!apiKey}`);
-            if (!apiKey) {
-                const { getVllmVector } = await import('../../src/vectors/vllm-vectors.js');
-                return await getVllmVector(text, apiUrl, model, directories);
-            }
-            const { trimV1 } = await import('../../src/util.js');
-            const urlJoinMod = await import('url-join');
-            const urlJoin2 = urlJoinMod.default;
-            const vllmUrl = new URL(urlJoin2(trimV1(apiUrl), '/v1/embeddings'));
-            const vllmHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
-            assertSendableHeaders(vllmHeaders, 'vLLM');
-            const vllmResp = await fetch(vllmUrl, {
-                method: 'POST',
-                headers: vllmHeaders,
-                body: JSON.stringify({ input: [text], model }),
-            });
-            if (!vllmResp.ok) {
-                const failure = serverFailureText({ status: vllmResp.status, statusText: vllmResp.statusText, reply: await vllmResp.text() });
-                throw errorFreeOfServerReply(`VLLM: Failed to get vector for text: ${failure}`);
-            }
-            const vllmData = await vllmResp.json();
-            if (!Array.isArray(vllmData?.data)) throw new Error('VLLM: API response was not an array');
-            vllmData.data.sort((a, b) => a.index - b.index);
-            return vllmData.data[0].embedding;
         }
         case 'palm':
         case 'vertexai': {
