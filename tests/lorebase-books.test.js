@@ -16,7 +16,7 @@ const { extension_settings, saveSettingsDebounced } = await import('../src/silly
 const { loadWorldInfo } = await import('../src/sillytavern/world-info.js');
 const {
     cleanUpLoreBookLocks, deleteLoreSelection, ensureLoreSelection, getLoreBook, getLoreSelection, loadDecidedEntries, loreBookRecordCounts,
-    loreSelectionsOf, newLoreSelection, renameLoreBookCharacter, renameLoreBookChat, renameLoreSelection, selectedLoreBookNames,
+    loreSelectionsOf, newLoreSelection, onLoreBookChatLocksMoved, renameLoreBookCharacter, renameLoreBookChat, renameLoreSelection, selectedLoreBookNames,
     selectionInUse, setLoreBookPins, setLoreBookSeenEntries, setLoreBookSelection, setLoreSelectionLock,
 } = await import('../src/features/lorebase/lorebase-books.js');
 
@@ -132,6 +132,23 @@ describe('the book record', () => {
         expect(getLoreSelection(BOOK, id)).toMatchObject({ lockedToChatIds: ['Harbor Night, the storm'], lockedToCharacterAvatars: ['Harbor Night'] });
         expect(getLoreSelection(BOOK, lowTide.id).lockedToChatIds).toEqual(['Low Tide']);
         expect(saveSettingsDebounced).toHaveBeenCalledTimes(1);
+    });
+
+    // SillyTavern opens the renamed chat (CHAT_CHANGED) before CHAT_RENAMED, so a page drawn for it showed the old lock.
+    it('tells its listeners once a chat rename moved a lock, and not when none moved', () => {
+        const id = firstOf(BOOK);
+        setLoreSelectionLock(BOOK, id, { chatId: 'Harbor Night' }, true);
+        const listener = vi.fn();
+        const stopListening = onLoreBookChatLocksMoved(listener);
+
+        renameLoreBookChat('Low Tide', 'Low Tide, the calm');
+        expect(listener).not.toHaveBeenCalled();
+        renameLoreBookChat('Harbor Night', 'Harbor Night, the storm');
+        expect(listener).toHaveBeenCalledTimes(1);
+
+        stopListening();
+        renameLoreBookChat('Harbor Night, the storm', 'Harbor Night');
+        expect(listener).toHaveBeenCalledTimes(1);
     });
 
     it('renames nothing before any book has a record', () => {

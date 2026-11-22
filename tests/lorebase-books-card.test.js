@@ -26,6 +26,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const host = vi.hoisted(() => ({
     status: null, screen: null, isOn: true, willTurnOn: true, switchListener: null, writingRunListener: null, writingProgressListener: null,
+    chatLocksMovedListener: null,
     selectedBooks: [], settings: { vector_backend: 'qdrant' }, keyProblem: null, outcome: null, isConfirmed: true, deleted: null, chatId: null,
     counts: null, add: null, added: null, removed: null, deletedSelection: null, useError: null,
     // The books LoreBase holds anything of, so their rows offer Remove from LoreBase.
@@ -78,6 +79,7 @@ vi.mock('../src/features/lorebase/index.js', async () => ({
     onLoreBaseSwitchChange: listener => { host.switchListener = listener; },
     onWritingRunChange: listener => { host.writingRunListener = listener; },
     onWritingProgress: listener => { host.writingProgressListener = listener; },
+    onLoreBookChatLocksMoved: listener => { host.chatLocksMovedListener = listener; },
     // Tells the page, as saving the switch does.
     turnLoreBaseOff: vi.fn(() => { host.isOn = false; host.switchListener?.(false); }),
     // On, unless the user keeps Vector Storage's World Info search.
@@ -255,6 +257,17 @@ describe('the LoreBase books card', () => {
         await refreshLoreBaseBooks();
         expect(rowsShown()).toEqual([]);
         expect(document.getElementById('VectFox_lorebase_books').textContent.trim()).toBe('Open a chat to see the lorebooks it loads.');
+    });
+
+    // SillyTavern opens the renamed chat (CHAT_CHANGED) before CHAT_RENAMED, so the list was drawn with the lock on the old name.
+    it('draws the list again once a chat rename moved a selection\'s lock to the new name', async () => {
+        host.status = { hasChat: true, books: [{ ...HARBOR, selectedCount: 0, isLockedToChat: false, selectionInUseId: null }, KEEPER] };
+        await refreshLoreBaseBooks();
+        expect(rowsShown()[0]).toBe('Harbor Atlas: Nothing selected');
+
+        host.status = { hasChat: true, books: [HARBOR, KEEPER] };
+        host.chatLocksMovedListener();
+        await vi.waitFor(() => expect(rowsShown()[0]).toBe('Harbor Atlas: 2 selected, 2 with keys, 1 with vectors'));
     });
 
     it('opens the selection screen on the book a row names, and draws the list again once the screen closes', async () => {

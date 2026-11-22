@@ -307,9 +307,12 @@ export function deleteLoreBookRecord(bookName) {
 const everySelection = () => Object.values(extension_settings.vectfox[BOOKS_KEY] ?? {})
     .flatMap(record => (Array.isArray(record?.selections) ? record.selections : []));
 
-/** Move every selection's lock on one chat or character to its new name, saving only when a lock moved. */
+/**
+ * Move every selection's lock on one chat or character to its new name, saving only when a lock moved.
+ * @returns {boolean} Whether a lock moved
+ */
 function moveLocks(lockList, oldName, newName) {
-    if (!oldName || !newName || oldName === newName) return;
+    if (!oldName || !newName || oldName === newName) return false;
     let hasMoved = false;
     for (const selection of everySelection()) {
         if (!selection[lockList].includes(oldName)) continue;
@@ -317,6 +320,21 @@ function moveLocks(lockList, oldName, newName) {
         hasMoved = true;
     }
     if (hasMoved) saveSettingsDebounced();
+    return hasMoved;
+}
+
+const chatLocksMovedListeners = new Set();
+
+/**
+ * Call `listener` each time a chat's rename moved a selection's lock to the chat's new name. SillyTavern opens the
+ * renamed chat (CHAT_CHANGED) before it says the chat was renamed (CHAT_RENAMED), so a page drawn for the chat then
+ * showed the lock still on the old name.
+ * @param {() => void} listener
+ * @returns {() => void} Stops the calls
+ */
+export function onLoreBookChatLocksMoved(listener) {
+    chatLocksMovedListeners.add(listener);
+    return () => chatLocksMovedListeners.delete(listener);
 }
 
 /**
@@ -336,7 +354,14 @@ export function renameLoreBookCharacter(oldAvatar, newAvatar) {
  * @param {string} newChatId
  */
 export function renameLoreBookChat(oldChatId, newChatId) {
-    moveLocks(LOCK_LISTS.chatId, oldChatId, newChatId);
+    if (!moveLocks(LOCK_LISTS.chatId, oldChatId, newChatId)) return;
+    for (const listener of chatLocksMovedListeners) {
+        try {
+            listener();
+        } catch (error) {
+            log.warn("LoreBase: a listener to a chat rename's moved locks failed:", error);
+        }
+    }
 }
 
 /**

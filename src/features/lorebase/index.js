@@ -33,7 +33,7 @@
 // its blocks carry, so the reply lore list (features/reply-lore) tells LoreBase's picks from SillyTavern's own entries.
 //
 // Re-exports only. Code outside this folder imports the feature here, never its files (.dependency-cruiser.cjs).
-export { cleanUpLoreBookLocks, selectedLoreBookNames } from './lorebase-books.js';
+export { cleanUpLoreBookLocks, onLoreBookChatLocksMoved, selectedLoreBookNames } from './lorebase-books.js';
 export { addLoreBookToChat, booksToAdd, chatBookLocks, newLoreSelectionHere, useLoreSelectionHere } from './lorebase-chat-books.js';
 export { loreBasePicksCarriedBy } from './lorebase-delivery.js';
 export { editLoreBookEntry } from './lorebase-entry-editor.js';

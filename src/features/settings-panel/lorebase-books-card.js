@@ -30,7 +30,8 @@ import { log } from '../../sillytavern/log.js';
 import { confirmPopup } from '../../sillytavern/popup.js';
 import {
     BOTH_KINDS, KEYS, VECTORS, addLoreBookToChat, booksToAdd, chatBookLocks, deleteLoreSelectionAfterConfirm, deleteStored,
-    describeRemovedLoreBook, isLoreBaseSwitchedOn, kindsLacking, newLoreSelectionHere, onLoreBaseSwitchChange, onWritingProgress, onWritingRunChange,
+    describeRemovedLoreBook, isLoreBaseSwitchedOn, kindsLacking, newLoreSelectionHere, onLoreBaseSwitchChange, onLoreBookChatLocksMoved,
+    onWritingProgress, onWritingRunChange,
     openLoreBaseSelection, removableLoreBookNames, removeLoreBookAfterConfirm, selectedLoreBookNames, storedCountsOfBooks, turnLoreBaseOff, turnLoreBaseOn,
     useLoreSelectionHere, writeMissing, writingProblem,
 } from '../lorebase/index.js';
@@ -385,6 +386,8 @@ export function bindLoreBaseBooksCard(settings) {
     });
     // A reply's question can turn LoreBase off while the page is shown.
     onLoreBaseSwitchChange(paintLoreBaseSwitch);
+    // A chat's rename moves its locks after SillyTavern opened the renamed chat, which drew the list with the old ones.
+    onLoreBookChatLocksMoved(() => void refreshLoreBaseBooks());
     // Every writing run on the progress panel, a Generate button's or another's, shows on the status line, and its place
     // on the row of the book it writes now.
     onWritingRunChange(showWritingRun);
