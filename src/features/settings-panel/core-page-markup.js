@@ -162,8 +162,8 @@ function eventModelCard() {
                     ${field([fieldLabel({ text: 'Base URL', forId: 'VectFox_summarize_vllm_url' }), input({ id: 'VectFox_summarize_vllm_url', placeholder: 'http://127.0.0.1:8000' }), hint({ text: 'Your OpenAI-compatible server\'s base URL.' })])}
                     ${field([
                         fieldLabel({ text: 'API key', forId: 'VectFox_summarize_vllm_apikey' }),
-                        controlRow([keyInput({ id: 'VectFox_summarize_vllm_apikey', placeholder: 'Paste a key to save it' }), clearKeyButton('VectFox_summarize_vllm_apikey_clear')]),
-                        hint({ text: 'Saving it sets SillyTavern\'s active Custom key, which its own chat may use.' }),
+                        controlRow([keyInput({ id: 'VectFox_summarize_vllm_apikey', placeholder: 'Blank for a server that needs none' }), clearKeyButton('VectFox_summarize_vllm_apikey_clear')]),
+                        hint({ text: 'Optional. Saving it sets SillyTavern\'s active Custom key, which its own chat may use.' }),
                     ])}
                 </div>
                 ${field([

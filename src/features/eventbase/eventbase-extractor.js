@@ -11,7 +11,7 @@
  * ============================================================================
  */
 
-import { getOpenRouterApiKey, getCustomApiKey } from '../../shared/api-keys.js';
+import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import {
     CONNECTION_TEST_MAX_TOKENS,
@@ -197,6 +197,23 @@ async function _requestExtraction(prompt, settings, windowIndex, route) {
     return reply.content;
 }
 
+/**
+ * The model set in Core → EventBase model, which both manual providers need.
+ * @param {object} settings
+ * @returns {string}
+ * @throws {EventBaseFatalError} When no model is set
+ */
+function _manualProviderModel(settings) {
+    const model = (settings.chat_model || '').trim();
+    if (!model) {
+        throw new EventBaseFatalError(
+            'EventBase: No model configured. Set the Model in Core → EventBase model.',
+            'missing_model',
+        );
+    }
+    return model;
+}
+
 async function _callOpenRouter(prompt, settings, windowIndex) {
     // Presence-only check: getOpenRouterApiKey() returns ST's MASKED value; the
     // real key is read server-side by the proxy (see llm-provider-call.js).
@@ -208,14 +225,7 @@ async function _callOpenRouter(prompt, settings, windowIndex) {
         );
     }
 
-    const model = (settings.chat_model || '').trim();
-    if (!model) {
-        throw new EventBaseFatalError(
-            'EventBase: No model configured. Set the Model in Core → EventBase model.',
-            'missing_model',
-        );
-    }
-
+    const model = _manualProviderModel(settings);
     return _requestExtraction(prompt, settings, windowIndex, { model, provider: 'openrouter' });
 }
 
@@ -228,22 +238,9 @@ async function _callVLLM(prompt, settings, windowIndex) {
         );
     }
 
-    const model = (settings.chat_model || '').trim();
-    if (!model) {
-        throw new EventBaseFatalError(
-            'EventBase: No model configured. Set the Model in Core → EventBase model.',
-            'missing_model',
-        );
-    }
-
-    const apiKey = getCustomApiKey();
-    if (!apiKey) {
-        throw new EventBaseFatalError(
-            'EventBase: vLLM / Custom OpenAI-compatible API key not configured. Enter it in Core → EventBase model.',
-            'missing_api_key',
-        );
-    }
-
+    const model = _manualProviderModel(settings);
+    // No key check: the key is optional, as a server such as KoboldCpp needs none (resolveLlmConnection,
+    // src/features/llm-provider/llm-connection.js).
     return _requestExtraction(prompt, settings, windowIndex, { model, provider: 'vllm', vllmUrl: baseUrl });
 }
 

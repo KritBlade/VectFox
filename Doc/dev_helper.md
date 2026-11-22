@@ -679,7 +679,7 @@ Timing buckets:
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `agentic_retrieval_enabled = false`                              | No planner; identical to the plain flow                                     |
 | `vector_backend !== 'qdrant'`                                    | Skip; log`mode=SKIPPED reason=requires_qdrant_backend`                      |
-| Missing model, API key or vLLM URL                               | Skip; warn `mode=SKIPPED reason=missing_model` / `missing_openrouter_api_key` / `missing_vllm_url` / `missing_vllm_api_key` |
+| Missing model, OpenRouter key or vLLM URL (a vLLM key is optional) | Skip; warn `mode=SKIPPED reason=missing_model` / `missing_openrouter_api_key` / `missing_vllm_url` |
 | Planner LLM throws / times out / returns invalid JSON            | Log warn; return pre-search only                                            |
 | Planner returns 0 valid queries (after`_validateAndTrimQueries`) | Log; return pre-search only                                                 |
 | One of N Qdrant queries fails or exceeds `agentic_retrieval_query_timeout_ms` | That query contributes `[]` (warned); other queries still seat |

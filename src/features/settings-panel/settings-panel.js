@@ -712,7 +712,7 @@ function bindSettingsEvents(settings, callbacks) {
         if (savedKey) {
             $('#VectFox_summarize_vllm_apikey').attr('placeholder', 'Key saved');
         } else {
-            $('#VectFox_summarize_vllm_apikey').attr('placeholder', 'Paste a key to save it');
+            $('#VectFox_summarize_vllm_apikey').attr('placeholder', 'Blank for a server that needs none');
         }
     };
     updateSummarizeVllmKeyDisplay();
@@ -829,7 +829,7 @@ function bindSettingsEvents(settings, callbacks) {
         if (savedKey) {
             $('#VectFox_agentic_vllm_apikey').attr('placeholder', 'Key saved');
         } else {
-            $('#VectFox_agentic_vllm_apikey').attr('placeholder', 'Paste a key to save it');
+            $('#VectFox_agentic_vllm_apikey').attr('placeholder', 'Blank for a server that needs none');
         }
     };
     updateAgenticVllmKeyDisplay();

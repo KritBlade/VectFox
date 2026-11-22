@@ -80,8 +80,8 @@ function plannerModelCard() {
                 ])}
                 ${field([
                     fieldLabel({ text: 'API key', forId: 'VectFox_agentic_vllm_apikey' }),
-                    controlRow([keyInput({ id: 'VectFox_agentic_vllm_apikey', placeholder: 'Paste a key to save it' }), clearKeyButton('VectFox_agentic_vllm_apikey_clear')]),
-                    hint({ text: 'Saving it sets SillyTavern\'s active Custom key, which its own chat may use.' }),
+                    controlRow([keyInput({ id: 'VectFox_agentic_vllm_apikey', placeholder: 'Blank for a server that needs none' }), clearKeyButton('VectFox_agentic_vllm_apikey_clear')]),
+                    hint({ text: 'Optional. Saving it sets SillyTavern\'s active Custom key, which its own chat may use.' }),
                 ])}
             </div>
             ${field([

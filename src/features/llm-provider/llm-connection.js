@@ -3,7 +3,7 @@
  * Mode, StoryArc and LoreBase resolve their connections here, so manual OpenRouter and vLLM are checked in this file
  * alone and retire from it (connection plan D1).
  */
-import { getCustomApiKey, getOpenRouterApiKey } from '../../shared/api-keys.js';
+import { getOpenRouterApiKey } from '../../shared/api-keys.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { checkConnectionProfile } from './llm-provider-call.js';
 
@@ -15,7 +15,6 @@ const UNKNOWN_PROVIDER_PREFIX = 'unknown_provider_';
 const MANUAL_PROVIDER_FIXES = {
     missing_openrouter_api_key: 'it runs on OpenRouter and no OpenRouter key is saved. Enter the key on the AgentMode or Core page.',
     missing_vllm_url: 'it runs on vLLM with no URL. Set Base URL on the AgentMode page, or under EventBase model on the Core page.',
-    missing_vllm_api_key: 'it runs on vLLM and no vLLM key is saved. Enter the key on the AgentMode or Core page.',
 };
 
 /**
@@ -61,11 +60,9 @@ export function resolveLlmConnection({ provider: providerName, model: modelName,
         if (!vllmUrl) {
             return { ok: false, reason: 'missing_vllm_url' };
         }
-        // Key lives in SECRET_KEYS.CUSTOM. Only whether it is saved is checked here: the real key is read
-        // server-side by ST's chat-completions proxy. Same shared slot as summarize/agent.
-        if (!getCustomApiKey()) {
-            return { ok: false, reason: 'missing_vllm_api_key' };
-        }
+        // The key is optional, as a server such as KoboldCpp needs none. SillyTavern's chat-completions proxy reads
+        // SECRET_KEYS.CUSTOM server-side and sends its active key when one is saved, and no key when none is. A
+        // server that needs a key and gets none refuses the call, as it refuses a wrong one.
         return { ok: true, provider, model, vllmUrl };
     }
 

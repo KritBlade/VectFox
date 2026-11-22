@@ -257,7 +257,6 @@ describe('Agent Mode failures', () => {
         expect(describeLlmSetupProblem('Agent Mode', 'missing_model')).toContain('has no model. Set Model on the AgentMode page');
         expect(describeLlmSetupProblem('Agent Mode', 'missing_openrouter_api_key')).toContain('no OpenRouter key is saved');
         expect(describeLlmSetupProblem('Agent Mode', 'missing_vllm_url')).toContain('vLLM with no URL');
-        expect(describeLlmSetupProblem('Agent Mode', 'missing_vllm_api_key')).toContain('no vLLM key is saved');
         expect(describeLlmSetupProblem('Agent Mode', 'unknown_provider_mystery')).toContain('provider "mystery" is not one VectFox knows');
         for (const reason of ['missing_model', 'unknown_provider_mystery', 'a_reason_added_later']) {
             expect(describeLlmSetupProblem('Agent Mode', reason)).toMatch(/^Agent Mode is on, but .+ Until then each turn uses the normal memory search only\.$/);
