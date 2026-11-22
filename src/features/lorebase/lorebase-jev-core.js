@@ -84,7 +84,8 @@ export function jevPicks(yes, contents, tokensOf, budget) {
 }
 
 /**
- * A reply's lore from Jev's picks, shaped as loreForReply's: every pick sent whole, with no review.
+ * A reply's lore from Jev's picks, shaped as loreForReply's: every pick sent whole, with no review, keeping Jev's chance
+ * of yes for the reply lore list.
  * @param {object} turn
  * @param {ReturnType<typeof jevPicks>} turn.picks
  * @param {Array<{bookName: string, entries: object[]}>} turn.books - The books taking part
@@ -98,7 +99,7 @@ export function jevReplyLore({ picks, books, contentCount, pickSeconds, search }
         const { frame, passages } = entryPassages(entryOf(books, pick));
         return {
             bookName: pick.bookName, uid: pick.uid, title: pick.title, uses: SENT_WHOLE_UNREVIEWED, frame, passages,
-            sentParts: passages.map((_, index) => index + 1), seconds: null,
+            sentParts: passages.map((_, index) => index + 1), seconds: null, jevChance: pick.yes,
         };
     });
     return { contentCount, picks, unreadItemCount: 0, pickSeconds, search, reviewedPicks, failures: [] };

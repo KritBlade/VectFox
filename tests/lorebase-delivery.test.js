@@ -121,7 +121,7 @@ describe('a reply and the scan that follows (§5.7)', () => {
         holdLoreForNextScan({ reviewedPicks: [lighthousePick([1])] });
         await scan();
 
-        expect(loreBasePicksCarriedBy({ world: 'Harbor Atlas', uid: 0 })).toEqual([{ bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', isWhole: false }]);
+        expect(loreBasePicksCarriedBy({ world: 'Harbor Atlas', uid: 0 })).toEqual([{ bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', isWhole: false, jevChance: null }]);
         expect(loreBasePicksCarriedBy({ world: 'Harbor Atlas', uid: 2 })).toBeNull();
         await scan();
         expect(loreBasePicksCarriedBy({ world: 'Harbor Atlas', uid: 0 })).toBeNull();

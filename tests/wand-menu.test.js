@@ -4,8 +4,8 @@
  * VectFox's row in SillyTavern's wand menu (src/features/settings-panel/wand-menu.js and src/sillytavern/wand-menu.js):
  * it goes into the menu SillyTavern built, at its end with the other ranked row, MVU Helper's, in rank order, its two
  * options rows of the menu itself, folded; clicking it opens or folds
- * Menu and Selected lorebook under it without the click reaching the page, where SillyTavern would close the menu; Menu
- * opens VectFox's panel, Selected lorebook the latest reply's lorebook entries; a click elsewhere folds the two rows;
+ * Menu and Last reply's lore under it without the click reaching the page, where SillyTavern would close the menu; Menu
+ * opens VectFox's panel, Last reply's lore the latest reply's lorebook entries; a click elsewhere folds the two rows;
  * and with no wand menu, the console says so.
  */
 /* global document -- this file runs under the jsdom environment */
@@ -61,18 +61,18 @@ describe("VectFox's row in the wand menu", () => {
         expect(menuOrder()).toEqual(['gallery_wand_container', 'VectFox_wand']);
         expect($id('VectFox_wand_toggle').textContent).toContain('VectFox');
         expect([...$id('VectFox_wand').children].map(row => row.id || row.dataset.vectfoxWand))
-            .toEqual(['VectFox_wand_toggle', 'menu', 'selected-lorebook']);
+            .toEqual(['VectFox_wand_toggle', 'menu', 'last-reply-lore']);
         expect(optionRows().map(row => row.hidden)).toEqual([true, true]);
     });
 
-    it('opens Menu and Selected lorebook under it and folds them again, keeping its clicks from the page, where SillyTavern closes the menu', () => {
+    it("opens Menu and Last reply's lore under it and folds them again, keeping its clicks from the page, where SillyTavern closes the menu", () => {
         mountWandMenu();
         const reachedPage = vi.fn();
         document.documentElement.addEventListener('click', reachedPage);
         $id('VectFox_wand_toggle').click();
         expect(optionRows().map(row => row.hidden)).toEqual([false, false]);
         expect($id('VectFox_wand_toggle').getAttribute('aria-expanded')).toBe('true');
-        expect(optionRows().map(row => row.textContent.trim())).toEqual(['Menu', 'Selected lorebook']);
+        expect(optionRows().map(row => row.textContent.trim())).toEqual(['Menu', "Last reply's lore"]);
 
         $id('VectFox_wand_toggle').click();
         expect(optionRows().map(row => row.hidden)).toEqual([true, true]);
@@ -81,7 +81,7 @@ describe("VectFox's row in the wand menu", () => {
         document.documentElement.removeEventListener('click', reachedPage);
     });
 
-    it('opens the panel from Menu and the latest reply\'s entries from Selected lorebook, folding the options again', () => {
+    it("opens the panel from Menu and the latest reply's entries from Last reply's lore, folding the options again", () => {
         mountWandMenu();
         $id('VectFox_wand_toggle').click();
         option('menu').click();
@@ -89,7 +89,7 @@ describe("VectFox's row in the wand menu", () => {
         expect(optionRows().map(row => row.hidden)).toEqual([true, true]);
 
         $id('VectFox_wand_toggle').click();
-        option('selected-lorebook').click();
+        option('last-reply-lore').click();
         expect(openReplyLore).toHaveBeenCalledTimes(1);
         expect(optionRows().map(row => row.hidden)).toEqual([true, true]);
     });

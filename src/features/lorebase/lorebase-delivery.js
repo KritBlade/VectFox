@@ -13,8 +13,9 @@
  * the app is ready, and again each time the interceptor holds, as a listener added later, such as a TavernHelper
  * script's when its chat loads, would otherwise run after it and could give a selected entry its keys back.
  *
- * Each armed scan keeps the picks its blocks carry until the next, so the reply lore list (the wand menu's Selected
- * lorebook) tells LoreBase's picks from SillyTavern's own entries among those the scan activated.
+ * Each armed scan keeps the picks its blocks carry until the next, so the reply lore list (the wand menu's Last reply's
+ * lore) tells LoreBase's picks from SillyTavern's own entries among those the scan activated, with Jev's chance of yes
+ * on each pick of Fast and Cheap [Jev].
  *
  * The tester (§5.10) scans as SillyTavern alone, dry, to learn what SillyTavern's keys would send: that scan is left
  * alone, and what is held stays held. It runs only while no generation's scan is due, from an interceptor run to the

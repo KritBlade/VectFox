@@ -1,6 +1,6 @@
 /**
  * VectFox's row in SillyTavern's wand menu. Clicking it opens two rows under it, and keeps the menu open: Menu opens
- * VectFox's panel, and Selected lorebook shows the lorebook entries in the latest reply's prompt, LoreBase's picks in
+ * VectFox's panel, and Last reply's lore shows the lorebook entries in the latest reply's prompt, LoreBase's picks in
  * blue and SillyTavern's own in green (features/reply-lore). Either closes the menu as SillyTavern's own rows do, and
  * any click elsewhere folds the two rows again.
  */
@@ -33,6 +33,6 @@ export function mountWandMenu() {
         showOptions(toggle.getAttribute('aria-expanded') !== 'true');
     });
     root.querySelector('[data-vectfox-wand="menu"]').addEventListener('click', () => void openSettingsPanel());
-    root.querySelector('[data-vectfox-wand="selected-lorebook"]').addEventListener('click', () => void openReplyLore());
+    root.querySelector('[data-vectfox-wand="last-reply-lore"]').addEventListener('click', () => void openReplyLore());
     document.addEventListener('click', () => showOptions(false));
 }

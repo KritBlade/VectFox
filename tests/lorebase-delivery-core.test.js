@@ -22,12 +22,12 @@ describe('scanKey', () => {
 
 describe('scanDeliveries', () => {
     it('sends the whole entry when its review kept every part', () => {
-        expect(scanDeliveries([reviewed(0, [1, 2, 3])]).get('Harbor Atlas.0')).toEqual({ isWhole: true, text: '', title: 'entry 0', hasFrame: false });
+        expect(scanDeliveries([reviewed(0, [1, 2, 3])]).get('Harbor Atlas.0')).toEqual({ isWhole: true, text: '', title: 'entry 0', hasFrame: false, jevChance: null });
     });
 
     it("sends the parts its review kept, in the entry's order, one to a line", () => {
         expect(scanDeliveries([reviewed(1, [1, 3])]).get('Harbor Atlas.1')).toEqual({
-            isWhole: false, text: 'The lamp burns all night.\nGulls nest on the roof.', title: 'entry 1', hasFrame: false,
+            isWhole: false, text: 'The lamp burns all night.\nGulls nest on the roof.', title: 'entry 1', hasFrame: false, jevChance: null,
         });
     });
 
@@ -35,6 +35,10 @@ describe('scanDeliveries', () => {
         const frame = { open: '<lighthouse>', close: '</lighthouse>' };
         const delivery = scanDeliveries([reviewed(2, [2], { frame })]).get('Harbor Atlas.2');
         expect([delivery.text, delivery.hasFrame]).toEqual(['<lighthouse>\nThe keeper sleeps by day.\n</lighthouse>', true]);
+    });
+
+    it("keeps Jev's chance of yes on a pick of Fast and Cheap [Jev], for the reply lore list", () => {
+        expect(scanDeliveries([{ ...reviewed(5, [1, 2, 3]), jevChance: 0.7 }]).get('Harbor Atlas.5').jevChance).toBe(0.7);
     });
 
     it('sends nothing for a pick whose review kept no part', () => {
@@ -95,7 +99,7 @@ describe('armScan', () => {
 
     it('says which picks each block carries, by the entry that carries it, for the reply lore list', () => {
         const deliveries = new Map([
-            ['Keeper Notes.7', whole("Oil's Store")],
+            ['Keeper Notes.7', { ...whole("Oil's Store"), jevChance: 0.9 }],
             ['Harbor Atlas.1', whole('Tide Tables')],
             ['Harbor Atlas.0', { isWhole: false, text: 'The lamp burns.', title: 'Lantern Room', hasFrame: false }],
         ]);
@@ -103,11 +107,11 @@ describe('armScan', () => {
             {
                 key: 'Keeper Notes.7',
                 picks: [
-                    { bookName: 'Keeper Notes', uid: 7, title: "Oil's Store", isWhole: true },
-                    { bookName: 'Harbor Atlas', uid: 1, title: 'Tide Tables', isWhole: true },
+                    { bookName: 'Keeper Notes', uid: 7, title: "Oil's Store", isWhole: true, jevChance: 0.9 },
+                    { bookName: 'Harbor Atlas', uid: 1, title: 'Tide Tables', isWhole: true, jevChance: null },
                 ],
             },
-            { key: 'Harbor Atlas.0', picks: [{ bookName: 'Harbor Atlas', uid: 0, title: 'Lantern Room', isWhole: false }] },
+            { key: 'Harbor Atlas.0', picks: [{ bookName: 'Harbor Atlas', uid: 0, title: 'Lantern Room', isWhole: false, jevChance: null }] },
         ]);
     });
 

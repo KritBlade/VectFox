@@ -34,23 +34,26 @@ export function scanKey(bookName, uid) {
  * What each picked entry sends, keyed by scanKey, most needed first (§5.6): the whole entry, as the scan loads it, when
  * its review kept every part, as it always does for an entry with template code (D9); otherwise the parts it kept, in
  * the entry's order, one to a line, inside the entry's wrapper tags when it has them. Each keeps its title and whether
- * it has wrapper tags, for its place in the block. A pick whose review kept no part sends nothing, so it has no
- * delivery.
+ * it has wrapper tags, for its place in the block, and Jev's chance of yes, for the reply lore list. A pick whose review
+ * kept no part sends nothing, so it has no delivery.
  * @param {Array<{bookName: string, uid: number, title: string, frame: {open: string, close: string}|null,
- *   passages: Array<{text: string}>, sentParts: number[]}>} reviewedPicks - From loreForReply
- * @returns {Map<string, {isWhole: boolean, text: string, title: string, hasFrame: boolean}>}
+ *   passages: Array<{text: string}>, sentParts: number[], jevChance?: number}>} reviewedPicks - From loreForReply, or
+ *   loreForReplyByJev, whose picks alone carry Jev's chance
+ * @returns {Map<string, {isWhole: boolean, text: string, title: string, hasFrame: boolean, jevChance: number|null}>}
  */
 export function scanDeliveries(reviewedPicks) {
     const deliveries = new Map();
-    for (const { bookName, uid, title, frame, passages, sentParts } of reviewedPicks) {
+    for (const { bookName, uid, title, frame, passages, sentParts, jevChance = null } of reviewedPicks) {
         if (!sentParts.length) continue;
         const hasFrame = Boolean(frame);
         if (sentParts.length === passages.length) {
-            deliveries.set(scanKey(bookName, uid), { isWhole: true, text: '', title, hasFrame });
+            deliveries.set(scanKey(bookName, uid), { isWhole: true, text: '', title, hasFrame, jevChance });
             continue;
         }
         const kept = sentParts.map(number => passages[number - 1].text);
-        deliveries.set(scanKey(bookName, uid), { isWhole: false, text: (frame ? [frame.open, ...kept, frame.close] : kept).join('\n'), title, hasFrame });
+        deliveries.set(scanKey(bookName, uid), {
+            isWhole: false, text: (frame ? [frame.open, ...kept, frame.close] : kept).join('\n'), title, hasFrame, jevChance,
+        });
     }
     return deliveries;
 }
@@ -112,10 +115,10 @@ function lorebookBlock(picks) {
  * @param {object} lore
  * @param {(bookName: string) => Set<string>|null} lore.selectedUidsOf - A book's selected uids where it takes part in
  *   this scan (D11), or null where LoreBase decides none of its entries
- * @param {Map<string, {isWhole: boolean, text: string, title: string, hasFrame: boolean}>|null} lore.deliveries - From
- *   scanDeliveries, for this scan's reply, or null for a scan that is not one
+ * @param {Map<string, {isWhole: boolean, text: string, title: string, hasFrame: boolean, jevChance?: number|null}>|null}
+ *   lore.deliveries - From scanDeliveries, for this scan's reply, or null for a scan that is not one
  * @returns {{forced: object[], sentCount: number, blocks: Array<{key: string, picks: Array<{bookName: string,
- *   uid: number|string, title: string, isWhole: boolean}>}>}} The blocks' forced activations, for
+ *   uid: number|string, title: string, isWhole: boolean, jevChance: number|null}>}>}} The blocks' forced activations, for
  *   WORLDINFO_FORCE_ACTIVATE; how many picks they carry; and each block's picks, most needed first, by the scan key of
  *   the entry that carries it, for the reply lore list
  */
@@ -150,7 +153,9 @@ export function armScan(loaded, { selectedUidsOf, deliveries }) {
     }));
     const carried = [...blocks.values()].map(picks => ({
         key: scanKey(picks[0].entry.world, picks[0].entry.uid),
-        picks: picks.map(({ entry, delivery }) => ({ bookName: entry.world, uid: entry.uid, title: delivery.title, isWhole: delivery.isWhole })),
+        picks: picks.map(({ entry, delivery }) => ({
+            bookName: entry.world, uid: entry.uid, title: delivery.title, isWhole: delivery.isWhole, jevChance: delivery.jevChance ?? null,
+        })),
     }));
     return { forced, sentCount: sent.size, blocks: carried };
 }

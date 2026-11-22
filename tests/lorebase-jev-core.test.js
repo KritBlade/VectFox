@@ -91,7 +91,7 @@ describe('a reply on Fast and Cheap [Jev]', () => {
         expect(lore.picks.map(pick => [pick.title, pick.yes])).toEqual([['Lighthouse of Vell', 0.64]]);
         expect(lore.reviewedPicks).toEqual([{
             bookName: 'Harbor Atlas', uid: 0, title: 'Lighthouse of Vell', uses: SENT_WHOLE_UNREVIEWED, ...entryPassages(lighthouse),
-            sentParts: [1, 2], seconds: null,
+            sentParts: [1, 2], seconds: null, jevChance: 0.64,
         }]);
         expect(lore.failures).toEqual([]);
         expect(lore.pickSeconds).toEqual(expect.any(Number));

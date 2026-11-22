@@ -558,7 +558,7 @@ jQuery(async () => {
     // The settings panel, in SillyTavern's Extensions drawer
     mountSettingsPanel('extensions_settings2', settings, { runNetworkStartup });
 
-    // VectFox's row in SillyTavern's wand menu: Menu opens the panel, Selected lorebook the latest reply's entries
+    // VectFox's row in SillyTavern's wand menu: Menu opens the panel, Last reply's lore the latest reply's entries
     mountWandMenu();
 
     // Once SillyTavern has loaded: the one-time notice that manual OpenRouter and vLLM retire
@@ -573,7 +573,7 @@ jQuery(async () => {
     // LoreBase follows generations, so its pick knows a quiet-to-loud one as a reply, and arms each World Info scan
     initializeLoreBase();
 
-    // The latest reply's lorebook entries, for the wand menu's Selected lorebook
+    // The latest reply's lorebook entries, for the wand menu's Last reply's lore
     initializeReplyLore();
 
     // Off-box startup work (discovery, EventBase index backfill, plugin version check).
