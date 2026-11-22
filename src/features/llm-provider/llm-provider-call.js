@@ -38,10 +38,10 @@ import {
 } from '../../sillytavern/connection-profiles.js';
 import { CONNECTION_PROFILE_PROVIDER } from '../../shared/constants.js';
 import { getModelConfigErrorMessage } from '../../shared/model-http-errors.js';
-import { isConnectionError, notifyConnectionError, notifyUpstreamRejection } from '../../shared/model-config-notifier.js';
+import { describeUpstreamRejectionCauses, isConnectionError, notifyConnectionError, notifyUpstreamRejection } from '../../shared/model-config-notifier.js';
 import { log } from '../../sillytavern/log.js';
 import { completionCutReason, completionFinishReason, describeNoTextAnswer } from './completion-finish.js';
-import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape } from './connection-profile-core.js';
+import { classifyConnectionProfileFailure, connectionProfileProblem, connectionProfileRequestShape, isProviderServerFailure } from './connection-profile-core.js';
 import { readErrorBody } from '../../shared/server-error-text.js';
 
 /**
@@ -56,8 +56,10 @@ import { readErrorBody } from '../../shared/server-error-text.js';
  *                    until the user changes a setting, so both must be fatal
  *  - 'connection'    isConnectionError matched (endpoint unreachable)
  *  - 'http'          any other non-2xx
- *  - 'upstream_error' 2xx whose body is really an upstream rejection ST downgraded
- *                    (see notifyUpstreamRejection) — NOT an empty completion
+ *  - 'upstream_error' 2xx whose body is really an upstream failure ST downgraded
+ *                    (see notifyUpstreamRejection) — NOT an empty completion; a
+ *                    profile's request the provider refused is one too. A rejection
+ *                    carries `rejectionCauses`; a provider's own server error does not
  *  - 'empty'         2xx but genuinely no assistant content and no error in the body;
  *                    its message says what the reply held (describeNoTextAnswer)
  *  - 'parse'         parseJsonArrayFromLlm could not find a usable array
@@ -65,14 +67,17 @@ import { readErrorBody } from '../../shared/server-error-text.js';
 export class LlmCallError extends Error {
     /**
      * @param {string} message
-     * @param {{kind: string, status?: number|null, provider?: string|null}} meta
+     * @param {{kind: string, status?: number|null, provider?: string|null, rejectionCauses?: string|null}} meta -
+     *        rejectionCauses: for a request the provider rejected, what commonly causes that and where its full
+     *        error is (describeUpstreamRejectionCauses), for a caller that names them once it is done; null otherwise
      */
-    constructor(message, { kind, status = null, provider = null } = {}) {
+    constructor(message, { kind, status = null, provider = null, rejectionCauses = null } = {}) {
         super(message);
         this.name = 'LlmCallError';
         this.kind = kind;
         this.status = status;
         this.provider = provider;
+        this.rejectionCauses = rejectionCauses;
     }
 }
 
@@ -98,18 +103,6 @@ function _upstreamRejectionDetail(data) {
     if (!raw) return null;
     const text = (typeof raw === 'string' ? raw : JSON.stringify(raw)).replace(/\s+/g, ' ').trim();
     return text ? text.slice(0, 300) : null;
-}
-
-/**
- * Whether an upstream status names the provider's own failure rather than a fault
- * in the request. Nothing the user changes fixes it, and a later send usually gets
- * through, so it stays in the console.
- *
- * @param {string} detail - From _upstreamRejectionDetail
- * @returns {boolean}
- */
-function _isProviderServerFailure(detail) {
-    return /^(internal server error|bad gateway|service unavailable|gateway time-?out|too many requests|provider returned error)/i.test(detail);
 }
 
 /**
@@ -250,6 +243,9 @@ export function resolveModelParameterStyle(settings = {}) {
  * @param {boolean}  [opts.shouldNotifyProviderFailure=true] let this shared call raise the
  *        de-duped toast for provider failures (unreachable endpoint, upstream rejection).
  *        Pass false when the CALLER owns its own error surfacing, as LoreBase and Test connection do.
+ * @param {boolean}  [opts.shouldNotifyUpstreamRejection=true] false turns off only the rejection
+ *        toast, for a caller that sends a rejected request again and names what still fails once it
+ *        is done, as EventBase extraction does; an unreachable endpoint still raises its toast.
  * @param {boolean}  [opts.sendTemperature=true] false = don't send `temperature` at all
  *        (reasoning models accept only their own default). From resolveModelParameterStyle.
  * @param {string}   [opts.tokenLimitParameter='max_tokens'] body key for the output-token
@@ -276,6 +272,7 @@ export async function postChatCompletion({
     contextLabel,
     authBranch = true,
     shouldNotifyProviderFailure = true,
+    shouldNotifyUpstreamRejection = true,
     sendTemperature = true,
     tokenLimitParameter = 'max_tokens',
     reasoningEffort = null,
@@ -285,7 +282,8 @@ export async function postChatCompletion({
     if (provider === CONNECTION_PROFILE_PROVIDER) {
         return _postOnConnectionProfile({
             messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
-            sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId, connectionProfilePage,
+            shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId,
+            connectionProfilePage,
         });
     }
 
@@ -363,7 +361,7 @@ export async function postChatCompletion({
     if (!content) {
         _throwForReplyWithoutText({
             data, status: response.status, contextLabel, label, model, provider, maxTokens, temperature,
-            sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure,
+            sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure, shouldNotifyUpstreamRejection,
         });
     }
 
@@ -411,7 +409,8 @@ export function describeChatConnectionProfile(profileId, { feature, page }) {
  */
 async function _postOnConnectionProfile({
     messages, maxTokens, temperature, timeoutMs, responseFormat, contextLabel, shouldNotifyProviderFailure,
-    sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId, connectionProfilePage,
+    shouldNotifyUpstreamRejection, sendTemperature, tokenLimitParameter, reasoningEffort, connectionProfileId,
+    connectionProfilePage,
 }) {
     const check = checkConnectionProfile(connectionProfileId, { feature: contextLabel, page: connectionProfilePage || 'VectFox' });
     if (!check.ok) throw new LlmCallError(check.reason, { kind: 'model_config', provider: CONNECTION_PROFILE_PROVIDER });
@@ -429,8 +428,11 @@ async function _postOnConnectionProfile({
         if (failure.kind === 'rethrow') throw failure.cause;
         log.warn(`[${contextLabel}] ${failure.message}`);
         if (shouldNotifyProviderFailure && failure.kind === 'connection') notifyConnectionError(contextLabel, label, failure.detail);
-        if (shouldNotifyProviderFailure && failure.kind === 'upstream_error') notifyUpstreamRejection(contextLabel, model, failure.detail);
-        throw new LlmCallError(failure.message, { kind: failure.kind, provider: CONNECTION_PROFILE_PROVIDER });
+        const isRejection = failure.kind === 'upstream_error' && !failure.isServerFailure;
+        if (shouldNotifyProviderFailure && shouldNotifyUpstreamRejection && isRejection) notifyUpstreamRejection(contextLabel, model, failure.detail);
+        throw new LlmCallError(failure.message, {
+            kind: failure.kind, provider: CONNECTION_PROFILE_PROVIDER, rejectionCauses: isRejection ? describeUpstreamRejectionCauses() : null,
+        });
     }
 
     const content = connectionProfileReplyText(profile, data).trim() || null;
@@ -438,6 +440,7 @@ async function _postOnConnectionProfile({
         _throwForReplyWithoutText({
             data, status: null, contextLabel, label, model, provider: CONNECTION_PROFILE_PROVIDER,
             maxTokens, temperature, sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure,
+            shouldNotifyUpstreamRejection,
         });
     }
     return _completionResult(content, data, { contextLabel, label, model });
@@ -482,7 +485,7 @@ function _completionResult(content, data, { contextLabel, label, model }) {
  */
 function _throwForReplyWithoutText({
     data, status, contextLabel, label, model, provider, maxTokens, temperature,
-    sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure,
+    sendTemperature, tokenLimitParameter, reasoningEffort, shouldNotifyProviderFailure, shouldNotifyUpstreamRejection,
 }) {
     const fromSillyTavern = status == null ? 'from SillyTavern' : `HTTP ${status} from ST`;
 
@@ -539,7 +542,7 @@ function _throwForReplyWithoutText({
     // Treating it as 'empty' is what made a wrong key, an unsupported parameter,
     // and a refused prompt all look like "the model said nothing".
     const upstreamDetail = _upstreamRejectionDetail(data);
-    if (upstreamDetail && !data?.quota_error && _isProviderServerFailure(upstreamDetail)) {
+    if (upstreamDetail && !data?.quota_error && isProviderServerFailure(upstreamDetail)) {
         log.warn(
             `[${contextLabel}] ${label} had a server error on model "${model}" (${fromSillyTavern}, `
             + `upstream status text "${upstreamDetail}"). The request was not at fault. Raw body: ${bodyText.slice(0, 500)}`,
@@ -550,8 +553,9 @@ function _throwForReplyWithoutText({
         );
     }
     if (upstreamDetail) {
-        if (shouldNotifyProviderFailure) {
-            notifyUpstreamRejection(contextLabel, model, upstreamDetail, Boolean(data?.quota_error));
+        const isQuotaError = Boolean(data?.quota_error);
+        if (shouldNotifyProviderFailure && shouldNotifyUpstreamRejection) {
+            notifyUpstreamRejection(contextLabel, model, upstreamDetail, isQuotaError);
         }
         // ST forwards only the upstream STATUS TEXT ("Bad Request"), which names
         // no cause, so print the request-shape switches alongside it — they are
@@ -571,7 +575,7 @@ function _throwForReplyWithoutText({
         );
         throw new LlmCallError(
             `${contextLabel}: ${label} rejected the request for model "${model}" — ${upstreamDetail}`,
-            { kind: 'upstream_error', status, provider },
+            { kind: 'upstream_error', status, provider, rejectionCauses: describeUpstreamRejectionCauses(isQuotaError) },
         );
     }
 

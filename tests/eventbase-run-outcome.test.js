@@ -125,6 +125,15 @@ describe('notifyUnfinishedWindows', () => {
         expect(options).toEqual({ timeOut: 15000 });
     });
 
+    // A rejection fails the same way on every later run until the user changes a setting.
+    it('names a rejection\'s causes and stays until closed, whatever the caller asks', () => {
+        notifyUnfinishedWindows(run({ rejectionCauses: 'Common causes: a parameter.' }), 'The next turn sends them again.', { timeOut: 15000 });
+
+        const [message, , options] = globalThis.toastr.warning.mock.calls[0];
+        expect(message).toContain('First error: the first reason. Common causes: a parameter. The next turn sends them again.');
+        expect(options).toEqual({ timeOut: 0, extendedTimeOut: 0 });
+    });
+
     // Nothing got through, so the run achieved nothing and the fault is not those windows.
     it('goes red only when many windows failed and none got through', () => {
         notifyUnfinishedWindows(run({ windowsProcessed: 0, windowsFailed: 9 }));

@@ -93,6 +93,10 @@ const buildChat = (count) => Array.from({ length: count }, (_, i) => ({
 }));
 
 const extractionError = () => new EventBaseExtractionError('EventBase: model reply could not be used');
+const rejection = () => Object.assign(
+    new EventBaseExtractionError('EventBase: profile "Harbor" rejected the request — Bad Request'),
+    { rejectionCauses: 'Common causes: a parameter.' },
+);
 
 let chatNumber = 0;
 const newChatUUID = () => `resend-uuid-${++chatNumber}`;
@@ -201,6 +205,26 @@ describe('window re-send', () => {
             expect(result.windowsFailed).toBe(1);
             expect(result.firstFailureDetail).toContain('could not be used');
             expect(globalThis.toastr.error).not.toHaveBeenCalled();
+        });
+
+        it('hands a rejection\'s causes to whoever reports the run when the window keeps failing', async () => {
+            state.failureFor = (start) => (start === 2 ? rejection() : null);
+
+            const result = await manualRun(buildChat(8), newChatUUID());
+
+            expect(result.windowsFailed).toBe(1);
+            expect(result.rejectionCauses).toBe('Common causes: a parameter.');
+        });
+
+        // A provider rejected one window once and took it on the next send: nothing is left to report.
+        it('forgets a rejection the window got past on a later send', async () => {
+            state.failureFor = (start, sendNumber) => (start === 2 && sendNumber === 1 ? rejection() : null);
+
+            const result = await manualRun(buildChat(8), newChatUUID());
+
+            expect(result.windowsFailed).toBe(0);
+            expect(result.rejectionCauses).toBeNull();
+            expect(globalThis.toastr.warning).not.toHaveBeenCalled();
         });
 
         it('sends a timed-out window again', async () => {

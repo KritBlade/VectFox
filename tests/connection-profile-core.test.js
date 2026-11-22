@@ -170,8 +170,24 @@ describe('what a failed profile call means', () => {
             .toMatchObject({ kind: 'connection', detail: 'Connection refused: 127.0.0.1:8080' });
     });
 
-    it('8: anything else, a moderation block included, skips only its window', () => {
-        expect(classifyConnectionProfileFailure(failed(causeOf('Forbidden')), context)).toMatchObject({ kind: 'upstream_error' });
-        expect(classifyConnectionProfileFailure(failed(causeOf('Too Many Requests')), context)).toMatchObject({ kind: 'upstream_error' });
+    // As on the manual path: nothing the user changes fixes it, and a later send usually gets through.
+    it('8: a provider\'s own server error skips only its window and is no rejection', () => {
+        for (const detail of ['Internal Server Error', 'Bad Gateway', 'Service Unavailable', 'Gateway Timeout', 'Too Many Requests']) {
+            expect(classifyConnectionProfileFailure(failed(causeOf(detail)), context), detail).toEqual({
+                kind: 'upstream_error',
+                isServerFailure: true,
+                detail,
+                message: `EventBase: the provider of profile "Harbor chat" had a server error on model "harbor-model" — ${detail}`,
+            });
+        }
+    });
+
+    it('9: anything else, a moderation block included, is a rejection that skips only its window', () => {
+        expect(classifyConnectionProfileFailure(failed(causeOf('Forbidden')), context)).toEqual({
+            kind: 'upstream_error',
+            isServerFailure: false,
+            detail: 'Forbidden',
+            message: 'EventBase: profile "Harbor chat" rejected the request — Forbidden',
+        });
     });
 });

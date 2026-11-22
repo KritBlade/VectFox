@@ -89,9 +89,11 @@ function _mapEventBaseError(e, windowIndex) {
         case 'connection': return new EventBaseFatalError(e.message, 'connection_failed');
         // 'http' | 'upstream_error' | 'empty' — per-window skip, not run-fatal. An
         // upstream rejection is only distinguishable from a per-window refusal
-        // (context length, content policy) by text ST does not forward, so we skip
-        // the window and let notifyUpstreamRejection tell the user what happened.
-        default: return new EventBaseExtractionError(e.message, windowIndex);
+        // (context length, content policy) by text ST does not forward, and a
+        // provider can reject a request and take the same one a moment later, so
+        // the run sends the window again; if it still fails, notifyUnfinishedWindows
+        // names the rejection's causes once the run is done.
+        default: return new EventBaseExtractionError(e.message, windowIndex, e.rejectionCauses);
     }
 }
 
@@ -184,6 +186,8 @@ async function _requestExtraction(prompt, settings, windowIndex, route) {
             temperature: settings.eventbase_temperature ?? DEFAULT_TEMPERATURE,
             timeoutMs: settings.eventbase_timeout_ms || DEFAULT_TIMEOUT_MS,
             contextLabel: 'EventBase',
+            // The run sends a rejected window again and names what still fails at its end.
+            shouldNotifyUpstreamRejection: false,
             ...resolveModelParameterStyle(settings),
         });
     } catch (e) {

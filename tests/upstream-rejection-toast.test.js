@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/sillytavern/log.js', () => ({ log: { warn: vi.fn(), error: vi.fn(), lifecycle: vi.fn() } }));
 
-const { notifyUpstreamRejection } = await import('../src/shared/model-config-notifier.js');
+const { notifyUpstreamRejection, describeUpstreamRejectionCauses } = await import('../src/shared/model-config-notifier.js');
 
 describe('notifyUpstreamRejection', () => {
     beforeEach(() => {
@@ -34,5 +34,14 @@ describe('notifyUpstreamRejection', () => {
         notifyUpstreamRejection('EventBase', 'third/model', 'Too Many Requests', true);
 
         expect(globalThis.toastr.warning.mock.calls[0][0]).toContain('out of quota');
+    });
+
+    // An EventBase run names the same causes at its end, for a window still rejected after its re-sends.
+    it('names the causes a run\'s notice names', () => {
+        notifyUpstreamRejection('EventBase', 'fourth/model', 'Bad Request');
+
+        const [message] = globalThis.toastr.warning.mock.calls[0];
+        expect(describeUpstreamRejectionCauses()).toContain('Common causes');
+        expect(message).toContain(describeUpstreamRejectionCauses());
     });
 });

@@ -112,13 +112,32 @@ export function notifyConnectionError(contextLabel, url, detail) {
 const _upstreamNotified = new Set();
 
 /**
+ * What commonly makes a provider reject a request, and where its full error is. Every notice of a rejection names
+ * these: this toast, and the end-of-run notice of a caller that sends a rejected request again (EventBase extraction).
+ * @param {boolean} [isQuotaError] - ST's quota_error flag (429 + insufficient_quota)
+ * @returns {string}
+ */
+export function describeUpstreamRejectionCauses(isQuotaError = false) {
+    const why = isQuotaError
+        ? 'Your provider reports the account is out of quota — check billing/credits.'
+        : 'Common causes: a parameter this model does not accept (see "Use max_completion_tokens", '
+          + '"Send temperature" and "Turn off model thinking" in Core → EventBase model), '
+          + 'a wrong API key, or a prompt the provider refused.';
+    return `${why} SillyTavern only forwards the status text to the browser — the provider's full error is in the `
+        + `SillyTavern SERVER console ("Chat completion request error").`;
+}
+
+/**
  * Sticky, de-duped toast for "the provider rejected this request and ST only told
- * us the status text". Sticky because this class never self-heals: the same bad
- * key / unsupported parameter / invalid model fails identically on every window,
- * and an auto-dismissing toast during a long background extraction is exactly the
- * silence we are trying to remove. A warning because the caller carries on past it
- * and the user must act: red means a run stopped. A provider's own server error
- * asks nothing of the user, so postChatCompletion logs it without calling this.
+ * us the status text". Sticky because a rejection of the user's settings (a bad key,
+ * a parameter the model does not accept) fails the same way on every later request
+ * until they change it, and an auto-dismissing toast during a long background
+ * extraction is exactly the silence we are trying to remove. A warning because the
+ * caller carries on past it and the user must act: red means a run stopped. A
+ * provider's own server error asks nothing of the user, so postChatCompletion logs
+ * it without calling this. A provider also rejects a request now and then and takes
+ * the same one a moment later, so a caller that sends it again turns this toast off
+ * and reports only what still fails (postChatCompletion's shouldNotifyUpstreamRejection).
  *
  * De-dup key is context + model + detail, so a different model or a different
  * upstream status warns afresh while a run of 200 failing windows warns once.
@@ -133,17 +152,10 @@ export function notifyUpstreamRejection(contextLabel, model, detail, isQuotaErro
     if (_upstreamNotified.has(key)) return;
     _upstreamNotified.add(key);
 
-    const why = isQuotaError
-        ? 'Your provider reports the account is out of quota — check billing/credits.'
-        : 'Common causes: a parameter this model does not accept (see "Use max_completion_tokens", '
-          + '"Send temperature" and "Turn off model thinking" in Core → EventBase model), '
-          + 'a wrong API key, or a prompt the provider refused.';
-
     try {
         toastr.warning(
-            `The provider rejected the ${contextLabel} request for model "${model}" (${detail}). ${why} `
-            + `SillyTavern only forwards the status text to the browser — the provider's full error is in the `
-            + `SillyTavern SERVER console ("Chat completion request error").`,
+            `The provider rejected the ${contextLabel} request for model "${model}" (${detail}). `
+            + describeUpstreamRejectionCauses(isQuotaError),
             `VectFox — ${contextLabel} request rejected`,
             { timeOut: 0, extendedTimeOut: 0 },
         );

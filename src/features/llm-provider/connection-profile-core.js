@@ -127,6 +127,19 @@ export function connectionProfileProblem({ feature, page, profileId, isManagerAv
 const NOT_AN_API_REPLY = /is not valid JSON|in JSON at position|Unexpected end of JSON input|invalid json response body/i;
 
 /**
+ * Whether an upstream status names the provider's own failure rather than a fault in the request, on either route
+ * (the manual path reads it from the reply's body, a profile from what SillyTavern threw). Nothing the user changes
+ * fixes it, and a later send usually gets through, so it stays in the console. 'Too Many Requests' is one too: a
+ * quota error only the manual path can tell apart, by SillyTavern's quota_error flag, which a profile request loses.
+ *
+ * @param {string} detail - The upstream status text
+ * @returns {boolean}
+ */
+export function isProviderServerFailure(detail) {
+    return /^(internal server error|bad gateway|service unavailable|gateway time-?out|too many requests|provider returned error)/i.test(detail);
+}
+
+/**
  * What a failed profile request means (plan §4), first match wins:
  *   1. Not SillyTavern's 'API request failed' (Connection Manager off, profile gone, unknown API): model_config.
  *   2. A timeout or abort: rethrow its cause, as the manual path does.
@@ -137,12 +150,15 @@ const NOT_AN_API_REPLY = /is not valid JSON|in JSON at position|Unexpected end o
  *      the URL.
  *   6. A model or configuration error: model_config.
  *   7. A connection failure: connection.
- *   8. Anything else, a moderation block on one window included: upstream_error.
+ *   8. The provider's own server error (isProviderServerFailure): upstream_error with isServerFailure, which the
+ *      caller keeps to the console, as the manual path does.
+ *   9. Anything else, a moderation block on one window included: upstream_error, a rejection.
  * model_config is the kind that raises the sticky toast and pauses auto-sync; an auth kind would fail in silence.
  *
  * @param {Error} error - What sendRequest threw
  * @param {{feature: string, profileName: string, model: string, storesKey: boolean}} context
- * @returns {{kind: 'model_config'|'connection'|'upstream_error', message: string, detail: string}|{kind: 'rethrow', cause: Error}}
+ * @returns {{kind: 'model_config'|'connection', message: string, detail: string}
+ *   |{kind: 'upstream_error', isServerFailure: boolean, message: string, detail: string}|{kind: 'rethrow', cause: Error}}
  */
 export function classifyConnectionProfileFailure(error, { feature, profileName, model, storesKey }) {
     const cause = error?.cause;
@@ -179,5 +195,13 @@ export function classifyConnectionProfileFailure(error, { feature, profileName, 
     if (isConnectionError(detail)) {
         return { kind: 'connection', detail, message: `${feature}: couldn't reach the server of profile "${profileName}" — ${detail}` };
     }
-    return { kind: 'upstream_error', detail, message: `${feature}: profile "${profileName}" rejected the request — ${detail}` };
+    if (isProviderServerFailure(detail)) {
+        return {
+            kind: 'upstream_error',
+            isServerFailure: true,
+            detail,
+            message: `${feature}: the provider of profile "${profileName}" had a server error on model "${model}" — ${detail}`,
+        };
+    }
+    return { kind: 'upstream_error', isServerFailure: false, detail, message: `${feature}: profile "${profileName}" rejected the request — ${detail}` };
 }

@@ -189,6 +189,32 @@ describe('a profile call that cannot run', () => {
         expect(notices.connection).toHaveBeenCalledWith('EventBase', 'profile "Harbor custom"', 'Connection refused: 127.0.0.1:8080');
     });
 
+    // As on the manual path (llm-provider-call.test.js): the provider's own failure asks nothing of the user.
+    it('keeps a provider server error to the console, with no rejection causes', async () => {
+        host.failure = failed('Internal Server Error');
+        await expect(call(PROFILES.custom)).rejects.toMatchObject({
+            kind: 'upstream_error',
+            message: 'EventBase: the provider of profile "Harbor custom" had a server error on model "harbor-model" — Internal Server Error',
+            rejectionCauses: null,
+        });
+        expect(notices.upstream).not.toHaveBeenCalled();
+    });
+
+    // EventBase extraction sends a rejected window again and names the causes if it still fails at the end of the run.
+    it('turns off only the rejection toast for a caller that sends the request again, naming the causes on the error', async () => {
+        host.failure = failed('Bad Request');
+        await expect(call(PROFILES.custom, { shouldNotifyUpstreamRejection: false })).rejects.toMatchObject({
+            kind: 'upstream_error',
+            message: 'EventBase: profile "Harbor custom" rejected the request — Bad Request',
+            rejectionCauses: expect.stringContaining('Common causes'),
+        });
+        expect(notices.upstream).not.toHaveBeenCalled();
+
+        host.failure = failed('Connection refused: 127.0.0.1:8080');
+        await expect(call(PROFILES.custom, { shouldNotifyUpstreamRejection: false })).rejects.toMatchObject({ kind: 'connection' });
+        expect(notices.connection).toHaveBeenCalledTimes(1);
+    });
+
     it('rethrows a timeout as the manual path does', async () => {
         host.failure = failed('signal timed out', 'TimeoutError');
         await expect(call(PROFILES.custom)).rejects.toMatchObject({ name: 'TimeoutError' });

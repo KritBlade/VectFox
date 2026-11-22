@@ -79,17 +79,20 @@ export function packTimelineSortKey(windowStart, eventOrder) {
 }
 
 /**
- * Non-fatal extraction parse error (per-window; caller should log + skip).
+ * Non-fatal extraction error (per-window; the run logs it and sends the window again).
  */
 export class EventBaseExtractionError extends Error {
     /**
      * @param {string} message
      * @param {number} [windowIndex]
+     * @param {string|null} [rejectionCauses] - For a request the provider rejected, what commonly causes that
+     *        (LlmCallError's rejectionCauses), named by the end-of-run notice if the window still fails
      */
-    constructor(message, windowIndex = -1) {
+    constructor(message, windowIndex = -1, rejectionCauses = null) {
         super(message);
         this.name = 'EventBaseExtractionError';
         this.windowIndex = windowIndex;
+        this.rejectionCauses = rejectionCauses;
     }
 }
 

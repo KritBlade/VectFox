@@ -39,6 +39,9 @@ const WINDOW_RESEND_BACKOFF_MS = [5000, 10000];
 // at the provider and not at those windows: repeating it would only repeat the wait.
 const MAX_WINDOWS_TO_RESEND_WITHOUT_PROGRESS = 8;
 
+/** A notice that stays until the user closes it. */
+const STICKY_TOAST_OPTIONS = { timeOut: 0, extendedTimeOut: 0 };
+
 /**
  * Waits before a re-send pass, ending early when the user presses Stop.
  * @param {number} delayMs
@@ -124,25 +127,31 @@ export function countUnfinishedWindows(result) {
 /**
  * Tells the player what a finished run left undone, which is theirs to act on. Red
  * only when nothing got through, since the run then achieved nothing and the fault
- * lies with the provider or the settings rather than those windows.
+ * lies with the provider or the settings rather than those windows. A window the
+ * provider still rejected after its re-sends adds the rejection's causes, and keeps
+ * the notice until it is closed whatever the caller asks: a rejection of the user's
+ * settings fails the same way on every later run until they change it.
  *
- * @param {{eventsExtracted: number, windowsProcessed: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null}} result
+ * @param {{eventsExtracted: number, windowsProcessed: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null, rejectionCauses?: string|null}} result
  * @param {string} [nextStep] - What sends the windows again
  * @param {object} [toastOptions] - Sticky unless told otherwise, since a long run may have been left alone
  */
-export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize Content sends them again.', toastOptions = { timeOut: 0, extendedTimeOut: 0 }) {
+export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize Content sends them again.', toastOptions = STICKY_TOAST_OPTIONS) {
     const unfinishedCount = countUnfinishedWindows(result);
     const timeoutAdvice = result.windowsTimedOut > 0
         ? ` ${result.windowsTimedOut} timed out: raise "Extraction timeout" on the ChatHistory page, or check that your model or endpoint is responding.`
         : '';
-    const firstError = result.firstFailureDetail ? ` First error: ${result.firstFailureDetail}` : '';
+    const detail = result.firstFailureDetail;
+    const firstError = detail ? ` First error: ${/[.!?]$/.test(detail) ? detail : `${detail}.`}` : '';
+    const causes = result.rejectionCauses ? ` ${result.rejectionCauses}` : '';
     const message = `EventBase: extracted ${result.eventsExtracted} events from ${result.windowsProcessed} windows, `
-        + `but ${unfinishedCount} window(s) kept failing and hold no events.${timeoutAdvice}${firstError} ${nextStep}`;
+        + `but ${unfinishedCount} window(s) kept failing and hold no events.${timeoutAdvice}${firstError}${causes} ${nextStep}`;
+    const options = result.rejectionCauses ? STICKY_TOAST_OPTIONS : toastOptions;
     const hasNothingGotThrough = result.windowsProcessed === 0 && unfinishedCount > MAX_WINDOWS_TO_RESEND_WITHOUT_PROGRESS;
     if (hasNothingGotThrough) {
-        globalThis.toastr?.error(message, 'VectFox', toastOptions);
+        globalThis.toastr?.error(message, 'VectFox', options);
     } else {
-        globalThis.toastr?.warning(message, 'VectFox', toastOptions);
+        globalThis.toastr?.warning(message, 'VectFox', options);
     }
 }
 
@@ -168,7 +177,8 @@ export function notifyUnfinishedWindows(result, nextStep = 'Resume in Vectorize 
  * @param {object} params.settings - VectFox settings
  * @param {AbortSignal|null} [params.abortSignal]
  * @param {{ strategy?: string, batchSize?: number, totalChunks?: number }|null} [params.progressPlan]
- * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null }>}
+ * @returns {Promise<{ eventsExtracted: number, windowsProcessed: number, windowsSkipped: number, windowsTimedOut?: number, windowsFailed?: number, firstFailureDetail?: string|null, rejectionCauses?: string|null }>}
+ *          rejectionCauses: a rejection's causes when a window the provider rejected still failed after its re-sends
  */
 export async function runEventBaseIngestion({ messages, chatUUID, settings, abortSignal = null, progressPlan = null, collectionIdOverride = null, parallelWindows = 3, isAutoSync = false, suppressAutoSyncPopup = false, skipTipFallback = false, windowSizeOverride = undefined, windowOverlapOverride = undefined, startFromMessage = 1 }) {
     const uuid = chatUUID || getChatUUID();
@@ -370,6 +380,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     let windowsTimedOut = 0;
     let windowsFailed = 0;
     let firstFailureDetail = null;
+    let rejectionCauses = null;
 
     // Smart fast-forward: windows are processed in order, so already-extracted ones
     // cluster at the front. Linear-scan past them with cheap Set.has() lookups instead
@@ -567,7 +578,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     // genuinely held no events (issue #14).
                     if (err instanceof EventBaseExtractionError) {
                         log.warn(`[EventBase] Window ${wIdx}: extraction error (unfinished) — ${err.message}`);
-                        return { skipped: false, events: [], failed: true, failureDetail: err.message };
+                        return { skipped: false, events: [], failed: true, failureDetail: err.message, rejectionCauses: err.rejectionCauses ?? null };
                     }
                     log.warn(`[EventBase] Window ${wIdx}: unexpected error (unfinished) — ${err.message}`);
                     return { skipped: false, events: [], failed: true, failureDetail: err.message };
@@ -731,7 +742,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         // arrive as rejected promises in batchResults). The loop runs to the end of
         // the batch even after a fatal, so every failed window reaches the record
         // before the coordinator stops the run.
-        const tally = { eventsAdded: 0, windowsProcessed: 0, windowsSkipped: 0, windowsTimedOut: 0, windowsFailed: 0, failureDetail: null, fatalError: null, windowsToResend: [] };
+        const tally = { eventsAdded: 0, windowsProcessed: 0, windowsSkipped: 0, windowsTimedOut: 0, windowsFailed: 0, failureDetail: null, rejectionCauses: null, fatalError: null, windowsToResend: [] };
         for (const [position, result] of batchResults.entries()) {
             const win = windowsSlice[position];
             if (result.status === 'rejected') {
@@ -759,6 +770,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                     _recordUnfinishedWindow(win, false, tally);
                     tally.windowsFailed++;
                     tally.failureDetail ??= result.value.failureDetail || null;
+                    tally.rejectionCauses ??= result.value.rejectionCauses ?? null;
                 } else {
                     tally.windowsProcessed++;
                     tally.eventsAdded += (result.value?.events?.length || 0);
@@ -906,6 +918,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
                 else windowsFailed--;
             }
             firstFailureDetail = null;
+            rejectionCauses = null;
             windowsProcessedBeforePass = windowsProcessed;
             dispatchWindows = windowsToResend.map(({ win }) => win);
             windowsToResend = [];
@@ -973,6 +986,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
             windowsTimedOut  += tally.windowsTimedOut;
             windowsFailed    += tally.windowsFailed;
             firstFailureDetail ??= tally.failureDetail;
+            rejectionCauses ??= tally.rejectionCauses;
             windowsToResend.push(...tally.windowsToResend);
             _updateProgressAfterFinalize(winner.extractResult);
         }
@@ -1066,7 +1080,7 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }));
     }
 
-    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, firstFailureDetail };
+    return { eventsExtracted, windowsProcessed, windowsSkipped, windowsTimedOut, windowsFailed, firstFailureDetail, rejectionCauses };
 }
 
 // ---------------------------------------------------------------------------

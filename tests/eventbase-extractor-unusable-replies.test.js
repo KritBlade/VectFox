@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const provider = vi.hoisted(() => ({ reply: { content: '[]', finishReason: 'stop' } }));
+const provider = vi.hoisted(() => ({ reply: { content: '[]', finishReason: 'stop' }, error: null }));
 
 vi.mock('../src/features/llm-provider/index.js', async () => {
     const parser = await vi.importActual('../src/features/llm-provider/llm-provider-call.js');
@@ -15,7 +15,10 @@ vi.mock('../src/features/llm-provider/index.js', async () => {
         parseJsonArrayFromLlm: parser.parseJsonArrayFromLlm,
         LlmCallError: parser.LlmCallError,
         resolveModelParameterStyle: () => ({}),
-        postChatCompletion: vi.fn(async () => provider.reply),
+        postChatCompletion: vi.fn(async () => {
+            if (provider.error) throw provider.error;
+            return provider.reply;
+        }),
     };
 });
 vi.mock('../../../../../script.js', () => ({ getRequestHeaders: () => ({}) }));
@@ -32,6 +35,7 @@ vi.mock('../src/sillytavern/log.js', () => ({
 
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
 const { EventBaseExtractionError } = await import('../src/features/eventbase/eventbase-schema.js');
+const { postChatCompletion, LlmCallError } = await import('../src/features/llm-provider/index.js');
 
 const WINDOW = {
     messages: [{ name: 'User', mes: 'hello' }, { name: 'Bot', mes: 'hi there' }],
@@ -50,6 +54,19 @@ const usableEvent = JSON.stringify({ event_type: 'combat', importance: 5, summar
 describe.each(['openrouter', 'vllm'])('extractEvents through %s', (providerName) => {
     beforeEach(() => {
         provider.reply = { content: '[]', finishReason: 'stop' };
+        provider.error = null;
+    });
+
+    // The run sends a rejected window again and names what still fails at its end (eventbase-window-resend.test.js).
+    it('asks for no rejection toast, and keeps a rejection\'s causes on the failed window', async () => {
+        provider.error = new LlmCallError('EventBase: profile "Harbor" rejected the request — Bad Request', { kind: 'upstream_error', rejectionCauses: 'Common causes: a parameter.' });
+
+        await expect(extract(providerName)).rejects.toMatchObject({
+            name: 'EventBaseExtractionError',
+            message: 'EventBase: profile "Harbor" rejected the request — Bad Request',
+            rejectionCauses: 'Common causes: a parameter.',
+        });
+        expect(postChatCompletion).toHaveBeenLastCalledWith(expect.objectContaining({ shouldNotifyUpstreamRejection: false }));
     });
 
     it('fails the window when the provider cut the reply, even if the parser could read part of it', async () => {
