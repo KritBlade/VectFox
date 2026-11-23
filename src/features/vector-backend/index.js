@@ -17,7 +17,7 @@ export {
     probeBackendHealth,
     resetBackendHealth,
 } from './backend-registry.js';
-export { runBoundedRetrieval } from './bounded-retrieval.js';
+export { UNBOUNDED_RUN, runBoundedRetrieval } from './bounded-retrieval.js';
 export { clearCorpusStatsCache } from './corpus-stats.js';
 export { reciprocalRankFusion, weightedCombination } from './hybrid-search.js';
 export { setInsertedCollectionRegistrar } from './qdrant.js';

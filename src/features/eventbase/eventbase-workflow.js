@@ -15,7 +15,7 @@ import { setExtensionPrompt, extension_prompts } from '../../sillytavern/prompt-
 import { getCurrentChatId, substituteParams, getContext } from '../../sillytavern/chat.js';
 import { getChatUUID, COLLECTION_PREFIXES, buildRegistryKey } from '../../shared/collection-ids.js';
 import { isCollectionEnabled } from '../collections/index.js';
-import { getSavedHashes } from '../vector-backend/index.js';
+import { getSavedHashes, UNBOUNDED_RUN } from '../vector-backend/index.js';
 import { searchArchiveEvents } from './eventbase-retrieval.js';
 import { EVENTBASE_PROMPT_TAG } from '../../shared/constants.js';
 import { EventBaseFatalError, EventBaseExtractionError } from './eventbase-schema.js';
@@ -1097,9 +1097,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
  * @param {string}  [params.chatUUID]  - Override chat UUID
  * @param {object}  [params.inUse]     - The chat's collection in use (collectionInUse), as the reply step resolved it
  *   for the whole reply; resolved here without it
+ * @param {{isCurrent: () => boolean}} [params.boundedRun] - The reply step's bounded run (runBoundedRetrieval): once
+ *   its bound has passed the reply has gone without this retrieval, so it searches no further and publishes nothing,
+ *   no block and no toast of what it found. A preview has none.
  * @returns {Promise<void>}
  */
-export async function runEventBaseRetrieval({ chat, searchText, settings, chatUUID, dryRun = false, testMessage = null, inUse = null }) {
+export async function runEventBaseRetrieval({ chat, searchText, settings, chatUUID, dryRun = false, testMessage = null, inUse = null, boundedRun = UNBOUNDED_RUN }) {
     const uuid = chatUUID || getChatUUID();
     const currentChatId = getCurrentChatId();
 
@@ -1151,6 +1154,11 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
         log.verbose(`[EventBase] Queried ${archiveCollections.length} archive event collection(s) → ${additionalCandidates.length} event(s)`);
     }
 
+    if (!boundedRun.isCurrent()) {
+        log.lifecycle('[EventBase] The retrieval\'s bound passed during the archive search: the reply went without it, so nothing more is searched');
+        return;
+    }
+
     // Another chat's collection locked here: its source_window_end values belong to a different conversation and
     // cannot be compared to the current chat length, so the context-dedup step is skipped.
     const isCrossChat = otherChatsCollections.length > 0;
@@ -1173,19 +1181,28 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
     });
 
     log.trace('[EventBase] Retrieval debug:', debug);
-    // A search that failed on its setup, such as a deleted embedding profile, fails every turn until the user fixes it.
+    // A search that failed on its setup, such as a deleted embedding profile, fails every turn until the user fixes it,
+    // so it is said even past the bound.
     if (debug?.setupFailureMessage) notifyInvalidModel(debug.setupFailureMessage);
-    else if (debug?.failedSearchCount > 0) notifyMemoryNotInjected(debug.searchFailureMessage, Boolean(events?.length));
+
+    // Nothing below awaits, so this one check keeps a retrieval that settled past its bound from publishing: no block,
+    // and no toast of what it found, for a reply that went without it.
+    if (!boundedRun.isCurrent()) {
+        log.lifecycle(`[EventBase] The retrieval settled past its bound with ${events?.length ?? 0} event(s): the reply went without them, so nothing is injected or shown`);
+        return;
+    }
+    const hasFailedSearch = Boolean(debug?.setupFailureMessage) || debug?.failedSearchCount > 0;
+    if (!debug?.setupFailureMessage && debug?.failedSearchCount > 0) notifyMemoryNotInjected(debug.searchFailureMessage, Boolean(events?.length));
 
     if (!events?.length) {
         log.lifecycle('[EventBase] No events to inject');
         log.verbose(`[EventBase Popup] no-events branch gate: retrieval_popup_on_result=${settings.retrieval_popup_on_result} → fire=${!!settings.retrieval_popup_on_result}`);
         if (settings.retrieval_popup_on_result) {
             const rawCount = debug?.rawCount ?? 0;
-            const msg = rawCount > 0
-                ? `EventBase: ${rawCount} event(s) already in context`
-                : 'EventBase: no events matched';
-            toastr.info(msg, 'VectFox Retrieval');
+            // After a failed search, whose toast above says no memory was injected, "no events matched" would read as a
+            // search that worked.
+            if (rawCount > 0) toastr.info(`EventBase: ${rawCount} event(s) already in context`, 'VectFox Retrieval');
+            else if (!hasFailedSearch) toastr.info('EventBase: no events matched', 'VectFox Retrieval');
         }
         if (dryRun) return { injectionText: null, eventCount: 0, lockedCollectionsCount: lockedLiveCollections.length, archiveCollectionsCount: archiveCollections.length };
         setExtensionPrompt(EVENTBASE_PROMPT_TAG, '', settings.position, settings.depth, false);
@@ -1204,8 +1221,10 @@ export async function runEventBaseRetrieval({ chat, searchText, settings, chatUU
         return;
     }
 
-    log.verbose(`[EventBase Popup] success gate: retrieval_popup_on_result=${settings.retrieval_popup_on_result}, dryRun=${dryRun}, injectedCount=${injectedCount} → fire=${!!settings.retrieval_popup_on_result}`);
-    if (settings.retrieval_popup_on_result) {
+    // A preview injects nothing, and its tester shows what it found.
+    const isInjectedToastShown = Boolean(settings.retrieval_popup_on_result) && !dryRun;
+    log.verbose(`[EventBase Popup] success gate: retrieval_popup_on_result=${settings.retrieval_popup_on_result}, dryRun=${dryRun}, injectedCount=${injectedCount} → fire=${isInjectedToastShown}`);
+    if (isInjectedToastShown) {
         toastr.success(`EventBase: ${injectedCount} event(s) injected`, 'VectFox Retrieval');
     }
 

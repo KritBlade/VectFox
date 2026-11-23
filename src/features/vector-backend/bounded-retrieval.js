@@ -5,14 +5,19 @@
  * One place for the rule every retrieval path in VectFox has to follow:
  *
  *   A retrieval must not freeze generation, must not break it when it fails,
- *   and must not fail SILENTLY.
+ *   must not fail SILENTLY, and must not publish once its bound has passed.
  *
- * runBoundedRetrieval() keeps all three: it races the retrieval against the
+ * runBoundedRetrieval() keeps all four: it races the retrieval against the
  * retrieval budget, catches the failure, and both logs it and toasts the user.
  * A missing "also surface it" is invisible in review: the code looks complete,
  * the message still sends, and the user just watches the character forget
  * things. So every retrieval path goes through this one function rather than a
  * try/catch of its own, and a new path gets the surfacing for free.
+ *
+ * Nothing stops a retrieval that loses the race: its requests are already out.
+ * So each one gets its bounded run, which ends when the bound passes, and checks
+ * it before it publishes anything: its prompt block, or a toast saying what it
+ * injected, would belong to a reply that went without it (GitHub issue #28).
  * ============================================================================
  */
 
@@ -25,32 +30,48 @@ import { log } from '../../sillytavern/log.js';
 const TIMEOUT_PATTERN = /timed out|timeout|aborted/i;
 
 /**
- * Settles like `promise`, or rejects with Error(`message`) once `ms` pass first.
+ * The bounded run of a retrieval no bound limits, such as the Query Tester's preview: always current.
+ * @type {{isCurrent: () => boolean}}
+ */
+export const UNBOUNDED_RUN = Object.freeze({ isCurrent: () => true });
+
+/**
+ * Settles like the retrieval `startRetrieval` starts, or rejects with Error(`message`) once `ms` pass first. The
+ * retrieval's bounded run ends in the same moment the bound passes, before anything else runs, so a retrieval that
+ * settles later finds it ended.
  * @template T
- * @param {Promise<T>} promise
+ * @param {(boundedRun: {isCurrent: () => boolean}) => Promise<T>} startRetrieval
  * @param {number} ms
  * @param {string} [message]
  * @returns {Promise<T>}
  */
-function raceWithTimeout(promise, ms, message = 'Operation timed out') {
-    return Promise.race([
-        promise,
-        new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(message)), ms)
-        ),
-    ]);
+function raceWithTimeout(startRetrieval, ms, message = 'Operation timed out') {
+    let hasBoundPassed = false;
+    const boundedRun = Object.freeze({ isCurrent: () => !hasBoundPassed });
+    let timer;
+    const bound = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            hasBoundPassed = true;
+            reject(new Error(message));
+        }, ms);
+    });
+    const retrieval = (async () => startRetrieval(boundedRun))();
+    return Promise.race([retrieval, bound]).finally(() => clearTimeout(timer));
 }
 
 /**
- * Run a retrieval promise under the shared timeout, logging AND toasting on
- * failure, then degrading to `fallback` instead of throwing.
+ * Run a retrieval under the shared timeout, logging AND toasting on failure,
+ * then degrading to `fallback` instead of throwing. The retrieval gets its
+ * bounded run, current until the bound passes; one that settles after it must
+ * publish nothing, as its reply went without it.
  *
  * Soft timeout: on expiry the turn proceeds without this memory and the orphaned
  * request is reaped server-side. Never rethrows — callers are mid-generation and
  * a lookup failure must not break the message.
  *
  * @template T
- * @param {Promise<T>} promise - the retrieval already in flight
+ * @param {(boundedRun: {isCurrent: () => boolean}) => Promise<T>} startRetrieval - starts the retrieval, which checks
+ *   `boundedRun.isCurrent()` before it publishes anything
  * @param {object} options
  * @param {string} options.contextLabel - user-facing subsystem: 'EventBase' | 'Chat memory' | 'Summarizer'
  * @param {string} options.sourceName - what was being searched, in the user's words
@@ -66,12 +87,12 @@ function raceWithTimeout(promise, ms, message = 'Operation timed out') {
  *   from resolveEventBaseRetrievalTimeoutMs().
  * @returns {Promise<T|undefined>} the result, or `fallback` on timeout/error
  */
-export async function runBoundedRetrieval(promise, { contextLabel, sourceName, timeoutMessage, fallback, settings, timeoutMs } = {}) {
+export async function runBoundedRetrieval(startRetrieval, { contextLabel, sourceName, timeoutMessage, fallback, settings, timeoutMs } = {}) {
     const budgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0
         ? timeoutMs
         : resolveRetrievalTimeoutMs(settings);
     try {
-        return await raceWithTimeout(promise, budgetMs, timeoutMessage);
+        return await raceWithTimeout(startRetrieval, budgetMs, timeoutMessage);
     } catch (error) {
         // A bare "retrieval timed out" names nothing the user can change, so they
         // read it as "the extension is broken" (which is how it was reported). The

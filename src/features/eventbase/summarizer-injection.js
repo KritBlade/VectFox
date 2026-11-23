@@ -24,7 +24,7 @@
 import { setExtensionPrompt } from '../../sillytavern/prompt-injection.js';
 import { getContext } from '../../sillytavern/chat.js';
 import { getWorldInfoSettings, getSortedEntries } from '../../sillytavern/world-info.js';
-import { getBackend } from '../vector-backend/index.js';
+import { getBackend, UNBOUNDED_RUN } from '../vector-backend/index.js';
 import { NOT_IN_USE_REASON, collectionInUse, noCollectionInUseText } from './eventbase-chat-collections.js';
 import { getVectorizationTip } from './eventbase-store.js';
 import { SUMMARIZER_PROMPT_TAG } from '../../shared/constants.js';
@@ -38,14 +38,20 @@ import { log } from '../../sillytavern/log.js';
  *
  * @param {object} settings - extension_settings.vectfox
  * @param {object|null} [inUse] - The chat's collection in use (collectionInUse), as the reply step resolved it
+ * @param {{isCurrent: () => boolean}} [boundedRun] - The reply step's bounded run (runBoundedRetrieval): a build that
+ *   settles once its bound has passed leaves the slot as the reply step emptied it, as the reply went without it
  * @returns {Promise<{ injected: number, error?: string }>}
  */
-export async function runSummarizerInjection(settings, inUse = null) {
+export async function runSummarizerInjection(settings, inUse = null, boundedRun = UNBOUNDED_RUN) {
     const clear = () => setExtensionPrompt(SUMMARIZER_PROMPT_TAG, '', settings.position, settings.depth, false);
 
     if (!settings?.summarizer_injection_enabled) { clear(); return { injected: 0 }; }
 
     const { text, count } = await buildSummarizerInjection(settings, inUse);
+    if (!boundedRun.isCurrent()) {
+        log.lifecycle(`[Summarizer] The injection settled past its bound with ${count} event(s): the reply went without them, so nothing is injected`);
+        return { injected: 0 };
+    }
     setExtensionPrompt(SUMMARIZER_PROMPT_TAG, text, settings.position, settings.depth, false);
     if (count > 0) log.domain('injection', 'trace', `[Summarizer] Injected ${count} event(s) under ${SUMMARIZER_PROMPT_TAG}`);
     return { injected: count };

@@ -3,9 +3,10 @@
  * vectfox_rearrangeChat). It empties the last turn's blocks first, so a turn that injects nothing never sends the last
  * turn's memory; then, while VectFox is on and the chat is long enough, it runs EventBase retrieval, the Summarizer
  * injection and ghosting. Each search is bounded: one that is slow or fails sends the reply without that memory and
- * says why (src/features/vector-backend/bounded-retrieval.js). All three read the chat's collection in use, which the
- * step asks the one route for once (collectionInUse); with none in use they read none of the chat's events, and one red
- * toast per reply says so, naming those switched on (D18 of vectfox-multi-collection-per-chat.md).
+ * says why, and one that settles past its bound publishes nothing (src/features/vector-backend/bounded-retrieval.js).
+ * All three read the chat's collection in use, which the step asks the one route for once (collectionInUse); with none
+ * in use they read none of the chat's events, and one red toast per reply says so, naming those switched on (D18 of
+ * vectfox-multi-collection-per-chat.md).
  */
 import { getCurrentChatId, substituteParams } from '../../sillytavern/chat.js';
 import { log } from '../../sillytavern/log.js';
@@ -108,7 +109,7 @@ export async function runEventBaseReplyStep(chat, settings, type) {
             // bound with their own user-set timeouts; the Agent Mode-inclusive budget keeps the bound from overruling
             // them.
             await runBoundedRetrieval(
-                runEventBaseRetrieval({ chat, searchText: queryText, settings, chatUUID: getChatUUID(), inUse }),
+                boundedRun => runEventBaseRetrieval({ chat, searchText: queryText, settings, chatUUID: getChatUUID(), inUse, boundedRun }),
                 {
                     contextLabel: 'EventBase',
                     sourceName: 'event memory',
@@ -120,7 +121,7 @@ export async function runEventBaseReplyStep(chat, settings, type) {
         }
 
         // The most recent events every turn, apart from the search above. It empties its own block when it is off.
-        await runBoundedRetrieval(runSummarizerInjection(settings, inUse), {
+        await runBoundedRetrieval(boundedRun => runSummarizerInjection(settings, inUse, boundedRun), {
             contextLabel: 'Summarizer',
             sourceName: 'recent event summaries',
             timeoutMessage: 'Summarizer injection timed out',

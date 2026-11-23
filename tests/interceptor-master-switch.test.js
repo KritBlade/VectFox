@@ -18,12 +18,15 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
     const extensionPrompts = {};
+    const boundedRun = Object.freeze({ isCurrent: () => true });
     return {
         extensionPrompts,
+        boundedRun,
         setExtensionPrompt: vi.fn((key, value, position, depth) => {
             extensionPrompts[key] = { value, position, depth };
         }),
-        runBoundedRetrieval: vi.fn(async work => work),
+        // Starts the retrieval with its run, as runBoundedRetrieval does.
+        runBoundedRetrieval: vi.fn(async startRetrieval => startRetrieval(boundedRun)),
         runEventBaseRetrieval: vi.fn(async () => {}),
         runSummarizerInjection: vi.fn(async () => {}),
         applyGhosting: vi.fn(),
@@ -125,10 +128,10 @@ describe('runEventBaseReplyStep with the master switch ON', () => {
         await runEventBaseReplyStep(chat, settings, 'normal');
 
         expect(mocks.collectionInUse).toHaveBeenCalledTimes(1);
-        expect(mocks.runEventBaseRetrieval).toHaveBeenCalledWith({ chat, searchText: 'Under the cart, I think.\nWhere did we leave the map?', settings, chatUUID: 'uuid-1', inUse: IN_USE });
+        expect(mocks.runEventBaseRetrieval).toHaveBeenCalledWith({ chat, searchText: 'Under the cart, I think.\nWhere did we leave the map?', settings, chatUUID: 'uuid-1', inUse: IN_USE, boundedRun: mocks.boundedRun });
         expect(mocks.runBoundedRetrieval.mock.calls.map(([, bound]) => bound.contextLabel)).toEqual(['EventBase', 'Summarizer']);
         expect(mocks.runBoundedRetrieval.mock.calls[0][1]).toMatchObject({ settings, timeoutMs: 15000 });
-        expect(mocks.runSummarizerInjection).toHaveBeenCalledWith(settings, IN_USE);
+        expect(mocks.runSummarizerInjection).toHaveBeenCalledWith(settings, IN_USE, mocks.boundedRun);
         expect(mocks.applyGhosting).toHaveBeenCalledWith(chat, settings, IN_USE);
         expect(mocks.applyGhosting.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.runSummarizerInjection.mock.invocationCallOrder[0]);
         expect(chat.map(message => message.mes)).toEqual(['We camped by the river.', 'Where did we leave the map?', '[The scene changes.]', 'Under the cart, I think.']);

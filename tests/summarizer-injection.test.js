@@ -7,7 +7,8 @@
  * desc → slice top N → render chronologically inside <VectFoxSummarizer> tags →
  * strip [EVENT_TYPE] prefixes, plus the self-clearing early-exits: the collection
  * is the chat's collection in use, from the one route (collectionInUse), and with
- * none in use, or the one in use paused, nothing is read (D18). The depth
+ * none in use, or the one in use paused, nothing is read (D18). An injection
+ * whose read settles past the reply step's bound injects nothing. The depth
  * refresh must not load lorebooks while VectFox is disabled, and must warn
  * instead of failing silently.
  *
@@ -15,7 +16,7 @@
  * except feature-gate.js and constants.js, which stay real.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // vi.hoisted lifts these so the (also-hoisted) vi.mock factories can reference them.
 const mocks = vi.hoisted(() => ({
@@ -49,6 +50,7 @@ vi.mock('../../../../secrets.js', () => ({ SECRET_KEYS: {} }));
 vi.mock('../../../../textgen-settings.js', () => ({}));
 
 import { applyGhosting, runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
+import { runBoundedRetrieval } from '../src/features/vector-backend/index.js';
 import { getSortedEntries } from '../../../../world-info.js';
 import { getContext } from '../../../../extensions.js';
 import { getVectorizationTip } from '../src/features/eventbase/eventbase-store.js';
@@ -328,5 +330,44 @@ describe('applyGhosting and the collection in use', () => {
         const none = { collection: null, reason: 'none-in-use', collections: [{ registryKey: 'k' }], lockedElsewhere: [] };
         expect(applyGhosting(chatOf(), GHOSTING, none)).toEqual({ wiped: 0, charsRemoved: 0 });
         expect(getVectorizationTip).not.toHaveBeenCalled();
+    });
+});
+
+// The reply step bounds the injection (runBoundedRetrieval): one whose read settles past its bound leaves the slot as
+// the reply step emptied it, as the reply went without it (GitHub issue #28).
+describe('runSummarizerInjection in its bounded run', () => {
+    const BOUND = { contextLabel: 'Summarizer', sourceName: 'recent event summaries', timeoutMessage: 'Summarizer injection timed out', timeoutMs: 15000 };
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        globalThis.toastr = { error: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn() };
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('injects nothing when its read settles past its bound', async () => {
+        let settleRead;
+        mocks.listChunks.mockReturnValue(new Promise(resolve => { settleRead = resolve; }));
+        let injection;
+        const reply = runBoundedRetrieval(boundedRun => (injection = runSummarizerInjection(SETTINGS(), IN_USE, boundedRun)), BOUND);
+
+        await vi.advanceTimersByTimeAsync(15000);
+        await reply;
+        settleRead({ items: [ev(2, 'The duel at the mill')] });
+
+        expect(await injection).toEqual({ injected: 0 });
+        expect(mocks.setExtensionPrompt).not.toHaveBeenCalled();
+        expect(globalThis.toastr.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('injects what it read inside its bound', async () => {
+        mocks.listChunks.mockResolvedValue({ items: [ev(2, 'The duel at the mill')] });
+        let injection;
+        await runBoundedRetrieval(boundedRun => (injection = runSummarizerInjection(SETTINGS(), IN_USE, boundedRun)), BOUND);
+
+        expect(await injection).toEqual({ injected: 1 });
+        expect(lastInjected()[1]).toContain('The duel at the mill');
+        expect(globalThis.toastr.error).not.toHaveBeenCalled();
     });
 });
