@@ -38,9 +38,9 @@ describe("Jev's question for an entry with no keys", () => {
 });
 
 describe('the lore budget', () => {
-    it('is 3,000 tokens by default, held from 1,000 to 12,000, a whole number', () => {
-        expect([LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN, LORE_BUDGET_MAX]).toEqual([3000, 1000, 12000]);
-        expect([undefined, '', 'many', null].map(loreBudgetOf)).toEqual([3000, 3000, 3000, 3000]);
+    it('is 4,000 tokens by default, held from 1,000 to 12,000, a whole number', () => {
+        expect([LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN, LORE_BUDGET_MAX]).toEqual([4000, 1000, 12000]);
+        expect([undefined, '', 'many', null].map(loreBudgetOf)).toEqual([4000, 4000, 4000, 4000]);
         expect([4500, '6000', 500, 20000, 2750.8].map(loreBudgetOf)).toEqual([4500, 6000, 1000, 12000, 2750]);
     });
 });

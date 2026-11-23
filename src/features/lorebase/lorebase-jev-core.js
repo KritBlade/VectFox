@@ -16,8 +16,8 @@ const JEV_CUT = 0.25;
 /** The search's seats (§5 of lorebook-multi-vector.md): Jev is asked about the search's this many best entries, and
  * about every entry when the books taking part have no more, as a search would then keep them all. */
 export const POOL_SEATS = 100;
-/** The lore budget, in tokens a reply (Q4 of lorebook-multi-vector.md): 3,000 by default, T37's, and its bounds. */
-export const LORE_BUDGET_DEFAULT = 3000;
+/** The lore budget, in tokens a reply (Q4 of lorebook-multi-vector.md): 4,000 by default, and its bounds. */
+export const LORE_BUDGET_DEFAULT = 4000;
 export const LORE_BUDGET_MIN = 1000;
 export const LORE_BUDGET_MAX = 12000;
 const CHAT_INTRO = "The chat so far. The last message is the user's; the next reply answers it.";

@@ -63,7 +63,7 @@ function loreBaseBooksCard() {
 // the first thing LoreBase lacks, which lorebase-model-card.js fills and hides while nothing is missing. Accuracy comes
 // next, since it decides what each model does: LoreBase's own model writes each entry's keys on every choice (D17) and,
 // on High Accuracy, also picks and reviews (D6); on Fast and Cheap [Jev], the default, Jev picks, on a profile of its
-// own (D16), its picks sent within the Lore budget (§5 and Q4 of lorebook-multi-vector.md: 3,000 tokens by default,
+// own (D16), its picks sent within the Lore budget (§5 and Q4 of lorebook-multi-vector.md: 4,000 tokens by default,
 // 1,000 to 12,000, LORE_BUDGET_DEFAULT, LORE_BUDGET_MIN and LORE_BUDGET_MAX in lorebase-jev-core.js). connection-rows.js
 // shows the title of the own model's role and Jev's group, which shows on Fast and Cheap [Jev] only. Last, the Vectors
 // line names VectFox's embedding model, which writes every selected entry's vectors on either choice, with the button

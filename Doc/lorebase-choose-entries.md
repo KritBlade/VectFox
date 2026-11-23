@@ -277,7 +277,7 @@ Jev is a small model that only answers yes or no questions, with how sure it is.
    ```
    It answers every question with its chance of yes, from 0 to 1, all in 1 call.
 3. **The cut.** Every entry Jev rates above 0.25 is a candidate. The rest are out.
-4. **The lore budget.** The candidates go in WHOLE, the best first, with no review, until the lore budget is full. That's 3,000 tokens by default, and **Lore budget** on the model card takes 1,000 to 12,000 tokens. The best one always goes in, even when it's bigger than the budget. After that, an entry that doesn't fit is skipped, and the next one gets its turn.
+4. **The lore budget.** The candidates go in WHOLE, the best first, with no review, until the lore budget is full. That's 4,000 tokens by default, and **Lore budget** on the model card takes 1,000 to 12,000 tokens. The best one always goes in, even when it's bigger than the budget. After that, an entry that doesn't fit is skipped, and the next one gets its turn.
 
 Say Jev rated these 4 above 0.25, with the budget at 3,000 tokens:
 
