@@ -307,7 +307,7 @@ How far EventBase has read a chat is kept per collection, in the collection's re
 | `vectorizationTip` | One past the last message any extracted window covers (the tip, below) |
 | `extractedWindows` | The fingerprints of the windows read (the window record, below) |
 | `unfinishedWindows` | The fingerprints of the windows that failed |
-| `autoSyncStartMarker` | The message auto-sync started from (the start marker, below) |
+| `autoSyncStartMarker` | The first message auto-sync reads, where its windows start (the start marker, below) |
 | `windowSize` | The window size Vectorize reads it with: the dialog's at the chat's first read, at New collection and at Start over; Catch up reads with it, and no run changes it (the window size a collection keeps, below) |
 
 - **One pair of functions** in [eventbase-store.js](../src/features/eventbase/eventbase-store.js) reads and writes it: `readEventBaseProgress(registryKey)` and `writeEventBaseProgress(registryKey, parts)`, which merge inside `eventbaseProgress`, as `setCollectionMeta` replaces a record's fields whole. Every store function below that takes a `registryKey` reads or writes that collection's pointer. A run reads into its collection's key (`buildRegistryKey(collectionId, settings)`); the AutoSync page, Sync chat and ghosting read the chat's collection in use's (`status.registryKey`, `collectionInUse`).
@@ -326,7 +326,7 @@ The record is the pointer's `extractedWindows`, read through [`src/features/even
 | `markWindowExtracted(sourceHashes, registryKey)` | Called by `runEventBaseIngestion` after each window is successfully extracted. Adds the fingerprint to the collection's `extractedWindows`, and takes off its unfinished record the window and every failed window whose messages have all been read now; the settings save debounced. Survives page reload. |
 | `markWindowUnfinished(sourceHashes, registryKey)` | Called by `runEventBaseIngestion` for each window that failed or timed out. Adds the fingerprint to the collection's `unfinishedWindows`. See "When a window fails" below. |
 | `isWindowAlreadyExtracted(sourceHashes, registryKey)` | Per-window dedup gate inside the ingestion loop: true when the window's fingerprint is on the record, or every message in it is in a window read already, of any size, so no message is read twice (§2.7 of `vectfox-multi-collection-per-chat.md`). Set lookups: each `extractedWindows` array's fingerprints and message hashes are built into Sets once and kept for that array, so a record whose array is replaced (an import) is read again. |
-| `isLastWindowExtracted(messages, windowSize, step, registryKey, hashFn)` | Quick-exit gate at the top of `runEventBaseIngestion`. If the last possible window for the current message count is already on the record, ingestion no-ops immediately without building the window list. This is the cheapest possible "is there anything new?" check. It says nothing about earlier windows, because a run carries on past a failed one. |
+| `isLastWindowExtracted(messages, windowSize, step, registryKey, hashFn, firstWindowStart?)` | Quick-exit gate at the top of `runEventBaseIngestion`. If the last possible window for the current message count is already on the record, ingestion no-ops immediately without building the window list. This is the cheapest possible "is there anything new?" check. It says nothing about earlier windows, because a run carries on past a failed one. Windows count from `firstWindowStart`: auto-sync's from its start marker (`autoSyncFirstWindowStart`), every other run's from 0. |
 
 User scenario the cache makes safe:
 
@@ -350,7 +350,7 @@ A fatal error (bad key, bad model) stops the run with no re-send, but its window
 
 1. **When.** `createWindowReplacement` in `eventbase-store.js` removes them after each batch is stored. At the end of the run, StoryArc links that went to them point at the window's first new event.
 2. **What it reads.** The collection, once per run, and only when a window can hold earlier events: one before the tip, any window when no tip is known, or any run that extracts more than one window. A run that extracts only the window after the newest, as an ordinary turn does, reads nothing more.
-3. **Which window is the same.** Every run numbers its windows from the chat's first message. A run from a later message (`startFromMessage` in `runEventBaseIngestion`) keeps that numbering and starts at the window that holds the message, so a window has the same first and last message in every run, and the tip and StoryArc's message numbers count from the chat's start.
+3. **Which window is the same.** A run numbers its windows from the chat's first message, and auto-sync from its start marker (`autoSyncFirstWindowStart`), so one of its windows starts at the marker whatever window size stamped it. A run from a later message (`startFromMessage` in `runEventBaseIngestion`) keeps the chat's numbering and starts at the window that holds the message. So a window has the same first and last message in every run that numbers it the same way, and the tip and StoryArc's message numbers count from the chat's start. An auto-sync window counted from a marker that is not a multiple of its size has another first and last message than a Vectorize run's window of that size, as a window at another size has (below).
 4. **What stays.** A window whose new reading found no events keeps its earlier ones. A window at another size has another first and last message: one whose messages were all read is not read at all, and one holding messages read and unread leaves the read messages' events at both sizes. An event of other messages stored under the window's number stays when it shares no message with the new extraction, as a message deleted or added earlier in the chat can leave them. That check is loose: a message repeated word for word has the same hash wherever it sits.
 
 **Test coverage**: see TEST 014 in `tests/Eventbase-test.spec.js`, `tests/eventbase-progress.test.js` for the pointer itself, `tests/eventbase-window-resend.test.js` for failed windows, `tests/eventbase-window-replacement.test.js` for windows extracted again, and `tests/eventbase-start-from-message.test.js` for a run from a later message. The full storage shape (the record's array + an in-memory Set) and the rationale for *why* it has two tiers is in [Doc/dev_helper.md §4](dev_helper.md).
@@ -359,18 +359,22 @@ A fatal error (bad key, bad model) stops the run with no re-send, but its window
 
 The window record above skips a window of any size once every message in it was read. A window that holds messages read and unread is read whole: after `[0-1]` was read at `windowSize=2`, auto-sync's `[0-3]` at `windowSize=4` would read messages 0 and 1 again with 2 and 3.
 
-The **auto-sync start marker** is the second gate that catches this case. It's a message-index threshold per collection, the pointer's `autoSyncStartMarker`, that says "auto-sync should only process windows whose `start >= marker`." Three functions in [`src/features/eventbase/eventbase-store.js`](../src/features/eventbase/eventbase-store.js):
+The **auto-sync start marker** is the second gate that catches this case. It is the first message auto-sync reads, per collection, the pointer's `autoSyncStartMarker`: auto-sync's windows start at it and every step after it, and auto-sync reads none that starts before it. So whatever window size stamped the marker, auto-sync reads no message before it again and skips none after it. Five functions in [`src/features/eventbase/eventbase-store.js`](../src/features/eventbase/eventbase-store.js):
 
 | Function | Role |
 |---|---|
-| `stampAutoSyncMarker(registryKey, settings, options?)` | Called from the auto-sync switch's handler when the user turns auto-sync on, with the chat's collection in use (and re-called when the auto-sync window setting changes). Smart placement: if the collection has existing events → `marker = max(source_window_end) + 1`; if empty → `marker = current chat length`. Pass `{ floor: 'chatLength' }` to force from-now-on placement regardless of coverage (the enable-time "Just keep up from here" choice). Writes the collection's `autoSyncStartMarker`. |
+| `stampAutoSyncMarker(registryKey, settings, options?)` | Called from the auto-sync switch's handler when the user turns auto-sync on, with the chat's collection in use (and re-called when the auto-sync window setting changes, as turning Summarizer Injection on does). Smart placement: if the collection has existing events → `marker = max(source_window_end) + 1`; if empty → the chat's length. Pass `{ floor: 'chatLength' }` to force from-now-on placement regardless of coverage (the enable-time "Just keep up from here" choice). The chat's length counts its messages with text, as a run does. Writes the collection's `autoSyncStartMarker`. |
 | `getAutoSyncMarker(registryKey)` | Read by `runEventBaseIngestion` to gate the window list. Returns `undefined` when no marker is stamped (manual runs and pre-auto-sync chats). |
+| `autoSyncFirstWindowStart(registryKey, step)` | Where auto-sync's windows start counting: the marker's place among windows of the step (`marker % step`), or 0 with no marker. The run's window list and quick-exit, and the AutoSync page's status (`isChatFullyVectorized`), count from it, so one window starts at the marker. |
 | `clearAutoSyncMarker(registryKey)` | Called when auto-sync is disabled so re-enabling later re-computes a fresh marker against the current chat state. |
-| `capAutoSyncMarker(registryKey, messageCount, windowStep)` | Called by `runEventBaseIngestion` at the start of an auto-sync run, before its quick-exit. When the chat got shorter than the marker (messages deleted, or a summary replacing some), it moves the marker to the start of the auto-sync window holding the chat's end and stores it, so auto-sync reads the chat's new messages instead of nothing until the chat grows past the old marker. |
+| `capAutoSyncMarker(registryKey, messages, { windowSize, step, hashFn })` | Called by `runEventBaseIngestion` at the start of an auto-sync run, before its quick-exit. When the chat got shorter than the marker (messages deleted, or a summary replacing some), it moves the marker back to the chat's unread end and stores it: after the last message the window record holds, among the chat's last `windowSize + step - 1` messages, the most auto-sync leaves unread while it keeps up (the turn it holds back and a window not yet full). So auto-sync reads the turn it held back with the chat's new messages, instead of nothing until the chat grows past the old marker, and reads no message again. |
 
-The filter is at [`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js):
+The windows and the filter are in [`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js):
 
 ```js
+const firstWindowStart = isAutoSync ? autoSyncFirstWindowStart(registryKey, step) : 0;
+for (let start = firstWindowStart; start < commitBoundary; start += step) { /* full windows only */ }
+// …
 if (isAutoSync) {
     const marker = getAutoSyncMarker(registryKey);
     if (typeof marker === 'number') {
@@ -379,7 +383,9 @@ if (isAutoSync) {
 }
 ```
 
-**Why `>=` and not `>`:** `stampAutoSyncMarker` uses `max(source_window_end) + 1`, so the next legitimate window starts *exactly at* the marker. Using `>` would skip the first new window after the boundary — an extraction gap. Boundary inclusion is asserted by TEST 015 Phase 4.
+**Why `>=` and not `>`:** a window starts *exactly at* the marker, so `>` would skip it — an extraction gap. Boundary inclusion is asserted by TEST 015 Phase 4.
+
+**Why the windows start at the marker:** counted from the chat's first message, a marker that is not a multiple of auto-sync's window size falls inside a window that starts before it, which the filter drops, so the messages between the marker and the next window would never be read. `max(source_window_end) + 1` from windows of another size and the chat's length at Keep up from here each land there.
 
 ### Enable-time backlog catch-up (confirm, then run)
 
@@ -391,19 +397,19 @@ Auto-sync **catches up the whole gap** (tip → now) on its next trigger — it 
    - *Keep up from here* → `stampAutoSyncMarker(status.registryKey, settings, { floor: 'chatLength' })` skips the backlog.
 3. Below threshold → enable silently (a small gap catches up on the next trigger).
 
-The catch-up backfill runs at the collection's window size (`getCollectionWindowSize`) while auto-sync runs at `getAutoSyncWindowSize` — **safe** because the marker/tip gate is index-based: catch-up advances the tip, the marker is stamped there, and auto-sync only processes windows *above* it at its own size. No fingerprint collision, no duplicate coverage. Floor-override behavior is asserted by TEST 016 Phase 5.
+The catch-up backfill runs at the collection's window size (`getCollectionWindowSize`) while auto-sync runs at `getAutoSyncWindowSize` — **safe** because the marker/tip gate is index-based: catch-up advances the tip, the marker is stamped there, and auto-sync only processes windows from it on at its own size. No fingerprint collision, no duplicate coverage. Floor-override behavior is asserted by TEST 016 Phase 5.
 
 **Why the manual path ignores the marker:** the filter only applies when `isAutoSync === true`. Vectorize Content's Catch up fills historical gaps on purpose, such as one left by Keep up from here, and the window record keeps it from reading a window whose messages were all read; the marker is an auto-sync-only safety, not a global "don't re-process" gate.
 
 User scenario the marker makes safe:
 
 1. User vectorizes chat at `windowSize=2`, message count=2 → window `[0-1]` extracted, event has `source_window_end=1`.
-2. User replies twice → chat now has 6 messages.
+2. User replies → chat now has 10 messages.
 3. User opens settings, changes `windowSize` to 4, then enables Auto-Sync.
 4. `stampAutoSyncMarker` reads the collection: `max(source_window_end)=1` → marker stamped as `2`.
-5. Next auto-sync trigger: `runEventBaseIngestion` builds windows at `windowSize=4` → `[0-3]` and `[4-7]`.
-6. Marker filter: `[0-3]` (start=0 < 2) excluded; `[4-7]` (start=4 ≥ 2) kept. Only legitimate new content gets extracted.
-7. Without the marker, `[0-3]` would be read, as messages 2 and 3 in it were never read, and messages 0 and 1 a second time with them.
+5. Next auto-sync trigger: `runEventBaseIngestion` builds windows at `windowSize=4` from message 2 (`2 % 4`) → `[2-5]`; `[6-9]` waits for the next turn (the settle/commit lag below).
+6. Marker filter: `[2-5]` (start=2 ≥ 2) kept. Messages 2 to 5 are read, and messages 0 and 1 are not read again.
+7. Without the marker, the windows would start at message 0 and `[0-3]` would be read, messages 0 and 1 a second time. Counted from message 0 with the marker, the filter would drop `[0-3]` and messages 2 and 3 would never be read.
 
 ### Third safety layer — the settle/commit lag (re-roll protection)
 
@@ -431,7 +437,7 @@ Because un-kept swipes only ever live on the active turn (which is past the boun
 | Layer | Helper | Catches | When |
 |---|---|---|---|
 | 1 | `isLastWindowExtracted` / `isWindowAlreadyExtracted` (window record) | Reading a window again, or one of any size whose messages were all read | Always |
-| 2 | `getAutoSyncMarker` + `windows.filter(w => w.start >= marker)` | Reading a window that starts before where auto-sync was turned on, which may hold messages read at another size | Auto-sync runs |
+| 2 | `getAutoSyncMarker` + `autoSyncFirstWindowStart` + `windows.filter(w => w.start >= marker)` | Reading a window that starts before where auto-sync was turned on, which may hold messages read at another size, and skipping the messages after the marker | Auto-sync runs |
 | 3 | `getCommitBoundary` (settle/commit lag) | Embedding throwaway re-rolls/swipes of the active turn | Always, on auto-sync runs (default ON) |
 
 **Test coverage:** TEST 015 in `tests/Eventbase-test.spec.js` is a pure-function exercise of the marker contract — a fresh collection returns `undefined`, stamp/read round-trips through the canonical getter, the `>= marker` filter excludes obsolete pre-marker windows and keeps post-marker windows, the boundary `start === marker` is included, and `clearAutoSyncMarker` removes the entry cleanly. The settle-lag is covered by `tests/eventbase-settle-lag.test.js` (pure boundary math, runs in CI) and TEST 023 in the spec (swipe-on-active-turn never extracts; the kept turn extracts once superseded).
@@ -544,7 +550,7 @@ Match logic: asks **`collectionInUse(settings, { chatUUID, chatId })`**, the rou
 
 **`vectorizationTip`** is the tip from "Vectorization tip cache" above. The status prefers it over `markerValue` for its "vectorized: N messages" count, because the start marker (the pointer's `autoSyncStartMarker`) is stamped once at enable time and never moves.
 
-**`vectorization-ahead` state** covers the collection's vectorization tip being past the current chat's message count: its events were read on a longer chat. Usual causes: messages were deleted after vectorizing, a summarizer replaced some with a summary, or the user bound a vectorization extracted from a longer copy of the chat. The tip then counts nothing in this chat, so nothing trusts it: the ingestion fast-forward checks each window against the window record instead of recording every window below the tip as read, ghosting blanks nothing until the chat passes the tip, and Sync chat asks to read what the record does not hold, with no count. Auto-sync goes on with the chat's new messages, as its run first moves a marker past the chat's end back to it (`capAutoSyncMarker`). The page says what happened, so a vectorization bound by mistake still shows. A summary that leaves the tip inside the chat, or that the chat grows back over before the next auto-sync run, is not caught: only reading each summary as its originals is (H4 of InternalProject/Vectfox/plans/vectfox-public-api.md).
+**`vectorization-ahead` state** covers the collection's vectorization tip being past the current chat's message count: its events were read on a longer chat. Usual causes: messages were deleted after vectorizing, a summarizer replaced some with a summary, or the user bound a vectorization extracted from a longer copy of the chat. The tip then counts nothing in this chat, so nothing trusts it: the ingestion fast-forward checks each window against the window record instead of recording every window below the tip as read, ghosting blanks nothing until the chat passes the tip, and Sync chat asks to read what the record does not hold, with no count. Auto-sync goes on with the chat's new messages, as its run first moves a marker past the chat's end back to the chat's unread end (`capAutoSyncMarker`), so the turn it held back is read with them. The page says what happened, so a vectorization bound by mistake still shows. A summary that leaves the tip inside the chat, or that the chat grows back over before the next auto-sync run, is not caught: only reading each summary as its originals is (H4 of InternalProject/Vectfox/plans/vectfox-public-api.md).
 
 **`refreshAutoSyncCheckbox(settings)`** fires on:
 - AutoSync tab click

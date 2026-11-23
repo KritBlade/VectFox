@@ -1,7 +1,8 @@
 /**
  * A chat shorter than what EventBase read, as after messages are deleted or a summarizer replaces some with a summary:
- * auto-sync moves its start marker back to the chat's end and reads the new messages, and a run checks each window
- * against the window record instead of recording every window below the stale tip as read.
+ * auto-sync moves its start marker back to the chat's unread end and reads the turn it held back with the new
+ * messages, and a run checks each window against the window record instead of recording every window below the stale
+ * tip as read.
  *
  * Drives the real runEventBaseIngestion with the real window record, tip and marker; only ST, the LLM extractor and
  * the vector backend are stubbed. The stub backend keeps its points in `state.points`.
@@ -100,7 +101,8 @@ vi.mock('../../../../textgen-settings.js', () => ({}));
 vi.mock('../../../../utils.js', () => ({}));
 
 const { runEventBaseIngestion } = await import('../src/features/eventbase/eventbase-workflow.js');
-const { capAutoSyncMarker, clearWindowCache, getAutoSyncMarker, getVectorizationTip, stampAutoSyncMarker, writeEventBaseProgress } = await import('../src/features/eventbase/eventbase-store.js');
+const { capAutoSyncMarker, clearWindowCache, getAutoSyncMarker, getVectorizationTip, stampAutoSyncMarker, windowFingerprint, writeEventBaseProgress } = await import('../src/features/eventbase/eventbase-store.js');
+const { hashSourceMessage } = await import('../src/features/eventbase/eventbase-message-hash.js');
 const { extractEvents } = await import('../src/features/eventbase/eventbase-extractor.js');
 
 // Vectorize Content reads windows of 2; auto-sync reads windows of 2 too (one turn) and holds back the latest turn.
@@ -138,7 +140,7 @@ beforeEach(() => {
 });
 
 describe('auto-sync on a chat shorter than its start marker', () => {
-    it('moves the marker back to the chat\'s end and reads the messages that come after it', async () => {
+    it('moves the marker back to the chat\'s unread end and reads the messages that come after it', async () => {
         const chatUUID = newChatUUID();
         await vectorize(story(0, 9), chatUUID);
         expect(await stampAutoSyncMarker(collectionKeyOf(chatUUID), SETTINGS)).toBe(10);
@@ -155,18 +157,47 @@ describe('auto-sync on a chat shorter than its start marker', () => {
         expect(extractEvents.mock.calls[0][0].messages.map(message => message.mes)).toEqual(['message 10', 'message 11']);
     });
 
-    it('moves the marker to the start of the window that holds the chat\'s end, and leaves one inside the chat as it is', () => {
+    it('reads the turn auto-sync held back before the chat got shorter', async () => {
+        const chatUUID = newChatUUID();
+        // Windows up to [10-11] read; with 14 messages, auto-sync holds back the latest turn, messages 12 and 13.
+        await vectorize(story(0, 11), chatUUID);
+        expect(await stampAutoSyncMarker(collectionKeyOf(chatUUID), SETTINGS)).toBe(12);
+        extractEvents.mockClear();
+
+        // A summary replaces messages 0 to 6: 8 messages, fewer than the marker's 12, ending with the turn held back.
+        const summaryOfSeven = { name: 'Summary', is_user: false, mes: 'Summary of messages 0 to 6.' };
+        await autoSync([summaryOfSeven, ...story(7, 13)], chatUUID);
+        expect(getAutoSyncMarker(collectionKeyOf(chatUUID))).toBe(6);
+        expect(windowsSent()).toEqual([]);
+
+        // Once the next turn settles it, the turn held back is read, at 6 and 7.
+        await autoSync([summaryOfSeven, ...story(7, 15)], chatUUID);
+        expect(windowsSent()).toEqual([6]);
+        expect(extractEvents.mock.calls[0][0].messages.map(message => message.mes)).toEqual(['message 12', 'message 13']);
+    });
+
+    it('moves the marker back to the chat\'s unread end, and leaves one inside the chat as it is', () => {
         const registryKey = collectionKeyOf(newChatUUID());
-        expect(capAutoSyncMarker(registryKey, 7, 2)).toBeUndefined();
+        const autoSyncWindow = { windowSize: 2, step: 2, hashFn: hashSourceMessage };
+        // Windows [0-1] to [8-9] read.
+        writeEventBaseProgress(registryKey, { extractedWindows: [0, 2, 4, 6, 8].map(start => windowFingerprint(story(start, start + 1).map(hashSourceMessage))) });
+        const shorterChat = [SUMMARY, ...story(5, 10)];
+        expect(capAutoSyncMarker(registryKey, shorterChat, autoSyncWindow)).toBeUndefined();
         writeEventBaseProgress(registryKey, { autoSyncStartMarker: 4 });
-        expect(capAutoSyncMarker(registryKey, 7, 2)).toBe(4);
+        expect(capAutoSyncMarker(registryKey, shorterChat, autoSyncWindow)).toBe(4);
         writeEventBaseProgress(registryKey, { autoSyncStartMarker: 7 });
-        expect(capAutoSyncMarker(registryKey, 7, 2)).toBe(7);
+        expect(capAutoSyncMarker(registryKey, shorterChat, autoSyncWindow)).toBe(7);
+        // Past the end: to 6, where message 10 sits, the one after the last message read.
         writeEventBaseProgress(registryKey, { autoSyncStartMarker: 12 });
-        expect(capAutoSyncMarker(registryKey, 7, 2)).toBe(6);
+        expect(capAutoSyncMarker(registryKey, shorterChat, autoSyncWindow)).toBe(6);
         expect(getAutoSyncMarker(registryKey)).toBe(6);
+        // Its latest messages deleted, every message left was read: to the chat's end, so none is read again.
         writeEventBaseProgress(registryKey, { autoSyncStartMarker: 12 });
-        expect(capAutoSyncMarker(registryKey, 9, 3)).toBe(9);
+        expect(capAutoSyncMarker(registryKey, story(0, 6), autoSyncWindow)).toBe(7);
+        // An end never read, as Keep up from here leaves it: back no further than auto-sync leaves unread while it
+        // keeps up, the turn it holds back and a window not yet full.
+        writeEventBaseProgress(registryKey, { autoSyncStartMarker: 30 });
+        expect(capAutoSyncMarker(registryKey, story(0, 20), autoSyncWindow)).toBe(18);
     });
 });
 

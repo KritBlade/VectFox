@@ -2021,19 +2021,19 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 //   read again, duplicating their events.
 //
 //   The AUTO-SYNC START MARKER prevents this. When the user enables
-//   auto-sync, `stampAutoSyncMarker` records a message-index threshold in
-//   the collection's pointer (`eventbaseProgress.autoSyncStartMarker`).
-//   On every auto-sync run, `runEventBaseIngestion` filters its window
-//   list with `windows.filter(w => w.start >= marker)` — only windows that
-//   START at or after the marker get processed. Windows from the
-//   pre-marker era (which were already covered by the prior, smaller-window
-//   extractions) get filtered OUT safely.
+//   auto-sync, `stampAutoSyncMarker` records the first message auto-sync
+//   reads in the collection's pointer (`eventbaseProgress.autoSyncStartMarker`).
+//   On every auto-sync run, `runEventBaseIngestion` builds its windows from
+//   the marker's place among windows of its size (`autoSyncFirstWindowStart`),
+//   so one starts exactly at the marker, and filters them with
+//   `windows.filter(w => w.start >= marker)`. No window holding messages read
+//   before the marker is read, and no message after it is skipped.
 //
 //   Smart-placement logic in stampAutoSyncMarker:
 //     - Collection non-empty: marker = max(source_window_end) + 1
 //       (backfill the gap between last-covered message and chat tail at
 //       the new window size)
-//     - Collection empty: marker = chatLength
+//     - Collection empty: marker = the chat's length, its messages with text
 //       (auto-sync starts "from now on" — no full re-extraction of a long
 //       pre-existing chat that was never vectorized)
 //
@@ -2041,16 +2041,17 @@ test('TEST 014 — Auto-sync backfill: fingerprint cache prevents duplicate wind
 //   two-layer safety story:
 //     Layer 1 (TEST 014) — the window record: no window, and no window of
 //                          any size whose messages were all read, read twice
-//     Layer 2 (TEST 015) — start marker: auto-sync reads no window that
-//                          starts before it, as one may hold messages read
+//     Layer 2 (TEST 015) — start marker: auto-sync's windows start at it, and
+//                          it reads none that starts before it, as one may
+//                          hold messages read
 //
 // What this test proves:
 //   - getAutoSyncMarker returns undefined for an un-stamped collection.
 //   - The marker round-trips through the collection's record correctly.
-//   - The window-filter pattern `w.start >= marker` excludes obsolete
-//     pre-marker windows and keeps post-marker windows. This is the EXACT
-//     filter used inside runEventBaseIngestion at its auto-sync marker
-//     block (eventbase-workflow.js).
+//   - Windows counted from autoSyncFirstWindowStart, as runEventBaseIngestion
+//     counts auto-sync's, start at the marker, and the filter
+//     `w.start >= marker` keeps them. This is the EXACT filter used inside
+//     runEventBaseIngestion at its auto-sync marker block (eventbase-workflow.js).
 //   - clearAutoSyncMarker removes the entry cleanly so the next enable
 //     stamps a fresh value for the current chat state.
 //
@@ -2066,6 +2067,7 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
             getAutoSyncMarker,
             clearAutoSyncMarker,
             writeEventBaseProgress,
+            autoSyncFirstWindowStart,
         } = await import(base + 'src/features/eventbase/eventbase-store.js');
         const { deleteCollectionMeta } = await import(base + 'src/features/collections/collection-metadata.js');
 
@@ -2099,36 +2101,30 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
             }
             console.log(`${TEST} Phase 2 ✓ marker=${stampedValue} stamped and read back via canonical getter`);
 
-            // ═══ Phase 3 — simulate runEventBaseIngestion's window filter ═══
-            // Now the chat has grown to 8 messages. New windowSize=4 produces:
-            //   [0-3] (start=0) — OLD content, was covered by the prior
-            //                     windowSize=2 extraction at messages 0,1.
-            //                     If re-processed here it would re-extract
-            //                     messages 0,1 → duplicate events.
-            //   [4-7] (start=4) — entirely NEW content past the marker
+            // ═══ Phase 3 — the windows runEventBaseIngestion builds, then its filter ═══
+            // Now the chat has grown to 10 messages. Auto-sync's windows at the new
+            // windowSize=4 count from the marker's place among windows of that size
+            // (2 % 4 = 2): [2-5] and [6-9]. Counted from message 0 instead, [0-3]
+            // would hold messages 0,1 (read) and 2,3 (unread): the filter would drop
+            // it, and messages 2,3 would never be read.
             //
-            // The marker filter `w.start >= 2` should:
-            //   - Exclude [0-3] (start=0 < 2) — prevents wrong re-processing
-            //   - Keep [4-7] (start=4 >= 2) — legitimate new content backfill
-            //
-            // This is the EXACT logic at eventbase-workflow.js ~line 170-180.
-            console.log(`${TEST} Phase 3: simulating ingestion window filter for chat at 8 messages, windowSize=4`);
-            const windowsAtNewSize = [
-                { start: 0, end: 3, msgs: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }] },
-                { start: 4, end: 7, msgs: [{ id: 4 }, { id: 5 }, { id: 6 }, { id: 7 }] },
-            ];
+            // The marker filter `w.start >= 2` keeps both, the first starting exactly
+            // at the marker. This is the EXACT logic in runEventBaseIngestion.
+            console.log(`${TEST} Phase 3: building auto-sync's windows for a chat of 10 messages at windowSize=4`);
             const marker = getAutoSyncMarker(testKey);
+            const windowSize = 4;
+            const windowsAtNewSize = [];
+            for (let start = autoSyncFirstWindowStart(testKey, windowSize); start + windowSize <= 10; start += windowSize) {
+                windowsAtNewSize.push({ start, end: start + windowSize - 1 });
+            }
             const filtered = windowsAtNewSize.filter(w => w.start >= marker);
+            const spans = windows => JSON.stringify(windows.map(w => `[${w.start}-${w.end}]`));
 
-            if (filtered.length !== 1) {
-                console.error(`${TEST} [FAIL] Phase 3: expected 1 window after marker filter, got ${filtered.length}: ${JSON.stringify(filtered.map(w => `[${w.start}-${w.end}]`))}`);
+            if (spans(filtered) !== JSON.stringify(['[2-5]', '[6-9]']) || filtered.length !== windowsAtNewSize.length) {
+                console.error(`${TEST} [FAIL] Phase 3: expected windows [2-5] and [6-9], all kept by the filter; built ${spans(windowsAtNewSize)}, kept ${spans(filtered)}`);
                 return;
             }
-            if (filtered[0].start !== 4) {
-                console.error(`${TEST} [FAIL] Phase 3: surviving window has start=${filtered[0].start}, expected 4`);
-                return;
-            }
-            console.log(`${TEST} Phase 3 ✓ marker filter excluded obsolete [0-3], kept legitimate [4-7]`);
+            console.log(`${TEST} Phase 3 ✓ auto-sync's windows start at the marker: [2-5] and [6-9], messages 0 and 1 not read again, messages 2 and 3 read`);
 
             // ═══ Phase 4 — boundary check: start === marker should be KEPT ═══
             // The filter uses `>=` not `>`. This matters because
@@ -2164,7 +2160,7 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
             }
             console.log(`${TEST} Phase 5 ✓ marker cleared, fresh re-enable would re-compute`);
 
-            console.log(`${TEST} [PASS] Auto-sync start marker correctly gates the window filter — windowSize-change protection holds: obsolete pre-marker windows excluded, post-marker windows pass through, boundary at start === marker included`);
+            console.log(`${TEST} [PASS] Auto-sync start marker correctly gates the window filter — windowSize-change protection holds: auto-sync's windows start at the marker, the filter keeps them, boundary at start === marker included`);
         } finally {
             try {
                 clearAutoSyncMarker(testKey);
@@ -2212,7 +2208,8 @@ test('TEST 015 — Auto-sync window-size change: start marker filters obsolete w
 //    1. Branch A — empty registry key returns 0 sentinel, no write.
 //    2. Branch B — a key naming a collection the backend does not have.
 //       Its listChunks returns nothing or throws, caught, so the marker
-//       equals getContext().chat.length, and persists.
+//       equals the chat's length, its messages with text as a run counts
+//       them, and persists.
 //    3. Branch C — synthetic vf_eventbase_<…> registered, no chunks on disk.
 //       The marker falls back to chatLength the same way.
 //    4. Re-stamp idempotency — second call overwrites the persisted value.
@@ -2235,6 +2232,8 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
 
         const ctx = window.SillyTavern?.getContext?.() ?? window.getContext?.() ?? {};
         const settings = extension_settings?.vectfox || {};
+        // The chat's length as a run counts it, its messages with text, which the stamp uses.
+        const chatLengthOf = () => (ctx?.chat ?? []).filter(message => message.mes && message.mes.trim().length > 0).length;
         const backend = (settings.vector_backend || 'standard').toLowerCase();
         const registryBackend = backend === 'standard' ? 'vectra' : backend;
 
@@ -2264,7 +2263,7 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
 
             // ═══ Phase 2 — Branch B: a collection the backend lacks → marker = chatLength ═══
             console.log(`${TEST} Phase 2: Branch B — a collection the backend does not have → marker should equal chat length`);
-            const chatLengthB = ctx?.chat?.length ?? 0;
+            const chatLengthB = chatLengthOf();
             const markerB = await stampAutoSyncMarker(keyBranchB, settings);
             if (markerB !== chatLengthB) {
                 console.error(`${TEST} [FAIL] Phase 2: marker=${markerB}, expected chatLength=${chatLengthB}`);
@@ -2281,7 +2280,7 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             console.log(`${TEST} Phase 3: Branch C — registering synthetic ${syntheticRegistryKey} with no events → marker should fall back to chat length`);
             registerCollection(syntheticRegistryKey);
 
-            const chatLengthC = ctx?.chat?.length ?? 0;
+            const chatLengthC = chatLengthOf();
             const markerC = await stampAutoSyncMarker(syntheticRegistryKey, settings);
             if (markerC !== chatLengthC) {
                 console.error(`${TEST} [FAIL] Phase 3: marker=${markerC}, expected chatLength=${chatLengthC} (the candidate holds no source_window_end, so the marker should have fallen back). Branch C fallback may be broken.`);
@@ -2317,7 +2316,7 @@ test('TEST 016 — stampAutoSyncMarker smart placement (production-function smok
             // Used by the auto-sync enable "Just keep up from here" choice. Must stamp
             // chat length directly (skipping the coverage scan) regardless of state.
             console.log(`${TEST} Phase 5: stampAutoSyncMarker(..., { floor: 'chatLength' }) stamps chat length directly`);
-            const chatLenNow = ctx?.chat?.length ?? 0;
+            const chatLenNow = chatLengthOf();
             writeEventBaseProgress(keyBranchB, { autoSyncStartMarker: -777 });
             const floored = await stampAutoSyncMarker(keyBranchB, settings, { floor: 'chatLength' });
             if (floored !== chatLenNow) {

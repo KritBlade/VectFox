@@ -34,7 +34,7 @@ import { readErrorBody } from '../../shared/server-error-text.js';
 //   vectorizationTip     — one past the last message any extracted window covers
 //   extractedWindows     — the fingerprints of the windows read, so no message is read twice
 //   unfinishedWindows    — the fingerprints of the windows that failed, sent again
-//   autoSyncStartMarker  — the message auto-sync started from
+//   autoSyncStartMarker  — the first message auto-sync reads; its windows start there
 //   windowSize           — the window size Vectorize read it with, which Catch up reads with too: set at
 //                          the chat's first read, by New collection and by Start over
 // Every function below that takes a registryKey reads or writes that collection's
@@ -520,12 +520,14 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
 // The window record below skips a window only once every message in it was
 // read, in windows of any size (isWindowAlreadyExtracted), so a window of
 // auto-sync's size that holds messages read before at another size would read
-// them again. The marker is an additional gate stamped at "everything before
-// this message index is considered covered; auto-sync should only process
-// windows whose start >= marker." Stamped on auto-sync enable and re-stamped
-// whenever the auto-sync window size setting changes (Phase 2 — see §9.8 of
-// the linked plan). An auto-sync run moves it back to the chat's end when the
-// chat got shorter than it (capAutoSyncMarker).
+// them again. The marker is the first message auto-sync reads: its windows
+// start at the marker and every step after it (autoSyncFirstWindowStart), and
+// it reads none that starts before it, so whatever window size stamped the
+// marker, auto-sync reads no message twice and skips none after it. Stamped on
+// auto-sync enable and re-stamped whenever the auto-sync window size setting
+// changes (Phase 2 — see §9.8 of the linked plan). An auto-sync run moves it
+// back to the chat's unread end when the chat got shorter than it
+// (capAutoSyncMarker).
 
 /**
  * A collection's auto-sync start marker.
@@ -546,23 +548,42 @@ export function clearAutoSyncMarker(registryKey) {
 }
 
 /**
- * Move a collection's auto-sync start marker back to the chat's end when the chat got shorter than it, as it does
- * when messages are deleted or a summarizer replaces some with a summary. Past the end, the marker would keep
- * auto-sync from reading anything until the chat grew past it again, the new messages before it included. It moves to
- * the start of the window on auto-sync's grid that holds the chat's end, so no new message falls before it.
+ * Move a collection's auto-sync start marker back when the chat got shorter than it, as it does when messages are
+ * deleted or a summarizer replaces some with a summary. Past the end, the marker would keep auto-sync from reading
+ * anything until the chat grew past it again, the new messages before it included. It moves to the chat's unread end:
+ * the messages after the last one the window record holds, among the last that auto-sync leaves unread while it keeps
+ * up (the turn it holds back and a window not yet full). So the turn held back before the chat got shorter is read
+ * with the new messages, and no message read before is read again.
  * @param {string} registryKey - The collection's registry key ("backend:id")
- * @param {number} messageCount - The messages auto-sync reads in the chat
- * @param {number} windowStep - How far apart auto-sync's windows start, from the chat's first message
+ * @param {object[]} messages - The messages auto-sync reads in the chat
+ * @param {{windowSize: number, step: number, hashFn: (message: object) => number}} autoSyncWindow - Auto-sync's window
+ *   size, how far apart its windows start, and the hash a window's fingerprint holds for each message
  * @returns {number|undefined} The marker after the move, or undefined if none is stamped
  */
-export function capAutoSyncMarker(registryKey, messageCount, windowStep) {
+export function capAutoSyncMarker(registryKey, messages, { windowSize, step, hashFn }) {
     const marker = getAutoSyncMarker(registryKey);
+    const messageCount = messages.length;
     if (typeof marker !== 'number' || marker <= messageCount) return marker;
-    const step = Math.max(1, windowStep);
-    const movedMarker = Math.floor(messageCount / step) * step;
+    const readHashes = readMessageHashSetOf(readEventBaseProgress(registryKey).extractedWindows ?? []);
+    const earliestUnreadEnd = Math.max(0, messageCount - (windowSize + step - 1));
+    let movedMarker = messageCount;
+    while (movedMarker > earliestUnreadEnd && !readHashes.has(String(hashFn(messages[movedMarker - 1])))) movedMarker--;
     writeEventBaseProgress(registryKey, { autoSyncStartMarker: movedMarker });
     log.lifecycle(`[EventBase] AutoSyncMarker ${marker} is past the chat's ${messageCount} messages: moved to ${movedMarker}`);
     return movedMarker;
+}
+
+/**
+ * Where auto-sync's windows start counting: the start marker's place among windows of the step, so one window starts
+ * exactly at the marker whatever window size stamped it, or the chat's first message while none is stamped.
+ * @param {string} registryKey - The collection's registry key ("backend:id")
+ * @param {number} step - How far apart auto-sync's windows start
+ * @returns {number} The message auto-sync's first window starts at, below step
+ */
+export function autoSyncFirstWindowStart(registryKey, step) {
+    const marker = getAutoSyncMarker(registryKey);
+    if (typeof marker !== 'number' || marker <= 0) return 0;
+    return marker % Math.max(1, step);
 }
 
 /**
@@ -574,13 +595,17 @@ export function capAutoSyncMarker(registryKey, messageCount, windowStep) {
  *   - If the collection has events → marker = max(source_window_end) + 1
  *     (backfill the gap between last-covered message and current chat tail
  *     at the user's new window size).
- *   - If the collection is empty → marker = current chat length
+ *   - If the collection is empty → marker = the chat's length
  *     (auto-sync starts "from now on" — no full backfill of a long pre-existing
  *     chat that was never vectorized).
  *
  * Floor override: pass `{ floor: 'chatLength' }` to force "from now on" placement
  * regardless of existing coverage — used by the auto-sync enable flow's "Just keep
  * up from here" choice, where the user explicitly declines backfilling the gap.
+ *
+ * The chat's length counts its messages as a run does, those with text, the positions its windows and stored events
+ * use. Auto-sync's windows start at the marker (autoSyncFirstWindowStart), so the window holding the next message
+ * starts with it.
  *
  * @param {string} registryKey - The collection's registry key ("backend:id")
  * @param {object} settings
@@ -589,7 +614,7 @@ export function capAutoSyncMarker(registryKey, messageCount, windowStep) {
  */
 export async function stampAutoSyncMarker(registryKey, settings, options = {}) {
     if (!registryKey) return 0;
-    const chatLength = getContext()?.chat?.length ?? 0;
+    const chatLength = (getContext()?.chat ?? []).filter(message => message.mes && message.mes.trim().length > 0).length;
 
     // Explicit "from now on" — skip the coverage scan entirely.
     if (options.floor === 'chatLength') {
@@ -900,15 +925,18 @@ export function clearCachesForDeletedOrImportedCollection(collectionId) {
  * @param {number}   step       - windowSize - windowOverlap
  * @param {string}   registryKey - The collection's registry key ("backend:id")
  * @param {Function} hashFn     - (message) => number hash for that message
+ * @param {number}   [firstWindowStart] - The message the first window starts at: auto-sync's from its start marker
+ *   (autoSyncFirstWindowStart), 0 for every other run
  * @returns {boolean}
  */
-export function isLastWindowExtracted(messages, windowSize, step, registryKey, hashFn) {
-    if (!registryKey || messages.length < windowSize) return false;
+export function isLastWindowExtracted(messages, windowSize, step, registryKey, hashFn, firstWindowStart = 0) {
+    const messagesInWindows = messages.length - firstWindowStart;
+    if (!registryKey || messagesInWindows < windowSize) return false;
 
-    const totalPossible = Math.floor((messages.length - windowSize) / step) + 1;
+    const totalPossible = Math.floor((messagesInWindows - windowSize) / step) + 1;
     if (totalPossible <= 0) return false;
 
-    const lastStart = (totalPossible - 1) * step;
+    const lastStart = firstWindowStart + (totalPossible - 1) * step;
     const lastMsgs = messages.slice(lastStart, lastStart + windowSize);
     if (lastMsgs.length < windowSize) return false;
 

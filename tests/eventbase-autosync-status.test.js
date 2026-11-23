@@ -39,7 +39,7 @@ vi.mock('../src/features/eventbase/generation-rate-limiter.js', () => ({ generat
 vi.mock('../src/features/eventbase/eventbase-store.js', () => ({
     insertEvents: vi.fn(), isWindowAlreadyExtracted: vi.fn(), markWindowExtracted: vi.fn(), getUnfinishedWindowFingerprints: vi.fn(() => new Set()),
     clearExtractionCaches: vi.fn(), isLastWindowExtracted: vi.fn(() => false),
-    readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(),
+    readEventBaseProgress: vi.fn(() => ({})), getAutoSyncMarker: vi.fn(), autoSyncFirstWindowStart: vi.fn(() => 0),
     getVectorizationTip: mocks.getVectorizationTip, setVectorizationTip: vi.fn(),
     ensureVectorizationTip: mocks.ensureVectorizationTip, shouldUseTipFallback: vi.fn(),
 }));
@@ -145,5 +145,15 @@ describe('getChatAutoSyncStatus — the collection it reports on', () => {
     it('is the open chat\'s collection in use, from the one route', async () => {
         await getChatAutoSyncStatus({});
         expect(mocks.collectionInUse).toHaveBeenCalledWith({}, { chatUUID: 'uuid-1', chatId: 'chat-1' });
+    });
+});
+
+describe('getChatAutoSyncStatus — the windows it counts', () => {
+    it('counts auto-sync\'s windows from its start marker, as an auto-sync run does', async () => {
+        const { autoSyncFirstWindowStart, isLastWindowExtracted } = await import('../src/features/eventbase/eventbase-store.js');
+        autoSyncFirstWindowStart.mockReturnValueOnce(1);
+        await getChatAutoSyncStatus({});
+        expect(autoSyncFirstWindowStart).toHaveBeenCalledWith('qdrant:vf_eventbase_c1', 2);
+        expect(isLastWindowExtracted).toHaveBeenCalledWith(expect.any(Array), 2, 2, 'qdrant:vf_eventbase_c1', expect.any(Function), 1);
     });
 });

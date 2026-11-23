@@ -23,7 +23,7 @@ import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, capAutoSyncMarker } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, capAutoSyncMarker, autoSyncFirstWindowStart } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { collectionInUse, noCollectionInUseText, resolveEventBaseRunTarget, sharedCollectionsLockedHere, useChatCollection } from './eventbase-chat-collections.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
@@ -274,9 +274,12 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     }
 
     // A chat that got shorter than its auto-sync marker, as after messages are deleted or a summarizer replaces some
-    // with a summary, has the marker moved back to its end before the quick-exit below can end the run, so auto-sync
-    // reads its new messages again.
-    if (isAutoSync) capAutoSyncMarker(registryKey, messages.length, step);
+    // with a summary, has the marker moved back to its unread end before the quick-exit below can end the run, so
+    // auto-sync reads its new messages again.
+    if (isAutoSync) capAutoSyncMarker(registryKey, messages, { windowSize, step, hashFn: hashSourceMessage });
+    // Auto-sync's windows start at its start marker and every step after it, so one starts exactly at the marker
+    // whatever window size stamped it; every other run's start at the chat's first message.
+    const firstWindowStart = isAutoSync ? autoSyncFirstWindowStart(registryKey, step) : 0;
 
     // Build list of windows — skip tail windows that haven't accumulated a full
     // windowSize of messages yet. This prevents the same partial tail from being
@@ -301,20 +304,20 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
 
     const unfinishedFingerprints = getUnfinishedWindowFingerprints(registryKey, windowSize);
     const shouldSendUnfinishedWindows = !isAutoSync && unfinishedFingerprints.size > 0;
-    if (!shouldSendUnfinishedWindows && isLastWindowExtracted(committedMessages, windowSize, step, registryKey, hashSourceMessage)) {
+    if (!shouldSendUnfinishedWindows && isLastWindowExtracted(committedMessages, windowSize, step, registryKey, hashSourceMessage, firstWindowStart)) {
         log.lifecycle(`[EventBase] Quick-exit: last committed window already extracted, nothing new`);
         return { eventsExtracted: 0, windowsProcessed: 0, windowsSkipped: 0 };
     }
 
     let windows = [];
-    for (let start = 0; start < commitBoundary; start += step) {
+    for (let start = firstWindowStart; start < commitBoundary; start += step) {
         const end = Math.min(start + windowSize - 1, commitBoundary - 1);
         const msgs = messages.slice(start, end + 1);
         if (msgs.length < windowSize) break; // tail is incomplete — wait for more messages
         windows.push({ start, end, msgs });
     }
     // The messages after the last full window wait for the next one; the run's verdict names them.
-    const messagesWaitingForWindow = commitBoundary - (windows.length > 0 ? windows[windows.length - 1].end + 1 : 0);
+    const messagesWaitingForWindow = Math.max(0, commitBoundary - (windows.length > 0 ? windows[windows.length - 1].end + 1 : firstWindowStart));
 
     if (shouldSendUnfinishedWindows) {
         const chatFingerprints = new Set(windows.map(win => windowFingerprint(win.msgs.map(hashSourceMessage))));
@@ -327,10 +330,10 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     // that message stay on record.
     if (startFromMessage > 1) windows = windows.filter(win => win.end >= startFromMessage - 1);
 
-    // AutoSync start-marker gate. The marker says "everything before this
-    // message index is considered covered by some prior extraction; auto-sync
-    // should only process windows whose start >= marker." The window record
-    // skips a window only once every message in it was read
+    // AutoSync start-marker gate. The marker is the first message auto-sync
+    // reads: its windows were built to start at the marker and every step after
+    // it (firstWindowStart), and this keeps the ones from the marker on. The
+    // window record skips a window only once every message in it was read
     // (isWindowAlreadyExtracted), so without the marker a window of auto-sync's
     // size holding messages read before it was turned on, at another size,
     // would read them again.
@@ -342,13 +345,13 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     //
     // ⚠️ Regression coverage: TEST 014 (fingerprint cache, same window size) +
     // TEST 015 (this marker filter, window-size-change protection) in
-    // tests/Eventbase-test.spec.js together cover the two-layer auto-sync
+    // tests/Eventbase-test.spec.js, with tests/eventbase-autosync-marker.test.js
+    // for the windows built from the marker, cover the two-layer auto-sync
     // safety story. Doc/collection_helper.md → "Auto-sync" explains the
     // contract. Any change here — guard, operator (>= vs >), or filter shape
-    // — must be reviewed against both tests and the doc. The boundary `>=`
-    // is load-bearing: stampAutoSyncMarker uses max(source_window_end)+1,
-    // so the next legitimate window starts exactly AT marker. `>` would
-    // skip the first new window (extraction gap).
+    // — must be reviewed against those tests and the doc. The boundary `>=`
+    // is load-bearing: a window starts exactly AT the marker, so `>` would
+    // skip it (extraction gap).
     if (isAutoSync) {
         const marker = getAutoSyncMarker(registryKey);
         if (typeof marker === 'number') {
@@ -1318,14 +1321,18 @@ function _estimateProcessedLegacyChunks({ coveredMessages, totalMessages, totalC
  * extracted into the collection and no window is on its unfinished record. Uses the same
  * hash + window parameters as the main ingestion loop so the result is authoritative.
  *
- * Returns false when messages.length < windowSize (nothing extractable yet).
+ * Returns false when the messages hold no complete window (nothing extractable yet).
  *
  * @param {object[]} messages  - Filtered chat messages (non-empty)
  * @param {object}   settings  - VectFox settings
  * @param {string}   registryKey - The registry key ("backend:id") of the chat's collection
+ * @param {number}   [windowSizeOverride]
+ * @param {number}   [windowOverlapOverride]
+ * @param {number}   [firstWindowStart] - The message the first window starts at: auto-sync's from its start marker
+ *   (autoSyncFirstWindowStart), as its runs build them
  * @returns {boolean}
  */
-export function isChatFullyVectorized(messages, settings, registryKey, windowSizeOverride = undefined, windowOverlapOverride = undefined) {
+export function isChatFullyVectorized(messages, settings, registryKey, windowSizeOverride = undefined, windowOverlapOverride = undefined, firstWindowStart = 0) {
     const windowSize = windowSizeOverride != null
         ? Math.max(2, windowSizeOverride)
         : Math.max(2, settings.eventbase_window_size || 6);
@@ -1334,7 +1341,7 @@ export function isChatFullyVectorized(messages, settings, registryKey, windowSiz
         : Math.max(0, Math.min(windowSize - 1, settings.eventbase_window_overlap ?? 0));
     const step = windowSize - windowOverlap;
     return getUnfinishedWindowFingerprints(registryKey, windowSize).size === 0
-        && isLastWindowExtracted(messages, windowSize, step, registryKey, hashSourceMessage);
+        && isLastWindowExtracted(messages, windowSize, step, registryKey, hashSourceMessage, firstWindowStart);
 }
 
 /**
@@ -1412,7 +1419,9 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
     // both modes stay consistent. See InternalProject/Vectfox/plans/executed/autosync-settle-lag.md.
     const commitBoundary = getCommitBoundary(messages, settings);
     const committedMessages = commitBoundary < messages.length ? messages.slice(0, commitBoundary) : messages;
-    const fullyVectorized = isChatFullyVectorized(committedMessages, settings, match.registryKey, getAutoSyncWindowSize(settings), 0);
+    const autoSyncWindowSize = getAutoSyncWindowSize(settings);
+    const fullyVectorized = isChatFullyVectorized(committedMessages, settings, match.registryKey, autoSyncWindowSize, 0,
+        autoSyncFirstWindowStart(match.registryKey, autoSyncWindowSize));
 
     // Cache-first read; one-time probe on cold cache populates from Qdrant, and a
     // far-behind tip gets one check per page load. After first session-warmup, the
