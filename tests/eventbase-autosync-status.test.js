@@ -124,6 +124,23 @@ describe('getChatAutoSyncStatus — vectorization tip source', () => {
     });
 });
 
+describe('getChatAutoSyncStatus — a chat shorter than what EventBase read', () => {
+    it('reports vectorization-ahead when the tip is past the chat\'s end, with the counts the page shows', async () => {
+        mocks.ensureVectorizationTip.mockResolvedValue(6);
+        const status = await getChatAutoSyncStatus({});
+        expect(status).toMatchObject({ state: 'vectorization-ahead', registryKey: 'qdrant:vf_eventbase_c1', chatMessageCount: 4, vectorizationTip: 6, unfinishedWindowCount: 0 });
+    });
+
+    it('reports no shorter chat for a tip at its end, a marker past it included, as an auto-sync run moves that marker back', async () => {
+        const { getAutoSyncMarker } = await import('../src/features/eventbase/eventbase-store.js');
+        getAutoSyncMarker.mockReturnValue(9);
+        const status = await getChatAutoSyncStatus({});
+        expect(status.state).toBe('partial');
+        expect(status.markerValue).toBe(9);
+        getAutoSyncMarker.mockReset();
+    });
+});
+
 describe('getChatAutoSyncStatus — the collection it reports on', () => {
     it('is the open chat\'s collection in use, from the one route', async () => {
         await getChatAutoSyncStatus({});

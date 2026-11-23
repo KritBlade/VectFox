@@ -151,18 +151,16 @@ export function autoSyncCollectionMarkup(collections, inUseKey = null) {
  * @param {number|null} [status.chatMessageCount]
  * @param {number|null} [status.vectorizedCount] - Messages vectorization covers
  * @param {boolean} [status.isLatestTurnSettling] - Up to date but for the newest turn, held back until it settles
- * @param {number} [status.markerValue] - Where the auto-sync marker sits, read while vectorization is ahead of the chat
  * @param {number} [status.unfinishedWindowCount] - Windows that failed and hold no events
  * @param {string} [status.noneInUseText] - With collections and none in use: why EventBase reads and writes nothing here
  * @returns {string}
  */
-export function autoSyncStatusMarkup({ state, isVectFoxOn, isOnForChat = false, chatMessageCount = null, vectorizedCount = null, isLatestTurnSettling = false, markerValue = 0, unfinishedWindowCount = 0, noneInUseText = '' }) {
+export function autoSyncStatusMarkup({ state, isVectFoxOn, isOnForChat = false, chatMessageCount = null, vectorizedCount = null, isLatestTurnSettling = false, unfinishedWindowCount = 0, noneInUseText = '' }) {
     if (isVectFoxOn && isOnForChat && state === 'vectorization-ahead') {
-        const gap = markerValue - chatMessageCount;
         return resultList({ lines: [
-            { status: 'warning', text: 'Vectorization reaches past this chat\'s end, so there is nothing to sync.' },
-            { name: `Chat: ${chatMessageCount} messages · vectorized: ${markerValue} messages (${gap} ahead)` },
-            { name: `Messages may have been deleted, or the events came from a longer copy of this chat. Auto-sync resumes once the chat reaches ${markerValue} messages.` },
+            { status: 'warning', text: 'This chat is shorter than what EventBase read.' },
+            { name: `Chat: ${chatMessageCount} messages · read: ${vectorizedCount} messages` },
+            { name: `Messages were deleted, a summary replaced some, or the events came from a longer copy of this chat. Auto-sync goes on with the chat's new messages, and ghosting blanks nothing until the chat passes ${vectorizedCount} messages. Sync chat on the Action page reads what EventBase has not read.` },
         ] });
     }
     const line = stateLine({ state, isVectFoxOn, isOnForChat, unfinishedWindowCount, noneInUseText });

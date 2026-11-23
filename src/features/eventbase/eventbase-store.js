@@ -524,7 +524,8 @@ export function createWindowReplacement({ collectionId, settings, tipAtRunStart 
 // this message index is considered covered; auto-sync should only process
 // windows whose start >= marker." Stamped on auto-sync enable and re-stamped
 // whenever the auto-sync window size setting changes (Phase 2 — see §9.8 of
-// the linked plan).
+// the linked plan). An auto-sync run moves it back to the chat's end when the
+// chat got shorter than it (capAutoSyncMarker).
 
 /**
  * A collection's auto-sync start marker.
@@ -542,6 +543,26 @@ export function getAutoSyncMarker(registryKey) {
  */
 export function clearAutoSyncMarker(registryKey) {
     writeEventBaseProgress(registryKey, { autoSyncStartMarker: undefined });
+}
+
+/**
+ * Move a collection's auto-sync start marker back to the chat's end when the chat got shorter than it, as it does
+ * when messages are deleted or a summarizer replaces some with a summary. Past the end, the marker would keep
+ * auto-sync from reading anything until the chat grew past it again, the new messages before it included. It moves to
+ * the start of the window on auto-sync's grid that holds the chat's end, so no new message falls before it.
+ * @param {string} registryKey - The collection's registry key ("backend:id")
+ * @param {number} messageCount - The messages auto-sync reads in the chat
+ * @param {number} windowStep - How far apart auto-sync's windows start, from the chat's first message
+ * @returns {number|undefined} The marker after the move, or undefined if none is stamped
+ */
+export function capAutoSyncMarker(registryKey, messageCount, windowStep) {
+    const marker = getAutoSyncMarker(registryKey);
+    if (typeof marker !== 'number' || marker <= messageCount) return marker;
+    const step = Math.max(1, windowStep);
+    const movedMarker = Math.floor(messageCount / step) * step;
+    writeEventBaseProgress(registryKey, { autoSyncStartMarker: movedMarker });
+    log.lifecycle(`[EventBase] AutoSyncMarker ${marker} is past the chat's ${messageCount} messages: moved to ${movedMarker}`);
+    return movedMarker;
 }
 
 /**
@@ -641,25 +662,25 @@ export function setCollectionWindowSize(registryKey, windowSize) {
  *
  * The fallback fires ONLY when ALL of:
  *   - Caller did NOT explicitly opt out (skipTipFallback === false)
- *   - The local cache gave zero skips (fastForwardSkipped === 0)
  *   - A collection exists to probe (hasCollection === true)
- *   - No window of this chat is on the unfinished record (hasUnfinishedWindows === false)
+ *   - The window record holds no window of the collection, read or unfinished (hasWindowRecord === false)
  *
- * The tip is the furthest window stored, so falling back to it would mark every
- * window before it extracted, unfinished ones included. A record also proves the
- * local cache is alive, so zero skips means the first window is the unfinished one.
+ * The tip is the furthest window stored, so falling back to it marks every window
+ * before it extracted. That is right only when the record was lost, as an import
+ * without its pointer leaves it. A record that holds windows proves the local cache
+ * is alive, so a window it lacks is unread: a summary or an edit changed the first
+ * window, or the window failed, and each window is checked against the record instead.
  *
- * The workflow and the UI popups that request fresh extraction share this
- * rule, so a change to the condition is made here only.
+ * Only the workflow asks it; the dialogs that request a fresh extraction opt out
+ * through skipTipFallback (prepareForFreshExtraction).
  *
- * @param {{ skipTipFallback: boolean, fastForwardSkipped: number, hasCollection: boolean, hasUnfinishedWindows?: boolean }} state
+ * @param {{ skipTipFallback: boolean, hasCollection: boolean, hasWindowRecord: boolean }} state
  * @returns {boolean}
  */
-export function shouldUseTipFallback({ skipTipFallback, fastForwardSkipped, hasCollection, hasUnfinishedWindows = false }) {
+export function shouldUseTipFallback({ skipTipFallback, hasCollection, hasWindowRecord }) {
     if (skipTipFallback) return false;
-    if (fastForwardSkipped > 0) return false;
     if (!hasCollection) return false;
-    if (hasUnfinishedWindows) return false;
+    if (hasWindowRecord) return false;
     return true;
 }
 

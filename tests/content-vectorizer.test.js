@@ -663,17 +663,21 @@ describe('Sync chat', () => {
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
     });
 
-    it('says why it does nothing: a toast with no chat open, a dialog for an EventBase read further than the chat goes', async () => {
-        for (const [state, reason] of [['no-chat', 'no-chat'], ['vectorization-ahead', 'ahead']]) {
-            host.syncStatus = { state, chatMessageCount: 10 };
-            expect(await syncOpenChat(), state).toEqual({ ran: false, reason });
-        }
-        expect(toastr.info).toHaveBeenCalledTimes(1);
+    it('says in a toast why it does nothing with no chat open', async () => {
+        host.syncStatus = { state: 'no-chat' };
+        expect(await syncOpenChat()).toEqual({ ran: false, reason: 'no-chat' });
         expect(toastr.info).toHaveBeenCalledWith('Open a chat to sync it.', 'VectFox');
-        expect(noticePopup).toHaveBeenCalledTimes(1);
-        expect(noticePopup.mock.calls[0][0][0]).toEqual({ icon: 'fa-circle-info', text: 'Nothing to sync.' });
         expect(confirmPopup).not.toHaveBeenCalled();
         expect(runEventBaseOnOpenChat).not.toHaveBeenCalled();
+    });
+
+    it('asks with no count for a chat shorter than what EventBase read, as its tip counts nothing there, and reads on Sync', async () => {
+        // The tip, 14, says every message of the 10 was read, and the chat's would-be up-to-date verdict with it.
+        host.syncStatus = { state: 'vectorization-ahead', chatMessageCount: 10, vectorizationTip: 14, unfinishedWindowCount: 0 };
+        expect(await syncOpenChat()).toEqual({ ran: true });
+        expect(confirmPopup.mock.calls[0][0][0]).toEqual({ icon: 'fa-rotate', text: 'This chat is shorter than what EventBase read, so the messages it has not read cannot be counted.' });
+        expect(runEventBaseOnOpenChat.mock.calls[0][2]).toMatchObject({ startFromMessage: 1, skipTipFallback: false });
+        expect(noticePopup).not.toHaveBeenCalled();
     });
 });
 

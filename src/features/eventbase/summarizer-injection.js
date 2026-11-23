@@ -175,7 +175,8 @@ function blankPromptClone(m) {
  * error occurred while counting tokens"). So we wipe EVERY message in the span — including
  * empty and tool/system ones — and skip only null slots.
  *
- * Gated to Summarizer Injection (forces auto-sync window=1 → the tip stays current).
+ * Gated to Summarizer Injection (forces auto-sync window=1 → the tip stays current). A tip past the chat's end, as
+ * after messages are deleted or a summary replaces some, wipes nothing.
  *
  * World Info safety: ST scans WI from this same chat array AFTER us, so the wipe is floored
  * to keep WI's full scan window raw (see worldInfoScanFloor) — keyword triggers keep firing
@@ -200,8 +201,15 @@ export function applyGhosting(chat, settings, inUse = null) {
     const { collection } = inUse ?? collectionInUse(settings);
     const ownCollection = collection && !collection.isPaused ? collection : null;
     const tip = ownCollection ? getVectorizationTip(ownCollection.registryKey) : undefined;
+    const fullChat = getContext()?.chat;
+    // A tip past the chat's end was read on a longer chat (messages deleted, or a summary replacing some), so it
+    // cannot say which messages here are in memory: nothing is blanked until the chat passes it again.
+    const isTipPastChatEnd = typeof tip === 'number' && Array.isArray(fullChat) && tip > fullChat.length;
+    if (isTipPastChatEnd) {
+        log.domain('injection', 'verbose', `[Ghost] Blanking nothing: the tip (${tip}) is past the chat's ${fullChat.length} messages`);
+    }
 
-    if (Array.isArray(chat) && chat.length > 0 && typeof tip === 'number' && tip > 0) {
+    if (!isTipPastChatEnd && Array.isArray(chat) && chat.length > 0 && typeof tip === 'number' && tip > 0) {
         // INDEX-SPACE FIX: `tip` indexes the full chat (incl. is_system messages), but the
         // interceptor hands us coreChat — ST filters is_system OUT before calling us. Using
         // `tip` directly as a coreChat cutoff over-reaches whenever system/narrator messages
@@ -211,7 +219,6 @@ export function applyGhosting(chat, settings, inUse = null) {
         // than risk a not-yet-vectorized message. Falls back to raw `tip` if the live chat is
         // unavailable (the keepFloor below still caps the reach).
         let vectorizedInCore = tip;
-        const fullChat = getContext()?.chat;
         if (Array.isArray(fullChat)) {
             vectorizedInCore = 0;
             const end = Math.min(tip, fullChat.length);

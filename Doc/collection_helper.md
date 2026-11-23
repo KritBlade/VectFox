@@ -366,6 +366,7 @@ The **auto-sync start marker** is the second gate that catches this case. It's a
 | `stampAutoSyncMarker(registryKey, settings, options?)` | Called from the auto-sync switch's handler when the user turns auto-sync on, with the chat's collection in use (and re-called when the auto-sync window setting changes). Smart placement: if the collection has existing events → `marker = max(source_window_end) + 1`; if empty → `marker = current chat length`. Pass `{ floor: 'chatLength' }` to force from-now-on placement regardless of coverage (the enable-time "Just keep up from here" choice). Writes the collection's `autoSyncStartMarker`. |
 | `getAutoSyncMarker(registryKey)` | Read by `runEventBaseIngestion` to gate the window list. Returns `undefined` when no marker is stamped (manual runs and pre-auto-sync chats). |
 | `clearAutoSyncMarker(registryKey)` | Called when auto-sync is disabled so re-enabling later re-computes a fresh marker against the current chat state. |
+| `capAutoSyncMarker(registryKey, messageCount, windowStep)` | Called by `runEventBaseIngestion` at the start of an auto-sync run, before its quick-exit. When the chat got shorter than the marker (messages deleted, or a summary replacing some), it moves the marker to the start of the auto-sync window holding the chat's end and stores it, so auto-sync reads the chat's new messages instead of nothing until the chat grows past the old marker. |
 
 The filter is at [`src/features/eventbase/eventbase-workflow.js`](../src/features/eventbase/eventbase-workflow.js):
 
@@ -446,7 +447,7 @@ A saved tip can also be older than its collection, because SillyTavern saves the
 | `getVectorizationTip(registryKey)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Sync; returns the in-memory tip, else the pointer's (warming the cache), else `undefined`. UI falls back to `markerValue` when undefined. |
 | `setVectorizationTip(registryKey, tip)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Sync, monotonic max in memory and in the pointer — out-of-order calls won't regress. Called by `runEventBaseIngestion` after every successful window via `setVectorizationTip(registryKey, win.end + 1)`. |
 | `clearVectorizationTip(registryKey)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Clears the in-memory tip and the pointer's. `clearExtractionCaches` calls it with the window record. |
-| `ensureVectorizationTip(registryKey, settings, syncProgress?)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Async. Returns the known tip at once (in memory or in the pointer), unless `syncProgress` (`{ commitBoundary, windowSize }`) shows it far behind, which checks it as above. With no known tip it probes the collection's events on the current backend once, caches the result in memory only, and returns it. Returns `null` when the collection has no events. Called by `getChatAutoSyncStatus`, which passes `syncProgress`, and by the ingestion fast-forward, which does not. |
+| `ensureVectorizationTip(registryKey, settings, syncProgress?)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Async. Returns the known tip at once (in memory or in the pointer), unless `syncProgress` (`{ commitBoundary, windowSize }`) shows it far behind, which checks it as above. With no known tip it probes the collection's events on the current backend once, caches the result in memory only, and returns it. Returns `null` when the collection has no events. Called by `getChatAutoSyncStatus`, which passes `syncProgress`, and by the ingestion fast-forward, which does not, and skips a tip past the chat's end (`vectorization-ahead` below). |
 | `countWindowsBehind(commitBoundary, tip, windowSize)` | [eventbase-store.js](../src/features/eventbase/eventbase-store.js) | Whole Auto-sync windows between a tip and the sync boundary, for the enable flow and the far-behind check. |
 
 ### The window size a collection keeps (§2.7 of `vectfox-multi-collection-per-chat.md`)
@@ -532,7 +533,7 @@ State evaluator: **`async getChatAutoSyncStatus(settings, { shouldProbeBackend =
 { state: 'no-chat' }
 { state: 'no-collection' }
 { state: 'none-locked', collections }
-{ state: 'vectorization-ahead', collectionId, registryKey, chatMessageCount, markerValue }
+{ state: 'vectorization-ahead', collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount, markerValue?, vectorizationTip }
 { state: 'partial',          collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount, markerValue?, vectorizationTip? }
 { state: 'fully-vectorized', collectionId, registryKey, chatMessageCount, commitBoundary, unfinishedWindowCount: 0, markerValue?, vectorizationTip? }
 ```
@@ -543,7 +544,7 @@ Match logic: asks **`collectionInUse(settings, { chatUUID, chatId })`**, the rou
 
 **`vectorizationTip`** is the tip from "Vectorization tip cache" above. The status prefers it over `markerValue` for its "vectorized: N messages" count, because the start marker (the pointer's `autoSyncStartMarker`) is stamped once at enable time and never moves.
 
-**`vectorization-ahead` state** covers the collection's auto-sync marker (the pointer's `autoSyncStartMarker`) being past the current chat's message count. Usual cause: the user bound a chat vectorization extracted from a longer version of the same chat (or deleted messages after vectorizing). The marker filter inside `runEventBaseIngestion` then rejects every window — extraction waits until the chat reaches the marker — and the UI says so instead of reporting a sync that never happens. **No auto-correction on purpose**: no marker clamp / re-stamp / clear. The chat-shrinkage case is rare and user-induced; auto-correcting silently would hide a likely user error (binding the wrong vectorization). UI clarity beats silent recovery.
+**`vectorization-ahead` state** covers the collection's vectorization tip being past the current chat's message count: its events were read on a longer chat. Usual causes: messages were deleted after vectorizing, a summarizer replaced some with a summary, or the user bound a vectorization extracted from a longer copy of the chat. The tip then counts nothing in this chat, so nothing trusts it: the ingestion fast-forward checks each window against the window record instead of recording every window below the tip as read, ghosting blanks nothing until the chat passes the tip, and Sync chat asks to read what the record does not hold, with no count. Auto-sync goes on with the chat's new messages, as its run first moves a marker past the chat's end back to it (`capAutoSyncMarker`). The page says what happened, so a vectorization bound by mistake still shows. A summary that leaves the tip inside the chat, or that the chat grows back over before the next auto-sync run, is not caught: only reading each summary as its originals is (H4 of InternalProject/Vectfox/plans/vectfox-public-api.md).
 
 **`refreshAutoSyncCheckbox(settings)`** fires on:
 - AutoSync tab click
@@ -566,7 +567,7 @@ Resolution table. `autoSyncStatusMarkup` in [autosync-page-markup.js](../src/fea
 | `none-locked` | — | none of the chat's in use | off | warning | The route's words (`noneInUseText`), as "No collection is in use in this chat, so EventBase reads and writes nothing here. Choose one above." |
 | has-collection, master switch off | any | any | on iff flag + lock | plain | "Paused while VectFox is off." + counts |
 | has-collection | false OR no lock | — | off | plain | "Off for this chat." + counts |
-| `vectorization-ahead` | true | locked | on | warning | "Vectorization reaches past this chat's end, so there is nothing to sync." + the counts with the gap + what to check |
+| `vectorization-ahead` | true | locked | on | warning | "This chat is shorter than what EventBase read." + the counts + what happened, and what auto-sync, ghosting and Sync chat do now |
 | `partial`, failed windows on the record | true | locked | on | warning | "N windows failed and hold no events. Resume in Vectorize Content sends them again." + counts |
 | `partial` | true | locked | on | warning | "Behind. The next auto-sync catches up." + counts |
 | `fully-vectorized` | true | locked | on | success | "Up to date." + counts |

@@ -160,11 +160,11 @@ describe('autoSyncStatusMarkup', () => {
         expect(linesOf({ ...live, state: 'partial' })[0]).toEqual({ tone: 'warning', text: 'Behind. The next auto-sync catches up.' });
     });
 
-    it('explains vectorization that reaches past the chat, with the gap', () => {
-        expect(linesOf({ ...live, state: 'vectorization-ahead', markerValue: 52 })).toEqual([
-            { tone: 'warning', text: 'Vectorization reaches past this chat\'s end, so there is nothing to sync.' },
-            { tone: 'plain', text: 'Chat: 40 messages · vectorized: 52 messages (12 ahead)' },
-            { tone: 'plain', text: 'Messages may have been deleted, or the events came from a longer copy of this chat. Auto-sync resumes once the chat reaches 52 messages.' },
+    it('says a chat is shorter than what EventBase read, and what auto-sync, ghosting and Sync chat do then', () => {
+        expect(linesOf({ ...live, state: 'vectorization-ahead', vectorizedCount: 52 })).toEqual([
+            { tone: 'warning', text: 'This chat is shorter than what EventBase read.' },
+            { tone: 'plain', text: 'Chat: 40 messages · read: 52 messages' },
+            { tone: 'plain', text: 'Messages were deleted, a summary replaced some, or the events came from a longer copy of this chat. Auto-sync goes on with the chat\'s new messages, and ghosting blanks nothing until the chat passes 52 messages. Sync chat on the Action page reads what EventBase has not read.' },
         ]);
     });
 

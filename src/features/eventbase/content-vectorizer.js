@@ -709,26 +709,24 @@ export async function syncOpenChat() {
         openContentVectorizer();
         return { ran: false, reason: 'no-collection' };
     }
-    if (status.state === 'vectorization-ahead') {
-        await noticePopup([
-            { icon: 'fa-circle-info', text: 'Nothing to sync.' },
-            { text: 'EventBase has read this chat further than it now goes, as after you delete messages. It reads again once the chat gets past that point.' },
-        ]);
-        return { ran: false, reason: 'ahead' };
-    }
+    // A tip past the chat's end was read on a longer chat (messages deleted, or a summary replacing some), so it counts
+    // nothing here: Sync asks to read what the window record does not hold.
+    const isTipPastChatEnd = status.state === 'vectorization-ahead';
     const messageCount = status.chatMessageCount ?? 0;
     const readCount = status.vectorizationTip ?? getVectorizationTip(status.registryKey) ?? null;
     const unreadMessages = Math.max(0, messageCount - (readCount ?? 0));
     const unfinishedWindows = status.unfinishedWindowCount ?? 0;
     // Up to date is the AutoSync page's verdict: the last full window read and none failed. Messages past it wait for
     // the chat to go on, and a run now would read nothing.
-    if (status.state === 'fully-vectorized' || (unreadMessages === 0 && unfinishedWindows === 0)) {
+    if (!isTipPastChatEnd && (status.state === 'fully-vectorized' || (unreadMessages === 0 && unfinishedWindows === 0))) {
         await noticePopup(syncUpToDateLines({ readCount, messageCount }));
         return { ran: false, reason: 'in-sync' };
     }
     if (!hasLlmConfig()) return { ran: false, reason: 'no-model' };
     const isConfirmed = await confirmPopup([
-        { icon: 'fa-rotate', text: 'Messages EventBase has not read:', name: String(unreadMessages) },
+        isTipPastChatEnd
+            ? { icon: 'fa-rotate', text: 'This chat is shorter than what EventBase read, so the messages it has not read cannot be counted.' }
+            : { icon: 'fa-rotate', text: 'Messages EventBase has not read:', name: String(unreadMessages) },
         ...(unfinishedWindows > 0 ? [{ text: 'Windows that failed before, read again:', name: String(unfinishedWindows) }] : []),
         { text: 'Sync reads them on the EventBase model, with a progress bar you can stop.' },
     ], { okButton: 'Sync' });

@@ -331,6 +331,18 @@ describe('applyGhosting and the collection in use', () => {
         expect(applyGhosting(chatOf(), GHOSTING, none)).toEqual({ wiped: 0, charsRemoved: 0 });
         expect(getVectorizationTip).not.toHaveBeenCalled();
     });
+
+    it('blanks nothing while the tip is past the chat\'s end, as after messages are deleted or a summary replaces some', () => {
+        // Read on a chat of 9 messages; this one has 6, so the tip cannot say which of them are in memory.
+        getVectorizationTip.mockReturnValue(9);
+        getContext.mockReturnValue({ chat: chatOf(), symbols: { ignore: null } });
+        const chat = chatOf();
+        expect(applyGhosting(chat, GHOSTING, IN_USE)).toEqual({ wiped: 0, charsRemoved: 0 });
+        expect(chat.map(message => message.mes)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+        // At the chat's end it still blanks every message below it but the one kept.
+        getVectorizationTip.mockReturnValue(6);
+        expect(applyGhosting(chatOf(), GHOSTING, IN_USE)).toEqual({ wiped: 5, charsRemoved: 5 });
+    });
 });
 
 // The reply step bounds the injection (runBoundedRetrieval): one whose read settles past its bound leaves the slot as

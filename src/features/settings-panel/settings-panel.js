@@ -307,7 +307,6 @@ export async function refreshAutoSyncCheckbox(settings) {
         chatMessageCount: typeof status.chatMessageCount === 'number' ? status.chatMessageCount : null,
         vectorizedCount,
         isLatestTurnSettling: status.state === 'fully-vectorized' && settleGap > 0,
-        markerValue: status.markerValue,
         unfinishedWindowCount: status.unfinishedWindowCount,
     }));
 }

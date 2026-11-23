@@ -23,7 +23,7 @@ import { extractEvents } from './eventbase-extractor.js';
 import { readStoryLanguage } from './story-language.js';
 import { hashSourceMessage } from './eventbase-message-hash.js';
 import { generationRateLimiter, generationRateLimitSettings } from './generation-rate-limiter.js';
-import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker } from './eventbase-store.js';
+import { insertEvents, isWindowAlreadyExtracted, markWindowExtracted, markWindowUnfinished, getUnfinishedWindowFingerprints, forgetUnfinishedWindowsNotInChat, windowFingerprint, clearExtractionCaches, isLastWindowExtracted, getVectorizationTip, setVectorizationTip, ensureVectorizationTip, shouldUseTipFallback, createWindowReplacement, readEventBaseProgress, getAutoSyncMarker, capAutoSyncMarker } from './eventbase-store.js';
 import { retrieveEventsForTurn } from './agentic-retrieval.js';
 import { collectionInUse, noCollectionInUseText, resolveEventBaseRunTarget, sharedCollectionsLockedHere, useChatCollection } from './eventbase-chat-collections.js';
 import { formatEventsForInjectionDetailed, formatStoryArcForInjection } from './eventbase-injection.js';
@@ -273,6 +273,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         }
     }
 
+    // A chat that got shorter than its auto-sync marker, as after messages are deleted or a summarizer replaces some
+    // with a summary, has the marker moved back to its end before the quick-exit below can end the run, so auto-sync
+    // reads its new messages again.
+    if (isAutoSync) capAutoSyncMarker(registryKey, messages.length, step);
+
     // Build list of windows — skip tail windows that haven't accumulated a full
     // windowSize of messages yet. This prevents the same partial tail from being
     // re-extracted (and potentially duplicating events) on every auto-sync fire.
@@ -395,19 +400,18 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
         if (!isDone) break;
         fastForwardSkipped++;
     }
-    // Tip-based fallback: if the fingerprint cache gave 0 skips (cache empty/stale)
-    // and a collection exists, probe Qdrant for the highest source_window_end stored
-    // and use that as a fast-forward boundary. Handles the case where the local
-    // fingerprint cache was lost (page reload after re-importing an exported Qdrant
-    // collection).
+    // Tip-based fallback: when the window record holds nothing for a collection that
+    // exists, probe Qdrant for the highest source_window_end stored and use that as a
+    // fast-forward boundary. Handles the case where the local record was lost (a page
+    // reload after re-importing an exported Qdrant collection without its pointer).
     //
-    // The decision rule lives in shouldUseTipFallback() in eventbase-store.js,
-    // shared with the UI popups — do not inline the condition here.
+    // The decision rule lives in shouldUseTipFallback() in eventbase-store.js — do
+    // not inline the condition here.
     const useTipFallback = shouldUseTipFallback({
         skipTipFallback,
-        fastForwardSkipped,
         hasCollection: !!collectionId,
-        hasUnfinishedWindows: getUnfinishedWindowFingerprints(registryKey, windowSize).size > 0,
+        hasWindowRecord: (readEventBaseProgress(registryKey).extractedWindows?.length ?? 0) > 0
+            || getUnfinishedWindowFingerprints(registryKey, windowSize).size > 0,
     });
     if (!useTipFallback && skipTipFallback) {
         log.lifecycle('[EventBase] shouldUseTipFallback=false — caller explicitly opted out (skipTipFallback=true)');
@@ -415,7 +419,11 @@ export async function runEventBaseIngestion({ messages, chatUUID, settings, abor
     if (useTipFallback) {
         try {
             const tip = await ensureVectorizationTip(registryKey, settings);
-            if (typeof tip === 'number' && tip > 0) {
+            if (typeof tip === 'number' && tip > messages.length) {
+                // Read on a longer chat (messages deleted, or a summary replacing some): which windows it covers here
+                // is unknown, so each window is checked against the window record instead of recorded as read.
+                log.lifecycle(`[EventBase] Tip-based fast-forward skipped: the tip (${tip}) is past the chat's ${messages.length} messages`);
+            } else if (typeof tip === 'number' && tip > 0) {
                 let i = 0;
                 while (i < windows.length && windows[i].end < tip) {
                     const win = windows[i];
@@ -1346,11 +1354,13 @@ export function isChatFullyVectorized(messages, settings, registryKey, windowSiz
  *                                                                       and none in use (collectionInUse), so nothing reads
  *                                                                       or writes its events; noneInUseText says why
  *   { state: 'vectorization-ahead', collectionId, registryKey,
- *     chatMessageCount, markerValue }                                  — collection exists, but its auto-sync marker
- *                                                                       is past the current chat tail (user bound a
- *                                                                       collection vectorized on a longer chat, or
- *                                                                       deleted messages after vectorizing). NOTHING
- *                                                                       should sync — we wait for chat to catch up.
+ *     chatMessageCount, commitBoundary, unfinishedWindowCount,
+ *     markerValue?, vectorizationTip }                                  — collection exists, but its tip is past the
+ *                                                                       chat's end: messages were deleted, a summary
+ *                                                                       replaced some, or the events came from a longer
+ *                                                                       copy of the chat. Auto-sync goes on with new
+ *                                                                       messages; ghosting blanks nothing until the chat
+ *                                                                       passes the tip
  *   { state: 'partial',          collectionId, registryKey,
  *     chatMessageCount, commitBoundary, unfinishedWindowCount,
  *     markerValue?, vectorizationTip? }                                — collection exists, last window not extracted or
@@ -1387,26 +1397,8 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
         : [];
     const chatMessageCount = messages.length;
 
-    // Read the auto-sync marker (the collection's message-index threshold). When this
-    // is past the chat tail, the marker filter in runEventBaseIngestion will
-    // reject every window — extraction is effectively frozen until the chat
-    // catches up. Surface that as a distinct UI state so the user understands
-    // why "auto-sync enabled" produces no work (they probably bound a chat
-    // vectorization that ran on a longer version of this chat).
-    //
-    // The marker may be undefined when auto-sync was never enabled — in that
-    // case we don't have enough info to detect the ahead-of-chat condition,
-    // so fall through to the existing partial / fully-vectorized branch.
+    // The auto-sync marker (the collection's message-index threshold): the count the page shows while no tip is known.
     const markerValue = getAutoSyncMarker(match.registryKey);
-    if (typeof markerValue === 'number' && markerValue > chatMessageCount) {
-        return {
-            state: 'vectorization-ahead',
-            collectionId: match.collectionId,
-            registryKey: match.registryKey,
-            chatMessageCount,
-            markerValue,
-        };
-    }
 
     // Evaluate auto-sync "fully vectorized" against the AUTO-SYNC window (turns*2,
     // overlap 0), not the one-off Vectorize Content window — otherwise the status
@@ -1431,8 +1423,14 @@ export async function getChatAutoSyncStatus(settings, { shouldProbeBackend = tru
         ? await ensureVectorizationTip(match.registryKey, settings, { commitBoundary, windowSize: getAutoSyncWindowSize(settings) })
         : getVectorizationTip(match.registryKey);
 
+    // A tip past the chat's end was read on a longer chat: messages were deleted, a summary replaced some, or the
+    // events came from a longer copy of this chat. The page says so, as it cannot count what is read here.
+    const isTipPastChatEnd = typeof vectorizationTip === 'number' && vectorizationTip > chatMessageCount;
+    let state = fullyVectorized ? 'fully-vectorized' : 'partial';
+    if (isTipPastChatEnd) state = 'vectorization-ahead';
+
     return {
-        state: fullyVectorized ? 'fully-vectorized' : 'partial',
+        state,
         collectionId: match.collectionId,
         registryKey: match.registryKey,
         chatMessageCount,
