@@ -10,7 +10,9 @@
  * none in use, or the one in use paused, nothing is read (D18). An injection
  * whose read settles past the reply step's bound injects nothing. The depth
  * refresh must not load lorebooks while VectFox is disabled, and must warn
- * instead of failing silently.
+ * instead of failing silently. Ghosting blanks up to the tip of the collection in
+ * use, and at a batch size above 1 moves its boundary only in whole batches, so
+ * the prompt's opening stays the same between moves.
  *
  * summarizer-injection.js's imports are mocked (same pattern as backend-manager.test.js),
  * except feature-gate.js and constants.js, which stay real.
@@ -51,7 +53,7 @@ vi.mock('../../../../textgen-settings.js', () => ({}));
 
 import { applyGhosting, runSummarizerInjection, buildSummarizerInjection, refreshWorldInfoEntryDepthCache } from '../src/features/eventbase/summarizer-injection.js';
 import { runBoundedRetrieval } from '../src/features/vector-backend/index.js';
-import { getSortedEntries } from '../../../../world-info.js';
+import { getSortedEntries, getWorldInfoSettings } from '../../../../world-info.js';
 import { getContext } from '../../../../extensions.js';
 import { getVectorizationTip } from '../src/features/eventbase/eventbase-store.js';
 import { log } from '../src/sillytavern/log.js';
@@ -342,6 +344,82 @@ describe('applyGhosting and the collection in use', () => {
         // At the chat's end it still blanks every message below it but the one kept.
         getVectorizationTip.mockReturnValue(6);
         expect(applyGhosting(chatOf(), GHOSTING, IN_USE)).toEqual({ wiped: 5, charsRemoved: 5 });
+    });
+});
+
+describe('applyGhosting in batches', () => {
+    const messagesOf = count => Array.from({ length: count }, (_, i) => ({ mes: `m${i}`, is_user: i % 2 === 0 }));
+    const ghosting = batchSize => ({ eventbase_ghost_enabled: true, summarizer_injection_enabled: true, eventbase_ghost_keep_recent: 10, eventbase_ghost_batch_size: batchSize });
+    // Ghosts a prompt copy of a chat of `count` messages whose first `tip` are in memory, and returns its texts.
+    const ghost = (count, tip, settings) => {
+        getContext.mockReturnValue({ chat: messagesOf(count), symbols: { ignore: null } });
+        getVectorizationTip.mockReturnValue(tip);
+        const prompt = messagesOf(count);
+        const result = applyGhosting(prompt, settings, IN_USE);
+        return { result, texts: prompt.map(message => message.mes) };
+    };
+    // 25 turns from a chat of 12 messages, each adding a message and its reply, every message in memory. Each turn
+    // gives the prompt as sent, blanked messages left out, and how many were blanked.
+    const replay = batchSize => Array.from({ length: 25 }, (_, turn) => {
+        const count = 12 + 2 * (turn + 1);
+        const { texts } = ghost(count, count, ghosting(batchSize));
+        return { sent: texts.filter(Boolean).join('\n'), blanked: texts.filter(text => text === '').length };
+    });
+    const turnsStartingWithTheLast = turns => turns.slice(1).filter((turn, i) => turn.sent.startsWith(turns[i].sent)).length;
+    // The readout applyGhosting publishes on the page's global.
+    const lastGhost = () => globalThis.window.VectFox_LastGhost;
+
+    beforeEach(() => {
+        globalThis.window = {};
+        getVectorizationTip.mockReset();
+    });
+
+    it('keeps the whole last prompt at the start of the next one between moves, and moves in whole batches', () => {
+        const turns = replay(10);
+        // 24 turns follow the first, and the boundary moves on 5 of them (at 10, 20, 30, 40 and 50 messages).
+        expect(turnsStartingWithTheLast(turns)).toBe(19);
+        for (const turn of turns) expect(turn.blanked % 10).toBe(0);
+    });
+
+    it('moves the boundary every turn at batch size 1', () => {
+        expect(turnsStartingWithTheLast(replay(1))).toBe(0);
+    });
+
+    it('snaps the boundary down, and says how many messages stay verbatim and how many until the next batch', () => {
+        const { result, texts } = ghost(25, 25, ghosting(10));
+        // The rolling boundary is 15 (25 messages, 10 kept), so 10 go and 15 stay.
+        expect(result).toEqual({ wiped: 10, charsRemoved: 20 });
+        expect(texts.slice(0, 10).every(text => text === '')).toBe(true);
+        expect(texts.slice(10)).toEqual(messagesOf(25).slice(10).map(message => message.mes));
+        expect(lastGhost()).toMatchObject({ batchSize: 10, keptVerbatimCount: 15, messagesUntilNextBatch: 5 });
+    });
+
+    it('blanks nothing until a whole batch can go', () => {
+        const { result } = ghost(19, 19, ghosting(10));
+        expect(result.wiped).toBe(0);
+        expect(lastGhost()).toMatchObject({ keptVerbatimCount: 19, messagesUntilNextBatch: 1 });
+    });
+
+    it('never blanks past the tip', () => {
+        // The tip (27) is below the rolling boundary (30), and snaps down to 20.
+        const { result, texts } = ghost(40, 27, ghosting(10));
+        expect(result.wiped).toBe(20);
+        expect(texts.slice(20)).toEqual(messagesOf(40).slice(20).map(message => message.mes));
+    });
+
+    it('gives no batch readout while World Info could scan the whole chat, nor at batch size 1', () => {
+        getWorldInfoSettings.mockReturnValueOnce({ world_info_min_activations: 1, world_info_min_activations_depth_max: 0 });
+        expect(ghost(30, 30, ghosting(10)).result.wiped).toBe(0);
+        expect(lastGhost()).toMatchObject({ keptVerbatimCount: null, messagesUntilNextBatch: null });
+        expect(ghost(30, 30, ghosting(1)).result.wiped).toBe(20);
+        expect(lastGhost()).toMatchObject({ batchSize: 1, keptVerbatimCount: null, messagesUntilNextBatch: null });
+    });
+
+    it('moves the boundary every turn when the batch size is missing or unreadable', () => {
+        for (const batchSize of [0, -5, Number.NaN, 'abc', undefined]) {
+            expect(ghost(25, 25, ghosting(batchSize)).result.wiped, String(batchSize)).toBe(15);
+            expect(lastGhost().batchSize).toBe(1);
+        }
     });
 });
 

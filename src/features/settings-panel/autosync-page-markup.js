@@ -74,6 +74,12 @@ function ghostingCard() {
                 hint({ text: 'Older vectorized messages are blanked. Lower saves more tokens.' }),
                 detail({ text: 'Every message World Info scans is kept as well, so keyword triggers still fire. The blanked turns live on only as events, so check recall as you lower it.' }),
             ])}
+            ${field([
+                fieldLabel({ text: 'Blank in batches of', forId: 'VectFox_eventbase_ghost_batch_size', hasHelp: true }),
+                sliderNumber({ id: 'VectFox_eventbase_ghost_batch_size', min: 1, max: 100, step: 1, title: 'Messages' }),
+                hint({ text: 'Above 1, the prompt\'s start holds for a few turns, so a prompt cache can reuse it.' }),
+                detail({ text: 'At 1, blanking moves on every turn. At 10, it waits until 10 more messages can go and blanks them together, so up to 9 more messages stay verbatim until then. Raise it on a provider that caches prompts, such as DeepSeek or OpenAI. Elsewhere the extra messages only cost tokens.' }),
+            ])}
             <div id="VectFox_eventbase_ghost_readout">${notice({ status: 'info', text: 'Last turn: no reply yet.' })}</div>
         </div>
     </section>`;

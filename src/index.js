@@ -269,6 +269,7 @@ const defaultSettings = {
     // tip is extracted before it could be wiped.
     eventbase_ghost_enabled: false,
     eventbase_ghost_keep_recent: 1,               // recent messages kept verbatim; everything older that's vectorized is wiped. range 1-50 (Summarizer Injection's recent events cover the wiped span)
+    eventbase_ghost_batch_size: 1,                // messages the wipe boundary moves by: 1 moves it every turn; above 1 it waits for a whole batch, so the prompt's opening stays the same for a provider's prompt cache. range 1-100
     eventbase_min_importance_store: 3,            // Drop events below this importance before storing
     eventbase_max_events_per_window: 3,           // Hard cap on events returned per LLM call
     eventbase_retrieval_top_k: 10,                // Events to retrieve per generation

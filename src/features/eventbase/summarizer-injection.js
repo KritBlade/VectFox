@@ -157,12 +157,17 @@ function blankPromptClone(m) {
  * (see blankPromptClone), so the saved chat + UI never change and the whole effect
  * resets on the next generation (nothing to un-ghost, branch-safe).
  *
- * Wipe boundary `cutoff = min(vectorizedInCore, chat.length - keepFloor)`:
+ * Wipe boundary `cutoff`: `rollingCutoff = min(vectorizedInCore, chat.length - keepFloor)`,
+ * snapped DOWN to a multiple of the batch size (`eventbase_ghost_batch_size`):
  *   - `vectorizedInCore` — the vectorization tip translated from FULL-chat index space
  *     into the coreChat space we actually receive (see below). Messages below it are in
  *     EventBase; nothing above it (not yet vectorized) is ever wiped.
  *   - `chat.length - keepFloor` — keeps the last `keepRecent` messages raw, with a hard
  *     floor of 1 so the current outgoing turn is NEVER blanked (even at keepRecent=0).
+ *   - the snap — at a batch size above 1 the boundary moves only once a whole batch can
+ *     go, so the prompt's opening stays byte-identical between moves and a provider's
+ *     prompt cache can reuse it. The raw window then spans keepFloor to keepFloor +
+ *     batch size - 1 messages. Snapping down only wipes fewer, so both bounds above hold.
  * Messages [0, cutoff) are wiped. "Keep last N" auto-scales to any chat length.
  *
  * Wipe mechanism : flag each wiped message
@@ -193,8 +198,13 @@ export function applyGhosting(chat, settings, inUse = null) {
     }
     let wiped = 0;
     let charsRemoved = 0;
+    // The batch readout: set only on a turn that ghosts at a batch size above 1, null otherwise.
+    let keptVerbatimCount = null;
+    let messagesUntilNextBatch = null;
 
     const keepRecent = Math.max(0, Math.floor(Number(settings.eventbase_ghost_keep_recent) || 0));
+    // A missing or unreadable batch size moves the boundary every turn, as 1 does.
+    const batchSize = Math.max(1, Math.floor(Number(settings.eventbase_ghost_batch_size) || 1));
     // tip = highest extracted message index + 1, in FULL-chat index space: the tip of the chat's collection in
     // use, unless it is paused, as no reply then reads its events. A collection of another chat locked in here
     // counts that chat's messages, so it never sets the tip.
@@ -234,7 +244,14 @@ export function applyGhosting(chat, settings, inUse = null) {
         //                   whole chat (uncapped min-activations), the floor is Infinity →
         //                   cutoff clamps to 0 → ghosting wipes nothing this turn.
         const keepFloor = Math.max(keepRecent, 1, worldInfoScanFloor());
-        const cutoff = Math.max(0, Math.min(vectorizedInCore, chat.length - keepFloor));
+        const rollingCutoff = Math.max(0, Math.min(vectorizedInCore, chat.length - keepFloor));
+        // Snap down to the batch grid; at batch size 1 the boundary stays where it is.
+        const cutoff = Math.floor(rollingCutoff / batchSize) * batchSize;
+        // No readout while World Info could scan the whole chat: ghosting is paused, so no batch is coming.
+        if (batchSize > 1 && Number.isFinite(keepFloor)) {
+            keptVerbatimCount = chat.length - cutoff;
+            messagesUntilNextBatch = cutoff + batchSize - rollingCutoff;
+        }
 
         // ST's ignore flag: drop the message from the prompt entirely. Optional — falls back
         // to the blanked clone alone when this ST build doesn't expose it.
@@ -266,9 +283,12 @@ export function applyGhosting(chat, settings, inUse = null) {
     // readout reflects "0 saved this turn" (e.g. tip hasn't advanced yet) instead of a
     // stale value from an earlier generation.
     const approxTokens = Math.round(charsRemoved / 4); // rough 4-chars/token heuristic
-    window.VectFox_LastGhost = { wiped, charsRemoved, approxTokens, at: Date.now() };
+    window.VectFox_LastGhost = { wiped, charsRemoved, approxTokens, at: Date.now(), batchSize, keptVerbatimCount, messagesUntilNextBatch };
     if (wiped > 0) {
-        log.domain('injection', 'lifecycle', `[Ghost] Wiped ${wiped} vectorized message(s) from prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved`);
+        const batchNote = keptVerbatimCount === null
+            ? ''
+            : `; batches of ${batchSize}: ${keptVerbatimCount} message(s) kept verbatim, ${messagesUntilNextBatch} message(s) until the next batch`;
+        log.domain('injection', 'lifecycle', `[Ghost] Wiped ${wiped} vectorized message(s) from prompt — ~${charsRemoved} chars (~${approxTokens} tokens) saved${batchNote}`);
     }
     return { wiped, charsRemoved };
 }

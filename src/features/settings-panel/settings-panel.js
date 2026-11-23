@@ -1240,7 +1240,9 @@ function bindSettingsEvents(settings, callbacks) {
 
     // Per-turn token-saved readout, fed by window.VectFox_LastGhost (set inside
     // applyGhosting on every enabled generation). Refreshed on init, on toggle, and
-    // after each AI reply / swipe via the event subscriptions below.
+    // after each AI reply / swipe via the event subscriptions below. At a batch size above 1
+    // it also says how many messages stay verbatim and how many more until the next batch.
+    const _messageCount = count => (count === 1 ? '1 message' : `${count.toLocaleString()} messages`);
     const _refreshGhostReadout = () => {
         const $el = $('#VectFox_eventbase_ghost_readout .vfx-notice-text');
         if ($el.length === 0) return;
@@ -1251,22 +1253,27 @@ function bindSettingsEvents(settings, callbacks) {
         const g = window.VectFox_LastGhost;
         if (!g || typeof g.wiped !== 'number') {
             $el.text('Last turn: no reply yet.');
-        } else if (g.wiped === 0) {
-            $el.text('Last turn: nothing blanked, as no vectorized message is older than those kept.');
+            return;
+        }
+        const batchNote = typeof g.keptVerbatimCount === 'number'
+            ? ` In batches of ${_messageCount(g.batchSize)}: ${_messageCount(g.keptVerbatimCount)} kept verbatim, ${_messageCount(g.messagesUntilNextBatch)} until the next batch is blanked.`
+            : '';
+        if (g.wiped === 0) {
+            $el.text(`Last turn: nothing blanked, as no vectorized message is older than those kept.${batchNote}`);
         } else {
-            const messages = g.wiped === 1 ? '1 message' : `${g.wiped.toLocaleString()} messages`;
-            $el.html(`Last turn: <strong>${messages}</strong> blanked, about <strong>${g.approxTokens.toLocaleString()} tokens</strong> (${g.charsRemoved.toLocaleString()} characters) saved.`);
+            $el.html(`Last turn: <strong>${_messageCount(g.wiped)}</strong> blanked, about <strong>${g.approxTokens.toLocaleString()} tokens</strong> (${g.charsRemoved.toLocaleString()} characters) saved.${batchNote}`);
         }
     };
 
     // Ghosting needs Summarizer Injection on (the wipe checks it too): its controls are
     // disabled while it is off, and the Ghosting card says why.
     const _applyGhostAvailability = () => {
-        const summOn = !!settings.summarizer_injection_enabled;
-        const ghostOn = !!settings.eventbase_ghost_enabled;
-        $('#VectFox_eventbase_ghost_enabled').prop('disabled', !summOn);
-        $('#VectFox_eventbase_ghost_keep_recent, [data-vfx-slider-for="VectFox_eventbase_ghost_keep_recent"]').prop('disabled', !summOn || !ghostOn);
-        $('#VectFox_eventbase_ghost_needs_summarizer').toggle(!summOn);
+        const isSummarizerOn = !!settings.summarizer_injection_enabled;
+        const isGhostingOn = !!settings.eventbase_ghost_enabled;
+        $('#VectFox_eventbase_ghost_enabled').prop('disabled', !isSummarizerOn);
+        $('#VectFox_eventbase_ghost_keep_recent, [data-vfx-slider-for="VectFox_eventbase_ghost_keep_recent"], '
+            + '#VectFox_eventbase_ghost_batch_size, [data-vfx-slider-for="VectFox_eventbase_ghost_batch_size"]').prop('disabled', !isSummarizerOn || !isGhostingOn);
+        $('#VectFox_eventbase_ghost_needs_summarizer').toggle(!isSummarizerOn);
         _refreshGhostReadout();
     };
 
@@ -1284,6 +1291,7 @@ function bindSettingsEvents(settings, callbacks) {
         });
 
     bindNumberSetting(settings, { id: 'VectFox_eventbase_ghost_keep_recent', key: 'eventbase_ghost_keep_recent', initial: settings.eventbase_ghost_keep_recent ?? 1, isInteger: true });
+    bindNumberSetting(settings, { id: 'VectFox_eventbase_ghost_batch_size', key: 'eventbase_ghost_batch_size', initial: settings.eventbase_ghost_batch_size ?? 1, isInteger: true });
 
     // While Summarizer Injection is on, the auto-sync window is held at 1 turn, so each reply
     // is extracted before the next injection. The box's own events set it, which saves it and

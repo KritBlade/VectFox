@@ -3,7 +3,7 @@
  *
  * The settings panel's AutoSync page on GUI-DNA (src/features/settings-panel/autosync-page-markup.js): every control
  * keeps the id settings-panel.js wires it by, the window hold and the ghosting note start hidden, the cards the wiring
- * hides on Standard without the plugin carry their ids, the window, the event count and the messages kept have a
+ * hides on Standard without the plugin carry their ids, the window, the event count, the messages kept and the batch size have a
  * slider on their box's limits, the size cap carries its own, the page is drawn from GUI-DNA alone, the auto-sync status says what auto-sync
  * is doing in each state with the tone that state takes, and Collection in use here lists the open chat's own collections,
  * then New collection (§1.2 of vectfox-multi-collection-per-chat.md).
@@ -21,7 +21,7 @@ const WIRED_IDS = [
     'VectFox_autosync_popup', 'VectFox_autosync_show_progress_modal', 'VectFox_summarizer_injection_group', 'VectFox_summarizer_injection_enabled',
     'VectFox_summarizer_injection_count', 'VectFox_summarizer_injection_max_chars', 'VectFox_summarizer_injection_full_detail',
     'VectFox_eventbase_ghost_group', 'VectFox_eventbase_ghost_needs_summarizer', 'VectFox_eventbase_ghost_enabled', 'VectFox_eventbase_ghost_keep_recent',
-    'VectFox_eventbase_ghost_readout',
+    'VectFox_eventbase_ghost_batch_size', 'VectFox_eventbase_ghost_readout',
 ];
 
 const limitsOf = id => { const box = document.getElementById(id); return [box.min, box.max, box.step]; };
@@ -49,16 +49,20 @@ describe('AutoSync page markup', () => {
             expect(document.getElementById(id).classList.contains('vfx-card'), id).toBe(true);
         }
         expect(document.getElementById('VectFox_summarizer_injection_enabled').closest('#VectFox_summarizer_injection_group')).not.toBeNull();
-        expect(document.getElementById('VectFox_eventbase_ghost_keep_recent').closest('#VectFox_eventbase_ghost_group')).not.toBeNull();
+        for (const id of ['VectFox_eventbase_ghost_keep_recent', 'VectFox_eventbase_ghost_batch_size']) {
+            expect(document.getElementById(id).closest('#VectFox_eventbase_ghost_group'), id).not.toBeNull();
+        }
     });
 
-    it('pairs a slider with the window, the event count and the messages kept, on their boxes\' limits', () => {
+    it('pairs a slider with the window, the event count, the messages kept and the batch size, on their boxes\' limits', () => {
         const ranges = [...document.querySelectorAll('.vfx-range[data-vfx-slider-for]')];
-        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_autosync_window_turns', 'VectFox_summarizer_injection_count', 'VectFox_eventbase_ghost_keep_recent']);
+        expect(ranges.map(range => range.dataset.vfxSliderFor)).toEqual(['VectFox_eventbase_autosync_window_turns', 'VectFox_summarizer_injection_count',
+            'VectFox_eventbase_ghost_keep_recent', 'VectFox_eventbase_ghost_batch_size']);
         for (const range of ranges) expect([range.min, range.max, range.step], range.dataset.vfxSliderFor).toEqual(limitsOf(range.dataset.vfxSliderFor));
         expect(limitsOf('VectFox_eventbase_autosync_window_turns')).toEqual(['1', '20', '1']);
         expect(limitsOf('VectFox_summarizer_injection_count')).toEqual(['1', '50', '1']);
         expect(limitsOf('VectFox_eventbase_ghost_keep_recent')).toEqual(['1', '50', '1']);
+        expect(limitsOf('VectFox_eventbase_ghost_batch_size')).toEqual(['1', '100', '1']);
         expect(limitsOf('VectFox_summarizer_injection_max_chars')).toEqual(['0', '100000', '500']);
         for (const id of ['VectFox_autosync_enabled', 'VectFox_autosync_popup', 'VectFox_autosync_show_progress_modal', 'VectFox_summarizer_injection_enabled',
             'VectFox_summarizer_injection_full_detail', 'VectFox_eventbase_ghost_enabled']) {
