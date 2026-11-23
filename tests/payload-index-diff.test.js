@@ -1,6 +1,6 @@
-// Tests that payload-index creation reads a collection's own schema and writes only the indexes missing from it,
-// instead of re-asserting all twenty on every page load. Qdrant is stubbed at the backend's one request function, so
-// no server is needed, and every test names the requests that would be sent.
+// Tests that payload-index creation reads a collection's own schema and creates only the indexes it lacks or holds
+// otherwise than configured. Qdrant is stubbed at the backend's one request function, so no server is needed, and
+// every test names the requests that would be sent.
 //
 //   npm test
 
@@ -12,10 +12,9 @@ const COLLECTION = 'ollama:chat_1';
 // Qdrant stores the collection without the source prefix VectFox names it by.
 const STORED = 'chat_1';
 
-// The configured index set, in the order it is created. `type` and `sourceId` are tenant fields.
+// The configured index set, in the order it is created, by data type.
 const TYPES = {
-    // Dev's multitenancy field: one shared collection, each VectFox collection a tenant. It is part of the
-    // configured set on this branch, so a collection that reports it is complete without it.
+    // The shared collection's tenant field: each VectFox collection in it is a tenant.
     content_type: 'keyword',
     type: 'keyword',
     sourceId: 'keyword',
@@ -39,6 +38,9 @@ const TYPES = {
     event_type: 'keyword',
 };
 const FIELDS = Object.keys(TYPES);
+// Keyword fields indexed as tenants, which Qdrant reports under `params` (1.20 does).
+const TENANT_FIELDS = ['content_type', 'type', 'sourceId'];
+const TENANT_SCHEMA = { type: 'keyword', is_tenant: true };
 
 /** Answer each request from the list in order, recording the method, endpoint, body and extra headers it carried. */
 function stubQdrant(answers) {
@@ -53,11 +55,13 @@ function stubQdrant(answers) {
     return requests;
 }
 
-/** A payload_schema covering `fields`, or every configured field by default. */
+/** A payload_schema covering `fields`, or every configured field by default, as Qdrant 1.20 reports it. */
 function schemaWith(fields = FIELDS) {
     const schema = {};
     for (const field of fields) {
-        schema[field] = { data_type: TYPES[field], points: 3 };
+        schema[field] = TENANT_FIELDS.includes(field)
+            ? { data_type: TYPES[field], params: { ...TENANT_SCHEMA }, points: 3 }
+            : { data_type: TYPES[field], points: 3 };
     }
     return schema;
 }
@@ -69,9 +73,7 @@ function creation(field) {
         endpoint: `/collections/${STORED}/index`,
         body: {
             field_name: field,
-            field_schema: field === 'content_type' || field === 'type' || field === 'sourceId'
-                ? { type: 'keyword', is_tenant: true }
-                : TYPES[field],
+            field_schema: TENANT_FIELDS.includes(field) ? TENANT_SCHEMA : TYPES[field],
         },
         headers: null,
     };
@@ -88,7 +90,7 @@ afterEach(() => {
 test('a fully indexed collection is read once and written not at all', async () => {
     const requests = stubQdrant([() => ({ result: { payload_schema: schemaWith() } })]);
     assert.equal(await qdrantBackend.createPayloadIndexes(COLLECTION), true);
-    // One read answers every field, so one page load per collection costs one round trip, not twenty.
+    // One read answers every field, so a collection costs one round trip a page load.
     assert.deepEqual(commands(requests), [`GET /collections/${STORED}`]);
     // The schema is small: asking for it uncompressed keeps the read cheap on a kept-alive connection.
     assert.deepEqual(requests[0].headers, { 'accept-encoding': 'identity' });
@@ -123,6 +125,29 @@ test('a reported type that disagrees with the configured schema is re-issued, an
     const reissued = FIELDS.filter(field => !present.includes(field) || field === 'text');
     assert.deepEqual(requests.slice(1), reissued.map(creation));
     assert.equal(requests.some(({ body }) => body?.field_name === 'hash'), false);
+});
+
+test('a tenant field indexed as a plain keyword, or reported as no tenant, is created again as a tenant index', async () => {
+    const schema = schemaWith();
+    schema.type = { data_type: 'keyword', points: 3 };                                                   // plain keyword
+    schema.sourceId = { data_type: 'keyword', params: { type: 'keyword', is_tenant: false }, points: 3 };
+    const requests = stubQdrant([() => ({ result: { payload_schema: schema } })]);
+
+    await qdrantBackend.createPayloadIndexes(COLLECTION);
+
+    // Creating it again is what rebuilds it as a tenant index; content_type, reported as one, is left alone.
+    assert.deepEqual(requests.slice(1), ['type', 'sourceId'].map(creation));
+});
+
+test('a field configured without params is matched by its data type alone', async () => {
+    const schema = schemaWith();
+    schema.keywords = { data_type: 'keyword', params: { type: 'keyword', on_disk: true }, points: 3 };
+    schema.hash = { data_type: 'integer', params: { type: 'integer', lookup: true, range: true }, points: 3 };
+    const requests = stubQdrant([() => ({ result: { payload_schema: schema } })]);
+
+    await qdrantBackend.createPayloadIndexes(COLLECTION);
+
+    assert.deepEqual(commands(requests), [`GET /collections/${STORED}`]);
 });
 
 test('a collection with no schema yet receives every configured index', async () => {

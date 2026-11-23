@@ -383,10 +383,7 @@ class QdrantBackend {
             this.serverVersion = null;
         }
 
-        // Ensure indexes exist on any existing multitenancy collection. It is
-        // ensured before the loop because a fresh install has no collections
-        // yet, and the loop's set is de-duplicated so a store that already
-        // holds it is read once per init, not twice.
+        // The shared collection's indexes first, then each other collection's, every collection read once.
         await this.ensurePayloadIndexes(MULTITENANCY_COLLECTION);
         const collections = await this.getCollections();
         const ensured = new Set([MULTITENANCY_COLLECTION]);
@@ -465,22 +462,10 @@ class QdrantBackend {
     }
 
     /**
-     * Create the payload indexes a collection lacks, and nothing it already has.
-     *
-     * Every collection used to receive all twenty indexes on every page load,
-     * and every one of them answered "already exists" — 700 sequential writes
-     * for the reporter's 35 collections, 5.4 s of the sandbox page load. Qdrant
-     * already knows which indexes a collection has: its collection info carries
-     * `payload_schema`, one entry per indexed field. So this reads that once and
-     * creates only what the map does not cover.
-     *
-     * Presence is the test, plus the reported data type where Qdrant reports one
-     * (see {@link _payloadIndexMatches} for the tenant flag, which is
-     * deliberately not compared). A schema read that fails for any reason other
-     * than "no such collection" degrades to the old behaviour and creates every
-     * index, so a hiccup during the read cannot leave a collection unindexed. A
-     * 404 means the collection is gone: no writes, no throw — the read answers
-     * the existence question the collection-list check used to ask.
+     * Create the payload indexes a collection lacks. One read of the collection's info gives its `payload_schema`, an
+     * entry for each indexed field, and each configured index no entry matches (_isIndexAsConfigured) is created, in
+     * the configured order. A 404 on the read means the collection is gone, and nothing is created. Any other failed
+     * read creates every configured index, so a failed read never leaves a collection without its indexes.
      *
      * @param {string} collectionName - Collection name, with or without a source prefix
      * @returns {Promise<boolean>} False when the collection does not exist, true otherwise
@@ -531,12 +516,8 @@ class QdrantBackend {
 
         let payloadSchema = null;
         try {
-            // Ask for this ~2 KB JSON uncompressed. Qdrant gzips and chunks it
-            // otherwise, and on a kept-alive connection Node's fetch finishes
-            // reading that body ~40 ms late (measured: 40.2 ms gzipped against
-            // 0.8 ms identity, both on 127.0.0.1). The diff turns twenty cheap
-            // writes into one read per collection, and that read must not cost
-            // more than the write it replaced.
+            // Uncompressed: the answer is about 2 KB, too small to gain from gzip, and PR #36 measured a gzipped one
+            // read 40 ms late on a kept-alive connection (0.2 ms late on Windows with Qdrant 1.20).
             const info = await this._request('GET', `/collections/${collectionName}`, null, 3, {
                 'accept-encoding': 'identity',
             });
@@ -546,14 +527,13 @@ class QdrantBackend {
                 console.debug(`[Qdrant] Collection ${collectionName} is gone, so no indexes are created`);
                 return false;
             }
-            // Any other failure re-asserts the full set, as before the diff: a
-            // failed read must never leave a collection without indexes.
+            // Any other failure creates every configured index: a failed read must never leave a collection without
+            // its indexes.
             console.warn(`[Qdrant] Could not read the payload schema of ${collectionName}, so every index is re-asserted:`, error.message);
         }
 
         for (const { field, schema } of indexConfigs) {
-            const configuredType = typeof schema === 'object' ? schema.type : schema;
-            if (payloadSchema && this._payloadIndexMatches(payloadSchema[field], configuredType)) {
+            if (payloadSchema && this._isIndexAsConfigured(payloadSchema[field], schema)) {
                 continue;
             }
             try {
@@ -576,32 +556,23 @@ class QdrantBackend {
     }
 
     /**
-     * Whether a collection's reported payload schema already satisfies one
-     * configured index.
-     *
-     * Presence is the test; a reported `data_type` that disagrees with the
-     * configured schema is re-issued, because the data type is the one thing a
-     * creation on an existing field can change. An entry with no reported type
-     * counts as present — an older server that does not report types must not
-     * turn into a write storm.
-     *
-     * `is_tenant` is deliberately not compared. Qdrant 1.20 does report it under
-     * `params`, but a creation on an existing field leaves the flag as it was,
-     * and older servers omit `params` entirely, so comparing it could only buy
-     * writes that repair nothing. The consequence, stated for the reviewer: an
-     * index created before tenant flags existed stays as it is — exactly as it
-     * stayed under the old unconditional re-assertion.
+     * Whether a field's reported index is the configured one, so creating it again would change nothing. It is not
+     * when the field is missing from the report or reported with another data type, nor when a tenant field is
+     * reported without `params.is_tenant`: creating the index again rebuilds it with the configured type, or as a
+     * tenant index (Qdrant 1.20 does both). A report with no data type matches any. A server without tenant indexes
+     * reports no `params`, so its tenant fields are sent on every call.
      *
      * @private
      * @param {object|undefined} reported - `payload_schema[field]`, when the collection reports one
-     * @param {string} configuredType - The configured `data_type` for the field
-     * @returns {boolean} True when the index is present and, if the type is reported, of the right type
+     * @param {string|{type: string, is_tenant?: boolean}} schema - The configured `field_schema`
+     * @returns {boolean}
      */
-    _payloadIndexMatches(reported, configuredType) {
+    _isIndexAsConfigured(reported, schema) {
         if (!reported) return false;
-        const reportedType = reported.data_type;
-        if (!reportedType) return true;
-        return reportedType === configuredType;
+        const configuredType = typeof schema === 'object' ? schema.type : schema;
+        if (reported.data_type && reported.data_type !== configuredType) return false;
+        const isTenantField = typeof schema === 'object' && schema.is_tenant === true;
+        return !isTenantField || reported.params?.is_tenant === true;
     }
 
     /**
@@ -673,12 +644,8 @@ class QdrantBackend {
     }
 
     /**
-     * Ensure payload indexes exist on an existing collection.
-     *
-     * The collection-list existence check this used to make before creating is
-     * gone: {@link createPayloadIndexes} reads the collection's own schema, and
-     * a 404 on that read answers the same question in the request it already
-     * needs.
+     * Create the payload indexes an existing collection lacks (createPayloadIndexes), and log it; a collection that
+     * does not exist is left alone. Never throws, as init calls this for every collection.
      *
      * @param {string} collectionName - Collection name, with or without a source prefix
      */
