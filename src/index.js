@@ -30,6 +30,7 @@ import { migration_remove_semantic_world_info_settings } from './app/settings-mi
 import { migration_remove_chunkbase_settings } from './app/settings-migration-chunkbase-settings.js';
 import { migration_remove_retired_collection_fields } from './app/settings-migration-collection-retired-fields.js';
 import { migration_eventbase_progress_into_collections } from './app/settings-migration-eventbase-progress.js';
+import { forcedSettingValueIds, migration_apply_forced_setting_values } from './app/settings-migration-forced-values.js';
 import { log } from './sillytavern/log.js';
 import {
     CONNECTION_PROFILE_PROVIDER,
@@ -380,6 +381,10 @@ const defaultSettings = {
     // multi-persona admin scenarios. Do not expose in the UI — this is a tripwire,
     // not a feature.
     superadmin: false,
+
+    // The forced setting values already applied, by ID. A new install records every push as applied, so none replays
+    // over a newer default; see src/app/settings-migration-forced-values.js.
+    forced_setting_values_applied: forcedSettingValueIds(),
 };
 
 // Runtime settings: the defaults until start-up makes this extension_settings.vectfox itself.
@@ -512,6 +517,16 @@ jQuery(async () => {
     const _eventBaseProgressCopy = migration_eventbase_progress_into_collections(extension_settings.vectfox);
     if (_eventBaseProgressCopy.storeCount > 0) {
         log.lifecycle(`VectFox: Copied EventBase's pointer of ${_eventBaseProgressCopy.chatCount} chat(s) onto ${_eventBaseProgressCopy.migrated} collection(s), dropped ${_eventBaseProgressCopy.droppedChatCount} chat(s) no collection holds, and deleted ${_eventBaseProgressCopy.storeCount} per-chat store(s)`);
+        const { saveSettings } = await import('./sillytavern/settings.js');
+        await saveSettings();
+    }
+
+    // Apply each forced setting value this install has not applied yet, over any value the user saved, once per push.
+    // Last of the settings migrations, so a push names a key in its newest shape; before the defaults merge, so an
+    // existing install with no record applies every push. See src/app/settings-migration-forced-values.js.
+    const _forcedValues = migration_apply_forced_setting_values(extension_settings.vectfox);
+    if (_forcedValues.migrated > 0) {
+        log.lifecycle(`VectFox: Applied ${_forcedValues.migrated} forced setting value(s) (${_forcedValues.ids.join(', ')}), changing ${_forcedValues.keys.length ? _forcedValues.keys.join(', ') : 'no saved value'}`);
         const { saveSettings } = await import('./sillytavern/settings.js');
         await saveSettings();
     }
