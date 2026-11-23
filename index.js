@@ -47,7 +47,8 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import vectra from 'vectra';
-import qdrantBackend from './qdrant-backend.js';
+import qdrantBackend, { TENANT_FIELD } from './qdrant-backend.js';
+import { createCollectionWriteOrder, TENANT_FIELDS } from './collection-write-order.js';
 import { listLoreBooks } from './lorebase-books.js';
 import { askDecisions } from './lorebase-decisions.js';
 import { deleteLoreKeys, readLoreKeys, writeLoreKeys } from './lorebase-keys.js';
@@ -207,105 +208,135 @@ export async function init(router) {
                     },
 
                     insert: async (collectionId, items, source, model, directories, req) => {
-                        const store = await getIndex(directories, collectionId, source, model);
+                        // Registered on arrival, before any wait, so a delete, edit or purge arriving later overtakes it.
+                        const writeKey = vectraWriteKey(directories, collectionId, source, model);
+                        const registered = collectionWrites.startInsert(writeKey, items.map(item => ({ hash: item.hash })));
+                        try {
+                            // Makes the index before embedding, so the collection exists even when embedding fails.
+                            await getIndex(directories, collectionId, source, model);
 
-                        // Generate embeddings if not provided
-                        let itemsWithVectors = [...items];
-                        const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
+                            // Generate embeddings if not provided
+                            let itemsWithVectors = [...items];
+                            const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
 
-                        if (itemsNeedingVectors.length > 0) {
-                            const texts = itemsNeedingVectors.map(i => i.text);
-                            const vectors = await getVectorsForSource(source, texts, model, directories, req);
+                            if (itemsNeedingVectors.length > 0) {
+                                const texts = itemsNeedingVectors.map(i => i.text);
+                                const vectors = await getVectorsForSource(source, texts, model, directories, req);
 
-                            let vIndex = 0;
-                            itemsWithVectors = itemsWithVectors.map(item => {
-                                if (!item.vector) {
-                                    return { ...item, vector: vectors[vIndex++] };
+                                let vIndex = 0;
+                                itemsWithVectors = itemsWithVectors.map(item => {
+                                    if (!item.vector) {
+                                        return { ...item, vector: vectors[vIndex++] };
+                                    }
+                                    return item;
+                                });
+                            }
+
+                            await collectionWrites.queueWrite(writeKey, async () => {
+                                const itemsToWrite = itemsStillToWrite(itemsWithVectors, registered, collectionId);
+                                if (itemsToWrite.length === 0) return;
+                                // Opened here, as an index keeps the items it first read and writes them all back: one
+                                // opened before the wait would undo every write made during it.
+                                const store = await getIndex(directories, collectionId, source, model);
+                                await store.beginUpdate();
+                                for (const item of itemsToWrite) {
+                                    await store.upsertItem({
+                                        vector: item.vector,
+                                        metadata: {
+                                            hash: item.hash,
+                                            text: item.text,
+                                            index: item.index,
+                                            ...item.metadata
+                                        }
+                                    });
                                 }
-                                return item;
+                                await store.endUpdate();
                             });
+                        } finally {
+                            registered.finish();
                         }
-
-                        await store.beginUpdate();
-                        for (const item of itemsWithVectors) {
-                            await store.upsertItem({
-                                vector: item.vector,
-                                metadata: {
-                                    hash: item.hash,
-                                    text: item.text,
-                                    index: item.index,
-                                    ...item.metadata
-                                }
-                            });
-                        }
-                        await store.endUpdate();
                     },
 
                     updateText: async (collectionId, hash, newText, source, model, directories, req) => {
-                        const store = await getIndex(directories, collectionId, source, model);
-                        const items = await store.listItems();
-                        const item = items.find(i => i.metadata.hash == hash);
-                        if (!item) throw new Error('Chunk not found');
+                        const writeKey = vectraWriteKey(directories, collectionId, source, model);
+                        collectionWrites.overtake(writeKey, { hashes: [hash] });
+                        const storeBeforeEmbedding = await getIndex(directories, collectionId, source, model);
+                        if (!(await storeBeforeEmbedding.listItems()).some(i => i.metadata.hash == hash)) throw new Error('Chunk not found');
 
                         // Generate new embedding for the new text
                         const newVector = await getEmbeddingForSource(source, newText, model, directories, req);
                         const newHash = getStringHash(newText);
 
-                        // Delete old item
-                        await store.deleteItem(item.id);
+                        return await collectionWrites.queueWrite(writeKey, async () => {
+                            // Opened again here, as the index opened before the wait still holds the items it read then.
+                            const store = await getIndex(directories, collectionId, source, model);
+                            const item = (await store.listItems()).find(i => i.metadata.hash == hash);
+                            if (!item) throw new Error('Chunk not found');
 
-                        // Insert updated item
-                        await store.beginUpdate();
-                        await store.upsertItem({
-                            vector: newVector,
-                            metadata: {
-                                ...item.metadata,
-                                hash: newHash,
-                                text: newText
-                            }
+                            // Delete old item
+                            await store.deleteItem(item.id);
+
+                            // Insert updated item
+                            await store.beginUpdate();
+                            await store.upsertItem({
+                                vector: newVector,
+                                metadata: {
+                                    ...item.metadata,
+                                    hash: newHash,
+                                    text: newText
+                                }
+                            });
+                            await store.endUpdate();
+
+                            return { oldHash: hash, newHash, text: newText };
                         });
-                        await store.endUpdate();
-
-                        return { oldHash: hash, newHash, text: newText };
                     },
 
                     updateMetadata: async (collectionId, hash, metadata, source, model, directories) => {
-                        const store = await getIndex(directories, collectionId, source, model);
-                        const items = await store.listItems();
-                        const item = items.find(i => i.metadata.hash == hash);
-                        if (!item) throw new Error('Chunk not found');
+                        const writeKey = vectraWriteKey(directories, collectionId, source, model);
+                        collectionWrites.overtake(writeKey, { hashes: [hash] });
+                        return await collectionWrites.queueWrite(writeKey, async () => {
+                            const store = await getIndex(directories, collectionId, source, model);
+                            const items = await store.listItems();
+                            const item = items.find(i => i.metadata.hash == hash);
+                            if (!item) throw new Error('Chunk not found');
 
-                        // Delete and re-insert with same vector but updated metadata
-                        await store.deleteItem(item.id);
+                            // Delete and re-insert with same vector but updated metadata
+                            await store.deleteItem(item.id);
 
-                        await store.beginUpdate();
-                        await store.upsertItem({
-                            vector: item.vector,
-                            metadata: {
-                                ...item.metadata,
-                                ...metadata,
-                                hash: item.metadata.hash, // Preserve hash
-                                text: item.metadata.text   // Preserve text
-                            }
+                            await store.beginUpdate();
+                            await store.upsertItem({
+                                vector: item.vector,
+                                metadata: {
+                                    ...item.metadata,
+                                    ...metadata,
+                                    hash: item.metadata.hash, // Preserve hash
+                                    text: item.metadata.text   // Preserve text
+                                }
+                            });
+                            await store.endUpdate();
+
+                            return { hash, metadata };
                         });
-                        await store.endUpdate();
-
-                        return { hash, metadata };
                     },
 
                     delete: async (collectionId, hashes, source, model, directories) => {
-                        const store = await getIndex(directories, collectionId, source, model);
-                        const items = await store.listItems();
+                        const writeKey = vectraWriteKey(directories, collectionId, source, model);
+                        collectionWrites.overtake(writeKey, { hashes });
+                        return await collectionWrites.queueWrite(writeKey, async () => {
+                            const store = await getIndex(directories, collectionId, source, model);
+                            const items = await store.listItems();
 
-                        let deleted = 0;
-                        for (const hash of hashes) {
-                            const item = items.find(i => i.metadata.hash == hash);
-                            if (item) {
-                                await store.deleteItem(item.id);
-                                deleted++;
+                            let deleted = 0;
+                            for (const hash of hashes) {
+                                const item = items.find(i => i.metadata.hash == hash);
+                                if (item) {
+                                    await store.deleteItem(item.id);
+                                    deleted++;
+                                }
                             }
-                        }
-                        return deleted;
+                            return deleted;
+                        });
                     },
 
                     query: async (collectionId, queryVector, topK, threshold, source, model, directories, options = {}) => {
@@ -323,10 +354,14 @@ export async function init(router) {
                     },
 
                     purge: async (collectionId, source, model, directories) => {
-                        const store = await getIndex(directories, collectionId, source, model);
-                        if (await store.isIndexCreated()) {
-                            await store.deleteIndex();
-                        }
+                        const writeKey = vectraWriteKey(directories, collectionId, source, model);
+                        collectionWrites.overtake(writeKey);
+                        await collectionWrites.queueWrite(writeKey, async () => {
+                            const store = await getIndex(directories, collectionId, source, model);
+                            if (await store.isIndexCreated()) {
+                                await store.deleteIndex();
+                            }
+                        });
                     },
 
                     stats: async (collectionId, source, model, directories) => {
@@ -422,51 +457,76 @@ export async function init(router) {
                         // they pollute tenantMetadata.
                         const { nativeSparse = false, cjkTokenizerMode = null, ...tenantFilters } = filters;
 
-                        // Generate embeddings if not provided
-                        let itemsWithVectors = [...items];
-                        const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
+                        // Registered on arrival, before any wait, each point with the tenant fields insertVectors
+                        // stores on it, so a delete, edit or purge arriving later overtakes what it would remove.
+                        const writeKey = qdrantWriteKey(collectionId);
+                        const registered = collectionWrites.startInsert(writeKey, items.map(item => ({
+                            hash: item.hash,
+                            tenant: {
+                                [TENANT_FIELD]: item.metadata?.[TENANT_FIELD],
+                                type: tenantFilters.type || 'chat',
+                                sourceId: tenantFilters.sourceId || 'unknown',
+                            },
+                        })));
+                        try {
+                            // Generate embeddings if not provided
+                            let itemsWithVectors = [...items];
+                            const itemsNeedingVectors = itemsWithVectors.filter(i => !i.vector);
 
-                        if (itemsNeedingVectors.length > 0) {
-                            console.log(`[Qdrant] Generating embeddings for ${itemsNeedingVectors.length} items`);
-                            const texts = itemsNeedingVectors.map(i => i.text);
-                            const vectors = await getVectorsForSource(source, texts, model, directories, req);
+                            if (itemsNeedingVectors.length > 0) {
+                                console.log(`[Qdrant] Generating embeddings for ${itemsNeedingVectors.length} items`);
+                                const texts = itemsNeedingVectors.map(i => i.text);
+                                const vectors = await getVectorsForSource(source, texts, model, directories, req);
 
-                            let vIndex = 0;
-                            itemsWithVectors = itemsWithVectors.map(item => {
-                                if (!item.vector) {
-                                    const vector = vectors[vIndex++];
-                                    if (!vector || !Array.isArray(vector) || vector.length === 0) {
-                                        console.error(`[Qdrant] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
-                                        throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
+                                let vIndex = 0;
+                                itemsWithVectors = itemsWithVectors.map(item => {
+                                    if (!item.vector) {
+                                        const vector = vectors[vIndex++];
+                                        if (!vector || !Array.isArray(vector) || vector.length === 0) {
+                                            console.error(`[Qdrant] Failed to generate valid vector for item hash=${item.hash}, source=${source}, model=${model}`);
+                                            throw new Error(`Failed to generate embedding for item. Source: ${source}, Model: ${model}`);
+                                        }
+                                        return { ...item, vector };
                                     }
-                                    return { ...item, vector };
-                                }
-                                return item;
-                            });
-                        }
+                                    return item;
+                                });
+                            }
 
-                        // Pass source and model for embedding tracking
-                        await qdrantBackend.insertVectors(collectionId, itemsWithVectors, {
-                            ...tenantFilters,
-                            embeddingSource: source,
-                            embeddingModel: model,
-                        }, { nativeSparse, cjkTokenizerMode });
+                            await collectionWrites.queueWrite(writeKey, async () => {
+                                const itemsToWrite = itemsStillToWrite(itemsWithVectors, registered, collectionId);
+                                if (itemsToWrite.length === 0) return;
+                                // Pass source and model for embedding tracking
+                                await qdrantBackend.insertVectors(collectionId, itemsToWrite, {
+                                    ...tenantFilters,
+                                    embeddingSource: source,
+                                    embeddingModel: model,
+                                }, { nativeSparse, cjkTokenizerMode });
+                            });
+                        } finally {
+                            registered.finish();
+                        }
                     },
 
                     updateText: async (collectionId, hash, newText, source, model, directories, req, filters = {}) => {
+                        const writeKey = qdrantWriteKey(collectionId);
+                        collectionWrites.overtake(writeKey, { hashes: [hash], tenant: filters });
                         const newVector = await getEmbeddingForSource(source, newText, model, directories, req);
                         const newHash = getStringHash(newText);
-                        await qdrantBackend.updateItem(collectionId, hash, { text: newText, hash: newHash, vector: newVector }, filters);
+                        await collectionWrites.queueWrite(writeKey, () => qdrantBackend.updateItem(collectionId, hash, { text: newText, hash: newHash, vector: newVector }, filters));
                         return { oldHash: hash, newHash, text: newText };
                     },
 
                     updateMetadata: async (collectionId, hash, metadata, source, model, directories, filters = {}) => {
-                        await qdrantBackend.updateItemMetadata(collectionId, hash, metadata, filters);
+                        const writeKey = qdrantWriteKey(collectionId);
+                        collectionWrites.overtake(writeKey, { hashes: [hash], tenant: filters });
+                        await collectionWrites.queueWrite(writeKey, () => qdrantBackend.updateItemMetadata(collectionId, hash, metadata, filters));
                         return { hash, metadata };
                     },
 
                     delete: async (collectionId, hashes, source, model, directories, filters = {}) => {
-                        await qdrantBackend.deleteVectors(collectionId, hashes, filters);
+                        const writeKey = qdrantWriteKey(collectionId);
+                        collectionWrites.overtake(writeKey, { hashes, tenant: filters });
+                        await collectionWrites.queueWrite(writeKey, () => qdrantBackend.deleteVectors(collectionId, hashes, filters));
                         return hashes.length;
                     },
 
@@ -476,12 +536,16 @@ export async function init(router) {
                     },
 
                     purge: async (collectionId, source, model, directories, filters = {}) => {
+                        const writeKey = qdrantWriteKey(collectionId);
                         if (filters && Object.keys(filters).length > 0) {
-                            // Multitenancy mode: delete specific points by filter (e.g. sourceId)
-                            await qdrantBackend.purgeCollection(collectionId, filters);
+                            // Multitenancy mode: delete specific points by filter (e.g. sourceId). Filters that name
+                            // no tenant delete nothing (purgeCollection throws), so they overtake nothing.
+                            if (TENANT_FIELDS.some(field => filters[field])) collectionWrites.overtake(writeKey, { tenant: filters });
+                            await collectionWrites.queueWrite(writeKey, () => qdrantBackend.purgeCollection(collectionId, filters));
                         } else {
                             // Separate-collection mode: delete the entire qdrant collection container
-                            await qdrantBackend.purgeAll(collectionId);
+                            collectionWrites.overtake(writeKey);
+                            await collectionWrites.queueWrite(writeKey, () => qdrantBackend.purgeAll(collectionId));
                         }
                     },
 
@@ -1373,6 +1437,7 @@ async function getVectorsForSource(source, texts, model, directories, req) {
     router.post('/purge-all', async (req, res) => {
         try {
             const vectorsPath = req.user.directories.vectors;
+            collectionWrites.overtakeWhere(writeKey => isVectraWriteKeyIn(writeKey, vectorsPath));
             await fs.rm(vectorsPath, { recursive: true, force: true });
             await fs.mkdir(vectorsPath, { recursive: true });
             res.json({ success: true, message: 'All vectors purged' });
@@ -1548,6 +1613,38 @@ async function vectraIndexFolderFor(directories, collectionId, source, model) {
         if (!model) transformersModel = await configuredTransformersModel();
     }
     return vectraIndexFolder(directories.vectors, collectionId, source, vectraModelFolder(source, model, transformersModel));
+}
+
+// The order of the writes to each collection on this server (collection-write-order.js), so an insert still embedding,
+// such as a hedged attempt VectFox no longer waits for, cannot bring back what a later delete, edit or purge removed.
+const collectionWrites = createCollectionWriteOrder();
+
+/**
+ * A Vectra index's key in the write order: the user's vectors folder and the names the request gives the index. It
+ * is known on arrival, before any wait, as the index's folder is not (vectraIndexFolderFor).
+ */
+function vectraWriteKey(directories, collectionId, source, model) {
+    return JSON.stringify(['vectra', directories.vectors, source, collectionId, model ?? '']);
+}
+
+/** Whether a write-order key is a Vectra index in this vectors folder. */
+function isVectraWriteKeyIn(writeKey, vectorsPath) {
+    const [backend, keyVectorsPath] = JSON.parse(writeKey);
+    return backend === 'vectra' && keyVectorsPath === vectorsPath;
+}
+
+/** A Qdrant collection's key in the write order: the Qdrant collection the name resolves to, shared by every user. */
+function qdrantWriteKey(collectionId) {
+    return JSON.stringify(['qdrant', qdrantBackend._parseCollectionName(collectionId)]);
+}
+
+/** The items an insert still writes: those no delete, edit or purge that arrived after it overtook. */
+function itemsStillToWrite(items, registered, collectionId) {
+    const itemsToWrite = items.filter((_, position) => !registered.isOvertaken(position));
+    if (itemsToWrite.length < items.length) {
+        console.log(`[${pluginName}] insert into ${collectionId}: ${items.length - itemsToWrite.length} of ${items.length} items not written, as a delete, edit or purge that arrived after the insert removed them`);
+    }
+    return itemsToWrite;
 }
 
 /** A collection's Vectra index, made empty when it does not exist yet. */
