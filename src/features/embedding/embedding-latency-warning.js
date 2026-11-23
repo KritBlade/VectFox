@@ -27,8 +27,8 @@
  * results arrive. The case that actually costs them memory is the retrieval
  * timing out, and src/features/vector-backend/bounded-retrieval.js already raises a red error toast for
  * exactly that, naming this same provider via describeEmbeddingTimeoutCause().
- * A second, earlier, orange toast on the success path only taught users to
- * dismiss popups (GitHub issue #12).
+ * An orange toast on the success path as well would only teach users to dismiss
+ * popups (GitHub issue #12).
  * ============================================================================
  */
 
@@ -37,19 +37,14 @@ import { getModelFromSettings } from './providers.js';
 import { resolveRetrievalTimeoutMs } from '../../shared/retrieval-budget.js';
 
 /**
- * Embed durations at or above this get a log line.
+ * Embed durations at or above this get a log line, and make Diagnostics' Backend
+ * Responsiveness check a warning (src/features/diagnostics/visualizer-tests.js).
  *
- * Derived from the user's retrieval budget rather than hard-coded so "warn while
- * approaching the cliff" stays true wherever the user set the budget. Two thirds
- * of the budget = 10s at the default 15s.
- *
- * Was a module constant, and before that a flat 5000. The flat value is a third
- * of the default budget, and a perfectly healthy local provider reaches it:
- * Ollama on a 10Gb LAN crosses 5s from time to time while returning full results
- * well inside the timeout. Warning there described normal operation as a
- * problem. The constant then went stale the moment the budget became a setting
- * (GitHub issue #16) — a user who raised the budget to 60s would still have been
- * warned at 10s. Hence: a function of settings, resolved per call.
+ * Two thirds of the user's retrieval budget, 10s at the default 15s, resolved per
+ * call, so "warn while approaching the cliff" holds wherever the user sets the
+ * budget (GitHub issue #16). A lower bound would describe normal operation as a
+ * problem: a healthy local provider, Ollama on a 10Gb LAN, crosses 5s from time
+ * to time while returning full results well inside the timeout.
  *
  * @param {object} [settings] - VectFox settings
  * @returns {number} milliseconds
@@ -60,8 +55,9 @@ export function slowEmbeddingWarnMs(settings) {
 
 /**
  * Name the configured embedding provider the way the user configured it, e.g.
- * `openrouter (qwen/qwen3-embedding-8b)`. Falls back to the provider alone when
- * the provider has no model field (transformers) or the lookup throws.
+ * `openrouter (qwen/qwen3-embedding-8b)`, for this file's log lines and
+ * Diagnostics' Backend Responsiveness check. The provider alone when the
+ * provider has no model field (transformers) or the lookup throws.
  *
  * @param {object} settings - VectFox settings
  * @returns {string}
